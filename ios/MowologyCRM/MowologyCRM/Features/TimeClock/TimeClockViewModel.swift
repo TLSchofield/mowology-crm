@@ -33,6 +33,18 @@ final class TimeClockViewModel: ObservableObject {
     init(authSession: AuthSession) {
         self.authSession = authSession
         self.apiClient   = APIClient(authSession: authSession)
+
+        // When a job timer start auto-creates a clock-in, resync displayed state
+        // so the elapsed counter and clock-in time are accurate.
+        NotificationCenter.default.addObserver(
+            forName: .mwAutoClockIn,
+            object:  nil,
+            queue:   .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                await self?.loadStatus()
+            }
+        }
     }
 
     // MARK: - Load
