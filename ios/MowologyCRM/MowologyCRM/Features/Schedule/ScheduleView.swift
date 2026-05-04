@@ -47,8 +47,9 @@ struct ScheduleView: View {
                 )
                 .navigationDestination(for: Stop.self) { stop in
                     VisitDetailView(
-                        stop:    stop,
-                        isAdmin: authSession.user?.isAdmin ?? false
+                        stop:        stop,
+                        isAdmin:     authSession.user?.isAdmin ?? false,
+                        authSession: authSession
                     )
                 }
             }

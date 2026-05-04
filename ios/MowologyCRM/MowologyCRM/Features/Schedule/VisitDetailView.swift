@@ -13,9 +13,29 @@ struct VisitDetailView: View {
     let stop: Stop
     let isAdmin: Bool
 
+    @StateObject private var timerVM: VisitDetailViewModel
+
+    // MARK: - Init
+
+    init(stop: Stop, isAdmin: Bool, authSession: AuthSession) {
+        self.stop    = stop
+        self.isAdmin = isAdmin
+        _timerVM     = StateObject(
+            wrappedValue: VisitDetailViewModel(authSession: authSession)
+        )
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
+
+                // Timer error banner — shown above content so crew sees it immediately.
+                if let err = timerVM.errorMessage {
+                    ErrorBannerView(message: err) {
+                        timerVM.errorMessage = nil
+                    }
+                    .padding(.horizontal, 16)
+                }
 
                 // MARK: Property Section
                 propertySection
@@ -66,8 +86,6 @@ struct VisitDetailView: View {
                     Divider().padding(.leading, 16)
                     detailRow(label: "Est. Arrival", value: arrival)
                 }
-
-                // Coordinates intentionally omitted — takes up space, not useful to crew.
             }
             .background(Color(.systemBackground))
             .clipShape(RoundedRectangle(cornerRadius: 12))
@@ -91,7 +109,6 @@ struct VisitDetailView: View {
 
     private func mapPlaceholder(coordinate: CLLocationCoordinate2D) -> some View {
         ZStack(alignment: .bottomTrailing) {
-            // Native MapKit map view.
             Map(initialPosition: .region(
                 MKCoordinateRegion(
                     center: coordinate,
@@ -106,9 +123,8 @@ struct VisitDetailView: View {
             }
             .frame(height: 200)
             .clipShape(RoundedRectangle(cornerRadius: 12))
-            .disabled(true)  // Disable interaction — tapping opens Apple Maps below.
+            .disabled(true)
 
-            // "Open in Maps" button overlaid on the map.
             Button {
                 openInMaps(coordinate: coordinate)
             } label: {
@@ -158,7 +174,12 @@ struct VisitDetailView: View {
     }
 
     private func visitCard(_ visit: Visit) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        let isThisTimerActive = timerVM.activeVisitId == visit.visitId
+        let canStart = !timerVM.isTimerRunning
+            && ["scheduled", "in_progress"].contains(visit.visitStatus.lowercased())
+        let canStop  = isThisTimerActive
+
+        return VStack(alignment: .leading, spacing: 10) {
 
             // Title Row
             HStack {
@@ -168,7 +189,6 @@ struct VisitDetailView: View {
 
                 Spacer()
 
-                // Status Badge
                 Text(visit.statusLabel)
                     .font(.caption.bold())
                     .padding(.horizontal, 8)
@@ -184,25 +204,70 @@ struct VisitDetailView: View {
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 16) {
-                // Duration
                 if let duration = visit.estimatedDuration {
                     Label("\(duration) min", systemImage: "clock")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
 
-                // Price
                 if let price = visit.pricePerVisit {
                     Label(String(format: "$%.2f", price), systemImage: "dollarsign.circle")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
 
-                // Scheduled Start
                 if let start = visit.scheduledStart {
                     Label(start, systemImage: "clock.arrow.circlepath")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
+            }
+
+            // MARK: Timer Controls
+            // Only shown for actionable visits (scheduled / in_progress).
+            // When this timer is running, show elapsed time + Stop button.
+            // When no timer is running, show Start button.
+            if canStart || canStop {
+                Divider()
+
+                HStack {
+                    if isThisTimerActive {
+                        // Elapsed time chip
+                        Label(timerVM.elapsedFormatted, systemImage: "timer")
+                            .font(.callout.monospacedDigit().bold())
+                            .foregroundStyle(Color.MW.green)
+                    }
+
+                    Spacer()
+
+                    if canStop {
+                        Button {
+                            Task { await timerVM.stopTimer(visitId: visit.visitId) }
+                        } label: {
+                            Label("Stop Job", systemImage: "stop.circle.fill")
+                                .font(.subheadline.bold())
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(Color.red.opacity(0.12))
+                                .foregroundStyle(.red)
+                                .clipShape(Capsule())
+                        }
+                        .disabled(timerVM.isLoading)
+
+                    } else if canStart {
+                        Button {
+                            Task { await timerVM.startTimer(visitId: visit.visitId) }
+                        } label: {
+                            Label("Start Job", systemImage: "play.circle.fill")
+                                .font(.subheadline.bold())
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(Color.MW.green.opacity(0.12))
+                                .foregroundStyle(Color.MW.green)
+                                .clipShape(Capsule())
+                        }
+                        .disabled(timerVM.isLoading)
+                    }
                 }
             }
         }
@@ -211,7 +276,12 @@ struct VisitDetailView: View {
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .stroke(visit.statusColor.opacity(0.2), lineWidth: 1)
+                .stroke(
+                    isThisTimerActive
+                        ? Color.MW.green.opacity(0.5)
+                        : visit.statusColor.opacity(0.2),
+                    lineWidth: isThisTimerActive ? 2 : 1
+                )
         )
     }
 
@@ -328,6 +398,6 @@ struct VisitDetailView: View {
     )
 
     return NavigationStack {
-        VisitDetailView(stop: stop, isAdmin: true)
+        VisitDetailView(stop: stop, isAdmin: true, authSession: AuthSession())
     }
 }

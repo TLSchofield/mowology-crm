@@ -44,7 +44,11 @@
 		C5D6E7F8A9B0C1D2E3F4A5B6 /* ErrorBannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5E6F7A8B9C0D1E2F3A4B5C6 /* ErrorBannerView.swift */; };
 		E5F6A7B8C9D0E1F2A3B4C5D6 /* EmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5A6B7C8D9E0F1A2B3C4D5E6 /* EmptyStateView.swift */; };
 		9E258FAB0FCE4FA8A9137063 /* VisionOCRService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61D86DACA5EF4EC99CB9E14C /* VisionOCRService.swift */; };
-		/* End PBXBuildFile section */
+				77A2D44F66905575009C251A /* LocationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4547C29B2A502F7AE5B446E /* LocationManager.swift */; };
+		A206006704185F834EB69362 /* RouteStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE29BD8142463FC512FD1208 /* RouteStore.swift */; };
+		E2759D7ACA64941F502089AD /* ArrivalMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37E412C65849505E8688DCD3 /* ArrivalMonitor.swift */; };
+		62CFB85336A0959AC7813165 /* VisitDetailViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 868710A6EF45802F24C19AEA /* VisitDetailViewModel.swift */; };
+/* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		BB2D3E4F5A6B7C8D9E0F1A2B /* DevErrorBus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevErrorBus.swift; sourceTree = "<group>"; };
@@ -86,7 +90,11 @@
 		D5E6F7A8B9C0D1E2F3A4B5C6 /* ErrorBannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorBannerView.swift; sourceTree = "<group>"; };
 		F5A6B7C8D9E0F1A2B3C4D5E6 /* EmptyStateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmptyStateView.swift; sourceTree = "<group>"; };
 		61D86DACA5EF4EC99CB9E14C /* VisionOCRService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisionOCRService.swift; sourceTree = "<group>"; };
-		/* End PBXFileReference section */
+				A4547C29B2A502F7AE5B446E /* LocationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationManager.swift; sourceTree = "<group>"; };
+		EE29BD8142463FC512FD1208 /* RouteStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteStore.swift; sourceTree = "<group>"; };
+		37E412C65849505E8688DCD3 /* ArrivalMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArrivalMonitor.swift; sourceTree = "<group>"; };
+		868710A6EF45802F24C19AEA /* VisitDetailViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitDetailViewModel.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
 
 /* Begin PBXGroup section */
 		1885D2A87980EFA37DB91388 = {
@@ -187,7 +195,8 @@
 			children = (
 				6BC0B66BE87B94B74DD29C05 /* LoginView.swift */,
 				82CAF080C57ADDAE06034F25 /* LoginViewModel.swift */,
-			);
+							868710A6EF45802F24C19AEA /* VisitDetailViewModel.swift */,
+);
 			path = Auth;
 			sourceTree = "<group>";
 		};
@@ -246,7 +255,10 @@
 			children = (
 				F2A3B4C5D6E7F8A9B0C1D2E3 /* PingQueue.swift */,
 				B3C4D5E6F7A8B9C0D1E2F3A4 /* ReceiptQueue.swift */,
-			);
+							A4547C29B2A502F7AE5B446E /* LocationManager.swift */,
+				EE29BD8142463FC512FD1208 /* RouteStore.swift */,
+				37E412C65849505E8688DCD3 /* ArrivalMonitor.swift */,
+);
 			path = Offline;
 			sourceTree = "<group>";
 		};
