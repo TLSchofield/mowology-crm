@@ -51,7 +51,9 @@ final class ScheduleViewModel: ObservableObject {
     // MARK: - Private
 
     private let apiClient: APIClient
-    private var stopCache: [String: [Stop]] = [:]
+    private var stopCache:       [String: [Stop]] = [:]
+    private var stopCacheFetched:[String: Date]   = [:]
+    private let cacheMaxAge: TimeInterval = 5 * 60  // 5 minutes
 
     // MARK: - Init
 
@@ -93,10 +95,12 @@ final class ScheduleViewModel: ObservableObject {
     func loadDay(_ date: Date) async {
         let dateString = isoDateString(from: date)
 
-        // Serve from cache if available.
-        if let cached = stopCache[dateString] {
+        // Serve from cache if fresh (within cacheMaxAge).
+        if let cached = stopCache[dateString],
+           let fetchedAt = stopCacheFetched[dateString],
+           Date().timeIntervalSince(fetchedAt) < cacheMaxAge {
             stops       = cached
-            lastFetched = .now
+            lastFetched = fetchedAt
             return
         }
 
@@ -108,7 +112,8 @@ final class ScheduleViewModel: ObservableObject {
                 .scheduleDay(date: dateString)
             )
             let fetched = response.stops
-            stopCache[dateString] = fetched
+            stopCache[dateString]        = fetched
+            stopCacheFetched[dateString] = .now
             stops       = fetched
             lastFetched = .now
             ArrivalMonitor.shared.loadStops(fetched)
@@ -144,6 +149,7 @@ final class ScheduleViewModel: ObservableObject {
     func invalidateAndRefresh() async {
         let dateString = isoDateString(from: selectedDate)
         stopCache.removeValue(forKey: dateString)
+        stopCacheFetched.removeValue(forKey: dateString)
         await refresh()
     }
 

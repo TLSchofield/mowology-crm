@@ -8,9 +8,59 @@
  * Integrates with:
  *   POST /crm/api/job-timer.php   — start/stop/pause per-visit timers
  *   POST /crm/api/media-upload.php — photo upload (context_type=job_visit)
+ *   POST /crm/api/pow-actions.php — end_visit (direct complete without timer)
  *
  * Depends on MW_SCHEDULE_STATE global set by schedule.php:
  *   { csrf, userId, activeTimer: { visit_id, start_time, elapsed_seconds } | null }
+ *
+ * ─── PRODUCTION-SAFETY GUIDE ────────────────────────────────────────────────
+ *
+ * JSON API calls (job-timer, pow-actions, field-observations) MUST use MwApi.post().
+ * It handles CSRF injection, idempotency key generation, and the !r.ok HTTP guard.
+ * Callers follow this pattern:
+ *   MwApi.post(endpoint, body)
+ *     .then(function(data) { if (data.success) { /* state mutations only here *\/ } else { showToast(...) } })
+ *     .catch(function(err) { console.error('[tag]', err); showToast(...); /* restore button state *\/ })
+ *
+ * FormData uploads (media-upload.php) and GET requests remain as raw fetch() —
+ * they have specialised timeout, CSRF retry, and status-routing logic that does not
+ * belong in the generic service layer.
+ *
+ * Breaking any of these rules causes silent timer or visit state corruption in the
+ * field — a crew member's timer stays "running" on screen after a server failure with
+ * no feedback, or a job gets marked "complete" when the server rejected it.
+ *
+ * ─── TIMER STATE MACHINE ────────────────────────────────────────────────────
+ *
+ * visits[visitId] is the single source of truth for client-side state.
+ * NEVER mutate visits[visitId].status or call updatePillVisual() / stopPillTimer()
+ * outside of a confirmed server success (data.success === true).
+ *
+ * ─── PHOTO QUEUE ────────────────────────────────────────────────────────────
+ *
+ * Photos are written to IndexedDB (mw_photo_queue_v1) BEFORE the upload attempt.
+ * On success: the entry is marked 'done'. On network failure: entry stays 'pending'
+ * for processPhotoQueue() to drain on reconnect.
+ *
+ * NEVER call saveToPhotoQueue() inside a .catch() if preQueuedId is already set —
+ * that creates a duplicate entry which results in double-upload (wasted bandwidth,
+ * confusing duplicate thumbnails in the client portal).
+ *
+ * ─── IDEMPOTENCY ────────────────────────────────────────────────────────────
+ *
+ * Every timer start/stop call goes through MwApi.post(), which auto-injects an
+ * idempotency_key (UUID) into each JSON body. The PHP guardIdempotency() function
+ * in TimeclockFunctions.php deduplicates via INSERT IGNORE. The offline-queue
+ * stores bodyRaw verbatim so replay sends the same key — preventing duplicate
+ * timer entries when a queued action commits on first attempt and is then replayed.
+ *
+ * ─── iOS/CAMERA CRITICAL PATHS ──────────────────────────────────────────────
+ *
+ * input.click() in triggerCamera() MUST be called synchronously in the same JS
+ * call stack as the originating user gesture. ANY async gap (setTimeout, Promise
+ * await, IDB callback) before input.click() silently breaks the file picker on
+ * iOS Safari and Capacitor WebView. The saveToPhotoQueue() + doUploadPhoto() chain
+ * runs AFTER input.click() fires (inside the 'change' event handler) — this is safe.
  *
  * @package Mowology CRM
  */
@@ -32,6 +82,8 @@
     console.log('[PillWorkflow] Initializing...', MW_SCHEDULE_STATE);
 
     var state = MW_SCHEDULE_STATE;
+    MwApi.setToken(state.csrf);
+
     var visits = {};        // visitId -> { status, pill, serviceLabel, entryId, startTime, timerInterval, beforeThumb, afterThumb, additionalThumbs[] }
     var activeDrawer = null;
     var activeDrawerVisitId = null;
@@ -490,17 +542,12 @@
 
         getGps(function(lat, lng) {
             console.log('[PillWorkflow] Sending start timer request for visit ' + visitId);
-            fetch('/crm/api/job-timer.php', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action: 'start',
-                    visit_id: visitId,
-                    lat: lat,
-                    lng: lng
-                })
+            MwApi.post('/crm/api/job-timer.php', {
+                action:    'start',
+                visit_id:  visitId,
+                lat:       lat,
+                lng:       lng
             })
-            .then(function(r) { return r.json(); })
             .then(function(data) {
                 console.log('[PillWorkflow] Timer start response:', JSON.stringify(data));
                 if (data.success) {
@@ -556,6 +603,7 @@
                 }
             })
             .catch(function(err) {
+                console.error('[clockIn]', err);
                 showToast('Network error. Check your connection.');
                 if (btn) {
                     btn.disabled = false;
@@ -574,18 +622,13 @@
         var originalHtml = v.pill.innerHTML;
 
         getGps(function(lat, lng) {
-            fetch('/crm/api/job-timer.php', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action: 'stop',
-                    visit_id: visitId,
-                    lat: lat,
-                    lng: lng,
-                    complete_visit: true
-                })
+            MwApi.post('/crm/api/job-timer.php', {
+                action:         'stop',
+                visit_id:       visitId,
+                lat:            lat,
+                lng:            lng,
+                complete_visit: true
             })
-            .then(function(r) { return r.json(); })
             .then(function(data) {
                 if (data.success) {
                     visits[visitId].status = 'completed';
@@ -625,6 +668,7 @@
                 }
             })
             .catch(function(err) {
+                console.error('[clockOut]', err);
                 showToast('Network error. Check your connection.');
             });
         });
@@ -639,19 +683,14 @@
         if (!v) return;
 
         getGps(function(lat, lng) {
-            fetch('/crm/api/job-timer.php', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action: 'stop',
-                    visit_id: visitId,
-                    lat: lat,
-                    lng: lng,
-                    complete_visit: false,
-                    notes: 'Manually stopped without completing'
-                })
+            MwApi.post('/crm/api/job-timer.php', {
+                action:         'stop',
+                visit_id:       visitId,
+                lat:            lat,
+                lng:            lng,
+                complete_visit: false,
+                notes:          'Manually stopped without completing'
             })
-            .then(function(r) { return r.json(); })
             .then(function(data) {
                 if (data.success) {
                     // Reset visit to unstarted state
@@ -685,7 +724,8 @@
                     showToast('Could not stop timer: ' + (data.error || 'Unknown error'));
                 }
             })
-            .catch(function() {
+            .catch(function(err) {
+                console.error('[stopTimer]', err);
                 showToast('Network error. Check your connection.');
             });
         });
@@ -785,58 +825,73 @@
                 if (ph) ph.classList.add('mw-mc-placeholder-uploading');
             }
 
-            uploadPhoto(visitId, file, category, function(success, thumbUrl) {
-                if (!success) {
-                    // Re-render strip so placeholder returns to tappable state
-                    renderPhotoStrip(visitId);
-                    return;
-                }
+            // Persist to IndexedDB BEFORE attempting the upload.
+            // If the tab closes mid-upload, the queue entry survives and will be
+            // drained by processPhotoQueue() on the next session.
+            // On success: the entry is marked done (prevents drain retry).
+            // On network/timeout failure: entry stays pending — drain handles retry.
+            // If IDB is unavailable (queueId === null), fall through to direct upload
+            // with the original error-time queueing behaviour as fallback.
+            saveToPhotoQueue(visitId, file, category, function(preQueuedId) {
+                doUploadPhoto(visitId, file, category, false, function(success, thumbUrl) {
+                    if (success && preQueuedId !== null) {
+                        // Upload confirmed by server — clean up queue entry so drain skips it
+                        pendingQueueCount = Math.max(0, pendingQueueCount - 1);
+                        updateQueueItemStatus(preQueuedId, { status: 'done' }, null);
+                    }
 
-                if (category === 'before') {
-                    var curStatus = visits[visitId].status;
-                    if (curStatus === 'prompt_before') {
-                        // Workflow-driven: go to working state
-                        visits[visitId].status = 'in_progress';
-                        updatePillVisual(visitId, 'in_progress');
-                        startPillTimer(visitId);
+                    if (!success) {
+                        // Re-render strip so placeholder returns to tappable state
                         renderPhotoStrip(visitId);
-                        if (thumbUrl) {
-                            showThumbConfirmation(card, thumbUrl, 'Before', visitId, function() {
+                        return;
+                    }
+
+                    if (category === 'before') {
+                        var curStatus = visits[visitId].status;
+                        if (curStatus === 'prompt_before') {
+                            // Workflow-driven: go to working state
+                            visits[visitId].status = 'in_progress';
+                            updatePillVisual(visitId, 'in_progress');
+                            startPillTimer(visitId);
+                            renderPhotoStrip(visitId);
+                            if (thumbUrl) {
+                                showThumbConfirmation(card, thumbUrl, 'Before', visitId, function() {
+                                    closeDrawer();
+                                });
+                            } else {
                                 closeDrawer();
-                            });
+                            }
                         } else {
-                            closeDrawer();
+                            // Placeholder tap outside workflow: just save + update strip
+                            renderPhotoStrip(visitId);
+                            if (thumbUrl) showThumbConfirmation(card, thumbUrl, 'Before', visitId, null);
                         }
-                    } else {
-                        // Placeholder tap outside workflow: just save + update strip
-                        renderPhotoStrip(visitId);
-                        if (thumbUrl) showThumbConfirmation(card, thumbUrl, 'Before', visitId, null);
-                    }
-                } else if (category === 'after') {
-                    var curStatus2 = visits[visitId].status;
-                    if (curStatus2 === 'prompt_after') {
-                        visits[visitId].status = 'completed';
-                        renderPhotoStrip(visitId);
-                        if (thumbUrl) {
-                            showThumbConfirmation(card, thumbUrl, 'After', visitId, function() {
+                    } else if (category === 'after') {
+                        var curStatus2 = visits[visitId].status;
+                        if (curStatus2 === 'prompt_after') {
+                            visits[visitId].status = 'completed';
+                            renderPhotoStrip(visitId);
+                            if (thumbUrl) {
+                                showThumbConfirmation(card, thumbUrl, 'After', visitId, function() {
+                                    clockOut(visitId);
+                                });
+                            } else {
                                 clockOut(visitId);
-                            });
+                            }
                         } else {
-                            clockOut(visitId);
+                            renderPhotoStrip(visitId);
+                            if (thumbUrl) showThumbConfirmation(card, thumbUrl, 'After', visitId, null);
                         }
-                    } else {
+                    } else if (category === 'during') {
+                        if (thumbUrl) showThumbConfirmation(card, thumbUrl, 'Photo', visitId, null);
+                    } else if (category === 'additional') {
+                        // additionalThumbs was already updated in doUploadPhoto() — don't double-push.
+                        // Skip showThumbConfirmation: the drawer overlay blocks the "+" button for 1.5s
+                        // making it impossible to snap a second additional photo in quick succession.
+                        // Just re-render the strip (shows new thumb) and flash brief pill feedback.
                         renderPhotoStrip(visitId);
-                        if (thumbUrl) showThumbConfirmation(card, thumbUrl, 'After', visitId, null);
                     }
-                } else if (category === 'during') {
-                    if (thumbUrl) showThumbConfirmation(card, thumbUrl, 'Photo', visitId, null);
-                } else if (category === 'additional') {
-                    // additionalThumbs was already updated in doUploadPhoto() — don't double-push.
-                    // Skip showThumbConfirmation: the drawer overlay blocks the "+" button for 1.5s
-                    // making it impossible to snap a second additional photo in quick succession.
-                    // Just re-render the strip (shows new thumb) and flash brief pill feedback.
-                    renderPhotoStrip(visitId);
-                }
+                }, preQueuedId);
             });
         };
 
@@ -860,11 +915,11 @@
      *  - HTTP 5xx → error toast, do NOT queue (server errors won't clear on retry)
      *  - HTTP 4xx other → error toast, do NOT queue
      */
-    function uploadPhoto(visitId, file, category, callback) {
-        doUploadPhoto(visitId, file, category, false, callback);
+    function uploadPhoto(visitId, file, category, callback, preQueuedId) {
+        doUploadPhoto(visitId, file, category, false, callback, preQueuedId);
     }
 
-    function doUploadPhoto(visitId, file, category, isRetry, callback) {
+    function doUploadPhoto(visitId, file, category, isRetry, callback, preQueuedId) {
         // 1b. AbortController for 30-second fetch timeout
         var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
         var timeoutId  = controller
@@ -919,9 +974,10 @@
                             .then(function(d) {
                                 if (d && d.token) {
                                     state.csrf = d.token;
+                                    MwApi.setToken(d.token);
                                     console.log('[PillWorkflow] CSRF token refreshed');
                                 }
-                                doUploadPhoto(visitId, file, category, true, callback);
+                                doUploadPhoto(visitId, file, category, true, callback, preQueuedId);
                             })
                             .catch(function() {
                                 showToast('Session expired. Reload the page and try again.');
@@ -1016,17 +1072,32 @@
             }
 
             // Only queue on genuine network/timeout errors — not server errors
-            if ((isNetwork || isAbort) && photoQueueDb) {
-                saveToPhotoQueue(visitId, file, category, function(queueId) {
-                    if (queueId !== null) {
-                        showToast(navigator.onLine
-                            ? 'Upload failed \u2014 will retry automatically'
-                            : 'No signal \u2014 photo saved for later');
-                    } else {
-                        showToast('Upload failed \u2014 check connection and try again.');
-                    }
+            // If preQueuedId is set the entry was already written before the upload
+            // attempt \u2014 skip the second write to avoid a duplicate queue entry.
+            if (isNetwork || isAbort) {
+                if (preQueuedId) {
+                    // Entry already persisted before upload attempt \u2014 just show feedback
+                    showToast(navigator.onLine
+                        ? 'Upload failed \u2014 will retry automatically'
+                        : 'No signal \u2014 photo saved for later');
+                    pendingQueueCount = Math.max(0, pendingQueueCount + 1);
                     callback(false, null);
-                });
+                } else if (photoQueueDb) {
+                    saveToPhotoQueue(visitId, file, category, function(savedId) {
+                        if (savedId !== null) {
+                            pendingQueueCount = Math.max(0, pendingQueueCount + 1);
+                            showToast(navigator.onLine
+                                ? 'Upload failed \u2014 will retry automatically'
+                                : 'No signal \u2014 photo saved for later');
+                        } else {
+                            showToast('Upload failed \u2014 check connection and try again.');
+                        }
+                        callback(false, null);
+                    });
+                } else {
+                    showToast('Upload failed \u2014 check connection and try again.');
+                    callback(false, null);
+                }
             } else {
                 showToast(isAbort
                     ? 'Upload timed out. Check your signal and try again.'
@@ -1459,8 +1530,9 @@
         try { return localStorage.getItem('mw_photo_debug') === '1'; } catch (e) { return false; }
     })();
 
-    var photoQueueDb    = null;
-    var queueProcessing = false;
+    var photoQueueDb      = null;
+    var queueProcessing   = false;
+    var pendingQueueCount = 0; // Synchronous counter for beforeunload guard
 
     // Open the IndexedDB photo queue immediately (async, doesn't block rendering)
     (function openPhotoQueueDb() {
@@ -1498,6 +1570,15 @@
         console.log('[PillWorkflow] Network restored — processing offline photo queue');
         processPhotoQueue();
         refreshQueueBadges();
+    });
+
+    // Warn before the tab closes if any photos are still queued for upload.
+    // pendingQueueCount is a synchronous counter — IDB can't be read in beforeunload.
+    window.addEventListener('beforeunload', function(e) {
+        if (pendingQueueCount > 0) {
+            e.preventDefault();
+            e.returnValue = ''; // Browser shows its own generic "changes may not be saved" dialog
+        }
     });
 
     /**
@@ -1739,6 +1820,7 @@
             })
             .then(function(data) {
                 if (data.success && data.total_uploaded > 0) {
+                    pendingQueueCount = Math.max(0, pendingQueueCount - 1);
                     updateQueueItemStatus(item.id, { status: 'done' }, function() {
                         console.log('[PillWorkflow] Queued photo uploaded: visit=' +
                             item.visitId + ' cat=' + item.category);
@@ -2070,19 +2152,13 @@
      * POST the observation to the API
      */
     function sendObservation(visitId, obsType, obsValue, notes, photoMediaId, submitBtn, errBox) {
-        fetch('/crm/api/field-observations.php?action=create', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                visit_id: visitId,
-                observation_type: obsType,
-                observation_value: obsValue || null,
-                notes: notes || null,
-                photo_media_id: photoMediaId,
-                csrf_token: state.csrf
-            })
+        MwApi.post('/crm/api/field-observations.php?action=create', {
+            visit_id:          visitId,
+            observation_type:  obsType,
+            observation_value: obsValue || null,
+            notes:             notes || null,
+            photo_media_id:    photoMediaId
         })
-        .then(function(r) { return r.json(); })
         .then(function(data) {
             if (data.success) {
                 closeObservationModal();
@@ -2227,12 +2303,7 @@
                     clockInBtn.disabled = true;
                     clockInBtn.innerHTML = '<span>Starting…</span>';
                     getGps(function(lat, lng) {
-                        fetch('/crm/api/job-timer.php', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ action: 'start', visit_id: visitId, lat: lat, lng: lng })
-                        })
-                        .then(function(r) { return r.json(); })
+                        MwApi.post('/crm/api/job-timer.php', { action: 'start', visit_id: visitId, lat: lat, lng: lng })
                         .then(function(data) {
                             if (data.success) {
                                 if (visits[visitId]) {
@@ -2259,7 +2330,8 @@
                                 clockInBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Clock In';
                             }
                         })
-                        .catch(function() {
+                        .catch(function(err) {
+                            console.error('[pvClockIn]', err);
                             showToast('Network error. Check your connection.');
                             clockInBtn.disabled = false;
                             clockInBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Clock In';
@@ -2285,17 +2357,12 @@
                     } else {
                         // No active timer → direct complete via end_visit
                         getGps(function(lat, lng) {
-                            fetch('/crm/api/pow-actions.php', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                    action: 'end_visit',
-                                    visit_id: visitId,
-                                    lat: lat, lng: lng,
-                                    csrf_token: state.csrf
-                                })
+                            MwApi.post('/crm/api/pow-actions.php', {
+                                action:    'end_visit',
+                                visit_id:  visitId,
+                                lat:       lat,
+                                lng:       lng
                             })
-                            .then(function(r) { return r.json(); })
                             .then(function(data) {
                                 if (data.success) {
                                     if (visits[visitId]) {
@@ -2312,7 +2379,8 @@
                                     completeBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Complete Job';
                                 }
                             })
-                            .catch(function() {
+                            .catch(function(err) {
+                                console.error('[pvComplete]', err);
                                 showToast('Network error. Check your connection.');
                                 completeBtn.disabled = false;
                                 completeBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Complete Job';
@@ -2494,12 +2562,7 @@
         // (clockIn reads activeDrawer for the button loading state).
         // We use null — clockIn already guards against null activeDrawer.
         getGps(function(lat, lng) {
-            fetch('/crm/api/job-timer.php', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'start', visit_id: visitId, lat: lat, lng: lng })
-            })
-            .then(function(r) { return r.json(); })
+            MwApi.post('/crm/api/job-timer.php', { action: 'start', visit_id: visitId, lat: lat, lng: lng })
             .then(function(data) {
                 if (data.success) {
                     if (visits[visitId]) {
@@ -2547,7 +2610,8 @@
                     }
                 }
             })
-            .catch(function() {
+            .catch(function(err) {
+                console.error('[footerClockIn]', err);
                 showToast('Network error. Check your connection.');
                 if (clockInBtn) {
                     clockInBtn.disabled = false;
@@ -2592,18 +2656,12 @@
         } else {
             // No timer → directly complete via end_visit
             getGps(function(lat, lng) {
-                fetch('/crm/api/pow-actions.php', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        action: 'end_visit',
-                        visit_id: targetVisitId,
-                        lat: lat,
-                        lng: lng,
-                        csrf_token: state.csrf
-                    })
+                MwApi.post('/crm/api/pow-actions.php', {
+                    action:    'end_visit',
+                    visit_id:  targetVisitId,
+                    lat:       lat,
+                    lng:       lng
                 })
-                .then(function(r) { return r.json(); })
                 .then(function(data) {
                     if (data.success) {
                         // Mark visit complete in local state
@@ -2624,7 +2682,8 @@
                         }
                     }
                 })
-                .catch(function() {
+                .catch(function(err) {
+                    console.error('[footerComplete]', err);
                     showToast('Network error. Check your connection.');
                     if (completeBtn) {
                         completeBtn.disabled = false;

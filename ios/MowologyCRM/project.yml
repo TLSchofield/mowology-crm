@@ -41,22 +41,21 @@ targets:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        NSLocationWhenInUseUsageDescription: "Used to show your location on the job map and track distance to stops."
-        NSLocationAlwaysAndWhenInUseUsageDescription: "Mowology tracks your location in the background to log GPS pings, detect job-site arrivals, and auto-clock-in when you reach a stop."
+        NSLocationWhenInUseUsageDescription: "Mowology uses your location to show you on the job map and to record arrival at job sites."
+        NSLocationAlwaysAndWhenInUseUsageDescription: "Mowology needs background location access to keep logging your GPS during a shift, even when the app is in the background. This powers proof-of-work tracking and the crew location map."
         NSLocationAlwaysUsageDescription: "Mowology tracks your location in the background to log GPS pings, detect job-site arrivals, and auto-clock-in when you reach a stop."
-        NSCameraUsageDescription: "Used to scan receipts for expense tracking."
-        NSPhotoLibraryUsageDescription: "Used to choose an existing receipt photo from your library."
+        NSCameraUsageDescription: "Used to scan receipts for expense tracking and capture before/after job site photos."
+        NSPhotoLibraryUsageDescription: "Used to choose an existing receipt or job site photo from your library."
         NSCalendarsFullAccessUsageDescription: "Mowology can sync today's job schedule to your Calendar so stops appear alongside personal events."
         NSContactsUsageDescription: "Used to save client contact details to your address book for quick calling."
         NSSupportsLiveActivities: true
         UIBackgroundModes:
+          - location
           - fetch
           - remote-notification
-          - location
           - processing
         BGTaskSchedulerPermittedIdentifiers:
-          - ca.mowology.crm.schedule-refresh
-          - ca.mowology.crm.ping-drain
+          - ca.mowology.crm-field.ping
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: false
     entitlements:
@@ -102,3 +101,16 @@ targets:
     dependencies:
       - sdk: WidgetKit.framework
       - sdk: ActivityKit.framework
+
+  MowologyCRMTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: MowologyCRMTests
+    dependencies:
+      - target: MowologyCRM
+    settings:
+      base:
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/MowologyCRM.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/MowologyCRM"

@@ -50,6 +50,9 @@ enum APIEndpoint {
     /// GET /api/expenses/receipt-image?id=<mediaId> — stream an auth-gated receipt image (JWT).
     case receiptImage(mediaId: Int)
 
+    /// POST /api/schedule/job-photo — upload a before/after job site photo (JWT).
+    case jobPhoto(visitId: Int)
+
     /// POST /api/auth/device-token — register APNs device token for push notifications.
     case deviceTokenRegister
 
@@ -120,6 +123,9 @@ enum APIEndpoint {
             components?.queryItems = [URLQueryItem(name: "id", value: "\(mediaId)")]
             return components?.url
 
+        case .jobPhoto:
+            return URL(string: "\(baseURLString)/schedule/job-photo")
+
         case .deviceTokenRegister:
             return URL(string: "\(baseURLString)/auth/device-token.php")
 
@@ -167,6 +173,7 @@ enum APIEndpoint {
              .expenseSave,
              .expenseList,
              .receiptImage,
+             .jobPhoto,
              .deviceTokenRegister,
              .powActions,
              .powGpsSync,
@@ -196,6 +203,7 @@ enum APIEndpoint {
              .scheduleClock,
              .receiptUpload,
              .expenseSave,
+             .jobPhoto,
              .deviceTokenRegister,
              .powActions,
              .powGpsSync: return "POST"

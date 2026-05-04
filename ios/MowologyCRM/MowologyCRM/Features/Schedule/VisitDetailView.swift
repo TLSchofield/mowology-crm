@@ -7,21 +7,37 @@
 
 import SwiftUI
 import MapKit
-import Contacts
-import ContactsUI
 
 struct VisitDetailView: View {
 
-    let stop: Stop
-    let isAdmin: Bool
+    let stop:        Stop
+    let isAdmin:     Bool
 
-    @EnvironmentObject private var authSession: AuthSession
-    @State private var showContactSave = false
-    @State private var contactSaveToast: String?
+    @StateObject private var timerVM: VisitDetailViewModel
+    private let authSession: AuthSession
+
+    // MARK: - Init
+
+    init(stop: Stop, isAdmin: Bool, authSession: AuthSession) {
+        self.stop        = stop
+        self.isAdmin     = isAdmin
+        self.authSession = authSession
+        _timerVM         = StateObject(
+            wrappedValue: VisitDetailViewModel(authSession: authSession)
+        )
+    }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
+
+                // Timer error banner — shown above content so crew sees it immediately.
+                if let err = timerVM.errorMessage {
+                    ErrorBannerView(message: err) {
+                        timerVM.errorMessage = nil
+                    }
+                    .padding(.horizontal, 16)
+                }
 
                 // MARK: Property Section
                 propertySection
@@ -45,32 +61,6 @@ struct VisitDetailView: View {
         .background(Color(.systemGroupedBackground))
         .navigationTitle(stop.propertyAddress)
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $showContactSave) {
-            if let contact = buildContact() {
-                ContactSaveSheet(contact: contact) { saved in
-                    contactSaveToast = saved ? "Saved to Contacts" : nil
-                }
-            }
-        }
-        .overlay(alignment: .bottom) {
-            if let toast = contactSaveToast {
-                Text(toast)
-                    .font(.subheadline.bold())
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(Color.MW.green)
-                    .foregroundStyle(.white)
-                    .clipShape(Capsule())
-                    .padding(.bottom, 24)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .onAppear {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                            withAnimation { contactSaveToast = nil }
-                        }
-                    }
-            }
-        }
-        .animation(.easeInOut(duration: 0.25), value: contactSaveToast)
     }
 
     // MARK: - Property Section
@@ -86,17 +76,7 @@ struct VisitDetailView: View {
 
                 if let contact = stop.contactName {
                     Divider().padding(.leading, 16)
-                    HStack {
-                        detailRow(label: "Contact", value: contact)
-                        Button {
-                            showContactSave = true
-                        } label: {
-                            Image(systemName: "person.badge.plus")
-                                .foregroundStyle(Color.MW.green)
-                                .padding(.trailing, 16)
-                        }
-                        .accessibilityLabel("Save \(contact) to Contacts")
-                    }
+                    detailRow(label: "Contact", value: contact)
                 }
 
                 if let company = stop.companyName, !company.isEmpty {
@@ -108,8 +88,6 @@ struct VisitDetailView: View {
                     Divider().padding(.leading, 16)
                     detailRow(label: "Est. Arrival", value: arrival)
                 }
-
-                // Coordinates intentionally omitted — takes up space, not useful to crew.
             }
             .background(Color(.systemBackground))
             .clipShape(RoundedRectangle(cornerRadius: 12))
@@ -133,7 +111,6 @@ struct VisitDetailView: View {
 
     private func mapPlaceholder(coordinate: CLLocationCoordinate2D) -> some View {
         ZStack(alignment: .bottomTrailing) {
-            // Native MapKit map view.
             Map(initialPosition: .region(
                 MKCoordinateRegion(
                     center: coordinate,
@@ -148,9 +125,8 @@ struct VisitDetailView: View {
             }
             .frame(height: 200)
             .clipShape(RoundedRectangle(cornerRadius: 12))
-            .disabled(true)  // Disable interaction — tapping opens Apple Maps below.
+            .disabled(true)
 
-            // "Open in Maps" button overlaid on the map.
             Button {
                 openInMaps(coordinate: coordinate)
             } label: {
@@ -200,7 +176,12 @@ struct VisitDetailView: View {
     }
 
     private func visitCard(_ visit: Visit) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        let isThisTimerActive = timerVM.activeVisitId == visit.visitId
+        let canStart = !timerVM.isTimerRunning
+            && ["scheduled", "in_progress"].contains(visit.visitStatus.lowercased())
+        let canStop  = isThisTimerActive
+
+        return VStack(alignment: .leading, spacing: 10) {
 
             // Title Row
             HStack {
@@ -210,7 +191,6 @@ struct VisitDetailView: View {
 
                 Spacer()
 
-                // Status Badge
                 Text(visit.statusLabel)
                     .font(.caption.bold())
                     .padding(.horizontal, 8)
@@ -226,21 +206,18 @@ struct VisitDetailView: View {
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 16) {
-                // Duration
                 if let duration = visit.estimatedDuration {
                     Label("\(duration) min", systemImage: "clock")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
 
-                // Price
                 if let price = visit.pricePerVisit {
                     Label(String(format: "$%.2f", price), systemImage: "dollarsign.circle")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
 
-                // Scheduled Start
                 if let start = visit.scheduledStart {
                     Label(start, systemImage: "clock.arrow.circlepath")
                         .font(.caption)
@@ -248,24 +225,65 @@ struct VisitDetailView: View {
                 }
             }
 
-            // "Start Job" / "Continue Job" — only for actionable visit states
-            let status = visit.visitStatus.lowercased()
-            if status == "scheduled" || status == "in_progress" {
-                NavigationLink {
-                    VisitWorkView(stop: stop, visit: visit, authSession: authSession)
-                } label: {
-                    Label(
-                        status == "in_progress" ? "Continue Job" : "Start Job",
-                        systemImage: status == "in_progress" ? "timer" : "play.fill"
-                    )
-                    .font(.subheadline.weight(.semibold))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(status == "in_progress" ? Color.MW.green.opacity(0.15) : Color.MW.green)
-                    .foregroundStyle(status == "in_progress" ? Color.MW.green : .white)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            // MARK: Timer Controls
+            // Only shown for actionable visits (scheduled / in_progress).
+            // When this timer is running, show elapsed time + Stop button.
+            // When no timer is running, show Start button.
+            if canStart || canStop {
+                Divider()
+
+                HStack {
+                    if isThisTimerActive {
+                        // Elapsed time chip
+                        Label(timerVM.elapsedFormatted, systemImage: "timer")
+                            .font(.callout.monospacedDigit().bold())
+                            .foregroundStyle(Color.MW.green)
+                    }
+
+                    Spacer()
+
+                    if canStop {
+                        Button {
+                            Task { await timerVM.stopTimer(visitId: visit.visitId) }
+                        } label: {
+                            Label("Stop Job", systemImage: "stop.circle.fill")
+                                .font(.subheadline.bold())
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(Color.red.opacity(0.12))
+                                .foregroundStyle(.red)
+                                .clipShape(Capsule())
+                        }
+                        .disabled(timerVM.isLoading)
+
+                    } else if canStart {
+                        Button {
+                            Task { await timerVM.startTimer(visitId: visit.visitId) }
+                        } label: {
+                            Label("Start Job", systemImage: "play.circle.fill")
+                                .font(.subheadline.bold())
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(Color.MW.green.opacity(0.12))
+                                .foregroundStyle(Color.MW.green)
+                                .clipShape(Capsule())
+                        }
+                        .disabled(timerVM.isLoading)
+                    }
                 }
-                .padding(.top, 4)
+            }
+
+            // MARK: Before/After Photo Proof
+            // Shown for in_progress visits, and for scheduled visits so crew can
+            // capture a "before" photo before pressing Start. The "after" slot
+            // is locked until the job timer is running.
+            if ["scheduled", "in_progress"].contains(visit.visitStatus.lowercased()) {
+                Divider()
+                JobPhotoSection(
+                    visitId:     visit.visitId,
+                    isActive:    isThisTimerActive,
+                    authSession: authSession
+                )
             }
         }
         .padding(14)
@@ -273,7 +291,12 @@ struct VisitDetailView: View {
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .stroke(visit.statusColor.opacity(0.2), lineWidth: 1)
+                .stroke(
+                    isThisTimerActive
+                        ? Color.MW.green.opacity(0.5)
+                        : visit.statusColor.opacity(0.2),
+                    lineWidth: isThisTimerActive ? 2 : 1
+                )
         )
     }
 
@@ -284,29 +307,84 @@ struct VisitDetailView: View {
             sectionHeader("Crew", icon: "person.2.fill")
 
             VStack(spacing: 0) {
-                ForEach(Array(stop.crewNames.enumerated()), id: \.offset) { index, name in
-                    HStack {
-                        Image(systemName: "person.circle.fill")
-                            .foregroundStyle(Color.MW.green)
-                            .font(.title3)
-
-                        Text(name)
-                            .font(.body)
-                            .foregroundStyle(.primary)
-
-                        Spacer()
+                // Use rich CrewMember data when available (admin role), otherwise
+                // fall back to the name-only crew_names array.
+                if let members = stop.crewMembers, !members.isEmpty {
+                    ForEach(Array(members.enumerated()), id: \.element.id) { index, member in
+                        crewMemberRow(member: member)
+                        if index < members.count - 1 {
+                            Divider().padding(.leading, 52)
+                        }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
+                } else {
+                    ForEach(Array(stop.crewNames.enumerated()), id: \.offset) { index, name in
+                        HStack {
+                            Image(systemName: "person.circle.fill")
+                                .foregroundStyle(Color.MW.green)
+                                .font(.title3)
+                            Text(name)
+                                .font(.body)
+                                .foregroundStyle(.primary)
+                            Spacer()
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
 
-                    if index < stop.crewNames.count - 1 {
-                        Divider().padding(.leading, 52)
+                        if index < stop.crewNames.count - 1 {
+                            Divider().padding(.leading, 52)
+                        }
                     }
                 }
             }
             .background(Color(.systemBackground))
             .clipShape(RoundedRectangle(cornerRadius: 12))
         }
+    }
+
+    private func crewMemberRow(member: CrewMember) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "person.circle.fill")
+                .foregroundStyle(Color.MW.green)
+                .font(.title3)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(member.name)
+                    .font(.body)
+                    .foregroundStyle(.primary)
+                if let phone = member.phone {
+                    Text(phone)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer()
+
+            // Tap-to-call and tap-to-message buttons (admin view)
+            if let callURL = member.callURL {
+                Link(destination: callURL) {
+                    Image(systemName: "phone.fill")
+                        .font(.subheadline)
+                        .foregroundStyle(Color.MW.green)
+                        .padding(8)
+                        .background(Color.MW.green.opacity(0.10))
+                        .clipShape(Circle())
+                }
+
+                if let smsURL = URL(string: "sms:\(member.phone?.components(separatedBy: CharacterSet.decimalDigits.inverted).joined() ?? "")") {
+                    Link(destination: smsURL) {
+                        Image(systemName: "message.fill")
+                            .font(.subheadline)
+                            .foregroundStyle(Color.MW.green)
+                            .padding(8)
+                            .background(Color.MW.green.opacity(0.10))
+                            .clipShape(Circle())
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
     }
 
     // MARK: - Sub-views
@@ -336,32 +414,6 @@ struct VisitDetailView: View {
         .padding(.vertical, 12)
     }
 
-    // MARK: - Contact helpers
-
-    private func buildContact() -> CNMutableContact? {
-        guard let name = stop.contactName else { return nil }
-        let contact = CNMutableContact()
-
-        // Name — split on first space; if no space treat whole string as given name.
-        let parts = name.split(separator: " ", maxSplits: 1)
-        contact.givenName  = parts.first.map(String.init) ?? name
-        contact.familyName = parts.count > 1 ? String(parts[1]) : ""
-
-        if let company = stop.companyName, !company.isEmpty {
-            contact.organizationName = company
-        }
-
-        let addr               = CNMutablePostalAddress()
-        addr.street            = stop.propertyAddress
-        addr.city              = stop.propertyCity
-        addr.country           = "Canada"
-        contact.postalAddresses = [CNLabeledValue(label: CNLabelHome, value: addr)]
-
-        contact.note = "Mowology client — property ID \(stop.propertyId ?? 0)"
-
-        return contact
-    }
-
     // MARK: - Actions
 
     private func openInMaps(coordinate: CLLocationCoordinate2D) {
@@ -378,42 +430,6 @@ struct VisitDetailView: View {
         mapItem.openInMaps(launchOptions: [
             MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving
         ])
-    }
-}
-
-// MARK: - ContactSaveSheet
-
-private struct ContactSaveSheet: UIViewControllerRepresentable {
-
-    let contact: CNMutableContact
-    let onDismiss: (_ saved: Bool) -> Void
-
-    func makeCoordinator() -> Coordinator { Coordinator(onDismiss: onDismiss) }
-
-    func makeUIViewController(context: Context) -> UINavigationController {
-        let vc = CNContactViewController(forUnknownContact: contact)
-        vc.allowsEditing   = true
-        vc.allowsActions   = false
-        vc.delegate        = context.coordinator
-        let nav = UINavigationController(rootViewController: vc)
-        return nav
-    }
-
-    func updateUIViewController(_ uiViewController: UINavigationController, context: Context) {}
-
-    final class Coordinator: NSObject, CNContactViewControllerDelegate {
-        let onDismiss: (_ saved: Bool) -> Void
-        private var didSave = false
-
-        init(onDismiss: @escaping (_ saved: Bool) -> Void) { self.onDismiss = onDismiss }
-
-        func contactViewController(_ vc: CNContactViewController,
-                                   didCompleteWith contact: CNContact?) {
-            didSave = contact != nil
-            vc.dismiss(animated: true) { [weak self] in
-                self?.onDismiss(self?.didSave ?? false)
-            }
-        }
     }
 }
 
@@ -452,6 +468,6 @@ private struct ContactSaveSheet: UIViewControllerRepresentable {
     )
 
     return NavigationStack {
-        VisitDetailView(stop: stop, isAdmin: true)
+        VisitDetailView(stop: stop, isAdmin: true, authSession: AuthSession())
     }
 }

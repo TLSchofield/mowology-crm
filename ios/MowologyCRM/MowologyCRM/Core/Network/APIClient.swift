@@ -124,7 +124,9 @@ final class APIClient: ObservableObject {
     // MARK: - Multipart Upload
 
     /// Uploads a receipt image as multipart/form-data and returns OCR suggestions.
-    func uploadReceipt(imageData: Data, lat: Double?, lng: Double?, jobId: Int?) async throws -> ReceiptIntakeResponse {
+    /// `visionText` is the raw text extracted by on-device Vision; when supplied the server
+    /// skips Tesseract and uses this text directly, improving parse quality and speed.
+    func uploadReceipt(imageData: Data, visionText: String? = nil, lat: Double?, lng: Double?, jobId: Int?) async throws -> ReceiptIntakeResponse {
         guard let url = APIEndpoint.receiptUpload.url else { throw APIError.invalidURL }
 
         let boundary = "MwBoundary-\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
@@ -137,6 +139,9 @@ final class APIClient: ObservableObject {
 
         var body = Data()
         body.appendField(name: "receipt_photo", filename: "receipt.jpg", mimeType: "image/jpeg", data: imageData, boundary: boundary)
+        if let visionText, !visionText.isEmpty {
+            body.appendField(name: "vision_text", value: visionText, boundary: boundary)
+        }
         if let lat   { body.appendField(name: "lat",    value: "\(lat)",    boundary: boundary) }
         if let lng   { body.appendField(name: "lng",    value: "\(lng)",    boundary: boundary) }
         if let jobId { body.appendField(name: "job_id", value: "\(jobId)", boundary: boundary) }
@@ -175,6 +180,64 @@ final class APIClient: ObservableObject {
             DevErrorBus.shared.post(err)
             #endif
             throw err
+        }
+    }
+
+    // MARK: - Job Photo Upload
+
+    /// Uploads a before/after job site photo as multipart/form-data.
+    /// Returns Void on success; throws on HTTP or network error.
+    /// Callers should enqueue to `JobPhotoQueue` on failure for offline retry.
+    func uploadJobPhoto(imageData: Data, visitId: Int, photoType: JobPhotoType) async throws {
+        guard let url = APIEndpoint.jobPhoto(visitId: visitId).url else {
+            throw APIError.invalidURL
+        }
+
+        let boundary = "MwBoundary-\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        var request  = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        if let token = authSession?.token {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        var body = Data()
+        body.appendField(name: "job_photo", filename: "photo.jpg",
+                         mimeType: "image/jpeg", data: imageData, boundary: boundary)
+        body.appendField(name: "visit_id",   value: "\(visitId)",         boundary: boundary)
+        body.appendField(name: "photo_type", value: photoType.rawValue,   boundary: boundary)
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            let err = APIError.networkError(error)
+            #if DEBUG
+            DevErrorBus.shared.post(err)
+            #endif
+            throw err
+        }
+
+        if let http = response as? HTTPURLResponse {
+            if http.statusCode == 401 { authSession?.logout(); throw APIError.unauthorized }
+            if !(200..<300).contains(http.statusCode) {
+                let msg = extractErrorMessage(from: data) ?? "Job photo upload failed (\(http.statusCode))"
+                let err = APIError.serverError(msg)
+                #if DEBUG
+                DevErrorBus.shared.post(err)
+                #endif
+                throw err
+            }
+        }
+
+        // Verify server acknowledged success
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let success = json["success"] as? Bool, !success {
+            let msg = (json["error"] as? String) ?? "Server rejected job photo."
+            throw APIError.serverError(msg)
         }
     }
 

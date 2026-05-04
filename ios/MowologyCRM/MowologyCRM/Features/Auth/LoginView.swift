@@ -181,6 +181,32 @@ struct LoginView: View {
             .disabled(viewModel.isLoading)
             .padding(.top, 4)
 
+            // Biometric Sign In — shown only when Face ID / Touch ID is configured
+            // and credentials from a previous login are stored in Keychain.
+            if viewModel.canUseBiometrics {
+                Button {
+                    focusedField = nil
+                    Task { await viewModel.biometricLogin() }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: viewModel.biometricSystemImage)
+                            .font(.body)
+                        Text("Sign In with \(viewModel.biometricSystemImage == "faceid" ? "Face ID" : "Touch ID")")
+                            .font(.body.weight(.medium))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 13)
+                    .background(Color(.systemGray6))
+                    .foregroundStyle(Color.MW.green)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Color.MW.green.opacity(0.3), lineWidth: 1)
+                    )
+                }
+                .disabled(viewModel.isLoading)
+            }
+
             // Footer note — no signup link by design.
             Text("Access is restricted to Mowology staff.")
                 .font(.caption)

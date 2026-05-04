@@ -1349,22 +1349,14 @@ var MwRouteMap = (function() {
         var btns = schedSheet ? schedSheet.querySelectorAll('.mw-mv-sched-btn') : [];
         btns.forEach(function(b) { b.disabled = true; });
 
-        fetch('/crm/api/reschedule-stop.php', {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ stop_id: stopId, new_date: date, force: force })
-        })
-        .then(function(r) {
-            return r.json().then(function(d) { return { ok: r.ok, data: d }; });
-        })
-        .then(function(res) {
-            if (res.data && res.data.warning && !force) {
+        MwApi.post('/crm/api/reschedule-stop.php', { stop_id: stopId, new_date: date, force: force })
+        .then(function(data) {
+            if (data.warning && !force) {
                 // Capacity warning — show inline message + force button
                 if (msg) {
                     msg.textContent = '';
                     var warnSpan = document.createElement('span');
-                    warnSpan.textContent = res.data.message + ' ';
+                    warnSpan.textContent = data.message + ' ';
                     var forceBtn = document.createElement('button');
                     forceBtn.type = 'button';
                     forceBtn.className = 'mw-mv-sched-btn mw-mv-sched-confirm';
@@ -1375,20 +1367,17 @@ var MwRouteMap = (function() {
                     msg.appendChild(forceBtn);
                 }
                 btns.forEach(function(b) { b.disabled = false; });
-            } else if (res.ok) {
+            } else {
                 if (msg) msg.textContent = '\u2713 Moved to ' + date;
                 setTimeout(function() {
                     closeScheduleSheet();
                     window.location.reload();
                 }, 1400);
-            } else {
-                btns.forEach(function(b) { b.disabled = false; });
-                if (msg) msg.textContent = (res.data && res.data.error) ? res.data.error : 'Could not reschedule. Try again.';
             }
         })
-        .catch(function() {
+        .catch(function(err) {
             btns.forEach(function(b) { b.disabled = false; });
-            if (msg) msg.textContent = 'Network error. Please try again.';
+            if (msg) msg.textContent = (err && err.serverError) ? err.serverError : 'Network error. Please try again.';
         });
     }
 

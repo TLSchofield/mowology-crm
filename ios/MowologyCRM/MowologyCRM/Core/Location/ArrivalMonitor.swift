@@ -2,134 +2,102 @@
 //  ArrivalMonitor.swift
 //  MowologyCRM
 //
-//  CLCircularRegion geofences around today's stops.
-//  When the crew enters a region a local notification fires — "You've arrived at [Client]".
-//  The notification's "Clock In" action triggers the clock-in flow without opening the app.
+//  Detects when a crew member arrives at a job site by comparing incoming
+//  GPS fixes against a set of monitored visit coordinates.
 //
-//  iOS allows a maximum of 20 simultaneous monitored regions; this class always loads
-//  only the current day's stops, which fits within that limit.
+//  Feed fixes via observe(fix:) from the GPS ping loop.
+//  When a fix falls within a site's radius, posts .mwArrivalDetected so
+//  VisitDetailViewModel can surface an "auto-start timer" prompt.
+//
+//  Design notes:
+//  - Pure distance math — no CLCircularRegion / geofence API.
+//    Geofence region monitoring requires significant-location authorization
+//    and adds OS-managed state that's complex to debug in the field.
+//    A distance check per ping is cheaper and more predictable.
+//  - notifiedVisitIds prevents repeated notifications for the same visit
+//    within a single tracking session. Cleared on configure() (i.e., each
+//    clock-in) so arrivals are re-detectable on a new shift.
+//  - Radius default is 150 m, matching the Capacitor bridge (geofence.php).
 //
 
 import Foundation
 import CoreLocation
-import UserNotifications
+
+// MARK: - MonitoredSite
+
+struct MonitoredSite {
+    let visitId:      Int
+    let coordinate:   CLLocationCoordinate2D
+    let radiusMeters: Double
+
+    init(visitId: Int, coordinate: CLLocationCoordinate2D, radiusMeters: Double = 150) {
+        self.visitId      = visitId
+        self.coordinate   = coordinate
+        self.radiusMeters = radiusMeters
+    }
+}
 
 // MARK: - ArrivalMonitor
 
 @MainActor
-final class ArrivalMonitor: NSObject {
+final class ArrivalMonitor {
 
     static let shared = ArrivalMonitor()
 
-    // MARK: - Constants
-
-    static let geofenceRadius: CLLocationDistance = 100   // metres
-    static let regionPrefix = "mw.stop."
-
-    // Notification action identifiers (must match AppDelegate category setup)
-    static let actionClockIn   = "ARRIVAL_CLOCK_IN"
-    static let categoryArrival = "ARRIVAL"
-
     // MARK: - Private
 
-    private let locationManager = CLLocationManager()
-    private var registeredStops: [String: (stopId: Int, displayName: String)] = [:]
+    private var sites:            [MonitoredSite] = []
+    private var notifiedVisitIds: Set<Int>        = []
 
-    private override init() {
-        super.init()
-        locationManager.delegate = self
+    private init() {}
+
+    // MARK: - Configuration
+
+    /// Register the job sites to watch for the current shift.
+    /// Typically called after the day's schedule loads (ScheduleViewModel).
+    /// Replaces any previously registered sites and resets arrival state.
+    func configure(sites: [MonitoredSite]) {
+        self.sites           = sites
+        notifiedVisitIds     = []
     }
 
-    // MARK: - Public API
+    // MARK: - Observation
 
-    /// Register geofences for the provided stops. Clears any previously-registered regions.
-    func loadStops(_ stops: [Stop]) {
-        // Remove all previously monitored Mowology regions
-        for region in locationManager.monitoredRegions
-            where region.identifier.hasPrefix(Self.regionPrefix) {
-            locationManager.stopMonitoring(for: region)
-        }
-        registeredStops.removeAll()
+    /// Feed an incoming GPS fix. O(n) scan over registered sites.
+    /// For typical day schedules (≤ 15 stops) this is negligible on-CPU.
+    func observe(fix: CLLocation) {
+        for site in sites {
+            guard !notifiedVisitIds.contains(site.visitId) else { continue }
 
-        guard locationManager.authorizationStatus == .authorizedAlways else { return }
-
-        for stop in stops {
-            guard let lat = stop.latitude, let lng = stop.longitude else { continue }
-            let id     = "\(Self.regionPrefix)\(stop.stopId)"
-            let name   = stop.displayName ?? stop.propertyAddress
-            let region = CLCircularRegion(
-                center: CLLocationCoordinate2D(latitude: lat, longitude: lng),
-                radius: Self.geofenceRadius,
-                identifier: id
+            let siteLocation = CLLocation(
+                latitude:  site.coordinate.latitude,
+                longitude: site.coordinate.longitude
             )
-            region.notifyOnEntry = true
-            region.notifyOnExit  = false
-            locationManager.startMonitoring(for: region)
-            registeredStops[id] = (stopId: stop.stopId, displayName: name)
-        }
-    }
 
-    /// Manual proximity check called on each GPS ping while a visit is active.
-    /// Fires a notification if within the radius but iOS region monitoring hasn't triggered yet.
-    func observe(fix location: CLLocation) {
-        guard locationManager.authorizationStatus == .authorizedAlways else { return }
-        // Region monitoring handles entry events; observe() is a belt-and-suspenders check
-        // for edge cases where the app is running but the region callback didn't fire.
-        for (id, info) in registeredStops {
-            guard let region = locationManager.monitoredRegions
-                .compactMap({ $0 as? CLCircularRegion })
-                .first(where: { $0.identifier == id }) else { continue }
-
-            if region.contains(location.coordinate) {
-                postArrivalNotification(stopId: info.stopId, displayName: info.displayName, regionId: id)
+            if fix.distance(from: siteLocation) <= site.radiusMeters {
+                notifiedVisitIds.insert(site.visitId)
+                NotificationCenter.default.post(
+                    name:     .mwArrivalDetected,
+                    object:   nil,
+                    userInfo: ["visitId": site.visitId]
+                )
             }
         }
     }
 
-    // MARK: - Notification
+    // MARK: - Reset
 
-    func postArrivalNotification(stopId: Int, displayName: String, regionId: String) {
-        // Avoid re-posting if recently delivered (within 5 minutes)
-        let lastKey = "mw.arrival.last.\(regionId)"
-        let lastFired = UserDefaults.standard.double(forKey: lastKey)
-        let now = Date().timeIntervalSince1970
-        guard now - lastFired > 300 else { return }
-        UserDefaults.standard.set(now, forKey: lastKey)
-
-        let content = UNMutableNotificationContent()
-        content.title    = "You've arrived"
-        content.body     = "At \(displayName). Ready to start the job?"
-        content.sound    = .default
-        content.categoryIdentifier = Self.categoryArrival
-        content.userInfo = ["stop_id": stopId]
-
-        let request = UNNotificationRequest(
-            identifier: "arrival.\(stopId)",
-            content: content,
-            trigger: nil
-        )
-        UNUserNotificationCenter.current().add(request, withCompletionHandler: nil)
+    /// Clear all sites and arrival state. Called on clock-out.
+    func reset() {
+        sites            = []
+        notifiedVisitIds = []
     }
 }
 
-// MARK: - CLLocationManagerDelegate
+// MARK: - Notification Name
 
-extension ArrivalMonitor: CLLocationManagerDelegate {
-
-    func locationManager(_ manager: CLLocationManager,
-                         didEnterRegion region: CLRegion) {
-        guard region.identifier.hasPrefix(Self.regionPrefix),
-              let info = registeredStops[region.identifier] else { return }
-        postArrivalNotification(
-            stopId:      info.stopId,
-            displayName: info.displayName,
-            regionId:    region.identifier
-        )
-    }
-
-    func locationManager(_ manager: CLLocationManager,
-                         monitoringDidFailFor region: CLRegion?,
-                         withError error: Error) {
-        print("[ArrivalMonitor] Monitoring failed: \(error.localizedDescription)")
-    }
+extension Notification.Name {
+    /// Posted on the main thread when the crew arrives at a monitored job site.
+    /// UserInfo key `"visitId"` contains the `Int` visit ID.
+    static let mwArrivalDetected = Notification.Name("ca.mowology.arrivalDetected")
 }

@@ -283,7 +283,7 @@ function createJobPlan(array $planData, int $userId): array {
     } catch (Exception $e) {
         if ($db->inTransaction()) $db->rollBack();
         error_log("createJobPlan error: " . $e->getMessage());
-        return ['success' => false, 'plan_id' => null, 'plan_number' => null, 'errors' => ['Error creating plan: ' . $e->getMessage()]];
+        return ['success' => false, 'plan_id' => null, 'plan_number' => null, 'errors' => ['Error creating plan. Please try again.']];
     }
 }
 

@@ -1,12 +1,8 @@
 <?php
 /**
- * Migration 933 — Contract pathway toggle on quotes
- *
- * 1. Clears the auto-migrated contracts (created incorrectly from all accepted quotes).
- *    All plans revert to standalone (contract_id = NULL). Contracts table emptied.
- * 2. Adds is_contract TINYINT(1) to quotes (default 0 = residential pathway).
- *
- * Safe to run multiple times.
+ * Run Migration 933 — Idempotency Keys
+ * Creates idempotency_keys table for timer/clock duplicate-write protection.
+ * Admin-only, one-time use. Safe to run multiple times (CREATE TABLE IF NOT EXISTS).
  */
 $__dir = __DIR__;
 for ($__i = 0; $__i < 5; $__i++) {
@@ -27,32 +23,28 @@ header('Content-Type: text/plain; charset=utf-8');
 $db = getDB();
 $results = [];
 
-// ── 1. Clear incorrectly auto-migrated contracts ───────────────────────────
-$r = $db->query("UPDATE job_plans SET contract_id = NULL WHERE contract_id IS NOT NULL");
-$results[] = "Cleared contract_id from {$r->rowCount()} job_plan(s).";
-
-$r = $db->query("DELETE FROM contracts");
-$results[] = "Deleted {$r->rowCount()} auto-created contract(s).";
-
-// ── 2. Add is_contract column to quotes ────────────────────────────────────
-$ddl = [
-    "ALTER TABLE quotes ADD COLUMN is_contract TINYINT(1) NOT NULL DEFAULT 0 AFTER status",
-    "ALTER TABLE quotes ADD KEY idx_is_contract (is_contract)",
+$statements = [
+    "CREATE TABLE IF NOT EXISTS `idempotency_keys` (
+        `idem_key`   VARCHAR(64)  NOT NULL,
+        `endpoint`   VARCHAR(80)  NOT NULL,
+        `created_at` TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (`idem_key`, `endpoint`),
+        INDEX `idx_created_at` (`created_at`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
 ];
 
-foreach ($ddl as $sql) {
+foreach ($statements as $sql) {
     try {
         $db->exec($sql);
-        $results[] = "OK  " . substr(trim($sql), 0, 80);
+        $results[] = 'OK: ' . substr($sql, 0, 80) . '...';
     } catch (PDOException $e) {
-        $msg = $e->getMessage();
-        if (strpos($msg, 'Duplicate column') !== false || strpos($msg, '1060') !== false ||
-            strpos($msg, 'Duplicate key')   !== false || strpos($msg, '1061') !== false) {
-            $results[] = "SKIP Already exists — " . substr(trim($sql), 0, 60);
-        } else {
-            $results[] = "ERR  " . $msg;
-        }
+        $results[] = 'ERROR: ' . $e->getMessage() . ' | SQL: ' . substr($sql, 0, 80);
     }
 }
 
-echo "Migration 933 — Contract Pathway Toggle\n\n" . implode("\n", $results) . "\n\nDone.";
+echo "Migration 933 — Idempotency Keys\n";
+echo str_repeat('=', 50) . "\n";
+foreach ($results as $r) {
+    echo $r . "\n";
+}
+echo "\nDone.\n";

@@ -10,8 +10,10 @@ import Foundation
 // MARK: - Keychain Keys
 
 private enum KeychainKey {
-    static let jwt  = "mowology_jwt"
-    static let user = "mowology_user"
+    static let jwt      = "mowology_jwt"
+    static let user     = "mowology_user"
+    static let bioEmail = "mowology_bio_email"
+    static let bioPwd   = "mowology_bio_pwd"
 }
 
 // MARK: - Auth Response
@@ -108,6 +110,9 @@ final class AuthSession: ObservableObject {
             KeychainStore.save(key: KeychainKey.user, value: userJSON)
         }
 
+        // Auto-save credentials for biometric re-login on this device.
+        saveBiometricCredentials(email: email, password: password)
+
         // Update published state.
         token           = authResponse.token
         user            = authResponse.user
@@ -123,6 +128,32 @@ final class AuthSession: ObservableObject {
         token           = nil
         user            = nil
         isAuthenticated = false
+        // Intentionally preserve biometric credentials across logout so the
+        // user can re-authenticate with Face ID without re-entering their password.
+    }
+
+    // MARK: - Biometric Credential Storage
+
+    /// Saves email + password for biometric-gated login.
+    /// Called automatically after every successful password login.
+    func saveBiometricCredentials(email: String, password: String) {
+        KeychainStore.save(key: KeychainKey.bioEmail, value: email)
+        KeychainStore.save(key: KeychainKey.bioPwd,   value: password)
+    }
+
+    /// Returns stored credentials, or nil if not yet saved.
+    var biometricCredentials: (email: String, password: String)? {
+        guard let email    = KeychainStore.load(key: KeychainKey.bioEmail),
+              let password = KeychainStore.load(key: KeychainKey.bioPwd),
+              !email.isEmpty, !password.isEmpty
+        else { return nil }
+        return (email, password)
+    }
+
+    /// True when biometric credentials have been saved (user has logged in with
+    /// password at least once on this device).
+    var hasBiometricCredentials: Bool {
+        biometricCredentials != nil
     }
 
     // MARK: - Private

@@ -32,6 +32,11 @@
 
 'use strict';
 
+// ── IndexedDB constants ────────────────────────────────────────────────────
+const _GFQ_IDB_NAME    = 'mw-geofence-v1';
+const _GFQ_IDB_VERSION = 1;
+const _GFQ_STORE       = 'pending-samples';
+
 class GeofenceSyncQueue {
 
     constructor(opts = {}) {
@@ -54,6 +59,11 @@ class GeofenceSyncQueue {
         this._totalSent    = 0;
         this._totalFailed  = 0;
         this._retryQueue   = [];      // samples that failed on last attempt
+
+        // Promise<IDBDatabase | null> — null when IDB is unavailable.
+        // Resolved after start() opens the database and restores any
+        // samples that survived a previous page reload.
+        this._idb          = null;
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -63,7 +73,22 @@ class GeofenceSyncQueue {
     start() {
         if (this._running) return;
         this._running = true;
-        this._scheduleFlush();
+
+        // Open IndexedDB and restore any samples that survived a page reload
+        // before scheduling the first flush so they're included.
+        this._idb = this._openIdb()
+            .then(db => this._restoreFromIdb(db).then(() => db))
+            .then(db => {
+                this._scheduleFlush();
+                return db;
+            })
+            .catch(err => {
+                console.warn('[GeofenceSyncQueue] IDB unavailable — samples will not',
+                             'survive a page reload:', err.message);
+                this._scheduleFlush();   // still run without persistence
+                return null;
+            });
+
         console.debug('[GeofenceSyncQueue] Started. Interval:', this._opts.flushIntervalSec, 's');
     }
 
@@ -83,6 +108,13 @@ class GeofenceSyncQueue {
 
     enqueue(sample) {
         this._queue.push(sample);
+
+        // Persist to IDB immediately so this sample survives a page reload.
+        // Fire-and-forget — do not block the sample ingestion path.
+        // The IDB auto-increment key is stamped back on the sample object
+        // as _idbKey once the write completes; _sendBatch uses it to delete
+        // the record after a successful server upload.
+        this._persistToIdb(sample);
 
         // Immediate flush if queue is large (avoid memory buildup on slow networks)
         if (this._queue.length >= this._opts.maxBatchSize && !this._inflight) {
@@ -163,12 +195,19 @@ class GeofenceSyncQueue {
     }
 
     _sendBatch(samples) {
+        // Strip the internal IDB tracking key before sending to the server.
+        // The server must never receive _idbKey in the sample payload.
+        const cleanSamples = samples.map(s => {
+            const { _idbKey, ...rest } = s;  // eslint-disable-line no-unused-vars
+            return rest;
+        });
+
         const body = JSON.stringify({
             action:      'sync_samples',
             csrf_token:  this._opts.csrfToken,
             visit_id:    this._opts.visitId,
             geofence_id: this._opts.geofenceId,
-            samples,
+            samples:     cleanSamples,
         });
 
         return fetch(this._opts.apiBase, {
@@ -183,6 +222,12 @@ class GeofenceSyncQueue {
         })
         .then(data => {
             if (!data.success) throw new Error(data.error || 'Sync error');
+            // Delete successfully-sent records from IDB so they don't
+            // get re-submitted after a future page reload.
+            const sentKeys = samples
+                .filter(s => s._idbKey !== undefined)
+                .map(s => s._idbKey);
+            this._deleteFromIdb(sentKeys);
             console.debug('[GeofenceSyncQueue] Batch sent:',
                           data.inserted, 'inserted,', data.skipped, 'skipped');
             return data;
@@ -206,7 +251,97 @@ class GeofenceSyncQueue {
         }, delay);
     }
 
+    // ──────────────────────────────────────────────────────────────────────────
+    // IndexedDB helpers — durability layer for page-reload survival
+    // ──────────────────────────────────────────────────────────────────────────
+
+    _openIdb() {
+        return new Promise((resolve, reject) => {
+            if (!window.indexedDB) {
+                reject(new Error('IndexedDB not available'));
+                return;
+            }
+            const req = indexedDB.open(_GFQ_IDB_NAME, _GFQ_IDB_VERSION);
+            req.onupgradeneeded = e => {
+                const db = e.target.result;
+                if (!db.objectStoreNames.contains(_GFQ_STORE)) {
+                    const store = db.createObjectStore(_GFQ_STORE, {
+                        keyPath:       '_idbKey',
+                        autoIncrement: true,
+                    });
+                    // Index on visitId so we only restore samples for the current visit.
+                    store.createIndex('byVisit', '_visitId', { unique: false });
+                }
+            };
+            req.onsuccess = e => resolve(e.target.result);
+            req.onerror   = e => reject(e.target.error);
+        });
+    }
+
+    _restoreFromIdb(db) {
+        return new Promise(resolve => {
+            const visitId = this._opts.visitId;
+            try {
+                const tx    = db.transaction(_GFQ_STORE, 'readonly');
+                const store = tx.objectStore(_GFQ_STORE);
+                const idx   = store.index('byVisit');
+                const req   = idx.getAll(IDBKeyRange.only(visitId));
+                req.onsuccess = e => {
+                    const records = e.target.result || [];
+                    if (records.length > 0) {
+                        // Prepend to queue — these are older than anything collected
+                        // since page load. _idbKey is already on each record from IDB.
+                        this._queue = [...records, ...this._queue];
+                        console.debug('[GeofenceSyncQueue] Restored', records.length,
+                                      'samples from IDB for visit', visitId);
+                    }
+                    resolve();
+                };
+                req.onerror = () => resolve();   // non-fatal
+            } catch (e) {
+                resolve();
+            }
+        });
+    }
+
+    /** Write one sample to IDB and stamp its auto-increment key back on the object. */
+    _persistToIdb(sample) {
+        if (!this._idb) return;
+        Promise.resolve(this._idb).then(db => {
+            if (!db) return;
+            // Merge IDB-only fields (visitId index) into the record.
+            // These are NOT sent to the server — stripped in _sendBatch.
+            const record = Object.assign({}, sample, { _visitId: this._opts.visitId });
+            try {
+                const tx    = db.transaction(_GFQ_STORE, 'readwrite');
+                const store = tx.objectStore(_GFQ_STORE);
+                const req   = store.add(record);
+                req.onsuccess = e => {
+                    // Stamp IDB key onto the in-memory sample object.
+                    // _sendBatch reads this key to delete after successful upload.
+                    sample._idbKey = e.target.result;
+                };
+            } catch (e) { /* non-fatal */ }
+        });
+    }
+
+    /** Delete IDB records after successful server upload. */
+    _deleteFromIdb(keys) {
+        if (!this._idb || !keys.length) return;
+        Promise.resolve(this._idb).then(db => {
+            if (!db) return;
+            try {
+                const tx    = db.transaction(_GFQ_STORE, 'readwrite');
+                const store = tx.objectStore(_GFQ_STORE);
+                keys.forEach(k => store.delete(k));
+            } catch (e) { /* non-fatal */ }
+        });
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
     // Stats
+    // ──────────────────────────────────────────────────────────────────────────
+
     get stats() {
         return {
             queued:      this.queueLength,
