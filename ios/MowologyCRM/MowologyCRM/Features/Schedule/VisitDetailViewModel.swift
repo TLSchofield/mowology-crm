@@ -57,6 +57,31 @@ final class VisitDetailViewModel: ObservableObject {
             : String(format: "%02d:%02d", m, s)
     }
 
+    // MARK: - Sync State on Appear
+
+    /// Fetch the server's current timer state for this stop's visits.
+    /// Must be called on view appear so the Start/Stop button reflects reality
+    /// rather than always defaulting to "Start" regardless of server state.
+    func syncState(visitIds: [Int]) async {
+        guard !isLoading else { return }
+        isLoading = true
+
+        do {
+            let response: ClockStatusResponse = try await apiClient.request(.scheduleClockStatus)
+            if let active = response.activeJob, visitIds.contains(active.visitId) {
+                activeVisitId       = active.visitId
+                timerElapsedSeconds = active.elapsedSeconds
+                isTimerRunning      = true
+                startTicking()
+                GPSTrackingService.shared.setActiveVisit(active.visitId)
+            }
+        } catch {
+            // Non-fatal — worst case the button label is wrong until they tap it
+        }
+
+        isLoading = false
+    }
+
     // MARK: - Start Timer
 
     func startTimer(visitId: Int) async {

@@ -61,6 +61,10 @@ struct VisitDetailView: View {
         .background(Color(.systemGroupedBackground))
         .navigationTitle(stop.propertyAddress)
         .navigationBarTitleDisplayMode(.inline)
+        .task {
+            let visitIds = stop.visits.map { $0.visitId }
+            await timerVM.syncState(visitIds: visitIds)
+        }
     }
 
     // MARK: - Property Section
