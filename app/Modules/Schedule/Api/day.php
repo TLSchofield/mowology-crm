@@ -81,6 +81,40 @@ try {
 
 $dayStops = $calendarData[$date] ?? [];
 
+// ── Crew phone lookup (admin only) ────────────────────────────────────────────
+// Collect every unique crew_id across all stops, then batch-fetch name+phone.
+// Only done for admin/manager — crew members' phones are private data.
+$crewPhoneMap = [];
+if (jwtIsAdmin($jwtUser['role']) && !empty($dayStops)) {
+    $allCrewIds = [];
+    foreach ($dayStops as $s) {
+        foreach (($s['crew_ids'] ?? []) as $uid) {
+            $allCrewIds[(int)$uid] = true;
+        }
+    }
+    if (!empty($allCrewIds)) {
+        try {
+            $db = getDB();
+            $ids = array_keys($allCrewIds);
+            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+            $stmt = $db->prepare(
+                "SELECT id, full_name, phone FROM users WHERE id IN ({$placeholders})"
+            );
+            $stmt->execute($ids);
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $crewPhoneMap[(int)$row['id']] = [
+                    'user_id' => (int)$row['id'],
+                    'name'    => (string)$row['full_name'],
+                    'phone'   => $row['phone'] !== null ? (string)$row['phone'] : null,
+                ];
+            }
+        } catch (Throwable $e) {
+            error_log('[schedule/day] crew phone lookup error: ' . $e->getMessage());
+            // Non-fatal — crew_members will just be empty
+        }
+    }
+}
+
 // ── Sort: estimated_arrival first, then route_order ───────────────────────────
 uasort($dayStops, static function (array $a, array $b): int {
     $aTime = $a['estimated_arrival'] ?? ($a['visits'][0]['scheduled_time_start'] ?? '23:59:59');
@@ -134,6 +168,13 @@ foreach ($dayStops as $stop) {
         'company_name'     => isset($stop['company_name']) ? (string)$stop['company_name'] : null,
         'lawn_sqft'        => isset($stop['lawn_sqft']) ? (float)$stop['lawn_sqft'] : null,
         'crew_names'       => $stop['crew_names'] ?? ($stop['crew_name'] ? [(string)$stop['crew_name']] : []),
+        'crew_members'     => array_values(array_filter(
+            array_map(
+                static fn(int $uid) => $crewPhoneMap[$uid] ?? null,
+                array_map('intval', $stop['crew_ids'] ?? [])
+            ),
+            static fn($m) => $m !== null
+        )),
         'visit_count'      => count($visits),
         'visits'           => $visits,
     ];

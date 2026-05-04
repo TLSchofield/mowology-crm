@@ -151,6 +151,7 @@ $actionAliases = [
     'schedule' => [
         'day'                => 'day',
         'week'               => 'week',
+        'job-photo'          => 'job-photo',
     ],
 ];
 
