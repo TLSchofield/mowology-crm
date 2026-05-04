@@ -26,6 +26,33 @@ declare(strict_types=1);
  *   "rank_tier": { tier, name, icon, next_at, next_name },
  *   "category_accuracy": [ { name, colour, total, correct, pct } ]
  * }
+ *
+ * PRODUCTION SAFETY — READ BEFORE EDITING
+ * ────────────────────────────────────────
+ * This is a read-only endpoint — it writes nothing. Safe to retry.
+ *
+ * Monthly stats use `AND completed_at IS NOT NULL` to exclude in-progress
+ * sessions. Removing this filter would inflate games_played and monthly_points
+ * mid-session.
+ *
+ * category_accuracy intentionally has NO month filter — it shows lifetime
+ * accuracy across all sessions. This is by design: the iOS hub uses lifetime
+ * accuracy to show which categories the crew member needs the most practice on.
+ * Do not add a month_year filter here without changing the iOS label from
+ * "accuracy" to "this month's accuracy".
+ *
+ * total_mastered uses mastery_level >= 4 — "Mastered" and "Expert" both count.
+ * This threshold drives rankTierInfo() in QuizHelpers.php — if you change the
+ * mastery scale, update both here and the rankTierInfo() tier thresholds.
+ *
+ * totalBadges reads ALL badges from quiz_badges (not filtered by user).
+ * This is intentional — it shows how many badges exist in total, not how many
+ * the user has earned. If the table is empty, total_badges = 0 (safe).
+ *
+ * Five separate queries are used instead of one large join because the data
+ * spans unrelated aggregations (sessions, mastery, streaks, badges, answers).
+ * A single query would require CROSS JOINs or subqueries that are harder to
+ * read and debug without performance benefit for this data volume.
  */
 
 if (!defined('APP_ROOT')) {

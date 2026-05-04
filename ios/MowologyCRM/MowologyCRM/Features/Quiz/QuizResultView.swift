@@ -2,6 +2,28 @@
 //  QuizResultView.swift
 //  MowologyCRM
 //
+//  PRODUCTION SAFETY — READ BEFORE EDITING
+//  ────────────────────────────────────────
+//  navigationBarBackButtonHidden is intentional — it prevents the user from
+//  navigating back into a completed session. Once the session is finished
+//  server-side (completed_at is set), the question endpoint returns 409
+//  "Session already complete". Hiding the back button avoids a confusing
+//  error state from that 409.
+//
+//  onPlayAgain calls viewModel.restart() (via the closure passed from
+//  QuizPlayView). restart() resets sessionStart and currentQuestionNum,
+//  then calls startSession() to create a new session. If this closure is
+//  not wired correctly, "Play Again" would show the results of the old
+//  session again without starting a new one.
+//
+//  monthlyRank > 0 guard before showing rankLine: the idempotent retry path
+//  in finish.php returns monthly_rank = 0. Showing "#0 on leaderboard" would
+//  be confusing — the guard suppresses it on retry responses.
+//
+//  streak.newBest drives the "New personal best!" label. This value comes
+//  from updateDailyStreak() in QuizHelpers.php, which compares against the
+//  pre-update longest_streak. It is reliable only on the first call — the
+//  idempotent retry path in finish.php returns new_best = false.
 
 import SwiftUI
 

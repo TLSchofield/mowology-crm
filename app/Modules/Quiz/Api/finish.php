@@ -21,8 +21,36 @@ declare(strict_types=1);
  *   "streak": { current_streak, longest_streak, new_best },
  *   "new_badges": [ { key, name, icon } ]
  * }
+ *
+ * PRODUCTION SAFETY — READ BEFORE EDITING
+ * ────────────────────────────────────────
+ * This endpoint triggers four side effects in sequence. Each has its own
+ * safety mechanism — do NOT reorder or collapse them:
+ *
+ *   1. Session guard (completed_at IS NULL)
+ *      Prevents double-finish from iOS network retries. On a duplicate call
+ *      the idempotent path returns the cached score from quiz_sessions rather
+ *      than re-running streak/badge logic. Removing this turns every network
+ *      retry into a duplicate streak tick.
+ *
+ *   2. Score aggregation (quiz_answers)
+ *      Reads from the audit log — never modifies it. The CASE points formula
+ *      here MUST stay in sync with the matching formula in answer.php.
+ *      If they diverge, stored total_points (set by answer.php per-question)
+ *      will disagree with recalculated totals.
+ *
+ *   3. Monthly rank (SQL subquery)
+ *      Calculated via correlated subqueries — do NOT revert to a PHP loop
+ *      over fetchAll(). At 50+ users the PHP approach fetches all monthly
+ *      sessions into memory on every quiz completion.
+ *
+ *   4. updateDailyStreak() and checkAndAwardBadges()
+ *      Both are idempotent (streak has a same-day guard; badges use INSERT IGNORE).
+ *      They MUST be called after the session is marked complete so the badge
+ *      checks see the updated quiz_sessions row. Do not move them before the UPDATE.
  */
 
+// ── Bootstrap ─────────────────────────────────────────────────────────────────
 if (!defined('APP_ROOT')) {
     $__dir = __DIR__;
     for ($__i = 0; $__i < 6; $__i++) {
@@ -64,11 +92,17 @@ try {
     $db        = Database::pdo();
     $monthYear = date('Y-m');
 
+    // ── Idempotency guard ────────────────────────────────────────────────────
+    // completed_at IS NULL is the single gate preventing double-execution.
+    // On iOS network retry: session is found but already completed → the
+    // idempotent path below returns the cached result without re-running
+    // streak, badges, or rank calculation.
     $sess = $db->prepare("SELECT * FROM quiz_sessions WHERE id=? AND user_id=? AND completed_at IS NULL");
     $sess->execute([$sessionId, $userId]);
     $session = $sess->fetch(PDO::FETCH_ASSOC);
     if (!$session) {
-        // Already completed — return the cached result idempotently
+        // Already completed — return cached result. Streak and badge fields
+        // are simplified (new_best=false, new_badges=[]) since this is a retry.
         $done = $db->prepare("SELECT * FROM quiz_sessions WHERE id=? AND user_id=?");
         $done->execute([$sessionId, $userId]);
         $existing = $done->fetch(PDO::FETCH_ASSOC);
@@ -94,7 +128,9 @@ try {
         exit;
     }
 
-    // Aggregate answers
+    // ── Score aggregation ────────────────────────────────────────────────────
+    // Reads quiz_answers written by answer.php. The points CASE tiers (10/13/15)
+    // must match those in answer.php — if you change one, change the other.
     $agg = $db->prepare(
         "SELECT COUNT(*) AS total, SUM(is_correct) AS correct,
                 SUM(CASE WHEN is_correct=1 AND time_taken_seconds<=10 THEN 15
@@ -108,11 +144,15 @@ try {
     $correctCount = (int)($agg['correct'] ?? 0);
     $totalPoints  = (int)($agg['points']  ?? 0);
 
+    // Mark session complete — this is what the idempotency guard reads on retry.
     $db->prepare(
         "UPDATE quiz_sessions SET completed_at=NOW(), correct_count=?, total_points=? WHERE id=?"
     )->execute([$correctCount, $totalPoints, $sessionId]);
 
-    // Monthly rank — SQL subquery avoids fetching all users into PHP
+    // ── Monthly rank ─────────────────────────────────────────────────────────
+    // Correlated subqueries: count how many users scored higher this month.
+    // rank = 1 if no one scored higher (including ties at the top).
+    // Do NOT revert to fetchAll() + PHP loop — O(n) memory at scale.
     $rankStmt = $db->prepare(
         "SELECT
              COALESCE(
@@ -135,6 +175,10 @@ try {
     $myRank         = (int)($rankRow['my_rank']  ?? 0);
     $myMonthlyTotal = (int)($rankRow['my_total'] ?? 0);
 
+    // ── Streak + badges ──────────────────────────────────────────────────────
+    // Both are idempotent — safe if called again on a duplicate request that
+    // somehow bypassed the guard above. updateDailyStreak() short-circuits if
+    // already called today. checkAndAwardBadges() uses INSERT IGNORE.
     $streakResult = updateDailyStreak($db, $userId);
     $newBadges    = checkAndAwardBadges($db, $userId);
 

@@ -2,6 +2,30 @@
 //  QuizPlayViewModel.swift
 //  MowologyCRM
 //
+//  PRODUCTION SAFETY — READ BEFORE EDITING
+//  ────────────────────────────────────────
+//  State machine: .loading → .question → .answered → .finished (or .error).
+//  Transitions are one-way within a session — you cannot go from .answered
+//  back to .question for the same question; advance() moves to the next question.
+//
+//  questionLoadedAt is reset at the top of loadQuestion() — it tracks when
+//  the question was displayed, not when the answer was submitted. time_taken
+//  is clamped to [0, 30] both here and server-side. Do not move the reset
+//  to startSession() or time_taken will be inflated by session start latency.
+//
+//  advance() checks `next <= total` (1-based, inclusive) before calling
+//  finishSession(). If you change to `next < total` (< instead of <=), the
+//  last question never triggers finish. If you change to `next > total`, the
+//  second-to-last question triggers finish one question early.
+//
+//  sessionLength is passed to the server via the start body. The server
+//  validates [3, 5, 10] and defaults to 10 if the value is outside the
+//  allowlist. The default of 10 in the initializer is the fallback for hub
+//  play — the pre-shift gate always supplies the admin-configured length.
+//
+//  restart() resets sessionStart and currentQuestionNum to nil/1 before
+//  calling startSession(). This ensures the view does not show a stale
+//  session ID from the previous run while the new session is loading.
 
 import Foundation
 

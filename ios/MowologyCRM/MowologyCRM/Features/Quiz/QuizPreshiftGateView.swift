@@ -6,6 +6,34 @@
 //  quiz is required and not yet completed. Cannot be dismissed — the user
 //  must complete the quiz to proceed.
 //
+//  PRODUCTION SAFETY — READ BEFORE EDITING
+//  ────────────────────────────────────────
+//  This view is the crew-facing enforcement of the pre-shift requirement.
+//  Getting it wrong in either direction has field consequences:
+//    - Always shows  → crew can't start their day even if quiz is disabled
+//    - Never shows   → pre-shift training is bypassed
+//
+//  QuizPreshiftViewModel.checkStatus() short-circuits if status != nil.
+//  This is intentional — RootView fetches status once and passes it via
+//  initialStatus to avoid a redundant API call. Do NOT remove the guard or
+//  the gate will always do a second fetch on appear, doubling the latency.
+//
+//  markComplete() is fail-open: if the POST to /api/quiz/preshift fails,
+//  the error is recorded but onComplete() is still called. This ensures a
+//  network timeout after a completed quiz does not re-show the gate.
+//  The pre-shift log is written server-side; if the POST failed, the server
+//  didn't write the log — but blocking the crew for a network error is worse
+//  than allowing the bypass. The server will simply require the quiz again
+//  tomorrow (or if the crew logs out and back in).
+//
+//  The completedToday guard in the body (status.completedToday → onComplete())
+//  is a defensive safety net for if the gate is shown when the quiz is already
+//  done (e.g., race condition on quick re-login). It auto-dismisses silently.
+//
+//  preshiftPlayView passes sessionLength from viewModel.status?.sessionLength.
+//  This ensures the quiz length matches what the admin configured in
+//  quiz_preshift_settings. Do NOT hardcode 5 or 10 here.
+//
 
 import SwiftUI
 

@@ -2,6 +2,28 @@
 //  QuizHubView.swift
 //  MowologyCRM
 //
+//  PRODUCTION SAFETY — READ BEFORE EDITING
+//  ────────────────────────────────────────
+//  This is the quiz landing screen (tab 4). It shows category cards, monthly
+//  stats, and provides entry points for category-specific and any-category play.
+//
+//  "Play Any Categories" uses categoryId == 0 as a sentinel that is converted
+//  to nil before being passed to QuizPlayView (cat.id == 0 ? nil : cat.id).
+//  The server interprets nil category_id as "any category". Do not send 0 to
+//  the server — quiz_categories has no id=0 row and the query would return no
+//  questions.
+//
+//  Two .navigationDestination(item: $selectedCategory) blocks exist — one for
+//  category taps in the grid, one inside the "Play Any" button scope. They
+//  both watch the same @State var. In SwiftUI, two destinations for the same
+//  item binding coexist but only the last registered one fires reliably.
+//  If navigation stops working, check that both destinations resolve to the
+//  same QuizPlayView init path (they currently do).
+//
+//  .task { await viewModel.load() } runs two parallel requests
+//  (quizCategories and quizStats). Both must succeed for the UI to render.
+//  If either fails, errorMessage is shown. No partial render is attempted —
+//  the full stats bar and category grid require both responses.
 
 import SwiftUI
 

@@ -9,6 +9,39 @@ declare(strict_types=1);
  * web CSRF API (public/crm/api/quiz.php).
  *
  * No session, no auth, no globals — all dependencies passed as parameters.
+ *
+ * PRODUCTION SAFETY — READ BEFORE EDITING
+ * ────────────────────────────────────────
+ * This file is included by BOTH the iOS JWT API and the Capacitor web API.
+ * Any change here propagates to both surfaces. Before editing any function:
+ *
+ *   computeNewMastery()  — speed bonus thresholds (≤10s = +2 levels) are
+ *     referenced in answer.php comments. They are NOT checked in answer.php
+ *     itself because answer.php delegates to this function. Change them here
+ *     only, and update the answer.php safety comment to match.
+ *
+ *   updateMastery()  — uses an atomic INSERT ... ON DUPLICATE KEY UPDATE to
+ *     avoid the SELECT+INSERT race condition. Do NOT revert to the two-step
+ *     pattern (SELECT existing row, then INSERT or UPDATE). Under concurrent
+ *     requests (network retries, double-tap) the race would produce duplicate
+ *     mastery rows or double-increment total_attempts.
+ *
+ *   updateDailyStreak()  — contains a same-day guard (lastDate === today →
+ *     return early). This is the idempotency mechanism. Removing it turns every
+ *     quiz completion into a streak increment, breaking multi-session days.
+ *
+ *   checkAndAwardBadges()  — uses INSERT IGNORE on quiz_user_badges. Safe to
+ *     call multiple times. Must be called AFTER the session is marked complete
+ *     in finish.php so that perfect_session badge checks see the updated row.
+ *
+ *   selectSeasonalQuestions()  — runs 4 queries (not 1). Pool 4 is a fill pool
+ *     that guarantees the target session_length even when earlier pools are
+ *     undersized. Do not merge pools into a single ORDER BY RAND() query — the
+ *     weighted blending logic (40/30/20/10) would be lost.
+ *
+ *   getSeasonContext()  — months are 1-based (date('n')). The wrap-around check
+ *     handles winter (Nov → Feb). Do NOT change month numbers without re-testing
+ *     all 12 months — off-by-one here produces wrong seasonal questions globally.
  */
 
 // ── Season context ────────────────────────────────────────────────────────────
@@ -202,6 +235,16 @@ function masteryMeta(): array
  * Compute new mastery after an answer.
  * Speed bonus: correct in ≤10s → advance 2 levels; else 1.
  * Wrong: drop 1 (floor = 1 if already seen, 0 if unseen).
+ *
+ * Changing the ≤10s threshold changes the speed bonus without requiring any
+ * DB or iOS changes — but answer.php's safety comment references this value.
+ * If you change it, update that comment too so the docs stay accurate.
+ *
+ * The floor logic (current >= 1 → floor=1, else floor=0) means an Unseen
+ * question answered wrong stays Unseen rather than going negative.
+ * A Learning (level=1) question answered wrong stays Learning (not Unseen),
+ * because Unseen implies "never seen" — we don't want a wrong answer to erase
+ * the fact that the crew member has seen this question.
  */
 function computeNewMastery(int $current, bool $correct, int $timeTaken, int $streak): array
 {
@@ -222,9 +265,20 @@ function computeNewMastery(int $current, bool $correct, int $timeTaken, int $str
 
 /**
  * Upsert quiz_user_mastery for one answer. Returns mastery delta info.
+ *
+ * The SELECT at the top reads the current state so we can return the delta
+ * to the caller (old_level, new_level). The actual write is an atomic upsert —
+ * do NOT replace the INSERT ... ON DUPLICATE KEY UPDATE with a separate INSERT
+ * or UPDATE. The atomic upsert prevents duplicate rows and double-increments
+ * when two requests for the same user+question arrive concurrently (iOS retry).
+ *
+ * total_attempts uses `= total_attempts + 1` (server-side increment) rather
+ * than a client-supplied value. This ensures concurrent requests can't both
+ * read the same value and write the same incremented value (lost update).
  */
 function updateMastery(PDO $db, int $userId, int $questionId, bool $correct, int $timeTaken): array
 {
+    // Read current state for delta calculation only — the actual write is atomic below.
     $stmt = $db->prepare("SELECT * FROM quiz_user_mastery WHERE user_id = ? AND question_id = ?");
     $stmt->execute([$userId, $questionId]);
     $existing = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -281,6 +335,20 @@ function rankTierInfo(int $totalMastered): array
 
 // ── Daily streak ──────────────────────────────────────────────────────────────
 
+/**
+ * Update the user's daily quiz streak. Called by finish.php after session completes.
+ *
+ * Same-day guard: if last_active_date === today, returns the current streak without
+ * incrementing. This is the idempotency mechanism — removing it would increment the
+ * streak on every quiz completion in a day, not just the first.
+ *
+ * The yesterday check (lastDate === yesterday → continue streak) means a day gap
+ * resets to 1. This is intentional — streaks require daily activity.
+ *
+ * Must be called AFTER quiz_sessions is marked complete (in finish.php) because
+ * the streak update should only happen for completed sessions. Calling it before
+ * the session update would tick the streak on failed/abandoned sessions.
+ */
 function updateDailyStreak(PDO $db, int $userId): array
 {
     $today = date('Y-m-d');
@@ -300,6 +368,7 @@ function updateDailyStreak(PDO $db, int $userId): array
     $current  = (int)$row['current_streak'];
     $longest  = (int)$row['longest_streak'];
 
+    // Same-day guard — idempotent: multiple sessions in one day count as one streak tick.
     if ($lastDate === $today) {
         return ['current_streak' => $current, 'longest_streak' => $longest, 'new_best' => false];
     }
@@ -320,6 +389,21 @@ function updateDailyStreak(PDO $db, int $userId): array
 
 // ── Badge checking ────────────────────────────────────────────────────────────
 
+/**
+ * Check all badge requirements and award any newly earned badges.
+ *
+ * Uses INSERT IGNORE — idempotent and safe to call multiple times per session.
+ * A badge that's already been earned silently skips (no duplicate row, no error).
+ *
+ * Must be called AFTER the session is marked complete in finish.php so that
+ * perfect_session checks see the completed row (correct_count = questions_count).
+ * Calling it before the UPDATE leaves the just-finished session as incomplete,
+ * and perfect_session badges would never fire for the current session.
+ *
+ * Adding a new requirement_type requires a new case in the switch block here.
+ * The quiz_badges table holds the requirement_type and requirement_value — the
+ * code does not need to change when new badge rows are inserted.
+ */
 function checkAndAwardBadges(PDO $db, int $userId): array
 {
     $allBadges = $db->query("SELECT * FROM quiz_badges ORDER BY id")->fetchAll(PDO::FETCH_ASSOC);

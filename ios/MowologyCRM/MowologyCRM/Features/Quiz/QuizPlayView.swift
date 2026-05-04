@@ -2,6 +2,28 @@
 //  QuizPlayView.swift
 //  MowologyCRM
 //
+//  PRODUCTION SAFETY — READ BEFORE EDITING
+//  ────────────────────────────────────────
+//  This view drives the entire quiz play loop. Key safety mechanisms:
+//
+//  didNotifyFinished guard — prevents onFinished from firing more than once.
+//  Without it, navigating to QuizResultView can trigger .onAppear multiple times
+//  on SwiftUI re-renders, calling the pre-shift gate's markComplete() callback
+//  repeatedly. The guard is @State so it resets on view recreation (correct).
+//
+//  onFinished is called AFTER the session is finished (.finished state) — not
+//  when the last question is answered. The session ID is only available after
+//  finishSession() completes, so the callback correctly runs inside .onAppear
+//  on the QuizResultView branch. Do not move this call to .answered state.
+//
+//  Option button coloring uses selectedOptionId from the server response to
+//  identify the wrong-chosen option. If the server stops returning
+//  selected_option_id, wasChosen is always false and the red X indicator
+//  disappears — the correct option is still highlighted green.
+//
+//  sessionLength default of 10 applies only when QuizPlayView is launched
+//  from QuizHubView (normal play). The pre-shift gate always passes the
+//  admin-configured length from QuizPreshiftStatus.sessionLength.
 
 import SwiftUI
 

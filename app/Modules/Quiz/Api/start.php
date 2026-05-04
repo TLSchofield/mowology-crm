@@ -19,8 +19,31 @@ declare(strict_types=1);
  *   "season_icon": "...",
  *   "season_tagline": "..."
  * }
+ *
+ * PRODUCTION SAFETY — READ BEFORE EDITING
+ * ────────────────────────────────────────
+ * This endpoint is the entry point for every quiz session. It writes one row
+ * to quiz_sessions and commits the question order. Everything downstream
+ * (question.php, answer.php, finish.php) depends on the question_ids column
+ * written here — do not change the storage format without updating all consumers.
+ *
+ * session_length is intentionally server-validated to [3, 5, 10].
+ * The iOS app sends the value from quiz_preshift_settings.session_length —
+ * if you widen this allowlist, update the preshift settings validation too.
+ *
+ * question_ids is stored as a CSV of integers (e.g., "42,17,88,5,31").
+ * It is read back in question.php and answer.php using explode+intval.
+ * Do NOT change this format to JSON or another type without updating both readers.
+ *
+ * The "random" mode uses ORDER BY RAND() — acceptable for small question pools
+ * (hundreds of questions). Do not use it on tables with thousands of rows.
+ *
+ * The "seasonal" mode calls selectSeasonalQuestions() in QuizHelpers.php,
+ * which runs 4 separate queries. This is intentional — it applies weighted
+ * blending logic that cannot be expressed as a single query.
  */
 
+// ── Bootstrap ─────────────────────────────────────────────────────────────────
 if (!defined('APP_ROOT')) {
     $__dir = __DIR__;
     for ($__i = 0; $__i < 6; $__i++) {
@@ -49,6 +72,10 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 $jwtUser = requireJwt();
 $userId  = (int)$jwtUser['id'];
 
+// ── Input parsing ─────────────────────────────────────────────────────────────
+// category_id null = "any category" (used by pre-shift gate and Play Any button).
+// session_length defaults to 10 but iOS sends the value from preshift settings.
+// Allowlist enforced server-side — do not trust client to send a valid value.
 $input         = (array)(json_decode(file_get_contents('php://input'), true) ?? []);
 $categoryId    = isset($input['category_id']) && $input['category_id'] !== null && $input['category_id'] !== ''
                    ? (int)$input['category_id'] : null;
@@ -57,9 +84,12 @@ if (!in_array($sessionLength, [3, 5, 10], true)) $sessionLength = 10;
 $mode = $input['mode'] ?? 'seasonal';
 
 try {
-    $db         = Database::pdo();
-    $monthYear  = date('Y-m');
+    $db        = Database::pdo();
+    $monthYear = date('Y-m');
 
+    // ── Question selection ────────────────────────────────────────────────────
+    // "random": ORDER BY RAND() — simple but O(n) sort. Fine for small pools.
+    // "seasonal": 4-pool weighted blending via QuizHelpers.selectSeasonalQuestions().
     if ($mode === 'random') {
         if ($categoryId !== null) {
             $stmt = $db->prepare("SELECT id FROM quiz_questions WHERE category_id=? AND is_active=1 ORDER BY RAND() LIMIT {$sessionLength}");
@@ -69,7 +99,6 @@ try {
         }
         $qids = $stmt->fetchAll(PDO::FETCH_COLUMN);
     } else {
-        // Seasonal blending (default)
         $qids = selectSeasonalQuestions($db, $userId, $categoryId, $sessionLength);
     }
 
@@ -79,6 +108,9 @@ try {
         exit;
     }
 
+    // ── Session write ─────────────────────────────────────────────────────────
+    // question_ids stored as CSV. answer.php and question.php both read this
+    // column — do not change the format without updating those files.
     $questionIds = implode(',', array_map('intval', $qids));
     $db->prepare(
         "INSERT INTO quiz_sessions (user_id, category_id, question_ids, questions_count, month_year)

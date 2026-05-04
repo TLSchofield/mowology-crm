@@ -307,32 +307,25 @@ function updateMastery(PDO $db, int $userId, int $questionId, bool $correct, int
     $newStreak  = $computed['streak'];
     $nextReview = $computed['next_review'];
 
-    if ($existing) {
-        $db->prepare(
-            "UPDATE quiz_user_mastery
-             SET mastery_level=?, correct_streak=?, total_attempts=?, total_correct=?,
-                 last_seen_at=NOW(), next_review_at=?, updated_at=NOW()
-             WHERE user_id=? AND question_id=?"
-        )->execute([
-            $newLevel, $newStreak,
-            $totalAttempts + 1,
-            $totalCorrect + ($correct ? 1 : 0),
-            $nextReview,
-            $userId, $questionId,
-        ]);
-    } else {
-        $db->prepare(
-            "INSERT INTO quiz_user_mastery
+    // Atomic upsert — safe under concurrent requests from same user
+    $db->prepare(
+        "INSERT INTO quiz_user_mastery
              (user_id, question_id, mastery_level, correct_streak, total_attempts, total_correct, last_seen_at, next_review_at)
-             VALUES (?,?,?,?,?,?,NOW(),?)"
-        )->execute([
-            $userId, $questionId,
-            $newLevel, $newStreak,
-            1,
-            $correct ? 1 : 0,
-            $nextReview,
-        ]);
-    }
+         VALUES (?,?,?,?,1,?,NOW(),?)
+         ON DUPLICATE KEY UPDATE
+             mastery_level   = VALUES(mastery_level),
+             correct_streak  = VALUES(correct_streak),
+             total_attempts  = total_attempts + 1,
+             total_correct   = total_correct + VALUES(total_correct),
+             last_seen_at    = NOW(),
+             next_review_at  = VALUES(next_review_at),
+             updated_at      = NOW()"
+    )->execute([
+        $userId, $questionId,
+        $newLevel, $newStreak,
+        $correct ? 1 : 0,
+        $nextReview,
+    ]);
 
     $meta = masteryMeta();
     return [
@@ -833,6 +826,10 @@ switch ($action) {
         $session = $sess->fetch(PDO::FETCH_ASSOC);
         if (!$session) qErr('Session not found or already complete', 404);
 
+        // Verify question belongs to this session — prevents mastery farming on arbitrary questions
+        $sessionQids = array_map('intval', explode(',', $session['question_ids']));
+        if (!in_array($questionId, $sessionQids, true)) qErr('Question not part of this session', 403);
+
         $dup = $db->prepare("SELECT id FROM quiz_answers WHERE session_id=? AND question_id=?");
         $dup->execute([$sessionId, $questionId]);
         if ($dup->fetch()) qErr('Already answered this question');
@@ -857,10 +854,11 @@ switch ($action) {
         $masteryUpdate = updateMastery($db, $userId, $questionId, $isCorrect, $timeTaken);
 
         qOk([
-            'is_correct'        => $isCorrect,
-            'correct_option_id' => $correctOptionId,
-            'points_earned'     => $points,
-            'mastery'           => $masteryUpdate,
+            'is_correct'         => $isCorrect,
+            'correct_option_id'  => $correctOptionId,
+            'selected_option_id' => $selectedOptionId,
+            'points_earned'      => $points,
+            'mastery'            => $masteryUpdate,
         ]);
 
     // ── POST: finish session ───────────────────────────────────────────────────
@@ -870,10 +868,30 @@ switch ($action) {
         $sessionId = (int)($input['session_id'] ?? 0);
         if ($sessionId <= 0) qErr('Invalid session');
 
-        $sess = $db->prepare("SELECT * FROM quiz_sessions WHERE id=? AND user_id=?");
+        $sess = $db->prepare("SELECT * FROM quiz_sessions WHERE id=? AND user_id=? AND completed_at IS NULL");
         $sess->execute([$sessionId, $userId]);
         $session = $sess->fetch(PDO::FETCH_ASSOC);
-        if (!$session) qErr('Session not found', 404);
+        if (!$session) {
+            // Already completed — return cached result idempotently rather than erroring
+            $done = $db->prepare("SELECT * FROM quiz_sessions WHERE id=? AND user_id=?");
+            $done->execute([$sessionId, $userId]);
+            $existing = $done->fetch(PDO::FETCH_ASSOC);
+            if ($existing) {
+                $sr = $db->prepare("SELECT current_streak, longest_streak FROM quiz_daily_streaks WHERE user_id=?");
+                $sr->execute([$userId]);
+                $streak = $sr->fetch(PDO::FETCH_ASSOC) ?: ['current_streak' => 0, 'longest_streak' => 0];
+                qOk([
+                    'correct'       => (int)$existing['correct_count'],
+                    'total'         => (int)$existing['questions_count'],
+                    'points'        => (int)$existing['total_points'],
+                    'monthly_rank'  => 0,
+                    'monthly_total' => 0,
+                    'streak'        => ['current_streak' => (int)$streak['current_streak'], 'longest_streak' => (int)$streak['longest_streak'], 'new_best' => false],
+                    'new_badges'    => [],
+                ]);
+            }
+            qErr('Session not found', 404);
+        }
 
         $agg = $db->prepare(
             "SELECT COUNT(*) AS total, SUM(is_correct) AS correct,
@@ -892,22 +910,28 @@ switch ($action) {
             "UPDATE quiz_sessions SET completed_at=NOW(), correct_count=?, total_points=? WHERE id=?"
         )->execute([$correctCount, $totalPoints, $sessionId]);
 
+        // Monthly rank — SQL subquery avoids fetching all users into PHP
         $rankStmt = $db->prepare(
-            "SELECT user_id, SUM(total_points) AS monthly_pts
-             FROM quiz_sessions
-             WHERE month_year=? AND completed_at IS NOT NULL
-             GROUP BY user_id ORDER BY monthly_pts DESC"
+            "SELECT
+                 COALESCE(
+                     (SELECT COUNT(*) + 1
+                      FROM (SELECT user_id, SUM(total_points) AS pts
+                            FROM quiz_sessions
+                            WHERE month_year=? AND completed_at IS NOT NULL
+                            GROUP BY user_id) ranked
+                      WHERE ranked.pts > COALESCE(
+                          (SELECT SUM(total_points) FROM quiz_sessions
+                           WHERE user_id=? AND month_year=? AND completed_at IS NOT NULL), 0)
+                     ), 1) AS my_rank,
+                 COALESCE(
+                     (SELECT SUM(total_points) FROM quiz_sessions
+                      WHERE user_id=? AND month_year=? AND completed_at IS NOT NULL), 0
+                 ) AS my_total"
         );
-        $rankStmt->execute([$monthYear]);
-        $ranks = $rankStmt->fetchAll(PDO::FETCH_ASSOC);
-        $myRank = $myMonthlyTotal = 0;
-        foreach ($ranks as $i => $r) {
-            if ((int)$r['user_id'] === $userId) {
-                $myRank         = $i + 1;
-                $myMonthlyTotal = (int)$r['monthly_pts'];
-                break;
-            }
-        }
+        $rankStmt->execute([$monthYear, $userId, $monthYear, $userId, $monthYear]);
+        $rankRow        = $rankStmt->fetch(PDO::FETCH_ASSOC);
+        $myRank         = (int)($rankRow['my_rank']  ?? 0);
+        $myMonthlyTotal = (int)($rankRow['my_total'] ?? 0);
 
         // Update daily streak and check badges
         $streakResult = updateDailyStreak($db, $userId);

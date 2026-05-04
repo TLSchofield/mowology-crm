@@ -18,8 +18,29 @@ declare(strict_types=1);
  *   "question": { id, text, images[], difficulty, category_name, category_colour, mastery_level, mastery_name },
  *   "options": [ { id, option_text }, ... ]
  * }
+ *
+ * PRODUCTION SAFETY — READ BEFORE EDITING
+ * ────────────────────────────────────────
+ * This is a read-only endpoint — it writes nothing. It is safe to retry.
+ *
+ * Option shuffle: options are shuffled with PHP shuffle() on every request.
+ * This means retries return a different option order. This is intentional —
+ * option order should not be predictable. If you need deterministic ordering
+ * for testing, pass a seeded sort, but do not ship that to production.
+ *
+ * already_answered is informational — the iOS UI uses it to re-render the
+ * answered state when navigating back to a question. It does NOT gate the
+ * answer submission; that guard lives in answer.php.
+ *
+ * The mastery_level shown here is the level BEFORE the current answer, so
+ * the user sees "I'm at Familiar" while answering — the delta is shown after.
+ *
+ * question_ids is read as a CSV from quiz_sessions and indexed by (q - 1).
+ * q is 1-based from the iOS client. The $idx = $qNum - 1 conversion is
+ * intentional — do not change to 0-based without updating the iOS caller.
  */
 
+// ── Bootstrap ─────────────────────────────────────────────────────────────────
 if (!defined('APP_ROOT')) {
     $__dir = __DIR__;
     for ($__i = 0; $__i < 6; $__i++) {
@@ -42,7 +63,7 @@ require_once APP_ROOT . '/Modules/Quiz/QuizHelpers.php';
 $jwtUser   = requireJwt();
 $userId    = (int)$jwtUser['id'];
 $sessionId = (int)($_GET['session_id'] ?? 0);
-$qNum      = max(1, (int)($_GET['q'] ?? 1));
+$qNum      = max(1, (int)($_GET['q'] ?? 1));  // 1-based, matches iOS QuizPlayViewModel
 
 if ($sessionId <= 0) {
     http_response_code(400);
@@ -53,6 +74,10 @@ if ($sessionId <= 0) {
 try {
     $db = Database::pdo();
 
+    // ── Session ownership ─────────────────────────────────────────────────────
+    // user_id check prevents one user from loading another user's session questions.
+    // completed_at check is a soft guard — already_answered handles navigation
+    // back to answered questions within an active session.
     $sess = $db->prepare("SELECT * FROM quiz_sessions WHERE id=? AND user_id=?");
     $sess->execute([$sessionId, $userId]);
     $session = $sess->fetch(PDO::FETCH_ASSOC);
@@ -67,8 +92,11 @@ try {
         exit;
     }
 
+    // ── Question lookup from session order ────────────────────────────────────
+    // question_ids is a CSV written by start.php. The order is fixed at session
+    // creation — shuffling here would break sequential navigation.
     $qids = array_map('intval', explode(',', $session['question_ids']));
-    $idx  = $qNum - 1;
+    $idx  = $qNum - 1;  // q is 1-based from iOS
     if ($idx < 0 || $idx >= count($qids)) {
         http_response_code(400);
         echo json_encode(['success' => false, 'error' => 'Question number out of range']);
@@ -76,6 +104,9 @@ try {
     }
     $questionId = $qids[$idx];
 
+    // ── Question + mastery in one query ──────────────────────────────────────
+    // LEFT JOIN on quiz_user_mastery — COALESCE(m.mastery_level, 0) returns 0
+    // for questions the user has never seen. This is intentional (Unseen = 0).
     $qstmt = $db->prepare(
         "SELECT q.id, q.question_text, q.image_path, q.difficulty,
                 c.name AS category_name, c.colour AS category_colour,
@@ -93,11 +124,13 @@ try {
         exit;
     }
 
+    // Options are shuffled on every request — order is intentionally non-deterministic.
     $ostmt = $db->prepare("SELECT id, option_text FROM quiz_options WHERE question_id=? ORDER BY sort_order");
     $ostmt->execute([$questionId]);
     $options = $ostmt->fetchAll(PDO::FETCH_ASSOC);
     shuffle($options);
 
+    // already_answered lets iOS re-render answered state on back-navigation.
     $answered = $db->prepare("SELECT id FROM quiz_answers WHERE session_id=? AND question_id=?");
     $answered->execute([$sessionId, $questionId]);
     $alreadyAnswered = (bool)$answered->fetch();

@@ -2,6 +2,35 @@
 //  QuizModels.swift
 //  MowologyCRM
 //
+//  PRODUCTION SAFETY — READ BEFORE EDITING
+//  ────────────────────────────────────────
+//  Every struct in this file is a 1-to-1 mapping of a PHP API JSON response.
+//  CodingKeys convert snake_case JSON keys to camelCase Swift properties.
+//  If the PHP API adds, renames, or removes a field, the matching change
+//  must be made here and to every call site that reads the property.
+//
+//  Key contracts that break silently if mismatched:
+//
+//  QuizAnswerResult.selectedOptionId — drives wrong-answer highlighting in
+//    QuizPlayView. If this key is absent from the server response, the property
+//    decodes as nil and the red X indicator is never shown. The option still
+//    appears selected-but-uncolored. Not a crash, but a UX regression.
+//
+//  QuizPreshiftStatus.completedToday / .required — these two fields control
+//    the pre-shift gate in RootView. If either decodes incorrectly (wrong key,
+//    wrong type), the gate silently fails open (appState = .ready) because
+//    RootView's catch block is fail-open by design. Verify JSON key names
+//    match completed_today / required exactly.
+//
+//  QuizFinishResult.newBadges — decoded as [QuizBadge] which maps the PHP
+//    array of {key, name, icon} objects. If the PHP shape changes to a flat
+//    string array, decoding will throw and the finish call will surface an
+//    error state rather than the results screen.
+//
+//  masteryFraction on QuizCategory — drives progress bars in QuizHubView.
+//    Returns Double(masteredCount) / Double(questionCount). If question_count
+//    is 0, returns 0 (safe — no divide by zero). Do not change the denominator
+//    to include learning_count without updating the iOS progress bar label.
 
 import Foundation
 

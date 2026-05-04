@@ -4,6 +4,28 @@
 //
 //  Created by Mowology on 2026-03-03.
 //
+//  PRODUCTION SAFETY — READ BEFORE EDITING
+//  ────────────────────────────────────────
+//  AppState is the top-level gate controlling what the crew member sees after
+//  login. Getting the transitions wrong is bad in both directions:
+//    - Gate fires when it shouldn't → crew can't clock in
+//    - Gate skips when required     → pre-shift training bypassed
+//
+//  AppState.quizRequired carries QuizPreshiftStatus as an associated value.
+//  This eliminates the double-fetch that would occur if QuizPreshiftGateView
+//  re-fetched status on its own .task. The status is fetched once here and
+//  forwarded to the gate view via its initialStatus parameter.
+//  Do NOT remove the associated value and re-fetch in the gate view — it would
+//  add a round-trip and race against any network condition on app launch.
+//
+//  checkPreshiftRequirement() is intentionally fail-open: if the API call
+//  fails for any reason (no network, 500 error, decoding failure), appState
+//  becomes .ready and the crew member proceeds. Never block crew from reaching
+//  the app due to a transient quiz API failure.
+//
+//  .onChange(of: authSession.isAuthenticated) re-runs the check on each login.
+//  This is required — if a crew member logs out and back in, the check must
+//  run again (a different day's pre-shift status may apply).
 
 import SwiftUI
 

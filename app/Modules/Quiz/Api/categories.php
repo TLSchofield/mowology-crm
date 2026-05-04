@@ -18,6 +18,30 @@ declare(strict_types=1);
  *   ],
  *   "season": { season_label, season_icon, season_tagline }
  * }
+ *
+ * PRODUCTION SAFETY — READ BEFORE EDITING
+ * ────────────────────────────────────────
+ * This is a read-only endpoint — it writes nothing. Safe to retry.
+ *
+ * Mastery thresholds in the CASE expressions (≥4 = mastered, 1–3 = learning,
+ * 0 = unseen) MUST stay in sync with masteryMeta() in QuizHelpers.php.
+ * If you change the mastery scale (0–5), update both here and in masteryMeta().
+ * The iOS hub uses mastered_count / question_count to draw progress bars —
+ * an off-by-one in the threshold will silently show wrong mastery fractions.
+ *
+ * Both quiz_questions and quiz_user_mastery are LEFT JOINed intentionally:
+ *   - LEFT JOIN quiz_questions: categories with zero active questions still appear
+ *   - LEFT JOIN quiz_user_mastery: questions with no mastery row get COALESCE(level,0) = unseen
+ * Changing either to INNER JOIN removes unseen questions from the count, making
+ * the category appear fully mastered prematurely.
+ *
+ * due_count uses next_review_at <= NOW() AND mastery_level > 0 — the mastery > 0
+ * guard prevents a never-seen question from appearing as "due" just because its
+ * next_review_at defaults to NULL (NULL <= NOW() is false, so this is safe regardless,
+ * but the guard makes the intent explicit).
+ *
+ * Results are ordered by sort_order then name — iOS renders them in this order.
+ * Do not add a user-specific sort without coordinating with the iOS QuizHubView.
  */
 
 if (!defined('APP_ROOT')) {

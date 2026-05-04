@@ -2,6 +2,19 @@
 //  QuizHubViewModel.swift
 //  MowologyCRM
 //
+//  PRODUCTION SAFETY — READ BEFORE EDITING
+//  ────────────────────────────────────────
+//  load() fires two requests concurrently using async let. Both must complete
+//  before any UI state is set. If either throws, errorMessage is set and
+//  neither categories nor stats are updated (consistent empty state).
+//
+//  The categories and stats endpoints are separate API calls by design —
+//  stats covers lifetime data, categories covers the current user's mastery
+//  per-category. Merging them into one endpoint would require a schema change.
+//
+//  isLoading wraps the full load — it is set false in defer{}, which runs
+//  even if the async let throws. Do not set isLoading = false in the catch
+//  block as well or it would be set twice (harmless but redundant).
 
 import Foundation
 
