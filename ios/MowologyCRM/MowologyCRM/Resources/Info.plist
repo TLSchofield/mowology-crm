@@ -24,8 +24,45 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+
+	<!-- Location -->
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Used to show your location on the job map.</string>
+	<string>Used to show your location on the job map and track distance to stops.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Mowology tracks your location in the background to log GPS pings, detect job-site arrivals, and auto-clock-in when you reach a stop.</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>Mowology tracks your location in the background to log GPS pings, detect job-site arrivals, and auto-clock-in when you reach a stop.</string>
+
+	<!-- Camera & Photos -->
+	<key>NSCameraUsageDescription</key>
+	<string>Used to scan receipts for expense tracking.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Used to choose an existing receipt photo from your library.</string>
+
+	<!-- Calendar -->
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Mowology can sync today's job schedule to your Calendar so stops appear alongside personal events.</string>
+
+	<!-- Contacts -->
+	<key>NSContactsUsageDescription</key>
+	<string>Used to save client contact details to your address book for quick calling.</string>
+
+	<!-- Background Modes -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+		<string>remote-notification</string>
+		<string>location</string>
+		<string>processing</string>
+	</array>
+
+	<!-- Background Task identifiers -->
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>ca.mowology.crm.schedule-refresh</string>
+		<string>ca.mowology.crm.ping-drain</string>
+	</array>
+
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>

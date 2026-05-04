@@ -534,8 +534,56 @@ $activePage = 'jobs';
           <?= htmlspecialchars(trim(($visit['property_city']??'').' '.($visit['property_province']??''))) ?>
           <?= htmlspecialchars($visit['property_postal'] ?? '') ?>
         </div>
+        <?php if (!empty($visit['contact_first']) || !empty($visit['contact_last'])): ?>
+        <button type="button" class="btn btn-sm btn-outline-success mt-3 w-100" id="btn-save-contact">
+          <i data-feather="user-plus" class="mr-1"></i> Save to Contacts
+        </button>
+        <?php endif; ?>
       </div>
     </div>
+    <?php if (!empty($visit['contact_first']) || !empty($visit['contact_last'])): ?>
+    <script>
+    (function() {
+        var btn = document.getElementById('btn-save-contact');
+        if (!btn) return;
+        // Contact data JSON-encoded for safe JS embedding — no manual escaping needed.
+        // On Android (Capacitor WebView), downloading a .vcf file triggers the OS
+        // intent chooser, which opens the Contacts app with fields pre-filled.
+        // On iOS web / desktop, the .vcf downloads and the OS opens it in Contacts.
+        var c = <?= json_encode([
+            'first'    => $visit['contact_first']    ?? '',
+            'last'     => $visit['contact_last']     ?? '',
+            'email'    => $visit['contact_email']    ?? '',
+            'phone'    => $visit['contact_phone']    ?? '',
+            'street'   => $visit['property_address'] ?? '',
+            'city'     => $visit['property_city']    ?? '',
+            'region'   => $visit['property_province']?? '',
+            'postal'   => $visit['property_postal']  ?? '',
+        ]) ?>;
+        btn.addEventListener('click', function() {
+            var lines = [
+                'BEGIN:VCARD', 'VERSION:3.0',
+                'N:' + c.last + ';' + c.first + ';;;',
+                'FN:' + (c.first + ' ' + c.last).trim()
+            ];
+            if (c.email) lines.push('EMAIL:' + c.email);
+            if (c.phone) lines.push('TEL;TYPE=VOICE:' + c.phone);
+            lines.push('ADR;TYPE=HOME:;;' + c.street + ';' + c.city + ';' + c.region + ';' + c.postal + ';Canada');
+            lines.push('NOTE:Mowology client', 'END:VCARD');
+            var blob = new Blob([lines.join('\r\n')], { type: 'text/vcard' });
+            var url  = URL.createObjectURL(blob);
+            var a    = document.createElement('a');
+            a.href   = url;
+            a.download = (c.first + '_' + c.last).replace(/\s+/g, '_') + '.vcf';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
+        });
+    })();
+    </script>
+    <?php endif; ?>
+
 
     <!-- ── Service Details ────────────────────────────────────────────── -->
     <div class="card mw-card mb-4">

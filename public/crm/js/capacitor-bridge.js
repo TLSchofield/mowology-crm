@@ -9,6 +9,7 @@
  *   MwNative.tracking     — session management, health, compliance, geofencing
  *   MwNative.notifications — local push notifications
  *   MwNative.network      — online/offline detection
+ *   MwNative.pow          — Proof-of-Work GPS emission for visit tracking
  *
  * Uses two Capacitor plugins:
  *   1. @capacitor-community/background-geolocation — foreground service + GPS watcher
@@ -16,6 +17,44 @@
  *
  * Loaded on every CRM page via appstack_footer.php.
  * In a browser, the guard exits immediately (zero cost).
+ *
+ * ┌─ PRODUCTION SAFETY ─────────────────────────────────────────────────────┐
+ * │  Invariants this file depends on. Break any one and GPS tracking will   │
+ * │  silently drop pings, corrupt the session, or drain the crew's battery. │
+ * │                                                                          │
+ * │  1. IIFE GUARD MUST STAY FIRST. The (function(){...})() wrapper and the │
+ * │     Capacitor.isNativePlatform() check are what make this file safe to  │
+ * │     load on every page. Remove the guard and window.MwNative = {...}    │
+ * │     runs in every browser tab, breaking the native/web code split that  │
+ * │     time-clock-widget.js depends on (it branches on window.MwNative).   │
+ * │                                                                          │
+ * │  2. ONE WATCHER AT A TIME. BackgroundGeolocation.addWatcher() creates   │
+ * │     a foreground service on Android — a persistent notification the OS  │
+ * │     uses to keep the app alive. Calling addWatcher() again without      │
+ * │     removeWatcher() leaks a second foreground service. Two foreground   │
+ * │     services drain battery 2× and can cause the OS to kill the app.    │
+ * │     Always call stopBackgroundTracking() before startBackgroundTracking │
+ * │     when restarting on activity change.                                  │
+ * │                                                                          │
+ * │  3. SESSION COOKIE NAME IS MOWOSESS. The cookie written to             │
+ * │     SharedPreferences for WorkManager must match the session name in    │
+ * │     session_config.php. If the PHP session name ever changes, update    │
+ * │     sessionCookieName below to match. A mismatch means WorkManager      │
+ * │     sync requests arrive unauthenticated — tracking-sync.php returns    │
+ * │     401 and the crew's offline GPS buffer fills until restart.          │
+ * │                                                                          │
+ * │  4. DO NOT STOP THE BACKGROUND WATCHER IN stopVisitTracking(). The     │
+ * │     clock-in session GPS watcher must outlive the visit timer. Only     │
+ * │     stopBackgroundTracking() in the clock-out path should remove the   │
+ * │     watcher. Stopping it on visit end leaves the crew untracked         │
+ * │     between jobs — a payroll audit gap.                                 │
+ * │                                                                          │
+ * │  5. ACTIVITY EVENTS FEED time-clock-widget.js. The 'mw-activity-changed'│
+ * │     CustomEvent dispatched here is the ONLY signal time-clock-widget   │
+ * │     has for adapting its server ping interval. If this dispatch is      │
+ * │     removed, the adaptive interval feature becomes dead code and the    │
+ * │     crew's battery drains faster (stuck at heightened 10s all day).    │
+ * └──────────────────────────────────────────────────────────────────────────┘
  */
 (function() {
     'use strict';
@@ -95,13 +134,26 @@
     }
 
     // ── Adaptive Distance Filter ───────────────────────────
-    // Adjusts the BG plugin's distance filter based on detected activity
+    // Controls how many metres the device must move before BackgroundGeolocation
+    // fires a new position event. This is hardware-level filtering, not a server
+    // ping rate — it controls the plugin watcher, not setInterval.
+    //
+    // ⚠️  You cannot change the distance filter on an existing watcher. The
+    //     BackgroundGeolocation API requires removeWatcher() then addWatcher()
+    //     to change it. The activityChanged handler below does this by dispatching
+    //     'mw-activity-changed' to time-clock-widget, which calls restartTracking().
+    //     If you try to change distanceFilter without restarting the watcher, the
+    //     old filter stays in effect silently — no error, no warning.
+    //
+    // ⚠️  Only trigger restarts for transitions ≥10m difference (see handler below)
+    //     to avoid constant watcher churn on noisy activity transitions. Every
+    //     restart shows a brief notification update on Android — crew will notice.
     var activityDistanceFilter = {
-        'IN_VEHICLE': 20,  // More frequent when driving
+        'IN_VEHICLE': 20,  // metres — driving, coarser granularity is fine
         'RUNNING': 10,
         'ON_FOOT': 10,
         'WALKING': 10,
-        'STILL': 50,       // Very infrequent when still
+        'STILL': 50,       // metres — stationary, very infrequent hardware events
         'UNKNOWN': 15
     };
 
@@ -434,12 +486,22 @@
         });
     }
 
-    // Save MOWOSESS cookie to SharedPreferences for WorkManager sync.
-    // WorkManager runs outside the WebView and needs the auth cookie so that
-    // tracking-sync.php and pow-gps-sync.php can authenticate the request.
-    // Note: session is named MOWOSESS (not PHPSESSID) per session_config.php.
+    // ── WorkManager session cookie persistence ──────────────────────────────
+    // WorkManager runs in a separate process context outside the WebView.
+    // It cannot read document.cookie — it reads from SharedPreferences instead.
+    // We must copy the current session cookie here at page load so that
+    // tracking-sync.php and pow-gps-sync.php receive an authenticated request.
+    //
+    // ⚠️  sessionCookieName MUST match the value of session_name() in
+    //     session_config.php. Currently both are 'MOWOSESS'. A mismatch causes
+    //     WorkManager sync to silently fail with 401 — the crew's offline GPS
+    //     buffer fills up and isn't drained until the next clock-in that succeeds.
+    //
+    // ⚠️  This runs on EVERY page load. The MwTracking plugin deduplicates by
+    //     comparing the stored value before writing to SharedPreferences, so
+    //     the cost is a single JS read and a cross-bridge call per page — acceptable.
     if (MwTracking && MwTracking.storeSessionCookie) {
-        var sessionCookieName = 'MOWOSESS';
+        var sessionCookieName = 'MOWOSESS'; // must match session_config.php session_name()
         var sessionValue = '';
         document.cookie.split(';').forEach(function(c) {
             var trimmed = c.trim();
@@ -519,15 +581,18 @@
 
         /**
          * Stop PoW visit GPS emission.
+         *
+         * ⚠️  PRODUCTION SAFETY: Do NOT call stopBackgroundTracking() here.
+         * The crew's clock-in GPS session must continue running between visits.
+         * Stopping the watcher here would leave an untracked gap on the map
+         * between job completions — a payroll/audit failure (invariant #4 above).
+         * Only the clock-OUT path should call stopBackgroundTracking().
          */
         stopVisitTracking: function() {
             if (!this._active) return;
             this._active  = false;
             this._visitId = null;
             console.log('[MwNative.pow] Visit tracking stopped');
-            // Note: do NOT stop the background watcher here — the clock-in
-            // session may still need it. The visit-work.php JS handles
-            // the final GPS flush to the server.
         },
 
         /**

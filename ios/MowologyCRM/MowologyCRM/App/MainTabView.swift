@@ -11,6 +11,8 @@ struct MainTabView: View {
 
     @EnvironmentObject private var authSession: AuthSession
 
+    private var isAdmin: Bool { authSession.user?.isAdmin ?? false }
+
     var body: some View {
         TabView {
             ScheduleView(authSession: authSession)
@@ -21,6 +23,11 @@ struct MainTabView: View {
             TimeClockView(authSession: authSession)
                 .tabItem {
                     Label("Time Clock", systemImage: "clock.fill")
+                }
+
+            JobsListView(authSession: authSession)
+                .tabItem {
+                    Label("Jobs", systemImage: "briefcase.fill")
                 }
 
             ReceiptsView(authSession: authSession)
@@ -60,9 +67,28 @@ struct MainTabView: View {
                                 Text(user.email)
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
+                                Text(user.role.capitalized)
+                                    .font(.caption2)
+                                    .foregroundStyle(Color.MW.green)
                             }
                         }
                         .padding(.vertical, 4)
+                    }
+                }
+
+                if isAdmin {
+                    Section("Admin") {
+                        NavigationLink {
+                            QuotesView(authSession: authSession)
+                        } label: {
+                            Label("Quotes", systemImage: "doc.text")
+                        }
+
+                        NavigationLink {
+                            InvoicesView(authSession: authSession)
+                        } label: {
+                            Label("Invoices", systemImage: "doc.plaintext")
+                        }
                     }
                 }
 

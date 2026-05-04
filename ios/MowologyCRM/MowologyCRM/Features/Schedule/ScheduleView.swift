@@ -98,6 +98,19 @@ struct ScheduleView: View {
             }
         }
 
+        // Route map button — shown when 2+ stops have coordinates.
+        ToolbarItem(placement: .navigationBarTrailing) {
+            let routableCount = viewModel.stops.filter { $0.latitude != nil && $0.longitude != nil }.count
+            if routableCount >= 2 {
+                NavigationLink {
+                    DayRouteView(stops: viewModel.stops)
+                } label: {
+                    Image(systemName: "map.fill")
+                        .foregroundStyle(Color.MW.green)
+                }
+            }
+        }
+
         // Refresh button.
         ToolbarItem(placement: .navigationBarTrailing) {
             Button {
