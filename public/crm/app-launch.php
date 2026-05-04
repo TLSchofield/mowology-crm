@@ -133,12 +133,15 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
         /* ── Screen 2: Quiz ──────────────────────────────── */
         .al-quiz {
             background: var(--al-cream);
-            padding: 0 24px;
+            padding: max(env(safe-area-inset-top), 32px) 24px 32px;
             z-index: 20;
+            justify-content: flex-start;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
         }
         .al-quiz-header {
             text-align: center;
-            margin-bottom: 40px;
+            margin-bottom: 24px;
         }
         .al-quiz-header h1 {
             font-size: 26px;
@@ -155,7 +158,7 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
             display: flex;
             gap: 6px;
             justify-content: center;
-            margin-bottom: 32px;
+            margin-bottom: 20px;
         }
         .al-quiz-progress .dot {
             width: 10px;
