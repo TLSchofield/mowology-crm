@@ -124,7 +124,9 @@ final class APIClient: ObservableObject {
     // MARK: - Multipart Upload
 
     /// Uploads a receipt image as multipart/form-data and returns OCR suggestions.
-    func uploadReceipt(imageData: Data, lat: Double?, lng: Double?, jobId: Int?) async throws -> ReceiptIntakeResponse {
+    /// `visionText` is the raw text extracted by on-device Vision; when supplied the server
+    /// skips Tesseract and uses this text directly, improving parse quality and speed.
+    func uploadReceipt(imageData: Data, visionText: String? = nil, lat: Double?, lng: Double?, jobId: Int?) async throws -> ReceiptIntakeResponse {
         guard let url = APIEndpoint.receiptUpload.url else { throw APIError.invalidURL }
 
         let boundary = "MwBoundary-\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
@@ -137,6 +139,9 @@ final class APIClient: ObservableObject {
 
         var body = Data()
         body.appendField(name: "receipt_photo", filename: "receipt.jpg", mimeType: "image/jpeg", data: imageData, boundary: boundary)
+        if let visionText, !visionText.isEmpty {
+            body.appendField(name: "vision_text", value: visionText, boundary: boundary)
+        }
         if let lat   { body.appendField(name: "lat",    value: "\(lat)",    boundary: boundary) }
         if let lng   { body.appendField(name: "lng",    value: "\(lng)",    boundary: boundary) }
         if let jobId { body.appendField(name: "job_id", value: "\(jobId)", boundary: boundary) }

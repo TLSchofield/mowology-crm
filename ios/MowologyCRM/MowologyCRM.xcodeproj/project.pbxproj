@@ -43,7 +43,8 @@
 		A5B6C7D8E9F0A1B2C3D4E5F6 /* TimeClockViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5C6D7E8F9A0B1C2D3E4F5A6 /* TimeClockViewModel.swift */; };
 		C5D6E7F8A9B0C1D2E3F4A5B6 /* ErrorBannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5E6F7A8B9C0D1E2F3A4B5C6 /* ErrorBannerView.swift */; };
 		E5F6A7B8C9D0E1F2A3B4C5D6 /* EmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5A6B7C8D9E0F1A2B3C4D5E6 /* EmptyStateView.swift */; };
-/* End PBXBuildFile section */
+		9E258FAB0FCE4FA8A9137063 /* VisionOCRService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61D86DACA5EF4EC99CB9E14C /* VisionOCRService.swift */; };
+		/* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		BB2D3E4F5A6B7C8D9E0F1A2B /* DevErrorBus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevErrorBus.swift; sourceTree = "<group>"; };
@@ -84,7 +85,8 @@
 		B5C6D7E8F9A0B1C2D3E4F5A6 /* TimeClockViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeClockViewModel.swift; sourceTree = "<group>"; };
 		D5E6F7A8B9C0D1E2F3A4B5C6 /* ErrorBannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorBannerView.swift; sourceTree = "<group>"; };
 		F5A6B7C8D9E0F1A2B3C4D5E6 /* EmptyStateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmptyStateView.swift; sourceTree = "<group>"; };
-/* End PBXFileReference section */
+		61D86DACA5EF4EC99CB9E14C /* VisionOCRService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisionOCRService.swift; sourceTree = "<group>"; };
+		/* End PBXFileReference section */
 
 /* Begin PBXGroup section */
 		1885D2A87980EFA37DB91388 = {
@@ -153,7 +155,8 @@
 				FA9C633C7B7B0D0E5CBAEA59 /* Models */,
 				3CAC498CFC84EC47A1CECC6B /* Network */,
 				C6D7E8F9A0B1C2D3E4F5A6B7 /* Offline */,
-			);
+			
+				CE08A78E192F4331B2802475 /* Vision */,);
 			path = Core;
 			sourceTree = "<group>";
 		};
@@ -276,7 +279,15 @@
 			path = Components;
 			sourceTree = "<group>";
 		};
-/* End PBXGroup section */
+		CE08A78E192F4331B2802475 /* Vision */ = {
+			isa = PBXGroup;
+			children = (
+				61D86DACA5EF4EC99CB9E14C /* VisionOCRService.swift */,
+			);
+			path = Vision;
+			sourceTree = "<group>";
+		};
+		/* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
 		B894F8507D292A0047B6D7C1 /* MowologyCRM */ = {
@@ -368,7 +379,8 @@
 				E9B866846859D619AEF25219 /* Visit.swift in Sources */,
 				1A500E3E80626FB6683AA6F1 /* VisitDetailView.swift in Sources */,
 				4D2F723DF88B7B1C76F9826A /* WeekStripView.swift in Sources */,
-			);
+			
+				9E258FAB0FCE4FA8A9137063 /* VisionOCRService.swift in Sources */,);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */

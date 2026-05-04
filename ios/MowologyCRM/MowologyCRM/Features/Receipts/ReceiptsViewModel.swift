@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import UIKit
 
 @MainActor
 final class ReceiptsViewModel: ObservableObject {
@@ -15,10 +16,11 @@ final class ReceiptsViewModel: ObservableObject {
     @Published var currentPage = 1
     @Published var totalPages  = 1
 
-    // MARK: - Upload state
-    @Published var isUploading   = false
-    @Published var uploadError:   String?
-    @Published var intakeResponse: ReceiptIntakeResponse?
+    // MARK: - Upload + Vision state
+    @Published var isUploading:      Bool = false   // background server upload in progress
+    @Published var uploadError:      String?
+    @Published var intakeResponse:   ReceiptIntakeResponse?
+    @Published var visionPreFill:    VisionPreFill?  // fast on-device pre-fill (available before server response)
 
     // MARK: - Save state
     @Published var isSaving     = false
@@ -79,14 +81,30 @@ final class ReceiptsViewModel: ObservableObject {
         return try await apiClient.fetchReceiptImageData(mediaId: mediaId)
     }
 
+    // MARK: - Vision OCR
+
+    /// Runs on-device Vision OCR and stores the result in `visionPreFill`.
+    /// Called in parallel with image compression — takes ~150-250 ms.
+    func runVisionOCR(on image: UIImage) async {
+        visionPreFill = await VisionOCRService.scan(image)
+    }
+
     // MARK: - Upload
 
+    /// Uploads the compressed image in the background.
+    /// Sends Vision-extracted text so the server can skip Tesseract.
     func uploadImage(_ imageData: Data, lat: Double?, lng: Double?) async {
         isUploading   = true
         uploadError   = nil
         intakeResponse = nil
         do {
-            intakeResponse = try await apiClient.uploadReceipt(imageData: imageData, lat: lat, lng: lng, jobId: nil)
+            intakeResponse = try await apiClient.uploadReceipt(
+                imageData:  imageData,
+                visionText: visionPreFill?.rawText,
+                lat:        lat,
+                lng:        lng,
+                jobId:      nil
+            )
         } catch let err as APIError {
             if case .networkError = err {
                 ReceiptQueue.shared.enqueue(imageData: imageData, lat: lat, lng: lng, jobId: nil)

@@ -44,14 +44,7 @@ struct ReceiptsView: View {
             CameraPicker(
                 onCapture: { image in
                     showCamera = false
-                    Task {
-                        // Encode + compress off @MainActor — 12MP photos take ~1-2s on main thread
-                        let compressed: Data = await Task.detached(priority: .userInitiated) {
-                            ReceiptsView.resizeAndCompress(image)
-                        }.value
-                        guard !compressed.isEmpty else { return }
-                        await handleCapture(compressed)
-                    }
+                    Task { await handleCapture(image) }
                 },
                 onCancel: { showCamera = false }
             )
@@ -61,17 +54,9 @@ struct ReceiptsView: View {
         .sheet(isPresented: $showLibrary) {
             librarySheet
         }
-        // Review sheet shown after successful OCR upload
+        // Review sheet — opens with Vision pre-fill, upgrades when server responds
         .sheet(isPresented: $showReview) {
-            if let intake = viewModel.intakeResponse {
-                ReceiptReviewView(viewModel: viewModel, intake: intake, isPresented: $showReview)
-            }
-        }
-        // Upload spinner overlay
-        .overlay {
-            if viewModel.isUploading {
-                uploadOverlay
-            }
+            ReceiptReviewView(viewModel: viewModel, isPresented: $showReview)
         }
         .onChange(of: viewModel.uploadError) { _, err in
             if err != nil { showErrorAlert = true }
@@ -85,25 +70,42 @@ struct ReceiptsView: View {
             guard let newItem else { return }
             showLibrary = false
             Task {
-                guard let raw = try? await newItem.loadTransferable(type: Data.self) else { return }
-                let compressed: Data = await Task.detached(priority: .userInitiated) {
-                    ReceiptsView.resizeAndCompress(UIImage(data: raw) ?? UIImage())
-                }.value
-                await handleCapture(compressed)
+                guard let raw   = try? await newItem.loadTransferable(type: Data.self),
+                      let image = UIImage(data: raw) else { return }
+                await handleCapture(image)
             }
         }
     }
 
     // MARK: - Capture handler
 
-    private func handleCapture(_ compressed: Data) async {
+    /// New parallel flow:
+    ///   1. Vision OCR + image compression run concurrently (~300 ms total)
+    ///   2. Review sheet opens immediately with Vision pre-fill
+    ///   3. Server upload runs in the background — review sheet merges results on arrival
+    private func handleCapture(_ image: UIImage) async {
+        viewModel.uploadError  = nil
+        viewModel.intakeResponse = nil
+
+        // Run Vision OCR and compression in parallel (both are CPU-bound, non-blocking)
+        async let visionTask: Void = viewModel.runVisionOCR(on: image)
+        async let compressTask     = Task.detached(priority: .userInitiated) {
+            ReceiptsView.resizeAndCompress(image)
+        }.value
+
+        let (_, compressed) = await (visionTask, compressTask)
+        guard !compressed.isEmpty else { return }
+
+        // Vision is ready — open the review sheet immediately
+        showReview = true
+
+        // Upload in background; ReceiptReviewView merges the server result on arrival
         let loc = locationManager.location
         await viewModel.uploadImage(
             compressed,
             lat: loc?.coordinate.latitude,
             lng: loc?.coordinate.longitude
         )
-        if viewModel.intakeResponse != nil { showReview = true }
     }
 
     // MARK: - List
@@ -201,20 +203,6 @@ struct ReceiptsView: View {
             }
         }
         .presentationDetents([.height(160)])
-    }
-
-    // MARK: - Upload overlay
-
-    private var uploadOverlay: some View {
-        ZStack {
-            Color.black.opacity(0.45).ignoresSafeArea()
-            VStack(spacing: 14) {
-                ProgressView().scaleEffect(1.5).tint(.white)
-                Text("Reading receipt…")
-                    .font(.headline)
-                    .foregroundStyle(.white)
-            }
-        }
     }
 
     // MARK: - Toolbar
