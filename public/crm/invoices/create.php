@@ -337,8 +337,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 header("Location: view.php?id={$invoiceId}&created=1");
                 exit;
 
-            } catch (Exception $e) {
-                $db->rollBack();
+            } catch (\Throwable $e) {
+                if ($db->inTransaction()) $db->rollBack();
                 error_log("Invoice creation error: " . $e->getMessage());
                 $error = 'Error creating invoice. Please try again.';
             }
@@ -1009,6 +1009,12 @@ document.getElementById('invoiceForm').addEventListener('submit', function (e) {
     if (selected === 0) {
         e.preventDefault();
         alert('Please select at least one invoice recipient.');
+        return;
+    }
+    const btn = this.querySelector('[type="submit"]');
+    if (btn && !btn.disabled) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:14px;height:14px;margin-right:4px;vertical-align:middle;"></span> Creating…';
     }
 });
 

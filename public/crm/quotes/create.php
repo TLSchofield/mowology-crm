@@ -317,7 +317,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $db->rollBack();
                 }
                 $errorHandler->logError('Error saving quote', $e, ['quote_id' => $quoteId, 'property_id' => $propertyId]);
-                $error = 'Error saving quote: ' . htmlspecialchars($e->getMessage());
+                $error = 'Error saving quote. Please try again.';
             }
         }
     }
@@ -1758,6 +1758,11 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
         // Form submission
         document.getElementById('quoteForm').addEventListener('submit', function() {
             updateFormInput();
+            var btn = this.querySelector('[type="submit"]');
+            if (btn && !btn.disabled) {
+                btn.disabled = true;
+                btn.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:14px;height:14px;margin-right:4px;vertical-align:middle;"></span> Saving…';
+            }
         });
 
         // ── Property Location Map ──────────────────────────────

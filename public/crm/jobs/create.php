@@ -1342,6 +1342,12 @@ $activePage = 'jobs';
                   if (!propertyIdInput.value) {
                       e.preventDefault();
                       alert('Please select a client and property before creating a plan.');
+                      return;
+                  }
+                  var btn = this.querySelector('[type="submit"]');
+                  if (btn && !btn.disabled) {
+                      btn.disabled = true;
+                      btn.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:14px;height:14px;margin-right:4px;vertical-align:middle;"></span> Creating…';
                   }
               });
           })();
