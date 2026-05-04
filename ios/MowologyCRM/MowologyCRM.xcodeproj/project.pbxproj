@@ -44,6 +44,7 @@
 		C5D6E7F8A9B0C1D2E3F4A5B6 /* ErrorBannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5E6F7A8B9C0D1E2F3A4B5C6 /* ErrorBannerView.swift */; };
 		E5F6A7B8C9D0E1F2A3B4C5D6 /* EmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5A6B7C8D9E0F1A2B3C4D5E6 /* EmptyStateView.swift */; };
 		9E258FAB0FCE4FA8A9137063 /* VisionOCRService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61D86DACA5EF4EC99CB9E14C /* VisionOCRService.swift */; };
+		T2A3B4C5D6E7F8A9B0C1D2E3 /* VisionOCRServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T1A2B3C4D5E6F7A8B9C0D1E2 /* VisionOCRServiceTests.swift */; };
 		/* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -86,6 +87,8 @@
 		D5E6F7A8B9C0D1E2F3A4B5C6 /* ErrorBannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorBannerView.swift; sourceTree = "<group>"; };
 		F5A6B7C8D9E0F1A2B3C4D5E6 /* EmptyStateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmptyStateView.swift; sourceTree = "<group>"; };
 		61D86DACA5EF4EC99CB9E14C /* VisionOCRService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisionOCRService.swift; sourceTree = "<group>"; };
+		T1A2B3C4D5E6F7A8B9C0D1E2 /* VisionOCRServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisionOCRServiceTests.swift; sourceTree = "<group>"; };
+		T3B4C5D6E7F8A9B0C1D2E3F4 /* MowologyCRMTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = MowologyCRMTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		/* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -93,6 +96,7 @@
 			isa = PBXGroup;
 			children = (
 				51F215642B22B1FCC54B663F /* MowologyCRM */,
+				TAG1B2C3D4E5F6A7B8C9D0E1 /* MowologyCRMTests */,
 				636F64D13F9CF99C7CCAD7EA /* Products */,
 			);
 			sourceTree = "<group>";
@@ -132,6 +136,7 @@
 			isa = PBXGroup;
 			children = (
 				AC8522EE94548B7FD4F1982E /* MowologyCRM.app */,
+				T3B4C5D6E7F8A9B0C1D2E3F4 /* MowologyCRMTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -287,7 +292,33 @@
 			path = Vision;
 			sourceTree = "<group>";
 		};
+		TAG1B2C3D4E5F6A7B8C9D0E1 /* MowologyCRMTests */ = {
+			isa = PBXGroup;
+			children = (
+				T1A2B3C4D5E6F7A8B9C0D1E2 /* VisionOCRServiceTests.swift */,
+			);
+			path = MowologyCRMTests;
+			sourceTree = "<group>";
+		};
 		/* End PBXGroup section */
+
+/* Begin PBXContainerItemProxy section */
+		T9B0C1D2E3F4A5B6C7D8E9F0 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A5901657DFF6ED7CF58BBE11 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B894F8507D292A0047B6D7C1;
+			remoteInfo = MowologyCRM;
+		};
+		/* End PBXContainerItemProxy section */
+
+/* Begin PBXTargetDependency section */
+		T0C1D2E3F4A5B6C7D8E9F0A1 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B894F8507D292A0047B6D7C1 /* MowologyCRM */;
+			targetProxy = T9B0C1D2E3F4A5B6C7D8E9F0 /* PBXContainerItemProxy */;
+		};
+		/* End PBXTargetDependency section */
 
 /* Begin PBXNativeTarget section */
 		B894F8507D292A0047B6D7C1 /* MowologyCRM */ = {
@@ -305,7 +336,23 @@
 			productReference = AC8522EE94548B7FD4F1982E /* MowologyCRM.app */;
 			productType = "com.apple.product-type.application";
 		};
-/* End PBXNativeTarget section */
+		T4C5D6E7F8A9B0C1D2E3F4A5 /* MowologyCRMTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = T8A9B0C1D2E3F4A5B6C7D8E9 /* Build configuration list for PBXNativeTarget "MowologyCRMTests" */;
+			buildPhases = (
+				T5D6E7F8A9B0C1D2E3F4A5B6 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				T0C1D2E3F4A5B6C7D8E9F0A1 /* PBXTargetDependency */,
+			);
+			name = MowologyCRMTests;
+			productName = MowologyCRMTests;
+			productReference = T3B4C5D6E7F8A9B0C1D2E3F4 /* MowologyCRMTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		/* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
 		A5901657DFF6ED7CF58BBE11 /* Project object */ = {
@@ -333,6 +380,7 @@
 			projectRoot = "";
 			targets = (
 				B894F8507D292A0047B6D7C1 /* MowologyCRM */,
+				T4C5D6E7F8A9B0C1D2E3F4A5 /* MowologyCRMTests */,
 			);
 		};
 /* End PBXProject section */
@@ -383,7 +431,15 @@
 				9E258FAB0FCE4FA8A9137063 /* VisionOCRService.swift in Sources */,);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-/* End PBXSourcesBuildPhase section */
+		T5D6E7F8A9B0C1D2E3F4A5B6 /* Sources (MowologyCRMTests) */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				T2A3B4C5D6E7F8A9B0C1D2E3 /* VisionOCRServiceTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		/* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
 		676019409CEFA2C8658F7108 /* Release */ = {
@@ -549,7 +605,33 @@
 			};
 			name = Debug;
 		};
-/* End XCBuildConfiguration section */
+		T6E7F8A9B0C1D2E3F4A5B6C7 /* Debug (MowologyCRMTests) */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "ca.mowology.crm-field.tests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.9;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MowologyCRM.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/MowologyCRM";
+			};
+			name = Debug;
+		};
+		T7F8A9B0C1D2E3F4A5B6C7D8 /* Release (MowologyCRMTests) */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "ca.mowology.crm-field.tests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.9;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MowologyCRM.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/MowologyCRM";
+			};
+			name = Release;
+		};
+		/* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
 		05682076AD4FBB9FAC85319E /* Build configuration list for PBXNativeTarget "MowologyCRM" */ = {
@@ -570,7 +652,16 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
-/* End XCConfigurationList section */
+		T8A9B0C1D2E3F4A5B6C7D8E9 /* Build configuration list for PBXNativeTarget "MowologyCRMTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				T6E7F8A9B0C1D2E3F4A5B6C7 /* Debug */,
+				T7F8A9B0C1D2E3F4A5B6C7D8 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		/* End XCConfigurationList section */
 	};
 	rootObject = A5901657DFF6ED7CF58BBE11 /* Project object */;
 }

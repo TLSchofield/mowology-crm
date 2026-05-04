@@ -57,6 +57,12 @@ enum VisionOCRService {
 
     // MARK: - Field Parsing
 
+    /// Internal entry point used by unit tests (bypasses Vision image OCR).
+    /// Call `VisionOCRService.parseForTesting(lines:rawText:)` from XCTest.
+    internal static func parseForTesting(lines: [String], rawText: String) -> VisionPreFill {
+        parse(lines: lines, rawText: rawText)
+    }
+
     private static func parse(lines: [String], rawText: String) -> VisionPreFill {
         VisionPreFill(
             rawText:       rawText,
