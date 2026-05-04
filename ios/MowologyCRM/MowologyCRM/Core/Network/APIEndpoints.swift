@@ -112,7 +112,7 @@ enum APIEndpoint {
             return components?.url
 
         case .deviceTokenRegister:
-            return URL(string: "\(baseURLString)/auth/device-token")
+            return URL(string: "\(baseURLString)/auth/device-token.php")
 
         case .powActions:
             return URL(string: "https://mowology.ca/crm/api/pow-actions.php")

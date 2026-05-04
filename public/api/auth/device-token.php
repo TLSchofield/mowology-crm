@@ -40,25 +40,10 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-// Auth — JWT validation
-$authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
-if (strpos($authHeader, 'Bearer ') !== 0) {
-    http_response_code(401);
-    echo json_encode(['error' => 'Unauthorized']);
-    exit;
-}
-$jwt = substr($authHeader, 7);
-require_once APP_ROOT . '/Core/auth.php';
-$payload = validateJwt($jwt);
-if (!$payload || empty($payload['user_id'])) {
-    http_response_code(401);
-    echo json_encode(['error' => 'Unauthorized']);
-    exit;
-}
-$userId = (int) $payload['user_id'];
-
-// Release session lock (no session writes needed)
-session_write_close();
+// Auth — JWT Bearer token (no session used)
+require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
+$jwtUser = requireJwt(); // exits 401 if missing or invalid
+$userId  = $jwtUser['id'];
 
 // Parse body
 $body = json_decode(file_get_contents('php://input'), true) ?? [];
