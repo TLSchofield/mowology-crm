@@ -60,6 +60,22 @@ try {
             handleVendorSearch($db);
             break;
 
+        case 'map_locations':
+            session_write_close();
+            $stmt = $db->query("
+                SELECT vl.id, vl.vendor_id, vl.label, vl.address, vl.lat, vl.lng,
+                       vl.city, vl.phone, vl.hours_weekday, vl.is_preferred,
+                       v.name AS vendor_name, v.default_accounting_category
+                FROM vendor_locations vl
+                JOIN vendors v ON vl.vendor_id = v.id
+                WHERE v.is_active = 1
+                  AND vl.lat IS NOT NULL AND vl.lat != 0
+                  AND vl.lng IS NOT NULL AND vl.lng != 0
+                ORDER BY v.name, vl.is_preferred DESC, vl.label
+            ");
+            echo json_encode(['success' => true, 'locations' => $stmt->fetchAll()]);
+            break;
+
         case 'products':
             handleVendorProducts($db);
             break;
@@ -342,18 +358,24 @@ function handleUpdateLocation(PDO $db, ?array $input): void
     $id = (int)($input['id'] ?? 0);
     if (!$id) throw new Exception('Location ID required');
 
+    $newLat = !empty($input['lat']) ? (float)$input['lat'] : null;
+    $newLng = !empty($input['lng']) ? (float)$input['lng'] : null;
+
+    // Use COALESCE so a null lat/lng doesn't wipe existing coordinates
     $stmt = $db->prepare("
         UPDATE vendor_locations SET
-            label = ?, address = ?, lat = ?, lng = ?, city = ?,
-            phone = ?, hours_weekday = ?, hours_saturday = ?, hours_sunday = ?,
+            label = ?, address = ?,
+            lat = COALESCE(?, lat), lng = COALESCE(?, lng),
+            city = ?, phone = ?,
+            hours_weekday = ?, hours_saturday = ?, hours_sunday = ?,
             notes = ?, is_preferred = ?
         WHERE id = ?
     ");
     $stmt->execute([
         $input['label'] ?? null,
         $input['address'] ?? null,
-        !empty($input['lat']) ? (float)$input['lat'] : null,
-        !empty($input['lng']) ? (float)$input['lng'] : null,
+        $newLat,
+        $newLng,
         $input['city'] ?? null,
         $input['phone'] ?? null,
         $input['hours_weekday'] ?? null,

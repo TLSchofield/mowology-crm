@@ -96,6 +96,10 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                     <input type="checkbox" id="routeToggle">
                     <span class="mw-route-toggle-label">Routes</span>
                 </label>
+                <label class="mw-route-toggle">
+                    <input type="checkbox" id="vendorsToggle">
+                    <span class="mw-route-toggle-label">Vendors</span>
+                </label>
                 <div class="mw-route-date-wrap" id="routeDateWrap" style="display:none;">
                     <button type="button" class="btn btn-sm btn-outline-secondary mw-route-date-btn" id="routePrevDay">&lsaquo;</button>
                     <input type="date" id="routeDate" class="form-control form-control-sm mw-route-date-input">
@@ -157,6 +161,12 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                         <div class="mw-crew-legend-title">Scheduled Jobs</div>
                         <div id="jobsLegendItems">
                             <!-- Rendered by JS based on service types present -->
+                        </div>
+                    </div>
+                    <div class="mw-crew-legend-section" id="vendorsLegend" style="display:none;">
+                        <div class="mw-crew-legend-title">Vendors</div>
+                        <div id="vendorsLegendItems">
+                            <!-- Rendered by JS -->
                         </div>
                     </div>
                 </div>
@@ -235,6 +245,12 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
     var jobsData = []; // raw stops from API
     var JobCardOverlay = null; // custom OverlayView class (init after maps loads)
 
+    // Vendor layer state
+    var vendorsEnabled = false;
+    var vendorMarkers = [];
+    var vendorsData = [];
+    var VENDOR_COLOR = '#B45309'; // amber-brown — distinct from crew/route/job colors
+
     var SERVICE_COLORS = {
         lawn_care: '#7FD858',
         landscaping: '#2D8659',
@@ -292,6 +308,7 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
         initMap();
         initRouteControls();
         initJobsControls();
+        initVendorsControl();
         initLiveControl();
         initPresetBar();
         initScrubber();
@@ -1045,6 +1062,92 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
             '<div class="text-center text-muted py-3" style="font-size:0.85rem;">No job data</div>';
         document.getElementById('jobsLegendItems').innerHTML = '';
         document.getElementById('jobsCounter').textContent = '';
+    }
+
+    // ── Vendor Layer ───────────────────────────────────
+
+    function fetchVendors() {
+        fetch('/crm/api/vendors.php?action=map_locations', { credentials: 'same-origin' })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                vendorsData = data.locations || [];
+                drawVendors();
+                renderVendorsLegend();
+            })
+            .catch(function(err) { console.error('Vendors fetch error:', err); });
+    }
+
+    function drawVendors() {
+        clearVendors();
+        vendorsData.forEach(function(loc) {
+            var marker = new google.maps.Marker({
+                position: { lat: parseFloat(loc.lat), lng: parseFloat(loc.lng) },
+                map: gmap,
+                icon: {
+                    path: 'M-6,-6 L6,-6 L6,6 L-6,6 Z',
+                    fillColor: VENDOR_COLOR,
+                    fillOpacity: 0.9,
+                    strokeColor: '#fff',
+                    strokeWeight: 1.5,
+                    scale: 1
+                },
+                title: (loc.label || loc.vendor_name),
+                zIndex: 5
+            });
+            var displayName = loc.label && loc.label !== loc.vendor_name
+                ? loc.vendor_name + ' <span style="color:#666;">(' + esc(loc.label) + ')</span>'
+                : esc(loc.vendor_name);
+            var content = '<div style="font-size:13px;line-height:1.5;max-width:220px;">' +
+                '<strong>' + displayName + '</strong>' +
+                '<br>' + esc(loc.address || '') +
+                (loc.hours_weekday ? '<br><small style="color:#555;">Mon–Fri: ' + esc(loc.hours_weekday) + '</small>' : '') +
+                (loc.phone ? '<br><small style="color:#555;">' + esc(loc.phone) + '</small>' : '') +
+                '</div>';
+            (function(m, c) {
+                var iw = new google.maps.InfoWindow({ content: c });
+                m.addListener('click', function() { iw.open(gmap, m); });
+            })(marker, content);
+            vendorMarkers.push(marker);
+        });
+    }
+
+    function clearVendors() {
+        vendorMarkers.forEach(function(m) { m.setMap(null); });
+        vendorMarkers = [];
+    }
+
+    function renderVendorsLegend() {
+        var legend = document.getElementById('vendorsLegend');
+        var items = document.getElementById('vendorsLegendItems');
+        if (!legend || !items) return;
+        if (!vendorsData.length) { legend.style.display = 'none'; return; }
+        var html = '';
+        vendorsData.forEach(function(loc) {
+            var name = loc.label && loc.label !== loc.vendor_name
+                ? loc.vendor_name + ' <small style="color:#999;">(' + esc(loc.label) + ')</small>'
+                : esc(loc.vendor_name);
+            html += '<div class="mw-crew-legend-item">' +
+                '<span style="display:inline-block;width:10px;height:10px;background:' + VENDOR_COLOR +
+                ';border-radius:2px;margin-right:4px;vertical-align:middle;"></span>' +
+                name + '</div>';
+        });
+        items.innerHTML = html;
+        legend.style.display = '';
+    }
+
+    function initVendorsControl() {
+        var toggle = document.getElementById('vendorsToggle');
+        if (!toggle) return;
+        toggle.addEventListener('change', function() {
+            vendorsEnabled = this.checked;
+            if (vendorsEnabled) {
+                fetchVendors();
+            } else {
+                clearVendors();
+                var legend = document.getElementById('vendorsLegend');
+                if (legend) legend.style.display = 'none';
+            }
+        });
     }
 
     // ── JobCardOverlay — territory map style mini cards on the map ──

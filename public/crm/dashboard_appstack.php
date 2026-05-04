@@ -771,7 +771,7 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
 <!-- ── Dashboard Live Operations Map ───────────────────────────────────── -->
 <script>
 (function() {
-    var map, crewMarkers = {}, crewPolylines = {}, jobMarkers = [], officeMarker = null;
+    var map, crewMarkers = {}, crewPolylines = {}, jobMarkers = [], officeMarker = null, vendorMarkers = [];
     var infoWindow = null;
     var refreshInterval = 60000; // 60 seconds
     var CREW_COLORS = ['#2196F3', '#E91E63', '#FF9800', '#9C27B0', '#009688', '#795548'];
@@ -974,6 +974,41 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                 }
             }
         });
+
+        // ── Vendor pins (drawn once; static reference layer) ──
+        if (!vendorMarkers.length && data.vendors && data.vendors.length) {
+            data.vendors.forEach(function(loc) {
+                var pos = { lat: parseFloat(loc.lat), lng: parseFloat(loc.lng) };
+                var m = new google.maps.Marker({
+                    position: pos,
+                    map: map,
+                    icon: {
+                        path: 'M-5,-5 L5,-5 L5,5 L-5,5 Z',
+                        fillColor: '#B45309',
+                        fillOpacity: 0.85,
+                        strokeColor: '#fff',
+                        strokeWeight: 1.5,
+                        scale: 1
+                    },
+                    title: loc.label || loc.vendor_name,
+                    zIndex: 1
+                });
+                (function(marker, l) {
+                    marker.addListener('click', function() {
+                        infoWindow.setContent(
+                            '<div style="font-size:13px;max-width:200px;">' +
+                            '<strong>' + escHtml(l.vendor_name) + '</strong>' +
+                            (l.label && l.label !== l.vendor_name ? '<br><span style="color:#666;">' + escHtml(l.label) + '</span>' : '') +
+                            '<br>' + escHtml(l.address || '') +
+                            (l.hours_weekday ? '<br><small>' + escHtml(l.hours_weekday) + '</small>' : '') +
+                            '</div>'
+                        );
+                        infoWindow.open(map, marker);
+                    });
+                })(m, loc);
+                vendorMarkers.push(m);
+            });
+        }
 
         // Fit bounds on first load or when empty
         if (hasBounds && Object.keys(crewMarkers).length > 0) {
