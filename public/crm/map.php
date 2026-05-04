@@ -1095,13 +1095,13 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                 zIndex: 5
             });
             var displayName = loc.label && loc.label !== loc.vendor_name
-                ? loc.vendor_name + ' <span style="color:#666;">(' + esc(loc.label) + ')</span>'
-                : esc(loc.vendor_name);
+                ? escapeHtml(loc.vendor_name) + ' <span style="color:#666;">(' + escapeHtml(loc.label) + ')</span>'
+                : escapeHtml(loc.vendor_name);
             var content = '<div style="font-size:13px;line-height:1.5;max-width:220px;">' +
                 '<strong>' + displayName + '</strong>' +
-                '<br>' + esc(loc.address || '') +
-                (loc.hours_weekday ? '<br><small style="color:#555;">Mon–Fri: ' + esc(loc.hours_weekday) + '</small>' : '') +
-                (loc.phone ? '<br><small style="color:#555;">' + esc(loc.phone) + '</small>' : '') +
+                '<br>' + escapeHtml(loc.address || '') +
+                (loc.hours_weekday ? '<br><small style="color:#555;">Mon–Fri: ' + escapeHtml(loc.hours_weekday) + '</small>' : '') +
+                (loc.phone ? '<br><small style="color:#555;">' + escapeHtml(loc.phone) + '</small>' : '') +
                 '</div>';
             (function(m, c) {
                 var iw = new google.maps.InfoWindow({ content: c });
@@ -1124,8 +1124,8 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
         var html = '';
         vendorsData.forEach(function(loc) {
             var name = loc.label && loc.label !== loc.vendor_name
-                ? loc.vendor_name + ' <small style="color:#999;">(' + esc(loc.label) + ')</small>'
-                : esc(loc.vendor_name);
+                ? escapeHtml(loc.vendor_name) + ' <small style="color:#999;">(' + escapeHtml(loc.label) + ')</small>'
+                : escapeHtml(loc.vendor_name);
             html += '<div class="mw-crew-legend-item">' +
                 '<span style="display:inline-block;width:10px;height:10px;background:' + VENDOR_COLOR +
                 ';border-radius:2px;margin-right:4px;vertical-align:middle;"></span>' +
