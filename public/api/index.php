@@ -152,6 +152,8 @@ $actionAliases = [
     'schedule' => [
         'day'                => 'day',
         'week'               => 'week',
+        'clock'              => 'clock',   // POST clock_in / clock_out
+        'status'             => 'status',  // GET clock status (resolved from ?action=status)
     ],
 ];
 
