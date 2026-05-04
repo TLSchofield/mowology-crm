@@ -135,11 +135,29 @@ struct ReceiptReviewView: View {
             HStack {
                 Spacer()
                 if let img = receiptImage {
+                    // Server-fetched (full resolution, post-EXIF-strip)
                     Image(uiImage: img)
                         .resizable()
                         .scaledToFit()
                         .frame(maxHeight: 220)
                         .clipShape(RoundedRectangle(cornerRadius: 10))
+                } else if let local = viewModel.capturedImage {
+                    // Local capture — shown immediately while upload is in progress
+                    Image(uiImage: local)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxHeight: 220)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .overlay(alignment: .bottomTrailing) {
+                            if viewModel.isUploading {
+                                ProgressView()
+                                    .tint(.white)
+                                    .padding(6)
+                                    .background(.black.opacity(0.35))
+                                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                                    .padding(8)
+                            }
+                        }
                 } else if isLoadingImage {
                     RoundedRectangle(cornerRadius: 10)
                         .fill(Color(.systemGray5))
@@ -151,9 +169,9 @@ struct ReceiptReviewView: View {
                 Spacer()
             }
         }
-        // Re-fires when mediaId becomes available (i.e. upload completes)
+        // Re-fires when a valid mediaId arrives (upload complete, server stored the image)
         .task(id: viewModel.intakeResponse?.mediaId) {
-            guard let mediaId = viewModel.intakeResponse?.mediaId else { return }
+            guard let mediaId = viewModel.intakeResponse?.mediaId, mediaId > 0 else { return }
             isLoadingImage = true
             if let data = try? await viewModel.fetchReceiptImage(mediaId: mediaId),
                let img  = UIImage(data: data) {

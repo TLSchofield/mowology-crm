@@ -21,6 +21,7 @@ final class ReceiptsViewModel: ObservableObject {
     @Published var uploadError:      String?
     @Published var intakeResponse:   ReceiptIntakeResponse?
     @Published var visionPreFill:    VisionPreFill?  // fast on-device pre-fill (available before server response)
+    @Published var capturedImage:    UIImage?        // locally-captured photo shown immediately in review
 
     // MARK: - Save state
     @Published var isSaving     = false

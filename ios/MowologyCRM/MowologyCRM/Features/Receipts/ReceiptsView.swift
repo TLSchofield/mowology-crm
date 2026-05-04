@@ -55,7 +55,7 @@ struct ReceiptsView: View {
             librarySheet
         }
         // Review sheet — opens with Vision pre-fill, upgrades when server responds
-        .sheet(isPresented: $showReview) {
+        .sheet(isPresented: $showReview, onDismiss: { viewModel.capturedImage = nil }) {
             ReceiptReviewView(viewModel: viewModel, isPresented: $showReview)
         }
         .onChange(of: viewModel.uploadError) { _, err in
@@ -84,8 +84,9 @@ struct ReceiptsView: View {
     ///   2. Review sheet opens immediately with Vision pre-fill
     ///   3. Server upload runs in the background — review sheet merges results on arrival
     private func handleCapture(_ image: UIImage) async {
-        viewModel.uploadError  = nil
+        viewModel.uploadError    = nil
         viewModel.intakeResponse = nil
+        viewModel.capturedImage  = nil
 
         // Run Vision OCR and compression in parallel (both are CPU-bound, non-blocking)
         async let visionTask: Void = viewModel.runVisionOCR(on: image)
@@ -95,6 +96,9 @@ struct ReceiptsView: View {
 
         let (_, compressed) = await (visionTask, compressTask)
         guard !compressed.isEmpty else { return }
+
+        // Store local image so the review sheet can show it immediately (before server responds)
+        viewModel.capturedImage = UIImage(data: compressed) ?? image
 
         // Vision is ready — open the review sheet immediately
         showReview = true
