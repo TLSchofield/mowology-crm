@@ -183,6 +183,64 @@ final class APIClient: ObservableObject {
         }
     }
 
+    // MARK: - Job Photo Upload
+
+    /// Uploads a before/after job site photo as multipart/form-data.
+    /// Returns Void on success; throws on HTTP or network error.
+    /// Callers should enqueue to `JobPhotoQueue` on failure for offline retry.
+    func uploadJobPhoto(imageData: Data, visitId: Int, photoType: JobPhotoType) async throws {
+        guard let url = APIEndpoint.jobPhoto(visitId: visitId).url else {
+            throw APIError.invalidURL
+        }
+
+        let boundary = "MwBoundary-\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        var request  = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        if let token = authSession?.token {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        var body = Data()
+        body.appendField(name: "job_photo", filename: "photo.jpg",
+                         mimeType: "image/jpeg", data: imageData, boundary: boundary)
+        body.appendField(name: "visit_id",   value: "\(visitId)",         boundary: boundary)
+        body.appendField(name: "photo_type", value: photoType.rawValue,   boundary: boundary)
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            let err = APIError.networkError(error)
+            #if DEBUG
+            DevErrorBus.shared.post(err)
+            #endif
+            throw err
+        }
+
+        if let http = response as? HTTPURLResponse {
+            if http.statusCode == 401 { authSession?.logout(); throw APIError.unauthorized }
+            if !(200..<300).contains(http.statusCode) {
+                let msg = extractErrorMessage(from: data) ?? "Job photo upload failed (\(http.statusCode))"
+                let err = APIError.serverError(msg)
+                #if DEBUG
+                DevErrorBus.shared.post(err)
+                #endif
+                throw err
+            }
+        }
+
+        // Verify server acknowledged success
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let success = json["success"] as? Bool, !success {
+            let msg = (json["error"] as? String) ?? "Server rejected job photo."
+            throw APIError.serverError(msg)
+        }
+    }
+
     // MARK: - Authenticated Image Fetch
 
     /// Fetches raw receipt image bytes using the bearer token.
