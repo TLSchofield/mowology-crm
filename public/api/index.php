@@ -152,6 +152,7 @@ $actionAliases = [
         'day'                => 'day',
         'week'               => 'week',
         'job-photo'          => 'job-photo',
+        'crew-trails'        => 'crew-trails',
     ],
 ];
 
