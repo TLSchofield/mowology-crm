@@ -13,12 +13,26 @@ struct DayMapView: View {
     let stops: [Stop]
     let isLoading: Bool
     let isAdmin: Bool
+    var routes: [CrewRoute] = []
+    var liveCrew: [CrewLiveLocation] = []
+    var currentUserId: Int? = nil
 
     @State private var selectedStop: Stop?
     @State private var position: MapCameraPosition = .automatic
 
     private var mappableStops: [Stop] {
         stops.filter { $0.latitude != nil && $0.longitude != nil }
+    }
+
+    /// Stable colour per crew member so trail polylines and live pins match.
+    /// The current user always gets MW.green so their own trail reads as "yours".
+    private static let trailPalette: [Color] = [
+        .blue, .orange, .purple, .red, .pink, .teal, .indigo, .brown
+    ]
+
+    private func color(forUserId userId: Int) -> Color {
+        if let me = currentUserId, userId == me { return Color.MW.green }
+        return Self.trailPalette[abs(userId) % Self.trailPalette.count]
     }
 
     // MARK: - Body
@@ -44,17 +58,52 @@ struct DayMapView: View {
                 .zIndex(1)
             }
         }
-        .onAppear  { fitCamera(to: stops) }
-        .onChange(of: stops) { _, new in
+        .onAppear  { fitCameraToAll() }
+        .onChange(of: stops) { _, _ in
             withAnimation { selectedStop = nil }
-            fitCamera(to: new)
+            fitCameraToAll()
         }
+        .onChange(of: routes)   { _, _ in fitCameraToAll() }
+        .onChange(of: liveCrew) { _, _ in fitCameraToAll() }
     }
 
     // MARK: - Map
 
     private var map: some View {
         Map(position: $position) {
+
+            // Travel trails — drawn first so stop pins render above them.
+            ForEach(routes) { route in
+                let coords = route.coordinates
+                if coords.count >= 2 {
+                    MapPolyline(coordinates: coords)
+                        .stroke(
+                            color(forUserId: route.userId),
+                            style: StrokeStyle(
+                                lineWidth: 4,
+                                lineCap: .round,
+                                lineJoin: .round
+                            )
+                        )
+                }
+            }
+
+            // Live crew positions (latest fix per crew, last 24 h).
+            // Skip the current user's pin if SwiftUI's UserAnnotation will already
+            // show a blue dot for them — avoids two overlapping markers.
+            ForEach(liveCrew) { crew in
+                if crew.userId != currentUserId {
+                    Annotation(
+                        crew.fullName,
+                        coordinate: crew.coordinate,
+                        anchor: .center
+                    ) {
+                        CrewPin(crew: crew, color: color(forUserId: crew.userId))
+                    }
+                }
+            }
+
+            // Scheduled stops.
             ForEach(mappableStops) { stop in
                 Annotation(
                     stop.fullAddress,
@@ -76,6 +125,7 @@ struct DayMapView: View {
                     }
                 }
             }
+
             UserAnnotation()
         }
         .mapStyle(.standard(elevation: .flat))
@@ -108,11 +158,23 @@ struct DayMapView: View {
 
     // MARK: - Camera
 
-    private func fitCamera(to stops: [Stop]) {
-        let coords = stops.compactMap { stop -> CLLocationCoordinate2D? in
-            guard let lat = stop.latitude, let lng = stop.longitude else { return nil }
-            return CLLocationCoordinate2D(latitude: lat, longitude: lng)
+    /// Fit the camera around stops, trail polylines, and live crew positions
+    /// so all relevant geometry is visible at once.
+    private func fitCameraToAll() {
+        var coords: [CLLocationCoordinate2D] = []
+
+        for stop in stops {
+            if let lat = stop.latitude, let lng = stop.longitude {
+                coords.append(CLLocationCoordinate2D(latitude: lat, longitude: lng))
+            }
         }
+        for route in routes {
+            coords.append(contentsOf: route.coordinates)
+        }
+        for crew in liveCrew {
+            coords.append(crew.coordinate)
+        }
+
         guard !coords.isEmpty else { return }
 
         let lats = coords.map(\.latitude)
@@ -127,6 +189,49 @@ struct DayMapView: View {
         )
         withAnimation(.easeInOut(duration: 0.5)) {
             position = .region(MKCoordinateRegion(center: center, span: span))
+        }
+    }
+}
+
+// MARK: - Crew Pin
+
+private struct CrewPin: View {
+
+    let crew: CrewLiveLocation
+    let color: Color
+
+    private var iconName: String {
+        crew.isTruck ? "truck.box.fill" : "person.fill"
+    }
+
+    private var initials: String {
+        let parts = crew.fullName
+            .split(separator: " ")
+            .prefix(2)
+            .map { String($0.first ?? Character("?")) }
+        return parts.joined().uppercased()
+    }
+
+    /// Stale (>15 min) live fixes get desaturated so admins can spot drift.
+    private var isStale: Bool { crew.secondsAgo > 900 }
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(isStale ? color.opacity(0.45) : color)
+                .frame(width: 30, height: 30)
+                .overlay(Circle().stroke(.white, lineWidth: 2))
+                .shadow(color: .black.opacity(0.22), radius: 3, y: 2)
+
+            if crew.isTruck {
+                Image(systemName: iconName)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(.white)
+            } else {
+                Text(initials)
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+            }
         }
     }
 }
