@@ -110,6 +110,7 @@ final class ScheduleViewModel: ObservableObject {
             stopCache[dateString] = fetched
             stops       = fetched
             lastFetched = .now
+            ArrivalMonitor.shared.loadStops(fetched)
         } catch let apiError as APIError {
             errorMessage = apiError.errorDescription
             stops = []

@@ -17,6 +17,9 @@ settings:
     PRODUCT_BUNDLE_IDENTIFIER: ca.mowology.crm-field
 
 targets:
+
+  # ─── Main app ─────────────────────────────────────────────────────────────
+
   MowologyCRM:
     type: application
     platform: iOS
@@ -25,6 +28,7 @@ targets:
       - path: MowologyCRM
         excludes:
           - "**/*.md"
+      # JobActivityAttributes compiled into both main app and widget extension
     info:
       path: MowologyCRM/Resources/Info.plist
       properties:
@@ -37,11 +41,62 @@ targets:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        NSLocationWhenInUseUsageDescription: "Used to show your location on the job map."
+        NSLocationWhenInUseUsageDescription: "Used to show your location on the job map and track distance to stops."
+        NSLocationAlwaysAndWhenInUseUsageDescription: "Mowology tracks your location in the background to log GPS pings, detect job-site arrivals, and auto-clock-in when you reach a stop."
+        NSLocationAlwaysUsageDescription: "Mowology tracks your location in the background to log GPS pings, detect job-site arrivals, and auto-clock-in when you reach a stop."
+        NSCameraUsageDescription: "Used to scan receipts for expense tracking."
+        NSPhotoLibraryUsageDescription: "Used to choose an existing receipt photo from your library."
+        NSSupportsLiveActivities: true
+        UIBackgroundModes:
+          - fetch
+          - remote-notification
+          - location
+          - processing
+        BGTaskSchedulerPermittedIdentifiers:
+          - ca.mowology.crm.schedule-refresh
+          - ca.mowology.crm.ping-drain
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: false
+    entitlements:
+      path: MowologyCRM/MowologyCRM.entitlements
     settings:
       base:
         INFOPLIST_FILE: MowologyCRM/Resources/Info.plist
         CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: MowologyCRM/MowologyCRM.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    dependencies:
+      - sdk: WidgetKit.framework
+      - sdk: ActivityKit.framework
+      - target: MowologyWidgets
+        embed: true
+
+  # ─── Widget extension ──────────────────────────────────────────────────────
+
+  MowologyWidgets:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: MowologyWidgets
+        excludes:
+          - "**/*.md"
+      # Share the ActivityAttributes model with the main app
+      - path: MowologyCRM/Core/Models/JobActivityAttributes.swift
+    info:
+      path: MowologyWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: Mowology Widgets
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: MowologyWidgets/MowologyWidgets.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ca.mowology.crm-field.widgets
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: MowologyWidgets/MowologyWidgets.entitlements
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+    dependencies:
+      - sdk: WidgetKit.framework
+      - sdk: ActivityKit.framework

@@ -2,7 +2,11 @@
 //  ReceiptReviewView.swift
 //  MowologyCRM
 //
-//  Review and confirm OCR-parsed receipt fields before saving.
+//  Review and confirm receipt fields before saving.
+//
+//  Opens immediately with localParse pre-fill (DataScannerViewController result).
+//  While the server upload runs in the background, the Save button shows "Uploading…"
+//  and is disabled. Once intakeResponse arrives, Save becomes active.
 //
 
 import SwiftUI
@@ -11,41 +15,55 @@ import UIKit
 struct ReceiptReviewView: View {
 
     @ObservedObject var viewModel: ReceiptsViewModel
-    let intake: ReceiptIntakeResponse
+
+    /// Non-nil once the server upload completes. May be nil if opened before upload finishes.
+    let intake: ReceiptIntakeResponse?
+
+    /// Instant local OCR pre-fill from VisionKit. Used when intake is not yet available.
+    let localParse: LocalReceiptParse?
+
     @Binding var isPresented: Bool
 
-    // Pre-fill from OCR
-    @State private var vendorName:     String
-    @State private var expenseDate:    Date
-    @State private var amount:         String
-    @State private var gst:            String
-    @State private var total:          String
-    @State private var category:       String
-    @State private var paymentMethod:  String
-    @State private var notes:          String
+    // Form state — pre-filled from intake or localParse
+    @State private var vendorName:    String
+    @State private var expenseDate:   Date
+    @State private var amount:        String
+    @State private var gst:           String
+    @State private var total:         String
+    @State private var category:      String
+    @State private var paymentMethod: String
+    @State private var notes:         String
 
-    // Receipt image loaded via bearer-token auth (can't use AsyncImage — server requires auth header)
-    @State private var receiptImage:        UIImage? = nil
-    @State private var isLoadingImage:      Bool     = false
+    @State private var receiptImage:   UIImage? = nil
+    @State private var isLoadingImage: Bool     = false
 
-    // Categories and payment methods come from viewModel.categories (fetched from /api/expenses/expense-meta).
+    // MARK: - Init
 
-    init(viewModel: ReceiptsViewModel, intake: ReceiptIntakeResponse, isPresented: Binding<Bool>) {
-        self.viewModel   = viewModel
-        self.intake      = intake
+    init(viewModel:   ReceiptsViewModel,
+         intake:      ReceiptIntakeResponse?,
+         localParse:  LocalReceiptParse?,
+         isPresented: Binding<Bool>) {
+        self.viewModel    = viewModel
+        self.intake       = intake
+        self.localParse   = localParse
         self._isPresented = isPresented
 
-        let p = intake.parsed
-        let s = intake.suggestions
-        _vendorName    = State(initialValue: s?.vendorName ?? p?.vendorHint ?? "")
-        _expenseDate   = State(initialValue: Self.parseDate(p?.date))
-        _amount        = State(initialValue: p?.subtotal ?? p?.total ?? "")
-        _gst           = State(initialValue: p?.gst ?? "")
-        _total         = State(initialValue: p?.total ?? "")
+        // Prefer server suggestions, fall back to local parse
+        let p = intake?.parsed
+        let s = intake?.suggestions
+        let lp = localParse
+
+        _vendorName    = State(initialValue: s?.vendorName    ?? p?.vendorHint ?? lp?.vendorHint ?? "")
+        _expenseDate   = State(initialValue: Self.parseDate(p?.date ?? lp?.date))
+        _amount        = State(initialValue: p?.subtotal ?? "")
+        _gst           = State(initialValue: p?.gst      ?? Self.formatAmount(lp?.gst))
+        _total         = State(initialValue: p?.total    ?? Self.formatAmount(lp?.total))
         _category      = State(initialValue: s?.accountingCategory ?? "")
         _paymentMethod = State(initialValue: p?.paymentMethod ?? "credit_card")
         _notes         = State(initialValue: "")
     }
+
+    // MARK: - Body
 
     var body: some View {
         NavigationStack {
@@ -62,6 +80,13 @@ struct ReceiptReviewView: View {
                         Text(err).foregroundStyle(.red).font(.subheadline)
                     }
                 }
+                if let err = viewModel.uploadError {
+                    Section {
+                        Label(err, systemImage: "exclamationmark.triangle")
+                            .font(.subheadline)
+                            .foregroundStyle(Color.MW.orange)
+                    }
+                }
             }
             .navigationTitle("Review Receipt")
             .navigationBarTitleDisplayMode(.inline)
@@ -71,22 +96,38 @@ struct ReceiptReviewView: View {
                         .foregroundStyle(Color.MW.green)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button {
-                        Task { await save() }
-                    } label: {
-                        if viewModel.isSaving {
-                            ProgressView().tint(Color.MW.green)
-                        } else {
-                            Text("Save").font(.subheadline.weight(.semibold))
-                                .foregroundStyle(Color.MW.green)
+                    Button { Task { await save() } } label: {
+                        Group {
+                            if viewModel.isSaving {
+                                ProgressView().tint(Color.MW.green)
+                            } else if viewModel.isUploading {
+                                Label("Uploading…", systemImage: "arrow.up.circle")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                Text("Save").font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(Color.MW.green)
+                            }
                         }
                     }
-                    .disabled(viewModel.isSaving || total.isEmpty)
+                    .disabled(viewModel.isSaving || viewModel.isUploading || total.isEmpty)
                 }
             }
         }
         .presentationDragIndicator(.visible)
         .task { await viewModel.loadMeta() }
+        // When server intake arrives after local pre-fill, update any empty fields
+        .onChange(of: viewModel.intakeResponse) { _, newIntake in
+            guard let newIntake else { return }
+            updateFromIntake(newIntake)
+            loadReceiptImage(mediaId: newIntake.mediaId)
+        }
+        .task {
+            // Load image if intake already available (e.g., upload beat the sheet opening)
+            if let mediaId = intake?.mediaId {
+                loadReceiptImage(mediaId: mediaId)
+            }
+        }
     }
 
     // MARK: - Sections
@@ -101,26 +142,22 @@ struct ReceiptReviewView: View {
                         .scaledToFit()
                         .frame(maxHeight: 220)
                         .clipShape(RoundedRectangle(cornerRadius: 10))
-                        .onTapGesture { /* future: full-screen zoom */ }
-                } else if isLoadingImage {
+                } else if isLoadingImage || viewModel.isUploading {
                     RoundedRectangle(cornerRadius: 10)
                         .fill(Color(.systemGray5))
                         .frame(height: 120)
-                        .overlay { ProgressView().tint(Color.MW.green) }
+                        .overlay {
+                            VStack(spacing: 6) {
+                                ProgressView().tint(Color.MW.green)
+                                Text(viewModel.isUploading ? "Uploading…" : "Loading image…")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
                 } else {
                     receiptImagePlaceholder
                 }
                 Spacer()
             }
-        }
-        .task {
-            // Load image with bearer-token auth — /uploads/receipts/ is Deny from all.
-            isLoadingImage = true
-            if let data = try? await viewModel.fetchReceiptImage(mediaId: intake.mediaId),
-               let img = UIImage(data: data) {
-                receiptImage = img
-            }
-            isLoadingImage = false
         }
     }
 
@@ -131,8 +168,11 @@ struct ReceiptReviewView: View {
             .overlay {
                 VStack(spacing: 6) {
                     Image(systemName: "doc.text.image").font(.largeTitle).foregroundStyle(.secondary)
-                    if intake.ocrAvailable {
+                    if let intake, intake.ocrAvailable {
                         Label("OCR: \(intake.ocrSource?.uppercased() ?? "–")", systemImage: "text.viewfinder")
+                            .font(.caption2).foregroundStyle(Color.MW.green)
+                    } else if localParse?.total != nil {
+                        Label("Local OCR", systemImage: "text.viewfinder")
                             .font(.caption2).foregroundStyle(Color.MW.green)
                     }
                 }
@@ -143,58 +183,26 @@ struct ReceiptReviewView: View {
         Section("Vendor") {
             HStack {
                 TextField("Vendor name", text: $vendorName)
-                if let conf = intake.suggestions?.vendorConfidence, conf > 0 {
+                if let conf = intake?.suggestions?.vendorConfidence, conf > 0 {
                     confidenceDot(conf)
                 }
             }
             DatePicker("Date", selection: $expenseDate, displayedComponents: .date)
-                .tint(Color.MW.green)
         }
     }
 
-    private var amountsSection: some View {
-        Section("Amounts") {
-            amountRow(label: "Subtotal", value: $amount)
-            amountRow(label: "GST (5%)", value: $gst)
-            Divider()
-            HStack {
-                Text("Total").font(.subheadline.weight(.semibold))
-                Spacer()
-                TextField("0.00", text: $total)
-                    .keyboardType(.decimalPad)
-                    .multilineTextAlignment(.trailing)
-                    .font(.subheadline.weight(.semibold))
-                    .frame(width: 90)
-            }
-        }
-    }
-
-    private func amountRow(label: String, value: Binding<String>) -> some View {
-        HStack {
-            Text(label).foregroundStyle(.secondary)
-            Spacer()
-            TextField("0.00", text: value)
-                .keyboardType(.decimalPad)
-                .multilineTextAlignment(.trailing)
-                .frame(width: 90)
-        }
-    }
-
-    @ViewBuilder
     private var lineItemsSection: some View {
-        if let items = intake.parsed?.lineItems, !items.isEmpty {
-            Section("Line Items") {
-                ForEach(items) { item in
-                    HStack {
-                        Text(item.name)
-                            .font(.subheadline)
-                            .lineLimit(2)
-                        Spacer()
-                        if let amt = item.amount {
-                            Text("$\(amt)")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .monospacedDigit()
+        Group {
+            if let items = intake?.parsed?.lineItems, !items.isEmpty {
+                Section("Line Items") {
+                    ForEach(items) { item in
+                        HStack {
+                            Text(item.name).font(.subheadline)
+                            Spacer()
+                            if let amt = item.amount {
+                                Text(amt).font(.subheadline.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
                 }
@@ -202,71 +210,160 @@ struct ReceiptReviewView: View {
         }
     }
 
+    private var amountsSection: some View {
+        Section("Amounts") {
+            HStack {
+                Text("Subtotal").foregroundStyle(.secondary)
+                Spacer()
+                TextField("0.00", text: $amount)
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.trailing)
+                    .frame(maxWidth: 100)
+            }
+            HStack {
+                Text("GST / HST").foregroundStyle(.secondary)
+                Spacer()
+                TextField("0.00", text: $gst)
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.trailing)
+                    .frame(maxWidth: 100)
+            }
+            HStack {
+                Text("Total").foregroundStyle(.primary).fontWeight(.medium)
+                Spacer()
+                TextField("0.00", text: $total)
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.trailing)
+                    .frame(maxWidth: 100)
+                    .fontWeight(.medium)
+            }
+        }
+    }
+
     private var categorySection: some View {
-        Section("Category") {
-            Picker("Category", selection: $category) {
-                Text("— Select —").tag("")
-                ForEach(viewModel.categories, id: \.self) { Text($0).tag($0) }
+        Section("Category & Payment") {
+            if viewModel.categories.isEmpty {
+                TextField("Category", text: $category)
+            } else {
+                Picker("Category", selection: $category) {
+                    Text("Select…").tag("")
+                    ForEach(viewModel.categories, id: \.self) { cat in
+                        Text(cat.replacingOccurrences(of: "_", with: " ").capitalized)
+                            .tag(cat)
+                    }
+                }
             }
             Picker("Payment", selection: $paymentMethod) {
-                ForEach(viewModel.paymentMethods, id: \.self) { Text(paymentLabel($0)).tag($0) }
+                ForEach(viewModel.paymentMethods, id: \.self) { method in
+                    Text(method.replacingOccurrences(of: "_", with: " ").capitalized)
+                        .tag(method)
+                }
             }
         }
     }
 
     private var notesSection: some View {
-        Section("Notes (optional)") {
-            TextField("Any additional details…", text: $notes, axis: .vertical)
-                .lineLimit(3, reservesSpace: true)
+        Section("Notes") {
+            TextField("Optional notes", text: $notes, axis: .vertical)
+                .lineLimit(2...4)
         }
     }
 
-    // MARK: - Confidence dot
+    // MARK: - Confidence indicator
 
     private func confidenceDot(_ confidence: Int) -> some View {
-        let color: Color = confidence >= 80 ? Color.MW.green : confidence >= 50 ? Color.MW.orange : .red
-        return Circle().fill(color).frame(width: 8, height: 8)
+        Circle()
+            .fill(confidence >= 80 ? Color.green : confidence >= 50 ? Color.orange : Color.red)
+            .frame(width: 8, height: 8)
+    }
+
+    // MARK: - Image loading
+
+    private func loadReceiptImage(mediaId: Int) {
+        guard receiptImage == nil, !isLoadingImage else { return }
+        isLoadingImage = true
+        Task {
+            if let data = try? await viewModel.fetchReceiptImage(mediaId: mediaId),
+               let img  = UIImage(data: data) {
+                receiptImage = img
+            }
+            isLoadingImage = false
+        }
+    }
+
+    // MARK: - Update from server intake
+
+    private func updateFromIntake(_ newIntake: ReceiptIntakeResponse) {
+        let p = newIntake.parsed
+        let s = newIntake.suggestions
+
+        if vendorName.isEmpty    { vendorName    = s?.vendorName ?? p?.vendorHint ?? vendorName }
+        if gst.isEmpty,   let v = p?.gst   { gst   = v }
+        if total.isEmpty, let v = p?.total { total = v }
+        if amount.isEmpty, let v = p?.subtotal { amount = v }
+        if category.isEmpty, let v = s?.accountingCategory { category = v }
+        if paymentMethod == "credit_card", let v = p?.paymentMethod { paymentMethod = v }
+
+        let serverDate = Self.parseDate(p?.date)
+        if expenseDate == Self.parseDate(localParse?.date) {
+            expenseDate = serverDate
+        }
     }
 
     // MARK: - Save
 
     private func save() async {
-        let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
-        let saved = await viewModel.saveExpense(
-            vendorId:      intake.suggestions?.vendorId,
+        let totalDouble  = Double(total.replacingOccurrences(of: ",", with: ".")) ?? 0
+        let gstDouble    = Double(gst.replacingOccurrences(of: ",", with: "."))   ?? 0
+        let amountDouble = Double(amount.replacingOccurrences(of: ",", with: ".")) ?? (totalDouble - gstDouble)
+
+        let dateStr = Self.isoDate(from: expenseDate)
+
+        let mediaId  = viewModel.intakeResponse?.mediaId ?? intake?.mediaId
+        let ocrParsed = viewModel.intakeResponse?.parsed ?? intake?.parsed
+
+        let success = await viewModel.saveExpense(
+            vendorId:      viewModel.intakeResponse?.suggestions?.vendorId ?? intake?.suggestions?.vendorId,
             vendorName:    vendorName,
-            date:          fmt.string(from: expenseDate),
-            amount:        Double(amount) ?? 0,
-            gst:           Double(gst)    ?? 0,
-            total:         Double(total)  ?? 0,
+            date:          dateStr,
+            amount:        amountDouble,
+            gst:           gstDouble,
+            total:         totalDouble,
             category:      category,
             paymentMethod: paymentMethod,
             notes:         notes,
-            mediaId:       intake.mediaId,
-            ocrParsed:     intake.parsed,
-            lat:           nil, lng: nil
+            mediaId:       mediaId,
+            ocrParsed:     ocrParsed,
+            lat:           nil,
+            lng:           nil
         )
-        if saved { isPresented = false }
+
+        if success { isPresented = false }
     }
 
-    // MARK: - Helpers
+    // MARK: - Date helpers
 
     private static func parseDate(_ string: String?) -> Date {
-        guard let string else { return .now }
-        let fmts = ["yyyy-MM-dd", "MM/dd/yyyy", "dd/MM/yyyy"]
-        let f = DateFormatter()
-        for fmt in fmts { f.dateFormat = fmt; if let d = f.date(from: string) { return d } }
+        guard let string, !string.isEmpty else { return .now }
+        let fmts = ["yyyy-MM-dd", "MM/dd/yyyy", "dd-MMM-yyyy"]
+        let fmt = DateFormatter()
+        fmt.locale = Locale(identifier: "en_US_POSIX")
+        for f in fmts {
+            fmt.dateFormat = f
+            if let d = fmt.date(from: string) { return d }
+        }
         return .now
     }
 
-    private func paymentLabel(_ method: String) -> String {
-        switch method {
-        case "credit_card":   return "Credit Card"
-        case "debit":         return "Debit Card"
-        case "cash":          return "Cash"
-        case "etransfer":     return "e-Transfer"
-        case "company_card":  return "Company Card"
-        default:              return method.capitalized
-        }
+    private static func isoDate(from date: Date) -> String {
+        let fmt = DateFormatter()
+        fmt.locale     = Locale(identifier: "en_US_POSIX")
+        fmt.dateFormat = "yyyy-MM-dd"
+        return fmt.string(from: date)
+    }
+
+    private static func formatAmount(_ value: Double?) -> String {
+        guard let v = value else { return "" }
+        return String(format: "%.2f", v)
     }
 }

@@ -50,6 +50,9 @@ enum APIEndpoint {
     /// GET /api/expenses/receipt-image?id=<mediaId> — stream an auth-gated receipt image (JWT).
     case receiptImage(mediaId: Int)
 
+    /// POST /api/auth/device-token — register APNs device token for push notifications.
+    case deviceTokenRegister
+
     // MARK: - URL
 
     /// Builds the full URL for the endpoint. Returns `nil` only if the base
@@ -101,6 +104,9 @@ enum APIEndpoint {
             var components = URLComponents(string: "\(baseURLString)/expenses/receipt-image")
             components?.queryItems = [URLQueryItem(name: "id", value: "\(mediaId)")]
             return components?.url
+
+        case .deviceTokenRegister:
+            return URL(string: "\(baseURLString)/auth/device-token")
         }
     }
 
@@ -120,7 +126,8 @@ enum APIEndpoint {
              .expenseMeta,
              .expenseSave,
              .expenseList,
-             .receiptImage: return true
+             .receiptImage,
+             .deviceTokenRegister: return true
         }
     }
 
@@ -140,7 +147,8 @@ enum APIEndpoint {
              .scheduleLocation,
              .scheduleClock,
              .receiptUpload,
-             .expenseSave:         return "POST"
+             .expenseSave,
+             .deviceTokenRegister: return "POST"
 
         case .receiptImage:        return "GET"
         }
