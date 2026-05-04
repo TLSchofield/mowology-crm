@@ -428,16 +428,20 @@ function suggestJobFromSchedule(int $userId, ?float $lat, ?float $lng): array
                     $firstVisit = $stop['visits'][0] ?? [];
 
                     $scored[] = [
+                        // Fields required by iOS JobSuggestion struct
+                        'id'               => (int)($firstVisit['plan_id'] ?? $stopId),
+                        'plan_number'      => $firstVisit['plan_number'] ?? null,
+                        'service_type'     => $firstVisit['service_type'] ?? null,
+                        'address'          => $stop['property_address'] ?? null,
+                        // Additional context fields
                         'stop_id'          => (int)$stopId,
                         'property_id'      => (int)($stop['property_id'] ?? 0),
-                        'property_address'  => $stop['property_address'] ?? '',
                         'property_city'     => $stop['property_city'] ?? '',
                         'contact_name'      => $stop['contact_name'] ?? '',
                         'contact_id'        => $contactId ? (int)$contactId : null,
                         'company_name'      => $stop['company_name'] ?? '',
                         'plan_id'           => (int)($firstVisit['plan_id'] ?? 0),
                         'plan_title'        => $firstVisit['plan_title'] ?? '',
-                        'service_type'      => $firstVisit['service_type'] ?? '',
                         'visit_id'          => (int)($firstVisit['visit_id'] ?? 0),
                         'stop_date'         => $date,
                         'score'             => $score,
