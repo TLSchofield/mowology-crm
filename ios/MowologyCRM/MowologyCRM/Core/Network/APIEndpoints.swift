@@ -59,6 +59,15 @@ enum APIEndpoint {
     /// POST /crm/api/pow-gps-sync.php — batch GPS breadcrumb upload for an active visit.
     case powGpsSync
 
+    /// GET /api/schedule/jobs — paginated job visit history (role-scoped: crew → own, admin → all).
+    case scheduleJobs(status: String, limit: Int, offset: Int)
+
+    /// GET /api/schedule/quotes — admin-only quote list.
+    case scheduleQuotes(status: String)
+
+    /// GET /api/schedule/invoices — admin-only invoice list.
+    case scheduleInvoices(status: String)
+
     // MARK: - URL
 
     /// Builds the full URL for the endpoint. Returns `nil` only if the base
@@ -119,6 +128,25 @@ enum APIEndpoint {
 
         case .powGpsSync:
             return URL(string: "https://mowology.ca/crm/api/pow-gps-sync.php")
+
+        case .scheduleJobs(let status, let limit, let offset):
+            var components = URLComponents(string: "\(baseURLString)/schedule/jobs")
+            components?.queryItems = [
+                URLQueryItem(name: "status", value: status),
+                URLQueryItem(name: "limit",  value: "\(limit)"),
+                URLQueryItem(name: "offset", value: "\(offset)"),
+            ]
+            return components?.url
+
+        case .scheduleQuotes(let status):
+            var components = URLComponents(string: "\(baseURLString)/schedule/quotes")
+            components?.queryItems = [URLQueryItem(name: "status", value: status)]
+            return components?.url
+
+        case .scheduleInvoices(let status):
+            var components = URLComponents(string: "\(baseURLString)/schedule/invoices")
+            components?.queryItems = [URLQueryItem(name: "status", value: status)]
+            return components?.url
         }
     }
 
@@ -141,7 +169,10 @@ enum APIEndpoint {
              .receiptImage,
              .deviceTokenRegister,
              .powActions,
-             .powGpsSync: return true
+             .powGpsSync,
+             .scheduleJobs,
+             .scheduleQuotes,
+             .scheduleInvoices: return true
         }
     }
 
@@ -155,7 +186,10 @@ enum APIEndpoint {
              .scheduleWeek,
              .scheduleClockStatus,
              .expenseMeta,
-             .expenseList:         return "GET"
+             .expenseList,
+             .scheduleJobs,
+             .scheduleQuotes,
+             .scheduleInvoices:    return "GET"
 
         case .scheduleTimer,
              .scheduleLocation,

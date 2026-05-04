@@ -151,7 +151,10 @@ $actionAliases = [
     'schedule' => [
         'day'                => 'day',
         'week'               => 'week',
-        'clock'              => 'clock',   // Mobile time-clock (JWT) — GET status / POST clock_in|clock_out
+        'clock'              => 'clock',    // Mobile time-clock (JWT) — GET status / POST clock_in|clock_out
+        'jobs'               => 'jobs',     // Mobile jobs history (JWT) — GET paginated visit list
+        'quotes'             => 'quotes',   // Mobile quotes (JWT, admin only)
+        'invoices'           => 'invoices', // Mobile invoices (JWT, admin only)
     ],
 ];
 
