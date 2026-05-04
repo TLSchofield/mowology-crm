@@ -15,6 +15,7 @@ declare(strict_types=1);
  *   "success": true,
  *   "is_correct": true,
  *   "correct_option_id": 17,
+ *   "selected_option_id": 12,
  *   "points_earned": 15,
  *   "mastery": { old_level, new_level, delta, level_name, streak }
  * }
@@ -72,6 +73,14 @@ try {
         exit;
     }
 
+    // Verify question belongs to this session (prevents mastery farming on arbitrary questions)
+    $sessionQids = array_map('intval', explode(',', $session['question_ids']));
+    if (!in_array($questionId, $sessionQids, true)) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'error' => 'Question not part of this session']);
+        exit;
+    }
+
     // Prevent duplicate answers
     $dup = $db->prepare("SELECT id FROM quiz_answers WHERE session_id=? AND question_id=?");
     $dup->execute([$sessionId, $questionId]);
@@ -102,11 +111,12 @@ try {
 
     http_response_code(200);
     echo json_encode([
-        'success'           => true,
-        'is_correct'        => $isCorrect,
-        'correct_option_id' => $correctOptionId,
-        'points_earned'     => $points,
-        'mastery'           => $masteryUpdate,
+        'success'            => true,
+        'is_correct'         => $isCorrect,
+        'correct_option_id'  => $correctOptionId,
+        'selected_option_id' => $selectedOptionId,
+        'points_earned'      => $points,
+        'mastery'            => $masteryUpdate,
     ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
 } catch (Throwable $e) {

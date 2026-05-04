@@ -64,12 +64,33 @@ try {
     $db        = Database::pdo();
     $monthYear = date('Y-m');
 
-    $sess = $db->prepare("SELECT * FROM quiz_sessions WHERE id=? AND user_id=?");
+    $sess = $db->prepare("SELECT * FROM quiz_sessions WHERE id=? AND user_id=? AND completed_at IS NULL");
     $sess->execute([$sessionId, $userId]);
     $session = $sess->fetch(PDO::FETCH_ASSOC);
     if (!$session) {
-        http_response_code(404);
-        echo json_encode(['success' => false, 'error' => 'Session not found']);
+        // Already completed — return the cached result idempotently
+        $done = $db->prepare("SELECT * FROM quiz_sessions WHERE id=? AND user_id=?");
+        $done->execute([$sessionId, $userId]);
+        $existing = $done->fetch(PDO::FETCH_ASSOC);
+        if ($existing) {
+            $streakRow = $db->prepare("SELECT current_streak, longest_streak FROM quiz_daily_streaks WHERE user_id=?");
+            $streakRow->execute([$userId]);
+            $sr = $streakRow->fetch(PDO::FETCH_ASSOC) ?: ['current_streak' => 0, 'longest_streak' => 0];
+            http_response_code(200);
+            echo json_encode([
+                'success'       => true,
+                'correct'       => (int)$existing['correct_count'],
+                'total'         => (int)$existing['questions_count'],
+                'points'        => (int)$existing['total_points'],
+                'monthly_rank'  => 0,
+                'monthly_total' => 0,
+                'streak'        => ['current_streak' => (int)$sr['current_streak'], 'longest_streak' => (int)$sr['longest_streak'], 'new_best' => false],
+                'new_badges'    => [],
+            ]);
+        } else {
+            http_response_code(404);
+            echo json_encode(['success' => false, 'error' => 'Session not found']);
+        }
         exit;
     }
 
@@ -91,24 +112,28 @@ try {
         "UPDATE quiz_sessions SET completed_at=NOW(), correct_count=?, total_points=? WHERE id=?"
     )->execute([$correctCount, $totalPoints, $sessionId]);
 
-    // Monthly rank
+    // Monthly rank — SQL subquery avoids fetching all users into PHP
     $rankStmt = $db->prepare(
-        "SELECT user_id, SUM(total_points) AS monthly_pts
-         FROM quiz_sessions
-         WHERE month_year=? AND completed_at IS NOT NULL
-         GROUP BY user_id ORDER BY monthly_pts DESC"
+        "SELECT
+             COALESCE(
+                 (SELECT COUNT(*) + 1
+                  FROM (SELECT user_id, SUM(total_points) AS pts
+                        FROM quiz_sessions
+                        WHERE month_year=? AND completed_at IS NOT NULL
+                        GROUP BY user_id) ranked
+                  WHERE ranked.pts > COALESCE(
+                      (SELECT SUM(total_points) FROM quiz_sessions
+                       WHERE user_id=? AND month_year=? AND completed_at IS NOT NULL), 0)
+                 ), 1) AS my_rank,
+             COALESCE(
+                 (SELECT SUM(total_points) FROM quiz_sessions
+                  WHERE user_id=? AND month_year=? AND completed_at IS NOT NULL), 0
+             ) AS my_total"
     );
-    $rankStmt->execute([$monthYear]);
-    $ranks          = $rankStmt->fetchAll(PDO::FETCH_ASSOC);
-    $myRank         = 0;
-    $myMonthlyTotal = 0;
-    foreach ($ranks as $i => $r) {
-        if ((int)$r['user_id'] === $userId) {
-            $myRank         = $i + 1;
-            $myMonthlyTotal = (int)$r['monthly_pts'];
-            break;
-        }
-    }
+    $rankStmt->execute([$monthYear, $userId, $monthYear, $userId, $monthYear]);
+    $rankRow        = $rankStmt->fetch(PDO::FETCH_ASSOC);
+    $myRank         = (int)($rankRow['my_rank']  ?? 0);
+    $myMonthlyTotal = (int)($rankRow['my_total'] ?? 0);
 
     $streakResult = updateDailyStreak($db, $userId);
     $newBadges    = checkAndAwardBadges($db, $userId);

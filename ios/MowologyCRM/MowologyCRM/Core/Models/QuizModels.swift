@@ -169,14 +169,16 @@ struct QuizAnswerResult: Decodable {
     let success: Bool
     let isCorrect: Bool
     let correctOptionId: Int?
+    let selectedOptionId: Int?
     let pointsEarned: Int
     let mastery: QuizMasteryUpdate
 
     enum CodingKeys: String, CodingKey {
         case success
-        case isCorrect      = "is_correct"
+        case isCorrect       = "is_correct"
         case correctOptionId = "correct_option_id"
-        case pointsEarned   = "points_earned"
+        case selectedOptionId = "selected_option_id"
+        case pointsEarned    = "points_earned"
         case mastery
     }
 }

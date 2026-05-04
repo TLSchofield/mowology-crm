@@ -9,16 +9,19 @@ struct QuizPlayView: View {
 
     @StateObject private var viewModel: QuizPlayViewModel
     @Environment(\.dismiss) private var dismiss
+    @State private var didNotifyFinished = false
 
     /// Called when a session finishes — passes the session ID.
     /// Used by the pre-shift gate to mark the daily quiz complete.
     var onFinished: ((Int) -> Void)?
 
-    init(authSession: AuthSession, categoryId: Int?, categoryName: String, onFinished: ((Int) -> Void)? = nil) {
+    init(authSession: AuthSession, categoryId: Int?, categoryName: String,
+         sessionLength: Int = 10, onFinished: ((Int) -> Void)? = nil) {
         _viewModel      = StateObject(wrappedValue: QuizPlayViewModel(
             authSession: authSession,
             categoryId: categoryId,
-            categoryName: categoryName
+            categoryName: categoryName,
+            sessionLength: sessionLength
         ))
         self.onFinished = onFinished
     }
@@ -39,9 +42,9 @@ struct QuizPlayView: View {
                     dismiss()
                 }
                 .onAppear {
-                    if let sid = viewModel.sessionStart?.sessionId {
-                        onFinished?(sid)
-                    }
+                    guard !didNotifyFinished, let sid = viewModel.sessionStart?.sessionId else { return }
+                    didNotifyFinished = true
+                    onFinished?(sid)
                 }
             case .error(let msg):
                 errorView(msg)
@@ -198,14 +201,12 @@ struct QuizPlayView: View {
     // MARK: - Option button
 
     private func optionButton(option: QuizOption, answerResult: QuizAnswerResult?, isAnswered: Bool) -> some View {
-        let isSelected = answerResult?.correctOptionId != nil
-            ? false  // highlight is driven by correct_option_id logic below
-            : false
         let isCorrect  = answerResult.map { $0.correctOptionId == option.id } ?? false
-        let wasChosen  = answerResult.map { ($0.isCorrect ? $0.correctOptionId : $0.correctOptionId.map { _ in option.id }) != nil } ?? false
+        let wasChosen  = answerResult.map { $0.selectedOptionId == option.id } ?? false
+        let isWrongPick = isAnswered && wasChosen && !isCorrect
 
-        var bg: Color = Color(.systemBackground)
-        var fg: Color = .primary
+        var bg: Color     = Color(.systemBackground)
+        var fg: Color     = .primary
         var border: Color = Color(.separator)
 
         if isAnswered {
@@ -213,8 +214,11 @@ struct QuizPlayView: View {
                 bg     = Color.MW.green.opacity(0.15)
                 border = Color.MW.green
                 fg     = Color.MW.green
-            } else if let result = answerResult, !result.isCorrect, result.correctOptionId != option.id {
-                // Other wrong options fade out
+            } else if isWrongPick {
+                bg     = Color.red.opacity(0.10)
+                border = Color.red.opacity(0.6)
+                fg     = .red
+            } else {
                 bg = Color(.systemBackground).opacity(0.5)
                 fg = .secondary
             }
@@ -232,6 +236,9 @@ struct QuizPlayView: View {
                 if isAnswered && isCorrect {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundStyle(Color.MW.green)
+                } else if isWrongPick {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.red)
                 }
             }
             .padding(14)
@@ -243,9 +250,6 @@ struct QuizPlayView: View {
             )
         }
         .disabled(isAnswered)
-        // suppress the unused variable warning
-        .onChange(of: isSelected) { _ in }
-        .onChange(of: wasChosen)  { _ in }
     }
 
     // MARK: - Mastery feedback

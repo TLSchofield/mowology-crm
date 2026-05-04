@@ -18,15 +18,17 @@ final class QuizPreshiftViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var isMarkingComplete = false
     @Published var errorMessage: String?
-    @Published var showQuiz = false
 
     private let api: APIClient
 
-    init(authSession: AuthSession) {
-        self.api = APIClient(authSession: authSession)
+    init(authSession: AuthSession, initialStatus: QuizPreshiftStatus? = nil) {
+        self.api    = APIClient(authSession: authSession)
+        self.status = initialStatus
     }
 
     func checkStatus() async {
+        // Skip network call if we already have status from the login gate check
+        guard status == nil else { return }
         isLoading    = true
         errorMessage = nil
         defer { isLoading = false }
@@ -65,8 +67,8 @@ struct QuizPreshiftGateView: View {
     @StateObject private var viewModel: QuizPreshiftViewModel
     let onComplete: () -> Void
 
-    init(authSession: AuthSession, onComplete: @escaping () -> Void) {
-        _viewModel     = StateObject(wrappedValue: QuizPreshiftViewModel(authSession: authSession))
+    init(authSession: AuthSession, preshiftStatus: QuizPreshiftStatus? = nil, onComplete: @escaping () -> Void) {
+        _viewModel      = StateObject(wrappedValue: QuizPreshiftViewModel(authSession: authSession, initialStatus: preshiftStatus))
         self.onComplete = onComplete
     }
 
@@ -155,6 +157,7 @@ struct QuizPreshiftGateView: View {
             authSession: authSession,
             categoryId: nil,
             categoryName: "Daily Quiz",
+            sessionLength: viewModel.status?.sessionLength ?? 5,
             onFinished: { sessionId in
                 Task {
                     await viewModel.markComplete(sessionId: sessionId)

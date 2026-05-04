@@ -10,7 +10,7 @@ import SwiftUI
 private enum AppState {
     case unauthenticated
     case checkingQuiz
-    case quizRequired
+    case quizRequired(QuizPreshiftStatus)
     case ready
 }
 
@@ -41,8 +41,8 @@ struct RootView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color(.systemGroupedBackground))
 
-            case .quizRequired:
-                QuizPreshiftGateView(authSession: authSession) {
+            case .quizRequired(let preshiftStatus):
+                QuizPreshiftGateView(authSession: authSession, preshiftStatus: preshiftStatus) {
                     withAnimation(.easeInOut(duration: 0.3)) {
                         appState = .ready
                     }
@@ -88,7 +88,7 @@ struct RootView: View {
             let api    = APIClient(authSession: authSession)
             let status: QuizPreshiftStatus = try await api.request(.quizPreshift)
             if status.required && !status.completedToday {
-                appState = .quizRequired
+                appState = .quizRequired(status)
             } else {
                 appState = .ready
             }

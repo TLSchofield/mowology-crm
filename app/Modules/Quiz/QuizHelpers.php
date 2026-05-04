@@ -239,32 +239,24 @@ function updateMastery(PDO $db, int $userId, int $questionId, bool $correct, int
     $newStreak  = $computed['streak'];
     $nextReview = $computed['next_review'];
 
-    if ($existing) {
-        $db->prepare(
-            "UPDATE quiz_user_mastery
-             SET mastery_level=?, correct_streak=?, total_attempts=?, total_correct=?,
-                 last_seen_at=NOW(), next_review_at=?, updated_at=NOW()
-             WHERE user_id=? AND question_id=?"
-        )->execute([
-            $newLevel, $newStreak,
-            $totalAttempts + 1,
-            $totalCorrect + ($correct ? 1 : 0),
-            $nextReview,
-            $userId, $questionId,
-        ]);
-    } else {
-        $db->prepare(
-            "INSERT INTO quiz_user_mastery
+    $db->prepare(
+        "INSERT INTO quiz_user_mastery
              (user_id, question_id, mastery_level, correct_streak, total_attempts, total_correct, last_seen_at, next_review_at)
-             VALUES (?,?,?,?,?,?,NOW(),?)"
-        )->execute([
-            $userId, $questionId,
-            $newLevel, $newStreak,
-            1,
-            $correct ? 1 : 0,
-            $nextReview,
-        ]);
-    }
+         VALUES (?,?,?,?,1,?,NOW(),?)
+         ON DUPLICATE KEY UPDATE
+             mastery_level   = VALUES(mastery_level),
+             correct_streak  = VALUES(correct_streak),
+             total_attempts  = total_attempts + 1,
+             total_correct   = total_correct + VALUES(total_correct),
+             last_seen_at    = NOW(),
+             next_review_at  = VALUES(next_review_at),
+             updated_at      = NOW()"
+    )->execute([
+        $userId, $questionId,
+        $newLevel, $newStreak,
+        $correct ? 1 : 0,
+        $nextReview,
+    ]);
 
     $meta = masteryMeta();
     return [

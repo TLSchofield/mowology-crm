@@ -26,11 +26,13 @@ final class QuizPlayViewModel: ObservableObject {
     private let api: APIClient
     let categoryId: Int?
     let categoryName: String
+    let sessionLength: Int
 
-    init(authSession: AuthSession, categoryId: Int?, categoryName: String) {
-        self.api          = APIClient(authSession: authSession)
-        self.categoryId   = categoryId
-        self.categoryName = categoryName
+    init(authSession: AuthSession, categoryId: Int?, categoryName: String, sessionLength: Int = 10) {
+        self.api           = APIClient(authSession: authSession)
+        self.categoryId    = categoryId
+        self.categoryName  = categoryName
+        self.sessionLength = sessionLength
     }
 
     // MARK: - Start session
@@ -38,7 +40,7 @@ final class QuizPlayViewModel: ObservableObject {
     func startSession() async {
         state = .loading
         do {
-            var body: [String: Any] = ["session_length": 10, "mode": "seasonal"]
+            var body: [String: Any] = ["session_length": sessionLength, "mode": "seasonal"]
             if let cid = categoryId { body["category_id"] = cid }
 
             let start: QuizSessionStart = try await api.request(.quizStart, body: body)
