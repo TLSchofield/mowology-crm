@@ -82,8 +82,10 @@ final class GPSTrackingService: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            guard let self, let client = self.apiClient else { return }
-            Task { await PingQueue.shared.drain(using: client) }
+            Task { @MainActor [weak self] in
+                guard let self, let client = self.apiClient else { return }
+                await PingQueue.shared.drain(using: client)
+            }
         }
     }
 

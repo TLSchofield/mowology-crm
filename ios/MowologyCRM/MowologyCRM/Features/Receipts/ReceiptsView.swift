@@ -7,6 +7,7 @@ import SwiftUI
 import CoreLocation
 import PhotosUI
 
+@MainActor
 struct ReceiptsView: View {
 
     @EnvironmentObject private var authSession: AuthSession
@@ -244,7 +245,7 @@ struct ReceiptsView: View {
     // MARK: - Image resize + compress
 
     // Matches Capacitor behaviour: max 1920px wide, 78% JPEG quality → ~200-600 KB
-    static func resizeAndCompress(_ image: UIImage) -> Data {
+    nonisolated static func resizeAndCompress(_ image: UIImage) -> Data {
         let maxDim: CGFloat = 1920
         let size = image.size
         let scale = size.width > maxDim || size.height > maxDim
