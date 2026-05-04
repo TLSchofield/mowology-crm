@@ -337,19 +337,15 @@
         draggedCard = null;
       })
       .catch(function (error) {
-        // Restore card appearance
         card.style.opacity = '1';
 
-        var msg = error.message || 'Failed to reschedule stop';
-
-        // Distinguish network errors from API errors
+        var msg = error.serverError || error.message || 'Failed to reschedule stop';
         if (error instanceof TypeError && error.message === 'Failed to fetch') {
           msg = 'Connection error — check your internet and try again';
         }
 
         showFeedback(msg, 'error');
         console.error('Reschedule stop error:', error);
-
         draggedCard = null;
       });
   }

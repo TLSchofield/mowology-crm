@@ -1375,9 +1375,9 @@ var MwRouteMap = (function() {
                 }, 1400);
             }
         })
-        .catch(function() {
+        .catch(function(err) {
             btns.forEach(function(b) { b.disabled = false; });
-            if (msg) msg.textContent = 'Network error. Please try again.';
+            if (msg) msg.textContent = (err && err.serverError) ? err.serverError : 'Network error. Please try again.';
         });
     }
 

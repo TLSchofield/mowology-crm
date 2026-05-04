@@ -64,7 +64,16 @@
             body:    JSON.stringify(payload)
         })
         .then(function (r) {
-            if (!r.ok) throw new Error('HTTP ' + r.status);
+            if (!r.ok) {
+                // Try to read the server's JSON error message so callers can
+                // surface it (e.g. "Stop not found") rather than a bare HTTP code.
+                return r.json().catch(function () { return {}; }).then(function (body) {
+                    var err = new Error('HTTP ' + r.status);
+                    err.status      = r.status;
+                    err.serverError = (body && body.error) || null;
+                    throw err;
+                });
+            }
             return r.json();
         });
     }
