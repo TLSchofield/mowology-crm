@@ -74,9 +74,12 @@ struct ScheduleView: View {
                     )
                 } else {
                     DayMapView(
-                        stops:     viewModel.stops,
-                        isLoading: viewModel.isLoading,
-                        isAdmin:   authSession.user?.isAdmin ?? false
+                        stops:         viewModel.stops,
+                        isLoading:     viewModel.isLoading,
+                        isAdmin:       authSession.user?.isAdmin ?? false,
+                        routes:        viewModel.crewRoutes,
+                        liveCrew:      viewModel.crewLive,
+                        currentUserId: authSession.user?.id
                     )
                 }
             }

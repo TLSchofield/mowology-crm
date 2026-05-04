@@ -154,6 +154,7 @@ $actionAliases = [
         'timer'              => 'timer',
         'clock'              => 'clock',
         'location'           => 'location',
+        'crew-trails'        => 'crew-trails',
     ],
 ];
 
