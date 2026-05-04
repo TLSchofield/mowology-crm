@@ -6,6 +6,60 @@
  */
 
 /**
+ * Idempotency guard for timer and clock mutation endpoints.
+ *
+ * Writes the (key, endpoint) pair via INSERT IGNORE. If rowCount() === 0 the
+ * key was already processed — the caller should return a 200 success replay
+ * response without re-executing the mutation.
+ *
+ * Pass an empty/null key to skip the guard (old clients without the key field
+ * continue to work normally; their protection comes from the existing state checks).
+ *
+ * Usage (call BEFORE your existing state-check logic):
+ *   guardIdempotency('timer/start');
+ *
+ * Exits with 200 + {success:true, idempotent_replay:true} if the key was
+ * already seen. Prunes keys older than 24 hours on each call.
+ */
+function guardIdempotency(string $endpoint): void {
+    $key = trim((string)($_POST['idempotency_key'] ?? ''));
+
+    // Also check JSON body — job-timer.php uses php://input
+    if ($key === '') {
+        $rawInput = file_get_contents('php://input');
+        if ($rawInput) {
+            $decoded = json_decode($rawInput, true);
+            $key = trim((string)($decoded['idempotency_key'] ?? ''));
+        }
+    }
+
+    if ($key === '') {
+        return; // No key supplied — old clients, skip guard
+    }
+
+    $db = getDB();
+
+    // Prune expired keys (non-blocking; failure is acceptable)
+    try {
+        $db->exec("DELETE FROM idempotency_keys WHERE created_at < NOW() - INTERVAL 1 DAY");
+    } catch (Exception $e) {
+        // Table may not exist yet on first deploy — safe to ignore
+        return;
+    }
+
+    $stmt = $db->prepare('INSERT IGNORE INTO idempotency_keys (idem_key, endpoint) VALUES (?, ?)');
+    $stmt->execute([$key, $endpoint]);
+
+    if ($stmt->rowCount() === 0) {
+        // Key already processed — return success without re-executing
+        header('Content-Type: application/json');
+        http_response_code(200);
+        echo json_encode(['success' => true, 'idempotent_replay' => true]);
+        exit;
+    }
+}
+
+/**
  * Return current Pacific time as a datetime string.
  * config.php sets PHP to America/Vancouver so date() is Pacific.
  * NOTE: DB writes use MySQL NOW() (EST) for consistency with all stored timestamps.

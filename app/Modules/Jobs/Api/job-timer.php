@@ -63,6 +63,8 @@ try {
             break;
 
         case 'start':
+            guardIdempotency('timer/start');
+
             $visitId = (int)($input['visit_id'] ?? 0);
             if (!$visitId) {
                 throw new Exception('visit_id is required');
@@ -121,6 +123,8 @@ try {
             break;
 
         case 'stop':
+            guardIdempotency('timer/stop');
+
             $visitId = (int)($input['visit_id'] ?? 0);
             if (!$visitId) {
                 throw new Exception('visit_id is required');

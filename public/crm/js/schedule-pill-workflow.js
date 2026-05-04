@@ -478,6 +478,24 @@
     // ═══════════════════════════════════════════════════════
 
     /**
+     * Generate a per-call idempotency key.
+     * Prevents duplicate DB writes when the offline queue replays a request
+     * that already committed on the first attempt (race window on slow DB).
+     * The key travels in the JSON body; PHP guardIdempotency() deduplicates via
+     * INSERT IGNORE into idempotency_keys.
+     */
+    function generateIdempKey() {
+        if (window.crypto && typeof crypto.randomUUID === 'function') {
+            return crypto.randomUUID();
+        }
+        // Fallback for older WebKit (iOS 14)
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            var r = (Math.random() * 16) | 0;
+            return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+        });
+    }
+
+    /**
      * Start a visit timer (clock in)
      */
     function clockIn(visitId) {
@@ -497,10 +515,14 @@
                     action: 'start',
                     visit_id: visitId,
                     lat: lat,
-                    lng: lng
+                    lng: lng,
+                    idempotency_key: generateIdempKey()
                 })
             })
-            .then(function(r) { return r.json(); })
+            .then(function(r) {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+            })
             .then(function(data) {
                 console.log('[PillWorkflow] Timer start response:', JSON.stringify(data));
                 if (data.success) {
@@ -556,6 +578,7 @@
                 }
             })
             .catch(function(err) {
+                console.error('[clockIn]', err);
                 showToast('Network error. Check your connection.');
                 if (btn) {
                     btn.disabled = false;
@@ -582,10 +605,14 @@
                     visit_id: visitId,
                     lat: lat,
                     lng: lng,
-                    complete_visit: true
+                    complete_visit: true,
+                    idempotency_key: generateIdempKey()
                 })
             })
-            .then(function(r) { return r.json(); })
+            .then(function(r) {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+            })
             .then(function(data) {
                 if (data.success) {
                     visits[visitId].status = 'completed';
@@ -625,6 +652,7 @@
                 }
             })
             .catch(function(err) {
+                console.error('[clockOut]', err);
                 showToast('Network error. Check your connection.');
             });
         });
@@ -648,10 +676,14 @@
                     lat: lat,
                     lng: lng,
                     complete_visit: false,
-                    notes: 'Manually stopped without completing'
+                    notes: 'Manually stopped without completing',
+                    idempotency_key: generateIdempKey()
                 })
             })
-            .then(function(r) { return r.json(); })
+            .then(function(r) {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+            })
             .then(function(data) {
                 if (data.success) {
                     // Reset visit to unstarted state
@@ -685,7 +717,8 @@
                     showToast('Could not stop timer: ' + (data.error || 'Unknown error'));
                 }
             })
-            .catch(function() {
+            .catch(function(err) {
+                console.error('[stopTimer]', err);
                 showToast('Network error. Check your connection.');
             });
         });
@@ -785,58 +818,73 @@
                 if (ph) ph.classList.add('mw-mc-placeholder-uploading');
             }
 
-            uploadPhoto(visitId, file, category, function(success, thumbUrl) {
-                if (!success) {
-                    // Re-render strip so placeholder returns to tappable state
-                    renderPhotoStrip(visitId);
-                    return;
-                }
+            // Persist to IndexedDB BEFORE attempting the upload.
+            // If the tab closes mid-upload, the queue entry survives and will be
+            // drained by processPhotoQueue() on the next session.
+            // On success: the entry is marked done (prevents drain retry).
+            // On network/timeout failure: entry stays pending — drain handles retry.
+            // If IDB is unavailable (queueId === null), fall through to direct upload
+            // with the original error-time queueing behaviour as fallback.
+            saveToPhotoQueue(visitId, file, category, function(preQueuedId) {
+                doUploadPhoto(visitId, file, category, false, function(success, thumbUrl) {
+                    if (success && preQueuedId !== null) {
+                        // Upload confirmed by server — clean up queue entry so drain skips it
+                        pendingQueueCount = Math.max(0, pendingQueueCount - 1);
+                        updateQueueItemStatus(preQueuedId, { status: 'done' }, null);
+                    }
 
-                if (category === 'before') {
-                    var curStatus = visits[visitId].status;
-                    if (curStatus === 'prompt_before') {
-                        // Workflow-driven: go to working state
-                        visits[visitId].status = 'in_progress';
-                        updatePillVisual(visitId, 'in_progress');
-                        startPillTimer(visitId);
+                    if (!success) {
+                        // Re-render strip so placeholder returns to tappable state
                         renderPhotoStrip(visitId);
-                        if (thumbUrl) {
-                            showThumbConfirmation(card, thumbUrl, 'Before', visitId, function() {
+                        return;
+                    }
+
+                    if (category === 'before') {
+                        var curStatus = visits[visitId].status;
+                        if (curStatus === 'prompt_before') {
+                            // Workflow-driven: go to working state
+                            visits[visitId].status = 'in_progress';
+                            updatePillVisual(visitId, 'in_progress');
+                            startPillTimer(visitId);
+                            renderPhotoStrip(visitId);
+                            if (thumbUrl) {
+                                showThumbConfirmation(card, thumbUrl, 'Before', visitId, function() {
+                                    closeDrawer();
+                                });
+                            } else {
                                 closeDrawer();
-                            });
+                            }
                         } else {
-                            closeDrawer();
+                            // Placeholder tap outside workflow: just save + update strip
+                            renderPhotoStrip(visitId);
+                            if (thumbUrl) showThumbConfirmation(card, thumbUrl, 'Before', visitId, null);
                         }
-                    } else {
-                        // Placeholder tap outside workflow: just save + update strip
-                        renderPhotoStrip(visitId);
-                        if (thumbUrl) showThumbConfirmation(card, thumbUrl, 'Before', visitId, null);
-                    }
-                } else if (category === 'after') {
-                    var curStatus2 = visits[visitId].status;
-                    if (curStatus2 === 'prompt_after') {
-                        visits[visitId].status = 'completed';
-                        renderPhotoStrip(visitId);
-                        if (thumbUrl) {
-                            showThumbConfirmation(card, thumbUrl, 'After', visitId, function() {
+                    } else if (category === 'after') {
+                        var curStatus2 = visits[visitId].status;
+                        if (curStatus2 === 'prompt_after') {
+                            visits[visitId].status = 'completed';
+                            renderPhotoStrip(visitId);
+                            if (thumbUrl) {
+                                showThumbConfirmation(card, thumbUrl, 'After', visitId, function() {
+                                    clockOut(visitId);
+                                });
+                            } else {
                                 clockOut(visitId);
-                            });
+                            }
                         } else {
-                            clockOut(visitId);
+                            renderPhotoStrip(visitId);
+                            if (thumbUrl) showThumbConfirmation(card, thumbUrl, 'After', visitId, null);
                         }
-                    } else {
+                    } else if (category === 'during') {
+                        if (thumbUrl) showThumbConfirmation(card, thumbUrl, 'Photo', visitId, null);
+                    } else if (category === 'additional') {
+                        // additionalThumbs was already updated in doUploadPhoto() — don't double-push.
+                        // Skip showThumbConfirmation: the drawer overlay blocks the "+" button for 1.5s
+                        // making it impossible to snap a second additional photo in quick succession.
+                        // Just re-render the strip (shows new thumb) and flash brief pill feedback.
                         renderPhotoStrip(visitId);
-                        if (thumbUrl) showThumbConfirmation(card, thumbUrl, 'After', visitId, null);
                     }
-                } else if (category === 'during') {
-                    if (thumbUrl) showThumbConfirmation(card, thumbUrl, 'Photo', visitId, null);
-                } else if (category === 'additional') {
-                    // additionalThumbs was already updated in doUploadPhoto() — don't double-push.
-                    // Skip showThumbConfirmation: the drawer overlay blocks the "+" button for 1.5s
-                    // making it impossible to snap a second additional photo in quick succession.
-                    // Just re-render the strip (shows new thumb) and flash brief pill feedback.
-                    renderPhotoStrip(visitId);
-                }
+                }, preQueuedId);
             });
         };
 
@@ -860,11 +908,11 @@
      *  - HTTP 5xx → error toast, do NOT queue (server errors won't clear on retry)
      *  - HTTP 4xx other → error toast, do NOT queue
      */
-    function uploadPhoto(visitId, file, category, callback) {
-        doUploadPhoto(visitId, file, category, false, callback);
+    function uploadPhoto(visitId, file, category, callback, preQueuedId) {
+        doUploadPhoto(visitId, file, category, false, callback, preQueuedId);
     }
 
-    function doUploadPhoto(visitId, file, category, isRetry, callback) {
+    function doUploadPhoto(visitId, file, category, isRetry, callback, preQueuedId) {
         // 1b. AbortController for 30-second fetch timeout
         var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
         var timeoutId  = controller
@@ -921,7 +969,7 @@
                                     state.csrf = d.token;
                                     console.log('[PillWorkflow] CSRF token refreshed');
                                 }
-                                doUploadPhoto(visitId, file, category, true, callback);
+                                doUploadPhoto(visitId, file, category, true, callback, preQueuedId);
                             })
                             .catch(function() {
                                 showToast('Session expired. Reload the page and try again.');
@@ -1016,17 +1064,32 @@
             }
 
             // Only queue on genuine network/timeout errors — not server errors
-            if ((isNetwork || isAbort) && photoQueueDb) {
-                saveToPhotoQueue(visitId, file, category, function(queueId) {
-                    if (queueId !== null) {
-                        showToast(navigator.onLine
-                            ? 'Upload failed \u2014 will retry automatically'
-                            : 'No signal \u2014 photo saved for later');
-                    } else {
-                        showToast('Upload failed \u2014 check connection and try again.');
-                    }
+            // If preQueuedId is set the entry was already written before the upload
+            // attempt \u2014 skip the second write to avoid a duplicate queue entry.
+            if (isNetwork || isAbort) {
+                if (preQueuedId) {
+                    // Entry already persisted before upload attempt \u2014 just show feedback
+                    showToast(navigator.onLine
+                        ? 'Upload failed \u2014 will retry automatically'
+                        : 'No signal \u2014 photo saved for later');
+                    pendingQueueCount = Math.max(0, pendingQueueCount + 1);
                     callback(false, null);
-                });
+                } else if (photoQueueDb) {
+                    saveToPhotoQueue(visitId, file, category, function(savedId) {
+                        if (savedId !== null) {
+                            pendingQueueCount = Math.max(0, pendingQueueCount + 1);
+                            showToast(navigator.onLine
+                                ? 'Upload failed \u2014 will retry automatically'
+                                : 'No signal \u2014 photo saved for later');
+                        } else {
+                            showToast('Upload failed \u2014 check connection and try again.');
+                        }
+                        callback(false, null);
+                    });
+                } else {
+                    showToast('Upload failed \u2014 check connection and try again.');
+                    callback(false, null);
+                }
             } else {
                 showToast(isAbort
                     ? 'Upload timed out. Check your signal and try again.'
@@ -1459,8 +1522,9 @@
         try { return localStorage.getItem('mw_photo_debug') === '1'; } catch (e) { return false; }
     })();
 
-    var photoQueueDb    = null;
-    var queueProcessing = false;
+    var photoQueueDb      = null;
+    var queueProcessing   = false;
+    var pendingQueueCount = 0; // Synchronous counter for beforeunload guard
 
     // Open the IndexedDB photo queue immediately (async, doesn't block rendering)
     (function openPhotoQueueDb() {
@@ -1498,6 +1562,15 @@
         console.log('[PillWorkflow] Network restored — processing offline photo queue');
         processPhotoQueue();
         refreshQueueBadges();
+    });
+
+    // Warn before the tab closes if any photos are still queued for upload.
+    // pendingQueueCount is a synchronous counter — IDB can't be read in beforeunload.
+    window.addEventListener('beforeunload', function(e) {
+        if (pendingQueueCount > 0) {
+            e.preventDefault();
+            e.returnValue = ''; // Browser shows its own generic "changes may not be saved" dialog
+        }
     });
 
     /**
@@ -1739,6 +1812,7 @@
             })
             .then(function(data) {
                 if (data.success && data.total_uploaded > 0) {
+                    pendingQueueCount = Math.max(0, pendingQueueCount - 1);
                     updateQueueItemStatus(item.id, { status: 'done' }, function() {
                         console.log('[PillWorkflow] Queued photo uploaded: visit=' +
                             item.visitId + ' cat=' + item.category);
@@ -2230,9 +2304,12 @@
                         fetch('/crm/api/job-timer.php', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ action: 'start', visit_id: visitId, lat: lat, lng: lng })
+                            body: JSON.stringify({ action: 'start', visit_id: visitId, lat: lat, lng: lng, idempotency_key: generateIdempKey() })
                         })
-                        .then(function(r) { return r.json(); })
+                        .then(function(r) {
+                            if (!r.ok) throw new Error('HTTP ' + r.status);
+                            return r.json();
+                        })
                         .then(function(data) {
                             if (data.success) {
                                 if (visits[visitId]) {
@@ -2259,7 +2336,8 @@
                                 clockInBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Clock In';
                             }
                         })
-                        .catch(function() {
+                        .catch(function(err) {
+                            console.error('[pvClockIn]', err);
                             showToast('Network error. Check your connection.');
                             clockInBtn.disabled = false;
                             clockInBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Clock In';
@@ -2295,7 +2373,10 @@
                                     csrf_token: state.csrf
                                 })
                             })
-                            .then(function(r) { return r.json(); })
+                            .then(function(r) {
+                                if (!r.ok) throw new Error('HTTP ' + r.status);
+                                return r.json();
+                            })
                             .then(function(data) {
                                 if (data.success) {
                                     if (visits[visitId]) {
@@ -2312,7 +2393,8 @@
                                     completeBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Complete Job';
                                 }
                             })
-                            .catch(function() {
+                            .catch(function(err) {
+                                console.error('[pvComplete]', err);
                                 showToast('Network error. Check your connection.');
                                 completeBtn.disabled = false;
                                 completeBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Complete Job';
@@ -2497,9 +2579,12 @@
             fetch('/crm/api/job-timer.php', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'start', visit_id: visitId, lat: lat, lng: lng })
+                body: JSON.stringify({ action: 'start', visit_id: visitId, lat: lat, lng: lng, idempotency_key: generateIdempKey() })
             })
-            .then(function(r) { return r.json(); })
+            .then(function(r) {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+            })
             .then(function(data) {
                 if (data.success) {
                     if (visits[visitId]) {
@@ -2547,7 +2632,8 @@
                     }
                 }
             })
-            .catch(function() {
+            .catch(function(err) {
+                console.error('[footerClockIn]', err);
                 showToast('Network error. Check your connection.');
                 if (clockInBtn) {
                     clockInBtn.disabled = false;
@@ -2603,7 +2689,10 @@
                         csrf_token: state.csrf
                     })
                 })
-                .then(function(r) { return r.json(); })
+                .then(function(r) {
+                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    return r.json();
+                })
                 .then(function(data) {
                     if (data.success) {
                         // Mark visit complete in local state
@@ -2624,7 +2713,8 @@
                         }
                     }
                 })
-                .catch(function() {
+                .catch(function(err) {
+                    console.error('[footerComplete]', err);
                     showToast('Network error. Check your connection.');
                     if (completeBtn) {
                         completeBtn.disabled = false;
