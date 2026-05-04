@@ -35,6 +35,11 @@ struct MainTabView: View {
                 }
         }
         .tint(Color.MW.green)
+        .onAppear {
+            // Ask for location permission on first authenticated launch so crews
+            // see the system prompt in context — not buried inside clock-in.
+            GPSTrackingService.shared.requestPermissionIfNeeded()
+        }
     }
 
     // MARK: - Account Tab

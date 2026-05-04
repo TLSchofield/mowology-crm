@@ -7,6 +7,35 @@
 
 import Foundation
 
+// MARK: - CrewMember
+
+/// A crew member assigned to this stop. Returned as `crew_members` by the
+/// schedule API when the requesting user has admin role. `phone` is nil
+/// for non-admin requests or when no phone is recorded on the user profile.
+struct CrewMember: Codable, Identifiable, Hashable {
+    let userId: Int
+    let name:   String
+    let phone:  String?
+
+    var id: Int { userId }
+
+    enum CodingKeys: String, CodingKey {
+        case userId = "user_id"
+        case name
+        case phone
+    }
+
+    /// Returns a `tel:` URL for tap-to-call, or `nil` if no phone is stored.
+    var callURL: URL? {
+        guard let phone else { return nil }
+        let digits = phone.components(separatedBy: CharacterSet.decimalDigits.inverted).joined()
+        guard !digits.isEmpty else { return nil }
+        return URL(string: "tel:\(digits)")
+    }
+}
+
+// MARK: - Stop
+
 struct Stop: Codable, Identifiable, Hashable {
     let stopId: Int
     let stopDate: String?
@@ -23,9 +52,10 @@ struct Stop: Codable, Identifiable, Hashable {
     let contactName: String?
     let companyName: String?
     let lawnSqft: Int?
-    let crewNames: [String]
-    let visitCount: Int
-    let visits: [Visit]
+    let crewNames:   [String]
+    let crewMembers: [CrewMember]?  // admin-only; nil for crew-role requests
+    let visitCount:  Int
+    let visits:      [Visit]
 
     var id: Int { stopId }
 
@@ -45,8 +75,9 @@ struct Stop: Codable, Identifiable, Hashable {
         case contactName      = "contact_name"
         case companyName      = "company_name"
         case lawnSqft         = "lawn_sqft"
-        case crewNames        = "crew_names"
-        case visitCount       = "visit_count"
+        case crewNames   = "crew_names"
+        case crewMembers = "crew_members"
+        case visitCount  = "visit_count"
         case visits
     }
 

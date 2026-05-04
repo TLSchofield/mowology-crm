@@ -10,17 +10,19 @@ import MapKit
 
 struct VisitDetailView: View {
 
-    let stop: Stop
-    let isAdmin: Bool
+    let stop:        Stop
+    let isAdmin:     Bool
 
     @StateObject private var timerVM: VisitDetailViewModel
+    private let authSession: AuthSession
 
     // MARK: - Init
 
     init(stop: Stop, isAdmin: Bool, authSession: AuthSession) {
-        self.stop    = stop
-        self.isAdmin = isAdmin
-        _timerVM     = StateObject(
+        self.stop        = stop
+        self.isAdmin     = isAdmin
+        self.authSession = authSession
+        _timerVM         = StateObject(
             wrappedValue: VisitDetailViewModel(authSession: authSession)
         )
     }
@@ -270,6 +272,19 @@ struct VisitDetailView: View {
                     }
                 }
             }
+
+            // MARK: Before/After Photo Proof
+            // Shown for in_progress visits, and for scheduled visits so crew can
+            // capture a "before" photo before pressing Start. The "after" slot
+            // is locked until the job timer is running.
+            if ["scheduled", "in_progress"].contains(visit.visitStatus.lowercased()) {
+                Divider()
+                JobPhotoSection(
+                    visitId:     visit.visitId,
+                    isActive:    isThisTimerActive,
+                    authSession: authSession
+                )
+            }
         }
         .padding(14)
         .background(Color(.systemBackground))
@@ -292,29 +307,84 @@ struct VisitDetailView: View {
             sectionHeader("Crew", icon: "person.2.fill")
 
             VStack(spacing: 0) {
-                ForEach(Array(stop.crewNames.enumerated()), id: \.offset) { index, name in
-                    HStack {
-                        Image(systemName: "person.circle.fill")
-                            .foregroundStyle(Color.MW.green)
-                            .font(.title3)
-
-                        Text(name)
-                            .font(.body)
-                            .foregroundStyle(.primary)
-
-                        Spacer()
+                // Use rich CrewMember data when available (admin role), otherwise
+                // fall back to the name-only crew_names array.
+                if let members = stop.crewMembers, !members.isEmpty {
+                    ForEach(Array(members.enumerated()), id: \.element.id) { index, member in
+                        crewMemberRow(member: member)
+                        if index < members.count - 1 {
+                            Divider().padding(.leading, 52)
+                        }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
+                } else {
+                    ForEach(Array(stop.crewNames.enumerated()), id: \.offset) { index, name in
+                        HStack {
+                            Image(systemName: "person.circle.fill")
+                                .foregroundStyle(Color.MW.green)
+                                .font(.title3)
+                            Text(name)
+                                .font(.body)
+                                .foregroundStyle(.primary)
+                            Spacer()
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
 
-                    if index < stop.crewNames.count - 1 {
-                        Divider().padding(.leading, 52)
+                        if index < stop.crewNames.count - 1 {
+                            Divider().padding(.leading, 52)
+                        }
                     }
                 }
             }
             .background(Color(.systemBackground))
             .clipShape(RoundedRectangle(cornerRadius: 12))
         }
+    }
+
+    private func crewMemberRow(member: CrewMember) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "person.circle.fill")
+                .foregroundStyle(Color.MW.green)
+                .font(.title3)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(member.name)
+                    .font(.body)
+                    .foregroundStyle(.primary)
+                if let phone = member.phone {
+                    Text(phone)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer()
+
+            // Tap-to-call and tap-to-message buttons (admin view)
+            if let callURL = member.callURL {
+                Link(destination: callURL) {
+                    Image(systemName: "phone.fill")
+                        .font(.subheadline)
+                        .foregroundStyle(Color.MW.green)
+                        .padding(8)
+                        .background(Color.MW.green.opacity(0.10))
+                        .clipShape(Circle())
+                }
+
+                if let smsURL = URL(string: "sms:\(member.phone?.components(separatedBy: CharacterSet.decimalDigits.inverted).joined() ?? "")") {
+                    Link(destination: smsURL) {
+                        Image(systemName: "message.fill")
+                            .font(.subheadline)
+                            .foregroundStyle(Color.MW.green)
+                            .padding(8)
+                            .background(Color.MW.green.opacity(0.10))
+                            .clipShape(Circle())
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
     }
 
     // MARK: - Sub-views

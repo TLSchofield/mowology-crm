@@ -60,6 +60,10 @@ struct ReceiptReviewView: View {
         _category      = State(initialValue: s?.accountingCategory ?? "")
         _paymentMethod = State(initialValue: p?.paymentMethod  ?? v?.paymentMethod  ?? "credit_card")
         _notes         = State(initialValue: "")
+        // If server data was already present when the sheet opened, the fields above
+        // are already initialised with it — mark merged so .onChange never re-applies
+        // and risks overwriting anything the user edits immediately after open.
+        _serverMerged  = State(initialValue: viewModel.intakeResponse != nil)
     }
 
     // MARK: - Body

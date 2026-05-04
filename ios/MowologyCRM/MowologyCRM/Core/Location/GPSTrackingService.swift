@@ -89,6 +89,18 @@ final class GPSTrackingService: ObservableObject {
         }
     }
 
+    // MARK: - Permission
+
+    private static let kPermissionAsked = "mw.locationPermissionAsked"
+
+    /// Request Always location permission if we haven't asked before on this device.
+    /// Called from MainTabView.onAppear — gives the user context before clock-in.
+    func requestPermissionIfNeeded() {
+        guard !UserDefaults.standard.bool(forKey: Self.kPermissionAsked) else { return }
+        UserDefaults.standard.set(true, forKey: Self.kPermissionAsked)
+        locationManager.requestAlwaysPermission()
+    }
+
     // MARK: - Lifecycle
 
     func start(authSession: AuthSession) {
