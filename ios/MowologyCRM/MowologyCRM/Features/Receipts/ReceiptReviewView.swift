@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 struct ReceiptReviewView: View {
 
@@ -22,6 +23,10 @@ struct ReceiptReviewView: View {
     @State private var category:       String
     @State private var paymentMethod:  String
     @State private var notes:          String
+
+    // Receipt image loaded via bearer-token auth (can't use AsyncImage — server requires auth header)
+    @State private var receiptImage:        UIImage? = nil
+    @State private var isLoadingImage:      Bool     = false
 
     // Categories and payment methods come from viewModel.categories (fetched from /api/expenses/expense-meta).
 
@@ -90,20 +95,32 @@ struct ReceiptReviewView: View {
         Section {
             HStack {
                 Spacer()
-                AsyncImage(url: intake.receiptImageURL) { phase in
-                    switch phase {
-                    case .success(let img):
-                        img.resizable().scaledToFit()
-                            .frame(maxHeight: 220)
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                    case .failure:
-                        receiptImagePlaceholder
-                    default:
-                        receiptImagePlaceholder
-                    }
+                if let uiImage = receiptImage {
+                    Image(uiImage: uiImage)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxHeight: 220)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .onTapGesture { /* future: full-screen zoom */ }
+                } else if isLoadingImage {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Color(.systemGray5))
+                        .frame(height: 120)
+                        .overlay { ProgressView().tint(Color.MW.green) }
+                } else {
+                    receiptImagePlaceholder
                 }
                 Spacer()
             }
+        }
+        .task {
+            // Load image with bearer-token auth — /uploads/receipts/ is Deny from all.
+            isLoadingImage = true
+            if let data = try? await viewModel.fetchReceiptImage(mediaId: intake.mediaId),
+               let img = UIImage(data: data) {
+                receiptImage = img
+            }
+            isLoadingImage = false
         }
     }
 

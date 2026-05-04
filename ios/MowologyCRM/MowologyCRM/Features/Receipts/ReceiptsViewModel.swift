@@ -71,6 +71,14 @@ final class ReceiptsViewModel: ObservableObject {
         await loadExpenses(page: currentPage + 1)
     }
 
+    // MARK: - Image
+
+    /// Fetches raw JPEG/PNG bytes for a receipt using the bearer token.
+    /// Callers should display a placeholder if this throws.
+    func fetchReceiptImage(mediaId: Int) async throws -> Data {
+        return try await apiClient.fetchReceiptImageData(mediaId: mediaId)
+    }
+
     // MARK: - Upload
 
     func uploadImage(_ imageData: Data, lat: Double?, lng: Double?) async {

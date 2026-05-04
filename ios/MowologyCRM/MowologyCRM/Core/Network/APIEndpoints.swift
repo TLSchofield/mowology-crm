@@ -47,6 +47,9 @@ enum APIEndpoint {
     /// GET /api/expenses/expense-list — paginated list of the user's expenses (JWT).
     case expenseList(page: Int)
 
+    /// GET /api/expenses/receipt-image?id=<mediaId> — stream an auth-gated receipt image (JWT).
+    case receiptImage(mediaId: Int)
+
     // MARK: - URL
 
     /// Builds the full URL for the endpoint. Returns `nil` only if the base
@@ -93,6 +96,11 @@ enum APIEndpoint {
             var components = URLComponents(string: "\(baseURLString)/expenses/expense-list")
             components?.queryItems = [URLQueryItem(name: "page", value: "\(page)")]
             return components?.url
+
+        case .receiptImage(let mediaId):
+            var components = URLComponents(string: "\(baseURLString)/expenses/receipt-image")
+            components?.queryItems = [URLQueryItem(name: "id", value: "\(mediaId)")]
+            return components?.url
         }
     }
 
@@ -111,7 +119,8 @@ enum APIEndpoint {
              .receiptUpload,
              .expenseMeta,
              .expenseSave,
-             .expenseList: return true
+             .expenseList,
+             .receiptImage: return true
         }
     }
 
@@ -132,6 +141,8 @@ enum APIEndpoint {
              .scheduleClock,
              .receiptUpload,
              .expenseSave:         return "POST"
+
+        case .receiptImage:        return "GET"
         }
     }
 }

@@ -178,6 +178,46 @@ final class APIClient: ObservableObject {
         }
     }
 
+    // MARK: - Authenticated Image Fetch
+
+    /// Fetches raw receipt image bytes using the bearer token.
+    /// Use instead of `AsyncImage(url:)` because `/uploads/receipts/` is
+    /// protected by `Deny from all` and requires the Authorization header.
+    func fetchReceiptImageData(mediaId: Int) async throws -> Data {
+        guard let url = APIEndpoint.receiptImage(mediaId: mediaId).url else {
+            throw APIError.invalidURL
+        }
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "GET"
+        if let token = authSession?.token {
+            urlRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: urlRequest)
+        } catch {
+            let err = APIError.networkError(error)
+            #if DEBUG
+            DevErrorBus.shared.post(err)
+            #endif
+            throw err
+        }
+
+        if let http = response as? HTTPURLResponse {
+            if http.statusCode == 401 { authSession?.logout(); throw APIError.unauthorized }
+            if !(200..<300).contains(http.statusCode) {
+                let err = APIError.serverError("Image unavailable (\(http.statusCode))")
+                #if DEBUG
+                DevErrorBus.shared.post(err)
+                #endif
+                throw err
+            }
+        }
+        return data
+    }
+
     // MARK: - Private Helpers
 
     private func extractErrorMessage(from data: Data) -> String? {
