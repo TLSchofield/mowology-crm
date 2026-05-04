@@ -7,11 +7,16 @@
 
 import SwiftUI
 import MapKit
+import Contacts
+import ContactsUI
 
 struct VisitDetailView: View {
 
     let stop: Stop
     let isAdmin: Bool
+
+    @State private var showContactSave = false
+    @State private var contactSaveToast: String?
 
     var body: some View {
         ScrollView {
@@ -39,6 +44,32 @@ struct VisitDetailView: View {
         .background(Color(.systemGroupedBackground))
         .navigationTitle(stop.propertyAddress)
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showContactSave) {
+            if let contact = buildContact() {
+                ContactSaveSheet(contact: contact) { saved in
+                    contactSaveToast = saved ? "Saved to Contacts" : nil
+                }
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if let toast = contactSaveToast {
+                Text(toast)
+                    .font(.subheadline.bold())
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(Color.MW.green)
+                    .foregroundStyle(.white)
+                    .clipShape(Capsule())
+                    .padding(.bottom, 24)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .onAppear {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                            withAnimation { contactSaveToast = nil }
+                        }
+                    }
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: contactSaveToast)
     }
 
     // MARK: - Property Section
@@ -54,7 +85,17 @@ struct VisitDetailView: View {
 
                 if let contact = stop.contactName {
                     Divider().padding(.leading, 16)
-                    detailRow(label: "Contact", value: contact)
+                    HStack {
+                        detailRow(label: "Contact", value: contact)
+                        Button {
+                            showContactSave = true
+                        } label: {
+                            Image(systemName: "person.badge.plus")
+                                .foregroundStyle(Color.MW.green)
+                                .padding(.trailing, 16)
+                        }
+                        .accessibilityLabel("Save \(contact) to Contacts")
+                    }
                 }
 
                 if let company = stop.companyName, !company.isEmpty {
@@ -274,6 +315,32 @@ struct VisitDetailView: View {
         .padding(.vertical, 12)
     }
 
+    // MARK: - Contact helpers
+
+    private func buildContact() -> CNMutableContact? {
+        guard let name = stop.contactName else { return nil }
+        let contact = CNMutableContact()
+
+        // Name — split on first space; if no space treat whole string as given name.
+        let parts = name.split(separator: " ", maxSplits: 1)
+        contact.givenName  = parts.first.map(String.init) ?? name
+        contact.familyName = parts.count > 1 ? String(parts[1]) : ""
+
+        if let company = stop.companyName, !company.isEmpty {
+            contact.organizationName = company
+        }
+
+        let addr               = CNMutablePostalAddress()
+        addr.street            = stop.propertyAddress
+        addr.city              = stop.propertyCity
+        addr.country           = "Canada"
+        contact.postalAddresses = [CNLabeledValue(label: CNLabelHome, value: addr)]
+
+        contact.note = "Mowology client — property ID \(stop.propertyId ?? 0)"
+
+        return contact
+    }
+
     // MARK: - Actions
 
     private func openInMaps(coordinate: CLLocationCoordinate2D) {
@@ -290,6 +357,42 @@ struct VisitDetailView: View {
         mapItem.openInMaps(launchOptions: [
             MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving
         ])
+    }
+}
+
+// MARK: - ContactSaveSheet
+
+private struct ContactSaveSheet: UIViewControllerRepresentable {
+
+    let contact: CNMutableContact
+    let onDismiss: (_ saved: Bool) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(onDismiss: onDismiss) }
+
+    func makeUIViewController(context: Context) -> UINavigationController {
+        let vc = CNContactViewController(forUnknownContact: contact)
+        vc.allowsEditing   = true
+        vc.allowsActions   = false
+        vc.delegate        = context.coordinator
+        let nav = UINavigationController(rootViewController: vc)
+        return nav
+    }
+
+    func updateUIViewController(_ uiViewController: UINavigationController, context: Context) {}
+
+    final class Coordinator: NSObject, CNContactViewControllerDelegate {
+        let onDismiss: (_ saved: Bool) -> Void
+        private var didSave = false
+
+        init(onDismiss: @escaping (_ saved: Bool) -> Void) { self.onDismiss = onDismiss }
+
+        func contactViewController(_ vc: CNContactViewController,
+                                   didCompleteWith contact: CNContact?) {
+            didSave = contact != nil
+            vc.dismiss(animated: true) { [weak self] in
+                self?.onDismiss(self?.didSave ?? false)
+            }
+        }
     }
 }
 

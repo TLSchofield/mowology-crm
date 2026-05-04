@@ -46,6 +46,8 @@ targets:
         NSLocationAlwaysUsageDescription: "Mowology tracks your location in the background to log GPS pings, detect job-site arrivals, and auto-clock-in when you reach a stop."
         NSCameraUsageDescription: "Used to scan receipts for expense tracking."
         NSPhotoLibraryUsageDescription: "Used to choose an existing receipt photo from your library."
+        NSCalendarsFullAccessUsageDescription: "Mowology can sync today's job schedule to your Calendar so stops appear alongside personal events."
+        NSContactsUsageDescription: "Used to save client contact details to your address book for quick calling."
         NSSupportsLiveActivities: true
         UIBackgroundModes:
           - fetch

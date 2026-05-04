@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import WidgetKit
 
 // MARK: - API Response Types
 
@@ -111,6 +112,8 @@ final class ScheduleViewModel: ObservableObject {
             stops       = fetched
             lastFetched = .now
             ArrivalMonitor.shared.loadStops(fetched)
+            Task { await CalendarSyncService.shared.sync(stops: fetched, for: date) }
+            syncWidgetSchedule(fetched)
         } catch let apiError as APIError {
             errorMessage = apiError.errorDescription
             stops = []
@@ -169,5 +172,16 @@ final class ScheduleViewModel: ObservableObject {
 
     private func isSameDay(_ a: Date, _ b: Date) -> Bool {
         calendar.isDate(a, inSameDayAs: b)
+    }
+
+    // MARK: - Widget sync
+
+    private func syncWidgetSchedule(_ stops: [Stop]) {
+        let defaults = UserDefaults(suiteName: AppDelegate.appGroupId)
+        defaults?.set(stops.count, forKey: "mw.widget.stopCount")
+        let next = stops.sorted { $0.routeOrder < $1.routeOrder }.first
+        defaults?.set(next?.propertyAddress, forKey: "mw.widget.nextAddress")
+        defaults?.set(next?.estimatedArrival, forKey: "mw.widget.nextTime")
+        WidgetCenter.shared.reloadTimelines(ofKind: "TodayScheduleWidget")
     }
 }

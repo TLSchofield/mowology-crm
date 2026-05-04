@@ -98,6 +98,7 @@ final class GPSTrackingService: ObservableObject {
         UserDefaults.standard.set(true, forKey: Self.kShiftActive)
         locationManager.requestAlwaysPermission()
         locationManager.startBackgroundTracking()
+        ActivityMonitor.shared.start(updating: locationManager)
         startPingLoop()
     }
 
@@ -106,6 +107,7 @@ final class GPSTrackingService: ObservableObject {
         activeVisitId = nil
         pingTask?.cancel()
         pingTask = nil
+        ActivityMonitor.shared.stop()
         locationManager.stopBackgroundTracking()
         locationManager.resetSessionMetrics()
         UserDefaults.standard.set(false, forKey: Self.kShiftActive)

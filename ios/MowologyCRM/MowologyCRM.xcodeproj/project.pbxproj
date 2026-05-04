@@ -51,6 +51,12 @@
 		9F3DA5FD077BA73C4F89DBC3 /* DeviceTokenService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70B6262F1652C439EF4C0F33 /* DeviceTokenService.swift */; };
 		017CC6F86454321D6D579F43 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 783EC7CAE7D0D0D827FDEDBF /* AppDelegate.swift */; };
 		A773EE61922B4B72493D1C1F /* LiveReceiptScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BCAA6456C9F805D11DD98B4 /* LiveReceiptScanner.swift */; };
+		214E494E3D1E1C4BD917305A /* ActivityMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E71D5EA7EE23F42751ED95F /* ActivityMonitor.swift */; };
+		317743F5DF244CC62FE421FB /* DayRouteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B48592BAC401D1AED784578 /* DayRouteView.swift */; };
+		5AAFF6AF9E68378A400F6657 /* ClockInIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90C667FF46EC2B266DE11963 /* ClockInIntent.swift */; };
+		1B0ED1F5E664CA7DB3018231 /* ClockOutIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE94A123C42B905BE6904B4F /* ClockOutIntent.swift */; };
+		73F6FC84E47A1D864C3B18E5 /* ShowScheduleIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B5EFFFBCFAAD856E43264A9 /* ShowScheduleIntent.swift */; };
+		9D61F3EF70C3756764064616 /* CalendarSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D6FBBBC8A8782A7FE767C2B /* CalendarSyncService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -100,6 +106,12 @@
 		70B6262F1652C439EF4C0F33 /* DeviceTokenService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceTokenService.swift; sourceTree = "<group>"; };
 		783EC7CAE7D0D0D827FDEDBF /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		2BCAA6456C9F805D11DD98B4 /* LiveReceiptScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveReceiptScanner.swift; sourceTree = "<group>"; };
+		9E71D5EA7EE23F42751ED95F /* ActivityMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityMonitor.swift; sourceTree = "<group>"; };
+		6B48592BAC401D1AED784578 /* DayRouteView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayRouteView.swift; sourceTree = "<group>"; };
+		90C667FF46EC2B266DE11963 /* ClockInIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClockInIntent.swift; sourceTree = "<group>"; };
+		CE94A123C42B905BE6904B4F /* ClockOutIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClockOutIntent.swift; sourceTree = "<group>"; };
+		6B5EFFFBCFAAD856E43264A9 /* ShowScheduleIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowScheduleIntent.swift; sourceTree = "<group>"; };
+		7D6FBBBC8A8782A7FE767C2B /* CalendarSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarSyncService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -202,7 +214,8 @@
 			children = (
 				6BC0B66BE87B94B74DD29C05 /* LoginView.swift */,
 				82CAF080C57ADDAE06034F25 /* LoginViewModel.swift */,
-			);
+							6B48592BAC401D1AED784578 /* DayRouteView.swift */,
+);
 			path = Auth;
 			sourceTree = "<group>";
 		};
@@ -265,6 +278,7 @@
 							EE29BD8142463FC512FD1208 /* RouteStore.swift */,
 				37E412C65849505E8688DCD3 /* ArrivalMonitor.swift */,
 				A4547C29B2A502F7AE5B446E /* LocationManager.swift */,
+				9E71D5EA7EE23F42751ED95F /* ActivityMonitor.swift */,
 );
 			path = Offline;
 			sourceTree = "<group>";
@@ -305,6 +319,15 @@
 				10B4DAEACB7DA7EA31C4B251 /* LocalOCR.swift */,
 			);
 			path = Services;
+			sourceTree = "<group>";
+		};
+		E97A75DD2B91C61BF4FF5A12 /* AppIntents */ = {
+			isa = PBXGroup;
+			children = (
+				90C667FF46EC2B266DE11963 /* ClockInIntent.swift */,
+							7D6FBBBC8A8782A7FE767C2B /* CalendarSyncService.swift */,
+);
+			path = AppIntents;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */

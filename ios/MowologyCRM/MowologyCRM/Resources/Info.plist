@@ -39,6 +39,14 @@
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Used to choose an existing receipt photo from your library.</string>
 
+	<!-- Calendar -->
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Mowology can sync today's job schedule to your Calendar so stops appear alongside personal events.</string>
+
+	<!-- Contacts -->
+	<key>NSContactsUsageDescription</key>
+	<string>Used to save client contact details to your address book for quick calling.</string>
+
 	<!-- Background Modes -->
 	<key>UIBackgroundModes</key>
 	<array>
