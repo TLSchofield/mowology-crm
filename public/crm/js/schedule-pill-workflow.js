@@ -15,10 +15,16 @@
  *
  * ─── PRODUCTION-SAFETY GUIDE ────────────────────────────────────────────────
  *
- * ALL fetch() calls in this file MUST follow the hardened pattern:
- *   .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
- *   .then(data => { if (data.success) { /* state mutations only here *\/ } else { showToast(...) } })
- *   .catch(err => { console.error('[tag]', err); showToast(...); /* restore button state *\/ })
+ * JSON API calls (job-timer, pow-actions, field-observations) MUST use MwApi.post().
+ * It handles CSRF injection, idempotency key generation, and the !r.ok HTTP guard.
+ * Callers follow this pattern:
+ *   MwApi.post(endpoint, body)
+ *     .then(function(data) { if (data.success) { /* state mutations only here *\/ } else { showToast(...) } })
+ *     .catch(function(err) { console.error('[tag]', err); showToast(...); /* restore button state *\/ })
+ *
+ * FormData uploads (media-upload.php) and GET requests remain as raw fetch() —
+ * they have specialised timeout, CSRF retry, and status-routing logic that does not
+ * belong in the generic service layer.
  *
  * Breaking any of these rules causes silent timer or visit state corruption in the
  * field — a crew member's timer stays "running" on screen after a server failure with
@@ -42,10 +48,11 @@
  *
  * ─── IDEMPOTENCY ────────────────────────────────────────────────────────────
  *
- * Every timer start/stop call embeds an idempotency_key (UUID) in the JSON body.
- * The PHP guardIdempotency() function in TimeclockFunctions.php deduplicates via
- * INSERT IGNORE. Do NOT remove or skip generateIdempKey() — without it, a fast
- * offline-queue replay can create two active timer entries for the same visit.
+ * Every timer start/stop call goes through MwApi.post(), which auto-injects an
+ * idempotency_key (UUID) into each JSON body. The PHP guardIdempotency() function
+ * in TimeclockFunctions.php deduplicates via INSERT IGNORE. The offline-queue
+ * stores bodyRaw verbatim so replay sends the same key — preventing duplicate
+ * timer entries when a queued action commits on first attempt and is then replayed.
  *
  * ─── iOS/CAMERA CRITICAL PATHS ──────────────────────────────────────────────
  *
@@ -75,6 +82,8 @@
     console.log('[PillWorkflow] Initializing...', MW_SCHEDULE_STATE);
 
     var state = MW_SCHEDULE_STATE;
+    MwApi.setToken(state.csrf);
+
     var visits = {};        // visitId -> { status, pill, serviceLabel, entryId, startTime, timerInterval, beforeThumb, afterThumb, additionalThumbs[] }
     var activeDrawer = null;
     var activeDrawerVisitId = null;
@@ -521,24 +530,6 @@
     // ═══════════════════════════════════════════════════════
 
     /**
-     * Generate a per-call idempotency key.
-     * Prevents duplicate DB writes when the offline queue replays a request
-     * that already committed on the first attempt (race window on slow DB).
-     * The key travels in the JSON body; PHP guardIdempotency() deduplicates via
-     * INSERT IGNORE into idempotency_keys.
-     */
-    function generateIdempKey() {
-        if (window.crypto && typeof crypto.randomUUID === 'function') {
-            return crypto.randomUUID();
-        }
-        // Fallback for older WebKit (iOS 14)
-        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-            var r = (Math.random() * 16) | 0;
-            return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
-        });
-    }
-
-    /**
      * Start a visit timer (clock in)
      */
     function clockIn(visitId) {
@@ -551,20 +542,11 @@
 
         getGps(function(lat, lng) {
             console.log('[PillWorkflow] Sending start timer request for visit ' + visitId);
-            fetch('/crm/api/job-timer.php', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action: 'start',
-                    visit_id: visitId,
-                    lat: lat,
-                    lng: lng,
-                    idempotency_key: generateIdempKey()
-                })
-            })
-            .then(function(r) {
-                if (!r.ok) throw new Error('HTTP ' + r.status);
-                return r.json();
+            MwApi.post('/crm/api/job-timer.php', {
+                action:    'start',
+                visit_id:  visitId,
+                lat:       lat,
+                lng:       lng
             })
             .then(function(data) {
                 console.log('[PillWorkflow] Timer start response:', JSON.stringify(data));
@@ -640,21 +622,12 @@
         var originalHtml = v.pill.innerHTML;
 
         getGps(function(lat, lng) {
-            fetch('/crm/api/job-timer.php', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action: 'stop',
-                    visit_id: visitId,
-                    lat: lat,
-                    lng: lng,
-                    complete_visit: true,
-                    idempotency_key: generateIdempKey()
-                })
-            })
-            .then(function(r) {
-                if (!r.ok) throw new Error('HTTP ' + r.status);
-                return r.json();
+            MwApi.post('/crm/api/job-timer.php', {
+                action:         'stop',
+                visit_id:       visitId,
+                lat:            lat,
+                lng:            lng,
+                complete_visit: true
             })
             .then(function(data) {
                 if (data.success) {
@@ -710,22 +683,13 @@
         if (!v) return;
 
         getGps(function(lat, lng) {
-            fetch('/crm/api/job-timer.php', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action: 'stop',
-                    visit_id: visitId,
-                    lat: lat,
-                    lng: lng,
-                    complete_visit: false,
-                    notes: 'Manually stopped without completing',
-                    idempotency_key: generateIdempKey()
-                })
-            })
-            .then(function(r) {
-                if (!r.ok) throw new Error('HTTP ' + r.status);
-                return r.json();
+            MwApi.post('/crm/api/job-timer.php', {
+                action:         'stop',
+                visit_id:       visitId,
+                lat:            lat,
+                lng:            lng,
+                complete_visit: false,
+                notes:          'Manually stopped without completing'
             })
             .then(function(data) {
                 if (data.success) {
@@ -1010,6 +974,7 @@
                             .then(function(d) {
                                 if (d && d.token) {
                                     state.csrf = d.token;
+                                    MwApi.setToken(d.token);
                                     console.log('[PillWorkflow] CSRF token refreshed');
                                 }
                                 doUploadPhoto(visitId, file, category, true, callback, preQueuedId);
@@ -2187,19 +2152,13 @@
      * POST the observation to the API
      */
     function sendObservation(visitId, obsType, obsValue, notes, photoMediaId, submitBtn, errBox) {
-        fetch('/crm/api/field-observations.php?action=create', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                visit_id: visitId,
-                observation_type: obsType,
-                observation_value: obsValue || null,
-                notes: notes || null,
-                photo_media_id: photoMediaId,
-                csrf_token: state.csrf
-            })
+        MwApi.post('/crm/api/field-observations.php?action=create', {
+            visit_id:          visitId,
+            observation_type:  obsType,
+            observation_value: obsValue || null,
+            notes:             notes || null,
+            photo_media_id:    photoMediaId
         })
-        .then(function(r) { return r.json(); })
         .then(function(data) {
             if (data.success) {
                 closeObservationModal();
@@ -2344,15 +2303,7 @@
                     clockInBtn.disabled = true;
                     clockInBtn.innerHTML = '<span>Starting…</span>';
                     getGps(function(lat, lng) {
-                        fetch('/crm/api/job-timer.php', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ action: 'start', visit_id: visitId, lat: lat, lng: lng, idempotency_key: generateIdempKey() })
-                        })
-                        .then(function(r) {
-                            if (!r.ok) throw new Error('HTTP ' + r.status);
-                            return r.json();
-                        })
+                        MwApi.post('/crm/api/job-timer.php', { action: 'start', visit_id: visitId, lat: lat, lng: lng })
                         .then(function(data) {
                             if (data.success) {
                                 if (visits[visitId]) {
@@ -2406,19 +2357,11 @@
                     } else {
                         // No active timer → direct complete via end_visit
                         getGps(function(lat, lng) {
-                            fetch('/crm/api/pow-actions.php', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                    action: 'end_visit',
-                                    visit_id: visitId,
-                                    lat: lat, lng: lng,
-                                    csrf_token: state.csrf
-                                })
-                            })
-                            .then(function(r) {
-                                if (!r.ok) throw new Error('HTTP ' + r.status);
-                                return r.json();
+                            MwApi.post('/crm/api/pow-actions.php', {
+                                action:    'end_visit',
+                                visit_id:  visitId,
+                                lat:       lat,
+                                lng:       lng
                             })
                             .then(function(data) {
                                 if (data.success) {
@@ -2619,15 +2562,7 @@
         // (clockIn reads activeDrawer for the button loading state).
         // We use null — clockIn already guards against null activeDrawer.
         getGps(function(lat, lng) {
-            fetch('/crm/api/job-timer.php', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'start', visit_id: visitId, lat: lat, lng: lng, idempotency_key: generateIdempKey() })
-            })
-            .then(function(r) {
-                if (!r.ok) throw new Error('HTTP ' + r.status);
-                return r.json();
-            })
+            MwApi.post('/crm/api/job-timer.php', { action: 'start', visit_id: visitId, lat: lat, lng: lng })
             .then(function(data) {
                 if (data.success) {
                     if (visits[visitId]) {
@@ -2721,20 +2656,11 @@
         } else {
             // No timer → directly complete via end_visit
             getGps(function(lat, lng) {
-                fetch('/crm/api/pow-actions.php', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        action: 'end_visit',
-                        visit_id: targetVisitId,
-                        lat: lat,
-                        lng: lng,
-                        csrf_token: state.csrf
-                    })
-                })
-                .then(function(r) {
-                    if (!r.ok) throw new Error('HTTP ' + r.status);
-                    return r.json();
+                MwApi.post('/crm/api/pow-actions.php', {
+                    action:    'end_visit',
+                    visit_id:  targetVisitId,
+                    lat:       lat,
+                    lng:       lng
                 })
                 .then(function(data) {
                     if (data.success) {
