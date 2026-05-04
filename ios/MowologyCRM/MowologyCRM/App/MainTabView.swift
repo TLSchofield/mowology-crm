@@ -29,6 +29,12 @@ struct MainTabView: View {
                     Label("Receipts", systemImage: "doc.text.image")
                 }
 
+            QuizHubView(authSession: authSession)
+                .environmentObject(authSession)
+                .tabItem {
+                    Label("Quiz", systemImage: "brain.head.profile")
+                }
+
             accountTab
                 .tabItem {
                     Label("Account", systemImage: "person.fill")

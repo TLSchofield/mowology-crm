@@ -47,6 +47,29 @@ enum APIEndpoint {
     /// GET /api/expenses/expense-list — paginated list of the user's expenses (JWT).
     case expenseList(page: Int)
 
+    // MARK: - Quiz endpoints (JWT)
+
+    /// GET /api/quiz/categories — categories with mastery breakdown.
+    case quizCategories
+
+    /// POST /api/quiz/start — create a new quiz session.
+    case quizStart
+
+    /// GET /api/quiz/question?session_id=&q= — fetch a single question + options.
+    case quizQuestion(sessionId: Int, q: Int)
+
+    /// POST /api/quiz/answer — submit an answer for a question.
+    case quizAnswer
+
+    /// POST /api/quiz/finish — complete a session and receive the score.
+    case quizFinish
+
+    /// GET /api/quiz/stats — personal monthly stats + rank tier.
+    case quizStats
+
+    /// GET|POST /api/quiz/preshift — check or mark today's pre-shift quiz.
+    case quizPreshift
+
     // MARK: - URL
 
     /// Builds the full URL for the endpoint. Returns `nil` only if the base
@@ -93,6 +116,32 @@ enum APIEndpoint {
             var components = URLComponents(string: "\(baseURLString)/expenses/expense-list")
             components?.queryItems = [URLQueryItem(name: "page", value: "\(page)")]
             return components?.url
+
+        case .quizCategories:
+            return URL(string: "\(baseURLString)/quiz/categories")
+
+        case .quizStart:
+            return URL(string: "\(baseURLString)/quiz/start")
+
+        case .quizQuestion(let sessionId, let q):
+            var components = URLComponents(string: "\(baseURLString)/quiz/question")
+            components?.queryItems = [
+                URLQueryItem(name: "session_id", value: "\(sessionId)"),
+                URLQueryItem(name: "q",          value: "\(q)"),
+            ]
+            return components?.url
+
+        case .quizAnswer:
+            return URL(string: "\(baseURLString)/quiz/answer")
+
+        case .quizFinish:
+            return URL(string: "\(baseURLString)/quiz/finish")
+
+        case .quizStats:
+            return URL(string: "\(baseURLString)/quiz/stats")
+
+        case .quizPreshift:
+            return URL(string: "\(baseURLString)/quiz/preshift")
         }
     }
 
@@ -111,7 +160,14 @@ enum APIEndpoint {
              .receiptUpload,
              .expenseMeta,
              .expenseSave,
-             .expenseList: return true
+             .expenseList,
+             .quizCategories,
+             .quizStart,
+             .quizQuestion,
+             .quizAnswer,
+             .quizFinish,
+             .quizStats,
+             .quizPreshift: return true
         }
     }
 
@@ -125,13 +181,20 @@ enum APIEndpoint {
              .scheduleWeek,
              .scheduleClockStatus,
              .expenseMeta,
-             .expenseList:         return "GET"
+             .expenseList,
+             .quizCategories,
+             .quizQuestion,
+             .quizStats,
+             .quizPreshift:        return "GET"
 
         case .scheduleTimer,
              .scheduleLocation,
              .scheduleClock,
              .receiptUpload,
-             .expenseSave:         return "POST"
+             .expenseSave,
+             .quizStart,
+             .quizAnswer,
+             .quizFinish:          return "POST"
         }
     }
 }

@@ -43,6 +43,13 @@
 		A5B6C7D8E9F0A1B2C3D4E5F6 /* TimeClockViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5C6D7E8F9A0B1C2D3E4F5A6 /* TimeClockViewModel.swift */; };
 		C5D6E7F8A9B0C1D2E3F4A5B6 /* ErrorBannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5E6F7A8B9C0D1E2F3A4B5C6 /* ErrorBannerView.swift */; };
 		E5F6A7B8C9D0E1F2A3B4C5D6 /* EmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5A6B7C8D9E0F1A2B3C4D5E6 /* EmptyStateView.swift */; };
+		E05E5BE6852481355F50E715 /* QuizModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = F58C528031E10D2AF1D24FB6 /* QuizModels.swift */; };
+		EDB878958BF796E8565B552E /* QuizHubView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C93CE665359F862151833D56 /* QuizHubView.swift */; };
+		9CEE2E4081FE6D3D82E38FB4 /* QuizHubViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15C2CA1D936024DEBD8CF318 /* QuizHubViewModel.swift */; };
+		232AD3CCFC67EB64071ABB2B /* QuizPlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00107B88E17774FDFC6C9D9 /* QuizPlayView.swift */; };
+		1D18C36F9C0C4BF31C52E969 /* QuizPlayViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAD687E56445E38401BA562D /* QuizPlayViewModel.swift */; };
+		774A8DBFC633F0C6716FB512 /* QuizResultView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBE0E1F5BDDDF00F444B8E82 /* QuizResultView.swift */; };
+		60189C5BBC6698BE5382FF02 /* QuizPreshiftGateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEC96C68C6F401F55A4693DB /* QuizPreshiftGateView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -84,6 +91,13 @@
 		B5C6D7E8F9A0B1C2D3E4F5A6 /* TimeClockViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeClockViewModel.swift; sourceTree = "<group>"; };
 		D5E6F7A8B9C0D1E2F3A4B5C6 /* ErrorBannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorBannerView.swift; sourceTree = "<group>"; };
 		F5A6B7C8D9E0F1A2B3C4D5E6 /* EmptyStateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmptyStateView.swift; sourceTree = "<group>"; };
+		F58C528031E10D2AF1D24FB6 /* QuizModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuizModels.swift; sourceTree = "<group>"; };
+		C93CE665359F862151833D56 /* QuizHubView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuizHubView.swift; sourceTree = "<group>"; };
+		15C2CA1D936024DEBD8CF318 /* QuizHubViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuizHubViewModel.swift; sourceTree = "<group>"; };
+		B00107B88E17774FDFC6C9D9 /* QuizPlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuizPlayView.swift; sourceTree = "<group>"; };
+		FAD687E56445E38401BA562D /* QuizPlayViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuizPlayViewModel.swift; sourceTree = "<group>"; };
+		CBE0E1F5BDDDF00F444B8E82 /* QuizResultView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuizResultView.swift; sourceTree = "<group>"; };
+		FEC96C68C6F401F55A4693DB /* QuizPreshiftGateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuizPreshiftGateView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -209,7 +223,8 @@
 				84917CCF5BF871EC2B745DC4 /* Stop.swift */,
 				C9C49661C41333A49EE1D301 /* User.swift */,
 				46E2EA872345FA9825A6DF2E /* Visit.swift */,
-			);
+							E0AAB5304BFC39D72D5240BB /* Quiz */,
+);
 			path = Models;
 			sourceTree = "<group>";
 		};
@@ -217,7 +232,8 @@
 			isa = PBXGroup;
 			children = (
 				9DD091BEACD0F5E731BE8B0E /* Info.plist */,
-			);
+							F58C528031E10D2AF1D24FB6 /* QuizModels.swift */,
+);
 			path = Resources;
 			sourceTree = "<group>";
 		};
@@ -274,6 +290,14 @@
 				F5A6B7C8D9E0F1A2B3C4D5E6 /* EmptyStateView.swift */,
 			);
 			path = Components;
+			sourceTree = "<group>";
+		};
+		E0AAB5304BFC39D72D5240BB /* Quiz */ = {
+			isa = PBXGroup;
+			children = (
+				C93CE665359F862151833D56 /* QuizHubView.swift */,
+			);
+			path = Quiz;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */

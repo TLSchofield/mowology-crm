@@ -64,6 +64,7 @@ $moduleMap = [
     'settings'  => 'Settings',
     'schedule'  => 'Schedule',    // Mobile iOS schedule API (JWT-authenticated)
     'expenses'  => 'Expenses',    // Mobile iOS expense/receipt API (JWT-authenticated)
+    'quiz'      => 'Quiz',        // Mobile iOS knowledge quiz API (JWT-authenticated)
 ];
 
 if (!isset($moduleMap[$module])) {
