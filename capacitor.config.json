@@ -1,0 +1,78 @@
+{
+  "appId": "ca.mowology.crm",
+  "appName": "Mowology CRM",
+  "webDir": "public",
+
+  "server": {
+    "url": "https://mowology.ca",
+    "cleartext": false,
+    "androidScheme": "https"
+  },
+
+  "android": {
+    "buildOptions": {
+      "keystorePath": null,
+      "keystoreAlias": null,
+      "keystorePassword": null,
+      "keystoreAliasPassword": null,
+      "releaseType": "AAB"
+    }
+  },
+
+  "plugins": {
+    "BackgroundGeolocation": {
+      "locationAuthorizationRequest": "Always",
+      "backgroundPermissionRationale": {
+        "title": "Allow Mowology to track your location in the background?",
+        "message": "Mowology uses your location during shifts to record GPS breadcrumbs for job proof-of-work tracking and the crew map.",
+        "positiveAction": "Allow",
+        "negativeAction": "Deny"
+      },
+      "desiredAccuracy": "HIGH",
+      "stationaryRadius": 10,
+      "distanceFilter": 15,
+      "stopOnTerminate": false,
+      "startOnBoot": false,
+      "debug": false,
+      "logLevel": 0
+    },
+
+    "PushNotifications": {
+      "presentationOptions": ["badge", "sound", "alert"]
+    },
+
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_notification",
+      "iconColor": "#2D8659",
+      "sound": null
+    }
+  },
+
+  "_comment_plugins": [
+    "@capacitor-community/background-geolocation  — foreground service, GPS watcher, activity recognition adapter",
+    "@capacitor/geolocation                        — one-shot GPS for clock-in/out",
+    "@capacitor/local-notifications               — shift alerts, job reminders",
+    "@capacitor/network                           — online/offline detection for queue drain",
+    "MwTracking (custom AAR)                      — Room DB persistence, WorkManager batch sync,",
+    "                                               activity recognition, geofence enter/exit events,",
+    "                                               SharedPreferences session cookie storage.",
+    "                                               Source: contact @TLSchofield for the native plugin repo."
+  ],
+
+  "_comment_build": [
+    "Build steps (Android):",
+    "  1. npm install  (or yarn)  — install Capacitor + plugin deps",
+    "  2. npx cap sync android    — copy web assets + sync plugin config",
+    "  3. npx cap open android    — open in Android Studio",
+    "  4. Build → Generate Signed Bundle → release.aab",
+    "",
+    "MwTracking plugin is distributed as a pre-built AAR.",
+    "Place MwTracking.aar in android/app/libs/ before syncing.",
+    "",
+    "Keystore credentials are NOT stored here.",
+    "Store in environment variables or Android Studio's signing config.",
+    "",
+    "Minimum Android SDK: 26 (Android 8.0 — required by WorkManager v2.x + Room)",
+    "Target  Android SDK: 34"
+  ]
+}
