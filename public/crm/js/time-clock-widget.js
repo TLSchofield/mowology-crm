@@ -853,6 +853,39 @@
         window.addEventListener('online', function() { flushQueue(); });
     }
 
+    // ── Adaptive ping interval (Android/Capacitor) ─────────────────────────
+    // Android equivalent of iOS ActivityMonitor.swift (T2-7).
+    //
+    // capacitor-bridge.js fires 'mw-activity-changed' when MwTracking's activity
+    // recognition detects a transition. The bridge dispatches this event and notes
+    // "so time-clock-widget can restart tracking" — this is that listener.
+    //
+    // Why IN_VEHICLE and ON_FOOT both get heightened (10s):
+    //   - Driving: position changes fast, map needs frequent server pings to show
+    //     crew location accurately. The BG plugin's distanceFilter handles GPS hardware
+    //     frequency; this controls how often we POST to crew-location.php.
+    //   - Walking/on-site: crew is actively working, supervisors check map often.
+    // STILL gets standard (30s) — crew is stationary, save battery and bandwidth.
+    //
+    // ⚠️  Do not remove the window.MwTimeClock guard. The listener is attached at
+    //     module load time but MwTimeClock is defined later in the same IIFE. If
+    //     this ever moves outside the IIFE, MwTimeClock won't exist yet.
+    var ACTIVITY_INTERVAL_MAP = {
+        'IN_VEHICLE': 'heightened',  // 10s — driving between jobs
+        'RUNNING':    'heightened',  // 10s — on-site work
+        'ON_FOOT':    'heightened',  // 10s — on-site work
+        'WALKING':    'heightened',  // 10s — on-site work
+        'STILL':      'standard',    // 30s — parked / waiting
+        'UNKNOWN':    'standard'     // 30s — conservative default
+    };
+
+    document.addEventListener('mw-activity-changed', function(e) {
+        if (!window.MwTimeClock) return;
+        var activity = e.detail && e.detail.activity;
+        var mode = ACTIVITY_INTERVAL_MAP[activity] || 'standard';
+        window.MwTimeClock.setTrackingInterval(mode);
+    });
+
     // Expose for use by schedule page and pill workflow
     window.MwTimeClock = {
         fetchStatus: fetchStatus,
