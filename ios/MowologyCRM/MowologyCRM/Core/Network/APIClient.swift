@@ -98,7 +98,11 @@ final class APIClient: ObservableObject {
         do {
             (data, response) = try await session.data(for: urlRequest)
         } catch {
-            throw APIError.networkError(error)
+            let err = APIError.networkError(error)
+            #if DEBUG
+            DevErrorBus.shared.post(err)
+            #endif
+            throw err
         }
 
         // Inspect the HTTP status code.
@@ -112,7 +116,11 @@ final class APIClient: ObservableObject {
             if !(200..<300).contains(httpResponse.statusCode) {
                 let message = extractErrorMessage(from: data)
                     ?? "Server returned status \(httpResponse.statusCode)."
-                throw APIError.serverError(message)
+                let err = APIError.serverError(message)
+                #if DEBUG
+                DevErrorBus.shared.post(err)
+                #endif
+                throw err
             }
         }
 
@@ -122,7 +130,11 @@ final class APIClient: ObservableObject {
         do {
             return try decoder.decode(T.self, from: data)
         } catch {
-            throw APIError.decodingError(error)
+            let err = APIError.decodingError(error)
+            #if DEBUG
+            DevErrorBus.shared.post(err)
+            #endif
+            throw err
         }
     }
 

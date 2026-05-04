@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		AA2D3E4F5A6B7C8D9E0F1A2B /* DevErrorBus.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB2D3E4F5A6B7C8D9E0F1A2B /* DevErrorBus.swift */; };
 		040D77CC7FC7DDF02E82AD32 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73D67877BC393CECB2E02474 /* KeychainStore.swift */; };
 		06A537ABBFB8D5873812BDD2 /* StopCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F73A09E1281950C78A2D0821 /* StopCardView.swift */; };
 		14EB12BAF8F5CB77D7A4DF95 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44859802708EFA50B0DE7353 /* RootView.swift */; };
@@ -30,6 +31,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		BB2D3E4F5A6B7C8D9E0F1A2B /* DevErrorBus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevErrorBus.swift; sourceTree = "<group>"; };
 		11B9496B9E804E3CD0342C49 /* AuthSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthSession.swift; sourceTree = "<group>"; };
 		2E7C92CC6796BADE174216F5 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
 		44859802708EFA50B0DE7353 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
@@ -102,10 +104,19 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		CC2D3E4F5A6B7C8D9E0F1A2B /* Debug */ = {
+			isa = PBXGroup;
+			children = (
+				BB2D3E4F5A6B7C8D9E0F1A2B /* DevErrorBus.swift */,
+			);
+			path = Debug;
+			sourceTree = "<group>";
+		};
 		69C62806CCCCD991CDBCA787 /* Core */ = {
 			isa = PBXGroup;
 			children = (
 				6F2222B3A02473B1F4FB7FA3 /* Auth */,
+				CC2D3E4F5A6B7C8D9E0F1A2B /* Debug */,
 				FA9C633C7B7B0D0E5CBAEA59 /* Models */,
 				3CAC498CFC84EC47A1CECC6B /* Network */,
 			);
@@ -226,6 +237,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AA2D3E4F5A6B7C8D9E0F1A2B /* DevErrorBus.swift in Sources */,
 				8DA04E42442B3D09E704A1CA /* APIClient.swift in Sources */,
 				559940D1EF1EF0CFE5B02CCF /* APIEndpoints.swift in Sources */,
 				42FE3CC920D2D08E173E259C /* APIError.swift in Sources */,

@@ -10,6 +10,9 @@ import SwiftUI
 struct RootView: View {
 
     @EnvironmentObject private var authSession: AuthSession
+    #if DEBUG
+    @ObservedObject private var devErrors = DevErrorBus.shared
+    #endif
 
     var body: some View {
         Group {
@@ -21,6 +24,16 @@ struct RootView: View {
             }
         }
         .animation(.easeInOut(duration: 0.3), value: authSession.isAuthenticated)
+        #if DEBUG
+        .alert("Dev Error", isPresented: Binding(
+            get: { devErrors.pendingError != nil },
+            set: { if !$0 { devErrors.pendingError = nil } }
+        )) {
+            Button("OK") { devErrors.pendingError = nil }
+        } message: {
+            Text(devErrors.pendingError ?? "")
+        }
+        #endif
     }
 }
 
