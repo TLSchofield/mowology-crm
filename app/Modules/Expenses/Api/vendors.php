@@ -502,27 +502,13 @@ function handleDeleteVendorProduct(PDO $db, ?array $input): void
 
 function handleCategories(): void
 {
-    $accounting = [
-        'Materials', 'Fuel', 'Tools/Equipment', 'Repairs/Maintenance',
-        'Disposal/Dump', 'Subcontractors', 'Marketing', 'Office/Admin',
-        'Overhead', 'Licenses/Permits', 'Meals', 'Vehicle', 'Other',
-    ];
-
-    $gbp = [
-        'Garden center/nursery', 'Hardware store', 'Building materials',
-        'Equipment rental', 'Gas station', 'Waste disposal/landfill',
-        'Restaurant/food', 'Office supply', 'Auto parts',
-        'Wholesale store', 'Other',
-    ];
-
-    $paymentMethods = [
-        'cash', 'credit_card', 'debit', 'company_card', 'etransfer', 'cheque',
-    ];
+    // Single source of truth — same lists used by expense-meta.php and ReceiptSmartMatch.php.
+    require_once APP_ROOT . '/Modules/Expenses/ExpenseConstants.php';
 
     echo json_encode([
-        'success' => true,
-        'accounting_categories' => $accounting,
-        'gbp_categories' => $gbp,
-        'payment_methods' => $paymentMethods,
+        'success'               => true,
+        'accounting_categories' => EXPENSE_ACCOUNTING_CATEGORIES,
+        'gbp_categories'        => EXPENSE_GBP_CATEGORIES,
+        'payment_methods'       => EXPENSE_PAYMENT_METHODS,
     ]);
 }

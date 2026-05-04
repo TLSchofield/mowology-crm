@@ -63,6 +63,7 @@ $moduleMap = [
     'database'  => 'Database',
     'settings'  => 'Settings',
     'schedule'  => 'Schedule',    // Mobile iOS schedule API (JWT-authenticated)
+    'expenses'  => 'Expenses',    // Mobile iOS expense/receipt API (JWT-authenticated)
 ];
 
 if (!isset($moduleMap[$module])) {

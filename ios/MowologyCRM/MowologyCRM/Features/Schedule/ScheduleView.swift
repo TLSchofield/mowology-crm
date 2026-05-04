@@ -12,8 +12,6 @@ struct ScheduleView: View {
     @EnvironmentObject private var authSession: AuthSession
     @StateObject private var viewModel: ScheduleViewModel
 
-    private let mwGreen = Color(red: 0.176, green: 0.525, blue: 0.349)
-
     // MARK: - Init
 
     init(authSession: AuthSession? = nil) {
@@ -95,7 +93,7 @@ struct ScheduleView: View {
             } label: {
                 Text("Today")
                     .font(.subheadline.weight(.medium))
-                    .foregroundStyle(mwGreen)
+                    .foregroundStyle(Color.MW.green)
             }
         }
 
@@ -105,7 +103,7 @@ struct ScheduleView: View {
                 Task { await viewModel.invalidateAndRefresh() }
             } label: {
                 Image(systemName: "arrow.clockwise")
-                    .foregroundStyle(mwGreen)
+                    .foregroundStyle(Color.MW.green)
             }
             .disabled(viewModel.isLoading)
         }

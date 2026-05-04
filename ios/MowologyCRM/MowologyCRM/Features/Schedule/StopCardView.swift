@@ -12,8 +12,6 @@ struct StopCardView: View {
     let stop: Stop
     let isAdmin: Bool
 
-    private let mwGreen = Color(red: 0.176, green: 0.525, blue: 0.349)
-
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
 
@@ -127,7 +125,7 @@ struct StopCardView: View {
 
     private func accentColor(for stop: Stop) -> Color {
         if stop.isComplete     { return .green }
-        if stop.isInProgress   { return Color(red: 0.176, green: 0.525, blue: 0.349) }
+        if stop.isInProgress   { return Color.MW.green }
         return Color(.systemGray4)
     }
 }

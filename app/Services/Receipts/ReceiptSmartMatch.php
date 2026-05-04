@@ -23,7 +23,8 @@ if (!defined('APP_ROOT')) {
     require_once dirname(__DIR__, 2) . '/Core/paths.php';
 }
 
-// Keyword-to-category mapping for fallback when no vendor match
+// Keyword-to-category mapping for fallback when no vendor match.
+// Category names must match EXPENSE_ACCOUNTING_CATEGORIES in ExpenseConstants.php exactly.
 const CATEGORY_KEYWORDS = [
     'Fuel' => [
         'shell', 'petro', 'chevron', 'esso', 'gas', 'fuel', 'gasoline',
@@ -41,7 +42,11 @@ const CATEGORY_KEYWORDS = [
     ],
     'Disposal/Dump' => [
         'landfill', 'transfer station', 'waste', 'dump', 'disposal',
-        'recycling', 'tipping fee',
+        'recycling', 'tipping fee', 'green waste', 'yard waste', 'composting',
+    ],
+    'Licenses/Permits' => [
+        'permit', 'license fee', 'licence fee', 'municipal fee', 'city fee',
+        'business license', 'occupancy permit',
     ],
     'Repairs/Maintenance' => [
         'repair', 'maintenance', 'service', 'oil change', 'mechanic',
@@ -56,6 +61,10 @@ const CATEGORY_KEYWORDS = [
     ],
     'Office/Admin' => [
         'staples', 'office', 'paper', 'ink', 'printer', 'postage',
+    ],
+    'Safety' => [
+        'safety', 'ppe', 'gloves', 'boots', 'helmet', 'vest',
+        'hard hat', 'first aid',
     ],
 ];
 
@@ -120,6 +129,29 @@ function suggestReceiptMeta(?string $ocrText, ?float $lat, ?float $lng, ?int $jo
         if (!empty($vendorMatch['default_gbp_category'])) {
             $result['gbp_category']  = $vendorMatch['default_gbp_category'];
             $result['gbp_confidence'] = $vendorMatch['confidence'];
+        }
+
+        // Patch missing category from OCR context when vendor record has no default —
+        // e.g. City of Vancouver with green waste / landfill text → Disposal/Dump.
+        if (empty($result['accounting_category'])) {
+            $nameLower = strtolower($vendorMatch['name'] ?? '');
+            if (
+                stripos($nameLower, 'landfill') !== false ||
+                stripos($ocrLower, 'green waste') !== false ||
+                stripos($ocrLower, 'yard waste') !== false ||
+                stripos($ocrLower, 'landfill') !== false ||
+                stripos($ocrLower, 'transfer station') !== false
+            ) {
+                $result['accounting_category'] = 'Disposal/Dump';
+                $result['category_confidence'] = 70;
+            } elseif (
+                stripos($ocrLower, 'permit') !== false ||
+                stripos($ocrLower, 'license fee') !== false ||
+                stripos($ocrLower, 'municipal') !== false
+            ) {
+                $result['accounting_category'] = 'Licenses/Permits';
+                $result['category_confidence'] = 65;
+            }
         }
     }
 

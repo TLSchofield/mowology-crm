@@ -11,8 +11,6 @@ struct MainTabView: View {
 
     @EnvironmentObject private var authSession: AuthSession
 
-    private let mwGreen = Color(red: 0.176, green: 0.525, blue: 0.349)
-
     var body: some View {
         TabView {
             ScheduleView(authSession: authSession)
@@ -20,49 +18,23 @@ struct MainTabView: View {
                     Label("Schedule", systemImage: "calendar")
                 }
 
-            // Placeholder — v2 will add time clock
-            comingSoonTab(title: "Time Clock", icon: "clock.fill")
+            TimeClockView(authSession: authSession)
                 .tabItem {
                     Label("Time Clock", systemImage: "clock.fill")
                 }
 
-            // Placeholder — v2 will add photo capture
-            comingSoonTab(title: "Photos", icon: "camera.fill")
+            ReceiptsView(authSession: authSession)
+                .environmentObject(authSession)
                 .tabItem {
-                    Label("Photos", systemImage: "camera.fill")
+                    Label("Receipts", systemImage: "doc.text.image")
                 }
 
-            // Account / sign out
             accountTab
                 .tabItem {
                     Label("Account", systemImage: "person.fill")
                 }
         }
-        .tint(mwGreen)
-    }
-
-    // MARK: - Coming Soon Placeholder
-
-    private func comingSoonTab(title: String, icon: String) -> some View {
-        NavigationStack {
-            VStack(spacing: 16) {
-                Image(systemName: icon)
-                    .font(.system(size: 48))
-                    .foregroundStyle(Color(.systemGray3))
-
-                Text(title)
-                    .font(.title2.bold())
-                    .foregroundStyle(.primary)
-
-                Text("Coming soon in v2")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(.systemGroupedBackground))
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
-        }
+        .tint(Color.MW.green)
     }
 
     // MARK: - Account Tab
@@ -75,7 +47,7 @@ struct MainTabView: View {
                         HStack(spacing: 14) {
                             Image(systemName: "person.circle.fill")
                                 .font(.system(size: 44))
-                                .foregroundStyle(mwGreen)
+                                .foregroundStyle(Color.MW.green)
 
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(user.name)

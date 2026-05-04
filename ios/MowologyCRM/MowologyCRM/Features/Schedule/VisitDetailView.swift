@@ -13,8 +13,6 @@ struct VisitDetailView: View {
     let stop: Stop
     let isAdmin: Bool
 
-    private let mwGreen = Color(red: 0.176, green: 0.525, blue: 0.349)
-
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
@@ -103,7 +101,7 @@ struct VisitDetailView: View {
                 Annotation(stop.propertyAddress, coordinate: coordinate) {
                     Image(systemName: "mappin.circle.fill")
                         .font(.title)
-                        .foregroundStyle(mwGreen)
+                        .foregroundStyle(Color.MW.green)
                 }
             }
             .frame(height: 200)
@@ -120,7 +118,7 @@ struct VisitDetailView: View {
                     .padding(.vertical, 6)
                     .background(.ultraThinMaterial)
                     .clipShape(Capsule())
-                    .foregroundStyle(mwGreen)
+                    .foregroundStyle(Color.MW.green)
             }
             .padding(10)
         }
@@ -227,7 +225,7 @@ struct VisitDetailView: View {
                 ForEach(Array(stop.crewNames.enumerated()), id: \.offset) { index, name in
                     HStack {
                         Image(systemName: "person.circle.fill")
-                            .foregroundStyle(mwGreen)
+                            .foregroundStyle(Color.MW.green)
                             .font(.title3)
 
                         Text(name)

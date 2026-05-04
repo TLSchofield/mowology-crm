@@ -82,8 +82,8 @@ struct LoginView: View {
         .background(
             LinearGradient(
                 colors: [
-                    Color(red: 0.176, green: 0.525, blue: 0.349),  // #2D8659
-                    Color(red: 0.102, green: 0.373, blue: 0.290)   // #1A5F4A
+                    Color.MW.green,  // #2D8659
+                    Color.MW.dark    // #1A5F4A
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
@@ -172,8 +172,8 @@ struct LoginView: View {
                 .padding(.vertical, 14)
                 .background(
                     viewModel.isLoading
-                        ? Color(red: 0.176, green: 0.525, blue: 0.349).opacity(0.7)
-                        : Color(red: 0.176, green: 0.525, blue: 0.349)
+                        ? Color.MW.green.opacity(0.7)
+                        : Color.MW.green
                 )
                 .foregroundStyle(.white)
                 .clipShape(RoundedRectangle(cornerRadius: 12))

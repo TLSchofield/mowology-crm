@@ -38,7 +38,7 @@ struct Visit: Codable, Identifiable, Hashable {
     var statusColor: Color {
         switch visitStatus.lowercased() {
         case "completed":           return .green
-        case "in_progress":         return Color(red: 0.17, green: 0.53, blue: 0.35)
+        case "in_progress":         return Color.MW.green
         case "scheduled":           return .blue
         case "cancelled":           return .red
         case "skipped":             return .orange
