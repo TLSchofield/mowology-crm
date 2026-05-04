@@ -88,7 +88,8 @@ struct ScheduleView: View {
                 VisitDetailView(
                     stop:        stop,
                     isAdmin:     authSession.user?.isAdmin ?? false,
-                    authSession: authSession
+                    authSession: authSession,
+                    totalStops:  viewModel.stops.count
                 )
             }
             .navigationBarTitleDisplayMode(.inline)
