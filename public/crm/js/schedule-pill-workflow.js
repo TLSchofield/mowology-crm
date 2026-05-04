@@ -8,9 +8,52 @@
  * Integrates with:
  *   POST /crm/api/job-timer.php   — start/stop/pause per-visit timers
  *   POST /crm/api/media-upload.php — photo upload (context_type=job_visit)
+ *   POST /crm/api/pow-actions.php — end_visit (direct complete without timer)
  *
  * Depends on MW_SCHEDULE_STATE global set by schedule.php:
  *   { csrf, userId, activeTimer: { visit_id, start_time, elapsed_seconds } | null }
+ *
+ * ─── PRODUCTION-SAFETY GUIDE ────────────────────────────────────────────────
+ *
+ * ALL fetch() calls in this file MUST follow the hardened pattern:
+ *   .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+ *   .then(data => { if (data.success) { /* state mutations only here *\/ } else { showToast(...) } })
+ *   .catch(err => { console.error('[tag]', err); showToast(...); /* restore button state *\/ })
+ *
+ * Breaking any of these rules causes silent timer or visit state corruption in the
+ * field — a crew member's timer stays "running" on screen after a server failure with
+ * no feedback, or a job gets marked "complete" when the server rejected it.
+ *
+ * ─── TIMER STATE MACHINE ────────────────────────────────────────────────────
+ *
+ * visits[visitId] is the single source of truth for client-side state.
+ * NEVER mutate visits[visitId].status or call updatePillVisual() / stopPillTimer()
+ * outside of a confirmed server success (data.success === true).
+ *
+ * ─── PHOTO QUEUE ────────────────────────────────────────────────────────────
+ *
+ * Photos are written to IndexedDB (mw_photo_queue_v1) BEFORE the upload attempt.
+ * On success: the entry is marked 'done'. On network failure: entry stays 'pending'
+ * for processPhotoQueue() to drain on reconnect.
+ *
+ * NEVER call saveToPhotoQueue() inside a .catch() if preQueuedId is already set —
+ * that creates a duplicate entry which results in double-upload (wasted bandwidth,
+ * confusing duplicate thumbnails in the client portal).
+ *
+ * ─── IDEMPOTENCY ────────────────────────────────────────────────────────────
+ *
+ * Every timer start/stop call embeds an idempotency_key (UUID) in the JSON body.
+ * The PHP guardIdempotency() function in TimeclockFunctions.php deduplicates via
+ * INSERT IGNORE. Do NOT remove or skip generateIdempKey() — without it, a fast
+ * offline-queue replay can create two active timer entries for the same visit.
+ *
+ * ─── iOS/CAMERA CRITICAL PATHS ──────────────────────────────────────────────
+ *
+ * input.click() in triggerCamera() MUST be called synchronously in the same JS
+ * call stack as the originating user gesture. ANY async gap (setTimeout, Promise
+ * await, IDB callback) before input.click() silently breaks the file picker on
+ * iOS Safari and Capacitor WebView. The saveToPhotoQueue() + doUploadPhoto() chain
+ * runs AFTER input.click() fires (inside the 'change' event handler) — this is safe.
  *
  * @package Mowology CRM
  */
