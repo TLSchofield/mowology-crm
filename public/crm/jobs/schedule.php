@@ -3189,8 +3189,8 @@ var MW_ROUTE_STOPS = <?php
 </script>
 <script src="../js/navigation-launcher.js?v=20260225c"></script>
 <script src="../js/route-engine.js?v=20260219a"></script>
-<script src="../js/schedule-route-map.js?v=20260226b"></script>
 <script src="../js/mw-api.js?v=20260503a"></script>
+<script src="../js/schedule-route-map.js?v=20260503a"></script>
 <script src="../js/schedule-pill-workflow.js?v=20260503a"></script>
 <script src="../js/schedule-drag-drop.js"></script>
 <?php if ($view === 'day'): ?>

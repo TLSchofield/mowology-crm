@@ -305,27 +305,7 @@
       new_route_order: newRouteOrder
     };
 
-    fetch('/crm/api/reschedule-stop.php', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    })
-      .then(function (response) {
-        if (!response.ok) {
-          return response.json()
-            .then(function (data) {
-              throw new Error(data.error || 'Server error (' + response.status + ')');
-            })
-            .catch(function (parseErr) {
-              // If the response body isn't valid JSON, use a generic message
-              if (parseErr.message && parseErr.message.indexOf('Server error') === 0) {
-                throw parseErr;
-              }
-              throw new Error('Server error (' + response.status + ')');
-            });
-        }
-        return response.json();
-      })
+    MwApi.post('/crm/api/reschedule-stop.php', payload)
       .then(function (data) {
         // ── Capacity over-limit: show confirm toast, wait for user ──────
         if (data && data.warning) {
@@ -471,17 +451,12 @@
       card.style.opacity = '0.5';
       showFeedback('Moving stop...', 'loading');
 
-      fetch('/crm/api/reschedule-stop.php', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          stop_id: stopId,
-          new_date: newDate,
-          new_route_order: newRouteOrder,
-          force: 1
-        })
+      MwApi.post('/crm/api/reschedule-stop.php', {
+        stop_id: stopId,
+        new_date: newDate,
+        new_route_order: newRouteOrder,
+        force: 1
       })
-        .then(function (r) { return r.json(); })
         .then(function (data) {
           card.style.opacity = '1';
           if (data && data.success) {
