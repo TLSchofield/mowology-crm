@@ -169,7 +169,12 @@ final class APIClient: ObservableObject {
         }
 
         do { return try decoder.decode(ReceiptIntakeResponse.self, from: data) }
-        catch { throw APIError.decodingError(error) }
+        catch {
+            // DEBUG: surface raw server response so we can diagnose decode failures
+            let raw = String(data: data.prefix(600), encoding: .utf8) ?? "non-utf8 \(data.count)b"
+            print("\u{1F4F8} UPLOAD DECODE FAIL — raw: \(raw) — error: \(error)")
+            throw APIError.serverError("Server response: \(raw)")
+        }
     }
 
     // MARK: - Private Helpers
