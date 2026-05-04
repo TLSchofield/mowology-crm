@@ -151,6 +151,7 @@ $actionAliases = [
     'schedule' => [
         'day'                => 'day',
         'week'               => 'week',
+        'clock'              => 'clock',   // Mobile time-clock (JWT) — GET status / POST clock_in|clock_out
     ],
 ];
 

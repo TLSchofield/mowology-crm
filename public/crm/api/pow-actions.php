@@ -38,11 +38,21 @@ try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
     require_once CRM_INCLUDES . '/functions.php';
     require_once APP_ROOT . '/Services/Pow/PowPdfGenerator.php';
+    require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
     // MapSnapshotService is required inside generate_pdf action branch
 
-    requireLogin();
-    $user = getCurrentUser();
-    $db   = getDB();
+    // Dual auth: JWT Bearer for iOS native app, session cookie for web browser.
+    // JWT callers skip CSRF (the token itself is the auth mechanism).
+    $jwtPayload = getJwtUser();
+    $isJwtAuth  = false;
+    if ($jwtPayload !== null) {
+        $user      = ['id' => $jwtPayload['id'], 'name' => $jwtPayload['name'], 'role' => $jwtPayload['role']];
+        $isJwtAuth = true;
+    } else {
+        requireLogin();
+        $user = getCurrentUser();
+    }
+    $db = getDB();
 
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
         http_response_code(405);
@@ -58,12 +68,15 @@ try {
         $input = $_POST;
     }
 
-    // CSRF verification
-    $token = $input['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
-    if (!verifyCSRFToken($token)) {
-        http_response_code(403);
-        echo json_encode(['error' => 'Invalid CSRF token']);
-        exit;
+    // CSRF verification — skipped for JWT callers (Bearer token is the auth mechanism).
+    // Session-based web callers must include csrf_token in JSON body or X-CSRF-Token header.
+    if (!$isJwtAuth) {
+        $token = $input['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
+        if (!verifyCSRFToken($token)) {
+            http_response_code(403);
+            echo json_encode(['error' => 'Invalid CSRF token']);
+            exit;
+        }
     }
 
     $action  = $input['action'] ?? '';
@@ -81,7 +94,10 @@ try {
         exit;
     }
 
-    $isAdmin = ($user['role'] ?? '') === 'admin' || userHasPermission('jobs.edit');
+    // userHasPermission() reads $_SESSION — only callable for session-auth callers.
+    $isAdmin = ($user['role'] ?? '') === 'admin'
+        || ($user['role'] ?? '') === 'manager'
+        || (!$isJwtAuth && userHasPermission('jobs.edit'));
     $isCrew  = (int)($visit['assigned_crew_id'] ?? 0) === (int)$user['id'];
 
     if (!$isAdmin && !$isCrew) {

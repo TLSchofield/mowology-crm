@@ -15,6 +15,7 @@ struct VisitDetailView: View {
     let stop: Stop
     let isAdmin: Bool
 
+    @EnvironmentObject private var authSession: AuthSession
     @State private var showContactSave = false
     @State private var contactSaveToast: String?
 
@@ -245,6 +246,26 @@ struct VisitDetailView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+            }
+
+            // "Start Job" / "Continue Job" — only for actionable visit states
+            let status = visit.visitStatus.lowercased()
+            if status == "scheduled" || status == "in_progress" {
+                NavigationLink {
+                    VisitWorkView(stop: stop, visit: visit, authSession: authSession)
+                } label: {
+                    Label(
+                        status == "in_progress" ? "Continue Job" : "Start Job",
+                        systemImage: status == "in_progress" ? "timer" : "play.fill"
+                    )
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(status == "in_progress" ? Color.MW.green.opacity(0.15) : Color.MW.green)
+                    .foregroundStyle(status == "in_progress" ? Color.MW.green : .white)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+                .padding(.top, 4)
             }
         }
         .padding(14)

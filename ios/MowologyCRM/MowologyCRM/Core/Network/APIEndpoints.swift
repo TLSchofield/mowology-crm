@@ -53,6 +53,12 @@ enum APIEndpoint {
     /// POST /api/auth/device-token — register APNs device token for push notifications.
     case deviceTokenRegister
 
+    /// POST /crm/api/pow-actions.php — PoW visit state transitions (start, end, notes, GPS, etc.)
+    case powActions
+
+    /// POST /crm/api/pow-gps-sync.php — batch GPS breadcrumb upload for an active visit.
+    case powGpsSync
+
     // MARK: - URL
 
     /// Builds the full URL for the endpoint. Returns `nil` only if the base
@@ -107,6 +113,12 @@ enum APIEndpoint {
 
         case .deviceTokenRegister:
             return URL(string: "\(baseURLString)/auth/device-token")
+
+        case .powActions:
+            return URL(string: "https://mowology.ca/crm/api/pow-actions.php")
+
+        case .powGpsSync:
+            return URL(string: "https://mowology.ca/crm/api/pow-gps-sync.php")
         }
     }
 
@@ -127,7 +139,9 @@ enum APIEndpoint {
              .expenseSave,
              .expenseList,
              .receiptImage,
-             .deviceTokenRegister: return true
+             .deviceTokenRegister,
+             .powActions,
+             .powGpsSync: return true
         }
     }
 
@@ -148,7 +162,9 @@ enum APIEndpoint {
              .scheduleClock,
              .receiptUpload,
              .expenseSave,
-             .deviceTokenRegister: return "POST"
+             .deviceTokenRegister,
+             .powActions,
+             .powGpsSync: return "POST"
 
         case .receiptImage:        return "GET"
         }

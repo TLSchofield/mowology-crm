@@ -34,10 +34,28 @@ final class TimeClockViewModel: ObservableObject {
     // MARK: - Init
 
     private let authSession: AuthSession
+    private var arrivalObserver: NSObjectProtocol?
 
     init(authSession: AuthSession) {
         self.authSession = authSession
         self.apiClient   = APIClient(authSession: authSession)
+        // Wire geofence auto-clock-in: AppDelegate posts mwArrivalClockIn when the
+        // crew member taps "Clock In" on the arrival notification action.
+        // Without this observer the notification action silently does nothing.
+        arrivalObserver = NotificationCenter.default.addObserver(
+            forName: .mwArrivalClockIn,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            Task { await self.clockIn() }
+        }
+    }
+
+    deinit {
+        if let ob = arrivalObserver {
+            NotificationCenter.default.removeObserver(ob)
+        }
     }
 
     // MARK: - Load
