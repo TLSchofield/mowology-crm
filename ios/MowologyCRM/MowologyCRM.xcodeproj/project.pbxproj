@@ -3,11 +3,10 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 54;
+	objectVersion = 56;
 	objects = {
 
 /* Begin PBXBuildFile section */
-		AA2D3E4F5A6B7C8D9E0F1A2B /* DevErrorBus.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB2D3E4F5A6B7C8D9E0F1A2B /* DevErrorBus.swift */; };
 		040D77CC7FC7DDF02E82AD32 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73D67877BC393CECB2E02474 /* KeychainStore.swift */; };
 		06A537ABBFB8D5873812BDD2 /* StopCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F73A09E1281950C78A2D0821 /* StopCardView.swift */; };
 		14EB12BAF8F5CB77D7A4DF95 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44859802708EFA50B0DE7353 /* RootView.swift */; };
@@ -24,123 +23,116 @@
 		91FBDAEEE518FB75A1B8618F /* ScheduleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6974DEA9D3487E5FED73FB01 /* ScheduleView.swift */; };
 		97A54DA2AA9F9A04CA89CD15 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BC0B66BE87B94B74DD29C05 /* LoginView.swift */; };
 		98CACC8E6F7BCCE057B7ECE3 /* Stop.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84917CCF5BF871EC2B745DC4 /* Stop.swift */; };
+		9E258FAB0FCE4FA8A9137063 /* VisionOCRService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61D86DACA5EF4EC99CB9E14C /* VisionOCRService.swift */; };
+		A1B2C3D4E5F6A7B8C9D0E1F2 /* MWTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1C2D3E4F5A6B7C8D9E0F1A2 /* MWTheme.swift */; };
+		A2B3C4D5E6F7A8B9C0D1E2F3 /* ReceiptIntakeResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2C3D4E5F6A7B8C9D0E1F2A3 /* ReceiptIntakeResponse.swift */; };
+		A3B4C5D6E7F8A9B0C1D2E3F4 /* ReceiptQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3C4D5E6F7A8B9C0D1E2F3A4 /* ReceiptQueue.swift */; };
+		A4B5C6D7E8F9A0B1C2D3E4F5 /* ReceiptsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4C5D6E7F8A9B0C1D2E3F4A5 /* ReceiptsView.swift */; };
+		A5B6C7D8E9F0A1B2C3D4E5F6 /* TimeClockViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5C6D7E8F9A0B1C2D3E4F5A6 /* TimeClockViewModel.swift */; };
+		AA2D3E4F5A6B7C8D9E0F1A2B /* DevErrorBus.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB2D3E4F5A6B7C8D9E0F1A2B /* DevErrorBus.swift */; };
 		BC6EBC60EA41994E7ACED719 /* ScheduleViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEA3E082EB582E2D8825C262 /* ScheduleViewModel.swift */; };
+		C1D2E3F4A5B6C7D8E9F0A1B2 /* GPSTrackingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1E2F3A4B5C6D7E8F9A0B1C2 /* GPSTrackingService.swift */; };
+		C2D3E4F5A6B7C8D9E0F1A2B3 /* TimeClockModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2E3F4A5B6C7D8E9F0A1B2C3 /* TimeClockModels.swift */; };
+		C3D4E5F6A7B8C9D0E1F2A3B4 /* ReceiptCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3E4F5A6B7C8D9E0F1A2B3C4 /* ReceiptCaptureView.swift */; };
+		C4D5E6F7A8B9C0D1E2F3A4B5 /* ReceiptsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4E5F6A7B8C9D0E1F2A3B4C5 /* ReceiptsViewModel.swift */; };
+		C5D6E7F8A9B0C1D2E3F4A5B6 /* ErrorBannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5E6F7A8B9C0D1E2F3A4B5C6 /* ErrorBannerView.swift */; };
 		CA4E4AC42424C3DDC72267B8 /* LoginViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82CAF080C57ADDAE06034F25 /* LoginViewModel.swift */; };
+		E1F2A3B4C5D6E7F8A9B0C1D2 /* Expense.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A2B3C4D5E6F7A8B9C0D1E2 /* Expense.swift */; };
+		E2F3A4B5C6D7E8F9A0B1C2D3 /* PingQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A3B4C5D6E7F8A9B0C1D2E3 /* PingQueue.swift */; };
+		E3F4A5B6C7D8E9F0A1B2C3D4 /* ReceiptReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A4B5C6D7E8F9A0B1C2D3E4 /* ReceiptReviewView.swift */; };
+		E4F5A6B7C8D9E0F1A2B3C4D5 /* TimeClockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4A5B6C7D8E9F0A1B2C3D4E5 /* TimeClockView.swift */; };
+		E5F6A7B8C9D0E1F2A3B4C5D6 /* EmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5A6B7C8D9E0F1A2B3C4D5E6 /* EmptyStateView.swift */; };
 		E9B866846859D619AEF25219 /* Visit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46E2EA872345FA9825A6DF2E /* Visit.swift */; };
 		F6DE13FCED1F010D001CEC2D /* User.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9C49661C41333A49EE1D301 /* User.swift */; };
-		A1B2C3D4E5F6A7B8C9D0E1F2 /* MWTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1C2D3E4F5A6B7C8D9E0F1A2 /* MWTheme.swift */; };
-		C1D2E3F4A5B6C7D8E9F0A1B2 /* GPSTrackingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1E2F3A4B5C6D7E8F9A0B1C2 /* GPSTrackingService.swift */; };
-		E1F2A3B4C5D6E7F8A9B0C1D2 /* Expense.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A2B3C4D5E6F7A8B9C0D1E2 /* Expense.swift */; };
-		A2B3C4D5E6F7A8B9C0D1E2F3 /* ReceiptIntakeResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2C3D4E5F6A7B8C9D0E1F2A3 /* ReceiptIntakeResponse.swift */; };
-		C2D3E4F5A6B7C8D9E0F1A2B3 /* TimeClockModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2E3F4A5B6C7D8E9F0A1B2C3 /* TimeClockModels.swift */; };
-		E2F3A4B5C6D7E8F9A0B1C2D3 /* PingQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A3B4C5D6E7F8A9B0C1D2E3 /* PingQueue.swift */; };
-		A3B4C5D6E7F8A9B0C1D2E3F4 /* ReceiptQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3C4D5E6F7A8B9C0D1E2F3A4 /* ReceiptQueue.swift */; };
-		C3D4E5F6A7B8C9D0E1F2A3B4 /* ReceiptCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3E4F5A6B7C8D9E0F1A2B3C4 /* ReceiptCaptureView.swift */; };
-		E3F4A5B6C7D8E9F0A1B2C3D4 /* ReceiptReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A4B5C6D7E8F9A0B1C2D3E4 /* ReceiptReviewView.swift */; };
-		A4B5C6D7E8F9A0B1C2D3E4F5 /* ReceiptsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4C5D6E7F8A9B0C1D2E3F4A5 /* ReceiptsView.swift */; };
-		C4D5E6F7A8B9C0D1E2F3A4B5 /* ReceiptsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4E5F6A7B8C9D0E1F2A3B4C5 /* ReceiptsViewModel.swift */; };
-		E4F5A6B7C8D9E0F1A2B3C4D5 /* TimeClockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4A5B6C7D8E9F0A1B2C3D4E5 /* TimeClockView.swift */; };
-		A5B6C7D8E9F0A1B2C3D4E5F6 /* TimeClockViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5C6D7E8F9A0B1C2D3E4F5A6 /* TimeClockViewModel.swift */; };
-		C5D6E7F8A9B0C1D2E3F4A5B6 /* ErrorBannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5E6F7A8B9C0D1E2F3A4B5C6 /* ErrorBannerView.swift */; };
-		E5F6A7B8C9D0E1F2A3B4C5D6 /* EmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5A6B7C8D9E0F1A2B3C4D5E6 /* EmptyStateView.swift */; };
-		9E258FAB0FCE4FA8A9137063 /* VisionOCRService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61D86DACA5EF4EC99CB9E14C /* VisionOCRService.swift */; };
 		T2A3B4C5D6E7F8A9B0C1D2E3 /* VisionOCRServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T1A2B3C4D5E6F7A8B9C0D1E2 /* VisionOCRServiceTests.swift */; };
-		77A2D44F66905575009C251A /* LocationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4547C29B2A502F7AE5B446E /* LocationManager.swift */; };
-		A206006704185F834EB69362 /* RouteStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE29BD8142463FC512FD1208 /* RouteStore.swift */; };
-		E2759D7ACA64941F502089AD /* ArrivalMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37E412C65849505E8688DCD3 /* ArrivalMonitor.swift */; };
-		62CFB85336A0959AC7813165 /* VisitDetailViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 868710A6EF45802F24C19AEA /* VisitDetailViewModel.swift */; };
-		FEE6F4240C835E02425E19BD /* JobPhotoQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020780B1CE91FCD6C5F342B3 /* JobPhotoQueue.swift */; };
-		1872A866C337510DEDB33434 /* JobPhotoSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A1B218A949D694791F7CC50 /* JobPhotoSection.swift */; };
-				AE1AF86458AB9A5AF544B539 /* JobsQuotesInvoicesModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23FD0CE4AE1671A750AF3E16 /* JobsQuotesInvoicesModels.swift */; };
-		6A567EFFD9910F4548FAE63D /* JobsListViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85758A4EC9AD151D51C79AC5 /* JobsListViewModel.swift */; };
-		9D8769DD00DDEAF3E56D1C2E /* JobsListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C55F15FFA1FF6284895E3895 /* JobsListView.swift */; };
-		8289274A751E5F5F51977D40 /* QuotesViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25C65D44A564B9D1F3913F66 /* QuotesViewModel.swift */; };
-		3D2BB83DBFE4061D55B7D9A4 /* QuotesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DD35F027AA028DAB116C92A /* QuotesView.swift */; };
-		5BAE4AA72F9C8FA34E29FF97 /* InvoicesViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBFD5988D30BEC5153325102 /* InvoicesViewModel.swift */; };
-		658DF7B600099EE97BE2B7D7 /* InvoicesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF8B37CB99942ABF04099B57 /* InvoicesView.swift */; };
-		FAB0F6DE2A26404C98014B36 /* VisitWorkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C133E57A28A6AF23D6B4CAF /* VisitWorkView.swift */; };
-		BFF6D6BAB1CC99A82D505E4E /* VisitWorkViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB2823D3497805DBBA0F6047 /* VisitWorkViewModel.swift */; };
-		214E494E3D1E1C4BD917305A /* ActivityMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E71D5EA7EE23F42751ED95F /* ActivityMonitor.swift */; };
-		82CBFFA501D2E549A9AEFAC4 /* JobActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCEB9B209AB3B7603BD9A6F4 /* JobActivityAttributes.swift */; };
-		9D61F3EF70C3756764064616 /* CalendarSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D6FBBBC8A8782A7FE767C2B /* CalendarSyncService.swift */; };
-		051C7D44A1A436394997983C /* LocalOCR.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10B4DAEACB7DA7EA31C4B251 /* LocalOCR.swift */; };
-		9F3DA5FD077BA73C4F89DBC3 /* DeviceTokenService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70B6262F1652C439EF4C0F33 /* DeviceTokenService.swift */; };
-		017CC6F86454321D6D579F43 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 783EC7CAE7D0D0D827FDEDBF /* AppDelegate.swift */; };
-		A773EE61922B4B72493D1C1F /* LiveReceiptScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BCAA6456C9F805D11DD98B4 /* LiveReceiptScanner.swift */; };
-		317743F5DF244CC62FE421FB /* DayRouteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B48592BAC401D1AED784578 /* DayRouteView.swift */; };
 		5AAFF6AF9E68378A400F6657 /* ClockInIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90C667FF46EC2B266DE11963 /* ClockInIntent.swift */; };
 		73F6FC84E47A1D864C3B18E5 /* ShowScheduleIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B5EFFFBCFAAD856E43264A9 /* ShowScheduleIntent.swift */; };
 		1B0ED1F5E664CA7DB3018231 /* ClockOutIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE94A123C42B905BE6904B4F /* ClockOutIntent.swift */; };
+		051C7D44A1A436394997983C /* LocalOCR.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10B4DAEACB7DA7EA31C4B251 /* LocalOCR.swift */; };
+		9F3DA5FD077BA73C4F89DBC3 /* DeviceTokenService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70B6262F1652C439EF4C0F33 /* DeviceTokenService.swift */; };
+		9D8769DD00DDEAF3E56D1C2E /* JobsListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C55F15FFA1FF6284895E3895 /* JobsListView.swift */; };
+		658DF7B600099EE97BE2B7D7 /* InvoicesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF8B37CB99942ABF04099B57 /* InvoicesView.swift */; };
+		3D2BB83DBFE4061D55B7D9A4 /* QuotesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DD35F027AA028DAB116C92A /* QuotesView.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		T9B0C1D2E3F4A5B6C7D8E9F0 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A5901657DFF6ED7CF58BBE11 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B894F8507D292A0047B6D7C1;
+			remoteInfo = MowologyCRM;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
-		BB2D3E4F5A6B7C8D9E0F1A2B /* DevErrorBus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevErrorBus.swift; sourceTree = "<group>"; };
+		020780B1CE91FCD6C5F342B3 /* JobPhotoQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobPhotoQueue.swift; sourceTree = "<group>"; };
 		11B9496B9E804E3CD0342C49 /* AuthSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthSession.swift; sourceTree = "<group>"; };
+		1F2E3D4C5B6A7980A1B2C3D4 /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
+		23FD0CE4AE1671A750AF3E16 /* JobsQuotesInvoicesModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobsQuotesInvoicesModels.swift; sourceTree = "<group>"; };
+		25C65D44A564B9D1F3913F66 /* QuotesViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuotesViewModel.swift; sourceTree = "<group>"; };
+		2BCAA6456C9F805D11DD98B4 /* LiveReceiptScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveReceiptScanner.swift; sourceTree = "<group>"; };
 		2E7C92CC6796BADE174216F5 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
+		37E412C65849505E8688DCD3 /* ArrivalMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArrivalMonitor.swift; sourceTree = "<group>"; };
+		3A1B218A949D694791F7CC50 /* JobPhotoSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobPhotoSection.swift; sourceTree = "<group>"; };
 		44859802708EFA50B0DE7353 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		46E2EA872345FA9825A6DF2E /* Visit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Visit.swift; sourceTree = "<group>"; };
+		61D86DACA5EF4EC99CB9E14C /* VisionOCRService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisionOCRService.swift; sourceTree = "<group>"; };
 		68D4D6F730154942832B001A /* WeekStripView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeekStripView.swift; sourceTree = "<group>"; };
 		68F3A974B3D602E24E8A79E8 /* APIEndpoints.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIEndpoints.swift; sourceTree = "<group>"; };
 		6974DEA9D3487E5FED73FB01 /* ScheduleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleView.swift; sourceTree = "<group>"; };
+		6B48592BAC401D1AED784578 /* DayRouteView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayRouteView.swift; sourceTree = "<group>"; };
 		6BC0B66BE87B94B74DD29C05 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
+		6C133E57A28A6AF23D6B4CAF /* VisitWorkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitWorkView.swift; sourceTree = "<group>"; };
 		73D67877BC393CECB2E02474 /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
+		783EC7CAE7D0D0D827FDEDBF /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		7D6FBBBC8A8782A7FE767C2B /* CalendarSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarSyncService.swift; sourceTree = "<group>"; };
 		816872EBC5C2A53815D7E212 /* ScheduleDay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleDay.swift; sourceTree = "<group>"; };
-		1F2E3D4C5B6A7980A1B2C3D4 /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
 		82CAF080C57ADDAE06034F25 /* LoginViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginViewModel.swift; sourceTree = "<group>"; };
 		84917CCF5BF871EC2B745DC4 /* Stop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Stop.swift; sourceTree = "<group>"; };
+		85758A4EC9AD151D51C79AC5 /* JobsListViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobsListViewModel.swift; sourceTree = "<group>"; };
+		868710A6EF45802F24C19AEA /* VisitDetailViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitDetailViewModel.swift; sourceTree = "<group>"; };
 		9DD091BEACD0F5E731BE8B0E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		9E71D5EA7EE23F42751ED95F /* ActivityMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityMonitor.swift; sourceTree = "<group>"; };
+		A4547C29B2A502F7AE5B446E /* LocationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationManager.swift; sourceTree = "<group>"; };
 		A756819D930BDD10EFFEC4FA /* MowologyCRMApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MowologyCRMApp.swift; sourceTree = "<group>"; };
-		AC8522EE94548B7FD4F1982E /* MowologyCRM.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MowologyCRM.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AB2823D3497805DBBA0F6047 /* VisitWorkViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitWorkViewModel.swift; sourceTree = "<group>"; };
+		AC8522EE94548B7FD4F1982E /* MowologyCRM.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MowologyCRM.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AC8674D3A1F9F01248ECB134 /* VisitDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitDetailView.swift; sourceTree = "<group>"; };
+		B1C2D3E4F5A6B7C8D9E0F1A2 /* MWTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MWTheme.swift; sourceTree = "<group>"; };
+		B2C3D4E5F6A7B8C9D0E1F2A3 /* ReceiptIntakeResponse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptIntakeResponse.swift; sourceTree = "<group>"; };
+		B3C4D5E6F7A8B9C0D1E2F3A4 /* ReceiptQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptQueue.swift; sourceTree = "<group>"; };
+		B4C5D6E7F8A9B0C1D2E3F4A5 /* ReceiptsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptsView.swift; sourceTree = "<group>"; };
+		B5C6D7E8F9A0B1C2D3E4F5A6 /* TimeClockViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeClockViewModel.swift; sourceTree = "<group>"; };
+		BB2D3E4F5A6B7C8D9E0F1A2B /* DevErrorBus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevErrorBus.swift; sourceTree = "<group>"; };
 		C0E0EE6C511F5B6548BA7FB0 /* DayListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayListView.swift; sourceTree = "<group>"; };
 		C9C49661C41333A49EE1D301 /* User.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = User.swift; sourceTree = "<group>"; };
+		D1E2F3A4B5C6D7E8F9A0B1C2 /* GPSTrackingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GPSTrackingService.swift; sourceTree = "<group>"; };
+		D2E3F4A5B6C7D8E9F0A1B2C3 /* TimeClockModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeClockModels.swift; sourceTree = "<group>"; };
+		D3E4F5A6B7C8D9E0F1A2B3C4 /* ReceiptCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptCaptureView.swift; sourceTree = "<group>"; };
+		D4E5F6A7B8C9D0E1F2A3B4C5 /* ReceiptsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptsViewModel.swift; sourceTree = "<group>"; };
+		D5E6F7A8B9C0D1E2F3A4B5C6 /* ErrorBannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorBannerView.swift; sourceTree = "<group>"; };
+		DCEB9B209AB3B7603BD9A6F4 /* JobActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobActivityAttributes.swift; sourceTree = "<group>"; };
 		DEA3E082EB582E2D8825C262 /* ScheduleViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleViewModel.swift; sourceTree = "<group>"; };
 		E2318C0D8CC141570D7D494B /* APIError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIError.swift; sourceTree = "<group>"; };
-		F73A09E1281950C78A2D0821 /* StopCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StopCardView.swift; sourceTree = "<group>"; };
-		B1C2D3E4F5A6B7C8D9E0F1A2 /* MWTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MWTheme.swift; sourceTree = "<group>"; };
-		D1E2F3A4B5C6D7E8F9A0B1C2 /* GPSTrackingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GPSTrackingService.swift; sourceTree = "<group>"; };
+		EBFD5988D30BEC5153325102 /* InvoicesViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InvoicesViewModel.swift; sourceTree = "<group>"; };
+		EE29BD8142463FC512FD1208 /* RouteStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteStore.swift; sourceTree = "<group>"; };
 		F1A2B3C4D5E6F7A8B9C0D1E2 /* Expense.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Expense.swift; sourceTree = "<group>"; };
-		B2C3D4E5F6A7B8C9D0E1F2A3 /* ReceiptIntakeResponse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptIntakeResponse.swift; sourceTree = "<group>"; };
-		D2E3F4A5B6C7D8E9F0A1B2C3 /* TimeClockModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeClockModels.swift; sourceTree = "<group>"; };
 		F2A3B4C5D6E7F8A9B0C1D2E3 /* PingQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PingQueue.swift; sourceTree = "<group>"; };
-		B3C4D5E6F7A8B9C0D1E2F3A4 /* ReceiptQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptQueue.swift; sourceTree = "<group>"; };
-		D3E4F5A6B7C8D9E0F1A2B3C4 /* ReceiptCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptCaptureView.swift; sourceTree = "<group>"; };
 		F3A4B5C6D7E8F9A0B1C2D3E4 /* ReceiptReviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptReviewView.swift; sourceTree = "<group>"; };
-		B4C5D6E7F8A9B0C1D2E3F4A5 /* ReceiptsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptsView.swift; sourceTree = "<group>"; };
-		D4E5F6A7B8C9D0E1F2A3B4C5 /* ReceiptsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptsViewModel.swift; sourceTree = "<group>"; };
 		F4A5B6C7D8E9F0A1B2C3D4E5 /* TimeClockView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeClockView.swift; sourceTree = "<group>"; };
-		B5C6D7E8F9A0B1C2D3E4F5A6 /* TimeClockViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeClockViewModel.swift; sourceTree = "<group>"; };
-		D5E6F7A8B9C0D1E2F3A4B5C6 /* ErrorBannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorBannerView.swift; sourceTree = "<group>"; };
 		F5A6B7C8D9E0F1A2B3C4D5E6 /* EmptyStateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmptyStateView.swift; sourceTree = "<group>"; };
-		61D86DACA5EF4EC99CB9E14C /* VisionOCRService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisionOCRService.swift; sourceTree = "<group>"; };
+		F73A09E1281950C78A2D0821 /* StopCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StopCardView.swift; sourceTree = "<group>"; };
 		T1A2B3C4D5E6F7A8B9C0D1E2 /* VisionOCRServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisionOCRServiceTests.swift; sourceTree = "<group>"; };
 		T3B4C5D6E7F8A9B0C1D2E3F4 /* MowologyCRMTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = MowologyCRMTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		A4547C29B2A502F7AE5B446E /* LocationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationManager.swift; sourceTree = "<group>"; };
-		EE29BD8142463FC512FD1208 /* RouteStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteStore.swift; sourceTree = "<group>"; };
-		37E412C65849505E8688DCD3 /* ArrivalMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArrivalMonitor.swift; sourceTree = "<group>"; };
-		868710A6EF45802F24C19AEA /* VisitDetailViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitDetailViewModel.swift; sourceTree = "<group>"; };
-		020780B1CE91FCD6C5F342B3 /* JobPhotoQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobPhotoQueue.swift; sourceTree = "<group>"; };
-		3A1B218A949D694791F7CC50 /* JobPhotoSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobPhotoSection.swift; sourceTree = "<group>"; };
-				23FD0CE4AE1671A750AF3E16 /* JobsQuotesInvoicesModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobsQuotesInvoicesModels.swift; sourceTree = "<group>"; };
-		85758A4EC9AD151D51C79AC5 /* JobsListViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobsListViewModel.swift; sourceTree = "<group>"; };
-		C55F15FFA1FF6284895E3895 /* JobsListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobsListView.swift; sourceTree = "<group>"; };
-		25C65D44A564B9D1F3913F66 /* QuotesViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuotesViewModel.swift; sourceTree = "<group>"; };
-		0DD35F027AA028DAB116C92A /* QuotesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuotesView.swift; sourceTree = "<group>"; };
-		EBFD5988D30BEC5153325102 /* InvoicesViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InvoicesViewModel.swift; sourceTree = "<group>"; };
-		BF8B37CB99942ABF04099B57 /* InvoicesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InvoicesView.swift; sourceTree = "<group>"; };
-		6C133E57A28A6AF23D6B4CAF /* VisitWorkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitWorkView.swift; sourceTree = "<group>"; };
-		AB2823D3497805DBBA0F6047 /* VisitWorkViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitWorkViewModel.swift; sourceTree = "<group>"; };
-		9E71D5EA7EE23F42751ED95F /* ActivityMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityMonitor.swift; sourceTree = "<group>"; };
-		DCEB9B209AB3B7603BD9A6F4 /* JobActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobActivityAttributes.swift; sourceTree = "<group>"; };
-		7D6FBBBC8A8782A7FE767C2B /* CalendarSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarSyncService.swift; sourceTree = "<group>"; };
-		10B4DAEACB7DA7EA31C4B251 /* LocalOCR.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalOCR.swift; sourceTree = "<group>"; };
-		70B6262F1652C439EF4C0F33 /* DeviceTokenService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceTokenService.swift; sourceTree = "<group>"; };
-		783EC7CAE7D0D0D827FDEDBF /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
-		2BCAA6456C9F805D11DD98B4 /* LiveReceiptScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveReceiptScanner.swift; sourceTree = "<group>"; };
-		6B48592BAC401D1AED784578 /* DayRouteView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayRouteView.swift; sourceTree = "<group>"; };
 		90C667FF46EC2B266DE11963 /* ClockInIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClockInIntent.swift; sourceTree = "<group>"; };
 		6B5EFFFBCFAAD856E43264A9 /* ShowScheduleIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowScheduleIntent.swift; sourceTree = "<group>"; };
 		CE94A123C42B905BE6904B4F /* ClockOutIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClockOutIntent.swift; sourceTree = "<group>"; };
+		10B4DAEACB7DA7EA31C4B251 /* LocalOCR.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalOCR.swift; sourceTree = "<group>"; };
+		70B6262F1652C439EF4C0F33 /* DeviceTokenService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceTokenService.swift; sourceTree = "<group>"; };
+		C55F15FFA1FF6284895E3895 /* JobsListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobsListView.swift; sourceTree = "<group>"; };
+		BF8B37CB99942ABF04099B57 /* InvoicesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InvoicesView.swift; sourceTree = "<group>"; };
+		0DD35F027AA028DAB116C92A /* QuotesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuotesView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -153,13 +145,23 @@
 			);
 			sourceTree = "<group>";
 		};
+		1E39133965AFA6B29F5894C9 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				7D6FBBBC8A8782A7FE767C2B /* CalendarSyncService.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
 		3CAC498CFC84EC47A1CECC6B /* Network */ = {
 			isa = PBXGroup;
 			children = (
 				2E7C92CC6796BADE174216F5 /* APIClient.swift */,
 				68F3A974B3D602E24E8A79E8 /* APIEndpoints.swift */,
 				E2318C0D8CC141570D7D494B /* APIError.swift */,
-			);
+							10B4DAEACB7DA7EA31C4B251 /* LocalOCR.swift */,
+				70B6262F1652C439EF4C0F33 /* DeviceTokenService.swift */,
+);
 			path = Network;
 			sourceTree = "<group>";
 		};
@@ -189,17 +191,9 @@
 			children = (
 				AC8522EE94548B7FD4F1982E /* MowologyCRM.app */,
 				T3B4C5D6E7F8A9B0C1D2E3F4 /* MowologyCRMTests.xctest */,
-							783EC7CAE7D0D0D827FDEDBF /* AppDelegate.swift */,
-);
-			name = Products;
-			sourceTree = "<group>";
-		};
-		CC2D3E4F5A6B7C8D9E0F1A2B /* Debug */ = {
-			isa = PBXGroup;
-			children = (
-				BB2D3E4F5A6B7C8D9E0F1A2B /* DevErrorBus.swift */,
+				783EC7CAE7D0D0D827FDEDBF /* AppDelegate.swift */,
 			);
-			path = Debug;
+			name = Products;
 			sourceTree = "<group>";
 		};
 		69C62806CCCCD991CDBCA787 /* Core */ = {
@@ -213,8 +207,8 @@
 				FA9C633C7B7B0D0E5CBAEA59 /* Models */,
 				3CAC498CFC84EC47A1CECC6B /* Network */,
 				C6D7E8F9A0B1C2D3E4F5A6B7 /* Offline */,
-			
-				CE08A78E192F4331B2802475 /* Vision */,);
+				CE08A78E192F4331B2802475 /* Vision */,
+			);
 			path = Core;
 			sourceTree = "<group>";
 		};
@@ -223,8 +217,8 @@
 			children = (
 				11B9496B9E804E3CD0342C49 /* AuthSession.swift */,
 				73D67877BC393CECB2E02474 /* KeychainStore.swift */,
-							1E39133965AFA6B29F5894C9 /* Services */,
-);
+				1E39133965AFA6B29F5894C9 /* Services */,
+			);
 			path = Auth;
 			sourceTree = "<group>";
 		};
@@ -241,17 +235,80 @@
 			path = Schedule;
 			sourceTree = "<group>";
 		};
+		7F692E6C4E65C861CE6C5EE5 /* Invoices */ = {
+			isa = PBXGroup;
+			children = (
+				EBFD5988D30BEC5153325102 /* InvoicesViewModel.swift */,
+			);
+			path = Invoices;
+			sourceTree = "<group>";
+		};
+		A6B7C8D9E0F1A2B3C4D5E6F7 /* Design */ = {
+			isa = PBXGroup;
+			children = (
+				B1C2D3E4F5A6B7C8D9E0F1A2 /* MWTheme.swift */,
+							BF8B37CB99942ABF04099B57 /* InvoicesView.swift */,
+);
+			path = Design;
+			sourceTree = "<group>";
+		};
+		B6C7D8E9F0A1B2C3D4E5F6A7 /* Location */ = {
+			isa = PBXGroup;
+			children = (
+				D1E2F3A4B5C6D7E8F9A0B1C2 /* GPSTrackingService.swift */,
+			);
+			path = Location;
+			sourceTree = "<group>";
+		};
+		C3DDCAD9A79CFAAD968C288A /* Jobs */ = {
+			isa = PBXGroup;
+			children = (
+				85758A4EC9AD151D51C79AC5 /* JobsListViewModel.swift */,
+			);
+			path = Jobs;
+			sourceTree = "<group>";
+		};
+		C6D7E8F9A0B1C2D3E4F5A6B7 /* Offline */ = {
+			isa = PBXGroup;
+			children = (
+				F2A3B4C5D6E7F8A9B0C1D2E3 /* PingQueue.swift */,
+				B3C4D5E6F7A8B9C0D1E2F3A4 /* ReceiptQueue.swift */,
+				A4547C29B2A502F7AE5B446E /* LocationManager.swift */,
+				EE29BD8142463FC512FD1208 /* RouteStore.swift */,
+				37E412C65849505E8688DCD3 /* ArrivalMonitor.swift */,
+				9E71D5EA7EE23F42751ED95F /* ActivityMonitor.swift */,
+							C55F15FFA1FF6284895E3895 /* JobsListView.swift */,
+);
+			path = Offline;
+			sourceTree = "<group>";
+		};
+		CC2D3E4F5A6B7C8D9E0F1A2B /* Debug */ = {
+			isa = PBXGroup;
+			children = (
+				BB2D3E4F5A6B7C8D9E0F1A2B /* DevErrorBus.swift */,
+			);
+			path = Debug;
+			sourceTree = "<group>";
+		};
+		CE08A78E192F4331B2802475 /* Vision */ = {
+			isa = PBXGroup;
+			children = (
+				61D86DACA5EF4EC99CB9E14C /* VisionOCRService.swift */,
+			);
+			path = Vision;
+			sourceTree = "<group>";
+		};
 		CE20BCAEE842327D670D075B /* Auth */ = {
 			isa = PBXGroup;
 			children = (
 				6BC0B66BE87B94B74DD29C05 /* LoginView.swift */,
 				82CAF080C57ADDAE06034F25 /* LoginViewModel.swift */,
-							868710A6EF45802F24C19AEA /* VisitDetailViewModel.swift */,
+				868710A6EF45802F24C19AEA /* VisitDetailViewModel.swift */,
 				3A1B218A949D694791F7CC50 /* JobPhotoSection.swift */,
 				6C133E57A28A6AF23D6B4CAF /* VisitWorkView.swift */,
 				AB2823D3497805DBBA0F6047 /* VisitWorkViewModel.swift */,
 				6B48592BAC401D1AED784578 /* DayRouteView.swift */,
-);
+			);
 			path = Auth;
 			sourceTree = "<group>";
 		};
@@ -266,63 +323,6 @@
 			path = Features;
 			sourceTree = "<group>";
 		};
-		FA9C633C7B7B0D0E5CBAEA59 /* Models */ = {
-			isa = PBXGroup;
-			children = (
-				F1A2B3C4D5E6F7A8B9C0D1E2 /* Expense.swift */,
-				816872EBC5C2A53815D7E212 /* ScheduleDay.swift */,
-				B2C3D4E5F6A7B8C9D0E1F2A3 /* ReceiptIntakeResponse.swift */,
-				D2E3F4A5B6C7D8E9F0A1B2C3 /* TimeClockModels.swift */,
-				84917CCF5BF871EC2B745DC4 /* Stop.swift */,
-				C9C49661C41333A49EE1D301 /* User.swift */,
-				46E2EA872345FA9825A6DF2E /* Visit.swift */,
-							C3DDCAD9A79CFAAD968C288A /* Jobs */,
-				DE99F33555503D7143361A10 /* Quotes */,
-				7F692E6C4E65C861CE6C5EE5 /* Invoices */,
-);
-			path = Models;
-			sourceTree = "<group>";
-		};
-		FB0806EF10DF19FBF92400BE /* Resources */ = {
-			isa = PBXGroup;
-			children = (
-				9DD091BEACD0F5E731BE8B0E /* Info.plist */,
-							23FD0CE4AE1671A750AF3E16 /* JobsQuotesInvoicesModels.swift */,
-				DCEB9B209AB3B7603BD9A6F4 /* JobActivityAttributes.swift */,
-);
-			path = Resources;
-			sourceTree = "<group>";
-		};
-
-		A6B7C8D9E0F1A2B3C4D5E6F7 /* Design */ = {
-			isa = PBXGroup;
-			children = (
-				B1C2D3E4F5A6B7C8D9E0F1A2 /* MWTheme.swift */,
-			);
-			path = Design;
-			sourceTree = "<group>";
-		};
-		B6C7D8E9F0A1B2C3D4E5F6A7 /* Location */ = {
-			isa = PBXGroup;
-			children = (
-				D1E2F3A4B5C6D7E8F9A0B1C2 /* GPSTrackingService.swift */,
-			);
-			path = Location;
-			sourceTree = "<group>";
-		};
-		C6D7E8F9A0B1C2D3E4F5A6B7 /* Offline */ = {
-			isa = PBXGroup;
-			children = (
-				F2A3B4C5D6E7F8A9B0C1D2E3 /* PingQueue.swift */,
-				B3C4D5E6F7A8B9C0D1E2F3A4 /* ReceiptQueue.swift */,
-							A4547C29B2A502F7AE5B446E /* LocationManager.swift */,
-				EE29BD8142463FC512FD1208 /* RouteStore.swift */,
-				37E412C65849505E8688DCD3 /* ArrivalMonitor.swift */,
-				9E71D5EA7EE23F42751ED95F /* ActivityMonitor.swift */,
-);
-			path = Offline;
-			sourceTree = "<group>";
-		};
 		D6E7F8A9B0C1D2E3F4A5B6C7 /* Receipts */ = {
 			isa = PBXGroup;
 			children = (
@@ -330,9 +330,17 @@
 				F3A4B5C6D7E8F9A0B1C2D3E4 /* ReceiptReviewView.swift */,
 				B4C5D6E7F8A9B0C1D2E3F4A5 /* ReceiptsView.swift */,
 				D4E5F6A7B8C9D0E1F2A3B4C5 /* ReceiptsViewModel.swift */,
-							020780B1CE91FCD6C5F342B3 /* JobPhotoQueue.swift */,
-);
+				020780B1CE91FCD6C5F342B3 /* JobPhotoQueue.swift */,
+			);
 			path = Receipts;
+			sourceTree = "<group>";
+		};
+		DE99F33555503D7143361A10 /* Quotes */ = {
+			isa = PBXGroup;
+			children = (
+				25C65D44A564B9D1F3913F66 /* QuotesViewModel.swift */,
+			);
+			path = Quotes;
 			sourceTree = "<group>";
 		};
 		E6F7A8B9C0D1E2F3A4B5C6D7 /* TimeClock */ = {
@@ -340,7 +348,8 @@
 			children = (
 				F4A5B6C7D8E9F0A1B2C3D4E5 /* TimeClockView.swift */,
 				B5C6D7E8F9A0B1C2D3E4F5A6 /* TimeClockViewModel.swift */,
-							2BCAA6456C9F805D11DD98B4 /* LiveReceiptScanner.swift */,
+				2BCAA6456C9F805D11DD98B4 /* LiveReceiptScanner.swift */,
+							0DD35F027AA028DAB116C92A /* QuotesView.swift */,
 );
 			path = TimeClock;
 			sourceTree = "<group>";
@@ -354,12 +363,31 @@
 			path = Components;
 			sourceTree = "<group>";
 		};
-		CE08A78E192F4331B2802475 /* Vision */ = {
+		FA9C633C7B7B0D0E5CBAEA59 /* Models */ = {
 			isa = PBXGroup;
 			children = (
-				61D86DACA5EF4EC99CB9E14C /* VisionOCRService.swift */,
+				F1A2B3C4D5E6F7A8B9C0D1E2 /* Expense.swift */,
+				816872EBC5C2A53815D7E212 /* ScheduleDay.swift */,
+				B2C3D4E5F6A7B8C9D0E1F2A3 /* ReceiptIntakeResponse.swift */,
+				D2E3F4A5B6C7D8E9F0A1B2C3 /* TimeClockModels.swift */,
+				84917CCF5BF871EC2B745DC4 /* Stop.swift */,
+				C9C49661C41333A49EE1D301 /* User.swift */,
+				46E2EA872345FA9825A6DF2E /* Visit.swift */,
+				C3DDCAD9A79CFAAD968C288A /* Jobs */,
+				DE99F33555503D7143361A10 /* Quotes */,
+				7F692E6C4E65C861CE6C5EE5 /* Invoices */,
 			);
-			path = Vision;
+			path = Models;
+			sourceTree = "<group>";
+		};
+		FB0806EF10DF19FBF92400BE /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				9DD091BEACD0F5E731BE8B0E /* Info.plist */,
+				23FD0CE4AE1671A750AF3E16 /* JobsQuotesInvoicesModels.swift */,
+				DCEB9B209AB3B7603BD9A6F4 /* JobActivityAttributes.swift */,
+			);
+			path = Resources;
 			sourceTree = "<group>";
 		};
 		TAG1B2C3D4E5F6A7B8C9D0E1 /* MowologyCRMTests */ = {
@@ -368,38 +396,6 @@
 				T1A2B3C4D5E6F7A8B9C0D1E2 /* VisionOCRServiceTests.swift */,
 			);
 			path = MowologyCRMTests;
-			sourceTree = "<group>";
-		};
-				C3DDCAD9A79CFAAD968C288A /* Jobs */ = {
-			isa = PBXGroup;
-			children = (
-				85758A4EC9AD151D51C79AC5 /* JobsListViewModel.swift */,
-			);
-			path = Jobs;
-			sourceTree = "<group>";
-		};
-		DE99F33555503D7143361A10 /* Quotes */ = {
-			isa = PBXGroup;
-			children = (
-				25C65D44A564B9D1F3913F66 /* QuotesViewModel.swift */,
-			);
-			path = Quotes;
-			sourceTree = "<group>";
-		};
-		7F692E6C4E65C861CE6C5EE5 /* Invoices */ = {
-			isa = PBXGroup;
-			children = (
-				EBFD5988D30BEC5153325102 /* InvoicesViewModel.swift */,
-			);
-			path = Invoices;
-			sourceTree = "<group>";
-		};
-		1E39133965AFA6B29F5894C9 /* Services */ = {
-			isa = PBXGroup;
-			children = (
-				7D6FBBBC8A8782A7FE767C2B /* CalendarSyncService.swift */,
-			);
-			path = Services;
 			sourceTree = "<group>";
 		};
 		E97A75DD2B91C61BF4FF5A12 /* AppIntents */ = {
@@ -411,24 +407,6 @@
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
-
-/* Begin PBXContainerItemProxy section */
-		T9B0C1D2E3F4A5B6C7D8E9F0 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = A5901657DFF6ED7CF58BBE11 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = B894F8507D292A0047B6D7C1;
-			remoteInfo = MowologyCRM;
-		};
-		/* End PBXContainerItemProxy section */
-
-/* Begin PBXTargetDependency section */
-		T0C1D2E3F4A5B6C7D8E9F0A1 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = B894F8507D292A0047B6D7C1 /* MowologyCRM */;
-			targetProxy = T9B0C1D2E3F4A5B6C7D8E9F0 /* PBXContainerItemProxy */;
-		};
-		/* End PBXTargetDependency section */
 
 /* Begin PBXNativeTarget section */
 		B894F8507D292A0047B6D7C1 /* MowologyCRM */ = {
@@ -462,7 +440,7 @@
 			productReference = T3B4C5D6E7F8A9B0C1D2E3F4 /* MowologyCRMTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
-		/* End PBXNativeTarget section */
+/* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
 		A5901657DFF6ED7CF58BBE11 /* Project object */ = {
@@ -472,7 +450,6 @@
 				LastUpgradeCheck = 1500;
 				TargetAttributes = {
 					B894F8507D292A0047B6D7C1 = {
-						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -516,7 +493,6 @@
 				A5B6C7D8E9F0A1B2C3D4E5F6 /* TimeClockViewModel.swift in Sources */,
 				C5D6E7F8A9B0C1D2E3F4A5B6 /* ErrorBannerView.swift in Sources */,
 				E5F6A7B8C9D0E1F2A3B4C5D6 /* EmptyStateView.swift in Sources */,
-
 				8DA04E42442B3D09E704A1CA /* APIClient.swift in Sources */,
 				559940D1EF1EF0CFE5B02CCF /* APIEndpoints.swift in Sources */,
 				42FE3CC920D2D08E173E259C /* APIError.swift in Sources */,
@@ -537,11 +513,11 @@
 				E9B866846859D619AEF25219 /* Visit.swift in Sources */,
 				1A500E3E80626FB6683AA6F1 /* VisitDetailView.swift in Sources */,
 				4D2F723DF88B7B1C76F9826A /* WeekStripView.swift in Sources */,
-			
-				9E258FAB0FCE4FA8A9137063 /* VisionOCRService.swift in Sources */,);
+				9E258FAB0FCE4FA8A9137063 /* VisionOCRService.swift in Sources */,
+			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		T5D6E7F8A9B0C1D2E3F4A5B6 /* Sources (MowologyCRMTests) */ = {
+		T5D6E7F8A9B0C1D2E3F4A5B6 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -549,7 +525,15 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		/* End PBXSourcesBuildPhase section */
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		T0C1D2E3F4A5B6C7D8E9F0A1 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B894F8507D292A0047B6D7C1 /* MowologyCRM */;
+			targetProxy = T9B0C1D2E3F4A5B6C7D8E9F0 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		676019409CEFA2C8658F7108 /* Release */ = {
@@ -558,6 +542,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = FFJBDJKQ9H;
 				INFOPLIST_FILE = MowologyCRM/Resources/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -636,6 +621,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = FFJBDJKQ9H;
 				INFOPLIST_FILE = MowologyCRM/Resources/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -715,7 +701,7 @@
 			};
 			name = Debug;
 		};
-		T6E7F8A9B0C1D2E3F4A5B6C7 /* Debug (MowologyCRMTests) */ = {
+		T6E7F8A9B0C1D2E3F4A5B6C7 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
@@ -728,7 +714,7 @@
 			};
 			name = Debug;
 		};
-		T7F8A9B0C1D2E3F4A5B6C7D8 /* Release (MowologyCRMTests) */ = {
+		T7F8A9B0C1D2E3F4A5B6C7D8 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
@@ -741,7 +727,7 @@
 			};
 			name = Release;
 		};
-		/* End XCBuildConfiguration section */
+/* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
 		05682076AD4FBB9FAC85319E /* Build configuration list for PBXNativeTarget "MowologyCRM" */ = {
@@ -771,7 +757,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
-		/* End XCConfigurationList section */
+/* End XCConfigurationList section */
 	};
 	rootObject = A5901657DFF6ED7CF58BBE11 /* Project object */;
 }

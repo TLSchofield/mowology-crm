@@ -5,7 +5,7 @@
 
 import Foundation
 
-struct ReceiptIntakeResponse: Decodable {
+struct ReceiptIntakeResponse: Decodable, Equatable {
     let success: Bool
     let mediaId: Int
     let filePath: String?
@@ -33,7 +33,7 @@ struct ReceiptIntakeResponse: Decodable {
     }
 }
 
-struct ParsedReceipt: Codable {
+struct ParsedReceipt: Codable, Equatable {
     let total: String?
     let gst: String?
     let subtotal: String?
@@ -56,7 +56,7 @@ struct ParsedReceipt: Codable {
     var gstDouble: Double?   { gst.flatMap(Double.init) }
 }
 
-struct ReceiptSuggestions: Decodable {
+struct ReceiptSuggestions: Decodable, Equatable {
     let vendorId: Int?
     let vendorName: String?
     let vendorConfidence: Int?
@@ -74,7 +74,7 @@ struct ReceiptSuggestions: Decodable {
     }
 }
 
-struct JobSuggestion: Decodable, Identifiable {
+struct JobSuggestion: Decodable, Identifiable, Equatable {
     let id: Int
     let planNumber: String?
     let serviceType: String?
@@ -88,7 +88,7 @@ struct JobSuggestion: Decodable, Identifiable {
     }
 }
 
-struct DuplicateImageInfo: Decodable {
+struct DuplicateImageInfo: Decodable, Equatable {
     let existingMediaId: Int
     enum CodingKeys: String, CodingKey { case existingMediaId = "existing_media_id" }
 }
@@ -105,7 +105,7 @@ struct ExpenseMetaResponse: Decodable {
     }
 }
 
-struct ReceiptLineItem: Codable, Identifiable {
+struct ReceiptLineItem: Codable, Identifiable, Equatable {
     var id: String { name + (amount ?? "") }
     let name: String
     let amount: String?
