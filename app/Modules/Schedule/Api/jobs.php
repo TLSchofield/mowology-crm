@@ -106,20 +106,19 @@ try {
             jv.id            AS visit_id,
             jv.visit_number,
             jp.title         AS plan_title,
-            jv.service_type,
+            jp.service_type,
             jv.status        AS visit_status,
             p.address        AS property_address,
             p.city           AS property_city,
             jv.scheduled_date,
             jv.scheduled_time_start AS scheduled_start,
             jv.stop_id,
-            COALESCE(pkg.estimated_duration_minutes, sp.estimated_duration_minutes) AS estimated_duration,
-            COALESCE(pkg.price_per_visit, sp.price)                                 AS price_per_visit
+            COALESCE(jp.estimated_duration_minutes, sp.default_duration_minutes) AS estimated_duration,
+            COALESCE(jp.price_per_visit, sp.base_price)                          AS price_per_visit
         FROM job_visits jv
         JOIN job_plans jp ON jv.plan_id = jp.id
         LEFT JOIN properties p ON jp.property_id = p.id
-        LEFT JOIN service_packages sp  ON jp.service_package_id = sp.id
-        LEFT JOIN service_packages pkg ON jv.package_id = pkg.id
+        LEFT JOIN service_packages sp ON jp.service_package_id = sp.id
         {$whereSQL}
         ORDER BY jv.scheduled_date DESC, jv.scheduled_time_start ASC
         LIMIT ? OFFSET ?
