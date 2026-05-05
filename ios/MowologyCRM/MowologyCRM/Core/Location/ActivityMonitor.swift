@@ -64,7 +64,7 @@ final class ActivityMonitor {
             guard let activity, activity.confidence != .low else { return }
             let mapped = Self.map(activity)
             Task { @MainActor [weak self] in
-                self?.locationManager?.currentActivity = mapped
+                self?.locationManager?.updateActivity(mapped)
             }
         }
     }
