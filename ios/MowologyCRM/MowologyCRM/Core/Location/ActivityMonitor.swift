@@ -19,9 +19,9 @@
 import CoreMotion
 import Foundation
 
-// MARK: - TrackingActivity+PingInterval
+// MARK: - ActivityType+PingInterval
 
-extension TrackingActivity {
+extension ActivityType {
 
     /// Seconds between GPS pings for this motion state.
     var pingInterval: TimeInterval {
@@ -76,7 +76,7 @@ final class ActivityMonitor {
 
     // MARK: - Private
 
-    private static func map(_ a: CMMotionActivity) -> TrackingActivity {
+    private static func map(_ a: CMMotionActivity) -> ActivityType {
         if a.automotive            { return .driving    }
         if a.walking || a.running  { return .walking    }
         if a.stationary            { return .stationary }

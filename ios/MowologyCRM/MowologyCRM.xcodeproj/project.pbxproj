@@ -60,6 +60,7 @@
 		6B34A809F8734FBACBF14EE0 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 783EC7CAE7D0D0D827FDEDBF /* AppDelegate.swift */; };
 		85F56124C51718001957DF1C /* JobActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCEB9B209AB3B7603BD9A6F4 /* JobActivityAttributes.swift */; };
 		31D74891E9FAF8FA62EE91DF /* VisitDetailViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 868710A6EF45802F24C19AEA /* VisitDetailViewModel.swift */; };
+		EE8C477DB149FED7C7D095D2 /* JobPhotoQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020780B1CE91FCD6C5F342B3 /* JobPhotoQueue.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -264,10 +265,10 @@
 			isa = PBXGroup;
 			children = (
 				D1E2F3A4B5C6D7E8F9A0B1C2 /* GPSTrackingService.swift */,
-							A4547C29B2A502F7AE5B446E /* LocationManager.swift */,
-								EE29BD8142463FC512FD1208 /* RouteStore.swift */,
-								37E412C65849505E8688DCD3 /* ArrivalMonitor.swift */,
-								9E71D5EA7EE23F42751ED95F /* ActivityMonitor.swift */,
+				A4547C29B2A502F7AE5B446E /* LocationManager.swift */,
+				EE29BD8142463FC512FD1208 /* RouteStore.swift */,
+				37E412C65849505E8688DCD3 /* ArrivalMonitor.swift */,
+				9E71D5EA7EE23F42751ED95F /* ActivityMonitor.swift */,
 				);
 			path = Location;
 			sourceTree = "<group>";
@@ -276,6 +277,7 @@
 			isa = PBXGroup;
 			children = (
 				85758A4EC9AD151D51C79AC5 /* JobsListViewModel.swift */,
+				C55F15FFA1FF6284895E3895 /* JobsListView.swift */,
 			);
 			path = Jobs;
 			sourceTree = "<group>";
@@ -285,8 +287,8 @@
 			children = (
 				F2A3B4C5D6E7F8A9B0C1D2E3 /* PingQueue.swift */,
 				B3C4D5E6F7A8B9C0D1E2F3A4 /* ReceiptQueue.swift */,
-							C55F15FFA1FF6284895E3895 /* JobsListView.swift */,
-);
+				020780B1CE91FCD6C5F342B3 /* JobPhotoQueue.swift */,
+			);
 			path = Offline;
 			sourceTree = "<group>";
 		};
@@ -337,7 +339,6 @@
 				F3A4B5C6D7E8F9A0B1C2D3E4 /* ReceiptReviewView.swift */,
 				B4C5D6E7F8A9B0C1D2E3F4A5 /* ReceiptsView.swift */,
 				D4E5F6A7B8C9D0E1F2A3B4C5 /* ReceiptsViewModel.swift */,
-				020780B1CE91FCD6C5F342B3 /* JobPhotoQueue.swift */,
 			);
 			path = Receipts;
 			sourceTree = "<group>";
@@ -521,6 +522,8 @@
 				1A500E3E80626FB6683AA6F1 /* VisitDetailView.swift in Sources */,
 				4D2F723DF88B7B1C76F9826A /* WeekStripView.swift in Sources */,
 				9E258FAB0FCE4FA8A9137063 /* VisionOCRService.swift in Sources */,
+				9D8769DD00DDEAF3E56D1C2E /* JobsListView.swift in Sources */,
+				EE8C477DB149FED7C7D095D2 /* JobPhotoQueue.swift in Sources */,
 				06343724E4F5E8821DEF01A0 /* ActivityMonitor.swift in Sources */,
 				79389074C49361ABCABFE627 /* ArrivalMonitor.swift in Sources */,
 				DFCB0D57E0F3364FC462E9BB /* RouteStore.swift in Sources */,
