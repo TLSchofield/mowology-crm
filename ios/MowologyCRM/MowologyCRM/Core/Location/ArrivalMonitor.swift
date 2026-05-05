@@ -44,6 +44,10 @@ final class ArrivalMonitor {
 
     static let shared = ArrivalMonitor()
 
+    // UNNotification identifiers used by AppDelegate
+    static let actionClockIn     = "ca.mowology.action.clockIn"
+    static let categoryArrival   = "ca.mowology.category.arrival"
+
     // MARK: - Private
 
     private var sites:            [MonitoredSite] = []
