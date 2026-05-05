@@ -97,6 +97,11 @@ final class LocationManager: NSObject {
         if speed < 4.0  { return .walking    }   // < 14.4 km/h — walking/jogging
         return .driving                           // ≥ 14.4 km/h — in a vehicle
     }
+
+    /// Called by ActivityMonitor to update the motion-classified activity.
+    func updateActivity(_ activity: ActivityType) {
+        currentActivity = activity
+    }
 }
 
 // MARK: - CLLocationManagerDelegate

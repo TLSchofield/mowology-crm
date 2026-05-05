@@ -17,8 +17,9 @@ struct ClockOutIntent: AppIntent {
     )
     static var openAppWhenRun = false
 
+    @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        let session = await MainActor.run { AuthSession() }
+        let session = AuthSession()
         guard session.isAuthenticated else {
             return .result(dialog: "You're not logged in to Mowology.")
         }
