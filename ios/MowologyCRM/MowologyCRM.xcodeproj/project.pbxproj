@@ -61,6 +61,9 @@
 		85F56124C51718001957DF1C /* JobActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCEB9B209AB3B7603BD9A6F4 /* JobActivityAttributes.swift */; };
 		31D74891E9FAF8FA62EE91DF /* VisitDetailViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 868710A6EF45802F24C19AEA /* VisitDetailViewModel.swift */; };
 		EE8C477DB149FED7C7D095D2 /* JobPhotoQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020780B1CE91FCD6C5F342B3 /* JobPhotoQueue.swift */; };
+		57FCE40AF9463F23F42E2150 /* JobsListViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85758A4EC9AD151D51C79AC5 /* JobsListViewModel.swift */; };
+		8E3BBCE0D44E2746B26C7579 /* QuotesViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25C65D44A564B9D1F3913F66 /* QuotesViewModel.swift */; };
+		4B04231D64BBFF7DFC55A9D2 /* InvoicesViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBFD5988D30BEC5153325102 /* InvoicesViewModel.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -247,7 +250,6 @@
 		7F692E6C4E65C861CE6C5EE5 /* Invoices */ = {
 			isa = PBXGroup;
 			children = (
-				EBFD5988D30BEC5153325102 /* InvoicesViewModel.swift */,
 			);
 			path = Invoices;
 			sourceTree = "<group>";
@@ -256,7 +258,6 @@
 			isa = PBXGroup;
 			children = (
 				B1C2D3E4F5A6B7C8D9E0F1A2 /* MWTheme.swift */,
-							BF8B37CB99942ABF04099B57 /* InvoicesView.swift */,
 );
 			path = Design;
 			sourceTree = "<group>";
@@ -276,8 +277,6 @@
 		C3DDCAD9A79CFAAD968C288A /* Jobs */ = {
 			isa = PBXGroup;
 			children = (
-				85758A4EC9AD151D51C79AC5 /* JobsListViewModel.swift */,
-				C55F15FFA1FF6284895E3895 /* JobsListView.swift */,
 			);
 			path = Jobs;
 			sourceTree = "<group>";
@@ -321,6 +320,33 @@
 			path = Auth;
 			sourceTree = "<group>";
 		};
+		C0AFDB7567C2432D9B9A5DF2 /* Jobs */ = {
+			isa = PBXGroup;
+			children = (
+				C55F15FFA1FF6284895E3895 /* JobsListView.swift */,
+				85758A4EC9AD151D51C79AC5 /* JobsListViewModel.swift */,
+			);
+			path = Jobs;
+			sourceTree = "<group>";
+		};
+		449A7DA3595AE500C4C10F01 /* Quotes */ = {
+			isa = PBXGroup;
+			children = (
+				0DD35F027AA028DAB116C92A /* QuotesView.swift */,
+				25C65D44A564B9D1F3913F66 /* QuotesViewModel.swift */,
+			);
+			path = Quotes;
+			sourceTree = "<group>";
+		};
+		F50530F99208E48338787BB7 /* Invoices */ = {
+			isa = PBXGroup;
+			children = (
+				BF8B37CB99942ABF04099B57 /* InvoicesView.swift */,
+				EBFD5988D30BEC5153325102 /* InvoicesViewModel.swift */,
+			);
+			path = Invoices;
+			sourceTree = "<group>";
+		};
 		D0CF88BD79C1A5858F773D21 /* Features */ = {
 			isa = PBXGroup;
 			children = (
@@ -328,6 +354,9 @@
 				D6E7F8A9B0C1D2E3F4A5B6C7 /* Receipts */,
 				77C42B8E19B50F970FF6A5FB /* Schedule */,
 				E6F7A8B9C0D1E2F3A4B5C6D7 /* TimeClock */,
+				C0AFDB7567C2432D9B9A5DF2 /* Jobs */,
+				449A7DA3595AE500C4C10F01 /* Quotes */,
+				F50530F99208E48338787BB7 /* Invoices */,
 			);
 			path = Features;
 			sourceTree = "<group>";
@@ -346,7 +375,6 @@
 		DE99F33555503D7143361A10 /* Quotes */ = {
 			isa = PBXGroup;
 			children = (
-				25C65D44A564B9D1F3913F66 /* QuotesViewModel.swift */,
 			);
 			path = Quotes;
 			sourceTree = "<group>";
@@ -357,7 +385,6 @@
 				F4A5B6C7D8E9F0A1B2C3D4E5 /* TimeClockView.swift */,
 				B5C6D7E8F9A0B1C2D3E4F5A6 /* TimeClockViewModel.swift */,
 				2BCAA6456C9F805D11DD98B4 /* LiveReceiptScanner.swift */,
-							0DD35F027AA028DAB116C92A /* QuotesView.swift */,
 );
 			path = TimeClock;
 			sourceTree = "<group>";
@@ -521,6 +548,11 @@
 				E9B866846859D619AEF25219 /* Visit.swift in Sources */,
 				1A500E3E80626FB6683AA6F1 /* VisitDetailView.swift in Sources */,
 				4D2F723DF88B7B1C76F9826A /* WeekStripView.swift in Sources */,
+				57FCE40AF9463F23F42E2150 /* JobsListViewModel.swift in Sources */,
+				3D2BB83DBFE4061D55B7D9A4 /* QuotesView.swift in Sources */,
+				8E3BBCE0D44E2746B26C7579 /* QuotesViewModel.swift in Sources */,
+				658DF7B600099EE97BE2B7D7 /* InvoicesView.swift in Sources */,
+				4B04231D64BBFF7DFC55A9D2 /* InvoicesViewModel.swift in Sources */,
 				9E258FAB0FCE4FA8A9137063 /* VisionOCRService.swift in Sources */,
 				9D8769DD00DDEAF3E56D1C2E /* JobsListView.swift in Sources */,
 				EE8C477DB149FED7C7D095D2 /* JobPhotoQueue.swift in Sources */,
