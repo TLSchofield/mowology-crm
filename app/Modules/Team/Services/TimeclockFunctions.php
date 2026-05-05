@@ -147,6 +147,59 @@ function clockIn($userId, $lat = null, $lng = null) {
 }
 
 /**
+ * Resolve a stale active clock entry from a prior calendar day.
+ *
+ * If the user has an active entry whose clock_in date is before today,
+ * it is auto-completed at clock_in + auto_clock_out_hours (default 10h).
+ * Any matching open vehicle_trip_reports for that date are also closed.
+ *
+ * Call this at login-time before getActiveClockEntry() so the user starts
+ * fresh rather than being trapped by a days-old record.
+ *
+ * Returns true if a stale entry was resolved, false otherwise.
+ */
+function resolveStaleClockEntry(int $userId): bool {
+    $entry = getActiveClockEntry($userId);
+    if (!$entry) return false;
+
+    $clockInDate = date('Y-m-d', strtotime($entry['clock_in']));
+    if ($clockInDate === date('Y-m-d')) return false;
+
+    $autoHours = max(1, (int) getTimeClockSetting('auto_clock_out_hours', 10));
+    $db = getDB();
+
+    $db->prepare("
+        UPDATE time_clock_entries
+        SET clock_out     = DATE_ADD(clock_in, INTERVAL ? HOUR),
+            total_minutes = ? * 60,
+            status        = 'completed',
+            notes         = CONCAT(COALESCE(notes, ''), ' [auto-completed: stale entry from prior day]'),
+            edited_at     = NOW()
+        WHERE id = ?
+    ")->execute([$autoHours, $autoHours, $entry['id']]);
+
+    ensureTimesheetExists($userId, $clockInDate);
+
+    // Close any open trip reports for that date so the driver is not gated
+    // out by a half-finished trip from a prior day.
+    try {
+        $db->prepare("
+            UPDATE vehicle_trip_reports
+            SET post_trip_at = DATE_ADD(pre_trip_at, INTERVAL 8 HOUR)
+            WHERE driver_id    = ?
+              AND report_date  = ?
+              AND pre_trip_at  IS NOT NULL
+              AND post_trip_at IS NULL
+        ")->execute([$userId, $clockInDate]);
+    } catch (Throwable $e) {
+        // Cleanup is non-fatal — table may not exist yet on older schemas.
+        error_log('[resolveStaleClockEntry] trip report cleanup failed: ' . $e->getMessage());
+    }
+
+    return true;
+}
+
+/**
  * Clock out a user. Returns total_minutes or throws on error.
  */
 function clockOut($userId, $lat = null, $lng = null, $notes = null) {
