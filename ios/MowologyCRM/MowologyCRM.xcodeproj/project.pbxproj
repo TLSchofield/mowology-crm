@@ -189,6 +189,7 @@
 				1F2E3D4C5B6A7980A1B2C3D4 /* MainTabView.swift */,
 				A756819D930BDD10EFFEC4FA /* MowologyCRMApp.swift */,
 				44859802708EFA50B0DE7353 /* RootView.swift */,
+				783EC7CAE7D0D0D827FDEDBF /* AppDelegate.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -198,7 +199,6 @@
 			children = (
 				AC8522EE94548B7FD4F1982E /* MowologyCRM.app */,
 				T3B4C5D6E7F8A9B0C1D2E3F4 /* MowologyCRMTests.xctest */,
-				783EC7CAE7D0D0D827FDEDBF /* AppDelegate.swift */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -237,6 +237,7 @@
 				DEA3E082EB582E2D8825C262 /* ScheduleViewModel.swift */,
 				F73A09E1281950C78A2D0821 /* StopCardView.swift */,
 				AC8674D3A1F9F01248ECB134 /* VisitDetailView.swift */,
+				868710A6EF45802F24C19AEA /* VisitDetailViewModel.swift */,
 				68D4D6F730154942832B001A /* WeekStripView.swift */,
 			);
 			path = Schedule;
@@ -263,7 +264,11 @@
 			isa = PBXGroup;
 			children = (
 				D1E2F3A4B5C6D7E8F9A0B1C2 /* GPSTrackingService.swift */,
-			);
+							A4547C29B2A502F7AE5B446E /* LocationManager.swift */,
+								EE29BD8142463FC512FD1208 /* RouteStore.swift */,
+								37E412C65849505E8688DCD3 /* ArrivalMonitor.swift */,
+								9E71D5EA7EE23F42751ED95F /* ActivityMonitor.swift */,
+				);
 			path = Location;
 			sourceTree = "<group>";
 		};
@@ -280,10 +285,6 @@
 			children = (
 				F2A3B4C5D6E7F8A9B0C1D2E3 /* PingQueue.swift */,
 				B3C4D5E6F7A8B9C0D1E2F3A4 /* ReceiptQueue.swift */,
-				A4547C29B2A502F7AE5B446E /* LocationManager.swift */,
-				EE29BD8142463FC512FD1208 /* RouteStore.swift */,
-				37E412C65849505E8688DCD3 /* ArrivalMonitor.swift */,
-				9E71D5EA7EE23F42751ED95F /* ActivityMonitor.swift */,
 							C55F15FFA1FF6284895E3895 /* JobsListView.swift */,
 );
 			path = Offline;
@@ -310,7 +311,6 @@
 			children = (
 				6BC0B66BE87B94B74DD29C05 /* LoginView.swift */,
 				82CAF080C57ADDAE06034F25 /* LoginViewModel.swift */,
-				868710A6EF45802F24C19AEA /* VisitDetailViewModel.swift */,
 				3A1B218A949D694791F7CC50 /* JobPhotoSection.swift */,
 				6C133E57A28A6AF23D6B4CAF /* VisitWorkView.swift */,
 				AB2823D3497805DBBA0F6047 /* VisitWorkViewModel.swift */,
@@ -380,6 +380,7 @@
 				84917CCF5BF871EC2B745DC4 /* Stop.swift */,
 				C9C49661C41333A49EE1D301 /* User.swift */,
 				46E2EA872345FA9825A6DF2E /* Visit.swift */,
+				DCEB9B209AB3B7603BD9A6F4 /* JobActivityAttributes.swift */,
 				C3DDCAD9A79CFAAD968C288A /* Jobs */,
 				DE99F33555503D7143361A10 /* Quotes */,
 				7F692E6C4E65C861CE6C5EE5 /* Invoices */,
@@ -392,7 +393,6 @@
 			children = (
 				9DD091BEACD0F5E731BE8B0E /* Info.plist */,
 				23FD0CE4AE1671A750AF3E16 /* JobsQuotesInvoicesModels.swift */,
-				DCEB9B209AB3B7603BD9A6F4 /* JobActivityAttributes.swift */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
