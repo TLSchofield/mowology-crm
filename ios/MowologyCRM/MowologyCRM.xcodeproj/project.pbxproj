@@ -64,6 +64,13 @@
 		57FCE40AF9463F23F42E2150 /* JobsListViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85758A4EC9AD151D51C79AC5 /* JobsListViewModel.swift */; };
 		8E3BBCE0D44E2746B26C7579 /* QuotesViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25C65D44A564B9D1F3913F66 /* QuotesViewModel.swift */; };
 		4B04231D64BBFF7DFC55A9D2 /* InvoicesViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBFD5988D30BEC5153325102 /* InvoicesViewModel.swift */; };
+		C1A4F354612C4313978FF5CC /* JobsQuotesInvoicesModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23FD0CE4AE1671A750AF3E16 /* JobsQuotesInvoicesModels.swift */; };
+		93A999862A264D0CAC53126E /* DayRouteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B48592BAC401D1AED784578 /* DayRouteView.swift */; };
+		37E2C4E4CFF74B63A521E6BB /* CalendarSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D6FBBBC8A8782A7FE767C2B /* CalendarSyncService.swift */; };
+		7D3606ABAAAE4FF98BF3029E /* JobPhotoSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A1B218A949D694791F7CC50 /* JobPhotoSection.swift */; };
+		58CC284E2C4C447088CDBFC2 /* VisitWorkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C133E57A28A6AF23D6B4CAF /* VisitWorkView.swift */; };
+		95847CD0E60048FA99052C64 /* VisitWorkViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB2823D3497805DBBA0F6047 /* VisitWorkViewModel.swift */; };
+		1F135BB4A8874AC3A99BD695 /* LiveReceiptScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BCAA6456C9F805D11DD98B4 /* LiveReceiptScanner.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -160,6 +167,8 @@
 			isa = PBXGroup;
 			children = (
 				7D6FBBBC8A8782A7FE767C2B /* CalendarSyncService.swift */,
+				10B4DAEACB7DA7EA31C4B251 /* LocalOCR.swift */,
+				70B6262F1652C439EF4C0F33 /* DeviceTokenService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -170,9 +179,7 @@
 				2E7C92CC6796BADE174216F5 /* APIClient.swift */,
 				68F3A974B3D602E24E8A79E8 /* APIEndpoints.swift */,
 				E2318C0D8CC141570D7D494B /* APIError.swift */,
-							10B4DAEACB7DA7EA31C4B251 /* LocalOCR.swift */,
-				70B6262F1652C439EF4C0F33 /* DeviceTokenService.swift */,
-);
+			);
 			path = Network;
 			sourceTree = "<group>";
 		};
@@ -219,6 +226,7 @@
 				3CAC498CFC84EC47A1CECC6B /* Network */,
 				C6D7E8F9A0B1C2D3E4F5A6B7 /* Offline */,
 				CE08A78E192F4331B2802475 /* Vision */,
+				1E39133965AFA6B29F5894C9 /* Services */,
 			);
 			path = Core;
 			sourceTree = "<group>";
@@ -228,7 +236,6 @@
 			children = (
 				11B9496B9E804E3CD0342C49 /* AuthSession.swift */,
 				73D67877BC393CECB2E02474 /* KeychainStore.swift */,
-				1E39133965AFA6B29F5894C9 /* Services */,
 			);
 			path = Auth;
 			sourceTree = "<group>";
@@ -243,6 +250,10 @@
 				AC8674D3A1F9F01248ECB134 /* VisitDetailView.swift */,
 				868710A6EF45802F24C19AEA /* VisitDetailViewModel.swift */,
 				68D4D6F730154942832B001A /* WeekStripView.swift */,
+				6B48592BAC401D1AED784578 /* DayRouteView.swift */,
+				3A1B218A949D694791F7CC50 /* JobPhotoSection.swift */,
+				6C133E57A28A6AF23D6B4CAF /* VisitWorkView.swift */,
+				AB2823D3497805DBBA0F6047 /* VisitWorkViewModel.swift */,
 			);
 			path = Schedule;
 			sourceTree = "<group>";
@@ -312,10 +323,6 @@
 			children = (
 				6BC0B66BE87B94B74DD29C05 /* LoginView.swift */,
 				82CAF080C57ADDAE06034F25 /* LoginViewModel.swift */,
-				3A1B218A949D694791F7CC50 /* JobPhotoSection.swift */,
-				6C133E57A28A6AF23D6B4CAF /* VisitWorkView.swift */,
-				AB2823D3497805DBBA0F6047 /* VisitWorkViewModel.swift */,
-				6B48592BAC401D1AED784578 /* DayRouteView.swift */,
 			);
 			path = Auth;
 			sourceTree = "<group>";
@@ -368,6 +375,7 @@
 				F3A4B5C6D7E8F9A0B1C2D3E4 /* ReceiptReviewView.swift */,
 				B4C5D6E7F8A9B0C1D2E3F4A5 /* ReceiptsView.swift */,
 				D4E5F6A7B8C9D0E1F2A3B4C5 /* ReceiptsViewModel.swift */,
+				2BCAA6456C9F805D11DD98B4 /* LiveReceiptScanner.swift */,
 			);
 			path = Receipts;
 			sourceTree = "<group>";
@@ -384,7 +392,6 @@
 			children = (
 				F4A5B6C7D8E9F0A1B2C3D4E5 /* TimeClockView.swift */,
 				B5C6D7E8F9A0B1C2D3E4F5A6 /* TimeClockViewModel.swift */,
-				2BCAA6456C9F805D11DD98B4 /* LiveReceiptScanner.swift */,
 );
 			path = TimeClock;
 			sourceTree = "<group>";
@@ -409,6 +416,7 @@
 				C9C49661C41333A49EE1D301 /* User.swift */,
 				46E2EA872345FA9825A6DF2E /* Visit.swift */,
 				DCEB9B209AB3B7603BD9A6F4 /* JobActivityAttributes.swift */,
+				23FD0CE4AE1671A750AF3E16 /* JobsQuotesInvoicesModels.swift */,
 				C3DDCAD9A79CFAAD968C288A /* Jobs */,
 				DE99F33555503D7143361A10 /* Quotes */,
 				7F692E6C4E65C861CE6C5EE5 /* Invoices */,
@@ -420,7 +428,6 @@
 			isa = PBXGroup;
 			children = (
 				9DD091BEACD0F5E731BE8B0E /* Info.plist */,
-				23FD0CE4AE1671A750AF3E16 /* JobsQuotesInvoicesModels.swift */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -437,6 +444,8 @@
 			isa = PBXGroup;
 			children = (
 				90C667FF46EC2B266DE11963 /* ClockInIntent.swift */,
+				CE94A123C42B905BE6904B4F /* ClockOutIntent.swift */,
+				6B5EFFFBCFAAD856E43264A9 /* ShowScheduleIntent.swift */,
 			);
 			path = AppIntents;
 			sourceTree = "<group>";
@@ -563,6 +572,18 @@
 				6B34A809F8734FBACBF14EE0 /* AppDelegate.swift in Sources */,
 				85F56124C51718001957DF1C /* JobActivityAttributes.swift in Sources */,
 				31D74891E9FAF8FA62EE91DF /* VisitDetailViewModel.swift in Sources */,
+				C1A4F354612C4313978FF5CC /* JobsQuotesInvoicesModels.swift in Sources */,
+				93A999862A264D0CAC53126E /* DayRouteView.swift in Sources */,
+				37E2C4E4CFF74B63A521E6BB /* CalendarSyncService.swift in Sources */,
+				7D3606ABAAAE4FF98BF3029E /* JobPhotoSection.swift in Sources */,
+				58CC284E2C4C447088CDBFC2 /* VisitWorkView.swift in Sources */,
+				95847CD0E60048FA99052C64 /* VisitWorkViewModel.swift in Sources */,
+				1F135BB4A8874AC3A99BD695 /* LiveReceiptScanner.swift in Sources */,
+				051C7D44A1A436394997983C /* LocalOCR.swift in Sources */,
+				9F3DA5FD077BA73C4F89DBC3 /* DeviceTokenService.swift in Sources */,
+				5AAFF6AF9E68378A400F6657 /* ClockInIntent.swift in Sources */,
+				1B0ED1F5E664CA7DB3018231 /* ClockOutIntent.swift in Sources */,
+				73F6FC84E47A1D864C3B18E5 /* ShowScheduleIntent.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

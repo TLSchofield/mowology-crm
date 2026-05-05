@@ -7,6 +7,7 @@
 
 import Foundation
 import WidgetKit
+import CoreLocation
 
 // MARK: - API Response Types
 
@@ -116,7 +117,12 @@ final class ScheduleViewModel: ObservableObject {
             stopCacheFetched[dateString] = .now
             stops       = fetched
             lastFetched = .now
-            ArrivalMonitor.shared.loadStops(fetched)
+            let sites: [MonitoredSite] = fetched.flatMap { stop -> [MonitoredSite] in
+                guard let lat = stop.latitude, let lon = stop.longitude else { return [] }
+                let coord = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+                return stop.visits.map { MonitoredSite(visitId: $0.visitId, coordinate: coord) }
+            }
+            ArrivalMonitor.shared.configure(sites: sites)
             Task { await CalendarSyncService.shared.sync(stops: fetched, for: date) }
             syncWidgetSchedule(fetched)
         } catch let apiError as APIError {
