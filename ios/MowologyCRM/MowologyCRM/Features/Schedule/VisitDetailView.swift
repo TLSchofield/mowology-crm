@@ -467,6 +467,7 @@ struct VisitDetailView: View {
         companyName: nil,
         lawnSqft: nil,
         crewNames: ["John Doe", "Jane Smith"],
+        crewMembers: nil,
         visitCount: 1,
         visits: [visit]
     )
