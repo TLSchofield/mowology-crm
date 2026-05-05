@@ -177,6 +177,7 @@ private struct ServiceBadge: View {
         companyName: nil,
         lawnSqft: nil,
         crewNames: ["John Doe"],
+        crewMembers: nil,
         visitCount: 1,
         visits: [sampleVisit]
     )

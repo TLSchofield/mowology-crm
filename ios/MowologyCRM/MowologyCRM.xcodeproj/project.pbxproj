@@ -53,6 +53,13 @@
 		9D8769DD00DDEAF3E56D1C2E /* JobsListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C55F15FFA1FF6284895E3895 /* JobsListView.swift */; };
 		658DF7B600099EE97BE2B7D7 /* InvoicesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF8B37CB99942ABF04099B57 /* InvoicesView.swift */; };
 		3D2BB83DBFE4061D55B7D9A4 /* QuotesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DD35F027AA028DAB116C92A /* QuotesView.swift */; };
+		06343724E4F5E8821DEF01A0 /* ActivityMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E71D5EA7EE23F42751ED95F /* ActivityMonitor.swift */; };
+		79389074C49361ABCABFE627 /* ArrivalMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37E412C65849505E8688DCD3 /* ArrivalMonitor.swift */; };
+		DFCB0D57E0F3364FC462E9BB /* RouteStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE29BD8142463FC512FD1208 /* RouteStore.swift */; };
+		4C4A3B8F56585787FC78DD19 /* LocationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4547C29B2A502F7AE5B446E /* LocationManager.swift */; };
+		6B34A809F8734FBACBF14EE0 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 783EC7CAE7D0D0D827FDEDBF /* AppDelegate.swift */; };
+		85F56124C51718001957DF1C /* JobActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCEB9B209AB3B7603BD9A6F4 /* JobActivityAttributes.swift */; };
+		31D74891E9FAF8FA62EE91DF /* VisitDetailViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 868710A6EF45802F24C19AEA /* VisitDetailViewModel.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -514,6 +521,13 @@
 				1A500E3E80626FB6683AA6F1 /* VisitDetailView.swift in Sources */,
 				4D2F723DF88B7B1C76F9826A /* WeekStripView.swift in Sources */,
 				9E258FAB0FCE4FA8A9137063 /* VisionOCRService.swift in Sources */,
+				06343724E4F5E8821DEF01A0 /* ActivityMonitor.swift in Sources */,
+				79389074C49361ABCABFE627 /* ArrivalMonitor.swift in Sources */,
+				DFCB0D57E0F3364FC462E9BB /* RouteStore.swift in Sources */,
+				4C4A3B8F56585787FC78DD19 /* LocationManager.swift in Sources */,
+				6B34A809F8734FBACBF14EE0 /* AppDelegate.swift in Sources */,
+				85F56124C51718001957DF1C /* JobActivityAttributes.swift in Sources */,
+				31D74891E9FAF8FA62EE91DF /* VisitDetailViewModel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
