@@ -9,6 +9,7 @@ Options -Indexes
 </IfModule>
 
 # ── Browser Caching ───────────────────────────────────────────────────────────
+# mod_expires: used if available (some shared hosts don't enable it)
 <IfModule mod_expires.c>
     ExpiresActive On
     ExpiresByType text/css               "access plus 1 year"
@@ -23,6 +24,16 @@ Options -Indexes
     ExpiresByType application/font-woff  "access plus 1 year"
     ExpiresByType application/json       "access plus 0 seconds"
     ExpiresByType text/html              "access plus 0 seconds"
+</IfModule>
+# mod_headers fallback: explicit Cache-Control on static file types
+# CSS/JS have ?v= version params so 1-year cache is safe
+<IfModule mod_headers.c>
+    <FilesMatch "\.(css|js)$">
+        Header set Cache-Control "public, max-age=31536000, immutable"
+    </FilesMatch>
+    <FilesMatch "\.(jpg|jpeg|png|gif|webp|svg|ico|woff|woff2)$">
+        Header set Cache-Control "public, max-age=2592000"
+    </FilesMatch>
 </IfModule>
 
 # ── Security Headers ──────────────────────────────────────────────────────────
