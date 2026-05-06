@@ -104,7 +104,7 @@ try {
     // ── B: Visits for this stop ───────────────────────────────────────────
     $visitStmt = $db->prepare("
         SELECT jv.id AS visit_id, jv.visit_number, jv.status AS visit_status,
-            jv.checklist_json, jv.checklist_completed, jv.started_at, jv.completed_at,
+            jv.started_at, jv.completed_at,
             jp.id AS plan_id, jp.plan_number, jp.title AS plan_title,
             jp.service_type, jp.price_per_visit,
             jp.estimated_duration_minutes AS estimated_duration
@@ -188,14 +188,13 @@ try {
                 tce.clock_in AS clock_in_time
             FROM users u
             LEFT JOIN (
-                SELECT crew_id, MAX(UNIX_TIMESTAMP(timestamp)) AS max_epoch
+                SELECT crew_id, MAX(id) AS max_id
                 FROM crew_location_history
                 WHERE UNIX_TIMESTAMP(timestamp) > UNIX_TIMESTAMP() - 86400
                 GROUP BY crew_id
             ) latest ON latest.crew_id = u.id
             LEFT JOIN crew_location_history clh
-                ON clh.crew_id = latest.crew_id
-               AND UNIX_TIMESTAMP(clh.timestamp) = latest.max_epoch
+                ON clh.id = latest.max_id
             LEFT JOIN time_clock_entries tce
                 ON tce.user_id = u.id
                AND tce.status = 'active'
@@ -250,9 +249,8 @@ try {
     // ── Assemble visits ───────────────────────────────────────────────────
     $visits = [];
     foreach ($visitRows as $vr) {
-        $vid       = (int)$vr['visit_id'];
-        $byType    = $photoCounts[$vid] ?? [];
-        $clStats   = parseChecklistStats($vr['checklist_json'], $vr['checklist_completed']);
+        $vid    = (int)$vr['visit_id'];
+        $byType = $photoCounts[$vid] ?? [];
 
         $visits[] = [
             'visit_id'           => $vid,
@@ -264,8 +262,8 @@ try {
             'service_type'       => $vr['service_type'],
             'price_per_visit'    => $vr['price_per_visit'] !== null ? (float)$vr['price_per_visit'] : null,
             'estimated_duration' => $vr['estimated_duration'] !== null ? (int)$vr['estimated_duration'] : null,
-            'checklist_total'    => $clStats['total'],
-            'checklist_complete' => $clStats['complete'],
+            'checklist_total'    => 0,
+            'checklist_complete' => 0,
             'photos_before'      => $byType['before']  ?? 0,
             'photos_after'       => $byType['after']   ?? 0,
             'photos_during'      => $byType['during']  ?? 0,
