@@ -125,7 +125,7 @@
     }
 
     showLoading();
-    debounceTimer = setTimeout(function() { fetchResults(q); }, 200);
+    debounceTimer = setTimeout(function() { fetchResults(q); }, 120);
   });
 
   // ── Overlay input: arrow keys + Enter ────────────
