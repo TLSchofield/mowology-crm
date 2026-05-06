@@ -1686,8 +1686,6 @@ var MwRouteMap = (function() {
         if (trayEl) trayEl.style.display = 'none';
         if (summaryEl) summaryEl.style.display = 'none';
 
-        buildWeekPreviewTabs(visitData);
-
         function onMapsReady() {
             if (!mapInitialized) initMap();
             else google.maps.event.trigger(map, 'resize');
@@ -1757,6 +1755,7 @@ var MwRouteMap = (function() {
 
     function drawWeekRoutes(visitData) {
         clearWeekPreview();
+        buildWeekPreviewTabs(visitData);
         if (!map) { viewEl.classList.remove('mw-mv-loading'); return; }
 
         var weekStops = (typeof MW_WEEK_STOPS !== 'undefined') ? MW_WEEK_STOPS : {};
@@ -1937,7 +1936,7 @@ var MwRouteMap = (function() {
         });
         insertionInfoWindow.open(map);
 
-        titleEl.textContent = stops.length + ' stops + new &middot; ' + sign;
+        titleEl.textContent = stops.length + ' stops + new · ' + sign;
     }
 
     function clearInsertionPreview() {
