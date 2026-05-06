@@ -15,6 +15,7 @@ unset($__dir, $__i);
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 requireLogin();
+session_write_close();
 requirePermission('admin');
 
 header('Content-Type: text/plain; charset=utf-8');

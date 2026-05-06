@@ -28,6 +28,7 @@ if (!verifyCSRFToken($jsonData['csrf_token'] ?? '')) {
     echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
     exit;
 }
+session_write_close();
 
 $propertyId = intval($jsonData['property_id'] ?? 0);
 $lat = floatval($jsonData['lat'] ?? 0);

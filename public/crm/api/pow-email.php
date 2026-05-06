@@ -52,6 +52,7 @@ try {
         echo json_encode(['error' => 'Invalid CSRF token']);
         exit;
     }
+    session_write_close();
 
     $visitId   = isset($input['visit_id']) ? (int)$input['visit_id'] : 0;
     $recipient = trim($input['recipient'] ?? '');

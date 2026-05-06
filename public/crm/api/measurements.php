@@ -175,6 +175,7 @@ try {
             echo json_encode(['success' => false, 'error' => 'Invalid security token']);
             exit;
         }
+        session_write_close();
 
         $id = (int)($input['id'] ?? 0);
         if (!$id) throw new Exception('Measurement ID required');

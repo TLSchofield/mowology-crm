@@ -7,6 +7,7 @@
 declare(strict_types=1);
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 requireLogin();
+session_write_close();
 
 header('Content-Type: application/json');
 

@@ -50,6 +50,7 @@ try {
         echo json_encode(['error' => 'Invalid CSRF token']);
         exit;
     }
+    session_write_close();
 
     if (!$isAdmin) {
         http_response_code(403);

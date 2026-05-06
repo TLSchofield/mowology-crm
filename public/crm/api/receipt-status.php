@@ -42,6 +42,7 @@ try {
     require_once CRM_INCLUDES . '/functions.php';
 
     requireLogin();
+    session_write_close();
     requirePermission('expenses.view');
 
     $mediaId = (int)($_GET['media_id'] ?? 0);

@@ -97,6 +97,7 @@ try {
         if (empty($input['csrf_token']) || !verifyCSRFToken($input['csrf_token'])) {
             throw new Exception('Invalid security token. Please reload the page.');
         }
+        session_write_close();
 
         $keepId = intval($input['keep_id'] ?? 0);
         $mergeId = intval($input['merge_id'] ?? 0);

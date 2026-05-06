@@ -23,32 +23,24 @@ $dailyProfit = getDailyProfitability($profitStart, $profitEnd);
 $db = getDB();
 
 try {
-    // Count quotes by status
+    // Combine quote + plan + today's visit status counts in a single round-trip
     $stats = [];
-    $quoteStats = $db->query("
-        SELECT status, COUNT(*) as count
-        FROM quotes
-        GROUP BY status
-    ");
-    while ($row = $quoteStats->fetch()) {
-        $stats[$row['status']] = $row['count'];
-    }
-
-    // Count plans by status (replaces jobs)
     try {
-        $planStats = $db->query("SELECT status, COUNT(*) as count FROM job_plans GROUP BY status");
-        while ($row = $planStats->fetch()) {
-            $stats[$row['status']] = ($stats[$row['status']] ?? 0) + $row['count'];
+        $statusStmt = $db->query("
+            SELECT status, SUM(cnt) AS count FROM (
+                SELECT status, COUNT(*) AS cnt FROM quotes GROUP BY status
+                UNION ALL
+                SELECT status, COUNT(*) AS cnt FROM job_plans GROUP BY status
+                UNION ALL
+                SELECT status, COUNT(*) AS cnt FROM job_visits
+                WHERE scheduled_date = CURDATE() GROUP BY status
+            ) combined
+            GROUP BY status
+        ");
+        while ($row = $statusStmt->fetch()) {
+            $stats[$row['status']] = $row['count'];
         }
-    } catch (Exception $e) { /* table may not exist yet */ }
-
-    // Count today's visits
-    try {
-        $visitStats = $db->query("SELECT status, COUNT(*) as count FROM job_visits WHERE scheduled_date = CURDATE() GROUP BY status");
-        while ($row = $visitStats->fetch()) {
-            $stats[$row['status']] = ($stats[$row['status']] ?? 0) + $row['count'];
-        }
-    } catch (Exception $e) { /* table may not exist yet */ }
+    } catch (Exception $e) { /* tables may not exist yet */ }
 
     // Calculate useful stats
     $newInquiries = $db->query("SELECT COUNT(*) as count FROM quote_requests WHERE status IN ('new', 'reviewing')")->fetch()['count'];
@@ -94,12 +86,21 @@ try {
         $crewStmt = $db->query("
             SELECT
                 u.id, u.full_name, u.role, u.install_link_sent_at,
-                (SELECT COUNT(*) FROM time_clock_entries
-                 WHERE user_id = u.id AND clock_out IS NULL AND status = 'active') AS is_clocked_in,
-                (SELECT COUNT(*) FROM job_visits
-                 WHERE assigned_crew_id = u.id
-                   AND status IN ('scheduled', 'in_progress')) AS active_jobs
+                COALESCE(tc.active_count, 0) AS is_clocked_in,
+                COALESCE(jv.active_count, 0) AS active_jobs
             FROM users u
+            LEFT JOIN (
+                SELECT user_id, COUNT(*) AS active_count
+                FROM time_clock_entries
+                WHERE clock_out IS NULL AND status = 'active'
+                GROUP BY user_id
+            ) tc ON tc.user_id = u.id
+            LEFT JOIN (
+                SELECT assigned_crew_id, COUNT(*) AS active_count
+                FROM job_visits
+                WHERE status IN ('scheduled', 'in_progress')
+                GROUP BY assigned_crew_id
+            ) jv ON jv.assigned_crew_id = u.id
             WHERE u.is_active = 1
             ORDER BY is_clocked_in DESC, u.full_name ASC
         ");

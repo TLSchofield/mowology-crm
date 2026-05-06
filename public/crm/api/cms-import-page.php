@@ -29,6 +29,7 @@ if (!verifyCSRFToken($_POST['csrf_token'] ?? '')) {
     echo json_encode(['success' => false, 'error' => 'CSRF token invalid']);
     exit;
 }
+session_write_close();
 
 try {
     // Read uploaded JSON

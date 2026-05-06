@@ -105,6 +105,7 @@ try {
         echo json_encode(['error' => 'Not authorized for this visit']);
         exit;
     }
+    session_write_close();
 
     // Lock guard — most write actions blocked on locked visits
     $lockGuarded = ['save_checklist','save_materials','save_service_data','save_notes','save_signature','end_visit','upload_photo'];

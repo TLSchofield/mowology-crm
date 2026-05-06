@@ -24,6 +24,7 @@ unset($__dir, $__i);
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 requireLogin();
 if (!in_array(getCurrentUser()['role'] ?? '', ['admin', 'owner'])) {
+session_write_close();
     http_response_code(403); die('Admin only');
 }
 
