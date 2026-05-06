@@ -1488,11 +1488,19 @@ if ($apiKey) {
                                data-pref-dow="<?php echo $uvPrefDow !== null ? $uvPrefDow : ''; ?>"
                                data-placement-scores="<?php echo $uvScoreJson; ?>"
                                data-best-day="<?php echo htmlspecialchars($uvBestDate ?? ''); ?>"
-                               data-best-score="<?php echo $uvBestScore; ?>">
+                               data-best-score="<?php echo $uvBestScore; ?>"
+                               data-lat="<?php echo !empty($uv['property_lat']) ? round((float)$uv['property_lat'], 6) : ''; ?>"
+                               data-lng="<?php echo !empty($uv['property_lng']) ? round((float)$uv['property_lng'], 6) : ''; ?>"
+                               data-address="<?php echo htmlspecialchars(trim(($uv['property_address'] ?? '') . ', ' . ($uv['property_city'] ?? 'Vancouver') . ', BC'), ENT_QUOTES); ?>">
                               <div class="mw-tray-card-service" style="border-left:3px solid <?php echo getServiceColorLocal($uv['service_type'] ?? ''); ?>">
                                   <span class="mw-tray-card-type"><?php echo htmlspecialchars(getServiceLabelLocal($uv['service_type'] ?? '')); ?></span>
                                   <?php if ($uvIsBiweek): ?>
                                   <span class="mw-tray-card-recurrence-badge">14-day</span>
+                                  <?php endif; ?>
+                                  <?php if ($apiKey): ?>
+                                  <button type="button" class="mw-tray-card-map-btn" title="Preview week routes">
+                                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                                  </button>
                                   <?php endif; ?>
                               </div>
                               <div class="mw-tray-card-address" title="<?php echo htmlspecialchars(($uv['property_address'] ?? '') . ', ' . ($uv['property_city'] ?? '')); ?>">
@@ -3270,7 +3278,7 @@ var MW_ROUTE_STOPS = <?php
 <script src="../js/navigation-launcher.js?v=20260225c"></script>
 <script src="../js/route-engine.js?v=20260219a"></script>
 <script src="../js/mw-api.js?v=20260503a"></script>
-<script src="../js/schedule-route-map.js?v=20260503a"></script>
+<script src="../js/schedule-route-map.js?v=20260505a"></script>
 <script src="../js/schedule-pill-workflow.js?v=20260503a"></script>
 <script src="../js/schedule-drag-drop.js"></script>
 <script src="../js/schedule-stop-modal.js?v=20260505a"></script>
@@ -3787,6 +3795,28 @@ var MW_IS_ADMIN = <?php echo json_encode(in_array($user['role'], ['admin', 'mana
     // Escape key clears
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') clearPlacementIntelligence();
+    });
+
+    // ── Tray card Map Preview buttons (System 2) ──────────────────────────────
+    document.querySelectorAll('.mw-tray-card-map-btn').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation(); // don't toggle PI
+            var card = btn.closest('.mw-tray-card');
+            if (!card) return;
+            if (typeof MwRouteMap === 'undefined' || typeof MwRouteMap.openWeekPreview !== 'function') return;
+            var lat = parseFloat(card.dataset.lat);
+            var lng = parseFloat(card.dataset.lng);
+            if (!lat || !lng) return; // no coordinates — skip silently
+            MwRouteMap.openWeekPreview({
+                visitId:     parseInt(card.dataset.visitId, 10),
+                lat:         lat,
+                lng:         lng,
+                address:     card.dataset.address || '',
+                duration:    parseInt(card.dataset.duration, 10) || 45,
+                serviceType: card.dataset.serviceType || '',
+                bestDay:     card.dataset.bestDay || null
+            });
+        });
     });
 
     // ── Tray card drag ────────────────────────────────────────────────────────

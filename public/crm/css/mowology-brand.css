@@ -26185,3 +26185,85 @@ textarea.font-monospace {
 .mw-stop-card.mw-stop--running-late { border-left: 3px solid #e08c00 !important; }
 /* Ahead-of-schedule: blue left border */
 .mw-stop-card.mw-stop--early        { border-left: 3px solid #1565C0 !important; }
+
+/* ── System 2: Week Route Preview Mode ──────────────────────────────────────── */
+
+/* Day selector tab bar inserted between topbar and map */
+.mw-mv-week-tabs {
+    flex-shrink: 0;
+    display: flex;
+    gap: 4px;
+    padding: 8px 10px;
+    background: #111;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+}
+.mw-mv-week-tabs::-webkit-scrollbar { display: none; }
+
+.mw-mv-week-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 10px;
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 20px;
+    background: transparent;
+    color: rgba(255,255,255,0.55);
+    font-size: 0.72rem;
+    font-weight: 500;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.mw-mv-week-tab:hover {
+    background: rgba(255,255,255,0.08);
+    color: rgba(255,255,255,0.9);
+    border-color: rgba(255,255,255,0.3);
+}
+.mw-mv-week-tab--active {
+    background: rgba(255,255,255,0.18);
+    border-color: rgba(255,255,255,0.5);
+    color: #fff;
+    font-weight: 600;
+}
+.mw-mv-week-tab--best .mw-mv-week-tab-day::after {
+    content: '\2605';
+    font-size: 8px;
+    margin-left: 2px;
+    vertical-align: super;
+    color: #ffc107;
+}
+.mw-mv-week-tab-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.mw-mv-week-tab-count {
+    font-size: 0.65rem;
+    opacity: 0.7;
+}
+
+/* Map preview icon button on each tray card */
+.mw-tray-card-map-btn {
+    background: none;
+    border: 1px solid rgba(45,134,89,0.25);
+    border-radius: 4px;
+    padding: 2px 5px;
+    cursor: pointer;
+    color: var(--mw-green);
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    margin-left: auto;
+    transition: background 0.15s;
+}
+.mw-tray-card-map-btn:hover { background: var(--mw-light); }
+
+/* Ensure the service row can hold both label and map button */
+.mw-tray-card-service {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}

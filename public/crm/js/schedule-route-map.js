@@ -53,6 +53,14 @@ var MwRouteMap = (function() {
     var lastRouteSummary = null;         // Cached MwRouteEngine result for UI
     var legDurations = [];               // Per-leg durations from Directions result
 
+    // ── Week Preview Mode state ──
+    var weekPreviewMode = false;
+    var weekPolylines = [];              // [{date, polyline, stops, color, idx}]
+    var insertionPolyline = null;
+    var insertionInfoWindow = null;
+    var visitPreviewMarker = null;
+    var DAY_COLORS = ['#1565C0','#6A1B9A','#2E7D32','#EF6C00','#B71C1C','#37474F','#00838F'];
+
     // ── In-App Navigation state ──
     // ── Schedule context sheet (3a) ──
     var schedSheet = null;          // bottom sheet DOM element
@@ -212,6 +220,12 @@ var MwRouteMap = (function() {
 
     function close() {
         if (navActive) stopInAppNav();
+        if (weekPreviewMode) {
+            clearWeekPreview();
+            weekPreviewMode = false;
+            viewEl.classList.remove('mw-mv-week-preview');
+            if (trayEl) trayEl.style.display = '';
+        }
         isOpen = false;
         viewEl.classList.remove('mw-mv-visible');
         document.body.style.overflow = '';
@@ -1654,6 +1668,301 @@ var MwRouteMap = (function() {
     }
 
     // ═══════════════════════════════════════════════════
+    //  WEEK PREVIEW MODE (Route Preview for Unscheduled Visits)
+    // ═══════════════════════════════════════════════════
+
+    function openWeekPreview(visitData) {
+        if (!viewEl || !mapEl) return;
+
+        weekPreviewMode = true;
+        isOpen = true;
+        optimizedStops = null;
+
+        viewEl.classList.add('mw-mv-visible', 'mw-mv-loading', 'mw-mv-week-preview');
+        document.body.style.overflow = 'hidden';
+        titleEl.textContent = 'Route Preview';
+
+        // Hide card tray (not used in week preview mode)
+        if (trayEl) trayEl.style.display = 'none';
+        if (summaryEl) summaryEl.style.display = 'none';
+
+        buildWeekPreviewTabs(visitData);
+
+        function onMapsReady() {
+            if (!mapInitialized) initMap();
+            else google.maps.event.trigger(map, 'resize');
+            drawWeekRoutes(visitData);
+        }
+
+        if (typeof google === 'undefined' || typeof google.maps === 'undefined') {
+            var check = setInterval(function() {
+                if (typeof google !== 'undefined' && typeof google.maps !== 'undefined') {
+                    clearInterval(check);
+                    onMapsReady();
+                }
+            }, 200);
+        } else {
+            onMapsReady();
+        }
+    }
+
+    function buildWeekPreviewTabs(visitData) {
+        var tabBar = document.getElementById('mwMvWeekTabs');
+        if (tabBar) {
+            tabBar.innerHTML = '';
+        } else {
+            tabBar = document.createElement('div');
+            tabBar.id = 'mwMvWeekTabs';
+            tabBar.className = 'mw-mv-week-tabs';
+            var topbar = viewEl.querySelector('.mw-mv-topbar');
+            if (topbar && topbar.nextSibling) {
+                viewEl.insertBefore(tabBar, topbar.nextSibling);
+            } else {
+                viewEl.insertBefore(tabBar, mapEl);
+            }
+        }
+
+        var weekStops = (typeof MW_WEEK_STOPS !== 'undefined') ? MW_WEEK_STOPS : {};
+        var dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+        var bestDate = visitData.bestDay || null;
+
+        Object.keys(weekStops).sort().forEach(function(dateStr, idx) {
+            var stops = weekStops[dateStr] || [];
+            var d = new Date(dateStr + 'T12:00:00');
+            var dayName = dayNames[d.getDay()];
+
+            var tab = document.createElement('button');
+            tab.type = 'button';
+            tab.className = 'mw-mv-week-tab';
+            tab.dataset.date = dateStr;
+            tab.dataset.colorIdx = idx;
+            if (dateStr === bestDate) tab.classList.add('mw-mv-week-tab--best');
+
+            tab.innerHTML =
+                '<span class="mw-mv-week-tab-dot" style="background:' + DAY_COLORS[idx % DAY_COLORS.length] + '"></span>' +
+                '<span class="mw-mv-week-tab-day">' + dayName + '</span>' +
+                '<span class="mw-mv-week-tab-count">' + stops.length + '</span>';
+
+            tab.addEventListener('click', function() {
+                tabBar.querySelectorAll('.mw-mv-week-tab').forEach(function(t) {
+                    t.classList.remove('mw-mv-week-tab--active');
+                });
+                tab.classList.add('mw-mv-week-tab--active');
+                showInsertionPreview(dateStr, visitData, idx);
+            });
+
+            tabBar.appendChild(tab);
+        });
+    }
+
+    function drawWeekRoutes(visitData) {
+        clearWeekPreview();
+        if (!map) { viewEl.classList.remove('mw-mv-loading'); return; }
+
+        var weekStops = (typeof MW_WEEK_STOPS !== 'undefined') ? MW_WEEK_STOPS : {};
+        var bounds = new google.maps.LatLngBounds();
+        var hasAny = false;
+
+        Object.keys(weekStops).sort().forEach(function(dateStr, idx) {
+            var stops = weekStops[dateStr] || [];
+            var validStops = stops.filter(function(s) { return s.lat && s.lng; });
+            if (!validStops.length) return;
+
+            var color = DAY_COLORS[idx % DAY_COLORS.length];
+            var path = validStops.map(function(s) {
+                var p = new google.maps.LatLng(s.lat, s.lng);
+                bounds.extend(p);
+                hasAny = true;
+                return p;
+            });
+
+            var polyline = new google.maps.Polyline({
+                path: path,
+                geodesic: true,
+                strokeColor: color,
+                strokeOpacity: 0.3,
+                strokeWeight: 3,
+                map: map
+            });
+
+            weekPolylines.push({ date: dateStr, polyline: polyline, stops: stops, color: color, idx: idx });
+
+            // Dimmed stop markers for each day
+            validStops.forEach(function(s) {
+                var m = new google.maps.Marker({
+                    position: new google.maps.LatLng(s.lat, s.lng),
+                    map: map,
+                    icon: {
+                        path: google.maps.SymbolPath.CIRCLE,
+                        scale: 4,
+                        fillColor: color,
+                        fillOpacity: 0.35,
+                        strokeColor: '#fff',
+                        strokeWeight: 1
+                    },
+                    zIndex: 5
+                });
+                stopMarkers.push(m);
+            });
+        });
+
+        // Orange marker for the new unscheduled visit
+        if (visitData.lat && visitData.lng) {
+            var visitPos = new google.maps.LatLng(visitData.lat, visitData.lng);
+            visitPreviewMarker = new google.maps.Marker({
+                position: visitPos,
+                map: map,
+                icon: {
+                    path: google.maps.SymbolPath.CIRCLE,
+                    scale: 13,
+                    fillColor: '#e85d04',
+                    fillOpacity: 1,
+                    strokeColor: '#fff',
+                    strokeWeight: 3
+                },
+                title: visitData.address || 'New stop',
+                zIndex: 999,
+                animation: google.maps.Animation.BOUNCE
+            });
+            setTimeout(function() {
+                if (visitPreviewMarker) visitPreviewMarker.setAnimation(null);
+            }, 2000);
+            bounds.extend(visitPos);
+            hasAny = true;
+        }
+
+        if (hasAny) map.fitBounds(bounds, { top: 90, right: 20, bottom: 40, left: 20 });
+        viewEl.classList.remove('mw-mv-loading');
+
+        // Auto-activate best day tab
+        if (visitData.bestDay) {
+            var bestTab = document.querySelector('.mw-mv-week-tab[data-date="' + visitData.bestDay + '"]');
+            if (bestTab) {
+                bestTab.classList.add('mw-mv-week-tab--active');
+                showInsertionPreview(visitData.bestDay, visitData, parseInt(bestTab.dataset.colorIdx, 10) || 0);
+            }
+        }
+    }
+
+    function showInsertionPreview(dateStr, visitData, colorIdx) {
+        clearInsertionPreview();
+        if (!map) return;
+
+        var weekStops = (typeof MW_WEEK_STOPS !== 'undefined') ? MW_WEEK_STOPS : {};
+        var stops = (weekStops[dateStr] || []).filter(function(s) { return s.lat && s.lng; });
+
+        // Highlight selected polyline, dim others
+        weekPolylines.forEach(function(wp) {
+            var isSel = wp.date === dateStr;
+            wp.polyline.setOptions({
+                strokeOpacity: isSel ? 0.85 : 0.1,
+                strokeWeight: isSel ? 5 : 2
+            });
+        });
+
+        if (!visitData.lat || !visitData.lng) return;
+        var newLat = visitData.lat;
+        var newLng = visitData.lng;
+
+        // Find optimal insertion point (min added haversine drive)
+        var bestInsertIdx = 0;
+        var minAddedMeters = 0;
+        var bestPrev = null, bestNext = null;
+
+        if (stops.length > 0) {
+            minAddedMeters = Infinity;
+
+            // Try inserting before first stop
+            var d0 = haversine(newLat, newLng, stops[0].lat, stops[0].lng);
+            if (d0 < minAddedMeters) {
+                minAddedMeters = d0; bestInsertIdx = 0;
+                bestPrev = null; bestNext = stops[0];
+            }
+
+            // Try each gap between adjacent stops
+            for (var i = 0; i < stops.length - 1; i++) {
+                var prev = stops[i], next = stops[i + 1];
+                var pn = haversine(prev.lat, prev.lng, newLat, newLng);
+                var nn = haversine(newLat, newLng, next.lat, next.lng);
+                var po = haversine(prev.lat, prev.lng, next.lat, next.lng);
+                var added = pn + nn - po;
+                if (added < minAddedMeters) {
+                    minAddedMeters = added; bestInsertIdx = i + 1;
+                    bestPrev = prev; bestNext = next;
+                }
+            }
+
+            // Try after last stop
+            var dLast = haversine(stops[stops.length - 1].lat, stops[stops.length - 1].lng, newLat, newLng);
+            if (dLast < minAddedMeters) {
+                minAddedMeters = dLast; bestInsertIdx = stops.length;
+                bestPrev = stops[stops.length - 1]; bestNext = null;
+            }
+        }
+
+        // Dashed insertion polyline: prevStop → newStop → nextStop
+        var insertPath = [];
+        if (bestPrev) insertPath.push(new google.maps.LatLng(bestPrev.lat, bestPrev.lng));
+        insertPath.push(new google.maps.LatLng(newLat, newLng));
+        if (bestNext) insertPath.push(new google.maps.LatLng(bestNext.lat, bestNext.lng));
+
+        if (insertPath.length >= 2) {
+            insertionPolyline = new google.maps.Polyline({
+                path: insertPath,
+                geodesic: true,
+                strokeColor: '#e85d04',
+                strokeOpacity: 0,
+                strokeWeight: 2,
+                icons: [{
+                    icon: { path: 'M 0,-1 0,1', strokeOpacity: 1, scale: 4 },
+                    offset: '0',
+                    repeat: '16px'
+                }],
+                map: map
+            });
+        }
+
+        // "+X min" InfoWindow at new visit marker
+        var addedKm = minAddedMeters / 1000;
+        var addedMin = stops.length === 0 ? 0 : Math.max(1, Math.round(addedKm / 0.5));
+        var sign = stops.length === 0 ? 'Only stop' : '+' + addedMin + ' min';
+
+        insertionInfoWindow = new google.maps.InfoWindow({
+            content: '<div style="font-family:sans-serif;font-size:13px;line-height:1.5;">' +
+                '<strong style="color:#e85d04;">' + sign + '</strong>' +
+                (stops.length > 0 ? ' &middot; position ' + (bestInsertIdx + 1) + ' of ' + (stops.length + 1) : '') +
+                '</div>',
+            position: new google.maps.LatLng(newLat, newLng),
+            disableAutoPan: true
+        });
+        insertionInfoWindow.open(map);
+
+        titleEl.textContent = stops.length + ' stops + new &middot; ' + sign;
+    }
+
+    function clearInsertionPreview() {
+        if (insertionPolyline) { insertionPolyline.setMap(null); insertionPolyline = null; }
+        if (insertionInfoWindow) { insertionInfoWindow.close(); insertionInfoWindow = null; }
+        weekPolylines.forEach(function(wp) {
+            wp.polyline.setOptions({ strokeOpacity: 0.3, strokeWeight: 3 });
+        });
+    }
+
+    function clearWeekPreview() {
+        weekPolylines.forEach(function(wp) { wp.polyline.setMap(null); });
+        weekPolylines = [];
+        if (visitPreviewMarker) {
+            visitPreviewMarker.setAnimation(null);
+            visitPreviewMarker.setMap(null);
+            visitPreviewMarker = null;
+        }
+        clearInsertionPreview();
+        clearMarkers();
+        var tabBar = document.getElementById('mwMvWeekTabs');
+        if (tabBar) tabBar.innerHTML = '';
+    }
+
+        // ═══════════════════════════════════════════════════
     //  BOOT
     // ═══════════════════════════════════════════════════
 
@@ -1698,6 +2007,7 @@ var MwRouteMap = (function() {
         toggle: toggle,
         openToStop: openToStop,
         launchNavToStop: launchNavToStop,
+        openWeekPreview: openWeekPreview,
         close: close
     };
 
