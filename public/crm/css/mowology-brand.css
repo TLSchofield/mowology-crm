@@ -25923,3 +25923,34 @@ textarea.font-monospace {
   padding: 40px 20px;
   color: #666;
 }
+
+/* ── Contracts Stat Cards (.mw-ctr-) ───────────────────────────────────── */
+.mw-ctr-stat-card {
+  border: none;
+  border-radius: 10px;
+  box-shadow: 0 1px 4px rgba(0,0,0,.07);
+  border-left: 4px solid var(--mw-green);
+  transition: transform .15s;
+}
+.mw-ctr-stat-card:hover { transform: translateY(-2px); }
+.mw-ctr-stat-card--warn { border-left-color: var(--mw-orange); }
+.mw-ctr-stat-card .card-body { padding: 1rem 1.25rem; }
+.mw-ctr-stat-label {
+  font-size: .72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: #888;
+  margin-bottom: 4px;
+}
+.mw-ctr-stat-value {
+  font-size: 1.7rem;
+  font-weight: 700;
+  color: var(--mw-forest);
+  line-height: 1.1;
+}
+.mw-ctr-stat-sub {
+  font-size: .78rem;
+  color: #aaa;
+  margin-top: 4px;
+}

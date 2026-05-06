@@ -21,6 +21,7 @@ if (strlen($q) < 2) {
 }
 
 $db   = getDB();
+$db->exec("SET NAMES utf8mb4 COLLATE utf8mb4_general_ci");
 $like = '%' . $q . '%';
 
 // Single UNION ALL — one round-trip for all entity types.
