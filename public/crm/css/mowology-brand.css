@@ -26062,3 +26062,36 @@ textarea.font-monospace {
 
 /* Hidden cards (status filter) */
 .mw-stop-card--hidden { display: none !important; }
+
+/* ── System 1: Route Engine Feasibility Bars ────────────────────────────── */
+.mw-day-feas-bar {
+  height: 4px;
+  border-radius: 2px 2px 0 0;
+  background: var(--mw-light, #e0ede8);
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 2px;
+  transition: background 0.3s ease;
+}
+.mw-day-feas-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: var(--feas-pct, 0%);
+  transition: width 0.5s ease;
+}
+.mw-day-feas-bar[data-status="green"]::after  { background: var(--mw-green, #2D8659); }
+.mw-day-feas-bar[data-status="yellow"]::after { background: #e08c00; }
+.mw-day-feas-bar[data-status="red"]::after    { background: #c0392b; }
+.mw-day-feas-label {
+  display: block;
+  font-size: 0.68rem;
+  color: var(--mw-muted, #6c757d);
+  margin-bottom: 4px;
+  min-height: 1em;
+  line-height: 1.2;
+}
+/* Overloaded day column: subtle red tint on the card header */
+.mw-day-column.mw-day-overloaded > .mw-day-feas-bar[data-status="red"] {
+  height: 5px;
+}

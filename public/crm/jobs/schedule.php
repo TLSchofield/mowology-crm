@@ -1598,7 +1598,14 @@ if ($apiKey) {
                       <div class="mw-day-column mw-battle-card <?php echo $isToday ? 'today' : ''; ?> <?php echo $bcMarginClass; ?>"
                            data-date="<?php echo $dateStr; ?>"
                            data-density="<?php echo $bcDensity; ?>"
+                           data-cap-used="<?php echo (int)($dayCapUsed[$dateStr] ?? 0); ?>"
+                           data-cap-total="540"
+                           data-stop-count="<?php echo $bcStops; ?>"
                            style="--bc-heat: <?php echo $bcHeatmapAlpha; ?>">
+
+                          <!-- ─ Route Engine Feasibility Bar (filled by JS) ── -->
+                          <div class="mw-day-feas-bar" data-date="<?php echo $dateStr; ?>" data-status="unknown"></div>
+                          <span class="mw-day-feas-label" data-date="<?php echo $dateStr; ?>"></span>
 
                           <!-- ─ Day Summary Card ──────────────────────────── -->
                           <?php if ($bcStops > 0): ?>
@@ -3272,6 +3279,77 @@ var MW_DAY_VIEW_STOPS = <?php echo json_encode($dayViewMapStops); ?>;
 <?php endif; ?>
 <?php if ($view === 'week'): ?>
 <script>
+// Week stops for feasibility computation — keyed by YYYY-MM-DD
+var MW_WEEK_STOPS = <?php
+    $weekStopsForFeasibility = [];
+    $wfDate = new DateTime($startDate);
+    for ($wfi = 0; $wfi < 7; $wfi++) {
+        $wfDs = $wfDate->format('Y-m-d');
+        $weekStopsForFeasibility[$wfDs] = [];
+        foreach (($calendarData[$wfDs] ?? []) as $wfStop) {
+            foreach (($wfStop['visits'] ?? []) as $wfV) {
+                $weekStopsForFeasibility[$wfDs][] = [
+                    'stopId'   => (int)$wfStop['stop_id'],
+                    'duration' => (int)($wfV['calibrated_duration'] ?? $wfV['estimated_duration'] ?? 45),
+                    'lat'      => $wfStop['latitude']  ? (float)$wfStop['latitude']  : null,
+                    'lng'      => $wfStop['longitude'] ? (float)$wfStop['longitude'] : null,
+                    'address'  => !empty($wfStop['property_address'])
+                                    ? trim($wfStop['property_address'] . ', ' . ($wfStop['property_city'] ?? 'Vancouver') . ', BC, Canada')
+                                    : null,
+                ];
+            }
+        }
+        $wfDate->modify('+1 day');
+    }
+    echo json_encode($weekStopsForFeasibility);
+?>;
+
+// ── System 1: Route Engine Feasibility Bars ─────────────────────────────────
+// For each day with stops, call MwRouteEngine.computeRouteSummary() and render
+// a green/yellow/red progress bar above the battle card.
+(function() {
+    'use strict';
+
+    if (typeof MwRouteEngine === 'undefined') return;
+
+    var today = <?php echo json_encode(date('Y-m-d')); ?>;
+
+    Object.keys(MW_WEEK_STOPS).forEach(function(dateStr) {
+        var stops = MW_WEEK_STOPS[dateStr];
+        if (!stops || stops.length === 0) return;
+
+        MwRouteEngine.computeRouteSummary(stops, {
+            date: dateStr,
+            trafficMode: 'typical',
+            orderMode: 'scheduled'
+        }).then(function(result) {
+            if (!result || !result.feasibility) return;
+
+            var f   = result.feasibility;
+            var bar = document.querySelector('.mw-day-feas-bar[data-date="' + dateStr + '"]');
+            var lbl = document.querySelector('.mw-day-feas-label[data-date="' + dateStr + '"]');
+
+            if (bar) {
+                bar.setAttribute('data-status', f.classification);
+                bar.style.setProperty('--feas-pct', Math.min(100, f.breakdown.utilizationPercent) + '%');
+            }
+            if (lbl) {
+                var driveMin = f.breakdown.totalDriveMinutes;
+                var jobMin   = f.breakdown.totalJobMinutes;
+                lbl.textContent = driveMin + 'm drive · ' + jobMin + 'm work';
+            }
+
+            // Overflow detection: if red, flag the day column
+            if (f.classification === 'red') {
+                var col = document.querySelector('.mw-day-column[data-date="' + dateStr + '"]');
+                if (col) col.classList.add('mw-day-overloaded');
+            }
+        }).catch(function() {
+            // Silently ignore route engine errors — bar stays grey
+        });
+    });
+})();
+
 // Day header click → navigate to day view
 document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
     cell.style.cursor = 'pointer';
