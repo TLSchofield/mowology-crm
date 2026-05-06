@@ -98,8 +98,8 @@ $activePage = 'contracts';
           </div>
 
           <!-- Stat Cards -->
-          <div class="mw-ctr-stats row g-3 mb-4">
-              <div class="col-6 col-md-3">
+          <div class="row mb-4">
+              <div class="col-6 col-md-3 mb-3 mb-md-0">
                   <div class="card mw-ctr-stat-card">
                       <div class="card-body">
                           <div class="mw-ctr-stat-label">Monthly Revenue</div>
@@ -108,7 +108,7 @@ $activePage = 'contracts';
                       </div>
                   </div>
               </div>
-              <div class="col-6 col-md-3">
+              <div class="col-6 col-md-3 mb-3 mb-md-0">
                   <div class="card mw-ctr-stat-card">
                       <div class="card-body">
                           <div class="mw-ctr-stat-label">Annual Run Rate</div>
@@ -117,7 +117,7 @@ $activePage = 'contracts';
                       </div>
                   </div>
               </div>
-              <div class="col-6 col-md-3">
+              <div class="col-6 col-md-3 mb-3 mb-md-0">
                   <div class="card mw-ctr-stat-card">
                       <div class="card-body">
                           <div class="mw-ctr-stat-label">Avg Contract</div>
@@ -127,7 +127,7 @@ $activePage = 'contracts';
                   </div>
               </div>
               <div class="col-6 col-md-3">
-                  <div class="card mw-ctr-stat-card <?php echo $pausedMrr > 0 ? 'mw-ctr-stat-card--warn' : ''; ?>">
+                  <div class="card mw-ctr-stat-card <?php echo ($pausedMrr > 0) ? 'mw-ctr-stat-card--warn' : ''; ?>">
                       <div class="card-body">
                           <div class="mw-ctr-stat-label">Paused Revenue</div>
                           <div class="mw-ctr-stat-value">$<?php echo number_format($pausedMrr, 0); ?></div>
