@@ -383,7 +383,10 @@ function fmtDate(string $d): string {
                 </div>
 
                 <div id="stripeLoading">
-                    <span>Loading secure payment form&hellip;</span>
+                    <span id="stripeLoadingMsg">Loading secure payment form&hellip;</span>
+                    <div id="stripeLoadingRetry" style="display:none;margin-top:14px;">
+                        <button type="button" class="portal-btn-outline" onclick="initStripeRetry()">Try Again</button>
+                    </div>
                 </div>
                 <div id="payment-element" style="display:none;"></div>
                 <div id="saveCardWrap" class="portal-save-card-wrap" style="display:none;">
@@ -420,6 +423,7 @@ function fmtDate(string $d): string {
         var stripe = null, elements = null, paymentEl = null, fetched = false;
         var intentData = null; // full API response
         var usingNewCard = false; // true when customer chose "use different card"
+        var loadTimers = []; // progressive-message timers; cleared on success/error
 
         // Card brand icons (emoji fallbacks — clean and mobile-friendly)
         var brandIcons = {
@@ -436,14 +440,49 @@ function fmtDate(string $d): string {
             document.getElementById('payModal').classList.remove('open');
         };
 
+        // Customer-visible retry hook (button shown on timeout/error)
+        window.initStripeRetry = function () {
+            clearLoadTimers();
+            document.getElementById('stripeLoadingRetry').style.display = 'none';
+            document.getElementById('stripeLoadingMsg').textContent = 'Loading secure payment form…';
+            document.getElementById('stripeLoading').style.display = 'block';
+            clearError();
+            initStripe();
+        };
+
+        function setLoadMsg(msg)        { document.getElementById('stripeLoadingMsg').textContent = msg; }
+        function showLoadRetry(show)    { document.getElementById('stripeLoadingRetry').style.display = show ? 'block' : 'none'; }
+        function clearLoadTimers()      { loadTimers.forEach(function(t){ clearTimeout(t); }); loadTimers = []; }
+        function scheduleProgressMsgs() {
+            clearLoadTimers();
+            loadTimers.push(setTimeout(function () {
+                setLoadMsg('Still working… connecting securely.');
+            }, 5000));
+            loadTimers.push(setTimeout(function () {
+                setLoadMsg('Taking longer than usual… please hold on.');
+            }, 12000));
+        }
+
         document.getElementById('payModal').addEventListener('click', function (e) {
             if (e.target === this) closePayModal();
         });
 
         function initStripe() {
+            scheduleProgressMsgs();
+
+            // 25s hard timeout — host occasionally hangs ~30s on cold-start; abort
+            // a bit before that so the customer sees a useful error not a frozen UI.
+            var ac = (typeof AbortController === 'function') ? new AbortController() : null;
+            var timedOut = false;
+            var aborter = setTimeout(function () {
+                timedOut = true;
+                if (ac) ac.abort();
+            }, 25000);
+
             fetch('/customer/api/invoice-payment-intent.php', {
                 method : 'POST',
                 headers: { 'Content-Type': 'application/json' },
+                signal : ac ? ac.signal : undefined,
                 body   : JSON.stringify({
                     token    : <?php echo json_encode($token); ?>,
                     save_card: false
@@ -451,9 +490,12 @@ function fmtDate(string $d): string {
             })
             .then(function (r) { return r.json(); })
             .then(function (data) {
+                clearTimeout(aborter);
+                clearLoadTimers();
                 if (data.error) {
                     showError(data.error);
-                    document.getElementById('stripeLoading').style.display = 'none';
+                    setLoadMsg('Unable to load payment form.');
+                    showLoadRetry(true);
                     return;
                 }
                 fetched = true;
@@ -468,9 +510,16 @@ function fmtDate(string $d): string {
                 }
             })
             .catch(function (err) {
+                clearTimeout(aborter);
+                clearLoadTimers();
                 console.error(err);
-                showError('Unable to load payment form. Please refresh and try again.');
-                document.getElementById('stripeLoading').style.display = 'none';
+                if (timedOut) {
+                    setLoadMsg('The connection is taking too long. Please try again.');
+                } else {
+                    setLoadMsg('Unable to load payment form.');
+                    showError('We couldn\'t reach our payment provider. Please try again, or call (778) 846-9273.');
+                }
+                showLoadRetry(true);
             });
         }
 
@@ -525,7 +574,15 @@ function fmtDate(string $d): string {
             });
             paymentEl = elements.create('payment', { layout: 'tabs' });
             paymentEl.mount('#payment-element');
+
+            // Hard timeout if 'ready' never fires (e.g. iframe blocked by CSP/extension)
+            var readyTimer = setTimeout(function () {
+                setLoadMsg('Payment form is taking too long to load.');
+                showLoadRetry(true);
+            }, 15000);
+
             paymentEl.on('ready', function () {
+                clearTimeout(readyTimer);
                 document.getElementById('stripeLoading').style.display  = 'none';
                 document.getElementById('payment-element').style.display = 'block';
                 document.getElementById('stripeFooter').style.display   = 'flex';
