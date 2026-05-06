@@ -1038,6 +1038,52 @@ function ensureCalendarStop(int $propertyId, string $date, ?int $crewId,
  * @param int|null $crewId  Filter by crew, or null for all
  * @return array
  */
+
+/**
+ * Return a calibrated duration estimate (minutes) for a property + service type.
+ * Uses last 6 months of actual_duration_minutes from completed job_visits.
+ *
+ * n >= 3 historical → avg × 1.05 (5% safety buffer), source = 'historical'
+ * n = 1,2           → 70% plan estimate + 30% avg,   source = 'blended'
+ * n = 0             → plan estimate unchanged,        source = 'estimated'
+ */
+function getPropertyDurationEstimate($db, int $propertyId, ?string $serviceType, int $planEstimateMinutes): array {
+    // Sanitize planEst: some old records stored duration in seconds instead of minutes.
+    // Heuristic: values > 480 min (8h) are assumed to be seconds; convert them.
+    if ($planEstimateMinutes > 480) {
+        $planEstimateMinutes = max(15, (int)round($planEstimateMinutes / 60));
+    }
+    // Hard cap: a single visit can't take more than 8 hours.
+    $planEstimateMinutes = min($planEstimateMinutes, 480);
+
+    try {
+        // Exclude actual_duration_minutes > 600 (10h) — bad timer data.
+        $stmt = $db->prepare("
+            SELECT AVG(jv.actual_duration_minutes) AS avg_min, COUNT(*) AS n
+            FROM job_visits jv
+            JOIN job_plans jp ON jv.plan_id = jp.id
+            WHERE jp.property_id = ?
+              AND (? IS NULL OR jp.service_type = ?)
+              AND jv.actual_duration_minutes IS NOT NULL
+              AND jv.actual_duration_minutes BETWEEN 5 AND 600
+              AND jv.completed_at > DATE_SUB(NOW(), INTERVAL 6 MONTH)
+        ");
+        $stmt->execute([$propertyId, $serviceType, $serviceType]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        $n   = (int)($row['n'] ?? 0);
+        $avg = (float)($row['avg_min'] ?? 0);
+    } catch (Exception $e) {
+        return ['minutes' => $planEstimateMinutes, 'source' => 'estimated'];
+    }
+
+    if ($n >= 3) {
+        return ['minutes' => min(480, (int)round($avg * 1.05)), 'source' => 'historical'];
+    } elseif ($n >= 1) {
+        return ['minutes' => min(480, (int)round($planEstimateMinutes * 0.7 + $avg * 0.3)), 'source' => 'blended'];
+    }
+    return ['minutes' => $planEstimateMinutes, 'source' => 'estimated'];
+}
+
 function getCalendarStops(string $startDate, string $endDate, ?int $crewId = null, ?string $serviceType = null): array {
     $db = getDB();
 
@@ -1250,6 +1296,32 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
         if (empty($stops)) {
             unset($result[$date]);
         }
+    }
+    unset($stops);
+
+    // Calibrate visit durations using historical actual_duration_minutes.
+    // Cache by (propertyId:serviceType) to avoid duplicate queries.
+    $durationCache = [];
+    foreach ($result as $date => &$stops) {
+        foreach ($stops as $stopId => &$stop) {
+            foreach ($stop['visits'] as &$visit) {
+                $planEst = (int)($visit['estimated_duration'] ?? 45);
+                $cacheKey = $stop['property_id'] . ':' . ($visit['service_type'] ?? '');
+                if (!array_key_exists($cacheKey, $durationCache)) {
+                    $durationCache[$cacheKey] = getPropertyDurationEstimate(
+                        $db,
+                        (int)$stop['property_id'],
+                        $visit['service_type'] ?: null,
+                        $planEst
+                    );
+                }
+                $cal = $durationCache[$cacheKey];
+                $visit['calibrated_duration']   = $cal['minutes'];
+                $visit['calibration_source']    = $cal['source'];
+            }
+            unset($visit);
+        }
+        unset($stop);
     }
     unset($stops);
 

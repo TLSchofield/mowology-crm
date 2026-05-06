@@ -3290,7 +3290,7 @@ var MW_WEEK_STOPS = <?php
             foreach (($wfStop['visits'] ?? []) as $wfV) {
                 $weekStopsForFeasibility[$wfDs][] = [
                     'stopId'   => (int)$wfStop['stop_id'],
-                    'duration' => (int)($wfV['calibrated_duration'] ?? $wfV['estimated_duration'] ?? 45),
+                    'duration' => min(480, (int)($wfV['calibrated_duration'] ?? $wfV['estimated_duration'] ?? 45)),
                     'lat'      => $wfStop['latitude']  ? (float)$wfStop['latitude']  : null,
                     'lng'      => $wfStop['longitude'] ? (float)$wfStop['longitude'] : null,
                     'address'  => !empty($wfStop['property_address'])
