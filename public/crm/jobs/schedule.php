@@ -1441,6 +1441,9 @@ if ($apiKey) {
                   ?>
               </div>
 
+              <!-- Route engine overload banner — filled by JS after feasibility runs -->
+              <div id="mwOverloadBanner" class="mw-overload-banner" style="display:none"></div>
+
               <!-- Day columns with stop cards -->
               <div class="mw-stop-grid<?php echo $unscheduledCount > 0 ? ' mw-stop-grid--has-tray' : ''; ?>" id="mwStopGrid">
 
@@ -3304,20 +3307,50 @@ var MW_WEEK_STOPS = <?php
     echo json_encode($weekStopsForFeasibility);
 ?>;
 
-// ── System 1: Route Engine Feasibility Bars ─────────────────────────────────
-// For each day with stops, call MwRouteEngine.computeRouteSummary() and render
-// a green/yellow/red progress bar above the battle card.
+// ── System 1: Route Engine Feasibility Bars + Overflow Detection ─────────────
 (function() {
     'use strict';
 
     if (typeof MwRouteEngine === 'undefined') return;
 
-    var today = <?php echo json_encode(date('Y-m-d')); ?>;
+    var overloadedDays = [];
+    var pending = 0;
+
+    function maybeRenderBanner() {
+        if (pending > 0 || overloadedDays.length === 0) return;
+        var banner = document.getElementById('mwOverloadBanner');
+        if (!banner) return;
+
+        var html = '<div class="mw-overload-inner">'
+            + '<span class="mw-overload-icon">&#9888;</span>'
+            + '<div class="mw-overload-days">';
+
+        overloadedDays.forEach(function(day) {
+            var dt = new Date(day.dateStr + 'T12:00:00');
+            var dayLabel = dt.toLocaleDateString('en-CA', { weekday: 'long', month: 'short', day: 'numeric' });
+            var crewParam = new URLSearchParams(window.location.search).get('crew');
+            var dayUrl = '?view=day&date=' + day.dateStr + (crewParam ? '&crew=' + crewParam : '');
+            html += '<span class="mw-overload-day-item">'
+                + '<a href="' + dayUrl + '" class="mw-overload-day-link">' + dayLabel + '</a>'
+                + ' ' + day.driveMin + 'm drive + ' + day.jobMin + 'm work'
+                + ' <span class="mw-overload-pct">(' + day.utilizationPct + '% capacity)</span>'
+                + '</span>';
+        });
+
+        html += '</div>'
+            + '<button class="mw-overload-dismiss" title="Dismiss" '
+            + 'onclick="this.closest(\'.mw-overload-banner\').style.display=\'none\'">&#215;</button>'
+            + '</div>';
+
+        banner.innerHTML = html;
+        banner.style.display = 'block';
+    }
 
     Object.keys(MW_WEEK_STOPS).forEach(function(dateStr) {
         var stops = MW_WEEK_STOPS[dateStr];
         if (!stops || stops.length === 0) return;
 
+        pending++;
         MwRouteEngine.computeRouteSummary(stops, {
             date: dateStr,
             trafficMode: 'typical',
@@ -3334,18 +3367,44 @@ var MW_WEEK_STOPS = <?php
                 bar.style.setProperty('--feas-pct', Math.min(100, f.breakdown.utilizationPercent) + '%');
             }
             if (lbl) {
-                var driveMin = f.breakdown.totalDriveMinutes;
-                var jobMin   = f.breakdown.totalJobMinutes;
-                lbl.textContent = driveMin + 'm drive · ' + jobMin + 'm work';
+                lbl.textContent = f.breakdown.totalDriveMinutes + 'm drive · '
+                    + f.breakdown.totalJobMinutes + 'm work';
             }
 
-            // Overflow detection: if red, flag the day column
             if (f.classification === 'red') {
                 var col = document.querySelector('.mw-day-column[data-date="' + dateStr + '"]');
                 if (col) col.classList.add('mw-day-overloaded');
+
+                // Find first stop that pushes the day over the work window
+                var windowMin = f.breakdown.workWindowMinutes;
+                var drivePerGap = stops.length > 1
+                    ? f.breakdown.totalDriveMinutes / (stops.length - 1) : 0;
+                var cumMin = 0;
+                var overflowFound = false;
+                stops.forEach(function(s) {
+                    if (overflowFound) return;
+                    cumMin += drivePerGap + (s.duration || 0);
+                    if (cumMin > windowMin) {
+                        overflowFound = true;
+                        var card = document.querySelector(
+                            '.mw-day-column[data-date="' + dateStr + '"] .mw-stop-card[data-stop-id="' + s.stopId + '"]'
+                        );
+                        if (card) card.setAttribute('data-overflow', 'true');
+                    }
+                });
+
+                overloadedDays.push({
+                    dateStr: dateStr,
+                    driveMin: f.breakdown.totalDriveMinutes,
+                    jobMin: f.breakdown.totalJobMinutes,
+                    utilizationPct: f.breakdown.utilizationPercent
+                });
             }
         }).catch(function() {
-            // Silently ignore route engine errors — bar stays grey
+            // Silently ignore — bar stays grey
+        }).finally(function() {
+            pending--;
+            maybeRenderBanner();
         });
     });
 })();

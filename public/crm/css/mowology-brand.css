@@ -26095,3 +26095,71 @@ textarea.font-monospace {
 .mw-day-column.mw-day-overloaded > .mw-day-feas-bar[data-status="red"] {
   height: 5px;
 }
+
+/* ── System 1: Overflow Banner ──────────────────────────────────────────── */
+.mw-overload-banner {
+  margin: 4px 0 6px;
+  border-radius: 6px;
+  border-left: 3px solid #c0392b;
+  background: #fff5f5;
+  padding: 0;
+  font-size: 0.78rem;
+}
+.mw-overload-inner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+}
+.mw-overload-icon {
+  color: #c0392b;
+  font-size: 1rem;
+  flex-shrink: 0;
+  line-height: 1.4;
+}
+.mw-overload-days {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+.mw-overload-day-item {
+  color: #444;
+  line-height: 1.5;
+}
+.mw-overload-day-link {
+  color: #c0392b;
+  font-weight: 600;
+  text-decoration: none;
+}
+.mw-overload-day-link:hover { text-decoration: underline; }
+.mw-overload-pct {
+  color: var(--mw-muted, #6c757d);
+  font-size: 0.72rem;
+}
+.mw-overload-dismiss {
+  background: none;
+  border: none;
+  color: #999;
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+  flex-shrink: 0;
+  align-self: flex-start;
+}
+.mw-overload-dismiss:hover { color: #c0392b; }
+
+/* Overflow stop card badge */
+.mw-stop-card[data-overflow="true"] {
+  border-top: 2px solid #c0392b;
+}
+.mw-stop-card[data-overflow="true"]::before {
+  content: '\26A0 May not be reached';
+  display: block;
+  font-size: 0.65rem;
+  color: #c0392b;
+  font-weight: 600;
+  padding: 2px 4px 0;
+  letter-spacing: 0.01em;
+}
