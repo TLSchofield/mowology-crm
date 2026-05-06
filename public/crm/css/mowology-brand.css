@@ -25954,3 +25954,58 @@ textarea.font-monospace {
   color: #aaa;
   margin-top: 4px;
 }
+
+/* ── Crew Calendar Colors & Avatars ─────────────────────────────────────── */
+/* Left accent border on stop cards when a crew color is assigned */
+.mw-stop-card--colored {
+  border-left: 4px solid var(--mw-stop-crew-color, var(--mw-green));
+}
+
+/* Crew avatar circle */
+.mw-crew-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  flex-shrink: 0;
+  vertical-align: middle;
+  margin-right: 2px;
+}
+
+/* Crew row: avatar(s) + name text side by side */
+.mw-stop-crew {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.mw-stop-crew-names {
+  font-size: 0.72rem;
+  color: #6c757d;
+  line-height: 1.2;
+}
+
+/* ── Crew Color Picker (Team Profile page) ──────────────────────────────── */
+.mw-color-swatch-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+.mw-color-swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: transform .15s, border-color .15s;
+}
+.mw-color-swatch:hover      { transform: scale(1.15); }
+.mw-color-swatch.is-selected { border-color: #222; transform: scale(1.15); }

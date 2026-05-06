@@ -497,7 +497,7 @@ function getPropertyDetails($propertyId) {
 function getStaffMembers() {
     $db = getDB();
     $stmt = $db->query("
-        SELECT id, full_name, email, role
+        SELECT id, full_name, first_name, last_name, email, role, calendar_color
         FROM users
         WHERE is_active = 1
         ORDER BY full_name

@@ -1763,13 +1763,18 @@ if ($apiKey) {
                                           }
                                       }
                                   ?>
-                                  <div class="mw-stop-card <?php echo stopStatusClass($stop['stop_status']); ?>"
+                                  <?php
+                                  $stopCrewColor   = !empty($stop['crew_color']) ? $stop['crew_color'] : null;
+                                  $stopCrewColorStyle = $stopCrewColor ? ' style="--mw-stop-crew-color:' . htmlspecialchars($stopCrewColor) . '"' : '';
+                                  ?>
+                                  <div class="mw-stop-card <?php echo stopStatusClass($stop['stop_status']); ?><?php echo $stopCrewColor ? ' mw-stop-card--colored' : ''; ?>"
                                        draggable="true"
                                        data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
                                        data-stop-date="<?php echo htmlspecialchars($stop['stop_date']); ?>"
                                        data-route-order="<?php echo (int)$stop['route_order']; ?>"
                                        data-crew-id="<?php echo (int)($stop['crew_id'] ?? 0); ?>"
                                        data-crew-ids="<?php echo htmlspecialchars($crewIdsStr); ?>"
+                                       data-crew-color="<?php echo htmlspecialchars($stopCrewColor ?? ''); ?>"
                                        data-property-address="<?php echo htmlspecialchars($stop['property_address'] ?? 'Unknown'); ?>"
                                        data-property-id="<?php echo (int)$stop['property_id']; ?>"
                                        data-contact-id="<?php echo (int)($stop['contact_id'] ?? 0); ?>"
@@ -1777,7 +1782,7 @@ if ($apiKey) {
                                        data-visits="<?php echo htmlspecialchars(json_encode($visitsJson)); ?>"
                                        data-revenue="<?php echo round($stopRevenue, 2); ?>"
                                        data-lat="<?php echo htmlspecialchars($stop['latitude'] ?? ''); ?>"
-                                       data-lng="<?php echo htmlspecialchars($stop['longitude'] ?? ''); ?>">
+                                       data-lng="<?php echo htmlspecialchars($stop['longitude'] ?? ''); ?>"<?php echo $stopCrewColorStyle; ?>>
 
                                       <?php
                                       // Determine arrival time display
@@ -1822,11 +1827,30 @@ if ($apiKey) {
                                       <?php endif; ?>
 
                                       <?php
-                                      // Display crew names (multi-crew from junction table, fallback to single)
-                                      $crewNames = !empty($stop['crew_names']) ? $stop['crew_names'] : ($stop['crew_name'] ? [$stop['crew_name']] : []);
-                                      if (!empty($crewNames)):
+                                      // Display crew avatars (colored circles with initials) + name text
+                                      $crewMembers = !empty($stop['crew_members']) ? $stop['crew_members'] : [];
+                                      if (empty($crewMembers) && !empty($stop['crew_names'])) {
+                                          // Fallback: build from legacy crew_names/ids arrays
+                                          foreach ($stop['crew_names'] as $ci => $cn) {
+                                              $crewMembers[] = ['name' => $cn, 'color' => null, 'initials' => strtoupper(substr($cn, 0, 2))];
+                                          }
+                                      }
+                                      if (!empty($crewMembers)):
                                       ?>
-                                          <div class="mw-stop-crew"><?php echo htmlspecialchars(implode(', ', $crewNames)); ?></div>
+                                          <div class="mw-stop-crew">
+                                              <?php foreach ($crewMembers as $cm): ?>
+                                                  <?php
+                                                  $cmColor = !empty($cm['color']) ? $cm['color'] : null;
+                                                  $cmInitials = $cm['initials'] ?? strtoupper(substr($cm['name'] ?? '', 0, 2));
+                                                  $cmBg = $cmColor ? $cmColor : 'var(--mw-green)';
+                                                  ?>
+                                                  <span class="mw-crew-avatar" title="<?php echo htmlspecialchars($cm['name'] ?? ''); ?>"
+                                                        style="background:<?php echo htmlspecialchars($cmBg); ?>1a;border-color:<?php echo htmlspecialchars($cmBg); ?>;color:<?php echo htmlspecialchars($cmBg); ?>">
+                                                      <?php echo htmlspecialchars($cmInitials); ?>
+                                                  </span>
+                                              <?php endforeach; ?>
+                                              <span class="mw-stop-crew-names"><?php echo htmlspecialchars(implode(', ', array_column($crewMembers, 'name'))); ?></span>
+                                          </div>
                                       <?php endif; ?>
 
                                       <?php

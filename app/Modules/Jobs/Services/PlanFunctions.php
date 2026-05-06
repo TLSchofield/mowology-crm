@@ -1078,6 +1078,9 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
             ct.id AS contact_id,
             CONCAT(ct.first_name, ' ', ct.last_name) AS contact_name,
             u.full_name AS crew_name,
+            u.calendar_color AS crew_color,
+            u.first_name AS crew_first_name,
+            u.last_name AS crew_last_name,
             jv.id AS visit_id,
             jv.visit_number,
             jv.status AS visit_status,
@@ -1134,7 +1137,8 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
     if (!empty($stopIds)) {
         $placeholders = implode(',', array_fill(0, count($stopIds), '?'));
         $crewStmt = $db->prepare("
-            SELECT csc.stop_id, csc.user_id, u2.full_name
+            SELECT csc.stop_id, csc.user_id, u2.full_name, u2.calendar_color,
+                   u2.first_name, u2.last_name
             FROM calendar_stop_crew csc
             JOIN users u2 ON csc.user_id = u2.id
             WHERE csc.stop_id IN ({$placeholders})
@@ -1142,9 +1146,14 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
         ");
         $crewStmt->execute($stopIds);
         foreach ($crewStmt->fetchAll(PDO::FETCH_ASSOC) as $cr) {
+            $fn = $cr['first_name'] ?? '';
+            $ln = $cr['last_name'] ?? '';
+            $initials = strtoupper(substr($fn, 0, 1) . substr($ln, 0, 1)) ?: strtoupper(substr($cr['full_name'] ?? '', 0, 2));
             $crewByStop[(int)$cr['stop_id']][] = [
-                'id'   => (int)$cr['user_id'],
-                'name' => $cr['full_name'],
+                'id'       => (int)$cr['user_id'],
+                'name'     => $cr['full_name'],
+                'color'    => $cr['calendar_color'] ?? null,
+                'initials' => $initials,
             ];
         }
     }
@@ -1161,14 +1170,28 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
             $crewIdsArr = !empty($stopCrewList) ? array_column($stopCrewList, 'id') : ($row['crew_id'] ? [(int)$row['crew_id']] : []);
             $crewNamesArr = !empty($stopCrewList) ? array_column($stopCrewList, 'name') : ($row['crew_name'] ? [$row['crew_name']] : []);
 
+            // Compute lead crew initials and color
+            $crewFn = $row['crew_first_name'] ?? '';
+            $crewLn = $row['crew_last_name'] ?? '';
+            $leadInitials = strtoupper(substr($crewFn, 0, 1) . substr($crewLn, 0, 1)) ?: strtoupper(substr($row['crew_name'] ?? '', 0, 2));
+            $leadColor = $row['crew_color'] ?? null;
+
+            // crew_members: richer list from junction table (fallback to single lead crew)
+            $crewMembersList = !empty($stopCrewList)
+                ? $stopCrewList
+                : ($row['crew_id'] ? [['id' => (int)$row['crew_id'], 'name' => $row['crew_name'], 'color' => $leadColor, 'initials' => $leadInitials]] : []);
+
             $result[$date][$stopId] = [
                 'stop_id'       => (int)$stopId,
                 'stop_date'     => $date,
                 'route_order'   => (int)$row['route_order'],
                 'crew_id'       => $row['crew_id'] ? (int)$row['crew_id'] : null,
                 'crew_name'     => $row['crew_name'],
+                'crew_color'    => $leadColor,
+                'crew_initials' => $leadInitials,
                 'crew_ids'      => $crewIdsArr,
                 'crew_names'    => $crewNamesArr,
+                'crew_members'  => $crewMembersList,
                 'estimated_arrival'   => $row['estimated_arrival'],
                 'estimated_departure' => $row['estimated_departure'],
                 'stop_status'   => $row['stop_status'],

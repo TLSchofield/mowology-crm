@@ -266,6 +266,13 @@ try {
             if (isset($input['location_ping_rate']) && in_array($input['location_ping_rate'], ['low', 'medium', 'high'])) {
                 $updates[] = 'location_ping_rate = ?'; $params[] = $input['location_ping_rate'];
             }
+            if (array_key_exists('calendar_color', $input)) {
+                $color = trim($input['calendar_color'] ?? '');
+                // Accept a valid 6-digit hex or empty (clear)
+                if ($color === '' || preg_match('/^#[0-9a-fA-F]{6}$/', $color)) {
+                    $updates[] = 'calendar_color = ?'; $params[] = $color ?: null;
+                }
+            }
             if (!empty($input['password']) && strlen($input['password']) >= 8) {
                 $updates[] = 'password_hash = ?'; $params[] = hashPassword($input['password']);
             }

@@ -320,6 +320,19 @@ if ($apiKey) {
                                 <label class="mw-hr-label">Notes</label>
                                 <p class="mw-hr-value"><?php echo h($emp['notes'] ?? '—'); ?></p>
                             </div>
+                            <div class="col-sm-6 mb-3">
+                                <label class="mw-hr-label">Schedule Color</label>
+                                <p class="mw-hr-value">
+                                <?php if (!empty($emp['calendar_color'])): ?>
+                                    <span class="mw-crew-avatar"
+                                          style="background:<?php echo h($emp['calendar_color']); ?>1a;border-color:<?php echo h($emp['calendar_color']); ?>;color:<?php echo h($emp['calendar_color']); ?>;width:18px;height:18px;font-size:0px">
+                                    </span>
+                                    <span class="ml-1" style="font-family:monospace;font-size:.8rem"><?php echo h($emp['calendar_color']); ?></span>
+                                <?php else: ?>
+                                    <span class="text-muted">None set</span>
+                                <?php endif; ?>
+                                </p>
+                            </div>
                         </div>
                         <hr>
                         <div class="row">
@@ -409,6 +422,42 @@ if ($apiKey) {
                                         <label>New Password <span class="text-muted">(leave blank to keep current)</span></label>
                                         <input type="password" class="form-control" name="password" minlength="8"
                                                placeholder="Min. 8 characters">
+                                    </div>
+                                </div>
+                                <div class="col-sm-12">
+                                    <div class="form-group">
+                                        <label>Schedule Color <span class="text-muted">(shown on calendar stop cards)</span></label>
+                                        <input type="hidden" name="calendar_color" id="crew-color-input"
+                                               value="<?php echo h($emp['calendar_color'] ?? ''); ?>">
+                                        <div class="mw-color-swatch-row" id="crewColorSwatches">
+                                            <?php
+                                            $presetColors = [
+                                                '#2D8659' => 'Mowology Green',
+                                                '#1565C0' => 'Blue',
+                                                '#6A1B9A' => 'Purple',
+                                                '#E65100' => 'Orange',
+                                                '#AD1457' => 'Pink',
+                                                '#00838F' => 'Teal',
+                                                '#558B2F' => 'Olive',
+                                                '#4E342E' => 'Brown',
+                                            ];
+                                            $currentColor = $emp['calendar_color'] ?? '';
+                                            foreach ($presetColors as $hex => $label):
+                                            ?>
+                                                <span class="mw-color-swatch<?php echo $currentColor === $hex ? ' is-selected' : ''; ?>"
+                                                      style="background:<?php echo h($hex); ?>"
+                                                      data-color="<?php echo h($hex); ?>"
+                                                      title="<?php echo h($label); ?>"
+                                                      onclick="selectCrewColor(this)"></span>
+                                            <?php endforeach; ?>
+                                            <span class="mw-color-swatch mw-color-swatch--clear<?php echo !$currentColor ? ' is-selected' : ''; ?>"
+                                                  style="background:#eee;border:1.5px dashed #aaa"
+                                                  data-color=""
+                                                  title="No color"
+                                                  onclick="selectCrewColor(this)">
+                                                <small style="font-size:9px;color:#aaa">✕</small>
+                                            </span>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -1002,6 +1051,13 @@ function toggleOverviewEdit() {
     var edit = document.getElementById('overview-edit-panel');
     view.classList.toggle('d-none');
     edit.classList.toggle('d-none');
+}
+function selectCrewColor(el) {
+    document.querySelectorAll('#crewColorSwatches .mw-color-swatch').forEach(function(s) {
+        s.classList.remove('is-selected');
+    });
+    el.classList.add('is-selected');
+    document.getElementById('crew-color-input').value = el.getAttribute('data-color');
 }
 function toggleHrEdit() {
     document.getElementById('hr-view-panel').classList.toggle('d-none');
