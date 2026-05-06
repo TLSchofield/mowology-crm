@@ -87,6 +87,9 @@
                     if (!stop.lat || !stop.lng) return;
                     if (stop.status === 'completed' || stop.status === 'skipped') return;
                     if (!stop.estimatedArrival) return;
+                    // Only badge stops within a ±2 hour window of now
+                    // (avoids "36h late" badges on past morning stops at end of day)
+                    if (Math.abs(stop.estimatedArrival - nowSec) > 7200) return;
 
                     // Find the crew member assigned to this stop, or the closest one
                     var matched = activeCrew.find(function (c) {
