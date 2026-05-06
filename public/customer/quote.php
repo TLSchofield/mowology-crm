@@ -372,6 +372,8 @@ if (!empty($quote)) {
                         <tr>
                             <th>Service</th>
                             <th>Description</th>
+                            <th>Qty</th>
+                            <th class="right">Price</th>
                             <th class="right">Amount</th>
                         </tr>
                     </thead>
@@ -397,7 +399,7 @@ if (!empty($quote)) {
                                 // Emit subtotal for the section we just finished
                                 if ($currentSection !== false && $currentSection !== null && $hasSections): ?>
                             <tr class="portal-table-section-subtotal">
-                                <td colspan="2"><?php echo htmlspecialchars($currentSection); ?> subtotal</td>
+                                <td colspan="4"><?php echo htmlspecialchars($currentSection); ?> subtotal</td>
                                 <td class="right"><?php echo formatCurrency($currentSectionSum); ?></td>
                             </tr>
                                     <?php endif;
@@ -405,7 +407,7 @@ if (!empty($quote)) {
                                 $currentSectionSum = 0;
                                 if ($itemSection !== null): ?>
                             <tr class="portal-table-section-hdr">
-                                <td colspan="3"><?php echo htmlspecialchars($itemSection); ?></td>
+                                <td colspan="5"><?php echo htmlspecialchars($itemSection); ?></td>
                             </tr>
                                     <?php endif;
                             endif;
@@ -424,6 +426,8 @@ if (!empty($quote)) {
                                     <?php endif; ?>
                                 </td>
                                 <td><?php echo htmlspecialchars($item['description'] ?: '—'); ?></td>
+                                <td class="portal-table-num"><?php echo $item['quantity']; ?></td>
+                                <td class="right portal-table-num"><?php echo formatCurrency($item['unit_price']); ?></td>
                                 <td class="right portal-table-num"><?php echo formatCurrency($item['line_total']); ?></td>
                             </tr>
                         <?php endforeach;
@@ -431,7 +435,7 @@ if (!empty($quote)) {
                         // Emit subtotal for the last section
                         if ($currentSection !== false && $currentSection !== null && $hasSections): ?>
                             <tr class="portal-table-section-subtotal">
-                                <td colspan="2"><?php echo htmlspecialchars($currentSection); ?> subtotal</td>
+                                <td colspan="4"><?php echo htmlspecialchars($currentSection); ?> subtotal</td>
                                 <td class="right"><?php echo formatCurrency($currentSectionSum); ?></td>
                             </tr>
                         <?php endif; ?>
