@@ -38,6 +38,7 @@ try {
     if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
         throw new Exception('Invalid CSRF token');
     }
+    session_write_close(); // CSRF verified — release session lock before DB work
 
     $date   = $input['date'];
     $crewId = isset($input['crew_id']) ? (int)$input['crew_id'] : null;

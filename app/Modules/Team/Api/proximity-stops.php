@@ -27,6 +27,7 @@ try {
 
     requireLogin();
     $user = getCurrentUser();
+    session_write_close(); // read-only — release session lock immediately
 
     if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
         http_response_code(405);

@@ -32,6 +32,7 @@ try {
 
     requireLogin();
     $user = getCurrentUser();
+    session_write_close(); // writes to DB only — release session lock after auth
 
     // ── Parse input ──────────────────────────────────────────────────────────
     $input = json_decode(file_get_contents('php://input'), true);

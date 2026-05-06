@@ -31,6 +31,7 @@ try {
     requireLogin();
     $user = getCurrentUser();
     requirePermission('timer.start');
+    session_write_close(); // writes to DB only — release session lock after auth
 
     // Check if time clock is enabled for this user's role
     if (!isTimeClockEnabledForRole($user['role'])) {

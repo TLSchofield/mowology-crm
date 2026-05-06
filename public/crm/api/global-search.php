@@ -3,7 +3,8 @@
  * Global Search API — Spotlight/Command Palette
  *
  * GET ?q=<term>  (min 2 chars)
- * Returns results grouped by entity type for the global search bar.
+ * Uses FULLTEXT indexes (MATCH AGAINST BOOLEAN MODE) for 3+ char queries.
+ * Falls back to LIKE for 2-char queries (below innodb_ft_min_token_size).
  */
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 requireLogin();
@@ -19,20 +20,36 @@ if (strlen($q) < 2) {
 }
 
 $db   = getDB();
-$term = '%' . $q . '%';
+$like = '%' . $q . '%';
+$ft   = strlen($q) >= 3;  // use FULLTEXT only when term is long enough for the index
+
+// Boolean-mode term: +word* means "must start with word"
+// Sanitise to remove FULLTEXT operator chars that could break the query
+$ftTerm = '+' . preg_replace('/[+\-><\(\)~*"@]+/', '', $q) . '*';
+
 $results = [];
 
-// ── Contacts ──────────────────────────────────────────
+// ── Contacts ─────────────────────────────────────────────────────────────
 try {
-    $stmt = $db->prepare("
-        SELECT id, first_name, last_name, email, phone
-        FROM contacts
-        WHERE is_active = 1
-          AND (first_name LIKE ? OR last_name LIKE ? OR email LIKE ? OR phone LIKE ?
-               OR CONCAT(first_name, ' ', last_name) LIKE ?)
-        ORDER BY first_name, last_name LIMIT 5
-    ");
-    $stmt->execute([$term, $term, $term, $term, $term]);
+    if ($ft) {
+        $stmt = $db->prepare("
+            SELECT id, first_name, last_name, email, phone
+            FROM contacts
+            WHERE is_active = 1
+              AND MATCH(first_name, last_name, email) AGAINST(? IN BOOLEAN MODE)
+            ORDER BY first_name, last_name LIMIT 5
+        ");
+        $stmt->execute([$ftTerm]);
+    } else {
+        $stmt = $db->prepare("
+            SELECT id, first_name, last_name, email, phone
+            FROM contacts
+            WHERE is_active = 1
+              AND (first_name LIKE ? OR last_name LIKE ? OR email LIKE ?)
+            ORDER BY first_name, last_name LIMIT 5
+        ");
+        $stmt->execute([$like, $like, $like]);
+    }
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
         $results[] = [
             'category' => 'Contacts',
@@ -44,27 +61,33 @@ try {
     }
 } catch (PDOException $e) { error_log('global-search contacts: ' . $e->getMessage()); }
 
-// ── Properties ────────────────────────────────────────
+// ── Properties ───────────────────────────────────────────────────────────
 try {
-    $stmt = $db->prepare("
-        SELECT p.id, p.address, p.city, p.site_contact_id,
-               c.first_name, c.last_name
-        FROM properties p
-        LEFT JOIN contacts c ON p.site_contact_id = c.id
-        WHERE p.status = 'active'
-          AND (p.address LIKE ? OR p.city LIKE ?)
-        ORDER BY p.address LIMIT 5
-    ");
-    $stmt->execute([$term, $term]);
+    if ($ft) {
+        $stmt = $db->prepare("
+            SELECT p.id, p.address, p.city, p.site_contact_id
+            FROM properties p
+            WHERE p.status = 'active'
+              AND MATCH(p.address, p.city) AGAINST(? IN BOOLEAN MODE)
+            ORDER BY p.address LIMIT 5
+        ");
+        $stmt->execute([$ftTerm]);
+    } else {
+        $stmt = $db->prepare("
+            SELECT p.id, p.address, p.city, p.site_contact_id
+            FROM properties p
+            WHERE p.status = 'active'
+              AND (p.address LIKE ? OR p.city LIKE ?)
+            ORDER BY p.address LIMIT 5
+        ");
+        $stmt->execute([$like, $like]);
+    }
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
-        $owner    = trim(($r['first_name'] ?? '') . ' ' . ($r['last_name'] ?? ''));
-        $sublabel = $r['city'] ?: '';
-        if ($owner) $sublabel .= ($sublabel ? ' · ' : '') . $owner;
         $results[] = [
             'category' => 'Properties',
             'icon'     => 'map-pin',
             'label'    => $r['address'],
-            'sublabel' => $sublabel,
+            'sublabel' => $r['city'] ?: '',
             'url'      => $r['site_contact_id']
                 ? '/crm/clients_appstack.php?action=view_contact&id=' . $r['site_contact_id']
                 : '/crm/clients_appstack.php',
@@ -72,15 +95,24 @@ try {
     }
 } catch (PDOException $e) { error_log('global-search properties: ' . $e->getMessage()); }
 
-// ── Quotes ────────────────────────────────────────────
+// ── Quotes ───────────────────────────────────────────────────────────────
 try {
-    $stmt = $db->prepare("
-        SELECT id, quote_number, title, status, total_amount
-        FROM quotes
-        WHERE quote_number LIKE ? OR title LIKE ?
-        ORDER BY created_at DESC LIMIT 4
-    ");
-    $stmt->execute([$term, $term]);
+    if ($ft) {
+        $stmt = $db->prepare("
+            SELECT id, quote_number, title, status, total_amount
+            FROM quotes
+            WHERE MATCH(quote_number, title) AGAINST(? IN BOOLEAN MODE)
+            ORDER BY created_at DESC LIMIT 4
+        ");
+        $stmt->execute([$ftTerm]);
+    } else {
+        $stmt = $db->prepare("
+            SELECT id, quote_number, title, status, total_amount
+            FROM quotes WHERE quote_number LIKE ? OR title LIKE ?
+            ORDER BY created_at DESC LIMIT 4
+        ");
+        $stmt->execute([$like, $like]);
+    }
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
         $sublabel = $r['status'];
         if ($r['total_amount']) $sublabel .= ' · $' . number_format((float)$r['total_amount'], 2);
@@ -94,15 +126,24 @@ try {
     }
 } catch (PDOException $e) { error_log('global-search quotes: ' . $e->getMessage()); }
 
-// ── Job Plans ─────────────────────────────────────────
+// ── Job Plans ────────────────────────────────────────────────────────────
 try {
-    $stmt = $db->prepare("
-        SELECT id, plan_number, title, status, service_type
-        FROM job_plans
-        WHERE plan_number LIKE ? OR title LIKE ?
-        ORDER BY created_at DESC LIMIT 4
-    ");
-    $stmt->execute([$term, $term]);
+    if ($ft) {
+        $stmt = $db->prepare("
+            SELECT id, plan_number, title, status, service_type
+            FROM job_plans
+            WHERE MATCH(plan_number, title) AGAINST(? IN BOOLEAN MODE)
+            ORDER BY created_at DESC LIMIT 4
+        ");
+        $stmt->execute([$ftTerm]);
+    } else {
+        $stmt = $db->prepare("
+            SELECT id, plan_number, title, status, service_type
+            FROM job_plans WHERE plan_number LIKE ? OR title LIKE ?
+            ORDER BY created_at DESC LIMIT 4
+        ");
+        $stmt->execute([$like, $like]);
+    }
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
         $sublabel = $r['status'];
         if ($r['service_type']) $sublabel .= ' · ' . $r['service_type'];
@@ -116,15 +157,14 @@ try {
     }
 } catch (PDOException $e) { error_log('global-search jobs: ' . $e->getMessage()); }
 
-// ── Invoices ──────────────────────────────────────────
+// ── Invoices ─────────────────────────────────────────────────────────────
 try {
     $stmt = $db->prepare("
         SELECT id, invoice_number, status, total
-        FROM invoices
-        WHERE invoice_number LIKE ?
+        FROM invoices WHERE invoice_number LIKE ?
         ORDER BY created_at DESC LIMIT 3
     ");
-    $stmt->execute([$term]);
+    $stmt->execute([$like]);
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
         $sublabel = $r['status'];
         if ($r['total']) $sublabel .= ' · $' . number_format((float)$r['total'], 2);
@@ -138,16 +178,14 @@ try {
     }
 } catch (PDOException $e) { error_log('global-search invoices: ' . $e->getMessage()); }
 
-// ── Team Members ──────────────────────────────────────
+// ── Team Members ─────────────────────────────────────────────────────────
 try {
     $stmt = $db->prepare("
         SELECT id, full_name, email, role
-        FROM users
-        WHERE is_active = 1
-          AND (full_name LIKE ? OR email LIKE ?)
+        FROM users WHERE is_active = 1 AND (full_name LIKE ? OR email LIKE ?)
         ORDER BY full_name LIMIT 3
     ");
-    $stmt->execute([$term, $term]);
+    $stmt->execute([$like, $like]);
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
         $results[] = [
             'category' => 'Team',

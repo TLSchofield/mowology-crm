@@ -40,6 +40,7 @@ try {
         echo json_encode(['success' => false, 'error' => 'CSRF token invalid']);
         exit;
     }
+    session_write_close(); // CSRF verified — release session lock before DB work
 
     $stopId = (int)$input['stop_id'];
     $newDate = $input['new_date'];

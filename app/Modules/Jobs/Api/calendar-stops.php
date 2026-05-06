@@ -27,6 +27,7 @@ try {
 
     requireLogin();
     $user = getCurrentUser();
+    session_write_close(); // read-only — release session lock immediately
 
     $date = $_GET['date'] ?? date('Y-m-d');
     if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {

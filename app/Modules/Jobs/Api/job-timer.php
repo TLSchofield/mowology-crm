@@ -49,6 +49,7 @@ try {
             exit;
         }
     }
+    session_write_close(); // CSRF verified — release session lock before DB work
 
     switch ($action) {
         case 'active':
