@@ -2114,7 +2114,19 @@ if ($apiKey) {
           </div>
           <?php endif; ?>
 
-          <!-- ═══ Stop Detail / Crew Assignment Modal ═══ -->
+          <!-- ═══ Stop Detail Modal ═══ -->
+          <!-- Populated by schedule-stop-modal.js on desktop card click -->
+          <div id="mw-stop-modal" role="dialog" aria-modal="true" aria-label="Stop Details">
+              <div class="mw-sdm-overlay" id="mwSdmOverlay"></div>
+              <div class="mw-sdm-panel">
+                  <button class="mw-sdm-close" id="mwSdmClose" aria-label="Close">&times;</button>
+                  <div class="mw-sdm-header" id="mwSdmHeader"></div>
+                  <div class="mw-sdm-grid" id="mwSdmGrid"></div>
+                  <div class="mw-sdm-footer" id="mwSdmFooter"></div>
+              </div>
+          </div>
+
+          <!-- ═══ Crew Assignment Modal ═══ -->
           <div class="modal fade" id="crewAssignModal" tabindex="-1" role="dialog" aria-labelledby="crewAssignModalLabel" aria-hidden="true">
               <div class="modal-dialog modal-dialog-centered" role="document">
                   <div class="modal-content mw-cam-content">
@@ -3193,6 +3205,7 @@ var MW_ROUTE_STOPS = <?php
 <script src="../js/schedule-route-map.js?v=20260503a"></script>
 <script src="../js/schedule-pill-workflow.js?v=20260503a"></script>
 <script src="../js/schedule-drag-drop.js"></script>
+<script src="../js/schedule-stop-modal.js?v=20260505a"></script>
 <?php if ($view === 'day'): ?>
 <script>
 var MW_DAY_VIEW_STOPS = <?php echo json_encode($dayViewMapStops); ?>;

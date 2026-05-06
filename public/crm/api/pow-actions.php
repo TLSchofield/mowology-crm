@@ -340,6 +340,13 @@ try {
             ]);
             break;
 
+        // ── Skip Visit ────────────────────────────────────────────────────
+        case 'skip_visit':
+            require_once CRM_INCLUDES . '/plan-functions.php';
+            $result = updateVisitStatus($visitId, 'skipped', (int)$user['id']);
+            echo json_encode(['success' => $result]);
+            break;
+
         // ── Generate PDF ───────────────────────────────────────────────────
         case 'generate_pdf':
             if (!$isAdmin && !$isCrew) {
