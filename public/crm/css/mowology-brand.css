@@ -26009,3 +26009,56 @@ textarea.font-monospace {
 }
 .mw-color-swatch:hover      { transform: scale(1.15); }
 .mw-color-swatch.is-selected { border-color: #222; transform: scale(1.15); }
+
+/* ── Status Filter Chips (Schedule page) ────────────────────────────────── */
+.mw-status-chips {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.mw-status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border-radius: 20px;
+  border: 1.5px solid var(--mw-light, #e0ede8);
+  background: #fff;
+  color: var(--mw-muted, #6c757d);
+  cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+  white-space: nowrap;
+}
+.mw-status-chip:hover {
+  border-color: var(--mw-green);
+  color: var(--mw-green);
+}
+.mw-status-chip.active {
+  background: var(--mw-green);
+  color: #fff;
+  border-color: var(--mw-green);
+}
+.mw-status-chip-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  background: #c0392b;
+  color: #fff;
+  line-height: 1;
+}
+.mw-status-chip.active .mw-status-chip-badge {
+  background: rgba(255,255,255,.25);
+}
+
+/* Hidden cards (status filter) */
+.mw-stop-card--hidden { display: none !important; }

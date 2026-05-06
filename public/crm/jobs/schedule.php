@@ -802,6 +802,16 @@ $dayNames = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
 // ─── Mobile card view: date-aware (defaults to today, respects ?view=day&date=X) ──
 $today = date('Y-m-d');
 
+// Overdue count for status filter chips
+$overdueCount = 0;
+foreach ($calendarData as $_ds => $_dayStops) {
+    if ($_ds >= $today) continue;
+    foreach ($_dayStops as $_stop) {
+        $_st = $_stop['stop_status'] ?? 'scheduled';
+        if ($_st !== 'completed' && $_st !== 'skipped') $overdueCount++;
+    }
+}
+
 // Mobile view uses the day-view date if set, otherwise today
 $mobileDate = ($view === 'day' && !empty($dayDate)) ? $dayDate : $today;
 
@@ -1230,6 +1240,14 @@ if ($apiKey) {
                   </div>
                   <a href="index.php" class="btn btn-secondary btn-sm">List View</a>
               </div>
+          </div>
+
+          <!-- Status filter chips — full-width row below header -->
+          <div class="mw-status-chips d-none d-lg-flex" id="mwStatusChips">
+              <button class="mw-status-chip active" data-filter="all" onclick="applyStatusFilter('all',this)">All</button>
+              <button class="mw-status-chip" data-filter="overdue" onclick="applyStatusFilter('overdue',this)">Overdue<?php if ($overdueCount > 0): ?> <span class="mw-status-chip-badge"><?php echo $overdueCount; ?></span><?php endif; ?></button>
+              <button class="mw-status-chip" data-filter="upcoming" onclick="applyStatusFilter('upcoming',this)">Upcoming</button>
+              <button class="mw-status-chip" data-filter="completed" onclick="applyStatusFilter('completed',this)">Completed</button>
           </div>
 
           <!-- ═══════════════════════════════════════════════
@@ -1771,6 +1789,7 @@ if ($apiKey) {
                                        draggable="true"
                                        data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
                                        data-stop-date="<?php echo htmlspecialchars($stop['stop_date']); ?>"
+                                       data-status="<?php echo htmlspecialchars($stop['stop_status'] ?? 'scheduled'); ?>"
                                        data-route-order="<?php echo (int)$stop['route_order']; ?>"
                                        data-crew-id="<?php echo (int)($stop['crew_id'] ?? 0); ?>"
                                        data-crew-ids="<?php echo htmlspecialchars($crewIdsStr); ?>"
@@ -2784,6 +2803,21 @@ function applyFilter() {
     if (crewId) { params.set('crew', crewId); } else { params.delete('crew'); }
     if (serviceType) { params.set('service', serviceType); } else { params.delete('service'); }
     window.location.search = params.toString();
+}
+
+function applyStatusFilter(filter, btn) {
+    document.querySelectorAll('.mw-status-chip').forEach(function(c) { c.classList.remove('active'); });
+    if (btn) btn.classList.add('active');
+    var today = '<?php echo $today; ?>';
+    document.querySelectorAll('.mw-stop-card').forEach(function(card) {
+        var st   = card.dataset.status || 'scheduled';
+        var date = card.dataset.stopDate || '';
+        var show = true;
+        if (filter === 'overdue')   show = date < today && st !== 'completed' && st !== 'skipped';
+        else if (filter === 'upcoming')  show = date >= today && st !== 'completed';
+        else if (filter === 'completed') show = st === 'completed';
+        card.classList.toggle('mw-stop-card--hidden', !show);
+    });
 }
 
 /**
