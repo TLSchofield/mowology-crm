@@ -26163,3 +26163,25 @@ textarea.font-monospace {
   padding: 2px 4px 0;
   letter-spacing: 0.01em;
 }
+
+/* ── System 3: Crew ETA Badges ──────────────────────────────────────────── */
+.mw-crew-eta-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 5px;
+  border-radius: 10px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  margin-left: 4px;
+  vertical-align: middle;
+  line-height: 1.5;
+}
+.mw-crew-eta-badge.mw-eta-late    { background: #fff3cd; color: #856404; border: 1px solid #ffc107; }
+.mw-crew-eta-badge.mw-eta-early   { background: #cfe2ff; color: #084298; border: 1px solid #9ec5fe; }
+.mw-crew-eta-badge.mw-eta-ontime  { background: #d1e7dd; color: #0a3622; border: 1px solid #a3cfbb; }
+
+/* Running-late stop: amber left border */
+.mw-stop-card.mw-stop--running-late { border-left: 3px solid #e08c00 !important; }
+/* Ahead-of-schedule: blue left border */
+.mw-stop-card.mw-stop--early        { border-left: 3px solid #1565C0 !important; }

@@ -3291,14 +3291,23 @@ var MW_WEEK_STOPS = <?php
         $weekStopsForFeasibility[$wfDs] = [];
         foreach (($calendarData[$wfDs] ?? []) as $wfStop) {
             foreach (($wfStop['visits'] ?? []) as $wfV) {
+                // For crew live-tracking: parse estimated_arrival as Unix timestamp (today's date + time)
+                $wfArrivalTs = null;
+                if (!empty($wfStop['estimated_arrival'])) {
+                    $wfArrivalTs = strtotime($wfDs . ' ' . $wfStop['estimated_arrival']);
+                    if ($wfArrivalTs === false) $wfArrivalTs = null;
+                }
                 $weekStopsForFeasibility[$wfDs][] = [
-                    'stopId'   => (int)$wfStop['stop_id'],
-                    'duration' => min(480, (int)($wfV['calibrated_duration'] ?? $wfV['estimated_duration'] ?? 45)),
-                    'lat'      => $wfStop['latitude']  ? (float)$wfStop['latitude']  : null,
-                    'lng'      => $wfStop['longitude'] ? (float)$wfStop['longitude'] : null,
-                    'address'  => !empty($wfStop['property_address'])
-                                    ? trim($wfStop['property_address'] . ', ' . ($wfStop['property_city'] ?? 'Vancouver') . ', BC, Canada')
-                                    : null,
+                    'stopId'           => (int)$wfStop['stop_id'],
+                    'duration'         => min(480, (int)($wfV['calibrated_duration'] ?? $wfV['estimated_duration'] ?? 45)),
+                    'lat'              => $wfStop['latitude']  ? (float)$wfStop['latitude']  : null,
+                    'lng'              => $wfStop['longitude'] ? (float)$wfStop['longitude'] : null,
+                    'address'          => !empty($wfStop['property_address'])
+                                            ? trim($wfStop['property_address'] . ', ' . ($wfStop['property_city'] ?? 'Vancouver') . ', BC, Canada')
+                                            : null,
+                    'estimatedArrival' => $wfArrivalTs,
+                    'status'           => $wfStop['stop_status'] ?? 'scheduled',
+                    'crewId'           => (int)($wfStop['crew_id'] ?? 0),
                 ];
             }
         }
@@ -3423,7 +3432,12 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
         }
     });
 });
+var MW_TODAY   = <?php echo json_encode($today); ?>;
+var MW_IS_ADMIN = <?php echo json_encode(in_array($user['role'], ['admin', 'manager'])); ?>;
 </script>
+<?php if (in_array($user['role'], ['admin', 'manager'])): ?>
+<script src="../js/schedule-crew-live.js?v=20260505a"></script>
+<?php endif; ?>
 <?php endif; ?>
 
 <!-- ═══════════════════════════════════════════════════════
