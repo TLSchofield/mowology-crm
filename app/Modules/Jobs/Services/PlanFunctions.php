@@ -1048,6 +1048,18 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
     } catch (Exception $e) { /* ignore */ }
     $orStatusSelect = $hasOrStatus ? ', p.or_status' : '';
 
+    // Check if calendar_color column exists (migration 950)
+    $hasCrewColor = false;
+    try {
+        $hasCrewColor = $db->query("SHOW COLUMNS FROM users LIKE 'calendar_color'")->rowCount() > 0;
+    } catch (Exception $e) { /* ignore */ }
+    $crewColorSelect = $hasCrewColor
+        ? ', u.calendar_color AS crew_color, u.first_name AS crew_first_name, u.last_name AS crew_last_name'
+        : ", NULL AS crew_color, '' AS crew_first_name, '' AS crew_last_name";
+    $crewColorJunctionSelect = $hasCrewColor
+        ? ', u2.calendar_color, u2.first_name, u2.last_name'
+        : ", NULL AS calendar_color, '' AS first_name, '' AS last_name";
+
     // Single query: stops with their visits
     $sql = "
         SELECT
@@ -1077,10 +1089,8 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
             co.company_name,
             ct.id AS contact_id,
             CONCAT(ct.first_name, ' ', ct.last_name) AS contact_name,
-            u.full_name AS crew_name,
-            u.calendar_color AS crew_color,
-            u.first_name AS crew_first_name,
-            u.last_name AS crew_last_name,
+            u.full_name AS crew_name
+            {$crewColorSelect},
             jv.id AS visit_id,
             jv.visit_number,
             jv.status AS visit_status,
@@ -1137,8 +1147,8 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
     if (!empty($stopIds)) {
         $placeholders = implode(',', array_fill(0, count($stopIds), '?'));
         $crewStmt = $db->prepare("
-            SELECT csc.stop_id, csc.user_id, u2.full_name, u2.calendar_color,
-                   u2.first_name, u2.last_name
+            SELECT csc.stop_id, csc.user_id, u2.full_name
+            {$crewColorJunctionSelect}
             FROM calendar_stop_crew csc
             JOIN users u2 ON csc.user_id = u2.id
             WHERE csc.stop_id IN ({$placeholders})

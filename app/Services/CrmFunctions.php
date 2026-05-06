@@ -496,8 +496,13 @@ function getPropertyDetails($propertyId) {
  */
 function getStaffMembers() {
     $db = getDB();
+    $hasColor = false;
+    try {
+        $hasColor = $db->query("SHOW COLUMNS FROM users LIKE 'calendar_color'")->rowCount() > 0;
+    } catch (Exception $e) { /* ignore */ }
+    $colorCol = $hasColor ? ', calendar_color' : ", NULL AS calendar_color";
     $stmt = $db->query("
-        SELECT id, full_name, first_name, last_name, email, role, calendar_color
+        SELECT id, full_name, first_name, last_name, email, role {$colorCol}
         FROM users
         WHERE is_active = 1
         ORDER BY full_name
