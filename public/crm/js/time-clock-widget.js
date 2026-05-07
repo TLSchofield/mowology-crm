@@ -644,7 +644,7 @@
         window.MwNative.tracking.getHealth().then(function(h) {
             var issues = [];
 
-            if (!h.gpsEnabled) {
+            if (h.gpsEnabled === false) {
                 issues.push({
                     severity: 'critical',
                     title: 'GPS is turned off',
@@ -658,7 +658,7 @@
                 });
             }
 
-            if (!h.fgLocationGranted) {
+            if (h.fgLocationGranted === false) {
                 issues.push({
                     severity: 'critical',
                     title: 'Location permission denied',
@@ -670,7 +670,7 @@
                 });
             }
 
-            if (!h.bgLocationGranted) {
+            if (h.bgLocationGranted === false) {
                 issues.push({
                     severity: 'critical',
                     title: 'Background location not allowed',
@@ -684,7 +684,7 @@
                 });
             }
 
-            if (!h.batteryOptimizationIgnored) {
+            if (h.batteryOptimizationIgnored === false) {
                 issues.push({
                     severity: 'warning',
                     title: 'Battery optimization will interrupt GPS',
@@ -781,8 +781,8 @@
     // tracking-health.php. Does NOT block anything.
     function runPassiveHealthCheck() {
         window.MwNative.tracking.getHealth().then(function(h) {
-            var hasCritical = !h.bgLocationGranted || !h.fgLocationGranted || !h.gpsEnabled;
-            var hasWarning  = !h.batteryOptimizationIgnored;
+            var hasCritical = h.bgLocationGranted === false || h.fgLocationGranted === false || h.gpsEnabled === false;
+            var hasWarning  = h.batteryOptimizationIgnored === false;
             if (hasCritical) {
                 updateTrackingDot('warn', 'GPS permissions missing — tap to fix');
             } else if (hasWarning) {
