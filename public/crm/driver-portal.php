@@ -263,6 +263,21 @@ $extraHead  = '<link href="/crm/css/mobile-cards.css?v=20260303n" rel="styleshee
 </div><!-- /.dp-page -->
 
 <!-- ════════════════════════════════════════════════════════════════════════════
+     DRIVING TODAY? SPLASH
+     ════════════════════════════════════════════════════════════════════════════ -->
+<div class="dp-overlay" id="dpDrivingPrompt">
+    <div class="dp-driving-splash">
+        <div class="dp-driving-splash-icon">🚛</div>
+        <div class="dp-driving-splash-heading">Driving today?</div>
+        <div class="dp-driving-splash-sub">RAM 3500 PF8865</div>
+        <div class="dp-driving-splash-actions">
+            <button type="button" class="dp-drive-yes" onclick="dpDrivingAnswer(true)">Yes — complete pre-trip</button>
+            <button type="button" class="dp-drive-no"  onclick="dpDrivingAnswer(false)">No, not driving today</button>
+        </div>
+    </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════════════
      PRE-TRIP OVERLAY
      ════════════════════════════════════════════════════════════════════════════ -->
 <div class="dp-overlay" id="dpPreTripOverlay">
@@ -491,8 +506,27 @@ function dpToggleAck() {
     label.textContent = checked ? 'Safe to Drive — Confirmed ✓' : 'Safe to Drive — I confirm';
 }
 
+// ── Driving prompt ───────────────────────────────────────────────────────────
+function dpDrivingAnswer(driving) {
+    document.getElementById('dpDrivingPrompt').classList.remove('active');
+    if (driving) {
+        dpOpenForm('pre');
+    } else {
+        _dpDoClockIn();
+    }
+}
+
 // ── Clock In ─────────────────────────────────────────────────────────────────
 function dpClockIn() {
+    // If pre-trip not done, ask first (driver may not be using the vehicle today)
+    if (!DP.preComplete) {
+        document.getElementById('dpDrivingPrompt').classList.add('active');
+        return;
+    }
+    _dpDoClockIn();
+}
+
+function _dpDoClockIn() {
     var btn = document.getElementById('dpClockInBtn');
     btn.disabled = true;
     btn.textContent = 'Clocking in…';

@@ -25,6 +25,13 @@ if (!defined('APP_ROOT')) {
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 requireLogin();
 $user = getCurrentUser();
+
+// Drivers start at the portal where the vehicle check is surfaced
+if (!empty($user['is_driver']) && $user['role'] !== 'admin') {
+    header('Location: /crm/driver-portal.php');
+    exit;
+}
+
 $csrfToken = generateCSRFToken();
 $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0];
 ?>

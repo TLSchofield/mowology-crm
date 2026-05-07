@@ -20909,6 +20909,73 @@ textarea.font-monospace {
 
 .dp-overlay-body { padding: 18px 16px 40px; max-width: 600px; margin: 0 auto; }
 
+/* "Driving today?" splash overlay */
+.dp-driving-splash {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    background: var(--mw-forest);
+    color: #fff;
+    text-align: center;
+    padding: 40px 32px;
+    gap: 0;
+}
+.dp-driving-splash-icon {
+    font-size: 72px;
+    line-height: 1;
+    margin-bottom: 24px;
+    animation: dp-drive-pop 0.4s cubic-bezier(.34,1.56,.64,1) both;
+}
+@keyframes dp-drive-pop {
+    from { transform: scale(0.5); opacity: 0; }
+    to   { transform: scale(1);   opacity: 1; }
+}
+.dp-driving-splash-heading {
+    font-size: 26px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    margin-bottom: 8px;
+}
+.dp-driving-splash-sub {
+    font-size: 13px;
+    opacity: 0.65;
+    margin-bottom: 40px;
+    font-weight: 500;
+}
+.dp-driving-splash-actions {
+    width: 100%;
+    max-width: 320px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.dp-driving-splash-actions .dp-drive-yes {
+    background: var(--mw-green);
+    color: #fff;
+    border: none;
+    border-radius: 14px;
+    padding: 18px 24px;
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.dp-driving-splash-actions .dp-drive-yes:hover { background: var(--mw-dark); }
+.dp-driving-splash-actions .dp-drive-no {
+    background: transparent;
+    color: rgba(255,255,255,0.7);
+    border: 1.5px solid rgba(255,255,255,0.25);
+    border-radius: 14px;
+    padding: 16px 24px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+}
+.dp-driving-splash-actions .dp-drive-no:hover { border-color: rgba(255,255,255,0.5); color: #fff; }
+
 /* Form sections */
 .dp-form-section {
     margin-bottom: 22px;
