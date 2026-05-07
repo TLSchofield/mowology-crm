@@ -21,11 +21,31 @@ if (strlen($q) < 2) {
 
 $db   = getDB();
 $like = '%' . $q . '%';
-$ft   = strlen($q) >= 3;  // use FULLTEXT only when term is long enough for the index
+
+$tokens       = preg_split('/\s+/', $q, -1, PREG_SPLIT_NO_EMPTY);
+$isMultiToken = count($tokens) > 1;
+// Multi-word queries and queries with any short word (< 3 chars) break FULLTEXT — use LIKE instead
+$ft = strlen($q) >= 3
+    && !$isMultiToken
+    && !array_reduce($tokens, fn($c, $t) => $c || strlen($t) < 3, false);
 
 // Boolean-mode term: +word* means "must start with word"
 // Sanitise to remove FULLTEXT operator chars that could break the query
 $ftTerm = '+' . preg_replace('/[+\-><\(\)~*"@]+/', '', $q) . '*';
+
+// Build (field1 LIKE ? OR field2 LIKE ?) AND (...) for each token.
+// Each token must appear in at least one of the supplied fields.
+function buildTokenLike(array $tokens, array $fields): array {
+    $clauses = [];
+    $params  = [];
+    foreach ($tokens as $t) {
+        $like     = '%' . $t . '%';
+        $perField = array_map(fn($f) => "$f LIKE ?", $fields);
+        $clauses[] = '(' . implode(' OR ', $perField) . ')';
+        foreach ($fields as $_) $params[] = $like;
+    }
+    return [implode(' AND ', $clauses), $params];
+}
 
 $results = [];
 
@@ -40,6 +60,16 @@ try {
             ORDER BY first_name, last_name LIMIT 5
         ");
         $stmt->execute([$ftTerm]);
+    } elseif ($isMultiToken) {
+        [$tokenSql, $tokenParams] = buildTokenLike($tokens, ['first_name', 'last_name', 'email']);
+        $stmt = $db->prepare("
+            SELECT id, first_name, last_name, email, phone
+            FROM contacts
+            WHERE is_active = 1
+              AND $tokenSql
+            ORDER BY first_name, last_name LIMIT 5
+        ");
+        $stmt->execute($tokenParams);
     } else {
         $stmt = $db->prepare("
             SELECT id, first_name, last_name, email, phone
@@ -180,12 +210,22 @@ try {
 
 // ── Team Members ─────────────────────────────────────────────────────────
 try {
-    $stmt = $db->prepare("
-        SELECT id, full_name, email, role
-        FROM users WHERE is_active = 1 AND (full_name LIKE ? OR email LIKE ?)
-        ORDER BY full_name LIMIT 3
-    ");
-    $stmt->execute([$like, $like]);
+    if ($isMultiToken) {
+        [$tokenSql, $tokenParams] = buildTokenLike($tokens, ['full_name', 'email']);
+        $stmt = $db->prepare("
+            SELECT id, full_name, email, role
+            FROM users WHERE is_active = 1 AND $tokenSql
+            ORDER BY full_name LIMIT 3
+        ");
+        $stmt->execute($tokenParams);
+    } else {
+        $stmt = $db->prepare("
+            SELECT id, full_name, email, role
+            FROM users WHERE is_active = 1 AND (full_name LIKE ? OR email LIKE ?)
+            ORDER BY full_name LIMIT 3
+        ");
+        $stmt->execute([$like, $like]);
+    }
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
         $results[] = [
             'category' => 'Team',
