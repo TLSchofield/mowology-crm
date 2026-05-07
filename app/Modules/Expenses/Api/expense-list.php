@@ -86,10 +86,14 @@ try {
     $listStmt->execute($params);
     $rows = $listStmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // Build signed receipt image URLs — direct uploads/ paths are blocked
-    // by .htaccess. The signed URL lets AsyncImage fetch the image without
-    // needing to attach a JWT header (signature in the URL is enough).
+    // PDO with native prepares returns DECIMAL columns as strings ("39.90"),
+    // which fails to decode into Swift's `Double`. Cast the money columns to
+    // float so the iOS Expense model can decode them. Also build the signed
+    // receipt URL — direct /uploads/receipts paths are .htaccess-blocked.
     foreach ($rows as &$row) {
+        $row['amount']     = $row['amount']     === null ? null : (float)$row['amount'];
+        $row['gst_amount'] = $row['gst_amount'] === null ? null : (float)$row['gst_amount'];
+        $row['total']      = (float)($row['total'] ?? 0);
         $row['receipt_url'] = !empty($row['receipt_media_id'])
             ? signReceiptUrl((int)$row['receipt_media_id'], 3600, 'https://mowology.ca')
             : null;

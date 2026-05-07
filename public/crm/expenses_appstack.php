@@ -1829,12 +1829,34 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         document.getElementById('receiptCaptureCard').style.display = 'none';
         document.getElementById('receiptReviewPanel').style.display = 'block';
 
-        // Show receipt image preview
-        var reader = new FileReader();
-        reader.onload = function(e) {
-            document.getElementById('receiptPreviewImg').src = e.target.result;
-        };
-        reader.readAsDataURL(file);
+        // Show receipt image preview.
+        //
+        // FileReader.readAsDataURL on an Android Capacitor `<input type="file">`
+        // File can yield a black/empty image when the underlying URI is a
+        // content:// or large HEIC. Prefer a blob: URL (renders the file
+        // straight from memory) and fall back to the server-side image
+        // already saved by the upload — that path always works.
+        var previewImg = document.getElementById('receiptPreviewImg');
+        if (previewImg) {
+            var serverFallback = data.media_id
+                ? '/crm/api/serve-receipt.php?id=' + data.media_id
+                : (data.file_path || '');
+            previewImg.onerror = function () {
+                if (serverFallback && previewImg.src !== serverFallback) {
+                    previewImg.onerror = null;
+                    previewImg.src = serverFallback;
+                }
+            };
+            try {
+                if (file && URL && URL.createObjectURL) {
+                    previewImg.src = URL.createObjectURL(file);
+                } else if (serverFallback) {
+                    previewImg.src = serverFallback;
+                }
+            } catch (_e) {
+                if (serverFallback) previewImg.src = serverFallback;
+            }
+        }
 
         // Store media ID and OCR text.
         // Merge suggestions.accounting_category into parsed so category corrections can be learned.

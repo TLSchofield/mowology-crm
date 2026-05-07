@@ -26,6 +26,10 @@ if (!defined('APP_ROOT')) {
     unset($__dir, $__i);
 }
 
+// MUST load config first so jwtSecret() sees the same BLUEMOON_JWT_SECRET /
+// DB_PASS the signer used. Without it, jwtSecret() falls back to a different
+// hash and all signed URLs return 403.
+require_once APP_ROOT . '/Core/config.php';
 require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
 require_once APP_ROOT . '/Services/Receipts/ReceiptUrlSigner.php';
 
