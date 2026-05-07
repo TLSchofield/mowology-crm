@@ -61,6 +61,7 @@
 	<array>
 		<string>ca.mowology.crm.schedule-refresh</string>
 		<string>ca.mowology.crm.ping-drain</string>
+		<string>ca.mowology.crm.photo-drain</string>
 	</array>
 
 	<key>NSAppTransportSecurity</key>

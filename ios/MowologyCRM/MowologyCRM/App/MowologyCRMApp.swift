@@ -31,7 +31,10 @@ struct MowologyCRMApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(authSession)
-                .task { await requestNotificationPermission() }
+                .task {
+                    await requestNotificationPermission()
+                    startJobPhotoQueueMonitor()
+                }
                 .onReceive(
                     NotificationCenter.default.publisher(
                         for: UIApplication.willResignActiveNotification
@@ -39,6 +42,15 @@ struct MowologyCRMApp: App {
                 ) { _ in
                     schedulePingRefresh()
                 }
+        }
+    }
+
+    /// Activates the NWPathMonitor inside JobPhotoQueue so queued photos drain automatically when network is available.
+    private func startJobPhotoQueueMonitor() {
+        let session = authSession
+        JobPhotoQueue.shared.startMonitoring { data, visitId, photoType in
+            let client = APIClient(authSession: session)
+            try await client.uploadJobPhoto(imageData: data, visitId: visitId, photoType: photoType)
         }
     }
 

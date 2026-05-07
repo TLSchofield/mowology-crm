@@ -22,6 +22,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 
     static let bgScheduleRefreshId = "ca.mowology.crm.schedule-refresh"
     static let bgPingDrainId       = "ca.mowology.crm.ping-drain"
+    static let bgPhotoDrainId      = "ca.mowology.crm.photo-drain"
     static let appGroupId          = "group.ca.mowology.crm"
 
     // MARK: - App launch
@@ -41,6 +42,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         ) { [weak self] task in
             self?.handlePingDrain(task: task as! BGProcessingTask)
         }
+        BGTaskScheduler.shared.register(
+            forTaskWithIdentifier: AppDelegate.bgPhotoDrainId, using: nil
+        ) { [weak self] task in
+            self?.handlePhotoDrain(task: task as! BGProcessingTask)
+        }
 
         UNUserNotificationCenter.current().delegate = self
         setupNotificationCategories()
@@ -49,6 +55,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 
     func applicationDidEnterBackground(_ application: UIApplication) {
         scheduleBackgroundRefresh()
+        schedulePhotoDrain()
     }
 
     // MARK: - BGTask scheduling
@@ -110,6 +117,33 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         }
 
         task.expirationHandler = { refreshTask.cancel() }
+    }
+
+    // MARK: - BGTask: photo drain (runs when network is available)
+
+    func schedulePhotoDrain() {
+        guard JobPhotoQueue.shared.pendingCount > 0 else { return }
+        let request = BGProcessingTaskRequest(identifier: AppDelegate.bgPhotoDrainId)
+        request.requiresNetworkConnectivity = true
+        request.requiresExternalPower       = false
+        try? BGTaskScheduler.shared.submit(request)
+    }
+
+    private func handlePhotoDrain(task: BGProcessingTask) {
+        let drainTask = Task { @MainActor in
+            let session = AuthSession()
+            guard session.isAuthenticated else {
+                task.setTaskCompleted(success: false)
+                return
+            }
+            let client = APIClient(authSession: session)
+            await JobPhotoQueue.shared.drain { data, visitId, photoType in
+                try await client.uploadJobPhoto(imageData: data, visitId: visitId, photoType: photoType)
+            }
+            task.setTaskCompleted(success: true)
+        }
+
+        task.expirationHandler = { drainTask.cancel() }
     }
 
     // MARK: - BGTask: ping drain (runs when network is available)
