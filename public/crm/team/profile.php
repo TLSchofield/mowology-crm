@@ -203,6 +203,13 @@ if ($apiKey) {
         </a>
     </li>
     <?php endif; ?>
+    <?php if ($canTeamEdit): ?>
+    <li class="nav-item">
+        <a class="nav-link" id="tab-location" data-toggle="tab" href="#pane-location" role="tab">
+            <i data-feather="map-pin" style="width:14px;height:14px;"></i> Location
+        </a>
+    </li>
+    <?php endif; ?>
 </ul>
 
 <div class="tab-content">
@@ -989,6 +996,245 @@ if ($apiKey) {
 </div><!-- /account pane -->
 
 <?php endif; // canAccountTab ?>
+
+<?php if ($canTeamEdit): ?>
+<!-- ── Tab: Location Debug ────────────────────────────────────────────── -->
+<div class="tab-pane fade" id="pane-location" role="tabpanel">
+
+    <!-- Settings read-out -->
+    <?php
+    $pingRateLabels = ['high' => 'High (30s)', 'medium' => 'Medium (2 min)', 'low' => 'Low (10 min)'];
+    $empPingRateLabel = $pingRateLabels[$emp['location_ping_rate'] ?? 'high'] ?? 'High (30s)';
+    $empDeviceType = $emp['device_type'] ?? 'personal';
+    $empTrackingEnabled = !empty($emp['location_tracking_enabled']);
+    ?>
+    <div class="card mb-3">
+        <div class="card-body py-2">
+            <div class="d-flex flex-wrap gap-3 align-items-center">
+                <div class="mw-location-setting">
+                    <span class="text-muted small">Device</span>
+                    <span class="ml-2 badge badge-secondary"><?php echo ucfirst(h($empDeviceType)); ?></span>
+                </div>
+                <div class="mw-location-setting">
+                    <span class="text-muted small">Ping Rate</span>
+                    <span class="ml-2 badge badge-info"><?php echo h($empPingRateLabel); ?></span>
+                </div>
+                <div class="mw-location-setting">
+                    <span class="text-muted small">Tracking</span>
+                    <?php if ($empTrackingEnabled): ?>
+                        <span class="ml-2 badge badge-success"><i data-feather="check" style="width:11px;height:11px;"></i> Enabled</span>
+                    <?php else: ?>
+                        <span class="ml-2 badge badge-warning">Disabled</span>
+                    <?php endif; ?>
+                </div>
+                <div class="ml-auto">
+                    <a href="/crm/team/index.php" class="btn btn-sm btn-outline-secondary">
+                        <i data-feather="settings" style="width:13px;height:13px;"></i> Change Settings
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Date picker -->
+    <div class="card mb-3">
+        <div class="card-body py-2">
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+                <label class="mb-0 mr-2 text-muted small font-weight-bold">Date</label>
+                <input type="date" id="loc-date-picker" class="form-control form-control-sm" style="width:160px;"
+                       value="<?php echo date('Y-m-d'); ?>">
+                <button class="btn btn-sm btn-primary" onclick="loadPingDebug()">
+                    <i data-feather="search" style="width:13px;height:13px;"></i> Load
+                </button>
+                <span id="loc-loading" class="text-muted small ml-2" style="display:none;">Loading…</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Stats row -->
+    <div class="row mb-3" id="loc-stats" style="display:none;">
+        <div class="col-6 col-md mb-2">
+            <div class="mw-ping-stat text-center">
+                <div class="mw-ping-stat-value" id="stat-count">—</div>
+                <div class="mw-ping-stat-label">Pings</div>
+            </div>
+        </div>
+        <div class="col-6 col-md mb-2">
+            <div class="mw-ping-stat text-center">
+                <div class="mw-ping-stat-value" id="stat-expected">—</div>
+                <div class="mw-ping-stat-label">Expected</div>
+            </div>
+        </div>
+        <div class="col-6 col-md mb-2">
+            <div class="mw-ping-stat text-center">
+                <div class="mw-ping-stat-value" id="stat-first">—</div>
+                <div class="mw-ping-stat-label">First Ping</div>
+            </div>
+        </div>
+        <div class="col-6 col-md mb-2">
+            <div class="mw-ping-stat text-center">
+                <div class="mw-ping-stat-value" id="stat-last">—</div>
+                <div class="mw-ping-stat-label">Last Ping</div>
+            </div>
+        </div>
+        <div class="col-6 col-md mb-2">
+            <div class="mw-ping-stat text-center">
+                <div class="mw-ping-stat-value" id="stat-gap">—</div>
+                <div class="mw-ping-stat-label">Avg Gap</div>
+            </div>
+        </div>
+        <div class="col-6 col-md mb-2">
+            <div class="mw-ping-stat text-center">
+                <div class="mw-ping-stat-value" id="stat-clocked">—</div>
+                <div class="mw-ping-stat-label">Clocked In</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Ping list -->
+    <div class="card" id="loc-table-card" style="display:none;">
+        <div class="card-header d-flex align-items-center justify-content-between py-2">
+            <span class="font-weight-bold small">Ping Timeline</span>
+            <span id="loc-coverage-badge"></span>
+        </div>
+        <div class="card-body p-0">
+            <div id="loc-empty" class="text-center text-muted py-4" style="display:none;">
+                No pings recorded for this date.
+            </div>
+            <div class="table-responsive" id="loc-table-wrap">
+                <table class="table table-sm table-hover mb-0">
+                    <thead class="thead-light">
+                        <tr>
+                            <th class="small">#</th>
+                            <th class="small">Time</th>
+                            <th class="small">Accuracy</th>
+                            <th class="small">Coordinates</th>
+                            <th class="small">Gap from prev</th>
+                        </tr>
+                    </thead>
+                    <tbody id="loc-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div id="loc-error" class="alert alert-danger mt-3" style="display:none;"></div>
+
+</div><!-- /location pane -->
+
+<script>
+(function() {
+    var empId = <?php echo (int)$empId; ?>;
+    var loaded = false;
+
+    document.getElementById('tab-location').addEventListener('shown.bs.tab', function() {
+        if (!loaded) { loaded = true; loadPingDebug(); }
+    });
+
+    window.loadPingDebug = function() {
+        var date = document.getElementById('loc-date-picker').value;
+        if (!date) return;
+
+        document.getElementById('loc-loading').style.display = '';
+        document.getElementById('loc-stats').style.display = 'none';
+        document.getElementById('loc-table-card').style.display = 'none';
+        document.getElementById('loc-error').style.display = 'none';
+
+        fetch('/crm/api/crew-location.php?action=user_pings&user_id=' + empId + '&date=' + encodeURIComponent(date))
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                document.getElementById('loc-loading').style.display = 'none';
+                if (!d.success) { showErr(d.error || 'Unknown error'); return; }
+
+                renderStats(d);
+                renderTable(d.pings);
+            })
+            .catch(function(e) {
+                document.getElementById('loc-loading').style.display = 'none';
+                showErr('Request failed: ' + e.message);
+            });
+    };
+
+    function renderStats(d) {
+        var pct = d.expected_pings > 0 ? Math.round(d.ping_count / d.expected_pings * 100) : null;
+
+        document.getElementById('stat-count').textContent = d.ping_count;
+        document.getElementById('stat-count').className = 'mw-ping-stat-value' +
+            (pct !== null && pct < 50 ? ' mw-ping-low' : '');
+
+        document.getElementById('stat-expected').textContent =
+            d.expected_pings !== null ? d.expected_pings : '—';
+
+        document.getElementById('stat-first').textContent = d.first_ping || '—';
+        document.getElementById('stat-last').textContent  = d.last_ping  || '—';
+        document.getElementById('stat-gap').textContent   =
+            d.avg_gap_minutes !== null ? d.avg_gap_minutes + ' min' : '—';
+        document.getElementById('stat-clocked').textContent =
+            d.clocked_minutes > 0 ? Math.round(d.clocked_minutes / 60 * 10) / 10 + ' h' : '0';
+
+        // Coverage badge
+        var badge = document.getElementById('loc-coverage-badge');
+        if (pct !== null) {
+            badge.innerHTML = '<span class="badge badge-' + (pct >= 50 ? 'success' : 'danger') + '">' +
+                pct + '% of expected pings received</span>';
+        } else {
+            badge.innerHTML = '';
+        }
+
+        document.getElementById('loc-stats').style.display = '';
+        document.getElementById('loc-table-card').style.display = '';
+    }
+
+    function renderTable(pings) {
+        var tbody = document.getElementById('loc-tbody');
+        tbody.innerHTML = '';
+
+        if (!pings || pings.length === 0) {
+            document.getElementById('loc-table-wrap').style.display = 'none';
+            document.getElementById('loc-empty').style.display = '';
+            return;
+        }
+
+        document.getElementById('loc-table-wrap').style.display = '';
+        document.getElementById('loc-empty').style.display = 'none';
+
+        var prevEpoch = null;
+        pings.forEach(function(p, i) {
+            var epoch = timeToEpoch(p.time);
+            var gap = '';
+            if (i > 0 && prevEpoch !== null) {
+                var secs = epoch - prevEpoch;
+                gap = secs >= 60 ? Math.round(secs / 60) + ' min' : secs + 's';
+            }
+            prevEpoch = epoch;
+
+            var tr = document.createElement('tr');
+            tr.innerHTML = '<td class="small text-muted">' + (i + 1) + '</td>' +
+                '<td class="small">' + esc(p.time) + '</td>' +
+                '<td class="small">' + (p.accuracy !== null ? p.accuracy + ' m' : '—') + '</td>' +
+                '<td class="small">' + p.lat + ', ' + p.lng + '</td>' +
+                '<td class="small text-muted">' + gap + '</td>';
+            tbody.appendChild(tr);
+        });
+    }
+
+    function timeToEpoch(t) {
+        var parts = t.split(':');
+        return parseInt(parts[0]) * 3600 + parseInt(parts[1]) * 60 + parseInt(parts[2]);
+    }
+
+    function showErr(msg) {
+        var el = document.getElementById('loc-error');
+        el.textContent = msg;
+        el.style.display = '';
+    }
+
+    function esc(s) {
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+})();
+</script>
+<?php endif; // canTeamEdit ?>
 
 </div><!-- /tab-content -->
 

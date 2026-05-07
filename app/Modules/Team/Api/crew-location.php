@@ -154,9 +154,119 @@ try {
                 'routes' => array_values($routes)
             ]);
 
+        } elseif ($action === 'user_pings') {
+            // Admin/manager only — per-user ping diagnostics for a specific date
+            if (!in_array($user['role'], ['admin', 'manager'])) {
+                throw new Exception('Access denied');
+            }
+
+            $targetUserId = (int)($_GET['user_id'] ?? 0);
+            if (!$targetUserId) {
+                throw new Exception('user_id required');
+            }
+
+            $date = $_GET['date'] ?? (new DateTime('now', new DateTimeZone('America/Vancouver')))->format('Y-m-d');
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+                throw new Exception('Invalid date format. Use YYYY-MM-DD');
+            }
+
+            // Load user tracking settings
+            $empStmt = $db->prepare("
+                SELECT id, full_name,
+                       IFNULL(device_type, 'personal') AS device_type,
+                       IFNULL(location_ping_rate, 'high') AS location_ping_rate,
+                       location_tracking_enabled
+                FROM users
+                WHERE id = ? AND is_active = 1
+            ");
+            $empStmt->execute([$targetUserId]);
+            $empRow = $empStmt->fetch(PDO::FETCH_ASSOC);
+            if (!$empRow) {
+                throw new Exception('Employee not found');
+            }
+
+            // Pacific day boundaries
+            $tz = new DateTimeZone('America/Vancouver');
+            $dayStart = (new DateTime($date . ' 00:00:00', $tz))->getTimestamp();
+            $dayEnd   = (new DateTime($date . ' 23:59:59', $tz))->getTimestamp();
+
+            // Fetch pings for this user on this date
+            $pingsStmt = $db->prepare("
+                SELECT latitude AS lat,
+                       longitude AS lng,
+                       accuracy_meters AS accuracy,
+                       UNIX_TIMESTAMP(timestamp) AS epoch
+                FROM crew_location_history
+                WHERE crew_id = ?
+                  AND UNIX_TIMESTAMP(timestamp) >= ?
+                  AND UNIX_TIMESTAMP(timestamp) <= ?
+                ORDER BY timestamp ASC
+            ");
+            $pingsStmt->execute([$targetUserId, $dayStart, $dayEnd]);
+            $pingRows = $pingsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            $pings = [];
+            foreach ($pingRows as $row) {
+                $pings[] = [
+                    'time'     => (new DateTime('@' . (int)$row['epoch']))->setTimezone($tz)->format('H:i:s'),
+                    'lat'      => round((float)$row['lat'], 5),
+                    'lng'      => round((float)$row['lng'], 5),
+                    'accuracy' => $row['accuracy'] !== null ? (int)$row['accuracy'] : null,
+                ];
+            }
+
+            $pingCount = count($pings);
+            $firstPing = $pingCount > 0 ? $pings[0]['time'] : null;
+            $lastPing  = $pingCount > 0 ? $pings[$pingCount - 1]['time'] : null;
+
+            $avgGap = null;
+            if ($pingCount >= 2) {
+                $firstEpoch = (int)$pingRows[0]['epoch'];
+                $lastEpoch  = (int)$pingRows[$pingCount - 1]['epoch'];
+                $avgGap     = round(($lastEpoch - $firstEpoch) / ($pingCount - 1) / 60, 1);
+            }
+
+            // Clocked minutes for this date (include active/still-running entries)
+            $clockStmt = $db->prepare("
+                SELECT COALESCE(SUM(
+                    CASE WHEN status = 'active' AND clock_out IS NULL
+                         THEN TIMESTAMPDIFF(MINUTE, clock_in, NOW())
+                         ELSE COALESCE(total_minutes, 0)
+                    END
+                ), 0) AS clocked_minutes
+                FROM time_clock_entries
+                WHERE user_id = ?
+                  AND DATE(clock_in) = ?
+                  AND status IN ('completed', 'edited', 'active')
+            ");
+            $clockStmt->execute([$targetUserId, $date]);
+            $clockedMinutes = (int)$clockStmt->fetchColumn();
+
+            // Expected pings based on ping rate × clocked minutes
+            $pingRateIntervals = ['high' => 0.5, 'medium' => 2.0, 'low' => 10.0];
+            $interval     = $pingRateIntervals[$empRow['location_ping_rate']] ?? 0.5;
+            $expectedPings = $clockedMinutes > 0 ? (int)round($clockedMinutes / $interval) : null;
+
+            echo json_encode([
+                'success'                   => true,
+                'date'                      => $date,
+                'user_id'                   => (int)$empRow['id'],
+                'full_name'                 => $empRow['full_name'],
+                'device_type'               => $empRow['device_type'],
+                'location_ping_rate'        => $empRow['location_ping_rate'],
+                'location_tracking_enabled' => (int)$empRow['location_tracking_enabled'],
+                'ping_count'                => $pingCount,
+                'first_ping'                => $firstPing,
+                'last_ping'                 => $lastPing,
+                'avg_gap_minutes'           => $avgGap,
+                'clocked_minutes'           => $clockedMinutes,
+                'expected_pings'            => $expectedPings,
+                'pings'                     => $pings,
+            ]);
+
         } else {
             http_response_code(400);
-            echo json_encode(['error' => 'Invalid action. Use: live, day_routes']);
+            echo json_encode(['error' => 'Invalid action. Use: live, day_routes, user_pings']);
         }
 
     } elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {

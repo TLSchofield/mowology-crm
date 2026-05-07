@@ -11355,6 +11355,39 @@ textarea.font-monospace {
   50% { box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.1); }
 }
 
+/* ── Location Debug Tab (Employee Profile) ─────────── */
+
+.mw-location-setting {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mw-ping-stat {
+  background: var(--mw-light);
+  border-radius: 8px;
+  padding: 10px 8px;
+}
+
+.mw-ping-stat-value {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--mw-green);
+  line-height: 1.1;
+}
+
+.mw-ping-stat-label {
+  font-size: 0.72rem;
+  color: #6c757d;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-top: 2px;
+}
+
+.mw-ping-low {
+  color: #dc3545 !important;
+}
+
 /* ── Crew Map Page ──────────────────────────────────── */
 
 .mw-crew-map-container {
