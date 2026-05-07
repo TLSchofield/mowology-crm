@@ -989,7 +989,14 @@ $activePage = 'quotes';
                               <div class="mw-signature-section">
                                   <img src="<?php echo htmlspecialchars($quote['signature_data']); ?>" alt="Customer Signature">
                                   <div class="mw-signature-info">
-                                      Signed by: <?php echo htmlspecialchars($quote['accepted_by_name']); ?><br>
+                                      Signed by: <?php echo htmlspecialchars($quote['accepted_by_name']); ?>
+                                      <?php if (!empty($quote['accepted_by_title'])): ?>
+                                          , <?php echo htmlspecialchars($quote['accepted_by_title']); ?>
+                                      <?php endif; ?>
+                                      <br>
+                                      <?php if (!empty($quote['company_id']) && !empty($quote['company_name'])): ?>
+                                          On behalf of: <?php echo htmlspecialchars($quote['company_name']); ?><br>
+                                      <?php endif; ?>
                                       Date: <?php echo formatDateTime($quote['signature_timestamp']); ?><br>
                                       IP: <?php echo htmlspecialchars($quote['accepted_ip_address']); ?>
                                   </div>

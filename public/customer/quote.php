@@ -141,38 +141,69 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && $quote['status'] 
     if ($action === 'accept') {
         $signatureName  = trim($_POST['signature_name'] ?? '');
         $signatureEmail = trim($_POST['signature_email'] ?? '');
+        $signatureTitle = trim($_POST['signature_title'] ?? '');
         $signatureData  = $_POST['signature_data'] ?? '';
         $agreedToTerms  = isset($_POST['agree_terms']);
+        $isCorporate    = !empty($quote['company_id']);
 
         if (empty($signatureName)) {
             $error = 'Please enter your name.';
+        } elseif ($isCorporate && empty($signatureTitle)) {
+            $error = 'Please enter your title or role (e.g. Strata Council President).';
         } elseif (empty($signatureData) || $signatureData === 'data:,') {
             $error = 'Please sign the quote using your mouse or finger.';
         } elseif (!$agreedToTerms) {
-            $error = 'Please agree to the terms and conditions.';
+            $error = $isCorporate
+                ? 'Please confirm you are authorized to sign on behalf of ' . ($quote['company_name'] ?? 'the company') . '.'
+                : 'Please agree to the terms and conditions.';
         } else {
             try {
                 $db->beginTransaction();
 
-                // Update quote as accepted
-                $stmt = $db->prepare("
-                    UPDATE quotes SET
-                        status = 'accepted',
-                        accepted_at = NOW(),
-                        accepted_by_name = ?,
-                        accepted_by_email = ?,
-                        accepted_ip_address = ?,
-                        signature_data = ?,
-                        signature_timestamp = NOW()
-                    WHERE id = ?
-                ");
-                $stmt->execute([
-                    $signatureName,
-                    $signatureEmail,
-                    $_SERVER['REMOTE_ADDR'],
-                    $signatureData,
-                    $quote['id']
-                ]);
+                // Update quote as accepted (accepted_by_title set when present; older databases without
+                // the column tolerate the second attempt's narrower SET clause).
+                try {
+                    $stmt = $db->prepare("
+                        UPDATE quotes SET
+                            status = 'accepted',
+                            accepted_at = NOW(),
+                            accepted_by_name = ?,
+                            accepted_by_email = ?,
+                            accepted_by_title = ?,
+                            accepted_ip_address = ?,
+                            signature_data = ?,
+                            signature_timestamp = NOW()
+                        WHERE id = ?
+                    ");
+                    $stmt->execute([
+                        $signatureName,
+                        $signatureEmail,
+                        $signatureTitle ?: null,
+                        $_SERVER['REMOTE_ADDR'],
+                        $signatureData,
+                        $quote['id']
+                    ]);
+                } catch (PDOException $e) {
+                    // Fallback for pre-migration-1026 databases
+                    $stmt = $db->prepare("
+                        UPDATE quotes SET
+                            status = 'accepted',
+                            accepted_at = NOW(),
+                            accepted_by_name = ?,
+                            accepted_by_email = ?,
+                            accepted_ip_address = ?,
+                            signature_data = ?,
+                            signature_timestamp = NOW()
+                        WHERE id = ?
+                    ");
+                    $stmt->execute([
+                        $signatureName,
+                        $signatureEmail,
+                        $_SERVER['REMOTE_ADDR'],
+                        $signatureData,
+                        $quote['id']
+                    ]);
+                }
 
                 // Log activity
                 try {
@@ -180,9 +211,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && $quote['status'] 
                         INSERT INTO activity_log (quote_id, action, details, ip_address, created_at)
                         VALUES (?, 'Quote accepted', ?, ?, NOW())
                     ");
+                    $activityDetails = "Accepted by {$signatureName}";
+                    if ($signatureTitle !== '') {
+                        $activityDetails .= ", {$signatureTitle}";
+                    }
+                    if ($isCorporate && !empty($quote['company_name'])) {
+                        $activityDetails .= " on behalf of {$quote['company_name']}";
+                    }
                     $stmt->execute([
                         $quote['id'],
-                        "Accepted by {$signatureName}",
+                        $activityDetails,
                         $_SERVER['REMOTE_ADDR']
                     ]);
                 } catch (Exception $e) {
@@ -492,17 +530,40 @@ if (!empty($quote)) {
 
         <!-- Acceptance Section (sent status only) -->
         <?php if ($quote['status'] === 'sent'): ?>
+            <?php
+                $isCorporateQuote = !empty($quote['company_id']);
+                $companyForBinding = $quote['company_name'] ?? '';
+                // Pre-fill name from the company's primary contact (for corporate)
+                // or property contact (for residential without company).
+                $prefillName = $isCorporateQuote
+                    ? trim(($quote['contact_first'] ?? '') . ' ' . ($quote['contact_last'] ?? ''))
+                    : trim(($quote['property_contact_first'] ?? '') . ' ' . ($quote['property_contact_last'] ?? ''));
+                if ($prefillName === '') {
+                    $prefillName = trim(($quote['contact_first'] ?? '') . ' ' . ($quote['contact_last'] ?? ''));
+                }
+                $prefillEmail = $isCorporateQuote
+                    ? ($quote['contact_email'] ?? '')
+                    : ($quote['property_contact_email'] ?? $quote['contact_email'] ?? '');
+            ?>
             <div class="portal-info-card">
-                <div class="portal-info-card-header">Accept This Quote</div>
+                <div class="portal-info-card-header"><?php echo $isCorporateQuote ? 'Authorized Signature' : 'Accept This Quote'; ?></div>
                 <div class="portal-info-card-body">
                     <?php if ($isAdminPreview): ?>
                         <div style="text-align:center;padding:24px;color:var(--p-text-mid);font-style:italic;">
                             ✏️ <strong>Preview mode:</strong> The signature form appears here for your client. Disabled in this preview.
                         </div>
                     <?php else: ?>
-                        <p style="font-size:0.875rem;color:var(--p-text-mid);margin-bottom:22px;">
-                            To accept this quote, please sign below and confirm your details.
-                        </p>
+                        <?php if ($isCorporateQuote): ?>
+                            <p style="font-size:0.875rem;color:var(--p-text-mid);margin-bottom:22px;">
+                                This quote is issued to <strong><?php echo htmlspecialchars($companyForBinding); ?></strong>.
+                                Please sign below as the authorized representative — your name, title, and signature
+                                will bind the organization to this agreement.
+                            </p>
+                        <?php else: ?>
+                            <p style="font-size:0.875rem;color:var(--p-text-mid);margin-bottom:22px;">
+                                To accept this quote, please sign below and confirm your details.
+                            </p>
+                        <?php endif; ?>
 
                         <form method="POST" id="acceptForm">
                             <input type="hidden" name="action" value="accept">
@@ -512,14 +573,25 @@ if (!empty($quote)) {
                                 <label class="portal-form-label">Your Full Name *</label>
                                 <input type="text" name="signature_name" class="portal-form-input" required
                                        placeholder="Enter your full name"
-                                       value="<?php echo htmlspecialchars(trim(($quote['contact_first'] ?? '') . ' ' . ($quote['contact_last'] ?? ''))); ?>">
+                                       value="<?php echo htmlspecialchars($prefillName); ?>">
                             </div>
+
+                            <?php if ($isCorporateQuote): ?>
+                            <div class="portal-form-group">
+                                <label class="portal-form-label">Your Title or Role *</label>
+                                <input type="text" name="signature_title" class="portal-form-input" required
+                                       placeholder="e.g. Strata Council President, Property Manager, Director">
+                                <small style="display:block;margin-top:6px;color:var(--p-text-mid);font-size:0.75rem;">
+                                    Your capacity to sign on behalf of <?php echo htmlspecialchars($companyForBinding); ?>.
+                                </small>
+                            </div>
+                            <?php endif; ?>
 
                             <div class="portal-form-group">
                                 <label class="portal-form-label">Your Email</label>
                                 <input type="email" name="signature_email" class="portal-form-input"
                                        placeholder="Enter your email"
-                                       value="<?php echo htmlspecialchars($quote['contact_email'] ?? ''); ?>">
+                                       value="<?php echo htmlspecialchars($prefillEmail); ?>">
                             </div>
 
                             <div class="portal-form-group">
@@ -536,7 +608,13 @@ if (!empty($quote)) {
                             <div class="portal-checkbox-row">
                                 <input type="checkbox" name="agree_terms" id="agreeTerms" required>
                                 <label for="agreeTerms">
-                                    I have read and agree to the terms and conditions above. I authorize Mowology to perform the services described in this quote.
+                                    <?php if ($isCorporateQuote): ?>
+                                        I am authorized to sign on behalf of <strong><?php echo htmlspecialchars($companyForBinding); ?></strong>,
+                                        I have read and agree to the terms and conditions above, and I authorize Mowology to perform
+                                        the services described in this quote.
+                                    <?php else: ?>
+                                        I have read and agree to the terms and conditions above. I authorize Mowology to perform the services described in this quote.
+                                    <?php endif; ?>
                                 </label>
                             </div>
 
