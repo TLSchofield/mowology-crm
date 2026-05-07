@@ -121,6 +121,12 @@
             if (autoArrivalEnabled && !hasActiveJobTimer) {
                 runOneShotProximityCheck();
             }
+
+            // Passive permission health check — shows topbar warning if
+            // background location or battery optimization is degraded.
+            if (window.MwNative && window.MwNative.isNative && data.clocked_in) {
+                runPassiveHealthCheck();
+            }
         })
         .catch(function(err) {
             console.warn('Time clock API error:', err);
@@ -167,6 +173,9 @@
         } else if (state === 'error') {
             dotClass = 'mw-tracking-dot mw-tracking-dot-off';
             titleText = (detail || 'GPS off') + ' — tap to enable';
+        } else if (state === 'warn') {
+            dotClass = 'mw-tracking-dot mw-tracking-dot-warn';
+            titleText = detail || 'GPS needs attention — tap to fix';
         } else {
             dotClass = 'mw-tracking-dot mw-tracking-dot-loading';
             titleText = detail || 'Checking GPS...';
@@ -201,6 +210,12 @@
             } else {
                 showToast('GPS active', 'success');
             }
+            return;
+        }
+
+        // Permissions degraded — send to tracking health page
+        if (gpsState === 'warn') {
+            window.location.href = '/crm/timeclock/tracking-health.php';
             return;
         }
 
@@ -614,36 +629,206 @@
         });
     }
 
+    // ── Clock-In Health Gate ─────────────────────────────────────────────────
+    // Android only. Calls MwNative.tracking.getHealth() before clock-in fires.
+    // Critical issues (GPS off, fg/bg location denied) block clock-in entirely.
+    // Warnings (battery optimization on) show but allow "Skip for now".
+    // Falls through immediately in browser or on iOS.
+
+    function runHealthGate(onPass, onCancel) {
+        if (!window.MwNative || !window.MwNative.isNative) {
+            onPass();
+            return;
+        }
+
+        window.MwNative.tracking.getHealth().then(function(h) {
+            var issues = [];
+
+            if (!h.gpsEnabled) {
+                issues.push({
+                    severity: 'critical',
+                    title: 'GPS is turned off',
+                    detail: 'Turn on Location Services in your phone settings.',
+                    fixLabel: 'Open Location Settings',
+                    fix: function() {
+                        if (window.MwNative.tracking.openLocationSettings) {
+                            window.MwNative.tracking.openLocationSettings();
+                        }
+                    }
+                });
+            }
+
+            if (!h.fgLocationGranted) {
+                issues.push({
+                    severity: 'critical',
+                    title: 'Location permission denied',
+                    detail: 'Tap Grant Permission and select "While using the app" or "Allow all the time".',
+                    fixLabel: 'Grant Permission',
+                    fix: function() {
+                        window.MwNative.geo.getCurrentPosition().catch(function() {});
+                    }
+                });
+            }
+
+            if (!h.bgLocationGranted) {
+                issues.push({
+                    severity: 'critical',
+                    title: 'Background location not allowed',
+                    detail: 'Open App Settings and set Location to "Allow all the time" so GPS tracks while your screen is off.',
+                    fixLabel: 'Open App Settings',
+                    fix: function() {
+                        if (window.MwNative.tracking.openAppSettings) {
+                            window.MwNative.tracking.openAppSettings();
+                        }
+                    }
+                });
+            }
+
+            if (!h.batteryOptimizationIgnored) {
+                issues.push({
+                    severity: 'warning',
+                    title: 'Battery optimization will interrupt GPS',
+                    detail: h.oemBatteryInfo || 'Disable battery optimization for Mowology so the app stays alive in the background.',
+                    fixLabel: 'Fix Battery Settings',
+                    fix: function() {
+                        window.MwNative.tracking.requestBatteryExemption();
+                    }
+                });
+            }
+
+            if (issues.length === 0) {
+                onPass();
+                return;
+            }
+
+            var criticals = issues.filter(function(i) { return i.severity === 'critical'; });
+            showHealthGateModal(issues, criticals.length === 0, onPass, onCancel);
+
+        }).catch(function() {
+            onPass(); // Health check failed — don't block clock-in
+        });
+    }
+
+    function showHealthGateModal(issues, canSkip, onPass, onCancel) {
+        var existing = document.getElementById('mwHealthGate');
+        if (existing) existing.remove();
+
+        var overlay = document.createElement('div');
+        overlay.id = 'mwHealthGate';
+        overlay.className = 'mw-health-gate-overlay';
+
+        var criticals = issues.filter(function(i) { return i.severity === 'critical'; });
+        var subtitle = criticals.length > 0
+            ? criticals.length + ' issue' + (criticals.length > 1 ? 's' : '') + ' must be fixed before clocking in'
+            : 'Fix this to ensure your location tracks correctly today';
+
+        var cardsHtml = issues.map(function(issue, idx) {
+            var color = issue.severity === 'critical' ? '#dc3545' : '#e85d04';
+            return '<div class="mw-hg-card" style="border-left-color:' + color + '">' +
+                '<div class="mw-hg-card-title">' + escapeHtml(issue.title) + '</div>' +
+                '<div class="mw-hg-card-detail">' + escapeHtml(issue.detail) + '</div>' +
+                '<button class="btn btn-sm mw-hg-fix-btn" data-idx="' + idx + '" ' +
+                    'style="background:' + color + ';color:#fff;margin-top:8px;border:none;">' +
+                    escapeHtml(issue.fixLabel) + ' →' +
+                '</button>' +
+            '</div>';
+        }).join('');
+
+        overlay.innerHTML =
+            '<div class="mw-health-gate-modal">' +
+            '  <div class="mw-hg-header">' +
+            '    <div class="mw-hg-icon">&#9888;&#65039;</div>' +
+            '    <div>' +
+            '      <div class="mw-hg-title">GPS Setup Needed</div>' +
+            '      <div class="mw-hg-subtitle">' + escapeHtml(subtitle) + '</div>' +
+            '    </div>' +
+            '  </div>' +
+            '  <div class="mw-hg-cards">' + cardsHtml + '</div>' +
+            '  <div class="mw-hg-actions">' +
+            '    <button class="btn btn-success btn-block mw-hg-recheck">Re-check &amp; Clock In</button>' +
+            (canSkip ? '<button class="btn btn-link btn-sm mw-hg-skip text-muted">Skip for now</button>' : '') +
+            '  </div>' +
+            '</div>';
+
+        document.body.appendChild(overlay);
+        document.body.classList.add('mw-no-scroll');
+
+        overlay.querySelectorAll('.mw-hg-fix-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var idx = parseInt(btn.dataset.idx, 10);
+                issues[idx].fix();
+            });
+        });
+
+        overlay.querySelector('.mw-hg-recheck').addEventListener('click', function() {
+            overlay.remove();
+            document.body.classList.remove('mw-no-scroll');
+            runHealthGate(onPass, onCancel);
+        });
+
+        var skipBtn = overlay.querySelector('.mw-hg-skip');
+        if (skipBtn) {
+            skipBtn.addEventListener('click', function() {
+                overlay.remove();
+                document.body.classList.remove('mw-no-scroll');
+                onPass();
+            });
+        }
+    }
+
+    // Passive health check — called on page load for clocked-in native users.
+    // Shows amber topbar dot if permissions are degraded; tapping it goes to
+    // tracking-health.php. Does NOT block anything.
+    function runPassiveHealthCheck() {
+        window.MwNative.tracking.getHealth().then(function(h) {
+            var hasCritical = !h.bgLocationGranted || !h.fgLocationGranted || !h.gpsEnabled;
+            var hasWarning  = !h.batteryOptimizationIgnored;
+            if (hasCritical) {
+                updateTrackingDot('warn', 'GPS permissions missing — tap to fix');
+            } else if (hasWarning) {
+                updateTrackingDot('warn', 'Battery optimization may kill GPS — tap to fix');
+            }
+        }).catch(function() {});
+    }
+
     // ── Actions ──
 
     function doClockIn() {
         var btn = document.getElementById('btnClockIn');
         if (btn) btn.disabled = true;
 
-        getGPS(function(lat, lng) {
-            fetch('/crm/api/time-clock.php', {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'clock_in', lat: lat, lng: lng })
-            })
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                if (data.success) {
-                    clockInTime = new Date();
-                    // Re-fetch status to get tracking flag and render properly
-                    fetchStatus();
-                    showToast('Clocked in at ' + formatTime(new Date()), 'success');
-                } else {
-                    showToast(data.error || 'Clock in failed', 'error');
-                    renderClockedOut();
-                }
-            })
-            .catch(function() {
-                showToast('Network error', 'error');
+        runHealthGate(
+            function() {
+                getGPS(function(lat, lng) {
+                    fetch('/crm/api/time-clock.php', {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'clock_in', lat: lat, lng: lng })
+                    })
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        if (data.success) {
+                            clockInTime = new Date();
+                            // Re-fetch status to get tracking flag and render properly
+                            fetchStatus();
+                            showToast('Clocked in at ' + formatTime(new Date()), 'success');
+                        } else {
+                            showToast(data.error || 'Clock in failed', 'error');
+                            renderClockedOut();
+                        }
+                    })
+                    .catch(function() {
+                        showToast('Network error', 'error');
+                        if (btn) btn.disabled = false;
+                    });
+                });
+            },
+            function() {
+                // User closed modal without fixing — re-enable the button
                 if (btn) btn.disabled = false;
-            });
-        });
+            }
+        );
     }
 
     function doClockOut() {

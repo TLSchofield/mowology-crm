@@ -10158,6 +10158,11 @@ textarea.font-monospace {
   animation: mw-dot-pulse-grey 1.5s ease-in-out infinite;
 }
 
+.mw-tracking-dot-warn {
+  color: #f59e0b;
+  animation: mw-dot-pulse-amber 1.2s ease-in-out infinite;
+}
+
 @keyframes mw-dot-pulse-green {
   0%, 100% { filter: drop-shadow(0 0 0px rgba(34, 197, 94, 0.6)); }
   50% { filter: drop-shadow(0 0 6px rgba(34, 197, 94, 0.8)); }
@@ -10171,6 +10176,11 @@ textarea.font-monospace {
 @keyframes mw-dot-pulse-grey {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.3; }
+}
+
+@keyframes mw-dot-pulse-amber {
+  0%, 100% { filter: drop-shadow(0 0 0px rgba(245, 158, 11, 0.6)); }
+  50% { filter: drop-shadow(0 0 6px rgba(245, 158, 11, 0.9)); }
 }
 
 /* Mobile: slightly larger icon for tap-friendliness */
@@ -11386,6 +11396,120 @@ textarea.font-monospace {
 
 .mw-ping-low {
   color: #dc3545 !important;
+}
+
+/* ── Clock-In Health Gate Modal ─────────────────────── */
+
+.mw-health-gate-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 9999;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0;
+}
+
+@media (min-width: 600px) {
+  .mw-health-gate-overlay {
+    align-items: center;
+  }
+}
+
+.mw-health-gate-modal {
+  background: #fff;
+  border-radius: 16px 16px 0 0;
+  width: 100%;
+  max-width: 520px;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 24px 20px 32px;
+  box-shadow: 0 -4px 24px rgba(0,0,0,0.18);
+}
+
+@media (min-width: 600px) {
+  .mw-health-gate-modal {
+    border-radius: 16px;
+    max-height: 80vh;
+  }
+}
+
+.mw-hg-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.mw-hg-icon {
+  font-size: 2rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.mw-hg-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #1a1a2e;
+}
+
+.mw-hg-subtitle {
+  font-size: 0.82rem;
+  color: #6c757d;
+  margin-top: 2px;
+}
+
+.mw-hg-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.mw-hg-card {
+  background: #fafafa;
+  border: 1px solid #e9ecef;
+  border-left: 4px solid #dc3545;
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+
+.mw-hg-card-title {
+  font-weight: 600;
+  font-size: 0.88rem;
+  color: #212529;
+  margin-bottom: 4px;
+}
+
+.mw-hg-card-detail {
+  font-size: 0.81rem;
+  color: #495057;
+  line-height: 1.45;
+}
+
+.mw-hg-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.mw-hg-actions .btn-block {
+  width: 100%;
+  padding: 12px;
+  font-weight: 600;
+  font-size: 1rem;
+  border-radius: 10px;
+}
+
+.mw-hg-skip {
+  font-size: 0.82rem;
+}
+
+/* Prevent body scroll when modal is open */
+body.mw-no-scroll {
+  overflow: hidden !important;
 }
 
 /* ── Crew Map Page ──────────────────────────────────── */
