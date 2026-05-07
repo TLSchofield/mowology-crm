@@ -43,6 +43,9 @@ for ($__i = 0; $__i < 6; $__i++) {
 }
 unset($__dir, $__i);
 
+// Stripe SDK lives in public/vendor; autoload it before the service touches it.
+require_once dirname(__DIR__, 2) . '/vendor/autoload.php';
+
 require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceService.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 
