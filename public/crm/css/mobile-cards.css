@@ -3918,14 +3918,14 @@
 
 /* ════════════════════════════════════════════════════════════════════════════
    DAY SUMMARY CARD  (.mw-ds-*)
-   Shown at top of mobile scroll area — metrics, weather, clock in/out.
+   Shown at top of driver portal — metrics, weather, clock in/out.
    Prefix: mw-ds- (mowology day-summary)
+   Not scoped to a breakpoint — portal renders same at any viewport width.
    ════════════════════════════════════════════════════════════════════════════ */
-
-@media (max-width: 991px) {
 
 /* ── Wrapper ── */
 .mw-ds-wrap {
+    max-width: 680px;
     padding: 0 12px 4px;
     display: flex;
     flex-direction: column;
@@ -4159,8 +4159,6 @@
     color: var(--mw-green);
     border: 2px solid var(--mw-green);
 }
-
-} /* end @media (max-width: 991px) */
 
 /* ════════════════════════════════════════════════════════════════════════════
    BILLABLE EXTRAS MODAL  (visit-work.php)

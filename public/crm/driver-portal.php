@@ -117,7 +117,7 @@ $csrf = generateCSRFToken();
 
 $pageTitle  = 'Driver Portal';
 $activePage = 'driver';
-$extraHead  = '<link href="/crm/css/mobile-cards.css?v=20260303n" rel="stylesheet">';
+$extraHead  = '<link href="/crm/css/mobile-cards.css?v=20260506a" rel="stylesheet">';
 ?>
 <?php include 'includes/appstack_head.php'; ?>
 
