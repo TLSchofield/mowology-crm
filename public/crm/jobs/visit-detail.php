@@ -277,9 +277,15 @@ $activePage = 'jobs';
         <?php elseif (!empty($gpsPoints)): ?>
         <div class="alert alert-info">Route map will be generated when PDF is produced.</div>
         <?php else: ?>
-        <div class="text-muted text-center py-4">
+        <div class="text-muted text-center py-4" id="gps-empty-state">
           <i data-feather="map" style="width:32px;height:32px;opacity:.4;"></i>
           <p class="mt-2 mb-0">No GPS track recorded for this visit.</p>
+          <?php if ($isAdmin): ?>
+          <button class="btn btn-sm btn-outline-secondary mt-3" id="btn-backfill-gps">
+            <i data-feather="download-cloud" style="width:14px;height:14px;"></i>
+            Pull from crew history
+          </button>
+          <?php endif; ?>
         </div>
         <?php endif; ?>
         <div class="row text-center mt-2">
@@ -1287,6 +1293,39 @@ $activePage = 'jobs';
         else showAlert(res.error || 'Email failed.', 'danger');
         self.disabled = false;
         self.textContent = 'Send Email';
+      });
+    });
+  }
+
+  // ── GPS Backfill ──────────────────────────────────────────────────────────
+  var btnBackfill = document.getElementById('btn-backfill-gps');
+  if (btnBackfill) {
+    btnBackfill.addEventListener('click', function() {
+      var self = this;
+      self.disabled = true;
+      self.textContent = 'Pulling…';
+      fetch('/crm/api/job-timer.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ action: 'backfill_gps', visit_id: VISIT_ID, csrf_token: CSRF })
+      }).then(function(r) { return r.json(); }).then(function(res) {
+        if (res.success && res.inserted > 0) {
+          location.reload();
+        } else if (res.success && res.inserted === 0) {
+          showAlert('No nearby crew history pings found for this visit date.', 'info');
+          self.disabled = false;
+          self.innerHTML = '<i data-feather="download-cloud" style="width:14px;height:14px;"></i> Pull from crew history';
+          if (typeof feather !== 'undefined') feather.replace();
+        } else {
+          showAlert(res.error || 'Backfill failed.', 'danger');
+          self.disabled = false;
+          self.innerHTML = '<i data-feather="download-cloud" style="width:14px;height:14px;"></i> Pull from crew history';
+          if (typeof feather !== 'undefined') feather.replace();
+        }
+      }).catch(function() {
+        showAlert('Network error. Please try again.', 'danger');
+        self.disabled = false;
       });
     });
   }

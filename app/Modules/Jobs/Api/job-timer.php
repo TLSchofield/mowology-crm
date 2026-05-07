@@ -525,9 +525,108 @@ try {
             ]);
             break;
 
+        case 'backfill_gps':
+            // POST {action:'backfill_gps', visit_id:N, csrf_token}
+            // Copies crew_location_history pings near the property on the visit's
+            // scheduled_date into visit_gps_points (source='crew_history').
+            // Idempotent: skips rows already present for that visit + timestamp.
+            requirePermission('jobs.edit');
+
+            $visitId = (int)($input['visit_id'] ?? 0);
+            if (!$visitId) throw new Exception('visit_id is required');
+
+            $db = getDB();
+
+            // Resolve visit → scheduled_date + property coordinates
+            $visitRow = $db->prepare("
+                SELECT jv.scheduled_date, jv.stop_id,
+                       p.latitude, p.longitude
+                FROM job_visits jv
+                JOIN job_plans jp ON jv.plan_id = jp.id
+                LEFT JOIN properties p ON jp.property_id = p.id
+                WHERE jv.id = ?
+            ");
+            $visitRow->execute([$visitId]);
+            $visitMeta = $visitRow->fetch(PDO::FETCH_ASSOC);
+
+            if (!$visitMeta || !$visitMeta['latitude'] || !$visitMeta['longitude']) {
+                echo json_encode(['success' => false, 'error' => 'Property has no coordinates — cannot locate crew pings.']);
+                break;
+            }
+
+            $propLat  = (float)$visitMeta['latitude'];
+            $propLng  = (float)$visitMeta['longitude'];
+            $schedDate = $visitMeta['scheduled_date'];
+
+            // ~200m bounding box (same constant as gps_pings action)
+            $latDelta = 0.0018;
+            $lngDelta = 0.0018 / max(cos(deg2rad($propLat)), 0.001);
+
+            // Pacific timezone day boundaries for scheduled_date
+            $pacific    = new DateTimeZone('America/Vancouver');
+            $dayStart   = (new DateTime($schedDate . ' 00:00:00', $pacific))->getTimestamp();
+            $dayEnd     = (new DateTime($schedDate . ' 23:59:59', $pacific))->getTimestamp();
+
+            // All location-tracked crew (same broad scope as gps_pings action)
+            $crewStmt = $db->prepare("SELECT id FROM users WHERE location_tracking_enabled = 1");
+            $crewStmt->execute();
+            $crewIds = array_column($crewStmt->fetchAll(PDO::FETCH_ASSOC), 'id');
+
+            if (empty($crewIds)) {
+                echo json_encode(['success' => true, 'inserted' => 0, 'total' => 0]);
+                break;
+            }
+
+            $placeholders = implode(',', array_fill(0, count($crewIds), '?'));
+
+            // Bulk INSERT from crew_location_history; NOT EXISTS deduplicates on re-run
+            $insertSql = "
+                INSERT INTO visit_gps_points (visit_id, ts, lat, lng, accuracy_m, source)
+                SELECT ?, FROM_UNIXTIME(UNIX_TIMESTAMP(clh.timestamp)),
+                       clh.latitude, clh.longitude, clh.accuracy_meters, 'crew_history'
+                FROM crew_location_history clh
+                WHERE clh.crew_id IN ($placeholders)
+                  AND clh.latitude  BETWEEN ? AND ?
+                  AND clh.longitude BETWEEN ? AND ?
+                  AND UNIX_TIMESTAMP(clh.timestamp) BETWEEN ? AND ?
+                  AND NOT EXISTS (
+                    SELECT 1 FROM visit_gps_points vgp
+                    WHERE vgp.visit_id = ?
+                      AND vgp.source   = 'crew_history'
+                      AND vgp.ts       = FROM_UNIXTIME(UNIX_TIMESTAMP(clh.timestamp))
+                  )
+            ";
+            $insertParams = array_merge(
+                [$visitId],
+                $crewIds,
+                [
+                    $propLat - $latDelta, $propLat + $latDelta,
+                    $propLng - $lngDelta, $propLng + $lngDelta,
+                    $dayStart, $dayEnd,
+                    $visitId,
+                ]
+            );
+            $insertStmt = $db->prepare($insertSql);
+            $insertStmt->execute($insertParams);
+            $inserted = $insertStmt->rowCount();
+
+            // Refresh cached count
+            $db->prepare("
+                UPDATE job_visits
+                SET gps_points_count = (SELECT COUNT(*) FROM visit_gps_points WHERE visit_id = ?)
+                WHERE id = ?
+            ")->execute([$visitId, $visitId]);
+
+            $cntStmt = $db->prepare("SELECT COUNT(*) FROM visit_gps_points WHERE visit_id = ?");
+            $cntStmt->execute([$visitId]);
+            $total = (int)$cntStmt->fetchColumn();
+
+            echo json_encode(['success' => true, 'inserted' => $inserted, 'total' => $total]);
+            break;
+
         default:
             http_response_code(400);
-            echo json_encode(['error' => 'Invalid action. Use: active, start, stop, pause, plan_time_log, gps_pings']);
+            echo json_encode(['error' => 'Invalid action. Use: active, start, stop, pause, plan_time_log, gps_pings, backfill_gps']);
     }
 
 } catch (Exception $e) {
