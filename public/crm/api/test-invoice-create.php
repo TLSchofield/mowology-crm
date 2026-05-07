@@ -43,8 +43,17 @@ for ($__i = 0; $__i < 6; $__i++) {
 }
 unset($__dir, $__i);
 
-// Stripe SDK lives in public/vendor; autoload it before the service touches it.
-require_once dirname(__DIR__, 2) . '/vendor/autoload.php';
+// Stripe SDK lives in public/vendor; load both composer's autoload AND Stripe's
+// own init.php so this works regardless of which is dropped on the server.
+$__vendor = dirname(__DIR__, 2) . '/vendor';
+if (is_file($__vendor . '/autoload.php'))           require_once $__vendor . '/autoload.php';
+if (is_file($__vendor . '/stripe/stripe-php/init.php')) require_once $__vendor . '/stripe/stripe-php/init.php';
+unset($__vendor);
+
+if (!class_exists('\Stripe\StripeClient')) {
+    http_response_code(500);
+    exit('Stripe SDK not installed. Expected at public/vendor/stripe/stripe-php — confirm composer install ran.');
+}
 
 require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceService.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
