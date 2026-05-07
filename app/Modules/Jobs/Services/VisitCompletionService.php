@@ -215,6 +215,26 @@ class VisitCompletionService
                 ));
             }
 
+            // ── 14. GPS dwell time ────────────────────────────────────────────
+            // Derives on-property time from visit_gps_points — independent of
+            // the manual timer. When enough visits accumulate, overwrites the
+            // timer-based estimated_duration_minutes with GPS-derived average.
+            $dwellPath = APP_ROOT . '/Services/Scheduling/DwellTimeService.php';
+            if (is_file($dwellPath)) {
+                require_once $dwellPath;
+                $dwellResult = DwellTimeService::computeForVisit($visitId);
+                if ($dwellResult !== null) {
+                    DwellTimeService::updatePlanDwellAverage((int)$visit['plan_id']);
+                    error_log(sprintf(
+                        '[VisitCompletion] GPS dwell computed — visit #%d: %d min (quality=%d, pts=%d)',
+                        $visitId,
+                        $dwellResult['dwell_minutes'],
+                        $dwellResult['quality'],
+                        $dwellResult['filtered_count']
+                    ));
+                }
+            }
+
         } catch (Throwable $e) {
             // Never let this block visit completion — just log
             error_log('[VisitCompletionService] Error capturing snapshot for visit ' . $visitId . ': ' . $e->getMessage());

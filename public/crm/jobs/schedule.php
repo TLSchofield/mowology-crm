@@ -1819,6 +1819,31 @@ if ($apiKey) {
                                                   </span>
                                               <?php endforeach; ?>
                                           </div>
+                                          <?php
+                                          // Duration confidence badge — shows data source for time estimate
+                                          $gpsCount = (int)($stop['visits'][0]['gps_visit_count'] ?? 0);
+                                          $estMin   = (int)($stop['visits'][0]['estimated_duration'] ?? 0);
+                                          if ($estMin > 0):
+                                              if ($gpsCount >= 2):
+                                          ?>
+                                          <div class="mw-duration-badge mw-duration-badge--gps"
+                                               title="Duration estimate based on <?php echo $gpsCount; ?> GPS-tracked visit<?php echo $gpsCount !== 1 ? 's' : ''; ?>">
+                                              <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/></svg>
+                                              <?php echo $estMin; ?>m &middot; <?php echo $gpsCount; ?> GPS
+                                          </div>
+                                          <?php elseif ($gpsCount === 1): ?>
+                                          <div class="mw-duration-badge mw-duration-badge--gps-sparse"
+                                               title="1 GPS visit recorded — needs 1 more to improve prediction">
+                                              <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/></svg>
+                                              <?php echo $estMin; ?>m &middot; 1 GPS
+                                          </div>
+                                          <?php else: ?>
+                                          <div class="mw-duration-badge mw-duration-badge--default"
+                                               title="Estimated duration (no GPS history yet)">
+                                              <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                              <?php echo $estMin; ?>m est
+                                          </div>
+                                          <?php endif; endif; ?>
                                       <?php endif; ?>
 
                                       <?php

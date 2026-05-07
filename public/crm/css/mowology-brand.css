@@ -12018,6 +12018,34 @@ body.mw-no-scroll {
   margin-right: 2px;
 }
 
+/* Duration confidence badge — shows GPS vs estimated source */
+.mw-duration-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.62rem;
+  font-weight: 500;
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-top: 3px;
+  line-height: 1.4;
+}
+
+.mw-duration-badge--gps {
+  background: var(--mw-light);
+  color: var(--mw-dark);
+}
+
+.mw-duration-badge--gps-sparse {
+  background: #f0f7f3;
+  color: #5a8a72;
+}
+
+.mw-duration-badge--default {
+  background: #fff3cd;
+  color: #856404;
+}
+
 /* Stop status indicators */
 .mw-stop-card.mw-stop-in-progress {
   border-left: 3px solid var(--mw-orange);
