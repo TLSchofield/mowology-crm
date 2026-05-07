@@ -46,6 +46,21 @@ try {
     $expenseDate = $input['expense_date'] ?? date('Y-m-d');
     $total       = (float)($input['total'] ?? 0);
 
+    // Reject impossible expense dates — OCR can mis-read a "10/26" on a
+    // wrinkled receipt as "2090". Clamp the year to a sane window and fall
+    // back to today if the input is unparseable.
+    $thisYear = (int)date('Y');
+    $minYear  = 2020;
+    $maxYear  = $thisYear + 1;
+    if (preg_match('/^(\d{4})-\d{2}-\d{2}$/', (string)$expenseDate, $m)) {
+        $y = (int)$m[1];
+        if ($y < $minYear || $y > $maxYear) {
+            $expenseDate = date('Y-m-d');
+        }
+    } else {
+        $expenseDate = date('Y-m-d');
+    }
+
     if ($total <= 0 && empty($input['description'])) {
         echo json_encode(['success' => false, 'error' => 'Total amount or description is required']);
         exit;

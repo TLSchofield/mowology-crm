@@ -23,6 +23,11 @@ if (!defined('APP_ROOT')) {
 
 header('Content-Type: application/json');
 
+// Production has serialize_precision set high, so (float)"39.90" emits as
+// "39.89999999999999857..." (50+ digits). Force the shortest round-trippable
+// representation so JSON numbers stay clean: 39.9 instead of 39.8999...
+ini_set('serialize_precision', '-1');
+
 try {
     require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
     require_once APP_ROOT . '/Services/Receipts/ReceiptUrlSigner.php';
@@ -86,28 +91,57 @@ try {
     $listStmt->execute($params);
     $rows = $listStmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // PDO with native prepares returns DECIMAL columns as strings ("39.90"),
-    // which fails to decode into Swift's `Double`. Cast the money columns to
-    // float so the iOS Expense model can decode them. Also build the signed
-    // receipt URL — direct /uploads/receipts paths are .htaccess-blocked.
+    // Cast DECIMAL → float so iOS's `Double` can decode (PDO native prepares
+    // return DECIMAL as string), build the signed receipt URL (direct
+    // /uploads/receipts paths are .htaccess-blocked), and clamp absurd
+    // expense_date years (OCR sometimes emits "2090-..." from a "10/90" on a
+    // shoulder of a receipt). Use the first 10 chars of created_at as the
+    // fallback so the row stays sortable and displayable.
+    $thisYear  = (int)date('Y');
+    $minYear   = 2020;
+    $maxYear   = $thisYear + 1;
     foreach ($rows as &$row) {
         $row['amount']     = $row['amount']     === null ? null : (float)$row['amount'];
         $row['gst_amount'] = $row['gst_amount'] === null ? null : (float)$row['gst_amount'];
         $row['total']      = (float)($row['total'] ?? 0);
+
+        // Clamp impossible expense_date years. We don't mutate the DB here;
+        // expense-save validates new entries.
+        $d = (string)($row['expense_date'] ?? '');
+        if (preg_match('/^(\d{4})-/', $d, $m)) {
+            $y = (int)$m[1];
+            if ($y < $minYear || $y > $maxYear) {
+                $fallback = substr((string)($row['created_at'] ?? ''), 0, 10);
+                if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $fallback)) {
+                    $row['expense_date'] = $fallback;
+                }
+            }
+        }
+
         $row['receipt_url'] = !empty($row['receipt_media_id'])
             ? signReceiptUrl((int)$row['receipt_media_id'], 3600, 'https://mowology.ca')
             : null;
     }
     unset($row);
 
-    echo json_encode([
+    // JSON_INVALID_UTF8_SUBSTITUTE prevents json_encode from returning false
+    // when a vendor name or description contains stray bytes from OCR — that
+    // would emit an empty body and surface as "data couldn't be read" on iOS.
+    $json = json_encode([
         'success'  => true,
         'expenses' => $rows,
         'total'    => $total,
         'page'     => $page,
         'per_page' => $perPage,
         'pages'    => (int)ceil($total / $perPage),
-    ]);
+    ], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+
+    if ($json === false) {
+        http_response_code(500);
+        echo json_encode(['success' => false, 'error' => 'Failed to encode response: ' . json_last_error_msg()]);
+    } else {
+        echo $json;
+    }
 
 } catch (Throwable $e) {
     http_response_code(500);
