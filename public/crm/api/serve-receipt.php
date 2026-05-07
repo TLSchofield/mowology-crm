@@ -1,16 +1,15 @@
 <?php
 /**
- * API: Serve Receipt Image (Auth-Gated)
+ * API: Serve Receipt Image (Auth-Gated + Signed-URL)
  *
  * Proxies receipt files so they are never directly accessible via public URL.
- * Only authenticated users with expenses.view permission can retrieve images.
- *
- * GET /crm/api/serve-receipt.php?id=<media_id>
- *   or
- * GET /crm/api/serve-receipt.php?path=<web_path>  (legacy, internal use only)
+ * Three auth modes (any one is sufficient):
+ *   1. Signed URL  — ?id=N&exp=TS&sig=HMAC  (used by iOS AsyncImage; expires in 1h)
+ *   2. JWT Bearer  — Authorization: Bearer <jwt>  (mobile API consumers)
+ *   3. Web session — requireLogin() + requirePermission('expenses.view')
  *
  * Returns the raw image bytes with correct Content-Type.
- * Returns 403 if not authenticated, 404 if file not found.
+ * Returns 401/403 if not authenticated, 404 if file not found.
  */
 
 declare(strict_types=1);
@@ -27,46 +26,67 @@ if (!defined('APP_ROOT')) {
     unset($__dir, $__i);
 }
 
-require_once PUBLIC_ROOT . '/loginAuth/auth.php';
-require_once CRM_INCLUDES . '/functions.php';
+require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
+require_once APP_ROOT . '/Services/Receipts/ReceiptUrlSigner.php';
 
-// Must be logged in
-requireLogin();
-
-// Must have permission to view expenses
-requirePermission('expenses.view');
-
-$db = getDB();
-$absolutePath = null;
-$mimeType = 'image/jpeg';
-
-// --- Resolve file by media_id (preferred) ---
-if (!empty($_GET['id'])) {
-    $mediaId = (int)$_GET['id'];
-
-    $stmt = $db->prepare('
-        SELECT ma.file_path, ma.mime_type, ma.stored_filename
-        FROM media_assets ma
-        WHERE ma.id = ?
-        LIMIT 1
-    ');
-    $stmt->execute([$mediaId]);
-    $row = $stmt->fetch(PDO::FETCH_ASSOC);
-
-    if (!$row) {
-        http_response_code(404);
-        exit('Receipt not found');
-    }
-
-    // Build absolute path from web path
-    // file_path is web-root relative: /uploads/receipts/... or /_media/original/...
-    $absolutePath = PUBLIC_ROOT . $row['file_path'];
-    $mimeType = $row['mime_type'] ?: 'image/jpeg';
-
-} else {
+// --- Resolve media id ---
+$mediaId = isset($_GET['id']) ? (int)$_GET['id'] : 0;
+if ($mediaId <= 0) {
     http_response_code(400);
     exit('Missing receipt ID');
 }
+
+// --- Try auth modes in order: signed URL → JWT → session ---
+$authed = false;
+
+// 1. Signed URL (no session/JWT needed)
+if (isset($_GET['exp'], $_GET['sig'])) {
+    $exp = (int)$_GET['exp'];
+    $sig = (string)$_GET['sig'];
+    if (verifyReceiptUrlSignature($mediaId, $exp, $sig)) {
+        $authed = true;
+    } else {
+        http_response_code(403);
+        exit('Invalid or expired signature');
+    }
+}
+
+// 2. JWT Bearer (mobile clients)
+if (!$authed) {
+    $jwtUser = getJwtUser();
+    if ($jwtUser !== null) {
+        $authed = true;
+    }
+}
+
+// 3. Session-based (web)
+if (!$authed) {
+    require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+    require_once CRM_INCLUDES . '/functions.php';
+    requireLogin();
+    requirePermission('expenses.view');
+    $authed = true;
+}
+
+$db = getDB();
+
+// --- Look up the file ---
+$stmt = $db->prepare('
+    SELECT ma.file_path, ma.mime_type, ma.stored_filename
+    FROM media_assets ma
+    WHERE ma.id = ?
+    LIMIT 1
+');
+$stmt->execute([$mediaId]);
+$row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+if (!$row) {
+    http_response_code(404);
+    exit('Receipt not found');
+}
+
+$absolutePath = PUBLIC_ROOT . $row['file_path'];
+$mimeType     = $row['mime_type'] ?: 'image/jpeg';
 
 // --- Safety: ensure the resolved path stays within uploads/ or _media/ ---
 $allowedPrefixes = [
@@ -75,7 +95,7 @@ $allowedPrefixes = [
 ];
 
 $realPath = realpath($absolutePath);
-$allowed = false;
+$allowed  = false;
 if ($realPath) {
     foreach ($allowedPrefixes as $prefix) {
         if ($prefix && strpos($realPath, $prefix) === 0) {
@@ -97,7 +117,6 @@ header('Content-Type: ' . $mimeType);
 header('Content-Length: ' . $fileSize);
 header('Cache-Control: private, max-age=3600');
 header('X-Content-Type-Options: nosniff');
-// No Content-Disposition: inline so it displays in browser <img> tags
 
 readfile($realPath);
 exit;

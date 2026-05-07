@@ -25,6 +25,7 @@ header('Content-Type: application/json');
 
 try {
     require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
+    require_once APP_ROOT . '/Services/Receipts/ReceiptUrlSigner.php';
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
     require_once CRM_INCLUDES . '/functions.php';
 
@@ -75,11 +76,9 @@ try {
                e.amount, e.gst_amount, e.total, e.accounting_category,
                e.payment_method, e.status, e.forwarded_to_accounting,
                e.receipt_media_id, e.job_id, e.anomaly_score, e.created_at,
-               COALESCE(v.name, e.vendor_name_raw) AS vendor_name,
-               ma.stored_filename AS receipt_filename
+               COALESCE(v.name, e.vendor_name_raw) AS vendor_name
         FROM expenses e
         LEFT JOIN vendors v ON v.id = e.vendor_id
-        LEFT JOIN media_assets ma ON ma.id = e.receipt_media_id
         WHERE {$whereClause}
         ORDER BY e.expense_date DESC, e.created_at DESC
         LIMIT {$perPage} OFFSET {$offset}
@@ -87,12 +86,13 @@ try {
     $listStmt->execute($params);
     $rows = $listStmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // Build direct receipt image URLs for iOS display
+    // Build signed receipt image URLs — direct uploads/ paths are blocked
+    // by .htaccess. The signed URL lets AsyncImage fetch the image without
+    // needing to attach a JWT header (signature in the URL is enough).
     foreach ($rows as &$row) {
-        $row['receipt_url'] = !empty($row['receipt_filename'])
-            ? 'https://mowology.ca/uploads/receipts/' . $row['receipt_filename']
+        $row['receipt_url'] = !empty($row['receipt_media_id'])
+            ? signReceiptUrl((int)$row['receipt_media_id'], 3600, 'https://mowology.ca')
             : null;
-        unset($row['receipt_filename']);
     }
     unset($row);
 

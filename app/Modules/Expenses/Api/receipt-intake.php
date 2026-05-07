@@ -243,7 +243,7 @@ try {
                 }
             }
         }
-        echo json_encode([
+        $rescanPayload = [
             'success'       => true,
             'media_id'      => $rescanMediaId,
             'ocr_available' => $ocrResult['success'],
@@ -251,7 +251,14 @@ try {
             'ocr_text'      => $ocrText,
             'parsed'        => $parsed,
             'suggestions'   => $suggestions,
-        ]);
+        ];
+        $rescanJson = json_encode($rescanPayload, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+        if ($rescanJson === false) {
+            http_response_code(500);
+            echo json_encode(['success' => false, 'error' => 'Failed to encode rescan response: ' . json_last_error_msg()]);
+        } else {
+            echo $rescanJson;
+        }
         exit;
     }
 
@@ -620,7 +627,7 @@ try {
     }
 
     // Return everything to the client
-    echo json_encode([
+    $payload = [
         'success'           => true,
         'media_id'          => $mediaId,
         'file_path'         => $webPath,
@@ -639,7 +646,18 @@ try {
         'field_confidences' => $fieldConfidences ?? [],
         'gst_validation'    => $gstValidation ?? null,
         'duplicate_image'   => $duplicateImage,
-    ]);
+    ];
+
+    // Vision/Tesseract can return bytes that aren't valid UTF-8. Without the
+    // SUBSTITUTE flag json_encode returns false and the client hangs on an
+    // empty response body.
+    $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+    if ($json === false) {
+        http_response_code(500);
+        echo json_encode(['success' => false, 'error' => 'Failed to encode response: ' . json_last_error_msg()]);
+    } else {
+        echo $json;
+    }
 
 } catch (\Throwable $e) {
     http_response_code(500);

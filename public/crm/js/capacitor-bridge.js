@@ -591,6 +591,26 @@
         });
 
         App.addListener('resume', function () {
+            // ── Camera black-screen workaround ──────────────────
+            // After the native camera/file-picker returns, the Capacitor
+            // Android WebView sometimes paints a black canvas until the
+            // next layout invalidation. Toggling a transform on <body>
+            // forces a recomposite and clears the black frame. Cheap on
+            // resumes that aren't from the camera, so we always run it.
+            try {
+                var b = document.body;
+                if (b) {
+                    b.style.transform = 'translateZ(0)';
+                    requestAnimationFrame(function () {
+                        b.style.transform = '';
+                        // A 1-pixel scroll is a belt-and-braces nudge that
+                        // works on devices where transform alone isn't enough.
+                        window.scrollBy(0, 1);
+                        window.scrollBy(0, -1);
+                    });
+                }
+            } catch (e) { /* non-fatal */ }
+
             if (pausedFilter === null) return;
             console.log('[MwNative] App resume → restoring GPS filter', pausedFilter);
             // Caller should re-subscribe; for now, just log so the

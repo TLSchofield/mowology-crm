@@ -8,6 +8,7 @@ import Foundation
 struct ReceiptIntakeResponse: Decodable {
     let success: Bool
     let mediaId: Int
+    let receiptUrl: String?
     let ocrAvailable: Bool
     let ocrSource: String?
     let parsed: ParsedReceipt?
@@ -18,6 +19,7 @@ struct ReceiptIntakeResponse: Decodable {
     enum CodingKeys: String, CodingKey {
         case success
         case mediaId        = "media_id"
+        case receiptUrl     = "receipt_url"
         case ocrAvailable   = "ocr_available"
         case ocrSource      = "ocr_source"
         case parsed, suggestions

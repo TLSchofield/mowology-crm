@@ -92,7 +92,7 @@ struct ReceiptReviewView: View {
         Section {
             HStack {
                 Spacer()
-                AsyncImage(url: URL(string: "https://mowology.ca\(intake.parsed?.vendorHint ?? "")")) { img in
+                AsyncImage(url: intake.receiptUrl.flatMap(URL.init(string:))) { img in
                     img.resizable().scaledToFit().frame(maxHeight: 180).clipShape(RoundedRectangle(cornerRadius: 10))
                 } placeholder: {
                     RoundedRectangle(cornerRadius: 10)

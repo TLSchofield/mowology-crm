@@ -38,6 +38,7 @@ try {
     require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
     require_once APP_ROOT . '/Services/Receipts/VendorProductMatch.php';
     require_once APP_ROOT . '/Services/Receipts/TesseractPreScreen.php';
+    require_once APP_ROOT . '/Services/Receipts/ReceiptUrlSigner.php';
 
     $jwtUser = requireJwt();
     $userId  = (int)$jwtUser['id'];
@@ -268,10 +269,11 @@ try {
         error_log('Job suggestion error: ' . $e->getMessage());
     }
 
-    echo json_encode([
+    $payload = [
         'success'         => true,
         'media_id'        => $mediaId,
         'file_path'       => $webPath,
+        'receipt_url'     => signReceiptUrl($mediaId, 3600, 'https://mowology.ca'),
         'ocr_text'        => $ocrText,
         'ocr_available'   => $ocrAvailable,
         'ocr_source'      => $ocrSource,
@@ -279,7 +281,18 @@ try {
         'suggestions'     => $suggestions,
         'job_suggestions' => $jobSuggestions,
         'duplicate_image' => $duplicateImage,
-    ]);
+    ];
+
+    // OCR text from Vision/Tesseract can contain bytes that aren't valid UTF-8.
+    // Without these flags json_encode() returns false silently and the iOS app
+    // hangs waiting for a body that never arrives.
+    $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+    if ($json === false) {
+        http_response_code(500);
+        echo json_encode(['success' => false, 'error' => 'Failed to encode response: ' . json_last_error_msg()]);
+    } else {
+        echo $json;
+    }
 
 } catch (Throwable $e) {
     http_response_code(500);
