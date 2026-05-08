@@ -45,21 +45,21 @@ $activePage = 'team';
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
 <!-- Header -->
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <div>
-        <h1 class="h3 mb-1">Team</h1>
-        <p class="text-muted mb-0"><?php echo count($employees); ?> employee<?php echo count($employees) !== 1 ? 's' : ''; ?></p>
+<div class="mw-page-header">
+    <div class="mw-page-header-left">
+        <h1 class="mw-page-title">Team</h1>
+        <p class="mw-page-subtitle"><?php echo count($employees); ?> employee<?php echo count($employees) !== 1 ? 's' : ''; ?></p>
     </div>
-    <div class="d-flex" style="gap: 8px;">
+    <div class="mw-page-actions">
         <a href="/crm/timeclock/crew-map.php" class="btn btn-sm btn-outline-secondary">
-            <i data-feather="map-pin" style="width:14px;height:14px;"></i> Crew Map
+            <i data-feather="map-pin"></i> Crew Map
         </a>
         <a href="/crm/timeclock/timesheets.php" class="btn btn-sm btn-outline-secondary">
-            <i data-feather="file-text" style="width:14px;height:14px;"></i> Timesheets
+            <i data-feather="file-text"></i> Timesheets
         </a>
         <?php if ($user['role'] === 'admin'): ?>
-        <a href="onboard.php" class="btn btn-sm" style="background: var(--mw-green); color:#fff;">
-            <i data-feather="user-plus" style="width:14px;height:14px;"></i> Add Employee
+        <a href="onboard.php" class="btn btn-sm btn-success">
+            <i data-feather="user-plus"></i> Add Employee
         </a>
         <?php endif; ?>
     </div>
@@ -73,6 +73,127 @@ $activePage = 'team';
         <a href="?show_inactive=1" class="btn btn-sm btn-outline-secondary">Show Inactive</a>
     <?php endif; ?>
 </div>
+
+<!-- GPS Tracking Showcase Card -->
+<div class="mw-tracking-showcase" id="trackingShowcase">
+    <div class="mw-tracking-showcase-header" onclick="mwToggleTracking()">
+        <div class="mw-tracking-showcase-header-left">
+            <div class="mw-tracking-showcase-icon">
+                <i data-feather="radio" style="width:22px;height:22px;"></i>
+            </div>
+            <div>
+                <h3 class="mw-tracking-showcase-title">GPS Location Intelligence</h3>
+                <p class="mw-tracking-showcase-subtitle">Enterprise-grade field tracking — continuous, resilient, idempotent</p>
+                <div class="mw-tracking-showcase-badges">
+                    <span class="mw-tracking-badge">All-Shift Coverage</span>
+                    <span class="mw-tracking-badge">Offline-First</span>
+                    <span class="mw-tracking-badge">Proximity Auto-Start</span>
+                    <span class="mw-tracking-badge mw-tb-orange">iOS &amp; Android Native</span>
+                </div>
+            </div>
+        </div>
+        <div class="mw-tracking-showcase-toggle">
+            <i data-feather="chevron-down" style="width:20px;height:20px;"></i>
+        </div>
+    </div>
+
+    <div class="mw-tracking-showcase-body" id="trackingShowcaseBody">
+
+        <div class="mw-ts-grid">
+
+            <!-- Feature 1: All-Shift Coverage -->
+            <div class="mw-ts-feature">
+                <div class="mw-ts-feature-icon">
+                    <i data-feather="clock" style="width:16px;height:16px;"></i>
+                </div>
+                <h5 class="mw-ts-feature-title">All-Shift GPS Coverage</h5>
+                <p class="mw-ts-feature-desc">Tracking begins the moment a crew member clocks in and runs continuously until they clock out — no manual start required, no gaps between jobs.</p>
+                <span class="mw-ts-feature-metric">Clock-in → Clock-out</span>
+            </div>
+
+            <!-- Feature 2: Configurable Ping Rate -->
+            <div class="mw-ts-feature mw-ts-accent-lime">
+                <div class="mw-ts-feature-icon">
+                    <i data-feather="activity" style="width:16px;height:16px;"></i>
+                </div>
+                <h5 class="mw-ts-feature-title">Configurable Precision</h5>
+                <p class="mw-ts-feature-desc">Per-crew ping rate tunable to operational needs. Heightened mode (10&thinsp;s) activates automatically on high-priority jobs; standard rates conserve battery on routine shifts.</p>
+                <span class="mw-ts-feature-metric">High 30 s · Med 2 min · Low 10 min · Heightened 10 s</span>
+            </div>
+
+            <!-- Feature 3: Proximity Auto-Start -->
+            <div class="mw-ts-feature mw-ts-accent-orange">
+                <div class="mw-ts-feature-icon">
+                    <i data-feather="map-pin" style="width:16px;height:16px;"></i>
+                </div>
+                <h5 class="mw-ts-feature-title">Proximity Auto-Start</h5>
+                <p class="mw-ts-feature-desc">When GPS detects a crew member within the geofence radius of a scheduled job site, the job timer and clock-in start automatically — zero missed punches, zero manual friction.</p>
+                <span class="mw-ts-feature-metric">Geofence-triggered · Auto clock-in</span>
+            </div>
+
+            <!-- Feature 4: Offline Resilience -->
+            <div class="mw-ts-feature mw-ts-accent-dark">
+                <div class="mw-ts-feature-icon">
+                    <i data-feather="wifi-off" style="width:16px;height:16px;"></i>
+                </div>
+                <h5 class="mw-ts-feature-title">Offline-First Architecture</h5>
+                <p class="mw-ts-feature-desc">GPS pings are buffered locally (500-ping queue, ~4 hours at high rate) when connectivity drops. The full chronological sequence replays automatically the moment network is restored.</p>
+                <span class="mw-ts-feature-metric">500-ping local buffer · 8 h retention</span>
+            </div>
+
+            <!-- Feature 5: Idempotent Transitions -->
+            <div class="mw-ts-feature">
+                <div class="mw-ts-feature-icon">
+                    <i data-feather="shield" style="width:16px;height:16px;"></i>
+                </div>
+                <h5 class="mw-ts-feature-title">Idempotent Job Transitions</h5>
+                <p class="mw-ts-feature-desc">Every Start Job / Complete Job event carries a unique UUID. The server deduplicates via a 24-hour key store — retries after timeouts or reconnects never create duplicate timer entries.</p>
+                <span class="mw-ts-feature-metric">UUID-keyed · Server deduplicated · 24 h window</span>
+            </div>
+
+            <!-- Feature 6: Dual-Layer Positioning -->
+            <div class="mw-ts-feature mw-ts-accent-lime">
+                <div class="mw-ts-feature-icon">
+                    <i data-feather="layers" style="width:16px;height:16px;"></i>
+                </div>
+                <h5 class="mw-ts-feature-title">Dual-Layer Positioning</h5>
+                <p class="mw-ts-feature-desc">Native background GPS (iOS CoreLocation / Android MwTracking plugin) runs in parallel with browser watchPosition. If the native layer is filtered for accuracy, the browser layer ensures continuous data flow.</p>
+                <span class="mw-ts-feature-metric">Native background + Browser fallback</span>
+            </div>
+
+        </div><!-- /.mw-ts-grid -->
+
+        <!-- Architecture pipeline strip -->
+        <div class="mw-ts-arch-strip">
+            <div class="mw-ts-arch-node"><span>Device GPS</span></div>
+            <div class="mw-ts-arch-arrow">→</div>
+            <div class="mw-ts-arch-node"><span>Offline Buffer</span></div>
+            <div class="mw-ts-arch-arrow">→</div>
+            <div class="mw-ts-arch-node"><span>Idempotency Key</span></div>
+            <div class="mw-ts-arch-arrow">→</div>
+            <div class="mw-ts-arch-node"><span>Location API</span></div>
+            <div class="mw-ts-arch-arrow">→</div>
+            <div class="mw-ts-arch-node"><span>Proximity Check</span></div>
+            <div class="mw-ts-arch-arrow">→</div>
+            <div class="mw-ts-arch-node"><span>Crew Map &amp; History</span></div>
+            <span class="mw-ts-arch-label">Every GPS ping travels this pipeline</span>
+        </div>
+
+        <!-- Native app requirement notice -->
+        <div class="mw-ts-native-notice mt-3">
+            <div class="mw-ts-native-notice-icon">
+                <i data-feather="alert-circle" style="width:16px;height:16px;"></i>
+            </div>
+            <div class="mw-ts-native-notice-body">
+                <strong>Full-shift tracking requires the native app.</strong>
+                Browser-based GPS (Driver Portal, CRM web) stops when the screen locks or the tab closes — a phone in a pocket will stop pinging within minutes.
+                For guaranteed all-day coverage, field crew must use the <strong>native Android app</strong> (Capacitor) or the <strong>iOS app</strong>, both of which use background GPS that survives screen lock and app switching.
+                Crew still on browser-only access will show gaps in their route history — this is expected and not a system fault.
+            </div>
+        </div>
+
+    </div><!-- /.mw-tracking-showcase-body -->
+</div><!-- /.mw-tracking-showcase -->
 
 <!-- Employee Cards -->
 <div class="row">
@@ -267,10 +388,10 @@ $activePage = 'team';
                     <div class="form-group">
                         <label>Device Type</label>
                         <select class="form-control" name="device_type" id="empDeviceType">
-                            <option value="personal">Personal (Phone) — GPS only during jobs</option>
-                            <option value="truck">Truck (Tablet) — GPS tracks continuously</option>
+                            <option value="personal">Personal (Phone) — GPS all shift while clocked in</option>
+                            <option value="truck">Truck (Tablet) — GPS always on (app open)</option>
                         </select>
-                        <small class="form-text text-muted">Truck devices track GPS whenever the app is open, regardless of clock-in status.</small>
+                        <small class="form-text text-muted">Personal phones track GPS from clock-in to clock-out. Truck tablets track GPS whenever the app is open, regardless of clock-in status.</small>
                     </div>
 
                     <div class="row">
@@ -300,7 +421,8 @@ $activePage = 'team';
                         <div class="form-group">
                             <label>Password <span class="text-danger">*</span></label>
                             <input type="password" class="form-control" name="password" id="empPassword"
-                                   minlength="8" placeholder="Min. 8 characters">
+                                   minlength="8" placeholder="Min. 8 characters"
+                                   autocomplete="new-password" data-lpignore="true" data-1p-ignore>
                             <small class="form-text text-muted">Employee will use this to log in.</small>
                         </div>
                     </div>
@@ -532,7 +654,10 @@ $activePage = 'team';
         document.getElementById('empId').value = '';
         document.getElementById('passwordSection').style.display = '';
         document.getElementById('activeSection').style.display = 'none';
-        document.getElementById('empPassword').required = true;
+        var pw = document.getElementById('empPassword');
+        pw.disabled = false;
+        pw.required = true;
+        pw.value = '';
         $(modal).modal('show');
     };
 
@@ -559,10 +684,16 @@ $activePage = 'team';
                 document.getElementById('empDeviceType').value = emp.device_type || 'personal';
                 document.getElementById('empPingRate').value = emp.location_ping_rate || 'high';
 
-                // Hide password for edit, show active toggle
+                // Hide password for edit, show active toggle.
+                // CRITICAL: disable the password input so (a) FormData skips it
+                // and (b) browser password managers cannot silently autofill it,
+                // which would otherwise overwrite the employee's real password.
                 document.getElementById('passwordSection').style.display = 'none';
                 document.getElementById('activeSection').style.display = '';
-                document.getElementById('empPassword').required = false;
+                var pw = document.getElementById('empPassword');
+                pw.required = false;
+                pw.value = '';
+                pw.disabled = true;
 
                 $(modal).modal('show');
             })
@@ -613,6 +744,25 @@ $activePage = 'team';
             showAlert('Network error', 'danger');
         });
     });
+
+    // Tracking showcase collapse — default open, persists in localStorage
+    (function() {
+        var showcase = document.getElementById('trackingShowcase');
+        var body     = document.getElementById('trackingShowcaseBody');
+        var collapsed = localStorage.getItem('mw-tracking-showcase-collapsed') === '1';
+        if (collapsed) showcase.classList.add('is-collapsed');
+        // Set initial max-height for animation
+        if (!collapsed) body.style.maxHeight = body.scrollHeight + 'px';
+    })();
+
+    window.mwToggleTracking = function() {
+        var showcase = document.getElementById('trackingShowcase');
+        var body     = document.getElementById('trackingShowcaseBody');
+        var isNowCollapsed = !showcase.classList.contains('is-collapsed');
+        showcase.classList.toggle('is-collapsed', isNowCollapsed);
+        body.style.maxHeight = isNowCollapsed ? '0' : body.scrollHeight + 'px';
+        localStorage.setItem('mw-tracking-showcase-collapsed', isNowCollapsed ? '1' : '0');
+    };
 
     function showAlert(msg, type) {
         var container = document.getElementById('alertContainer');

@@ -11512,6 +11512,271 @@ body.mw-no-scroll {
   overflow: hidden !important;
 }
 
+/* ── GPS Tracking Showcase (Team Page) ─────────────── */
+
+/* Page header semantic classes */
+.mw-page-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--mw-forest);
+  margin: 0 0 0.15rem;
+}
+.mw-page-subtitle {
+  color: #6c757d;
+  font-size: 0.9rem;
+  margin: 0;
+}
+.mw-page-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* Showcase card shell */
+.mw-tracking-showcase {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  margin-bottom: 1.5rem;
+  overflow: hidden;
+  transition: box-shadow 0.2s;
+}
+.mw-tracking-showcase:hover {
+  box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+}
+
+/* Header (clickable) */
+.mw-tracking-showcase-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  cursor: pointer;
+  background: linear-gradient(135deg, var(--mw-forest) 0%, var(--mw-dark) 100%);
+  user-select: none;
+  -webkit-user-select: none;
+}
+.mw-tracking-showcase-header:hover {
+  background: linear-gradient(135deg, #0a3326 0%, var(--mw-forest) 100%);
+}
+.mw-tracking-showcase-header-left {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+.mw-tracking-showcase-icon {
+  width: 44px;
+  height: 44px;
+  background: rgba(255,255,255,0.12);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--mw-lime);
+}
+.mw-tracking-showcase-icon svg,
+.mw-tracking-showcase-icon i { color: var(--mw-lime); }
+.mw-tracking-showcase-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #fff;
+  margin: 0 0 0.2rem;
+}
+.mw-tracking-showcase-subtitle {
+  font-size: 0.8rem;
+  color: rgba(255,255,255,0.68);
+  margin: 0 0 0.5rem;
+}
+.mw-tracking-showcase-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+/* Badge chips inside the showcase header */
+.mw-tracking-showcase .mw-tracking-badge {
+  background: rgba(127,216,88,0.18);
+  color: var(--mw-lime);
+  border: 1px solid rgba(127,216,88,0.3);
+  border-radius: 4px;
+  font-size: 0.67rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  line-height: 1.4;
+}
+.mw-tracking-showcase .mw-tracking-badge.mw-tb-orange {
+  background: rgba(232,93,4,0.18);
+  color: #fb8c4a;
+  border-color: rgba(232,93,4,0.3);
+}
+
+/* Chevron toggle */
+.mw-tracking-showcase-toggle {
+  color: rgba(255,255,255,0.55);
+  transition: transform 0.3s ease;
+  flex-shrink: 0;
+}
+.mw-tracking-showcase.is-collapsed .mw-tracking-showcase-toggle {
+  transform: rotate(-90deg);
+}
+
+/* Collapsible body */
+.mw-tracking-showcase-body {
+  overflow: hidden;
+  transition: max-height 0.35s ease, padding 0.35s ease;
+  padding: 1.25rem;
+}
+.mw-tracking-showcase.is-collapsed .mw-tracking-showcase-body {
+  max-height: 0 !important;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+/* 3-column feature grid */
+.mw-ts-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+/* Feature card */
+.mw-ts-feature {
+  background: #f8faf9;
+  border: 1px solid #e4eded;
+  border-left: 3px solid var(--mw-green);
+  border-radius: 8px;
+  padding: 0.9rem 1rem;
+}
+.mw-ts-feature.mw-ts-accent-lime {
+  border-left-color: var(--mw-lime);
+  background: #f7fdf4;
+  border-color: #d4f5c2;
+}
+.mw-ts-feature.mw-ts-accent-orange {
+  border-left-color: var(--mw-orange);
+  background: #fff8f5;
+  border-color: #fce8dc;
+}
+.mw-ts-feature.mw-ts-accent-dark {
+  border-left-color: var(--mw-forest);
+  background: #f0f4f3;
+  border-color: #d0dcdb;
+}
+
+/* Icon box */
+.mw-ts-feature-icon {
+  width: 32px;
+  height: 32px;
+  background: var(--mw-light);
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 0.6rem;
+  color: var(--mw-green);
+}
+.mw-ts-feature.mw-ts-accent-lime .mw-ts-feature-icon  { background: #e4f9d8; color: #3d8c1c; }
+.mw-ts-feature.mw-ts-accent-orange .mw-ts-feature-icon { background: #fdeee6; color: var(--mw-orange); }
+.mw-ts-feature.mw-ts-accent-dark .mw-ts-feature-icon   { background: #dce8e5; color: var(--mw-forest); }
+
+.mw-ts-feature-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--mw-forest);
+  margin: 0 0 0.35rem;
+}
+.mw-ts-feature-desc {
+  font-size: 0.78rem;
+  color: #5a6a7a;
+  line-height: 1.5;
+  margin: 0 0 0.6rem;
+}
+.mw-ts-feature-metric {
+  display: inline-block;
+  font-size: 0.69rem;
+  font-weight: 600;
+  color: var(--mw-dark);
+  background: var(--mw-light);
+  padding: 2px 8px;
+  border-radius: 20px;
+}
+
+/* Architecture pipeline strip */
+.mw-ts-arch-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  background: var(--mw-forest);
+  border-radius: 8px;
+  padding: 0.75rem 1rem 0.6rem;
+  margin-bottom: 0.75rem;
+}
+.mw-ts-arch-node {
+  background: rgba(255,255,255,0.12);
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 6px;
+  padding: 3px 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+}
+.mw-ts-arch-arrow {
+  color: var(--mw-lime);
+  font-size: 0.85rem;
+  font-weight: 700;
+  padding: 0 1px;
+  flex-shrink: 0;
+}
+.mw-ts-arch-label {
+  display: block;
+  width: 100%;
+  font-size: 0.67rem;
+  color: rgba(255,255,255,0.4);
+  margin-top: 0.35rem;
+  letter-spacing: 0.03em;
+}
+
+/* Native app notice */
+.mw-ts-native-notice {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  background: #fff8f0;
+  border: 1px solid #fce8d0;
+  border-left: 3px solid var(--mw-orange);
+  border-radius: 8px;
+  padding: 0.85rem 1rem;
+}
+.mw-ts-native-notice-icon {
+  color: var(--mw-orange);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.mw-ts-native-notice-body {
+  font-size: 0.8rem;
+  color: #5a4030;
+  line-height: 1.55;
+}
+.mw-ts-native-notice-body strong { color: #3d2a18; }
+
+/* Responsive */
+@media (max-width: 991px) {
+  .mw-ts-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 575px) {
+  .mw-ts-grid { grid-template-columns: 1fr; }
+  .mw-tracking-showcase-header-left { gap: 0.6rem; }
+  .mw-tracking-showcase-icon { width: 36px; height: 36px; }
+  .mw-ts-arch-strip { flex-direction: column; align-items: flex-start; }
+}
+
 /* ── Crew Map Page ──────────────────────────────────── */
 
 .mw-crew-map-container {
