@@ -203,6 +203,15 @@ if (!empty($gpsPoints) && $apiKey) {
     </p>
   </div>
   <div class="d-flex gap-2">
+    <?php if ($visit['status'] === 'completed' && empty($visit['invoice_id'])): ?>
+    <a href="/crm/invoices/create.php?visit_id=<?= $visitId ?>" class="btn btn-warning btn-sm">
+      <i data-feather="file-plus" class="mr-1"></i> Create Invoice
+    </a>
+    <?php elseif (!empty($visit['invoice_id'])): ?>
+    <a href="/crm/invoices/view.php?id=<?= (int)$visit['invoice_id'] ?>" class="btn btn-outline-success btn-sm">
+      <i data-feather="file-text" class="mr-1"></i> View Invoice
+    </a>
+    <?php endif; ?>
     <?php if ($hasPdf): ?>
     <a href="<?= htmlspecialchars($visit['pdf_path']) ?>" target="_blank" class="btn btn-success btn-sm">
       <i data-feather="download" class="mr-1"></i> Download PoW PDF
