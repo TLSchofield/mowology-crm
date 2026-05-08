@@ -132,7 +132,7 @@ function _av(string $webPath): string {
   <link href="<?= _av('/crm/css/tokens.css') ?>" rel="stylesheet">
 
   <!-- Mowology brand override -->
-  <link href="/crm/css/mowology-brand.css?v=20260507a" rel="stylesheet">
+  <link href="/crm/css/mowology-brand.css?v=20260508a" rel="stylesheet">
 
   <!-- Global mobile navigation bars (top bar + bottom bar + slide-up menu) -->
   <link href="<?= _av('/crm/css/mobile-nav.css') ?>" rel="stylesheet">
