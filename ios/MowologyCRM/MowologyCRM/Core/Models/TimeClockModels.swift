@@ -112,3 +112,14 @@ struct TimerStopResponse: Decodable {
         case message
     }
 }
+
+/// Response from POST /api/schedule/visit-flag
+struct VisitFlagResponse: Decodable {
+    let success:   Bool
+    let isFlagged: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case success
+        case isFlagged = "is_flagged"
+    }
+}

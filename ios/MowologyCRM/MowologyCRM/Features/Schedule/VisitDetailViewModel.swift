@@ -35,6 +35,11 @@ final class VisitDetailViewModel: ObservableObject {
     @Published private(set) var isLoading:           Bool   = false
     @Published var             errorMessage:          String? = nil
 
+    /// Local override for flag state: [visitId: isFlagged]. Wins over Visit.isFlagged once set.
+    @Published private(set) var flagOverrides:  [Int: Bool] = [:]
+    /// Visit IDs with an in-flight flag toggle request — drives the heart loading indicator.
+    @Published private(set) var flagLoadingIds: Set<Int>    = []
+
     // MARK: - Private
 
     private let apiClient: APIClient
@@ -145,6 +150,34 @@ final class VisitDetailViewModel: ObservableObject {
         }
 
         isLoading = false
+    }
+
+    // MARK: - Flag Toggle
+
+    /// Resolves the current flag state for a visit, preferring local override over server value.
+    func isFlagged(for visit: Visit) -> Bool {
+        flagOverrides[visit.visitId] ?? visit.isFlagged
+    }
+
+    func toggleFlag(_ visit: Visit) async {
+        let visitId = visit.visitId
+        guard !flagLoadingIds.contains(visitId) else { return }
+
+        flagLoadingIds.insert(visitId)
+
+        do {
+            let response: VisitFlagResponse = try await apiClient.request(
+                .visitFlag,
+                body: ["visit_id": visitId]
+            )
+            if response.success {
+                flagOverrides[visitId] = response.isFlagged
+            }
+        } catch {
+            // Non-fatal — the heart reverts to its previous state silently.
+        }
+
+        flagLoadingIds.remove(visitId)
     }
 
     // MARK: - Private

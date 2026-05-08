@@ -71,6 +71,9 @@ enum APIEndpoint {
     /// GET /api/schedule/invoices — admin-only invoice list.
     case scheduleInvoices(status: String)
 
+    /// POST /api/schedule/visit-flag — toggle crew endorsement heart on a visit (JWT).
+    case visitFlag
+
     // MARK: - URL
 
     /// Builds the full URL for the endpoint. Returns `nil` only if the base
@@ -153,6 +156,9 @@ enum APIEndpoint {
             var components = URLComponents(string: "\(baseURLString)/schedule/invoices")
             components?.queryItems = [URLQueryItem(name: "status", value: status)]
             return components?.url
+
+        case .visitFlag:
+            return URL(string: "\(baseURLString)/schedule/visit-flag")
         }
     }
 
@@ -179,7 +185,8 @@ enum APIEndpoint {
              .powGpsSync,
              .scheduleJobs,
              .scheduleQuotes,
-             .scheduleInvoices: return true
+             .scheduleInvoices,
+             .visitFlag: return true
         }
     }
 
@@ -206,7 +213,8 @@ enum APIEndpoint {
              .jobPhoto,
              .deviceTokenRegister,
              .powActions,
-             .powGpsSync: return "POST"
+             .powGpsSync,
+             .visitFlag: return "POST"
 
         case .receiptImage:        return "GET"
         }

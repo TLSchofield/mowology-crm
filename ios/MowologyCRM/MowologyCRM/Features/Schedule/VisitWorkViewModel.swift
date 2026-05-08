@@ -64,6 +64,9 @@ final class VisitWorkViewModel: ObservableObject {
     @Published var errorMessage: String? = nil
     @Published var pendingNoteText: String = ""
     @Published var noteSaved: Bool       = false
+    @Published var isFlagged: Bool
+    @Published var contactHasReviewed: Bool
+    @Published var isFlagLoading: Bool   = false
 
     // MARK: - Private
 
@@ -79,10 +82,12 @@ final class VisitWorkViewModel: ObservableObject {
     // MARK: - Init
 
     init(visit: Visit, authSession: AuthSession) {
-        self.visit     = visit
-        self.visitId   = visit.visitId
-        self.visitStatus = visit.visitStatus
-        self.apiClient = APIClient(authSession: authSession)
+        self.visit              = visit
+        self.visitId            = visit.visitId
+        self.visitStatus        = visit.visitStatus
+        self.isFlagged          = visit.isFlagged
+        self.contactHasReviewed = visit.contactHasReviewed
+        self.apiClient          = APIClient(authSession: authSession)
 
         // If app is launched mid-visit, resume the on-screen timer.
         // The authoritative elapsed is server-side; here we default to 0
@@ -162,6 +167,25 @@ final class VisitWorkViewModel: ObservableObject {
         }
 
         isLoading = false
+    }
+
+    func toggleFlag() async {
+        guard !isFlagLoading else { return }
+        isFlagLoading = true
+
+        do {
+            let response: VisitFlagResponse = try await apiClient.request(
+                .visitFlag,
+                body: ["visit_id": visitId]
+            )
+            if response.success {
+                isFlagged = response.isFlagged
+            }
+        } catch {
+            // Non-fatal — flag stays at its previous value.
+        }
+
+        isFlagLoading = false
     }
 
     func saveNote() async {

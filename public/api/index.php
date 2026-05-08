@@ -157,6 +157,7 @@ $actionAliases = [
         'invoices'           => 'invoices',    // Mobile invoices (JWT, admin only)
         'job-photo'          => 'job-photo',   // Mobile before/after photo upload (JWT)
         'crew-trails'        => 'crew-trails', // Mobile crew GPS trail playback (JWT)
+        'visit-flag'         => 'visit-flag',  // Mobile visit endorsement heart toggle (JWT)
     ],
 ];
 

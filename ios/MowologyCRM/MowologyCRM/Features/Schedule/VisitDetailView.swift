@@ -277,17 +277,45 @@ struct VisitDetailView: View {
                 }
             }
 
-            // MARK: Before/After Photo Proof
-            // Shown for in_progress visits, and for scheduled visits so crew can
-            // capture a "before" photo before pressing Start. The "after" slot
-            // is locked until the job timer is running.
+            // MARK: Before/After Photo Proof + Heart Endorsement
             if ["scheduled", "in_progress"].contains(visit.visitStatus.lowercased()) {
+                let isVisitFlagged  = timerVM.isFlagged(for: visit)
+                let isFlagLoading   = timerVM.flagLoadingIds.contains(visit.visitId)
+
                 Divider()
                 JobPhotoSection(
-                    visitId:     visit.visitId,
-                    isActive:    isThisTimerActive,
-                    authSession: authSession
+                    visitId:      visit.visitId,
+                    isActive:     isThisTimerActive,
+                    authSession:  authSession,
+                    isFlagged:    isVisitFlagged,
+                    isFlagLoading: isFlagLoading,
+                    onFlagToggle: { await timerVM.toggleFlag(visit) }
                 )
+
+                // Review earned strip — visible once the client has actually reviewed.
+                if isVisitFlagged && visit.contactHasReviewed {
+                    HStack(spacing: 0) {
+                        Image(systemName: "heart.fill")
+                            .foregroundStyle(Color.MW.orange)
+                            .font(.caption)
+                            .padding(.trailing, 6)
+                        Text("You endorsed this visit · ")
+                            .font(.caption)
+                            .foregroundStyle(Color.MW.dark)
+                        Text("Review received ★★★★★")
+                            .font(.caption.bold())
+                            .foregroundStyle(Color.MW.dark)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(Color.MW.green.opacity(0.08))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.MW.green.opacity(0.25), lineWidth: 1)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
             }
         }
         .padding(14)

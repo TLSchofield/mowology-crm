@@ -17,19 +17,60 @@ struct Visit: Codable, Identifiable, Hashable {
     let estimatedDuration: Int?
     let pricePerVisit: Double?
     let scheduledStart: String?
+    /// Crew endorsed this visit — drives review request gate + BA marketing.
+    let isFlagged: Bool
+    /// Client has already left a Google review — shown as "Review received" reward.
+    let contactHasReviewed: Bool
 
     var id: Int { visitId }
 
     enum CodingKeys: String, CodingKey {
-        case visitId           = "visit_id"
-        case visitNumber       = "visit_number"
-        case serviceType       = "service_type"
-        case planTitle         = "plan_title"
-        case planNumber        = "plan_number"
-        case visitStatus       = "visit_status"
-        case estimatedDuration = "estimated_duration"
-        case pricePerVisit     = "price_per_visit"
-        case scheduledStart    = "scheduled_start"
+        case visitId              = "visit_id"
+        case visitNumber          = "visit_number"
+        case serviceType          = "service_type"
+        case planTitle            = "plan_title"
+        case planNumber           = "plan_number"
+        case visitStatus          = "visit_status"
+        case estimatedDuration    = "estimated_duration"
+        case pricePerVisit        = "price_per_visit"
+        case scheduledStart       = "scheduled_start"
+        case isFlagged            = "is_flagged"
+        case contactHasReviewed   = "contact_has_reviewed"
+    }
+
+    // Direct init for previews and unit tests (not used in production decoding).
+    init(visitId: Int, visitNumber: String? = nil, serviceType: String = "",
+         planTitle: String? = nil, planNumber: String? = nil,
+         visitStatus: String = "scheduled", estimatedDuration: Int? = nil,
+         pricePerVisit: Double? = nil, scheduledStart: String? = nil,
+         isFlagged: Bool = false, contactHasReviewed: Bool = false) {
+        self.visitId            = visitId
+        self.visitNumber        = visitNumber
+        self.serviceType        = serviceType
+        self.planTitle          = planTitle
+        self.planNumber         = planNumber
+        self.visitStatus        = visitStatus
+        self.estimatedDuration  = estimatedDuration
+        self.pricePerVisit      = pricePerVisit
+        self.scheduledStart     = scheduledStart
+        self.isFlagged          = isFlagged
+        self.contactHasReviewed = contactHasReviewed
+    }
+
+    // Graceful decode: older schedule API responses that lack these fields default to false.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        visitId            = try  c.decode(Int.self,     forKey: .visitId)
+        visitNumber        = try? c.decode(String.self,  forKey: .visitNumber)
+        serviceType        = (try? c.decode(String.self, forKey: .serviceType)) ?? ""
+        planTitle          = try? c.decode(String.self,  forKey: .planTitle)
+        planNumber         = try? c.decode(String.self,  forKey: .planNumber)
+        visitStatus        = (try? c.decode(String.self, forKey: .visitStatus)) ?? "scheduled"
+        estimatedDuration  = try? c.decode(Int.self,     forKey: .estimatedDuration)
+        pricePerVisit      = try? c.decode(Double.self,  forKey: .pricePerVisit)
+        scheduledStart     = try? c.decode(String.self,  forKey: .scheduledStart)
+        isFlagged          = (try? c.decode(Bool.self,   forKey: .isFlagged))          ?? false
+        contactHasReviewed = (try? c.decode(Bool.self,   forKey: .contactHasReviewed)) ?? false
     }
 
     // MARK: - Computed UI Properties

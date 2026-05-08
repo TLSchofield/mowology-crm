@@ -16,15 +16,17 @@ import SwiftUI
 
 struct VisitWorkView: View {
 
-    let stop: Stop
-    let visit: Visit
+    let stop:        Stop
+    let visit:       Visit
+    let authSession: AuthSession
 
     @StateObject private var vm: VisitWorkViewModel
     @Environment(\.dismiss) private var dismiss
 
     init(stop: Stop, visit: Visit, authSession: AuthSession) {
-        self.stop  = stop
-        self.visit = visit
+        self.stop        = stop
+        self.visit       = visit
+        self.authSession = authSession
         _vm = StateObject(wrappedValue: VisitWorkViewModel(visit: visit, authSession: authSession))
     }
 
@@ -47,6 +49,9 @@ struct VisitWorkView: View {
                 if vm.visitStatus.lowercased() == "in_progress" {
                     notesCard
                 }
+
+                // ── Photo proof + endorsement trio ──────────────────────────
+                photoAndEndorseSection
 
                 // ── Completion banner ───────────────────────────────────────
                 if vm.visitStatus.lowercased() == "completed" {
@@ -226,6 +231,50 @@ struct VisitWorkView: View {
                 .disabled(vm.pendingNoteText.trimmingCharacters(in: .whitespaces).isEmpty)
             }
             .animation(.easeInOut(duration: 0.2), value: vm.noteSaved)
+        }
+        .padding(16)
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    // MARK: - Photo + Endorsement Section
+
+    private var photoAndEndorseSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            JobPhotoSection(
+                visitId:       visit.visitId,
+                isActive:      vm.visitStatus.lowercased() == "in_progress",
+                authSession:   authSession,
+                isFlagged:     vm.isFlagged,
+                isFlagLoading: vm.isFlagLoading,
+                onFlagToggle:  { await vm.toggleFlag() }
+            )
+
+            // Review earned strip — visible once the client has actually reviewed.
+            if vm.isFlagged && vm.contactHasReviewed {
+                HStack(spacing: 0) {
+                    Image(systemName: "heart.fill")
+                        .foregroundStyle(Color.MW.orange)
+                        .font(.caption)
+                        .padding(.trailing, 6)
+                    Text("You endorsed this visit · ")
+                        .font(.caption)
+                        .foregroundStyle(Color.MW.dark)
+                    Text("Review received ★★★★★")
+                        .font(.caption.bold())
+                        .foregroundStyle(Color.MW.dark)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(Color.MW.green.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.MW.green.opacity(0.25), lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .padding(.top, 8)
+            }
         }
         .padding(16)
         .background(Color(.secondarySystemGroupedBackground))
