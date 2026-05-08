@@ -77,6 +77,68 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             echo json_encode(['success' => true]);
             exit;
+
+        case 'create_ba_pair_from_visit':
+            // Import two visit_photos as a BA pair.
+            // Creates lightweight media_assets rows pointing to the same files on disk.
+            $beforePhotoId = (int)($_POST['before_photo_id'] ?? 0);
+            $afterPhotoId  = (int)($_POST['after_photo_id']  ?? 0);
+            $label         = trim($_POST['label']   ?? '');
+            $service       = trim($_POST['service'] ?? '');
+
+            if (!$beforePhotoId || !$afterPhotoId) {
+                echo json_encode(['success' => false, 'error' => 'Both photo IDs required']);
+                exit;
+            }
+
+            // Resolve visit photos
+            $stmtVp = $db->prepare(
+                "SELECT id, filename, thumb_path, grid_path, view_path FROM visit_photos
+                 WHERE id IN (?,?) AND deleted_at IS NULL"
+            );
+            $stmtVp->execute([$beforePhotoId, $afterPhotoId]);
+            $vpRows = [];
+            foreach ($stmtVp->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $vpRows[$row['id']] = $row;
+            }
+
+            if (!isset($vpRows[$beforePhotoId]) || !isset($vpRows[$afterPhotoId])) {
+                echo json_encode(['success' => false, 'error' => 'Visit photo not found']);
+                exit;
+            }
+
+            // Create or reuse media_assets for each photo
+            function _importVisitPhoto(PDO $db, array $vp): int {
+                $filePath = '/uploads/photos/' . $vp['filename'];
+                // Check if already imported
+                $stmtChk = $db->prepare(
+                    "SELECT id FROM media_assets WHERE context_type = 'visit_photo' AND filename = ? LIMIT 1"
+                );
+                $stmtChk->execute([$vp['filename']]);
+                $existing = $stmtChk->fetchColumn();
+                if ($existing) {
+                    return (int)$existing;
+                }
+                $stmtIns = $db->prepare(
+                    "INSERT INTO media_assets (filename, file_path, context_type, status, created_at)
+                     VALUES (?, ?, 'visit_photo', 'ready', NOW())"
+                );
+                $stmtIns->execute([$vp['filename'], $filePath]);
+                return (int)$db->lastInsertId();
+            }
+
+            $beforeAssetId = _importVisitPhoto($db, $vpRows[$beforePhotoId]);
+            $afterAssetId  = _importVisitPhoto($db, $vpRows[$afterPhotoId]);
+
+            // Insert BA pair
+            $maxSort = (int)$db->query("SELECT COALESCE(MAX(sort_order),0) FROM ba_pairs")->fetchColumn();
+            $db->prepare(
+                "INSERT INTO ba_pairs (before_id, after_id, label, service, category, published, sort_order, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, 'general', 1, ?, NOW(), NOW())"
+            )->execute([$beforeAssetId, $afterAssetId, $label, $service, $maxSort + 1]);
+
+            echo json_encode(['success' => true, 'pair_id' => (int)$db->lastInsertId()]);
+            exit;
     }
 
     echo json_encode(['success' => false, 'error' => 'Unknown action']);
@@ -84,6 +146,61 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $csrfToken = generateCSRFToken();
+
+// Load flagged visits with their before+after photos (not yet imported to BA)
+$db = getDB();
+$flaggedVisits = [];
+try {
+    $stmtFv = $db->query("
+        SELECT jv.id AS visit_id, jv.visit_number, jv.completed_at,
+               jp.service_type,
+               p.address AS property_address
+        FROM job_visits jv
+        JOIN job_plans jp ON jp.id = jv.plan_id
+        JOIN properties p  ON p.id  = jp.property_id
+        WHERE jv.is_flagged = 1
+          AND jv.status = 'completed'
+          AND NOT EXISTS (
+              SELECT 1 FROM ba_pairs bp
+              JOIN media_assets ma_b ON ma_b.id = bp.before_id
+              WHERE ma_b.context_type = 'visit_photo'
+                AND EXISTS (
+                    SELECT 1 FROM visit_photos vp2
+                    WHERE vp2.filename = ma_b.filename
+                      AND vp2.visit_id = jv.id
+                )
+          )
+        ORDER BY jv.completed_at DESC
+        LIMIT 50
+    ");
+    $rawVisits = $stmtFv->fetchAll(PDO::FETCH_ASSOC);
+
+    foreach ($rawVisits as $fv) {
+        $stmtPh = $db->prepare("
+            SELECT id, photo_type, filename,
+                   COALESCE(thumb_path, CONCAT('/uploads/photos/', filename)) AS thumb_url
+            FROM visit_photos
+            WHERE visit_id = ? AND deleted_at IS NULL
+              AND photo_type IN ('before', 'after')
+            ORDER BY FIELD(photo_type, 'before', 'after'), uploaded_at ASC
+        ");
+        $stmtPh->execute([$fv['visit_id']]);
+        $photos = $stmtPh->fetchAll(PDO::FETCH_ASSOC);
+
+        $beforePhotos = array_values(array_filter($photos, function($ph) { return $ph['photo_type'] === 'before'; }));
+        $afterPhotos  = array_values(array_filter($photos, function($ph) { return $ph['photo_type'] === 'after';  }));
+
+        // Only include visits that have at least one before AND one after
+        if ($beforePhotos && $afterPhotos) {
+            $fv['before_photos'] = $beforePhotos;
+            $fv['after_photos']  = $afterPhotos;
+            $flaggedVisits[] = $fv;
+        }
+    }
+} catch (PDOException $e) {
+    // is_flagged column may not exist yet (pre-migration) — degrade gracefully
+    $flaggedVisits = [];
+}
 ?>
 <?php include 'includes/appstack_head.php'; ?>
 
@@ -217,6 +334,178 @@ $csrfToken = generateCSRFToken();
             </div>
 
           </div><!-- /.mw-ba-body -->
+
+          <!-- ── Import from Field Photos ─────────────────────────────────── -->
+          <div class="card mt-4">
+            <div class="card-header d-flex align-items-center justify-content-between">
+              <h5 class="card-title mb-0">
+                <i data-feather="heart" class="mr-2" style="width:16px;height:16px;color:var(--mw-orange)"></i>
+                Import from Field Photos
+              </h5>
+              <span class="badge badge-secondary"><?= count($flaggedVisits) ?> visit<?= count($flaggedVisits) !== 1 ? 's' : '' ?> ready</span>
+            </div>
+            <?php if (empty($flaggedVisits)): ?>
+            <div class="card-body text-center text-muted py-4">
+              <i data-feather="heart" style="width:36px;height:36px;stroke:#d1d5db;display:block;margin:0 auto 1rem"></i>
+              No flagged visits with before+after photos yet.<br>
+              <small>When crew endorses a visit (heart button), it will appear here.</small>
+            </div>
+            <?php else: ?>
+            <div class="card-body p-0">
+              <?php foreach ($flaggedVisits as $fv): ?>
+              <div class="mw-ba-import-row" data-visit-id="<?= $fv['visit_id'] ?>">
+                <div class="mw-ba-import-meta">
+                  <strong><?= htmlspecialchars($fv['visit_number'] ?? "Visit #{$fv['visit_id']}") ?></strong>
+                  <span class="text-muted ml-2"><?= htmlspecialchars($fv['property_address'] ?? '') ?></span>
+                  <?php if (!empty($fv['completed_at'])): ?>
+                  <small class="text-muted ml-2"><?= date('M j, Y', strtotime($fv['completed_at'])) ?></small>
+                  <?php endif; ?>
+                </div>
+                <div class="mw-ba-import-photos">
+                  <!-- Before photos (click to select) -->
+                  <div class="mw-ba-import-col">
+                    <div class="mw-ba-import-label">Before</div>
+                    <div class="mw-ba-import-thumbs">
+                      <?php foreach ($fv['before_photos'] as $ph): ?>
+                      <img src="<?= htmlspecialchars($ph['thumb_url']) ?>"
+                           class="mw-ba-import-thumb"
+                           data-photo-id="<?= $ph['id'] ?>"
+                           data-type="before"
+                           data-visit-id="<?= $fv['visit_id'] ?>"
+                           title="Select as Before photo"
+                           onerror="this.style.display='none'">
+                      <?php endforeach; ?>
+                    </div>
+                  </div>
+                  <!-- After photos (click to select) -->
+                  <div class="mw-ba-import-col">
+                    <div class="mw-ba-import-label">After</div>
+                    <div class="mw-ba-import-thumbs">
+                      <?php foreach ($fv['after_photos'] as $ph): ?>
+                      <img src="<?= htmlspecialchars($ph['thumb_url']) ?>"
+                           class="mw-ba-import-thumb"
+                           data-photo-id="<?= $ph['id'] ?>"
+                           data-type="after"
+                           data-visit-id="<?= $fv['visit_id'] ?>"
+                           title="Select as After photo"
+                           onerror="this.style.display='none'">
+                      <?php endforeach; ?>
+                    </div>
+                  </div>
+                  <!-- Import form -->
+                  <div class="mw-ba-import-form">
+                    <input type="hidden" class="imp-before-id" value="">
+                    <input type="hidden" class="imp-after-id"  value="">
+                    <input type="text" class="form-control form-control-sm imp-label" placeholder="Label (e.g. Spring Cleanup — Kerrisdale)" style="margin-bottom:6px">
+                    <select class="form-control form-control-sm imp-service" style="margin-bottom:6px">
+                      <option value="Lawn Restoration">Lawn Restoration</option>
+                      <option value="Garden Restoration">Garden Restoration</option>
+                      <option value="Seasonal Cleanup">Seasonal Cleanup</option>
+                      <option value="Strata Maintenance">Strata Maintenance</option>
+                      <option value="Hedge &amp; Pruning">Hedge &amp; Pruning</option>
+                      <option value="Garden Care">Garden Care</option>
+                    </select>
+                    <?php if ($fv['service_type']): ?>
+                    <script>
+                      (function() {
+                        var sel = document.currentScript.previousElementSibling;
+                        var st  = <?= json_encode($fv['service_type']) ?>;
+                        for (var i=0;i<sel.options.length;i++) {
+                          if (sel.options[i].value.toLowerCase().indexOf(st.toLowerCase()) !== -1) {
+                            sel.selectedIndex = i; break;
+                          }
+                        }
+                      })();
+                    </script>
+                    <?php endif; ?>
+                    <button class="btn btn-sm btn-success imp-submit-btn" disabled>
+                      <i data-feather="plus" style="width:12px;height:12px;"></i> Create BA Pair
+                    </button>
+                    <span class="imp-status text-muted small ml-2" style="display:none"></span>
+                  </div>
+                </div>
+              </div>
+              <?php endforeach; ?>
+            </div>
+            <?php endif; ?>
+          </div>
+
+          <script>
+          (function() {
+            // ── Import section: select before/after, create BA pair ──────────
+            var CSRF = <?= json_encode($csrfToken) ?>;
+
+            document.querySelectorAll('.mw-ba-import-thumb').forEach(function(img) {
+              img.addEventListener('click', function() {
+                var row     = img.closest('.mw-ba-import-row');
+                var type    = img.dataset.type;
+                var photoId = img.dataset.photoId;
+
+                // Deselect others of same type in this row
+                row.querySelectorAll('.mw-ba-import-thumb[data-type="' + type + '"]').forEach(function(i) {
+                  i.classList.remove('selected');
+                });
+                img.classList.add('selected');
+
+                // Store selection
+                row.querySelector('.imp-' + type + '-id').value = photoId;
+
+                // Enable submit when both selected
+                var bId = row.querySelector('.imp-before-id').value;
+                var aId = row.querySelector('.imp-after-id').value;
+                row.querySelector('.imp-submit-btn').disabled = !(bId && aId);
+              });
+            });
+
+            document.querySelectorAll('.imp-submit-btn').forEach(function(btn) {
+              btn.addEventListener('click', function() {
+                var row     = btn.closest('.mw-ba-import-row');
+                var bId     = row.querySelector('.imp-before-id').value;
+                var aId     = row.querySelector('.imp-after-id').value;
+                var label   = row.querySelector('.imp-label').value;
+                var service = row.querySelector('.imp-service').value;
+                var status  = row.querySelector('.imp-status');
+
+                if (!bId || !aId) return;
+
+                btn.disabled = true;
+                status.style.display = 'inline';
+                status.textContent = 'Saving…';
+
+                var fd = new FormData();
+                fd.append('action',          'create_ba_pair_from_visit');
+                fd.append('before_photo_id', bId);
+                fd.append('after_photo_id',  aId);
+                fd.append('label',           label);
+                fd.append('service',         service);
+                fd.append('csrf_token',      CSRF);
+
+                fetch(window.location.pathname, { method: 'POST', body: fd })
+                  .then(function(r) { return r.json(); })
+                  .then(function(data) {
+                    if (data.success) {
+                      row.style.opacity = '0.4';
+                      status.textContent = '✓ Pair created';
+                      status.style.color = 'var(--mw-green)';
+                      // Reload pairs list
+                      if (typeof fetchPairs === 'function') fetchPairs();
+                    } else {
+                      status.textContent = data.error || 'Error';
+                      status.style.color = '#c0392b';
+                      btn.disabled = false;
+                    }
+                  })
+                  .catch(function() {
+                    status.textContent = 'Network error';
+                    status.style.color = '#c0392b';
+                    btn.disabled = false;
+                  });
+              });
+            });
+
+            if (typeof feather !== 'undefined') feather.replace();
+          })();
+          </script>
 
           <script>
           (function () {
