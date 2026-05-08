@@ -52,6 +52,22 @@ if (!$error) {
     if (!$invoice) {
         $error = 'This invoice link is invalid or has expired. Please contact Mowology at (778) 846-9273.';
     } else {
+        // ── Phase 1b cutover: route v2-flagged invoices to the new page ───
+        // If this invoice was sent under the new payment flow (PaymentIntent
+        // pre-created at send time, client_secret stored on the row), 302 to
+        // /customer/invoice-v2.php so the customer gets the instant-mount
+        // payment form. The v2 page does NOT bounce these back here — its
+        // pre-flight is the inverse: it redirects to v1 only when v2 is NOT
+        // applicable.
+        //
+        // View tracking happens on the v2 page after redirect, so we don't
+        // double-count or partially-update before bouncing.
+        if ((int) ($invoice['payment_flow_version'] ?? 1) === 2
+            && !empty($invoice['stripe_client_secret'])) {
+            header('Location: /customer/invoice-v2.php?token=' . urlencode($token), true, 302);
+            exit;
+        }
+
         // ── View tracking ────────────────────────────────────────────────
         // Update view_count + timestamps on every portal access,
         // and flip status to 'viewed' on first view after send.

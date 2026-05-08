@@ -311,6 +311,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                 $invoice['status'] = 'sent';
             }
 
+            // ── Phase 1b cutover: enable v2 payment flow for the customer ────
+            // After the email goes out, opt this invoice into the v2 payment
+            // page (PaymentIntent created server-side, no fetch on Pay click).
+            // This is non-load-bearing — the email already went out and the
+            // invoice is already marked 'sent'. If Stripe is unreachable or
+            // the SDK errors, we log and continue; the customer can still pay
+            // via the v1 page (which is what /customer/invoice.php serves
+            // when stripe_client_secret is null on the row).
+            try {
+                require_once dirname(__DIR__, 2) . '/vendor/autoload.php';
+                require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceService.php';
+                $invSvc = new InvoiceService($db);
+                $invSvc->enableV2PaymentFlow((int) $invoiceId);
+            } catch (\Throwable $e) {
+                error_log(sprintf(
+                    '[Invoice Send] enableV2PaymentFlow failed for invoice %d: %s',
+                    (int) $invoiceId, $e->getMessage()
+                ));
+            }
+
             $recipientList = implode(', ', $sentTo);
             $verb          = $isResend ? 'resent' : 'sent';
             $actionLabel   = $isResend ? 'Invoice resent' : 'Invoice sent';
