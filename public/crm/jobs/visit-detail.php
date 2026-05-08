@@ -174,6 +174,13 @@ $csrfToken = generateCSRFToken();
 
 $pageTitle  = 'Visit ' . ($visit['visit_number'] ?? $visitId);
 $activePage = 'jobs';
+
+$apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
+if (!empty($gpsPoints) && $apiKey) {
+    $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key='
+        . htmlspecialchars($apiKey, ENT_QUOTES)
+        . '&libraries=geometry&callback=initGpsRouteMap" async defer></script>';
+}
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
@@ -275,7 +282,7 @@ $activePage = 'jobs';
         <img src="<?= htmlspecialchars($visit['map_snapshot_path']) ?>" alt="GPS Route Map"
              class="img-fluid rounded mb-3" style="max-height:320px;width:100%;object-fit:cover;">
         <?php elseif (!empty($gpsPoints)): ?>
-        <div class="alert alert-info">Route map will be generated when PDF is produced.</div>
+        <div id="gps-route-map" style="height:300px;width:100%;border-radius:6px;"></div>
         <?php else: ?>
         <div class="text-muted text-center py-4" id="gps-empty-state">
           <i data-feather="map" style="width:32px;height:32px;opacity:.4;"></i>
@@ -1296,6 +1303,47 @@ $activePage = 'jobs';
       });
     });
   }
+
+  // ── GPS Route Map ─────────────────────────────────────────────────────────
+  // initGpsRouteMap() must be global — Google Maps API calls it as a callback.
+  // Defined here (outside the IIFE) so it's on window when Maps fires.
+  window.initGpsRouteMap = function() {
+    var mapEl = document.getElementById('gps-route-map');
+    if (!mapEl) return;
+    var raw = <?= json_encode(array_map(function($p) {
+        return ['lat' => (float)$p['lat'], 'lng' => (float)$p['lng']];
+    }, $gpsPoints)) ?>;
+    if (!raw.length) return;
+    var center = raw[Math.floor(raw.length / 2)];
+    var map = new google.maps.Map(mapEl, {
+      zoom: 18,
+      center: center,
+      mapTypeId: 'hybrid',
+      gestureHandling: 'cooperative',
+      mapTypeControl: false,
+      streetViewControl: false,
+      fullscreenControl: true
+    });
+    new google.maps.Polyline({
+      path: raw,
+      geodesic: true,
+      strokeColor: '#7FD858',
+      strokeOpacity: 0.9,
+      strokeWeight: 3,
+      map: map
+    });
+    // Fit bounds to all points
+    var bounds = new google.maps.LatLngBounds();
+    raw.forEach(function(p) { bounds.extend(p); });
+    map.fitBounds(bounds);
+    // Start/end markers
+    new google.maps.Marker({ position: raw[0], map: map, title: 'Start',
+      icon: { path: google.maps.SymbolPath.CIRCLE, scale: 7,
+              fillColor: '#2D8659', fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 } });
+    new google.maps.Marker({ position: raw[raw.length - 1], map: map, title: 'End',
+      icon: { path: google.maps.SymbolPath.CIRCLE, scale: 7,
+              fillColor: '#e85d04', fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 } });
+  };
 
   // ── GPS Backfill ──────────────────────────────────────────────────────────
   var btnBackfill = document.getElementById('btn-backfill-gps');
