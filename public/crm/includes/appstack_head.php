@@ -132,24 +132,7 @@ function _av(string $webPath): string {
   <link href="<?= _av('/crm/css/tokens.css') ?>" rel="stylesheet">
 
   <!-- Mowology brand override -->
-  <link href="<?= _av('/crm/css/mowology-brand.css') ?>" rel="stylesheet">
-
-  <!-- Accessibility + mobile form fixes (kept separate from brand.css so
-       a11y rules are never lost during brand maintenance) -->
-  <link href="<?= _av('/crm/css/mowology-a11y.css') ?>" rel="stylesheet">
-
-  <!-- Sync status UI (offline banner + pending-queue badge) -->
-  <link href="<?= _av('/crm/css/mw-sync-status.css') ?>" rel="stylesheet">
-  <script src="<?= _av('/crm/js/mw-sync-status.js') ?>" defer></script>
-
-  <!-- Skeleton loader primitives -->
-  <link href="<?= _av('/crm/css/mw-skeleton.css') ?>" rel="stylesheet">
-
-  <!-- Haptic feedback wrapper — Capacitor Haptics with navigator.vibrate fallback -->
-  <script src="<?= _av('/crm/js/mw-haptics.js') ?>" defer></script>
-
-  <!-- Structured-error API toast helper (consumes {success, error, code, retryable}) -->
-  <script src="<?= _av('/crm/js/mw-api-toast.js') ?>" defer></script>
+  <link href="/crm/css/mowology-brand.css?v=20260507a" rel="stylesheet">
 
   <!-- Global mobile navigation bars (top bar + bottom bar + slide-up menu) -->
   <link href="<?= _av('/crm/css/mobile-nav.css') ?>" rel="stylesheet">

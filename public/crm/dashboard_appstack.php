@@ -106,46 +106,40 @@ try {
         $crewToday = $crewStmt->fetchAll(PDO::FETCH_ASSOC);
     } catch (Exception $e) { $crewToday = []; }
 
-    // Re-consent queue: next batch for review + progress totals
-    $reconsentBatch = [];
-    $reconsentTotals = null;
+    // Endorsed visits that earned a review — crew sees their own; admin sees all recent
+    $reviewsEarned = [];
     try {
-        $rcStmt = $db->query("
-            SELECT
-                jrq.id AS queue_id,
-                jrq.contact_id,
-                jrq.fsa,
-                jrq.is_current_client,
-                jrq.sort_priority,
-                c.first_name,
-                c.last_name,
-                c.email,
-                p.address AS service_address,
-                p.city AS service_city
-            FROM jobber_reconsent_queue jrq
-            JOIN contacts c ON jrq.contact_id = c.id
-            LEFT JOIN properties p ON p.site_contact_id = c.id
-            WHERE jrq.status = 'queued'
-              AND c.email IS NOT NULL AND c.email != ''
-              AND c.is_active = 1
-              AND jrq.attempts < 3
-            ORDER BY jrq.sort_priority ASC, jrq.created_at ASC
-            LIMIT 10
-        ");
-        $reconsentBatch = $rcStmt->fetchAll(PDO::FETCH_ASSOC);
-
-        $reconsentTotals = $db->query("
-            SELECT
-                COUNT(*) AS total,
-                SUM(status = 'queued') AS queued,
-                SUM(status = 'sent') AS sent,
-                SUM(status = 'skipped') AS skipped,
-                SUM(status = 'failed') AS failed,
-                SUM(status = 'expired') AS expired,
-                SUM(status = 'pending_approval') AS pending_approval
-            FROM jobber_reconsent_queue
-        ")->fetch(PDO::FETCH_ASSOC);
-    } catch (Exception $e) { /* table may not exist yet */ }
+        if ($isAdmin) {
+            $reStmt = $db->prepare("
+                SELECT jv.id, jv.visit_number, jp.title AS plan_title, jp.service_type,
+                       c.first_name, c.last_name, u.full_name AS crew_name, jv.completed_at
+                FROM job_visits jv
+                JOIN job_plans jp ON jp.id = jv.plan_id
+                LEFT JOIN properties pr ON pr.id = jp.property_id
+                LEFT JOIN contacts c ON c.id = pr.site_contact_id
+                LEFT JOIN users u ON u.id = jv.assigned_crew_id
+                WHERE jv.is_flagged = 1 AND c.has_reviewed = 1
+                ORDER BY jv.completed_at DESC
+                LIMIT 5
+            ");
+            $reStmt->execute([]);
+        } else {
+            $reStmt = $db->prepare("
+                SELECT jv.id, jv.visit_number, jp.title AS plan_title, jp.service_type,
+                       c.first_name, c.last_name, NULL AS crew_name, jv.completed_at
+                FROM job_visits jv
+                JOIN job_plans jp ON jp.id = jv.plan_id
+                LEFT JOIN properties pr ON pr.id = jp.property_id
+                LEFT JOIN contacts c ON c.id = pr.site_contact_id
+                WHERE jv.is_flagged = 1 AND c.has_reviewed = 1
+                  AND jv.assigned_crew_id = ?
+                ORDER BY jv.completed_at DESC
+                LIMIT 5
+            ");
+            $reStmt->execute([$user['id']]);
+        }
+        $reviewsEarned = $reStmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Exception $e) { $reviewsEarned = []; }
 
 } catch(PDOException $e) {
     $errorHandler->logDatabaseError($e, '', [], 'Unable to load dashboard data. Please refresh the page.');
@@ -155,6 +149,7 @@ try {
     $quoteRequests = [];
     $workQueueItems = [];
     $crewToday = [];
+    $reviewsEarned = [];
 }
 
 $pageTitle = 'Dashboard';
@@ -689,79 +684,38 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
             </div>
           </div>
 
-          <!-- Re-Consent Review Card (only shows when there are queued contacts) -->
-          <?php if (!empty($reconsentBatch)): ?>
-          <?php
-            $rcTotal   = (int)($reconsentTotals['total'] ?? 0);
-            $rcSent    = (int)($reconsentTotals['sent'] ?? 0);
-            $rcQueued  = (int)($reconsentTotals['queued'] ?? 0);
-            $rcSkipped = (int)($reconsentTotals['skipped'] ?? 0);
-            $rcPct     = $rcTotal > 0 ? round(($rcSent / $rcTotal) * 100, 0) : 0;
-          ?>
+          <?php if (!empty($reviewsEarned)): ?>
+          <!-- Reviews Earned by Crew Endorsements -->
           <div class="row mt-2">
             <div class="col-12">
-              <div class="card mw-reconsent-card">
-                <div class="card-header d-flex justify-content-between align-items-center">
+              <div class="card mw-review-reward-card">
+                <div class="card-header">
                   <h5 class="card-title mb-0">
-                    <i data-feather="mail" class="mw-reconsent-header-icon"></i>
-                    Re-Consent Review
-                    <span class="badge badge-primary ml-2"><?php echo $rcQueued; ?> queued</span>
+                    <span style="color:var(--mw-orange);margin-right:6px;">&#9829;</span>
+                    <?php echo $isAdmin ? 'Reviews Earned by Field Endorsements' : 'Your Endorsements — Reviews Received'; ?>
                   </h5>
-                  <div class="d-flex align-items-center" style="gap:8px;">
-                    <a href="/crm/marketing/jobber-reconsent.php" class="mw-reconsent-view-all">
-                      Full queue <i data-feather="arrow-right"></i>
-                    </a>
-                    <button class="btn btn-sm btn-success mw-reconsent-send-btn" onclick="mwReconsentSendBatch()" id="mw-reconsent-send-btn">
-                      <i data-feather="send" style="width:14px;height:14px;"></i> Send Batch
-                    </button>
-                  </div>
                 </div>
-                <div class="card-body p-0">
-                  <!-- Progress bar -->
-                  <div class="mw-reconsent-progress">
-                    <div class="mw-reconsent-progress-bar" style="width:<?php echo $rcPct; ?>%"></div>
-                    <span class="mw-reconsent-progress-text"><?php echo $rcSent; ?> sent / <?php echo $rcTotal; ?> total (<?php echo $rcPct; ?>%)</span>
+                <div class="card-body py-2">
+                  <?php foreach ($reviewsEarned as $re): ?>
+                  <div class="mw-review-reward-item">
+                    <div class="mw-review-reward-heart">&#9829;</div>
+                    <div class="mw-review-reward-meta">
+                      <div class="mw-review-reward-title">
+                        <?php echo h(trim(($re['first_name'] ?? '') . ' ' . ($re['last_name'] ?? '')) ?: 'Client'); ?>
+                        &mdash; <?php echo h($re['plan_title'] ?: ucfirst($re['service_type'])); ?>
+                      </div>
+                      <div class="mw-review-reward-sub">
+                        <?php if ($isAdmin && !empty($re['crew_name'])): ?>
+                          Endorsed by <?php echo h($re['crew_name']); ?> &middot;
+                        <?php endif; ?>
+                        Visit <?php echo h($re['visit_number'] ?? ''); ?>
+                        <?php if ($re['completed_at']): ?>&middot; <?php echo date('M j', strtotime($re['completed_at'])); ?><?php endif; ?>
+                        &middot; <strong style="color:var(--mw-green);">&#9733;&#9733;&#9733;&#9733;&#9733; Reviewed</strong>
+                      </div>
+                    </div>
+                    <a href="/crm/jobs/visit-detail.php?id=<?php echo (int)$re['id']; ?>" class="btn btn-sm btn-outline-secondary">View</a>
                   </div>
-
-                  <!-- Batch table -->
-                  <div class="table-responsive">
-                    <table class="table table-sm table-hover mb-0" id="mw-reconsent-table">
-                      <thead>
-                        <tr>
-                          <th style="width:30px;"></th>
-                          <th>Name</th>
-                          <th>Email</th>
-                          <th>Address</th>
-                          <th>FSA</th>
-                          <th style="width:70px;"></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <?php foreach ($reconsentBatch as $rc): ?>
-                        <tr id="mw-rc-row-<?php echo (int)$rc['queue_id']; ?>">
-                          <td>
-                            <?php if ($rc['is_current_client']): ?>
-                              <span class="badge badge-success mw-rc-badge" title="Current client">Active</span>
-                            <?php else: ?>
-                              <span class="badge badge-secondary mw-rc-badge" title="Inactive">Past</span>
-                            <?php endif; ?>
-                          </td>
-                          <td class="mw-rc-name"><?php echo h(trim($rc['first_name'] . ' ' . $rc['last_name'])); ?></td>
-                          <td class="mw-rc-email"><?php echo h($rc['email']); ?></td>
-                          <td class="mw-rc-addr"><?php echo h(trim(($rc['service_address'] ?? '') . ($rc['service_city'] ? ', ' . $rc['service_city'] : ''))); ?></td>
-                          <td><span class="mw-rc-fsa"><?php echo h($rc['fsa'] ?? '—'); ?></span></td>
-                          <td>
-                            <button class="btn btn-sm btn-outline-danger mw-rc-skip-btn"
-                                    onclick="mwReconsentSkip(<?php echo (int)$rc['queue_id']; ?>, this)"
-                                    title="Skip this contact">
-                              Skip
-                            </button>
-                          </td>
-                        </tr>
-                        <?php endforeach; ?>
-                      </tbody>
-                    </table>
-                  </div>
+                  <?php endforeach; ?>
                 </div>
               </div>
             </div>

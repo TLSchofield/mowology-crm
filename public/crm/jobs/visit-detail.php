@@ -31,6 +31,7 @@ $stmt = $db->prepare("
         pr.province AS property_province, pr.postal_code AS property_postal,
         c.first_name AS contact_first, c.last_name AS contact_last,
         c.email AS contact_email, c.phone AS contact_phone,
+        c.has_reviewed AS contact_has_reviewed,
         u.full_name AS crew_name
     FROM job_visits v
     JOIN job_plans p ON v.plan_id = p.id
@@ -380,6 +381,13 @@ $activePage = 'jobs';
             </svg>
           </button>
         </div>
+
+        <?php if (!empty($visit['is_flagged']) && !empty($visit['contact_has_reviewed'])): ?>
+        <div class="mw-review-earned-strip">
+          <span class="mw-review-earned-heart">&#9829;</span>
+          You endorsed this visit &middot; <strong>Review received &#9733;&#9733;&#9733;&#9733;&#9733;</strong>
+        </div>
+        <?php endif; ?>
 
         <?php if (empty($photos)): ?>
         <p class="text-muted text-center py-3 mb-0" id="no-photos-msg">No photos uploaded yet.</p>
