@@ -61,6 +61,10 @@ if (!$isCli) {
 require_once APP_ROOT . '/Services/Messaging/EmailWrapper.php';
 require_once APP_ROOT . '/Services/Messaging/MessagingService.php'; // defines loadEmailTemplate() used below
 
+// Stripe SDK + InvoiceService (Phase 1b: enable v2 payment flow at send)
+require_once PUBLIC_ROOT . '/vendor/autoload.php';
+require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceService.php';
+
 $startMs    = (int)(microtime(true) * 1000);
 $today      = date('Y-m-d');
 $monthLabel = date('F Y');           // e.g. "April 2026"
@@ -353,6 +357,28 @@ foreach ($contracts as $ctr) {
                 null, null,
                 $invoiceId
             );
+
+            // ── 3i. Enable v2 payment flow ───────────────────────────────────
+            // Pre-create the Stripe PaymentIntent + flip payment_flow_version=2
+            // so when the customer clicks the email link, /customer/invoice.php
+            // 302s them to the new instant-mount page. Non-load-bearing — the
+            // invoice + email are already done; if Stripe is unreachable here
+            // the customer can still pay via the v1 fetch flow (which is what
+            // /customer/invoice.php serves when stripe_client_secret is null).
+            //
+            // MUST be outside any DB transaction (Stripe API calls can hold
+            // locks otherwise). The invoice INSERT was already committed at
+            // step 3e above, so we're safe.
+            try {
+                $invSvc = new InvoiceService($db);
+                $invSvc->enableV2PaymentFlow($invoiceId);
+            } catch (\Throwable $e) {
+                error_log(sprintf(
+                    "[contract_billing] enableV2PaymentFlow failed for invoice %d (%s): %s",
+                    $invoiceId, $invoiceNumber, $e->getMessage()
+                ));
+                // Don't fail the contract row — the invoice is still sent and payable.
+            }
 
             $created[] = "{$ctr['contract_number']} → {$invoiceNumber} ({$billingEmail})";
         } else {
