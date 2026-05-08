@@ -8,7 +8,9 @@ declare(strict_types=1);
  * Issues a signed JWT for authenticated Mowology users.
  *
  * POST /api/auth/token
- * Body (JSON): { "email": "...", "password": "..." }
+ * Body (JSON): { "email": "...", "password": "...", "audience": "web|mobile" }
+ *   The "email" field accepts an email address OR a username (the field name
+ *   is kept for backwards compatibility with existing clients).
  *
  * Response 200: { "token": "<jwt>", "user": { id, email, name, role } }
  * Response 401: { "error": "Invalid credentials" }
@@ -86,15 +88,18 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 $raw = file_get_contents('php://input');
 $body = json_decode($raw ?: '{}', true);
 
-$email    = isset($body['email'])    ? strtolower(trim((string)$body['email']))    : '';
-$password = isset($body['password']) ? (string)$body['password']                  : '';
-$audience = isset($body['audience']) ? strtolower(trim((string)$body['audience'])) : 'web';
+// The "email" JSON field is a misnomer — it accepts an email address OR a
+// short username (drivers sign in with names like "nigel", "dodgeram").
+// Kept under the name "email" for backwards compatibility with existing clients.
+$identifier = isset($body['email'])    ? strtolower(trim((string)$body['email']))    : '';
+$password   = isset($body['password']) ? (string)$body['password']                  : '';
+$audience   = isset($body['audience']) ? strtolower(trim((string)$body['audience'])) : 'web';
 // Valid audiences: 'web' (BlueMoon), 'mobile' (iOS/Android)
 $audience = in_array($audience, ['web', 'mobile'], true) ? $audience : 'web';
 
-if ($email === '' || $password === '') {
+if ($identifier === '' || $password === '') {
     http_response_code(400);
-    echo json_encode(['error' => 'Email and password are required']);
+    echo json_encode(['error' => 'Email or username and password are required']);
     exit;
 }
 
@@ -103,13 +108,15 @@ require_once APP_ROOT . '/Core/Auth/auth.php';
 
 $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
 
-if (isLoginRateLimited($email, $ip)) {
+if (isLoginRateLimited($identifier, $ip)) {
     http_response_code(429);
     echo json_encode(['error' => 'Too many login attempts. Try again in 10 minutes.']);
     exit;
 }
 
 // ── Credential validation ──────────────────────────────────────────────────
+// Accept email OR username — drivers use short usernames (e.g. "nigel").
+// Mirrors the web login flow in app/Core/Auth/auth.php::loginUser().
 try {
     $db = getDB();
 
@@ -117,9 +124,10 @@ try {
         SELECT id, email, password_hash, full_name, role, is_active
         FROM users
         WHERE LOWER(email) = ?
+           OR (username IS NOT NULL AND LOWER(username) = ?)
         LIMIT 1
     ");
-    $stmt->execute([$email]);
+    $stmt->execute([$identifier, $identifier]);
     $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
     // Check active — treat NULL/missing is_active as active (matches web login behaviour)
@@ -135,14 +143,14 @@ try {
 }
 
 if (!$user || !isset($user['password_hash']) || !password_verify($password, (string)$user['password_hash'])) {
-    recordFailedLogin($email, $ip);
+    recordFailedLogin($identifier, $ip);
     http_response_code(401);
     echo json_encode(['error' => 'Invalid credentials']);
     exit;
 }
 
 // ── Success — clear rate limit, log activity ───────────────────────────────
-clearLoginAttempts($email, $ip);
+clearLoginAttempts($identifier, $ip);
 
 try {
     $db->prepare("UPDATE users SET last_login = NOW() WHERE id = ? LIMIT 1")
