@@ -188,7 +188,8 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): void
                     paid_at                   = NOW(),
                     payment_method            = 'stripe',
                     payment_reference         = ?,
-                    stripe_payment_intent_id  = ?
+                    stripe_payment_intent_id  = ?,
+                    stripe_charge_id          = COALESCE(stripe_charge_id, ?)
                 WHERE id = ?
             ");
             $updateInvoice->execute([
@@ -197,6 +198,7 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): void
                 $balanceDue,
                 $paymentIntentId,
                 $paymentIntentId,
+                $chargeId,          // ch_XXXXXXXX — used for deterministic bank import matching
                 $invoiceId,
             ]);
         }
@@ -253,11 +255,28 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): void
             ));
 
             // ── Set as default payment method on Stripe Customer ──────────────
-            // This is what enables one-click saved-card pay on future invoices.
+            // Enables one-click saved-card pay on future invoices.
             // invoice-payment-intent.php reads customer->invoice_settings->default_payment_method
             // to offer the saved card UI. Without this call that field is always null.
+            //
+            // Stripe requires the PM to be attached to the customer before it
+            // can be set as default. attach() is idempotent if already attached.
+            //
+            // CRITICAL: this entire sub-flow is non-load-bearing for marking the
+            // invoice paid. Any error here (Stripe API, deprecated SDK call,
+            // network) MUST stay local — it must never be allowed to propagate
+            // up and roll back the parent invoice-paid transaction. We catch
+            // \Throwable, not just ApiErrorException, because PHP Errors from
+            // SDK API changes (e.g. "Non-static method ... cannot be called
+            // statically") aren't ApiErrorExceptions and silently broke every
+            // payment webhook from May 2 → May 7 2026.
             if ($paymentMethodId) {
                 try {
+                    // Modern instance-method form. Stripe-PHP v15+ removed the
+                    // static \Stripe\PaymentMethod::attach() form; calling it
+                    // statically throws a fatal PHP Error.
+                    $pm = \Stripe\PaymentMethod::retrieve($paymentMethodId);
+                    $pm->attach(['customer' => $stripeCustomerIdFromIntent]);
                     \Stripe\Customer::update($stripeCustomerIdFromIntent, [
                         'invoice_settings' => ['default_payment_method' => $paymentMethodId],
                     ]);
@@ -265,9 +284,9 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): void
                         '[Stripe Webhook] Set default_payment_method %s on customer %s',
                         $paymentMethodId, $stripeCustomerIdFromIntent
                     ));
-                } catch (\Stripe\Exception\ApiErrorException $e) {
-                    // Non-fatal — card is still saved in contacts; one-click pay just won't
-                    // be offered until next successful payment resolves this.
+                } catch (\Throwable $e) {
+                    // Card is still saved in contacts; one-click pay just won't
+                    // be offered until a future successful payment resolves this.
                     error_log('[Stripe Webhook] Could not set default_payment_method: ' . $e->getMessage());
                 }
             }
