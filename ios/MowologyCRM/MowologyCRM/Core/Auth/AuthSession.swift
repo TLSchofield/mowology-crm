@@ -10,7 +10,11 @@ import Foundation
 // MARK: - Keychain Keys
 
 private enum KeychainKey {
-    static let jwt  = "mowology_jwt"
+    /// Plain-text JWT for devices without biometrics. Restored automatically on launch.
+    static let jwtPlain = "mowology_jwt"
+    /// Biometric-protected JWT. Requires Face ID / Touch ID to read.
+    static let jwtBiometric = "mowology_jwt_bio"
+    /// User profile JSON. Always non-biometric so we can show "Welcome back, name".
     static let user = "mowology_user"
 }
 
@@ -39,6 +43,10 @@ final class AuthSession: ObservableObject {
     @Published private(set) var user: User?
     @Published private(set) var token: String?
 
+    /// `true` when a biometric-protected session is on disk and the device
+    /// has biometrics enrolled. Drives the "Sign in with Face ID" button.
+    @Published private(set) var hasBiometricSession: Bool = false
+
     // MARK: - Init
 
     init() {
@@ -46,7 +54,7 @@ final class AuthSession: ObservableObject {
         restoreFromKeychain()
     }
 
-    // MARK: - Login
+    // MARK: - Login (email + password)
 
     /// Authenticates against the Mowology API token endpoint.
     /// On success the JWT and user record are persisted to Keychain and the
@@ -85,7 +93,6 @@ final class AuthSession: ObservableObject {
                 throw APIError.unauthorized
             }
             if !(200..<300).contains(httpResponse.statusCode) {
-                // Try to extract a server-side error message.
                 if let serverMessage = extractErrorMessage(from: data) {
                     throw APIError.serverError(serverMessage)
                 }
@@ -101,46 +108,104 @@ final class AuthSession: ObservableObject {
             throw APIError.decodingError(error)
         }
 
-        // Persist to Keychain.
-        KeychainStore.save(key: KeychainKey.jwt, value: authResponse.token)
-        if let userData = try? JSONEncoder().encode(authResponse.user),
-           let userJSON = String(data: userData, encoding: .utf8) {
-            KeychainStore.save(key: KeychainKey.user, value: userJSON)
-        }
+        persistSession(token: authResponse.token, user: authResponse.user)
 
         // Update published state.
-        token           = authResponse.token
-        user            = authResponse.user
-        isAuthenticated = true
+        token              = authResponse.token
+        user               = authResponse.user
+        isAuthenticated    = true
+        hasBiometricSession = BiometricAuth.isAvailable
+    }
+
+    // MARK: - Login (biometric)
+
+    /// Prompts the user for biometric authentication, then loads the saved JWT
+    /// from the biometric-protected Keychain entry. Throws if no biometric
+    /// session exists, biometrics are unavailable, or the user cancels.
+    func loginWithBiometric() async throws {
+        guard BiometricAuth.isAvailable else {
+            throw BiometricAuth.BiometricError.notAvailable
+        }
+
+        let reason = "Sign in to Mowology"
+        let context = try await BiometricAuth.authenticate(reason: reason)
+
+        guard let jwt = KeychainStore.loadBiometric(key: KeychainKey.jwtBiometric, context: context),
+              !jwt.isEmpty else {
+            // The bio item was missing or unreadable — clear the stale flag and bail.
+            hasBiometricSession = false
+            throw BiometricAuth.BiometricError.authenticationFailed
+        }
+
+        let savedUser = loadUserFromKeychain()
+
+        token            = jwt
+        user             = savedUser
+        isAuthenticated  = true
     }
 
     // MARK: - Logout
 
     /// Clears the session from memory and removes persisted Keychain entries.
     func logout() {
-        KeychainStore.delete(key: KeychainKey.jwt)
+        KeychainStore.delete(key: KeychainKey.jwtPlain)
+        KeychainStore.delete(key: KeychainKey.jwtBiometric)
         KeychainStore.delete(key: KeychainKey.user)
-        token           = nil
-        user            = nil
-        isAuthenticated = false
+        token              = nil
+        user               = nil
+        isAuthenticated    = false
+        hasBiometricSession = false
     }
 
     // MARK: - Private
 
+    /// Writes the session to Keychain. The JWT is stored biometric-protected
+    /// when the device supports biometrics, otherwise plain.
+    private func persistSession(token: String, user: User) {
+        if BiometricAuth.isAvailable {
+            KeychainStore.saveBiometric(key: KeychainKey.jwtBiometric, value: token)
+            KeychainStore.delete(key: KeychainKey.jwtPlain)
+        } else {
+            KeychainStore.save(key: KeychainKey.jwtPlain, value: token)
+            KeychainStore.delete(key: KeychainKey.jwtBiometric)
+        }
+
+        if let userData = try? JSONEncoder().encode(user),
+           let userJSON = String(data: userData, encoding: .utf8) {
+            KeychainStore.save(key: KeychainKey.user, value: userJSON)
+        }
+    }
+
     private func restoreFromKeychain() {
-        guard let storedToken = KeychainStore.load(key: KeychainKey.jwt),
-              !storedToken.isEmpty,
-              let userJSON = KeychainStore.load(key: KeychainKey.user),
-              let userData = userJSON.data(using: .utf8),
-              let storedUser = try? JSONDecoder().decode(User.self, from: userData)
-        else {
-            isAuthenticated = false
+        // Path 1: device without biometrics (or legacy install) — auto-restore.
+        if let plainToken = KeychainStore.load(key: KeychainKey.jwtPlain),
+           !plainToken.isEmpty,
+           let storedUser = loadUserFromKeychain() {
+            token            = plainToken
+            user             = storedUser
+            isAuthenticated  = true
             return
         }
 
-        token           = storedToken
-        user            = storedUser
-        isAuthenticated = true
+        // Path 2: biometric session present. Don't unlock yet — the LoginView
+        // shows a Face ID button so the user explicitly authenticates.
+        if BiometricAuth.isAvailable,
+           let storedUser = loadUserFromKeychain() {
+            user                = storedUser
+            hasBiometricSession = true
+            return
+        }
+
+        // Path 3: nothing saved — fresh login required.
+        isAuthenticated = false
+    }
+
+    private func loadUserFromKeychain() -> User? {
+        guard let userJSON = KeychainStore.load(key: KeychainKey.user),
+              let userData = userJSON.data(using: .utf8),
+              let storedUser = try? JSONDecoder().decode(User.self, from: userData)
+        else { return nil }
+        return storedUser
     }
 
     private func extractErrorMessage(from data: Data) -> String? {

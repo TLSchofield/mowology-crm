@@ -56,6 +56,13 @@ struct LoginView: View {
         .ignoresSafeArea(edges: .top)
         .scrollDismissesKeyboard(.interactively)
         .onTapGesture { focusedField = nil }
+        .task {
+            // Auto-prompt for biometric on first appearance when a saved
+            // session exists. This makes Face ID feel like the primary path.
+            if viewModel.canUseBiometric {
+                await viewModel.loginWithBiometric()
+            }
+        }
     }
 
     // MARK: - Brand Header
@@ -100,6 +107,17 @@ struct LoginView: View {
                 .font(.title2.bold())
                 .foregroundStyle(.primary)
                 .padding(.top, 4)
+
+            // Greeting + Biometric button (when a saved session exists)
+            if viewModel.canUseBiometric {
+                if let greeting = viewModel.savedUserGreeting {
+                    Text(greeting)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                biometricButton
+                dividerWithLabel("or use your password")
+            }
 
             // Error Banner
             if let message = viewModel.errorMessage {
@@ -192,6 +210,55 @@ struct LoginView: View {
         .background(Color(.systemBackground))
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .shadow(color: .black.opacity(0.08), radius: 12, x: 0, y: 4)
+    }
+
+    // MARK: - Biometric Button
+
+    private var biometricButton: some View {
+        Button {
+            focusedField = nil
+            Task { await viewModel.loginWithBiometric() }
+        } label: {
+            HStack(spacing: 10) {
+                if viewModel.isBiometricLoading {
+                    ProgressView()
+                        .tint(Color.MW.green)
+                        .scaleEffect(0.9)
+                } else {
+                    Image(systemName: viewModel.biometryKind.symbolName)
+                        .font(.title3)
+                }
+                Text(viewModel.biometricButtonTitle)
+                    .font(.body.bold())
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
+            .foregroundStyle(Color.MW.green)
+            .background(Color.MW.green.opacity(0.10))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(Color.MW.green.opacity(0.35), lineWidth: 1)
+            )
+        }
+        .disabled(viewModel.isBiometricLoading || viewModel.isLoading)
+    }
+
+    // MARK: - Divider
+
+    private func dividerWithLabel(_ label: String) -> some View {
+        HStack(spacing: 12) {
+            Rectangle()
+                .fill(Color(.systemGray4))
+                .frame(height: 1)
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize()
+            Rectangle()
+                .fill(Color(.systemGray4))
+                .frame(height: 1)
+        }
     }
 
     // MARK: - Error Banner

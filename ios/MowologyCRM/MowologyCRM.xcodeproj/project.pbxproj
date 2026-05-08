@@ -14,6 +14,7 @@
 		1A500E3E80626FB6683AA6F1 /* VisitDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC8674D3A1F9F01248ECB134 /* VisitDetailView.swift */; };
 		1D762428510570A1A0D08B4C /* DayListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0E0EE6C511F5B6548BA7FB0 /* DayListView.swift */; };
 		2FBD157C6E8D45ACE46C8079 /* AuthSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11B9496B9E804E3CD0342C49 /* AuthSession.swift */; };
+		B10A55AB1E5C0B1110F0FACE /* BiometricAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10A55ABFACEB10AC1110F0F /* BiometricAuth.swift */; };
 		351D8A7C9D72F008F0DD24CC /* PendingTransition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A66186FA7B72C0E2DE4F3208 /* PendingTransition.swift */; };
 		42FE3CC920D2D08E173E259C /* APIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2318C0D8CC141570D7D494B /* APIError.swift */; };
 		4D2F723DF88B7B1C76F9826A /* WeekStripView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68D4D6F730154942832B001A /* WeekStripView.swift */; };
@@ -68,6 +69,7 @@
 		6BC0B66BE87B94B74DD29C05 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
 		6E5F8DDDD742A43A1EAAE7A2 /* ArrivalMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArrivalMonitor.swift; sourceTree = "<group>"; };
 		73D67877BC393CECB2E02474 /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
+		B10A55ABFACEB10AC1110F0F /* BiometricAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiometricAuth.swift; sourceTree = "<group>"; };
 		816872EBC5C2A53815D7E212 /* ScheduleDay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleDay.swift; sourceTree = "<group>"; };
 		82CAF080C57ADDAE06034F25 /* LoginViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginViewModel.swift; sourceTree = "<group>"; };
 		84917CCF5BF871EC2B745DC4 /* Stop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Stop.swift; sourceTree = "<group>"; };
@@ -189,6 +191,7 @@
 			isa = PBXGroup;
 			children = (
 				11B9496B9E804E3CD0342C49 /* AuthSession.swift */,
+				B10A55ABFACEB10AC1110F0F /* BiometricAuth.swift */,
 				73D67877BC393CECB2E02474 /* KeychainStore.swift */,
 			);
 			path = Auth;
@@ -352,6 +355,7 @@
 				F15F7146DF34D7E2CBD8CF76 /* AppUpdateView.swift in Sources */,
 				51EE3493C4054F68A55A3791 /* ArrivalMonitor.swift in Sources */,
 				2FBD157C6E8D45ACE46C8079 /* AuthSession.swift in Sources */,
+				B10A55AB1E5C0B1110F0FACE /* BiometricAuth.swift in Sources */,
 				1D762428510570A1A0D08B4C /* DayListView.swift in Sources */,
 				B161D21DEEAF8DED7311CA9C /* DayMapView.swift in Sources */,
 				040D77CC7FC7DDF02E82AD32 /* KeychainStore.swift in Sources */,

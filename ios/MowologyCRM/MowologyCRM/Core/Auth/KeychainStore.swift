@@ -7,13 +7,14 @@
 
 import Foundation
 import Security
+import LocalAuthentication
 
 /// Thin wrapper around the iOS Keychain for storing small string secrets
 /// (JWT tokens, serialised user JSON). All methods are static and synchronous —
 /// Keychain access on the main thread is fine for small items.
 enum KeychainStore {
 
-    // MARK: - Save
+    // MARK: - Save (non-biometric)
 
     /// Saves (or overwrites) a UTF-8 string value for the given key.
     /// - Returns: `true` if the operation succeeded.
@@ -36,9 +37,42 @@ enum KeychainStore {
         return status == errSecSuccess
     }
 
+    // MARK: - Save (biometric-protected)
+
+    /// Saves a value protected by `.biometryCurrentSet`. Reading the item later
+    /// will require a successful biometric evaluation. The item is invalidated
+    /// automatically if the user adds or removes a fingerprint / face.
+    @discardableResult
+    static func saveBiometric(key: String, value: String) -> Bool {
+        guard let data = value.data(using: .utf8) else { return false }
+
+        delete(key: key)
+
+        var accessError: Unmanaged<CFError>?
+        guard let access = SecAccessControlCreateWithFlags(
+            nil,
+            kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly,
+            .biometryCurrentSet,
+            &accessError
+        ) else {
+            return false
+        }
+
+        let query: [String: Any] = [
+            kSecClass as String:            kSecClassGenericPassword,
+            kSecAttrAccount as String:      key,
+            kSecAttrService as String:      bundleIdentifier,
+            kSecValueData as String:        data,
+            kSecAttrAccessControl as String: access
+        ]
+
+        let status = SecItemAdd(query as CFDictionary, nil)
+        return status == errSecSuccess
+    }
+
     // MARK: - Load
 
-    /// Loads the stored string for the given key, or `nil` if not found.
+    /// Loads a non-biometric stored string for the given key, or `nil` if not found.
     static func load(key: String) -> String? {
         let query: [String: Any] = [
             kSecClass as String:            kSecClassGenericPassword,
@@ -46,6 +80,30 @@ enum KeychainStore {
             kSecAttrService as String:      bundleIdentifier,
             kSecMatchLimit as String:       kSecMatchLimitOne,
             kSecReturnData as String:       true
+        ]
+
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+
+        guard status == errSecSuccess,
+              let data = result as? Data,
+              let value = String(data: data, encoding: .utf8)
+        else { return nil }
+
+        return value
+    }
+
+    /// Loads a biometric-protected string using an already-authenticated `LAContext`.
+    /// Pass the context returned from `BiometricAuth.authenticate(reason:)` so the
+    /// user is not prompted a second time.
+    static func loadBiometric(key: String, context: LAContext) -> String? {
+        let query: [String: Any] = [
+            kSecClass as String:                    kSecClassGenericPassword,
+            kSecAttrAccount as String:              key,
+            kSecAttrService as String:              bundleIdentifier,
+            kSecMatchLimit as String:               kSecMatchLimitOne,
+            kSecReturnData as String:               true,
+            kSecUseAuthenticationContext as String: context
         ]
 
         var result: AnyObject?
