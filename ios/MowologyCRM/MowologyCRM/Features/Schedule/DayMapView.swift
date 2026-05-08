@@ -415,6 +415,7 @@ private struct StopBottomCard: View {
                     latitude: 49.2604, longitude: -123.1625,
                     contactId: 1, contactName: "Gary Hudson", companyName: nil,
                     lawnSqft: nil, crewNames: ["Tim SCH"],
+                    crewMembers: nil,
                     visitCount: 1,
                     visits: [Visit(visitId: 1, visitNumber: "V-001", serviceType: "lawn_care",
                                    planTitle: nil, planNumber: nil, visitStatus: "scheduled",
