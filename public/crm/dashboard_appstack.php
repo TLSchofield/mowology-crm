@@ -110,7 +110,7 @@ try {
     // Endorsed visits that earned a review — crew sees their own; admin sees all recent
     $reviewsEarned = [];
     try {
-        if ($isAdmin) {
+        if (($user['role'] ?? '') === 'admin') {
             $reStmt = $db->prepare("
                 SELECT jv.id, jv.visit_number, jp.title AS plan_title, jp.service_type,
                        c.first_name, c.last_name, u.full_name AS crew_name, jv.completed_at
@@ -682,7 +682,7 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                 <div class="card-header">
                   <h5 class="card-title mb-0">
                     <span style="color:var(--mw-orange);margin-right:6px;">&#9829;</span>
-                    <?php echo $isAdmin ? 'Reviews Earned by Field Endorsements' : 'Your Endorsements — Reviews Received'; ?>
+                    <?php echo ($user['role'] ?? '') === 'admin' ? 'Reviews Earned by Field Endorsements' : 'Your Endorsements — Reviews Received'; ?>
                   </h5>
                 </div>
                 <div class="card-body py-2">
@@ -695,7 +695,7 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                         &mdash; <?php echo h($re['plan_title'] ?: ucfirst($re['service_type'])); ?>
                       </div>
                       <div class="mw-review-reward-sub">
-                        <?php if ($isAdmin && !empty($re['crew_name'])): ?>
+                        <?php if (($user['role'] ?? '') === 'admin' && !empty($re['crew_name'])): ?>
                           Endorsed by <?php echo h($re['crew_name']); ?> &middot;
                         <?php endif; ?>
                         Visit <?php echo h($re['visit_number'] ?? ''); ?>
