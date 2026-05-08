@@ -110,6 +110,8 @@ final class ScheduleViewModel: ObservableObject {
             stopCache[dateString] = fetched
             stops       = fetched
             lastFetched = .now
+            Task { await CalendarSyncService.shared.sync(stops: fetched, for: date) }
+            syncWidgetSchedule(fetched)
         } catch let apiError as APIError {
             errorMessage = apiError.errorDescription
             stops = []

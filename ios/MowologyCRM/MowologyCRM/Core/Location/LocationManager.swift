@@ -214,6 +214,13 @@ final class LocationManager: NSObject, ObservableObject {
         motionMgr.stopActivityUpdates()
     }
 
+    /// Called by ActivityMonitor when external motion classification is available.
+    func updateActivity(_ state: ActivityState) {
+        guard state != currentActivity else { return }
+        currentActivity = state
+        applySettings(for: state)
+    }
+
     // MARK: - Adaptive CLLocationManager Settings
 
     private func applySettings(for activity: ActivityState) {

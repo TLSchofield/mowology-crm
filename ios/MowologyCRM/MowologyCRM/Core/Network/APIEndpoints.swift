@@ -45,9 +45,36 @@ enum APIEndpoint {
     case expenseList(page: Int)
 
 
-        case .receiptImage(let mediaId):
-            var components = URLComponents(string: "\(baseURLString)/expenses/receipt-image")
-            components?.queryItems = [URLQueryItem(name: "id", value: "\(mediaId)")]
+    /// POST /api/schedule/pow-actions — PoW visit lifecycle (start/end/notes).
+    case powActions
+
+    /// POST /api/schedule/pow-gps-sync — flush GPS breadcrumb batch for a PoW visit.
+    case powGpsSync
+
+    /// GET /api/schedule/jobs — paginated job list with status filter.
+    case scheduleJobs(status: String, limit: Int, offset: Int)
+
+    /// GET /api/schedule/invoices — paginated invoice list with status filter.
+    case scheduleInvoices(status: String)
+
+    /// GET /api/schedule/quotes — paginated quote list with status filter.
+    case scheduleQuotes(status: String)
+
+    /// POST /api/device/token — register APNs device token for push notifications.
+    case deviceTokenRegister
+
+    // MARK: - URL
+
+    /// Builds the full URL for the endpoint. Returns `nil` only if the base
+    /// URL string is somehow malformed (should never happen in production).
+    var url: URL? {
+        switch self {
+        case .tokenAuth:
+            return URL(string: "\(baseURLString)/auth/token.php")
+
+        case .scheduleDay(let date):
+            var components = URLComponents(string: "\(baseURLString)/schedule/day")
+            components?.queryItems = [URLQueryItem(name: "date", value: date)]
             return components?.url
 
         case .jobPhoto:
@@ -83,6 +110,34 @@ enum APIEndpoint {
 
         case .visitFlag:
             return URL(string: "\(baseURLString)/schedule/visit-flag")
+
+        case .powActions:
+            return URL(string: "\(baseURLString)/schedule/pow-actions")
+
+        case .powGpsSync:
+            return URL(string: "\(baseURLString)/schedule/pow-gps-sync")
+
+        case .scheduleJobs(let status, let limit, let offset):
+            var components = URLComponents(string: "\(baseURLString)/schedule/jobs")
+            components?.queryItems = [
+                URLQueryItem(name: "status", value: status),
+                URLQueryItem(name: "limit",  value: "\(limit)"),
+                URLQueryItem(name: "offset", value: "\(offset)"),
+            ]
+            return components?.url
+
+        case .scheduleInvoices(let status):
+            var components = URLComponents(string: "\(baseURLString)/schedule/invoices")
+            components?.queryItems = [URLQueryItem(name: "status", value: status)]
+            return components?.url
+
+        case .scheduleQuotes(let status):
+            var components = URLComponents(string: "\(baseURLString)/schedule/quotes")
+            components?.queryItems = [URLQueryItem(name: "status", value: status)]
+            return components?.url
+
+        case .deviceTokenRegister:
+            return URL(string: "\(baseURLString)/device/token")
         }
     }
 
@@ -101,15 +156,13 @@ enum APIEndpoint {
              .receiptUpload,
              .expenseSave,
              .expenseList,
-             .receiptImage,
-             .jobPhoto,
-             .deviceTokenRegister,
+             .visitFlag,
              .powActions,
              .powGpsSync,
              .scheduleJobs,
-             .scheduleQuotes,
              .scheduleInvoices,
-             .visitFlag: return true
+             .scheduleQuotes,
+             .deviceTokenRegister: return true
         }
     }
 
@@ -128,13 +181,15 @@ enum APIEndpoint {
              .scheduleClock,
              .receiptUpload,
              .expenseSave,
-             .jobPhoto,
-             .deviceTokenRegister,
+             .visitFlag,
              .powActions,
              .powGpsSync,
-             .visitFlag: return "POST"
+             .deviceTokenRegister: return "POST"
 
-        case .expenseList:         return "GET"
+        case .expenseList,
+             .scheduleJobs,
+             .scheduleInvoices,
+             .scheduleQuotes: return "GET"
         }
     }
 }

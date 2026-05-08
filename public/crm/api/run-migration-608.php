@@ -54,11 +54,11 @@ function tryAlter608(PDO $db, string $sql, string $label, array &$results): void
 }
 
 // ── job_visits.is_flagged ─────────────────────────────────────────────────────
+// No AFTER clause — appends to end of table, works regardless of migration 606 state
 tryAlter608($db,
     "ALTER TABLE `job_visits`
      ADD COLUMN `is_flagged` TINYINT(1) NOT NULL DEFAULT 0
-     COMMENT 'Crew endorsed this visit — quality gate for review requests + BA marketing'
-     AFTER `review_request_sent_at`",
+     COMMENT 'Crew endorsed this visit — quality gate for review requests + BA marketing'",
     'job_visits.is_flagged', $results
 );
 
@@ -71,8 +71,7 @@ tryAlter608($db,
 tryAlter608($db,
     "ALTER TABLE `contacts`
      ADD COLUMN `has_reviewed` TINYINT(1) NOT NULL DEFAULT 0
-     COMMENT 'Client has left a Google review — permanently stops all future review requests'
-     AFTER `review_request_opted_out`",
+     COMMENT 'Client has left a Google review — permanently stops all future review requests'",
     'contacts.has_reviewed', $results
 );
 
