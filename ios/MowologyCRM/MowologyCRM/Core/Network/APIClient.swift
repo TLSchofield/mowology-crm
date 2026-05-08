@@ -173,6 +173,48 @@ final class APIClient: ObservableObject {
         }
     }
 
+    // MARK: - Job Photo Upload
+
+    /// Uploads a single before/after job photo for a visit.
+    @discardableResult
+    func uploadJobPhoto(imageData: Data, visitId: Int, photoType: JobPhotoType) async throws -> [String: Any] {
+        let endpoint = APIEndpoint.scheduleTimer   // reuses /api/schedule/timer path pattern
+        guard let url = URL(string: "https://mowology.ca/api/schedule/job-photo") else {
+            throw APIError.invalidURL
+        }
+
+        let boundary = "MwBoundary-\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        var request  = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        if let token = authSession?.token {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        var body = Data()
+        body.appendField(name: "photo", filename: "photo.jpg", mimeType: "image/jpeg",
+                         data: imageData, boundary: boundary)
+        body.appendField(name: "visit_id",   value: "\(visitId)",       boundary: boundary)
+        body.appendField(name: "photo_type", value: photoType.rawValue,   boundary: boundary)
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+
+        let data: Data
+        let response: URLResponse
+        do { (data, response) = try await session.data(for: request) }
+        catch { throw APIError.networkError(error) }
+
+        if let http = response as? HTTPURLResponse {
+            if http.statusCode == 401 { authSession?.logout(); throw APIError.unauthorized }
+            if !(200..<300).contains(http.statusCode) {
+                let msg = extractErrorMessage(from: data) ?? "Photo upload failed (\(http.statusCode))"
+                throw APIError.serverError(msg)
+            }
+        }
+
+        return (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+    }
+
     // MARK: - Private Helpers
 
     private func extractErrorMessage(from data: Data) -> String? {

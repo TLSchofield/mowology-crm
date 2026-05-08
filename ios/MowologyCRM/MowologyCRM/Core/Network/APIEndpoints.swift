@@ -51,6 +51,24 @@ enum APIEndpoint {
     /// POST /api/schedule/visit-flag — toggle crew endorsement heart on a visit (JWT).
     case visitFlag
 
+    /// POST /api/schedule/pow-actions — PoW visit lifecycle (start/end/notes).
+    case powActions
+
+    /// POST /api/schedule/pow-gps-sync — flush GPS breadcrumb batch for a PoW visit.
+    case powGpsSync
+
+    /// GET /api/schedule/jobs — paginated job list with status filter.
+    case scheduleJobs(status: String, limit: Int, offset: Int)
+
+    /// GET /api/schedule/invoices — paginated invoice list with status filter.
+    case scheduleInvoices(status: String)
+
+    /// GET /api/schedule/quotes — paginated quote list with status filter.
+    case scheduleQuotes(status: String)
+
+    /// POST /api/device/token — register APNs device token for push notifications.
+    case deviceTokenRegister
+
     // MARK: - URL
 
     /// Builds the full URL for the endpoint. Returns `nil` only if the base
@@ -102,6 +120,34 @@ enum APIEndpoint {
 
         case .visitFlag:
             return URL(string: "\(baseURLString)/schedule/visit-flag")
+
+        case .powActions:
+            return URL(string: "\(baseURLString)/schedule/pow-actions")
+
+        case .powGpsSync:
+            return URL(string: "\(baseURLString)/schedule/pow-gps-sync")
+
+        case .scheduleJobs(let status, let limit, let offset):
+            var components = URLComponents(string: "\(baseURLString)/schedule/jobs")
+            components?.queryItems = [
+                URLQueryItem(name: "status", value: status),
+                URLQueryItem(name: "limit",  value: "\(limit)"),
+                URLQueryItem(name: "offset", value: "\(offset)"),
+            ]
+            return components?.url
+
+        case .scheduleInvoices(let status):
+            var components = URLComponents(string: "\(baseURLString)/schedule/invoices")
+            components?.queryItems = [URLQueryItem(name: "status", value: status)]
+            return components?.url
+
+        case .scheduleQuotes(let status):
+            var components = URLComponents(string: "\(baseURLString)/schedule/quotes")
+            components?.queryItems = [URLQueryItem(name: "status", value: status)]
+            return components?.url
+
+        case .deviceTokenRegister:
+            return URL(string: "\(baseURLString)/device/token")
         }
     }
 
@@ -121,7 +167,13 @@ enum APIEndpoint {
              .receiptUpload,
              .expenseSave,
              .expenseList,
-             .visitFlag: return true
+             .visitFlag,
+             .powActions,
+             .powGpsSync,
+             .scheduleJobs,
+             .scheduleInvoices,
+             .scheduleQuotes,
+             .deviceTokenRegister: return true
         }
     }
 
@@ -141,9 +193,15 @@ enum APIEndpoint {
              .scheduleClock,
              .receiptUpload,
              .expenseSave,
-             .visitFlag: return "POST"
+             .visitFlag,
+             .powActions,
+             .powGpsSync,
+             .deviceTokenRegister: return "POST"
 
-        case .expenseList: return "GET"
+        case .expenseList,
+             .scheduleJobs,
+             .scheduleInvoices,
+             .scheduleQuotes: return "GET"
         }
     }
 }

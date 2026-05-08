@@ -71,6 +71,11 @@ final class ArrivalMonitor {
 
     static let shared = ArrivalMonitor()
 
+    // MARK: - Notification constants
+
+    static let actionClockIn    = "ca.mowology.crm.arrival.clockin"
+    static let categoryArrival  = "ca.mowology.crm.arrival"
+
     private init() {}
 
     // MARK: - Published Metrics

@@ -19,21 +19,6 @@
 import CoreMotion
 import Foundation
 
-// MARK: - ActivityType+PingInterval
-
-extension ActivityType {
-
-    /// Seconds between GPS pings for this motion state.
-    var pingInterval: TimeInterval {
-        switch self {
-        case .stationary: return 30
-        case .walking:    return 45
-        case .driving:    return 60
-        case .unknown:    return 45
-        }
-    }
-}
-
 // MARK: - ActivityMonitor
 
 @MainActor
@@ -76,8 +61,8 @@ final class ActivityMonitor {
 
     // MARK: - Private
 
-    private static func map(_ a: CMMotionActivity) -> ActivityType {
-        if a.automotive            { return .driving    }
+    private static func map(_ a: CMMotionActivity) -> ActivityState {
+        if a.automotive            { return .automotive }
         if a.walking || a.running  { return .walking    }
         if a.stationary            { return .stationary }
         return .unknown
