@@ -272,7 +272,7 @@ $activePage = 'companies';
                         </div>
                     <?php else: ?>
                         <div class="table-responsive">
-                            <table class="table table-hover mb-0">
+                            <table class="mw-table">
                                 <thead>
                                     <tr>
                                         <th class="mw-bulk-checkbox-cell">
@@ -294,7 +294,7 @@ $activePage = 'companies';
                                                 <input type="checkbox" class="mw-bulk-checkbox mw-bulk-row-select" data-id="<?= (int)$co['id'] ?>">
                                             </td>
                                             <td>
-                                                <a href="view.php?id=<?= $co['id'] ?>" class="font-weight-bold text-dark">
+                                                <a href="view.php?id=<?= $co['id'] ?>" class="mw-cell-primary" style="text-decoration:none;">
                                                     <?= htmlspecialchars($co['company_name']) ?>
                                                 </a>
                                             </td>
@@ -325,13 +325,9 @@ $activePage = 'companies';
                                             <td>
                                                 <?= htmlspecialchars(ucfirst($co['lifecycle_stage'] ?? 'prospect')) ?>
                                             </td>
-                                            <td class="text-right">
-                                                <a href="view.php?id=<?= $co['id'] ?>" class="btn btn-sm btn-outline-primary mr-1" title="View">
-                                                    <i data-feather="eye" style="width:14px;height:14px;"></i>
-                                                </a>
-                                                <a href="edit.php?id=<?= $co['id'] ?>" class="btn btn-sm btn-outline-secondary" title="Edit">
-                                                    <i data-feather="edit-2" style="width:14px;height:14px;"></i>
-                                                </a>
+                                            <td>
+                                                <a href="view.php?id=<?= $co['id'] ?>" class="mw-action-btn mw-action-btn-view">View</a>
+                                                <a href="edit.php?id=<?= $co['id'] ?>" class="mw-action-btn mw-action-btn-edit">Edit</a>
                                             </td>
                                         </tr>
                                     <?php endforeach; ?>

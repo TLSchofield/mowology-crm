@@ -78,6 +78,7 @@ function getBusinessSettings($db) {
         'company_email' => $settings['company_email'] ?? '',
         'company_website' => $settings['company_website'] ?? '',
         'company_address' => $settings['company_address'] ?? '',
+        'company_tagline' => $settings['company_tagline'] ?? '',
         'gst_registration' => $settings['gst_registration'] ?? '',
         'pst_registration' => $settings['pst_registration'] ?? '',
         'business_license' => $settings['business_license'] ?? '',
@@ -132,6 +133,7 @@ function updateBusinessSettings($db, $user) {
         'company_email',
         'company_website',
         'company_address',
+        'company_tagline',
         'gst_registration',
         'pst_registration',
         'business_license',
@@ -174,6 +176,13 @@ function updateBusinessSettings($db, $user) {
         exit;
     }
 
+    // Ensure the row at id=1 exists. A plain UPDATE ... WHERE id=1 silently
+    // affects zero rows if the table is empty, which caused saves to disappear.
+    $exists = (int)$db->query("SELECT COUNT(*) FROM business_settings WHERE id = 1")->fetchColumn();
+    if ($exists === 0) {
+        $db->exec("INSERT INTO business_settings (id, created_at) VALUES (1, NOW())");
+    }
+
     // Build SQL update statement
     $fields = [];
     $values = [];
@@ -193,6 +202,11 @@ function updateBusinessSettings($db, $user) {
     if (!$stmt->execute($values)) {
         throw new Exception('Failed to update business settings');
     }
+
+    // If the UPDATE matched zero rows despite the row existing, raise a loud error
+    // (previously this was silent — that's what caused "I saved it but it's not there").
+    $affected = $stmt->rowCount();
+    error_log("business-settings save: rowCount={$affected}, fields=" . implode(',', array_keys($updates)));
 
     // Get updated settings
     $stmt = $db->prepare("SELECT * FROM business_settings WHERE id = 1");

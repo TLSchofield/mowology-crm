@@ -42,8 +42,9 @@ if ($statusFilter) {
 }
 
 if ($searchQuery) {
-    $whereConditions[] = '(i.invoice_number LIKE ? OR c.company_name LIKE ? OR CONCAT(ct.first_name," ",ct.last_name) LIKE ?)';
+    $whereConditions[] = '(i.invoice_number LIKE ? OR p.property_name LIKE ? OR c.company_name LIKE ? OR CONCAT(ct.first_name," ",ct.last_name) LIKE ?)';
     $searchParam = "%{$searchQuery}%";
+    $params[] = $searchParam;
     $params[] = $searchParam;
     $params[] = $searchParam;
     $params[] = $searchParam;
@@ -55,8 +56,9 @@ $whereClause = implode(' AND ', $whereConditions);
 $countParams = $params;
 $cntStmt = $db->prepare("
     SELECT COUNT(*) FROM invoices i
-    LEFT JOIN companies c ON i.company_id = c.id
-    LEFT JOIN contacts ct ON i.contact_id = ct.id
+    LEFT JOIN companies  c  ON i.company_id = c.id
+    LEFT JOIN contacts   ct ON i.contact_id = ct.id
+    LEFT JOIN properties p  ON i.property_id = p.id
     WHERE {$whereClause}
 ");
 $cntStmt->execute($countParams);
@@ -68,17 +70,26 @@ $offset = ($page - 1) * $perPage;
 $stmt = $db->prepare("
     SELECT
         i.*,
-        COALESCE(c.company_name, CONCAT(ct.first_name,' ',ct.last_name)) as display_client,
+        COALESCE(
+            NULLIF(p.property_name, ''),
+            NULLIF(c.company_name, ''),
+            NULLIF(CONCAT(ct.first_name,' ',ct.last_name), ' ')
+        ) as display_client,
+        p.property_name,
         c.company_name,
         ct.first_name as contact_first,
         ct.last_name  as contact_last,
         jp.plan_number,
-        jp.title as plan_title
+        jp.title as plan_title,
+        ctr.contract_number,
+        ctr.title as contract_title
     FROM invoices i
-    LEFT JOIN companies  c  ON i.company_id = c.id
-    LEFT JOIN contacts   ct ON i.contact_id = ct.id
-    LEFT JOIN job_plans  jp ON i.plan_id    = jp.id
-    LEFT JOIN job_visits jv ON i.visit_id   = jv.id
+    LEFT JOIN companies  c   ON i.company_id = c.id
+    LEFT JOIN contacts   ct  ON i.contact_id = ct.id
+    LEFT JOIN properties p   ON i.property_id = p.id
+    LEFT JOIN job_plans  jp  ON i.plan_id    = jp.id
+    LEFT JOIN job_visits jv  ON i.visit_id   = jv.id
+    LEFT JOIN contracts  ctr ON i.contract_id = ctr.id
     WHERE {$whereClause}
     ORDER BY {$orderBy} {$sortDir}
     LIMIT {$perPage} OFFSET {$offset}
@@ -123,17 +134,14 @@ $activePage = 'invoices';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
-            <div class="d-flex justify-content-between align-items-center mb-4">
-                <div>
-                    <h1 class="h3 mb-1">Invoices</h1>
-                    <p class="text-muted mb-0">Track payments and manage billing</p>
+            <div class="mw-page-header">
+                <div class="mw-page-header-left">
+                    <h1 class="mw-page-title">Invoices</h1>
+                    <p class="mw-page-subtitle">Track payments and manage billing</p>
                 </div>
-                <div class="d-flex" style="gap: 12px;">
-                    <a href="/crm/api/export-invoices.php" class="btn btn-outline-secondary btn-sm" style="align-self:center;"><i data-feather="download" class="mr-1"></i> Export CSV</a>
-                    <a href="create.php" class="btn btn-primary">
-                        <i data-feather="plus" style="width:16px;height:16px;margin-right:4px;vertical-align:middle;"></i>
-                        Create Invoice
-                    </a>
+                <div class="mw-page-actions">
+                    <a href="/crm/api/export-invoices.php" class="btn btn-outline-secondary btn-sm"><i data-feather="download"></i> Export CSV</a>
+                    <a href="create.php" class="btn btn-primary"><i data-feather="plus"></i> Create Invoice</a>
                 </div>
             </div>
 
@@ -221,10 +229,11 @@ $activePage = 'invoices';
                                 </th>
                                 <th class="<?php echo invSortClass('invoice_number', $sortCol, $sortDir); ?>"><a href="<?php echo invSortUrl('invoice_number', $sortCol, $sortDir); ?>">Invoice #</a></th>
                                 <th class="<?php echo invSortClass('client', $sortCol, $sortDir); ?>"><a href="<?php echo invSortUrl('client', $sortCol, $sortDir); ?>">Client</a></th>
-                                <th>Plan</th>
+                                <th>Plan / Contract</th>
                                 <th class="text-right <?php echo invSortClass('amount', $sortCol, $sortDir); ?>"><a href="<?php echo invSortUrl('amount', $sortCol, $sortDir); ?>">Amount</a></th>
                                 <th class="text-right <?php echo invSortClass('balance', $sortCol, $sortDir); ?>"><a href="<?php echo invSortUrl('balance', $sortCol, $sortDir); ?>">Balance</a></th>
                                 <th class="<?php echo invSortClass('due_date', $sortCol, $sortDir); ?>"><a href="<?php echo invSortUrl('due_date', $sortCol, $sortDir); ?>">Due Date</a></th>
+                                <th>Due</th>
                                 <th class="<?php echo invSortClass('status', $sortCol, $sortDir); ?>"><a href="<?php echo invSortUrl('status', $sortCol, $sortDir); ?>">Status</a></th>
                                 <th>Tracking</th>
                                 <th>Actions</th>
@@ -235,7 +244,37 @@ $activePage = 'invoices';
                                 <?php
                                 $isPayable = in_array($invoice['status'], ['sent', 'viewed', 'partial', 'overdue']);
                                 $balance   = floatval($invoice['balance_due']);
+                                // Aging / due column
+                                $agingLabel = ''; $agingClass = '';
+                                $isPaidStatus = in_array($invoice['status'], ['paid', 'draft', 'cancelled']);
+                                if (!empty($invoice['due_date']) && !$isPaidStatus) {
+                                    $dueDate  = new DateTime($invoice['due_date']);
+                                    $todayDt  = new DateTime('today');
+                                    $diff     = $todayDt->diff($dueDate);
+                                    $days     = (int)$diff->days;
+                                    if ($dueDate < $todayDt) {
+                                        $agingLabel = $days === 1 ? '1 day overdue' : "{$days} days overdue";
+                                        $agingClass = 'mw-due-overdue';
+                                    } elseif ($days === 0) {
+                                        $agingLabel = 'Due today';
+                                        $agingClass = 'mw-due-today';
+                                    } elseif ($days <= 7) {
+                                        $agingLabel = "Due in {$days}d";
+                                        $agingClass = 'mw-due-soon';
+                                    } else {
+                                        $agingLabel = "Due in {$days}d";
+                                        $agingClass = 'mw-due-ok';
+                                    }
+                                }
                                 $client    = htmlspecialchars($invoice['display_client'] ?? $invoice['company_name'] ?? 'N/A');
+                                // When we're showing a property name as the primary label, include the
+                                // paying company as a muted secondary line so the accountant still knows
+                                // who owes the money (e.g. "Oakridge Gardens" + "Vancouver Management Ltd").
+                                $clientSubtitle = '';
+                                if (!empty($invoice['property_name']) && !empty($invoice['company_name'])
+                                    && $invoice['property_name'] !== $invoice['company_name']) {
+                                    $clientSubtitle = htmlspecialchars($invoice['company_name']);
+                                }
                                 ?>
                                 <tr class="<?php echo $isPayable ? 'mw-payable-row' : ''; ?>"
                                     data-href="view.php?id=<?php echo (int)$invoice['id']; ?>"
@@ -254,15 +293,24 @@ $activePage = 'invoices';
                                         <?php endif; ?>
                                     </td>
                                     <td>
-                                        <a href="view.php?id=<?php echo $invoice['id']; ?>" class="invoice-number">
+                                        <a href="view.php?id=<?php echo $invoice['id']; ?>" class="mw-cell-primary invoice-number">
                                             <?php echo htmlspecialchars($invoice['invoice_number']); ?>
                                         </a>
                                     </td>
-                                    <td><?php echo $client; ?></td>
+                                    <td>
+                                        <span class="mw-cell-primary"><?php echo $client; ?></span>
+                                        <?php if ($clientSubtitle !== ''): ?>
+                                            <span class="mw-cell-secondary"><?php echo $clientSubtitle; ?></span>
+                                        <?php endif; ?>
+                                    </td>
                                     <td>
                                         <?php if (!empty($invoice['plan_number'])): ?>
-                                            <a href="../jobs/view.php?id=<?php echo $invoice['plan_id']; ?>">
+                                            <a href="../jobs/view.php?id=<?php echo (int)$invoice['plan_id']; ?>">
                                                 <?php echo htmlspecialchars($invoice['plan_number']); ?>
+                                            </a>
+                                        <?php elseif (!empty($invoice['contract_number'])): ?>
+                                            <a href="../contracts/view.php?id=<?php echo (int)$invoice['contract_id']; ?>" title="<?php echo htmlspecialchars($invoice['contract_title'] ?? ''); ?>">
+                                                <?php echo htmlspecialchars($invoice['contract_number']); ?>
                                             </a>
                                         <?php else: ?>
                                             <span class="text-muted">—</span>
@@ -273,6 +321,13 @@ $activePage = 'invoices';
                                         <?php echo formatCurrency($balance); ?>
                                     </td>
                                     <td><?php echo formatDate($invoice['due_date']); ?></td>
+                                    <td>
+                                        <?php if ($agingLabel !== ''): ?>
+                                            <span class="mw-due-badge <?php echo $agingClass; ?>"><?php echo htmlspecialchars($agingLabel); ?></span>
+                                        <?php else: ?>
+                                            <span class="text-muted" style="font-size:12px;">—</span>
+                                        <?php endif; ?>
+                                    </td>
                                     <td><?php echo getStatusBadge($invoice['status'], 'invoice'); ?></td>
                                     <td class="mw-tracking-cell">
                                         <?php if ($invoice['status'] !== 'draft'): ?>

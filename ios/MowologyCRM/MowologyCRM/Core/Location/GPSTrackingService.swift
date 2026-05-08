@@ -72,14 +72,7 @@ final class GPSTrackingService: ObservableObject {
     // MARK: - Private
 
     private var apiClient: APIClient?
-    /// Last wall-clock time a ping was fired. Used as rate-limiter by the
-    /// location callback and the stationary watchdog.
-    private var lastPingDate: Date = .distantPast
-    /// RunLoop-backed timer that covers truly stationary periods where the
-    /// 10m distanceFilter suppresses CLLocation updates entirely.
-    /// Timer fires every 60s but only sends a ping when the rate-limiter
-    /// is due — avoids double-pinging during normal movement.
-    private var stationaryWatchdog: Timer?
+    private var pingTask:  Task<Void, Never>?
     private(set) var activeVisitId: Int? = nil
     private var connectivityObserver: NSObjectProtocol?
 
@@ -96,18 +89,6 @@ final class GPSTrackingService: ObservableObject {
         }
     }
 
-    // MARK: - Permission
-
-    private static let kPermissionAsked = "mw.locationPermissionAsked"
-
-    /// Request Always location permission if we haven't asked before on this device.
-    /// Called from MainTabView.onAppear — gives the user context before clock-in.
-    func requestPermissionIfNeeded() {
-        guard !UserDefaults.standard.bool(forKey: Self.kPermissionAsked) else { return }
-        UserDefaults.standard.set(true, forKey: Self.kPermissionAsked)
-        locationManager.requestAlwaysPermission()
-    }
-
     // MARK: - Lifecycle
 
     func start(authSession: AuthSession) {
@@ -117,18 +98,14 @@ final class GPSTrackingService: ObservableObject {
         UserDefaults.standard.set(true, forKey: Self.kShiftActive)
         locationManager.requestAlwaysPermission()
         locationManager.startBackgroundTracking()
-        ActivityMonitor.shared.start(updating: locationManager)
-        attachLocationCallback()
-        startStationaryWatchdog()
+        startPingLoop()
     }
 
     func stop() {
         isTracking    = false
         activeVisitId = nil
-        locationManager.onLocationFix = nil
-        stationaryWatchdog?.invalidate()
-        stationaryWatchdog = nil
-        ActivityMonitor.shared.stop()
+        pingTask?.cancel()
+        pingTask = nil
         locationManager.stopBackgroundTracking()
         locationManager.resetSessionMetrics()
         UserDefaults.standard.set(false, forKey: Self.kShiftActive)
@@ -188,39 +165,16 @@ final class GPSTrackingService: ObservableObject {
 
     // MARK: - Private
 
-    /// Wire the location-delegate callback so every valid GPS fix can trigger
-    /// a ping. The rate-limiter (lastPingDate + pingInterval) prevents flooding.
-    /// This replaces the Task.sleep loop: the OS always delivers CLLocation
-    /// events via the delegate even when the app is background-suspended,
-    /// whereas a Task.sleep can be cancelled if iOS freezes the process.
-    private func attachLocationCallback() {
-        locationManager.onLocationFix = { [weak self] _ in
-            guard let self else { return }
-            let interval = self.locationManager.currentActivity.pingInterval
-            guard Date().timeIntervalSince(self.lastPingDate) >= interval else { return }
-            Task { @MainActor [weak self] in
-                await self?.firePing()
+    private func startPingLoop() {
+        pingTask?.cancel()
+        pingTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { break }
+                let interval = locationManager.currentActivity.pingInterval
+                try? await Task.sleep(for: .seconds(interval))
+                guard !Task.isCancelled else { break }
+                await self.sendPing()
             }
         }
-    }
-
-    /// RunLoop timer that covers true stationary periods: when the crew is
-    /// standing still, distanceFilter=10m can suppress CLLocation callbacks
-    /// for minutes at a time. The watchdog fires every 60s and sends a ping
-    /// only if the rate-limiter is overdue (no double-pinging during movement).
-    private func startStationaryWatchdog() {
-        stationaryWatchdog?.invalidate()
-        stationaryWatchdog = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self, self.isTracking else { return }
-                guard Date().timeIntervalSince(self.lastPingDate) >= 60 else { return }
-                await self.firePing()
-            }
-        }
-    }
-
-    private func firePing() async {
-        lastPingDate = Date()
-        await sendPing()
     }
 }

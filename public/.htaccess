@@ -57,7 +57,7 @@ Options -Indexes
     # - frames: 'self' allows same-origin iframes (e.g. /crm/mobile-preview_appstack.php)
     #           https://js.stripe.com for Stripe Payment Element
     # - connect: self + APIs used (Google Maps, Open-Meteo weather, Stripe, Esri tiles for offline cache)
-    Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://maps.googleapis.com https://www.gstatic.com https://www.google.com https://www.recaptcha.net https://js.stripe.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://maps.googleapis.com https://maps.gstatic.com https://*.google.com https://*.tile.openstreetmap.org https://server.arcgisonline.com; connect-src 'self' https://maps.googleapis.com https://api.open-meteo.com https://api.weather.gc.ca https://api.stripe.com https://server.arcgisonline.com; frame-src 'self' https://www.google.com https://www.recaptcha.net https://js.stripe.com; object-src 'none'; base-uri 'self'; form-action 'self';"
+    Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://maps.googleapis.com https://www.gstatic.com https://www.google.com https://www.recaptcha.net https://js.stripe.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://maps.googleapis.com https://maps.gstatic.com https://*.google.com https://*.tile.openstreetmap.org https://server.arcgisonline.com; connect-src 'self' https://maps.googleapis.com https://api.open-meteo.com https://api.weather.gc.ca https://api.stripe.com https://server.arcgisonline.com; frame-src 'self' https://www.google.com https://www.recaptcha.net https://js.stripe.com; object-src 'none'; base-uri 'self'; form-action 'self';"
 
     # Remove server version info
     Header always unset X-Powered-By
@@ -101,6 +101,10 @@ RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteCond %{DOCUMENT_ROOT}/services/$1.php -f
 RewriteRule ^services/([a-z0-9\-]+)/?$ /services/$1.php [L,QSA]
+
+# /privacy and /privacy-request — PIPEDA public pages
+RewriteRule ^privacy/?$ /privacy.php [L,QSA]
+RewriteRule ^privacy-request/?$ /privacy-request.php [L,QSA]
 
 # /api/module/action → handled by /api/.htaccess (do not rewrite here)
 RewriteRule ^api/ - [L]

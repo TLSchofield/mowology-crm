@@ -61,10 +61,14 @@ if (!function_exists('h')) {
   }
 }
 
-// For later CDN/versioning if needed
+// Asset URL with automatic cache-busting via file modification time.
+// Usage: asset('/assets/css/master.css') → '/assets/css/master.css?v=1742400123'
+// No manual version bumping ever needed — timestamp updates on every deploy.
 if (!function_exists('asset')) {
   function asset(string $path): string {
-    return $path;
+    $disk = dirname(__DIR__) . $path;  // PUBLIC_ROOT . $path
+    $ts   = @filemtime($disk) ?: time();
+    return $path . '?v=' . $ts;
   }
 }
 

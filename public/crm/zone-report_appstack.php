@@ -92,11 +92,10 @@ $activePage = 'work-zones';
 ?>
 <?php include 'includes/appstack_head.php'; ?>
 
-<!-- Header -->
-<div class="row mb-3">
-    <div class="col-12">
-        <h3 class="mb-1"><i data-feather="map-pin" class="me-2"></i>Work Zones</h3>
-        <p class="text-muted mb-0">GPS-derived time attribution per named work zone</p>
+<div class="mw-page-header">
+    <div class="mw-page-header-left">
+        <h1 class="mw-page-title">Work Zones</h1>
+        <p class="mw-page-subtitle">GPS-derived time attribution per named work zone</p>
     </div>
 </div>
 
@@ -218,7 +217,7 @@ $activePage = 'work-zones';
     </div>
 
     <div class="table-responsive">
-        <table class="table table-hover mb-0">
+        <table class="mw-table">
             <thead class="table-light">
                 <tr>
                     <th>Zone</th>

@@ -79,6 +79,13 @@ function maskSin(string $sin): string {
     return '••• ••• ' . substr($digits, -3);
 }
 
+// Mask driver's licence: show last 4 chars
+function maskDl(string $dl): string {
+    $dl = trim($dl);
+    if (strlen($dl) <= 4) return $dl ? str_repeat('•', strlen($dl)) : '';
+    return str_repeat('•', strlen($dl) - 4) . substr($dl, -4);
+}
+
 // Mask bank account: show last 4
 function maskAccount(string $acct): string {
     $acct = trim($acct);
@@ -125,7 +132,57 @@ if ($canAccountTab) {
     }
 }
 
-// Build display name from first/last (fall back to full_name)
+// ── Load training/certification data ──────────────────────────────────────
+$pesticideCourseId    = null;
+$pesticideCertRecord  = null;
+$pesticideExamHistory = [];
+$pesticideRequired    = (bool) ($emp['pesticide_training_required'] ?? false);
+
+try {
+    $courseRow = $db->query("SELECT id FROM cert_courses WHERE slug = 'bc-pesticide-applicator' LIMIT 1")->fetch();
+    if ($courseRow) {
+        $pesticideCourseId = (int) $courseRow['id'];
+
+        // Best cert record for this user + course
+        $crStmt = $db->prepare("
+            SELECT cr.*, ces.score_pct AS session_score, ces.completed_at AS session_completed_at
+            FROM cert_records cr
+            LEFT JOIN cert_exam_sessions ces ON ces.id = cr.exam_session_id
+            WHERE cr.user_id = ? AND cr.course_id = ?
+            LIMIT 1
+        ");
+        $crStmt->execute([$empId, $pesticideCourseId]);
+        $pesticideCertRecord = $crStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+
+        // Last 5 exam attempts
+        $histStmt = $db->prepare("
+            SELECT id, score_pct, passed, attempt_number, started_at, completed_at, questions_count, correct_count
+            FROM cert_exam_sessions
+            WHERE user_id = ? AND course_id = ?
+            ORDER BY started_at DESC
+            LIMIT 5
+        ");
+        $histStmt->execute([$empId, $pesticideCourseId]);
+        $pesticideExamHistory = $histStmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+} catch (Throwable $e) {
+    // cert tables may not exist yet — degrade gracefully
+}
+
+// ── Load truck device users (for driver assignment dropdown) ───────────────
+$truckUsers = [];
+try {
+    $truckUsers = $db->query("
+        SELECT id, COALESCE(NULLIF(TRIM(CONCAT(COALESCE(first_name,''),' ',COALESCE(last_name,''))),''), full_name, email) AS display_name
+        FROM users
+        WHERE device_type = 'truck' AND is_active = 1
+        ORDER BY display_name
+    ")->fetchAll(PDO::FETCH_ASSOC);
+} catch (Throwable $e) {
+    // device_type column may not exist yet — degrade gracefully
+}
+
+// ── Build display name from first/last (fall back to full_name) ────────────
 $empFirstName = $emp['first_name'] ?? '';
 $empLastName  = $emp['last_name'] ?? '';
 $empDisplayName = trim($empFirstName . ' ' . $empLastName) ?: ($emp['full_name'] ?? 'Employee');
@@ -193,6 +250,18 @@ if ($apiKey) {
     <li class="nav-item">
         <a class="nav-link" id="tab-install" data-toggle="tab" href="#pane-install" role="tab">
             <i data-feather="smartphone" style="width:14px;height:14px;"></i> Install App
+        </a>
+    </li>
+    <?php endif; ?>
+    <?php if ($canTeamEdit): ?>
+    <li class="nav-item">
+        <a class="nav-link" id="tab-training" data-toggle="tab" href="#pane-training" role="tab">
+            <i data-feather="award" style="width:14px;height:14px;"></i> Training
+            <?php if ($pesticideRequired && !$pesticideCertRecord): ?>
+                <span class="badge badge-warning badge-pill ml-1" style="font-size:.65rem;">!</span>
+            <?php elseif ($pesticideCertRecord && ($pesticideCertRecord['status'] ?? '') === 'active'): ?>
+                <span class="badge badge-success badge-pill ml-1" style="font-size:.65rem;">✓</span>
+            <?php endif; ?>
         </a>
     </li>
     <?php endif; ?>
@@ -319,6 +388,36 @@ if ($apiKey) {
                                 <label class="mw-hr-label">GPS Ping Rate</label>
                                 <p class="mw-hr-value"><?php echo ucfirst(h($emp['location_ping_rate'] ?? 'high')); ?></p>
                             </div>
+                            <?php if (!empty($truckUsers)): ?>
+                            <div class="col-sm-6 mb-3">
+                                <label class="mw-hr-label">Assigned Truck</label>
+                                <p class="mw-hr-value">
+                                <?php
+                                    $assignedTruck = null;
+                                    if (!empty($emp['assigned_truck_user_id'])) {
+                                        foreach ($truckUsers as $tu) {
+                                            if ((int)$tu['id'] === (int)$emp['assigned_truck_user_id']) {
+                                                $assignedTruck = $tu['display_name'];
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    echo $assignedTruck ? h($assignedTruck) : '<span class="text-muted">—</span>';
+                                ?>
+                                </p>
+                            </div>
+                            <?php endif; ?>
+                            <div class="col-sm-12 mb-3">
+                                <label class="mw-hr-label">Home Location (Clock-Out Reminder)</label>
+                                <p class="mw-hr-value">
+                                <?php if (!empty($emp['home_lat']) && !empty($emp['home_lng'])): ?>
+                                    <?php echo number_format((float)$emp['home_lat'], 5); ?>, <?php echo number_format((float)$emp['home_lng'], 5); ?>
+                                    <span class="text-muted small ml-1">(radius: <?php echo (int)($emp['home_radius_meters'] ?? 250); ?>m)</span>
+                                <?php else: ?>
+                                    <span class="text-muted">Not set — SMS reminder disabled</span>
+                                <?php endif; ?>
+                                </p>
+                            </div>
                             <div class="col-sm-12 mb-3">
                                 <label class="mw-hr-label">Emergency Contact</label>
                                 <p class="mw-hr-value"><?php echo h($emp['emergency_contact'] ?? '—'); ?></p>
@@ -326,6 +425,16 @@ if ($apiKey) {
                             <div class="col-sm-12 mb-3">
                                 <label class="mw-hr-label">Notes</label>
                                 <p class="mw-hr-value"><?php echo h($emp['notes'] ?? '—'); ?></p>
+                            </div>
+                            <div class="col-sm-12 mb-3">
+                                <label class="mw-hr-label">Pre-Shift Quiz</label>
+                                <p class="mw-hr-value">
+                                <?php if (!empty($emp['quiz_preshift_skip'])): ?>
+                                    <span class="badge badge-secondary">Skipped (exempt)</span>
+                                <?php else: ?>
+                                    <span class="badge badge-success">Required</span>
+                                <?php endif; ?>
+                                </p>
                             </div>
                         </div>
                         <hr>
@@ -411,11 +520,69 @@ if ($apiKey) {
                                         <textarea class="form-control" name="notes" rows="3"><?php echo h($emp['notes'] ?? ''); ?></textarea>
                                     </div>
                                 </div>
+                                <?php if (!empty($truckUsers)): ?>
+                                <div class="col-sm-12">
+                                    <div class="form-group">
+                                        <label>Assigned Truck <span class="text-muted">(auto-clocks out when driver clocks out)</span></label>
+                                        <select class="form-control" name="assigned_truck_user_id">
+                                            <option value="">— None —</option>
+                                            <?php foreach ($truckUsers as $tu): ?>
+                                            <option value="<?php echo (int)$tu['id']; ?>"
+                                                <?php echo (int)($emp['assigned_truck_user_id'] ?? 0) === (int)$tu['id'] ? 'selected' : ''; ?>>
+                                                <?php echo h($tu['display_name']); ?>
+                                            </option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
+                                </div>
+                                <?php endif; ?>
+                                <div class="col-sm-12">
+                                    <div class="form-group">
+                                        <label>Home Address <span class="text-muted">(for forgot-to-clock-out SMS reminder)</span></label>
+                                        <input type="text" class="form-control" id="homeAddressSearch"
+                                               placeholder="Start typing to search address…"
+                                               value="<?php echo (!empty($emp['home_lat']) && !empty($emp['home_lng'])) ? h(($emp['home_lat'] ?? '') . ', ' . ($emp['home_lng'] ?? '')) : ''; ?>"
+                                               autocomplete="off">
+                                        <input type="hidden" name="home_lat" id="homeLatInput" value="<?php echo h($emp['home_lat'] ?? ''); ?>">
+                                        <input type="hidden" name="home_lng" id="homeLngInput" value="<?php echo h($emp['home_lng'] ?? ''); ?>">
+                                        <div class="small text-muted mt-1" id="homeAddressHint">
+                                            <?php if (!empty($emp['home_lat']) && !empty($emp['home_lng'])): ?>
+                                                Saved: <?php echo number_format((float)$emp['home_lat'], 6); ?>, <?php echo number_format((float)$emp['home_lng'], 6); ?>
+                                            <?php else: ?>
+                                                No home location saved yet.
+                                            <?php endif; ?>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-sm-6">
+                                    <div class="form-group">
+                                        <label>Home Geofence Radius (metres)</label>
+                                        <input type="number" class="form-control" name="home_radius_meters"
+                                               value="<?php echo (int)($emp['home_radius_meters'] ?? 250); ?>"
+                                               min="50" max="2000" step="50">
+                                        <small class="text-muted">Default 250m. SMS sends when last GPS ping is within this distance of home.</small>
+                                    </div>
+                                </div>
                                 <div class="col-sm-12">
                                     <div class="form-group">
                                         <label>New Password <span class="text-muted">(leave blank to keep current)</span></label>
                                         <input type="password" class="form-control" name="password" minlength="8"
-                                               placeholder="Min. 8 characters">
+                                               placeholder="Min. 8 characters"
+                                               autocomplete="new-password" data-lpignore="true" data-1p-ignore>
+                                    </div>
+                                </div>
+                                <div class="col-sm-12">
+                                    <div class="form-group">
+                                        <div class="custom-control custom-switch">
+                                            <input type="hidden" name="quiz_preshift_skip" value="0">
+                                            <input type="checkbox" class="custom-control-input" id="quiz_preshift_skip"
+                                                   name="quiz_preshift_skip" value="1"
+                                                   <?php echo !empty($emp['quiz_preshift_skip']) ? 'checked' : ''; ?>>
+                                            <label class="custom-control-label" for="quiz_preshift_skip">
+                                                Exempt from pre-shift quiz
+                                                <span class="text-muted small d-block">When on, this person skips the quiz even when it's globally enabled.</span>
+                                            </label>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -509,6 +676,56 @@ if ($apiKey) {
                                 </p>
                             </div>
                         </div>
+
+                        <!-- Driver's Licence -->
+                        <hr>
+                        <p class="mw-hr-label mb-2" style="text-transform:uppercase;letter-spacing:.5px;">Driver's Licence</p>
+                        <?php $dlDecrypted = decryptField($emp['dl_number_encrypted'] ?? ''); ?>
+                        <div class="row">
+                            <div class="col-sm-6 mb-3">
+                                <label class="mw-hr-label">Licence Number</label>
+                                <p class="mw-hr-value">
+                                    <?php echo $dlDecrypted ? h(maskDl($dlDecrypted)) : '—'; ?>
+                                    <?php if ($canHrEdit && $dlDecrypted): ?>
+                                    <button class="btn btn-xs btn-link p-0 ml-2 text-muted" onclick="revealDl(this)" data-id="<?php echo $empId; ?>">
+                                        <i data-feather="eye" style="width:12px;height:12px;"></i>
+                                    </button>
+                                    <?php endif; ?>
+                                </p>
+                            </div>
+                            <div class="col-sm-2 mb-3">
+                                <label class="mw-hr-label">Class</label>
+                                <p class="mw-hr-value"><?php echo h($emp['dl_class'] ?? '—'); ?></p>
+                            </div>
+                            <div class="col-sm-2 mb-3">
+                                <label class="mw-hr-label">Province</label>
+                                <p class="mw-hr-value"><?php echo h($emp['dl_province'] ?? '—'); ?></p>
+                            </div>
+                            <div class="col-sm-4 mb-3">
+                                <label class="mw-hr-label">Expiry</label>
+                                <p class="mw-hr-value">
+                                    <?php
+                                    if (!empty($emp['dl_expiry'])) {
+                                        $exp = strtotime($emp['dl_expiry']);
+                                        $cls = $exp < time() ? 'text-danger font-weight-bold' : ($exp < strtotime('+90 days') ? 'text-warning font-weight-bold' : '');
+                                        echo '<span class="' . $cls . '">' . date('M j, Y', $exp) . ($exp < time() ? ' — EXPIRED' : '') . '</span>';
+                                    } else {
+                                        echo '—';
+                                    }
+                                    ?>
+                                </p>
+                            </div>
+                            <div class="col-sm-2 mb-3">
+                                <label class="mw-hr-label">Authorized Driver</label>
+                                <p class="mw-hr-value">
+                                    <?php if (!empty($emp['is_driver'])): ?>
+                                    <span class="badge badge-success"><i data-feather="check" style="width:11px;height:11px;"></i> Yes</span>
+                                    <?php else: ?>
+                                    <span class="badge badge-secondary">No</span>
+                                    <?php endif; ?>
+                                </p>
+                            </div>
+                        </div>
                     </div>
 
                     <?php if ($canHrEdit): ?>
@@ -568,6 +785,62 @@ if ($apiKey) {
                                         <input type="text" class="form-control" id="hrPostalCode" name="postal_code"
                                                value="<?php echo h($emp['postal_code'] ?? ''); ?>"
                                                placeholder="V6B 2W9" maxlength="7">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <hr>
+                            <p class="font-weight-bold small text-muted mb-3" style="text-transform:uppercase;letter-spacing:.5px;">Driver's Licence</p>
+                            <div class="row">
+                                <div class="col-sm-6">
+                                    <div class="form-group">
+                                        <label>Licence Number</label>
+                                        <input type="text" class="form-control" name="dl_number"
+                                               placeholder="Leave blank to keep current"
+                                               maxlength="20" autocomplete="off">
+                                        <small class="form-text text-muted">Stored encrypted.</small>
+                                    </div>
+                                </div>
+                                <div class="col-sm-2">
+                                    <div class="form-group">
+                                        <label>Class</label>
+                                        <select class="form-control" name="dl_class">
+                                            <option value="">—</option>
+                                            <?php foreach (['1','2','3','4','5','6','7','8'] as $cls): ?>
+                                            <option value="<?php echo $cls; ?>" <?php echo ($emp['dl_class'] ?? '') === $cls ? 'selected' : ''; ?>><?php echo $cls; ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="col-sm-2">
+                                    <div class="form-group">
+                                        <label>Province</label>
+                                        <select class="form-control" name="dl_province">
+                                            <option value="">—</option>
+                                            <?php foreach (['AB','BC','MB','NB','NL','NS','NT','NU','ON','PE','QC','SK','YT'] as $prov): ?>
+                                            <option value="<?php echo $prov; ?>" <?php echo ($emp['dl_province'] ?? '') === $prov ? 'selected' : ''; ?>><?php echo $prov; ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="col-sm-4">
+                                    <div class="form-group">
+                                        <label>Expiry Date <span class="text-danger">*</span></label>
+                                        <input type="date" class="form-control" name="dl_expiry"
+                                               value="<?php echo h($emp['dl_expiry'] ?? ''); ?>">
+                                    </div>
+                                </div>
+                                <div class="col-sm-12">
+                                    <div class="form-group">
+                                        <div class="custom-control custom-switch">
+                                            <input type="checkbox" class="custom-control-input" id="isDriverCheck"
+                                                   name="is_driver" value="1"
+                                                   <?php echo !empty($emp['is_driver']) ? 'checked' : ''; ?>>
+                                            <label class="custom-control-label" for="isDriverCheck">
+                                                Authorized Driver
+                                                <small class="text-muted d-block">Enables the pre-trip inspection form and driver portal on clock-in</small>
+                                            </label>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -859,6 +1132,207 @@ if ($apiKey) {
 
 <?php endif; // canTeamEdit ?>
 
+<?php if ($canTeamEdit): ?>
+
+<!-- ── Tab: Training ─────────────────────────────────────────────────────── -->
+<div class="tab-pane fade" id="pane-training" role="tabpanel">
+    <div class="row">
+
+        <!-- Left: Pesticide Training Toggle + Status ─────────────────────── -->
+        <div class="col-lg-7">
+            <div class="card mb-4">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><i data-feather="shield" class="mr-2" style="width:15px;height:15px;color:var(--mw-orange);"></i> BC Pesticide Applicator Certificate</span>
+                    <?php if ($pesticideCertRecord && ($pesticideCertRecord['status'] ?? '') === 'active'): ?>
+                        <span class="badge badge-success">Certified</span>
+                    <?php elseif ($pesticideRequired): ?>
+                        <span class="badge badge-warning">Required — Not Yet Passed</span>
+                    <?php else: ?>
+                        <span class="badge badge-secondary">Optional</span>
+                    <?php endif; ?>
+                </div>
+                <div class="card-body">
+
+                    <?php if (!$pesticideCourseId): ?>
+                        <div class="alert alert-warning mb-0">
+                            <strong>Setup required.</strong> Run
+                            <a href="/crm/api/run-migration-991.php" target="_blank">/crm/api/run-migration-991.php</a>
+                            then
+                            <a href="/crm/api/run-migration-pesticide-quiz-seed.php" target="_blank">the seed script</a>
+                            to activate pesticide training.
+                        </div>
+                    <?php else: ?>
+
+                        <!-- Require training toggle -->
+                        <div class="d-flex align-items-center justify-content-between mb-4 p-3"
+                             style="background:var(--mw-light);border-radius:6px;">
+                            <div>
+                                <strong style="font-size:.9rem;">Require this training for <?php echo h($empFirstName ?: $empDisplayName); ?></strong>
+                                <div class="text-muted" style="font-size:.8rem;margin-top:2px;">
+                                    Marks training as mandatory on their profile and flags it until they pass.
+                                </div>
+                            </div>
+                            <div class="custom-control custom-switch ml-3">
+                                <input type="checkbox" class="custom-control-input" id="pesticideToggle"
+                                    <?php echo $pesticideRequired ? 'checked' : ''; ?>
+                                    onchange="togglePesticideTraining(this.checked)">
+                                <label class="custom-control-label" for="pesticideToggle"></label>
+                            </div>
+                        </div>
+
+                        <!-- Certification status card -->
+                        <?php if ($pesticideCertRecord): ?>
+                            <?php
+                            $certStatus = $pesticideCertRecord['status'] ?? 'pending';
+                            $certScore  = (int) ($pesticideCertRecord['best_score_pct'] ?? 0);
+                            $certIssued = $pesticideCertRecord['issued_at'] ?? null;
+                            $certExpiry = $pesticideCertRecord['expires_at'] ?? null;
+                            $statusBadge = ['active' => 'success', 'expired' => 'danger', 'revoked' => 'danger', 'pending' => 'warning'][$certStatus] ?? 'secondary';
+                            ?>
+                            <div class="d-flex align-items-center p-3 mb-3"
+                                 style="background:#f0f9f4;border:1px solid #c3e6cb;border-radius:6px;">
+                                <div style="font-size:2rem;line-height:1;margin-right:16px;">🏆</div>
+                                <div class="flex-grow-1">
+                                    <strong>BC Pesticide Applicator Certificate</strong>
+                                    <div style="font-size:.82rem;color:#555;margin-top:3px;">
+                                        Best score: <strong><?php echo $certScore; ?>%</strong>
+                                        &nbsp;·&nbsp; Status: <span class="badge badge-<?php echo $statusBadge; ?>"><?php echo ucfirst(h($certStatus)); ?></span>
+                                        <?php if ($certIssued): ?>
+                                            &nbsp;·&nbsp; Issued: <?php echo date('M j, Y', strtotime($certIssued)); ?>
+                                        <?php endif; ?>
+                                        <?php if ($certExpiry): ?>
+                                            &nbsp;·&nbsp; Expires: <?php echo date('M j, Y', strtotime($certExpiry)); ?>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
+                            </div>
+                        <?php else: ?>
+                            <div class="alert alert-light border" style="font-size:.85rem;">
+                                <i data-feather="info" style="width:14px;height:14px;" class="mr-1"></i>
+                                <?php echo h($empFirstName ?: $empDisplayName); ?> has not yet completed this certification.
+                                <?php if ($pesticideRequired): ?>
+                                    This training is <strong>required</strong> for their role.
+                                <?php endif; ?>
+                            </div>
+                        <?php endif; ?>
+
+                        <!-- Progress bar from last attempt -->
+                        <?php if (!empty($pesticideExamHistory)): ?>
+                            <?php $lastAttempt = $pesticideExamHistory[0]; ?>
+                            <?php if ($lastAttempt['completed_at']): ?>
+                            <div class="mb-3">
+                                <div class="d-flex justify-content-between mb-1" style="font-size:.8rem;color:#555;">
+                                    <span>Last attempt score</span>
+                                    <strong><?php echo (int)$lastAttempt['score_pct']; ?>%
+                                        <?php echo $lastAttempt['passed'] ? '✓ Passed' : '✗ Not yet'; ?>
+                                    </strong>
+                                </div>
+                                <div class="progress" style="height:8px;">
+                                    <div class="progress-bar <?php echo $lastAttempt['passed'] ? 'bg-success' : 'bg-warning'; ?>"
+                                         style="width:<?php echo (int)$lastAttempt['score_pct']; ?>%"></div>
+                                </div>
+                                <div class="text-muted mt-1" style="font-size:.75rem;">
+                                    <?php echo (int)$lastAttempt['correct_count']; ?>/<?php echo (int)$lastAttempt['questions_count']; ?> correct
+                                    &nbsp;·&nbsp; <?php echo date('M j, Y', strtotime($lastAttempt['completed_at'])); ?>
+                                </div>
+                            </div>
+                            <?php endif; ?>
+                        <?php endif; ?>
+
+                        <!-- Action buttons -->
+                        <div class="d-flex gap-2 flex-wrap" style="gap:.5rem;">
+                            <a href="/crm/quiz-play_appstack.php?course=bc-pesticide-applicator&user=<?php echo $empId; ?>"
+                               class="btn btn-sm btn-primary">
+                                <i data-feather="play" style="width:13px;height:13px;" class="mr-1"></i>
+                                <?php echo $pesticideCertRecord ? 'Retake Exam' : 'Start Exam'; ?>
+                            </a>
+                            <a href="/crm/quiz-learn_appstack.php?category=BC+Pesticide+Applicator"
+                               class="btn btn-sm btn-outline-secondary">
+                                <i data-feather="book-open" style="width:13px;height:13px;" class="mr-1"></i>
+                                Study Mode
+                            </a>
+                        </div>
+
+                    <?php endif; // pesticideCourseId ?>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right: Exam history ───────────────────────────────────────────── -->
+        <div class="col-lg-5">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <i data-feather="clock" class="mr-2" style="width:14px;height:14px;"></i> Exam History
+                </div>
+                <div class="card-body p-0">
+                    <?php if (empty($pesticideExamHistory)): ?>
+                        <div class="p-4 text-center text-muted" style="font-size:.85rem;">
+                            No exam attempts yet.
+                        </div>
+                    <?php else: ?>
+                        <table class="table table-sm mb-0" style="font-size:.82rem;">
+                            <thead class="thead-light">
+                                <tr>
+                                    <th>Date</th>
+                                    <th class="text-center">Score</th>
+                                    <th class="text-center">Result</th>
+                                    <th class="text-center">Attempt</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($pesticideExamHistory as $attempt): ?>
+                                <tr class="<?php echo $attempt['passed'] ? 'table-success' : ''; ?>">
+                                    <td class="text-muted">
+                                        <?php echo $attempt['completed_at']
+                                            ? date('M j, Y', strtotime($attempt['completed_at']))
+                                            : '<em>In progress</em>'; ?>
+                                    </td>
+                                    <td class="text-center">
+                                        <strong><?php echo $attempt['completed_at'] ? (int)$attempt['score_pct'] . '%' : '—'; ?></strong>
+                                    </td>
+                                    <td class="text-center">
+                                        <?php if ($attempt['passed'] === null): ?>
+                                            <span class="badge badge-info">In progress</span>
+                                        <?php elseif ($attempt['passed']): ?>
+                                            <span class="badge badge-success">Passed</span>
+                                        <?php else: ?>
+                                            <span class="badge badge-warning">Not yet</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td class="text-center text-muted">#<?php echo (int)$attempt['attempt_number']; ?></td>
+                                </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    <?php endif; ?>
+                </div>
+            </div>
+
+            <!-- Six-week study plan hint -->
+            <div class="card">
+                <div class="card-header" style="font-size:.82rem;">
+                    <i data-feather="calendar" class="mr-1" style="width:13px;height:13px;"></i> Recommended Study Path
+                </div>
+                <div class="card-body p-3" style="font-size:.78rem;color:#555;line-height:1.6;">
+                    <strong>6-Week Plan:</strong>
+                    <ol class="pl-3 mb-0 mt-1">
+                        <li>Orientation + exam rules + label basics</li>
+                        <li>General pesticide characteristics + classification</li>
+                        <li>Human health + exposure routes + symptoms</li>
+                        <li>PPE + hierarchy of controls + safe work</li>
+                        <li>Environment + drift/runoff + buffer concepts</li>
+                        <li>Emergency response + equipment + mock review</li>
+                    </ol>
+                    <div class="mt-2 text-muted">~20–30 min/week + 1 longer mock session.</div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div><!-- /training pane -->
+
+<?php endif; // canTeamEdit (training tab) ?>
+
 <?php if ($canAccountTab): ?>
 
 <!-- ── Tab: Account & Access ─────────────────────────────────────────────── -->
@@ -941,8 +1415,8 @@ if ($apiKey) {
                     <div>
                         <label class="mw-hr-label">Device Type</label>
                         <select class="form-control form-control-sm" onchange="accUpdate('device_type', this.value)">
-                            <option value="personal" <?php echo ($emp['device_type'] ?? 'personal') === 'personal' ? 'selected' : ''; ?>>Personal Phone — GPS during jobs only</option>
-                            <option value="truck"    <?php echo ($emp['device_type'] ?? 'personal') === 'truck'    ? 'selected' : ''; ?>>Truck Tablet — GPS continuous</option>
+                            <option value="personal" <?php echo ($emp['device_type'] ?? 'personal') === 'personal' ? 'selected' : ''; ?>>Personal Phone — GPS all shift while clocked in</option>
+                            <option value="truck"    <?php echo ($emp['device_type'] ?? 'personal') === 'truck'    ? 'selected' : ''; ?>>Truck Tablet — GPS always on (app open)</option>
                         </select>
                     </div>
                 </div>
@@ -1248,6 +1722,10 @@ function toggleOverviewEdit() {
     var edit = document.getElementById('overview-edit-panel');
     view.classList.toggle('d-none');
     edit.classList.toggle('d-none');
+    // Always clear the password input when entering edit mode so browser
+    // autofill can't silently overwrite the employee's real password.
+    var pw = edit.querySelector('input[name="password"]');
+    if (pw) pw.value = '';
 }
 function toggleHrEdit() {
     document.getElementById('hr-view-panel').classList.toggle('d-none');
@@ -1420,6 +1898,11 @@ function accUpdate(field, value) {
     .catch(function() { alert('Network error'); });
 }
 
+// ── Training tab: pesticide training toggle ────────────────────────────────
+function togglePesticideTraining(required) {
+    accUpdate('pesticide_training_required', required ? 1 : 0);
+}
+
 // ── Account tab: RBAC roles form ──────────────────────────────────────────
 var accRolesForm = document.getElementById('acc-roles-form');
 if (accRolesForm) {
@@ -1490,6 +1973,40 @@ function revealSin(btn) {
         });
 }
 
+// ── Reveal driver's licence number (AJAX) ─────────────────────────────────
+function revealDl(btn) {
+    if (btn.dataset.revealed) {
+        var span = btn.closest('p').querySelector('.mw-hr-dl-val');
+        if (span) span.textContent = '••••' + btn.dataset.last4;
+        btn.dataset.revealed = '';
+        return;
+    }
+    var id = btn.dataset.id;
+    fetch('/crm/api/employees.php?action=get_dl&id=' + id)
+        .then(function(r) { return r.json(); })
+        .then(function(json) {
+            if (json.success && json.dl_number) {
+                var dlSpan = btn.closest('p').querySelector('.mw-hr-dl-val');
+                if (!dlSpan) {
+                    dlSpan = document.createElement('span');
+                    dlSpan.className = 'mw-hr-dl-val';
+                    btn.before(dlSpan);
+                }
+                dlSpan.textContent = json.dl_number;
+                btn.dataset.revealed = '1';
+                btn.dataset.last4 = json.dl_number.slice(-4);
+                setTimeout(function() {
+                    if (btn.dataset.revealed) {
+                        dlSpan.textContent = '••••' + btn.dataset.last4;
+                        btn.dataset.revealed = '';
+                    }
+                }, 15000);
+            } else {
+                alert(json.error || 'Could not retrieve licence number');
+            }
+        });
+}
+
 // ── Google Places address autocomplete ───────────────────────────────────
 function initAddressAutocomplete(inputId, cityId, postalId, provinceId) {
     var input = document.getElementById(inputId);
@@ -1533,6 +2050,31 @@ function initAddressAutocomplete(inputId, cityId, postalId, provinceId) {
 }
 
 initAddressAutocomplete('hrAddress', 'hrCity', 'hrPostalCode', 'hrProvince');
+
+// ── Home address geocoding (Places Autocomplete) ──────────────────────────
+function initHomeAddressAutocomplete() {
+    var input = document.getElementById('homeAddressSearch');
+    if (!input) return;
+    if (typeof google === 'undefined' || !google.maps || !google.maps.places) {
+        setTimeout(initHomeAddressAutocomplete, 200);
+        return;
+    }
+    var ac = new google.maps.places.Autocomplete(input, {
+        types: ['geocode'],
+        componentRestrictions: { country: ['ca'] }
+    });
+    ac.addListener('place_changed', function() {
+        var place = ac.getPlace();
+        if (!place.geometry || !place.geometry.location) return;
+        var lat = place.geometry.location.lat();
+        var lng = place.geometry.location.lng();
+        document.getElementById('homeLatInput').value = lat;
+        document.getElementById('homeLngInput').value = lng;
+        document.getElementById('homeAddressHint').textContent =
+            'Selected: ' + lat.toFixed(6) + ', ' + lng.toFixed(6);
+    });
+}
+initHomeAddressAutocomplete();
 </script>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

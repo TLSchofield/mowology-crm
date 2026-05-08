@@ -52,14 +52,14 @@ $activePage = 'marketing';
               <div class="card">
                   <div class="card-header"><h5 class="card-title mb-0">CSV File Paths</h5></div>
                   <div class="card-body">
-                      <p class="text-muted mb-3">Enter the server paths to your Jobber CSV export files.</p>
+                      <p class="text-muted mb-3">CSV files are pre-uploaded to <code>/crm/tmp/</code> on the server.</p>
                       <div class="form-group">
                           <label>CSV File 1 (required)</label>
-                          <input type="text" class="form-control" id="csvFile1" value="/home/mowology/public_html/tmp_import/Jobber Clients 1 of 2.csv">
+                          <input type="text" class="form-control" id="csvFile1" value="/home/mowology/public_html/crm/tmp/jobber1.csv">
                       </div>
                       <div class="form-group">
                           <label>CSV File 2 (optional)</label>
-                          <input type="text" class="form-control" id="csvFile2" value="/home/mowology/public_html/tmp_import/Jobber Clients 2 of 2.csv">
+                          <input type="text" class="form-control" id="csvFile2" value="/home/mowology/public_html/crm/tmp/jobber2.csv">
                       </div>
                       <button class="btn btn-primary" onclick="previewImport()" id="btnPreview">
                           <i data-feather="eye" class="mr-1"></i> Preview Import

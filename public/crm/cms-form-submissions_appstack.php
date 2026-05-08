@@ -83,10 +83,14 @@ $csrfToken = generateCSRFToken();
     </ul>
 </div>
 
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <h1 class="h3 mb-0">Form Submissions</h1>
+<div class="mw-page-header">
+    <div class="mw-page-header-left">
+        <h1 class="mw-page-title">Form Submissions</h1>
+    </div>
     <?php if (!empty($stats['unread'])): ?>
+    <div class="mw-page-actions">
         <span class="badge badge-danger" style="font-size:1rem;"><?php echo (int)$stats['unread']; ?> unread</span>
+    </div>
     <?php endif; ?>
 </div>
 

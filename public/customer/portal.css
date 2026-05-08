@@ -794,25 +794,47 @@ a:hover { text-decoration: underline; }
 .portal-total-row.balance-row { font-weight: 700; color: #dc2626; }
 
 /* ─── Payment Modal ──────────────────────────────────────────────────────── */
+/* Sticky header + footer, scrollable body — Pay button always visible      */
 .portal-overlay {
   display: none;
   position: fixed;
   inset: 0;
   background: rgba(0,0,0,0.4);
   z-index: 1000;
-  align-items: center;
+  align-items: flex-end;        /* sheet slides up from bottom on mobile */
   justify-content: center;
-  padding: 16px;
+  padding: 0;
 }
 .portal-overlay.open { display: flex; }
+
+/* On larger screens centre it like a traditional modal */
+@media (min-width: 540px) {
+  .portal-overlay {
+    align-items: center;
+    padding: 16px;
+  }
+}
+
 .portal-modal {
   background: var(--p-bg);
-  border-radius: var(--p-radius-lg);
+  border-radius: var(--p-radius-lg) var(--p-radius-lg) 0 0; /* sheet style on mobile */
   width: 100%;
   max-width: 480px;
-  overflow: hidden;
+  /* Flex column: header fixed, body scrolls, footer fixed */
+  display: flex;
+  flex-direction: column;
+  max-height: 92vh;             /* never taller than viewport */
   box-shadow: var(--p-shadow-lg);
+  overflow: hidden;             /* keeps border-radius clean */
 }
+
+@media (min-width: 540px) {
+  .portal-modal {
+    border-radius: var(--p-radius-lg);
+    max-height: calc(100vh - 32px);
+  }
+}
+
 .portal-modal-hdr {
   background: var(--p-forest);
   color: #fff;
@@ -820,6 +842,7 @@ a:hover { text-decoration: underline; }
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-shrink: 0;               /* never squish the header */
 }
 .portal-modal-hdr h3 { font-size: 1rem; font-weight: 600; }
 .portal-modal-close {
@@ -831,14 +854,24 @@ a:hover { text-decoration: underline; }
   line-height: 1;
 }
 .portal-modal-close:hover { color: #fff; }
-.portal-modal-body { padding: 24px; }
+
+.portal-modal-body {
+  padding: 24px;
+  overflow-y: auto;             /* body scrolls when content is tall */
+  flex: 1;
+  -webkit-overflow-scrolling: touch;
+}
+
 .portal-modal-footer {
   padding: 16px 24px;
   border-top: 1px solid var(--p-border);
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+  flex-shrink: 0;               /* footer always visible — never pushed off screen */
+  background: var(--p-bg);
 }
+
 .portal-modal-amount {
   background: var(--p-bg-subtle);
   border: 1px solid var(--p-border);
@@ -1082,30 +1115,296 @@ a:hover { text-decoration: underline; }
 .portal-decline-form { display: none; margin-top: 14px; }
 .portal-decline-form.show { display: block; }
 
-/* Upsell add-on cards */
+/* ─── Hero action link (Update my details) ──────────────────────────── */
+.portal-hero-link {
+    display: inline-block;
+    margin-top: 10px;
+    color: rgba(255,255,255,0.9);
+    font-size: 0.85rem;
+    font-weight: 500;
+    text-decoration: none;
+    border-bottom: 1px solid rgba(255,255,255,0.4);
+    padding-bottom: 2px;
+}
+.portal-hero-link:hover {
+    color: #fff;
+    border-bottom-color: #fff;
+    text-decoration: none;
+}
+
+/* ─── Rebook Button (Book again on completed visits) ─────────────────── */
+.portal-visit-rebook-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: transparent;
+    color: var(--p-green);
+    border: 1.5px solid var(--p-green);
+    border-radius: 14px;
+    padding: 4px 12px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    margin-left: auto;
+    transition: background 0.15s, color 0.15s, transform 0.15s;
+    font-family: inherit;
+    line-height: 1.2;
+    letter-spacing: 0.2px;
+}
+.portal-visit-rebook-btn:hover {
+    background: var(--p-green);
+    color: #fff;
+    transform: translateY(-1px);
+}
+.portal-visit-rebook-btn:disabled {
+    opacity: 0.7;
+    cursor: wait;
+}
+
+/* ─── Portal Photos Summary Card ──────────────────────────────────────── */
+.portal-photos-summary {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 18px;
+    background: #fff;
+    border: 1.5px solid var(--p-border);
+    border-radius: var(--p-radius-md, 12px);
+    margin-bottom: 18px;
+    text-decoration: none;
+    color: inherit;
+    transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+.portal-photos-summary:hover {
+    border-color: var(--p-green);
+    box-shadow: 0 4px 12px rgba(45, 134, 89, 0.08);
+    text-decoration: none;
+    transform: translateY(-1px);
+}
+.portal-photos-thumbs {
+    display: flex;
+    flex-shrink: 0;
+}
+.portal-photos-thumbs img {
+    width: 46px;
+    height: 46px;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 2px solid #fff;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    margin-left: -10px;
+}
+.portal-photos-thumbs img:first-child { margin-left: 0; }
+.portal-photos-summary-text { flex: 1; min-width: 0; }
+.portal-photos-summary-count {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--p-text-dark, #1a202c);
+    margin-bottom: 2px;
+}
+.portal-photos-summary-sub {
+    font-size: 0.82rem;
+    color: var(--p-green);
+    font-weight: 500;
+}
+
+/* ─── Quote 2-col layout (desktop sidebar, stacked mobile) ─────────────── */
+.portal-quote-grid {
+  display: block; /* mobile default: stacked in source order */
+}
+@media (min-width: 900px) {
+  .portal-quote-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 340px;
+    gap: 24px;
+    align-items: start;
+  }
+  .portal-quote-main { min-width: 0; }
+  .portal-quote-sidebar {
+    position: sticky;
+    top: 20px;
+    max-height: calc(100vh - 40px);
+    overflow-y: auto;
+  }
+}
+
+/* ─── Upsell add-on cards (FOMO bundle pricing) ────────────────────────── */
 .portal-upsell-card {
+  position: relative;
   border: 1.5px solid var(--p-border);
   border-radius: var(--p-radius-sm);
-  padding: 12px 14px;
-  margin-bottom: 8px;
-  transition: border-color 0.15s, background 0.15s;
+  padding: 14px 14px 12px;
+  margin-bottom: 10px;
+  transition: border-color 0.15s, background 0.15s, transform 0.15s;
+  background: #fff;
 }
 .portal-upsell-card:hover { border-color: var(--p-green); background: var(--p-bg-subtle); }
+.portal-upsell-card.is-added { border-color: var(--p-green); background: var(--p-bg-subtle); }
+.portal-upsell-card.is-popular { border-color: var(--p-orange, #e85d04); }
+
+.portal-upsell-badge {
+  position: absolute;
+  top: -8px;
+  left: 12px;
+  background: var(--p-orange, #e85d04);
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 3px 8px;
+  border-radius: 10px;
+  text-transform: uppercase;
+}
+
 .portal-upsell-toggle {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
   cursor: pointer;
   margin: 0;
 }
 .portal-upsell-toggle input[type=checkbox] {
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   flex-shrink: 0;
   accent-color: var(--p-green);
+  margin-top: 2px;
 }
-.portal-upsell-info { flex: 1; font-size: 0.85rem; }
-.portal-upsell-price { font-weight: 600; font-size: 0.9rem; color: var(--p-green); white-space: nowrap; }
+.portal-upsell-info { flex: 1; font-size: 0.9rem; min-width: 0; }
+.portal-upsell-info strong { display: block; margin-bottom: 2px; color: var(--p-text-dark, #1a202c); }
+.portal-upsell-desc { font-size: 0.78rem; color: var(--p-text-muted); display: block; margin-top: 2px; line-height: 1.4; }
+
+.portal-upsell-pricing {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--p-border);
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.portal-upsell-price-bundled {
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: var(--p-green);
+}
+.portal-upsell-price-regular {
+  font-size: 0.78rem;
+  color: var(--p-text-muted);
+  text-decoration: line-through;
+}
+.portal-upsell-savings-chip {
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 10px;
+}
+
+/* Savings counter banner — appears when any upsell is ticked */
+.portal-savings-banner {
+  background: linear-gradient(135deg, #2D8659, #1A5F4A);
+  color: #fff;
+  padding: 10px 14px;
+  border-radius: var(--p-radius-sm);
+  margin-bottom: 12px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  display: none;
+  text-align: center;
+  box-shadow: 0 2px 8px rgba(45,134,89,0.2);
+}
+.portal-savings-banner.show { display: block; }
+.portal-savings-banner strong { font-size: 1rem; }
+
+/* Post-accept upsell sheet */
+.portal-post-accept-sheet {
+  margin-top: 20px;
+  border: 2px solid var(--p-orange, #e85d04);
+  border-radius: var(--p-radius-md, 12px);
+  overflow: hidden;
+  background: #fff;
+}
+.portal-post-accept-header {
+  background: var(--p-orange, #e85d04);
+  color: #fff;
+  padding: 14px 18px;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+.portal-post-accept-body { padding: 14px 18px; }
+.portal-post-accept-body > p {
+  font-size: 0.85rem; color: var(--p-text-mid); margin-bottom: 12px;
+}
+.portal-post-accept-card {
+  position: relative;
+  border: 1px solid var(--p-border);
+  border-radius: var(--p-radius-sm);
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.portal-post-accept-card strong { display: block; font-size: 0.9rem; }
+.portal-post-accept-missed {
+  font-size: 0.72rem;
+  color: var(--p-text-muted);
+  font-style: italic;
+  display: block;
+  margin-top: 2px;
+}
+.portal-post-accept-add-btn {
+  margin-left: auto;
+  background: var(--p-green);
+  color: #fff;
+  border: none;
+  padding: 8px 14px;
+  border-radius: var(--p-radius-sm);
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.portal-post-accept-add-btn:hover { background: var(--p-green-dark, #1A5F4A); }
+.portal-post-accept-add-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Undo toast */
+.portal-undo-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1a202c;
+  color: #fff;
+  padding: 12px 18px;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+  z-index: 10000;
+  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s, transform 0.2s;
+}
+.portal-undo-toast.show {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, -4px);
+}
+.portal-undo-toast button {
+  background: none;
+  color: var(--p-lime, #7FD858);
+  border: none;
+  font-weight: 700;
+  cursor: pointer;
+  font-size: 0.9rem;
+  padding: 0;
+}
 
 /* ─── PoW: Stat Trio ─────────────────────────────────────────────────────── */
 .portal-stat-trio {

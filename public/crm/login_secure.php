@@ -1,6 +1,12 @@
 <?php
 require_once __DIR__ . '/../loginAuth/auth.php';
 
+// Prevent browser/BFCache from caching the login page with a stale CSRF token.
+// Mobile browsers (iOS Safari, Android Chrome) can restore a cached login page
+// after logout via back-button — submitting the embedded old token fails CSRF.
+header('Cache-Control: no-store, no-cache, must-revalidate');
+header('Pragma: no-cache');
+
 // If already logged in, redirect to dashboard
 if (isLoggedIn()) {
     header('Location: dashboard_appstack.php');

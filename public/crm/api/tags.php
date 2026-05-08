@@ -16,6 +16,7 @@
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 requireLogin();
 $user = getCurrentUser();
+session_write_close();
 
 header('Content-Type: application/json');
 

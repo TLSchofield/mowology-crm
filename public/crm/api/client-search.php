@@ -13,6 +13,7 @@
  */
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 requireLogin();
+session_write_close(); // release session lock — autocomplete fires on every keypress
 
 $db = getDB();
 $action = $_GET['action'] ?? '';

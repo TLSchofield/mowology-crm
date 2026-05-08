@@ -89,9 +89,10 @@ const GBP_KEYWORDS = [
  * @param float|null  $lat      GPS latitude at upload
  * @param float|null  $lng      GPS longitude at upload
  * @param int|null    $jobId    Linked job ID (for context-based suggestions)
+ * @param array|null  $parsed   Parsed receipt fields (for line-item category inference)
  * @return array Suggestion with confidence scores
  */
-function suggestReceiptMeta(?string $ocrText, ?float $lat, ?float $lng, ?int $jobId = null): array
+function suggestReceiptMeta(?string $ocrText, ?float $lat, ?float $lng, ?int $jobId = null, ?array $parsed = null): array
 {
     $result = [
         'vendor_id'            => null,
@@ -198,6 +199,30 @@ function suggestReceiptMeta(?string $ocrText, ?float $lat, ?float $lng, ?int $jo
         if ($gbpMatch) {
             $result['gbp_category']  = $gbpMatch['category'];
             $result['gbp_confidence'] = $gbpMatch['confidence'];
+        }
+    }
+
+    // ── Line item → category inference ────────────────────────────────
+    // If category is still unknown or low-confidence, derive it from extracted
+    // line item names. Helpful for new vendors and general stores (e.g., Costco
+    // selling landscaping materials should still suggest "Materials").
+    if ((!empty($parsed['line_items']) || !empty($parsed['product_matches'])) &&
+        (empty($result['accounting_category']) || $result['category_confidence'] < 60)
+    ) {
+        $allItems = array_merge($parsed['line_items'] ?? [], $parsed['product_matches'] ?? []);
+        $lineItemText = strtolower(implode(' ', array_column($allItems, 'name')));
+        if (!empty($lineItemText)) {
+            foreach (CATEGORY_KEYWORDS as $cat => $keywords) {
+                foreach ($keywords as $kw) {
+                    if (strpos($lineItemText, $kw) !== false) {
+                        $result['accounting_category']        = $cat;
+                        $result['category_confidence']        = 65;
+                        $result['category_from_line_items']   = true;
+                        $result['match_details'][]            = 'Line item keyword: ' . $kw;
+                        break 2;
+                    }
+                }
+            }
         }
     }
 

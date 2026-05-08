@@ -8,8 +8,9 @@ declare(strict_types=1);
  * Migrated from /public/app_config/session_config.php
  */
 
-error_reporting(E_ALL);
-ini_set('display_errors', '1');
+// Error display is controlled by config.php (APP_ENV) — do NOT set it here.
+// session_config.php loads before config.php, so any ini_set() here would
+// unconditionally override the environment-aware setting that comes later.
 
 // If output started already, sessions can break.
 if (headers_sent($file, $line)) {
@@ -57,13 +58,22 @@ $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
 
 session_name('MOWOSESS');
 
+// Capacitor Android WebView sends cookies on same-origin POSTs but can
+// lose the session cookie if the app context shifts (e.g. deep links, intent
+// transitions). SameSite=None ensures the cookie is sent in all contexts for
+// WebView traffic. SameSite=None requires Secure=true (already set via HTTPS).
+$ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
+$isCapacitorWebView = stripos($ua, 'Capacitor') !== false
+    || (stripos($ua, 'wv)') !== false && stripos($ua, 'Android') !== false);
+$sameSite = ($isCapacitorWebView && $secure) ? 'None' : 'Lax';
+
 session_set_cookie_params([
     'lifetime' => $sessionLifetime,
-    'path' => '/',
-    'domain' => '',
-    'secure' => $secure,
+    'path'     => '/',
+    'domain'   => '',
+    'secure'   => $secure,
     'httponly' => true,
-    'samesite' => 'Lax',
+    'samesite' => $sameSite,
 ]);
 
 if (session_status() !== PHP_SESSION_ACTIVE) {

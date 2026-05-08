@@ -147,6 +147,57 @@ function clockIn($userId, $lat = null, $lng = null) {
 }
 
 /**
+ * Resolve a stale active clock entry from a prior calendar day.
+ *
+ * If the user has an active entry whose clock_in date is before today,
+ * it is auto-completed at clock_in + auto_clock_out_hours (default 10h).
+ * Any matching open vehicle_trip_reports for that date are also closed.
+ *
+ * Call this at login-time before getActiveClockEntry() so the user starts
+ * fresh rather than being trapped by a days-old record.
+ *
+ * Returns true if a stale entry was resolved, false otherwise.
+ */
+function resolveStaleClockEntry(int $userId): bool {
+    $entry = getActiveClockEntry($userId);
+    if (!$entry) return false;
+
+    $clockInDate = date('Y-m-d', strtotime($entry['clock_in']));
+    if ($clockInDate === date('Y-m-d')) return false;
+
+    $autoHours = max(1, (int) getTimeClockSetting('auto_clock_out_hours', 10));
+    $db = getDB();
+
+    $db->prepare("
+        UPDATE time_clock_entries
+        SET clock_out     = DATE_ADD(clock_in, INTERVAL ? HOUR),
+            total_minutes = ? * 60,
+            status        = 'completed',
+            notes         = CONCAT(COALESCE(notes, ''), ' [auto-completed: stale entry from prior day]'),
+            edited_at     = NOW()
+        WHERE id = ?
+    ")->execute([$autoHours, $autoHours, $entry['id']]);
+
+    ensureTimesheetExists($userId, $clockInDate);
+
+    // Close any open trip reports for that date so the driver is not gated
+    try {
+        $db->prepare("
+            UPDATE vehicle_trip_reports
+            SET post_trip_at = DATE_ADD(pre_trip_at, INTERVAL 8 HOUR)
+            WHERE driver_id    = ?
+              AND report_date  = ?
+              AND pre_trip_at  IS NOT NULL
+              AND post_trip_at IS NULL
+        ")->execute([$userId, $clockInDate]);
+    } catch (Throwable $e) {
+        error_log('[resolveStaleClockEntry] trip report cleanup failed: ' . $e->getMessage());
+    }
+
+    return true;
+}
+
+/**
  * Clock out a user. Returns total_minutes or throws on error.
  */
 function clockOut($userId, $lat = null, $lng = null, $notes = null) {
@@ -565,7 +616,7 @@ function haversineDistance(float $lat1, float $lng1, float $lat2, float $lng2): 
  *
  * @return array|null  Null if no auto-start; otherwise array with visit details
  */
-function checkProximityAutoStart(int $userId, float $lat, float $lng, float $accuracy = 50.0): ?array {
+function checkProximityAutoStart(int $userId, float $lat, float $lng, float $accuracy = 50.0, ?array $preloadedVisits = null): ?array {
     // Guard 1: master toggle
     $autoArrivalEnabled = getTimeClockSetting('auto_arrival_enabled', '1');
     if ($autoArrivalEnabled !== '1') {
@@ -598,12 +649,16 @@ function checkProximityAutoStart(int $userId, float $lat, float $lng, float $acc
         return null;
     }
 
-    // Guard 5: get today's visits (use session cache, 60s TTL)
+    // Guard 5: get today's visits
+    // $preloadedVisits: JWT/mobile callers pass this to skip the session cache entirely.
+    // Session-based callers leave it null and get the existing 60s cache behaviour.
     $cacheKey = 'proximity_visits_cache';
     $cacheTsKey = 'proximity_visits_cache_ts';
     $today = date('Y-m-d');
 
-    if (isset($_SESSION[$cacheKey], $_SESSION[$cacheTsKey])
+    if ($preloadedVisits !== null) {
+        $allVisits = $preloadedVisits;
+    } elseif (isset($_SESSION[$cacheKey], $_SESSION[$cacheTsKey])
         && $_SESSION[$cacheTsKey] > time() - 60
         && ($_SESSION['proximity_visits_date'] ?? '') === $today) {
         $allVisits = $_SESSION[$cacheKey];
@@ -722,7 +777,10 @@ function checkProximityAutoStart(int $userId, float $lat, float $lng, float $acc
     }
 
     // Invalidate session cache so next check sees the updated visit status
-    unset($_SESSION[$cacheKey]);
+    // (No-op for JWT callers who passed $preloadedVisits — they have no session.)
+    if ($preloadedVisits === null) {
+        unset($_SESSION[$cacheKey]);
+    }
 
     return [
         'visit_id'        => $visitId,

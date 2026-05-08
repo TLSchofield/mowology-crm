@@ -25,7 +25,7 @@ if (!function_exists('getCurrentUser')) {
 // Cache version — bump this when you change role_permissions seeds
 // or when a user's roles are modified via the admin UI.
 if (!defined('PERM_CACHE_VERSION')) {
-    define('PERM_CACHE_VERSION', 3);
+    define('PERM_CACHE_VERSION', 4);
 }
 
 /**
@@ -166,6 +166,8 @@ function _legacyPermissions(int $userId): array
             return [
                 'jobs.view',
                 'schedule.view',
+                'timer.start', 'timer.stop',
+                'photos.upload',
                 'clients.view',
                 'billing.view',
                 'products.view',

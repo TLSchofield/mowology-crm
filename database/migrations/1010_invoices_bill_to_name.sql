@@ -1,0 +1,20 @@
+-- ═══════════════════════════════════════════════════════════════
+-- Migration 1010 — invoices.bill_to_name
+-- ═══════════════════════════════════════════════════════════════
+--
+-- Adds a per-invoice "billed entity" name so the Bill To section on
+-- the invoice shows the legal / property-management-style entity
+-- (e.g. "VR14-50 C/O MACDONALD REALTY") instead of the contact
+-- person (e.g. "Monica Nicule" — a representative, not the party).
+--
+-- Priority on the invoice view (and PDF):
+--   1. invoices.bill_to_name          (if set — manual override)
+--   2. companies.company_name          (if invoice is linked to a company)
+--   3. contact first_name + last_name  (fallback)
+--
+-- The contact still renders below as "Attn: <name>" so the email /
+-- phone / relationship is still visible — they're just no longer
+-- pretending to be the billed entity.
+--
+-- Additive. Rollback: ALTER TABLE invoices DROP COLUMN bill_to_name;
+-- Apply via /crm/api/run-migration-1010.php (idempotent).

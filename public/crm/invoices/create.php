@@ -845,10 +845,19 @@ function loadCustomerContext(item) {
             .then(r => r.json())
             .then(data => {
                 const props = data.properties || [];
+                // Auto-link the paying company if the contact (or their sole property) has one.
+                // This is how ad-hoc invoices get a proper Bill To address when a contact pays
+                // on behalf of a management company.
+                if (data.contact_company_id) {
+                    companyIdInput.value = data.contact_company_id;
+                }
                 if (props.length === 1) {
                     // Auto-select single property
                     propertyIdInput.value = props[0].id;
                     prefillServiceAddress(props[0]);
+                    if (props[0].company_id && !companyIdInput.value) {
+                        companyIdInput.value = props[0].company_id;
+                    }
                 } else if (props.length > 1) {
                     // Show property selector
                     propertySelect.innerHTML = '<option value="">Select property…</option>';
@@ -856,6 +865,7 @@ function loadCustomerContext(item) {
                         const o = document.createElement('option');
                         o.value = p.id;
                         o.textContent = `${p.address}, ${p.city}`;
+                        if (p.company_id) o.dataset.companyId = p.company_id;
                         propertySelect.appendChild(o);
                     });
                     propertySection.style.display = 'block';
@@ -882,6 +892,7 @@ function loadCustomerContext(item) {
                         const o = document.createElement('option');
                         o.value = p.id;
                         o.textContent = `${p.address}, ${p.city}`;
+                        if (p.company_id) o.dataset.companyId = p.company_id;
                         propertySelect.appendChild(o);
                     });
                     propertySection.style.display = 'block';
@@ -906,6 +917,10 @@ if (propertySelect) {
             if (parts.length >= 2) {
                 document.getElementById('serviceAddress').value = parts.slice(0, -1).join(', ');
                 document.getElementById('serviceCity').value    = parts[parts.length - 1];
+            }
+            // Auto-link the paying company if this property has one on file
+            if (option.dataset.companyId && (!companyIdInput.value || parseInt(companyIdInput.value) === 0)) {
+                companyIdInput.value = option.dataset.companyId;
             }
         }
 

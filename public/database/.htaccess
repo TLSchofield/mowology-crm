@@ -1,0 +1,5 @@
+# Deny direct web access to migration files
+<FilesMatch "\.sql$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>

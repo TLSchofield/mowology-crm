@@ -23,6 +23,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 require_once dirname(__DIR__, 2) . '/app_config/config.php';
 require_once dirname(__DIR__, 2) . '/app_config/secrets.php';
 require_once dirname(__DIR__, 2) . '/vendor/autoload.php';
+require_once dirname(__DIR__, 2) . '/crm/includes/functions.php';
 
 $input    = json_decode(file_get_contents('php://input'), true);
 $token    = trim($input['token'] ?? '');
@@ -48,7 +49,8 @@ $stmt = $db->prepare("
            ct.stripe_card_last4  AS ct_card_last4,
            ct.stripe_card_exp    AS ct_card_exp
     FROM invoices i
-    LEFT JOIN contacts ct ON i.contact_id = ct.id
+    LEFT JOIN companies c  ON i.company_id = c.id
+    LEFT JOIN contacts ct  ON ct.id = COALESCE(i.contact_id, c.primary_contact_id)
     WHERE i.access_token = ?
       AND (i.token_expires_at IS NULL OR i.token_expires_at > NOW())
     LIMIT 1
@@ -105,7 +107,7 @@ if ($contactId && !$stripeCustomerId) {
            ->execute([$stripeCustomerId, $contactId]);
 
     } catch (\Stripe\Exception\ApiErrorException $e) {
-        error_log('[Stripe Customer API] Could not create customer: ' . $e->getMessage());
+        writeSystemLog('warning', 'stripe', 'Could not create Stripe Customer', ['contact_id' => $contactId, 'error' => $e->getMessage()]);
         // Non-fatal — proceed without customer linkage
         $stripeCustomerId = null;
     }
@@ -124,19 +126,35 @@ if ($hasSavedCard && $stripeCustomerId) {
         $customer = \Stripe\Customer::retrieve($stripeCustomerId);
         $defaultPaymentMethodId = $customer->invoice_settings->default_payment_method ?? null;
     } catch (\Stripe\Exception\ApiErrorException $e) {
-        error_log('[Stripe Customer API] Could not retrieve customer: ' . $e->getMessage());
+        writeSystemLog('warning', 'stripe', 'Could not retrieve Stripe Customer', ['stripe_customer_id' => $stripeCustomerId, 'error' => $e->getMessage()]);
     }
 }
 
-// ── Reuse existing PaymentIntent if still valid ───────────────────────────────
+// ── Reuse existing PaymentIntent if still valid and card-only ─────────────────
 if (!empty($invoice['stripe_payment_intent_id'])) {
     try {
         $existing = \Stripe\PaymentIntent::retrieve($invoice['stripe_payment_intent_id']);
 
-        if (
-            in_array($existing->status, ['requires_payment_method', 'requires_confirmation', 'requires_action'], true)
-            && $existing->amount === $amountCents
-        ) {
+        $isReusable = in_array($existing->status, ['requires_payment_method', 'requires_confirmation', 'requires_action'], true)
+                      && $existing->amount === $amountCents;
+
+        // Only reuse if it's card-only — intents created with automatic_payment_methods
+        // may surface Apple Pay on iPhone, causing "incomplete" payment confusion.
+        $isCardOnly = (count($existing->payment_method_types ?? []) === 1 && ($existing->payment_method_types[0] ?? '') === 'card');
+
+        if ($isReusable && $isCardOnly) {
+            // If customer opts to save card, UPDATE the existing intent with
+            // setup_future_usage so elements.fetchUpdates() picks up the change.
+            // Stripe docs: setup_future_usage can be updated before confirmation.
+            if ($saveCard && $stripeCustomerId && !$existing->setup_future_usage) {
+                try {
+                    $existing = \Stripe\PaymentIntent::update($existing->id, [
+                        'setup_future_usage' => 'off_session',
+                    ]);
+                } catch (\Stripe\Exception\ApiErrorException $e) {
+                    writeSystemLog('warning', 'stripe', 'Could not update PaymentIntent setup_future_usage', ['pi_id' => $existing->id, 'error' => $e->getMessage()]);
+                }
+            }
             echo json_encode([
                 'client_secret'           => $existing->client_secret,
                 'publishable_key'         => STRIPE_PUBLISHABLE_KEY,
@@ -150,8 +168,34 @@ if (!empty($invoice['stripe_payment_intent_id'])) {
             ]);
             exit;
         }
+
+        // Cancel stale/wrong-type intent so we create a fresh card-only one below
+        if ($isReusable && !$isCardOnly) {
+            try {
+                $existing->cancel();
+            } catch (\Stripe\Exception\ApiErrorException $e) {
+                writeSystemLog('warning', 'stripe', 'Could not cancel stale PaymentIntent', ['pi_id' => $invoice['stripe_payment_intent_id'], 'error' => $e->getMessage()]);
+            }
+        }
+
     } catch (\Stripe\Exception\ApiErrorException $e) {
-        error_log('[Stripe Customer] Could not retrieve PaymentIntent: ' . $e->getMessage());
+        writeSystemLog('warning', 'stripe', 'Could not retrieve existing PaymentIntent', ['pi_id' => $invoice['stripe_payment_intent_id'], 'error' => $e->getMessage()]);
+        // Clear the stale ID (e.g. test-mode PI used with live keys) so we create a fresh one below
+        $db->prepare("UPDATE invoices SET stripe_payment_intent_id = NULL WHERE id = ?")
+           ->execute([$invoice['id']]);
+        $invoice['stripe_payment_intent_id'] = null;
+
+        // The customer ID may also be stale (same mode mismatch) — validate before using it below
+        if ($stripeCustomerId && $contactId) {
+            try {
+                \Stripe\Customer::retrieve($stripeCustomerId);
+            } catch (\Stripe\Exception\ApiErrorException $custEx) {
+                writeSystemLog('warning', 'stripe', 'Clearing stale Stripe Customer ID', ['stripe_customer_id' => $stripeCustomerId, 'contact_id' => $contactId, 'error' => $custEx->getMessage()]);
+                $db->prepare("UPDATE contacts SET stripe_customer_id = NULL WHERE id = ?")
+                   ->execute([$contactId]);
+                $stripeCustomerId = null;
+            }
+        }
     }
 }
 
@@ -167,8 +211,7 @@ try {
             'contact_id'     => (string) $contactId,
             'source'         => 'customer_portal',
         ],
-        'statement_descriptor'        => 'MOWOLOGY INV',
-        'automatic_payment_methods'   => ['enabled' => true],
+        'payment_method_types'        => ['card'],
     ];
 
     // Link to Stripe Customer if we have one
@@ -192,12 +235,16 @@ try {
     $db->prepare("UPDATE invoices SET stripe_payment_intent_id = ? WHERE id = ?")
        ->execute([$intent->id, $invoice['id']]);
 
-    // Record in stripe_payments (idempotent)
-    $db->prepare("
-        INSERT IGNORE INTO stripe_payments
-            (invoice_id, payment_intent_id, amount_cents, currency, stripe_customer_id, status)
-        VALUES (?, ?, ?, 'cad', ?, 'created')
-    ")->execute([$invoice['id'], $intent->id, $amountCents, $stripeCustomerId]);
+    // Record in stripe_payments (idempotent) — fault-tolerant
+    try {
+        $db->prepare("
+            INSERT IGNORE INTO stripe_payments
+                (invoice_id, payment_intent_id, amount_cents, currency, stripe_customer_id, status)
+            VALUES (?, ?, ?, 'cad', ?, 'created')
+        ")->execute([$invoice['id'], $intent->id, $amountCents, $stripeCustomerId]);
+    } catch (PDOException $auditEx) {
+        writeSystemLog('warning', 'stripe', 'stripe_payments audit insert failed', ['invoice_id' => $invoice['id'], 'error' => $auditEx->getMessage()]);
+    }
 
     echo json_encode([
         'client_secret'           => $intent->client_secret,
@@ -211,8 +258,11 @@ try {
         'default_payment_method'  => $defaultPaymentMethodId,
     ]);
 
-} catch (\Stripe\Exception\ApiErrorException $e) {
-    error_log('[Stripe Customer] ' . $e->getMessage());
+} catch (\Throwable $e) {
+    writeSystemLog('error', 'stripe', get_class($e) . ': ' . $e->getMessage(), [
+        'invoice_id' => $invoice['id'] ?? null,
+        'file'       => $e->getFile() . ':' . $e->getLine(),
+    ]);
     http_response_code(500);
     echo json_encode(['error' => 'Payment service temporarily unavailable. Please try again or call us at (778) 846-9273.']);
 }

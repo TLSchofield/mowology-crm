@@ -398,41 +398,35 @@ function formatPhone(?string $phone): string {
  * Get status badge HTML
  */
 function getStatusBadge($status, $type = 'quote') {
-    $colors = [
-        // Quote statuses
-        'draft' => ['bg' => '#6B7280', 'text' => '#FFFFFF'],
-        'sent' => ['bg' => '#3B82F6', 'text' => '#FFFFFF'],
-        'accepted' => ['bg' => '#2D8659', 'text' => '#FFFFFF'],
-        'declined' => ['bg' => '#DC2626', 'text' => '#FFFFFF'],
-        'expired' => ['bg' => '#F59E0B', 'text' => '#000000'],
-
-        // Job / Visit statuses
-        'scheduled' => ['bg' => '#3B82F6', 'text' => '#FFFFFF'],
-        'in_progress' => ['bg' => '#F59E0B', 'text' => '#000000'],
-        'completed' => ['bg' => '#2D8659', 'text' => '#FFFFFF'],
-        'cancelled' => ['bg' => '#6B7280', 'text' => '#FFFFFF'],
-        'on_hold' => ['bg' => '#8B5CF6', 'text' => '#FFFFFF'],
-        'skipped' => ['bg' => '#9CA3AF', 'text' => '#FFFFFF'],
-        'weather' => ['bg' => '#60A5FA', 'text' => '#FFFFFF'],
-
-        // Plan statuses
-        'active' => ['bg' => '#2D8659', 'text' => '#FFFFFF'],
-        'paused' => ['bg' => '#F59E0B', 'text' => '#000000'],
-
-        // Invoice statuses
-        'paid' => ['bg' => '#2D8659', 'text' => '#FFFFFF'],
-        'partial' => ['bg' => '#F59E0B', 'text' => '#000000'],
-        'overdue' => ['bg' => '#DC2626', 'text' => '#FFFFFF'],
-        'viewed' => ['bg' => '#8B5CF6', 'text' => '#FFFFFF'],
+    // Map raw status values to display labels
+    $labels = [
+        'draft'       => 'Draft',
+        'sent'        => 'Sent',
+        'accepted'    => 'Accepted',
+        'declined'    => 'Declined',
+        'expired'     => 'Expired',
+        'viewed'      => 'Viewed',
+        'scheduled'   => 'Scheduled',
+        'in_progress' => 'In Progress',
+        'completed'   => 'Completed',
+        'cancelled'   => 'Cancelled',
+        'on_hold'     => 'On Hold',
+        'skipped'     => 'Skipped',
+        'weather'     => 'Weather',
+        'active'      => 'Active',
+        'paused'      => 'Paused',
+        'paid'        => 'Paid',
+        'partial'     => 'Partial',
+        'overdue'     => 'Overdue',
     ];
 
-    $color = $colors[$status] ?? ['bg' => '#6B7280', 'text' => '#FFFFFF'];
-    $label = ucfirst(str_replace('_', ' ', $status));
+    $label = $labels[$status] ?? ucfirst(str_replace('_', ' ', $status));
+    // CSS class: mw-status-{status} — styled in mowology-brand.css Section 39
+    $slug  = preg_replace('/[^a-z0-9]+/', '-', strtolower($status));
 
     return sprintf(
-        '<span class="mw-badge-status" style="background: %s; color: %s;">%s</span>',
-        $color['bg'],
-        $color['text'],
+        '<span class="mw-status-badge mw-status-%s">%s</span>',
+        htmlspecialchars($slug),
         htmlspecialchars($label)
     );
 }
@@ -2132,17 +2126,82 @@ function getCompanyContacts($companyId) {
 function getCompanyProperties($companyId) {
     $db = getDB();
     try {
-        $stmt = $db->prepare("
-            SELECT p.*, cp.relationship_type, cp.is_primary
-            FROM properties p
-            JOIN company_properties cp ON p.id = cp.property_id
-            WHERE cp.company_id = ?
-            ORDER BY cp.is_primary DESC, p.address ASC
-        ");
-        $stmt->execute([$companyId]);
+        // Two sources of truth merged via UNION:
+        //
+        //   A) Explicit links — rows a user created via the
+        //      company_properties junction (Link Property modal, import,
+        //      manual SQL, etc.). These carry an explicit relationship_type
+        //      and is_primary flag.
+        //
+        //   B) Inferred links — every property whose site_contact_id
+        //      matches the company's primary_contact_id OR billing_contact_id.
+        //      The user shouldn't have to manually re-state what the data
+        //      already says: if Monica is MACDONALD REALTY's primary contact
+        //      and the property at 1685 W 14th Ave has her as site contact,
+        //      that property belongs to MACDONALD REALTY.
+        //
+        // Each row carries a `link_source` flag ('explicit' or 'inferred')
+        // plus `linked_via_name` (the contact that bridges the relationship
+        // for inferred rows). The Properties tab on the company page uses
+        // both to render a "Linked via Monica Nicule" badge so the user
+        // can see WHY a row is showing up.
+        $sql = "
+            SELECT * FROM (
+                SELECT
+                    p.*,
+                    cp.relationship_type AS relationship_type,
+                    cp.is_primary        AS is_primary,
+                    'explicit'           AS link_source,
+                    NULL                 AS linked_via_name,
+                    NULL                 AS linked_via_contact_id
+                FROM properties p
+                JOIN company_properties cp ON cp.property_id = p.id
+                WHERE cp.company_id = :cid_a
+
+                UNION
+
+                SELECT
+                    p.*,
+                    'manager'            AS relationship_type,
+                    0                    AS is_primary,
+                    'inferred'           AS link_source,
+                    TRIM(CONCAT(COALESCE(ct.first_name,''), ' ', COALESCE(ct.last_name,''))) AS linked_via_name,
+                    ct.id                AS linked_via_contact_id
+                FROM properties p
+                JOIN contacts  ct ON ct.id = p.site_contact_id
+                JOIN companies co ON (co.primary_contact_id = ct.id OR co.billing_contact_id = ct.id)
+                WHERE co.id = :cid_b
+                  AND p.id NOT IN (
+                      SELECT property_id
+                      FROM company_properties
+                      WHERE company_id = :cid_c
+                  )
+            ) combined
+            ORDER BY is_primary DESC, address ASC
+        ";
+        $stmt = $db->prepare($sql);
+        $stmt->execute([
+            ':cid_a' => $companyId,
+            ':cid_b' => $companyId,
+            ':cid_c' => $companyId,
+        ]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     } catch (Exception $e) {
-        return [];
+        // Legacy fallback if site_contact_id column or contacts join fails
+        try {
+            $stmt = $db->prepare("
+                SELECT p.*, cp.relationship_type, cp.is_primary,
+                       'explicit' AS link_source, NULL AS linked_via_name
+                FROM properties p
+                JOIN company_properties cp ON p.id = cp.property_id
+                WHERE cp.company_id = ?
+                ORDER BY cp.is_primary DESC, p.address ASC
+            ");
+            $stmt->execute([$companyId]);
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Exception $e2) {
+            return [];
+        }
     }
 }
 
@@ -2704,5 +2763,34 @@ function getFieldChanges(string $entityType, int $entityId, int $limit = 50): ar
     ");
     $stmt->execute([$entityType, $entityId, $limit]);
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/**
+ * Write an entry to the system_log table.
+ * Falls back to error_log() silently if DB write fails (e.g. table not yet created).
+ *
+ * @param string $level   'error' | 'warning' | 'info'
+ * @param string $source  Short identifier, e.g. 'stripe', 'sms', 'pdf', 'auth'
+ * @param string $message Human-readable description
+ * @param array  $context Optional key/value pairs (stored as JSON)
+ */
+function writeSystemLog(string $level, string $source, string $message, array $context = []): void {
+    // Always mirror to PHP error_log so nothing is lost if DB is unavailable
+    error_log("[{$level}][{$source}] {$message}" . ($context ? ' ' . json_encode($context) : ''));
+
+    try {
+        $db = getDB();
+        $db->prepare("
+            INSERT INTO system_log (level, source, message, context, created_at)
+            VALUES (?, ?, ?, ?, NOW())
+        ")->execute([
+            $level,
+            $source,
+            $message,
+            $context ? json_encode($context, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : null,
+        ]);
+    } catch (Throwable $e) {
+        // Non-fatal — table may not exist yet; PHP error_log already received it
+    }
 }
 

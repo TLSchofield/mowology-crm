@@ -100,6 +100,28 @@ try {
             echo json_encode(['success' => true, 'employee' => $emp]);
             break;
 
+        // ── GET: reveal driver's licence number (hr.edit only, logged) ────
+        case 'get_dl':
+            if (!$canHrEdit) throw new Exception('Access denied — requires hr.edit permission');
+
+            $id = (int)($_GET['id'] ?? 0);
+            if (!$id) throw new Exception('Employee ID required');
+
+            $stmt = $db->prepare("SELECT dl_number_encrypted, full_name FROM users WHERE id = ?");
+            $stmt->execute([$id]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$row) throw new Exception('Employee not found');
+
+            $dl = decryptField($row['dl_number_encrypted'] ?? '');
+            if (!$dl) {
+                echo json_encode(['success' => false, 'error' => 'No licence number on file']);
+                break;
+            }
+
+            logActivity($user['id'], null, "Revealed driver's licence for employee #{$id} ({$row['full_name']})", null);
+            echo json_encode(['success' => true, 'dl_number' => $dl]);
+            break;
+
         // ── GET: reveal SIN (admin/hr.edit only, logged) ───────────────────
         case 'get_sin':
             if (!$canHrEdit) throw new Exception('Access denied — requires hr.edit permission');
@@ -260,11 +282,41 @@ try {
             if (isset($input['is_driver'])) {
                 $updates[] = 'is_driver = ?'; $params[] = $input['is_driver'] ? 1 : 0;
             }
+            if (isset($input['pesticide_training_required'])) {
+                $updates[] = 'pesticide_training_required = ?'; $params[] = $input['pesticide_training_required'] ? 1 : 0;
+            }
+            if (isset($input['quiz_preshift_skip'])) {
+                $updates[] = 'quiz_preshift_skip = ?'; $params[] = $input['quiz_preshift_skip'] ? 1 : 0;
+            }
             if (isset($input['device_type']) && in_array($input['device_type'], ['personal', 'truck'])) {
                 $updates[] = 'device_type = ?'; $params[] = $input['device_type'];
             }
             if (isset($input['location_ping_rate']) && in_array($input['location_ping_rate'], ['low', 'medium', 'high'])) {
                 $updates[] = 'location_ping_rate = ?'; $params[] = $input['location_ping_rate'];
+            }
+            // Home geofence fields (for forgot-clock-out detection)
+            if (array_key_exists('home_lat', $input)) {
+                $updates[] = 'home_lat = ?';
+                $params[]  = $input['home_lat'] !== '' && $input['home_lat'] !== null ? (float)$input['home_lat'] : null;
+            }
+            if (array_key_exists('home_lng', $input)) {
+                $updates[] = 'home_lng = ?';
+                $params[]  = $input['home_lng'] !== '' && $input['home_lng'] !== null ? (float)$input['home_lng'] : null;
+            }
+            if (isset($input['home_radius_meters'])) {
+                $r = (int)$input['home_radius_meters'];
+                $updates[] = 'home_radius_meters = ?'; $params[] = max(50, min(2000, $r));
+            }
+            // Truck assignment — FK to a truck device user (or null to clear)
+            if (array_key_exists('assigned_truck_user_id', $input)) {
+                $truckId = !empty($input['assigned_truck_user_id']) ? (int)$input['assigned_truck_user_id'] : null;
+                if ($truckId) {
+                    // Verify the target is actually a truck device
+                    $tCheck = $db->prepare("SELECT id FROM users WHERE id = ? AND device_type = 'truck' LIMIT 1");
+                    $tCheck->execute([$truckId]);
+                    if (!$tCheck->fetch()) throw new Exception('Selected user is not a truck device');
+                }
+                $updates[] = 'assigned_truck_user_id = ?'; $params[] = $truckId;
             }
             if (!empty($input['password']) && strlen($input['password']) >= 8) {
                 $updates[] = 'password_hash = ?'; $params[] = hashPassword($input['password']);
@@ -312,6 +364,24 @@ try {
                 if (strlen($sinDigits) !== 9) throw new Exception('SIN must be exactly 9 digits');
                 $updates[] = 'sin_encrypted = ?';
                 $params[]  = encryptField($sinDigits);
+            }
+
+            // Driver's licence — number stored encrypted, others plaintext
+            if (!empty($input['dl_number'])) {
+                $updates[] = 'dl_number_encrypted = ?';
+                $params[]  = encryptField(trim($input['dl_number']));
+            }
+            if (array_key_exists('dl_class', $input)) {
+                $updates[] = 'dl_class = ?';    $params[] = trim($input['dl_class']) ?: null;
+            }
+            if (array_key_exists('dl_province', $input)) {
+                $updates[] = 'dl_province = ?'; $params[] = trim($input['dl_province']) ?: null;
+            }
+            if (array_key_exists('dl_expiry', $input)) {
+                $updates[] = 'dl_expiry = ?';   $params[] = !empty($input['dl_expiry']) ? $input['dl_expiry'] : null;
+            }
+            if (array_key_exists('is_driver', $input)) {
+                $updates[] = 'is_driver = ?';   $params[] = $input['is_driver'] ? 1 : 0;
             }
 
             if (empty($updates)) throw new Exception('No changes provided');
@@ -422,7 +492,7 @@ try {
 
         default:
             http_response_code(400);
-            echo json_encode(['error' => 'Invalid action. Use: get, get_sin, create, update, update_hr, update_payroll, update_td1, update_roles']);
+            echo json_encode(['error' => 'Invalid action. Use: get, get_sin, get_dl, create, update, update_hr, update_payroll, update_td1, update_roles']);
     }
 
 } catch (PDOException $e) {

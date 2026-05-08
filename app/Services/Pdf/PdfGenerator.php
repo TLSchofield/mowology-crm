@@ -116,20 +116,64 @@ class PdfGenerator
     public function generateInvoicePdf(int $invoiceId): array
     {
         try {
-            // Fetch invoice with related data
+            // Fetch invoice with related data.
+            //
+            // Bill-to address resolution (in priority order):
+            //   1. invoices.billing_*    — but ONLY if it differs from invoices.service_*
+            //                              (historical invoices were created with
+            //                              billing_* defaulted to service_*, which is
+            //                              wrong — that's a property, not a payer)
+            //   2. companies.billing_*   — via i.company_id, OR if that's NULL,
+            //                              via the property's or direct contact's
+            //                              company link (cp / cc joins below)
+            //   3. invoices.service_*    — last-resort fallback (makes the PDF still
+            //                              render something sensible on fully-unlinked
+            //                              invoices)
+            //   4. properties.address    — final fallback
+            //
+            // Resolved company name follows the same cascade, so the Bill To heading
+            // always matches the address.
             $stmt = $this->db->prepare("
                 SELECT
                     i.*,
-                    c.company_name,
-                    c.payment_terms,
-                    COALESCE(NULLIF(i.billing_address,''),   NULLIF(c.billing_address,''))       as billing_address,
-                    COALESCE(NULLIF(i.billing_city,''),      NULLIF(c.billing_city,''))           as billing_city,
-                    COALESCE(NULLIF(i.billing_province,''),  NULLIF(c.billing_province,''))       as billing_province,
-                    COALESCE(NULLIF(i.billing_postal_code,''),NULLIF(c.billing_postal_code,''))   as billing_postal_code,
+                    COALESCE(c.company_name, cp.company_name, cc.company_name) as company_name,
+                    COALESCE(c.payment_terms, cp.payment_terms, cc.payment_terms) as payment_terms,
+                    COALESCE(
+                        NULLIF(IF(i.billing_address = i.service_address, '', i.billing_address), ''),
+                        NULLIF(c.billing_address, ''),
+                        NULLIF(cp.billing_address, ''),
+                        NULLIF(cc.billing_address, ''),
+                        NULLIF(i.service_address, ''),
+                        NULLIF(p.address, '')
+                    ) as billing_address,
+                    COALESCE(
+                        NULLIF(IF(i.billing_city = i.service_city, '', i.billing_city), ''),
+                        NULLIF(c.billing_city, ''),
+                        NULLIF(cp.billing_city, ''),
+                        NULLIF(cc.billing_city, ''),
+                        NULLIF(i.service_city, ''),
+                        NULLIF(p.city, '')
+                    ) as billing_city,
+                    COALESCE(
+                        NULLIF(IF(i.billing_province = i.service_province, '', i.billing_province), ''),
+                        NULLIF(c.billing_province, ''),
+                        NULLIF(cp.billing_province, ''),
+                        NULLIF(cc.billing_province, ''),
+                        NULLIF(i.service_province, '')
+                    ) as billing_province,
+                    COALESCE(
+                        NULLIF(IF(i.billing_postal_code = i.service_postal_code, '', i.billing_postal_code), ''),
+                        NULLIF(c.billing_postal_code, ''),
+                        NULLIF(cp.billing_postal_code, ''),
+                        NULLIF(cc.billing_postal_code, ''),
+                        NULLIF(i.service_postal_code, ''),
+                        NULLIF(p.postal_code, '')
+                    ) as billing_postal_code,
                     COALESCE(ct.first_name, dc.first_name) as contact_first,
                     COALESCE(ct.last_name,  dc.last_name)  as contact_last,
                     COALESCE(ct.email,      dc.email)      as contact_email,
                     COALESCE(ct.phone,      dc.phone)      as contact_phone,
+                    p.property_name,
                     p.address as property_address,
                     p.city as property_city,
                     p.postal_code as property_postal,
@@ -140,6 +184,8 @@ class PdfGenerator
                 LEFT JOIN contacts ct  ON c.primary_contact_id = ct.id
                 LEFT JOIN contacts dc  ON i.contact_id = dc.id
                 LEFT JOIN properties p ON i.property_id = p.id
+                LEFT JOIN companies cp ON p.company_id = cp.id
+                LEFT JOIN companies cc ON dc.company_id = cc.id
                 LEFT JOIN users u      ON i.created_by = u.id
                 LEFT JOIN job_plans jp ON i.plan_id = jp.id
                 LEFT JOIN job_visits jv ON i.visit_id = jv.id
@@ -157,10 +203,41 @@ class PdfGenerator
             $stmt->execute([$invoiceId]);
             $lineItems = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+            // Load our own business info (Mowology) — for GST number, address, etc. in the PDF header
+            $business = [];
+            try {
+                // Pull everything the invoice template might need, including the
+                // quirky slogan (company_tagline) and the four invoice_* messaging fields.
+                // Use a defensive column list so the query still works on envs where
+                // company_tagline hasn't been migrated yet.
+                $hasTagline = false;
+                try {
+                    $hasTagline = (bool)$this->db->query(
+                        "SHOW COLUMNS FROM business_settings LIKE 'company_tagline'"
+                    )->fetch();
+                } catch (Throwable $e) { /* ignore */ }
+
+                $taglineCol = $hasTagline ? ', company_tagline' : '';
+                $bizRow = $this->db->query(
+                    "SELECT company_name, company_phone, company_email, company_website,
+                            company_address, gst_registration, pst_registration, business_license,
+                            invoice_message_header, invoice_terms_text,
+                            invoice_payment_instructions, invoice_footer_text
+                            {$taglineCol}
+                     FROM business_settings WHERE id = 1"
+                )->fetch(PDO::FETCH_ASSOC);
+                if ($bizRow) {
+                    $business = $bizRow;
+                }
+            } catch (Throwable $e) {
+                // business_settings table may not exist on some envs — ignore
+            }
+
             // Render HTML template
             $html = $this->renderTemplate('invoice.php', [
                 'invoice' => $invoice,
                 'lineItems' => $lineItems,
+                'business' => $business,
                 'projectRoot' => $this->projectRoot,
             ]);
 
@@ -193,9 +270,32 @@ class PdfGenerator
             return null;
         }
 
-        // pdf_path is stored relative to project root
-        $fullPath = $this->projectRoot . '/' . $row['pdf_path'];
-        return file_exists($fullPath) ? $fullPath : null;
+        $relPath = $row['pdf_path'];
+
+        // Historically pdf_path was stored as "storage/pdfs/invoices/foo.pdf" relative
+        // to project root, but files are actually written under APP_ROOT/Storage/pdfs.
+        // Resolve both layouts so we can find the file in either location.
+        $candidates = [];
+        if (strpos($relPath, 'app/Storage/') === 0) {
+            // New layout: already app/Storage-relative
+            $candidates[] = PROJECT_ROOT . '/' . $relPath;
+        } elseif (strpos($relPath, 'storage/') === 0) {
+            // Legacy layout — the lowercase "storage/" prefix actually lives under APP_ROOT/Storage
+            $candidates[] = APP_ROOT . '/' . ucfirst($relPath);           // APP_ROOT/Storage/pdfs/...
+            $candidates[] = PROJECT_ROOT . '/' . $relPath;                 // PROJECT_ROOT/storage/pdfs/...
+        } else {
+            // Absolute or other form — try as-is
+            $candidates[] = $relPath;
+            $candidates[] = PROJECT_ROOT . '/' . $relPath;
+        }
+
+        foreach ($candidates as $path) {
+            if ($path && file_exists($path)) {
+                return $path;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -287,7 +387,9 @@ class PdfGenerator
         $safeNumber = preg_replace('/[^A-Za-z0-9\-]/', '', $number);
         $filename = $safeNumber . '_v' . $newVersion . '.pdf';
         $fullPath = $dir . '/' . $filename;
-        $relativePath = 'storage/pdfs/' . $type . 's/' . $filename;
+        // Store as project-root-relative path that matches the real on-disk layout:
+        // files live under APP_ROOT/Storage/pdfs/... which is app/Storage/pdfs/... from PROJECT_ROOT.
+        $relativePath = 'app/Storage/pdfs/' . $type . 's/' . $filename;
 
         // Write PDF file
         $mpdf->Output($fullPath, \Mpdf\Output\Destination::FILE);

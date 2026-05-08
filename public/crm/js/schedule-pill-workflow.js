@@ -122,7 +122,9 @@
                 timerInterval: null,
                 beforeThumb: null,
                 afterThumb: null,
-                additionalThumbs: []
+                additionalThumbs: [],
+                paused: false,
+                pausedElapsedMs: 0
             };
 
             // Restore in-progress timer from page load state
@@ -135,6 +137,11 @@
                 startPillTimer(visitId);
                 // Sync per-visit section footer (deferred: DOM may not be ready until initPerVisitFooters runs)
                 setTimeout(function() { pvSetTiming(visitId); }, 0);
+                // Show active panel (deferred so DOM is ready)
+                setTimeout(function() {
+                    var c = visits[visitId] && visits[visitId].pill ? visits[visitId].pill.closest('.mw-mc-card') : null;
+                    if (c) showActivePanel(visitId, c);
+                }, 50);
             } else if (visitStatus === 'in_progress') {
                 // Visit is in-progress (maybe another user's timer) — show visual only
                 updatePillVisual(visitId, 'in_progress');
@@ -594,6 +601,9 @@
                         activeDrawer = drawer;
                         activeDrawerVisitId = visitId;
                     }
+
+                    // Show the persistent active job panel
+                    if (card) showActivePanel(visitId, card);
                 } else {
                     showToast('Could not start timer: ' + (data.error || data.message || 'Unknown error'));
                     if (btn) {
@@ -649,6 +659,9 @@
                     // Check if ALL visits on this stop are now completed
                     var card = visits[visitId].pill.closest('.mw-mc-card');
                     checkStopComplete(card);
+
+                    // Fade out the active job panel
+                    if (card) hideActivePanel(visitId, card);
 
                     // Sync footer to completed state
                     var stopIdForFooter = card ? parseInt(card.dataset.stopId, 10) : 0;
@@ -906,6 +919,156 @@
     }
 
     /**
+     * Open the in-app batch camera overlay (getUserMedia).
+     * Each snap is saved to the IDB queue immediately so photos survive
+     * navigation or a crash before "Done" is tapped.
+     * Falls back to triggerCamera() if getUserMedia is unavailable.
+     */
+    function triggerBatchCamera(visitId) {
+        var v = visits[visitId];
+        if (!v) return;
+
+        if (typeof BatchCamera === 'undefined' ||
+            !navigator.mediaDevices ||
+            !navigator.mediaDevices.getUserMedia) {
+            triggerCamera(visitId, 'additional');
+            return;
+        }
+
+        var cam = new BatchCamera({
+            maxPhotos: 10,
+
+            onCapture: function (file) {
+                // Show on the card strip immediately via blob URL so the user
+                // sees each photo appear as they snap it.
+                var blobUrl = URL.createObjectURL(file);
+                if (!visits[visitId].additionalThumbs) visits[visitId].additionalThumbs = [];
+                visits[visitId].additionalThumbs.push(blobUrl);
+                renderPhotoStrip(visitId);
+
+                // Save to IDB immediately — photo survives crash/navigation before Done
+                saveToPhotoQueue(visitId, file, 'additional', function (queueId) {
+                    if (queueId !== null) {
+                        console.log('[PillWorkflow] Batch photo persisted to queue id=' + queueId);
+                    }
+                });
+            },
+
+            onDone: function (count) {
+                if (count === 0) return;
+                showToast(count + ' photo' + (count !== 1 ? 's' : '') + ' saved — uploading…');
+                // All captured photos are already 'pending' in IDB — kick the queue runner
+                processPhotoQueue();
+            },
+
+            onCancel: function (count, reason) {
+                if (reason === 'denied') {
+                    showCameraPermissionBanner();
+                    triggerCamera(visitId, 'additional');
+                    return;
+                }
+                if (reason === 'unsupported' || reason === 'error') {
+                    // getUserMedia unavailable — fall back to OS camera silently
+                    triggerCamera(visitId, 'additional');
+                    return;
+                }
+                if (count > 0) {
+                    showToast(count + ' photo' + (count !== 1 ? 's' : '') + ' saved — will upload when connected.');
+                    processPhotoQueue();
+                }
+            }
+        });
+
+        cam.open();
+    }
+
+    /**
+     * Open the device photo gallery for multi-select additional photos.
+     * Unlike triggerCamera(), this does NOT set capture="environment", so the
+     * OS presents the full gallery/files picker. All selected images are
+     * uploaded sequentially as photo_type=additional.
+     */
+    function triggerGallery(visitId) {
+        console.log('[PillWorkflow] triggerGallery: visit=' + visitId);
+
+        var v = visits[visitId];
+        if (!v) { console.warn('[PillWorkflow] triggerGallery: visit ' + visitId + ' not registered'); return; }
+
+        // Clean up any pending camera session to prevent ghost inputs
+        if (pendingCamera) {
+            if (pendingCamera.input) {
+                pendingCamera.input.removeEventListener('change', pendingCamera.handler);
+                if (pendingCamera.input.parentNode) pendingCamera.input.parentNode.removeChild(pendingCamera.input);
+            }
+            pendingCamera = null;
+        }
+
+        var input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*';
+        input.multiple = true;
+        // No capture attribute — forces gallery/files picker on iOS and Android
+        input.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none;z-index:-1;';
+        document.body.appendChild(input);
+
+        var handler = function() {
+            input.removeEventListener('change', handler);
+            if (input.parentNode) input.parentNode.removeChild(input);
+
+            if (!input.files || !input.files.length) {
+                renderPhotoStrip(visitId);
+                return;
+            }
+
+            var files = Array.prototype.slice.call(input.files);
+            var MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
+            var validFiles = [];
+            files.forEach(function(f) {
+                if (f.size > MAX_UPLOAD_BYTES) {
+                    showToast(f.name + ' is too large (max 15 MB) — skipped.');
+                } else {
+                    validFiles.push(f);
+                }
+            });
+
+            if (!validFiles.length) {
+                renderPhotoStrip(visitId);
+                return;
+            }
+
+            var total = validFiles.length;
+            var uploaded = 0;
+            var failed = 0;
+
+            showToast('Uploading ' + total + ' photo' + (total > 1 ? 's' : '') + '…');
+
+            // Upload sequentially to avoid hammering the server
+            var idx = 0;
+            function uploadNext() {
+                if (idx >= validFiles.length) {
+                    renderPhotoStrip(visitId);
+                    if (failed > 0) {
+                        showToast(uploaded + ' uploaded, ' + failed + ' failed.');
+                    } else {
+                        showToast(uploaded + ' photo' + (uploaded > 1 ? 's' : '') + ' added.');
+                    }
+                    return;
+                }
+                var file = validFiles[idx++];
+                uploadPhoto(visitId, file, 'additional', function(success) {
+                    if (success) { uploaded++; } else { failed++; }
+                    uploadNext();
+                });
+            }
+            uploadNext();
+        };
+
+        input.addEventListener('change', handler);
+        // Must be synchronous — same rule as triggerCamera()
+        input.click();
+    }
+
+    /**
      * Upload a photo to the media system.
      * Photos use visibility=client_visible so they populate the client portal.
      *
@@ -1045,6 +1208,9 @@
                             visits[visitId].additionalThumbs.push(thumbUrl);
                         }
                     }
+                    // Reflect photo state in the active panel buttons
+                    var apPanel = document.querySelector('[data-ap-visit="' + visitId + '"]');
+                    if (apPanel) updateActivePanelPhotos(visitId, apPanel);
                 }
                 flashPillFeedback(visitId, 'Photo saved');
                 callback(true, thumbUrl);
@@ -1108,6 +1274,144 @@
     }
 
     // ═══════════════════════════════════════════════════════
+    //  ACTIVE JOB PANEL
+    // ═══════════════════════════════════════════════════════
+
+    function showActivePanel(visitId, card) {
+        var panel = card.querySelector('[data-ap-visit="' + visitId + '"]');
+        if (!panel) return;
+        panel.style.display = '';
+
+        var footerClockIn = card.querySelector('[data-footer-clockin]');
+        if (footerClockIn) footerClockIn.style.display = 'none';
+
+        panel.querySelectorAll('[data-ap-photo]').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var cat = btn.getAttribute('data-ap-photo');
+                if (cat === 'additional') {
+                    triggerBatchCamera(visitId);
+                } else if (cat === 'after') {
+                    var v = visits[visitId];
+                    if (!v) return;
+                    v.status = 'prompt_after';
+                    markPhotoPrompt(visitId, 'after');
+                    triggerCamera(visitId, 'after');
+                } else {
+                    triggerCamera(visitId, cat);
+                }
+            });
+        });
+
+        var pauseBtn = panel.querySelector('[data-ap-pause]');
+        if (pauseBtn) {
+            pauseBtn.addEventListener('click', function() {
+                var v = visits[visitId];
+                if (!v) return;
+                if (v.paused) resumeTimer(visitId);
+                else pauseTimer(visitId);
+            });
+        }
+
+        var finishBtn = panel.querySelector('[data-ap-finish]');
+        if (finishBtn) {
+            finishBtn.addEventListener('click', function() {
+                var v = visits[visitId];
+                if (!v) return;
+                v.status = 'prompt_after';
+                markPhotoPrompt(visitId, 'after');
+                var drawer = card.querySelector('.mw-mc-pill-drawer');
+                if (drawer) renderPhotoPrompt(drawer, visitId, 'after');
+            });
+        }
+
+        updateActivePanelPhotos(visitId, panel);
+
+        var v = visits[visitId];
+        if (v && v.status === 'prompt_before') markPhotoPrompt(visitId, 'before');
+        if (v && v.status === 'prompt_after')  markPhotoPrompt(visitId, 'after');
+    }
+
+    function hideActivePanel(visitId, card) {
+        var panel = card.querySelector('[data-ap-visit="' + visitId + '"]');
+        if (!panel) return;
+        panel.style.opacity = '0';
+        panel.style.transition = 'opacity 0.3s';
+        setTimeout(function() {
+            panel.style.display = 'none';
+            panel.style.opacity = '';
+            panel.style.transition = '';
+        }, 300);
+    }
+
+    function markPhotoPrompt(visitId, category) {
+        var panel = document.querySelector('[data-ap-visit="' + visitId + '"]');
+        if (!panel) return;
+        panel.querySelectorAll('[data-ap-photo]').forEach(function(btn) {
+            btn.classList.remove('mw-mc-ap-photo-prompt');
+        });
+        var target = panel.querySelector('[data-ap-photo="' + category + '"]');
+        if (target) target.classList.add('mw-mc-ap-photo-prompt');
+    }
+
+    function updateActivePanelPhotos(visitId, panel) {
+        var v = visits[visitId];
+        if (!v || !panel) return;
+        var map = { before: v.beforeThumb, after: v.afterThumb };
+        Object.keys(map).forEach(function(cat) {
+            var btn = panel.querySelector('[data-ap-photo="' + cat + '"]');
+            if (!btn) return;
+            if (map[cat]) {
+                btn.classList.add('mw-mc-ap-photo-taken');
+                btn.classList.remove('mw-mc-ap-photo-prompt');
+                btn.querySelector('.mw-mc-ap-photo-icon').textContent = '✅';
+            }
+        });
+        if (v.additionalThumbs && v.additionalThumbs.length > 0) {
+            var addBtn = panel.querySelector('[data-ap-photo="additional"]');
+            if (addBtn) {
+                addBtn.classList.add('mw-mc-ap-photo-taken');
+                addBtn.querySelector('.mw-mc-ap-photo-lbl').textContent = 'Additional (' + v.additionalThumbs.length + ')';
+            }
+        }
+    }
+
+    function pauseTimer(visitId) {
+        var v = visits[visitId];
+        if (!v || v.paused) return;
+        clearInterval(v.timerInterval);
+        v.timerInterval = null;
+        v.paused = true;
+        v.pausedElapsedMs = Date.now() - v.startTime.getTime();
+
+        var panel = document.querySelector('[data-ap-visit="' + visitId + '"]');
+        if (panel) {
+            panel.classList.add('mw-mc-ap-paused');
+            var lbl = panel.querySelector('.mw-mc-ap-pause-label');
+            var icon = panel.querySelector('.mw-mc-ap-pause-icon');
+            if (lbl) lbl.textContent = 'Resume';
+            if (icon) icon.textContent = '▶';
+        }
+    }
+
+    function resumeTimer(visitId) {
+        var v = visits[visitId];
+        if (!v || !v.paused) return;
+        v.startTime = new Date(Date.now() - v.pausedElapsedMs);
+        v.paused = false;
+        v.pausedElapsedMs = 0;
+        startPillTimer(visitId);
+
+        var panel = document.querySelector('[data-ap-visit="' + visitId + '"]');
+        if (panel) {
+            panel.classList.remove('mw-mc-ap-paused');
+            var lbl = panel.querySelector('.mw-mc-ap-pause-label');
+            var icon = panel.querySelector('.mw-mc-ap-pause-icon');
+            if (lbl) lbl.textContent = 'Pause';
+            if (icon) icon.textContent = '⏸';
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════
     //  PILL TIMER DISPLAY
     // ═══════════════════════════════════════════════════════
 
@@ -1129,6 +1433,9 @@
             v.pill.innerHTML =
                 '<span class="mw-mc-pill-label">' + escHtml(serviceLabel) + '</span> ' +
                 '<span class="mw-mc-pill-timer">' + timeStr + '</span>';
+            // Also drive the active panel timer display
+            var apTimer = document.querySelector('[data-ap-timer="' + visitId + '"]');
+            if (apTimer) apTimer.textContent = timeStr;
         }
 
         updateDisplay(); // Show immediately
@@ -1342,6 +1649,10 @@
             '<button class="mw-mc-add-photo-btn" data-visit-id="' + visitId + '" data-category="additional" type="button">' +
             '  ' + PLUS_SVG +
             '  <span>' + (addThumbs.length === 0 ? 'Additionals' : '+') + '</span>' +
+            '</button>' +
+            '<button class="mw-mc-gallery-btn" data-visit-id="' + visitId + '" type="button">' +
+            '  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>' +
+            '  <span>Gallery</span>' +
             '</button>';
         addHtml += '</div>';
 
@@ -1356,12 +1667,21 @@
             });
         });
 
-        // Wire add-photo button → camera (additional)
+        // Wire add-photo button → batch camera overlay (additional)
         var addBtn = strip.querySelector('.mw-mc-add-photo-btn');
         if (addBtn) {
             addBtn.addEventListener('click', function(e) {
                 e.stopPropagation();
-                triggerCamera(visitId, 'additional');
+                triggerBatchCamera(visitId);
+            });
+        }
+
+        // Wire gallery button → multi-select device gallery picker
+        var galleryBtn = strip.querySelector('.mw-mc-gallery-btn');
+        if (galleryBtn) {
+            galleryBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                triggerGallery(visitId);
             });
         }
 
@@ -1839,8 +2159,24 @@
                                 if (!visits[item.visitId].additionalThumbs) {
                                     visits[item.visitId].additionalThumbs = [];
                                 }
+                                var thumbs = visits[item.visitId].additionalThumbs;
+                                // Swap the oldest blob: URL placeholder for the real server URL,
+                                // or push if no blob placeholder exists.
+                                var blobIdx = -1;
+                                for (var bi = 0; bi < thumbs.length; bi++) {
+                                    if (thumbs[bi] && thumbs[bi].substr(0, 5) === 'blob:') {
+                                        blobIdx = bi; break;
+                                    }
+                                }
                                 if (thumbUrl !== '__uploaded__') {
-                                    visits[item.visitId].additionalThumbs.push(thumbUrl);
+                                    if (blobIdx >= 0) {
+                                        URL.revokeObjectURL(thumbs[blobIdx]);
+                                        thumbs[blobIdx] = thumbUrl;
+                                    } else {
+                                        thumbs.push(thumbUrl);
+                                    }
+                                } else if (blobIdx < 0) {
+                                    // No real URL and no placeholder — mark done silently
                                 }
                             }
                             renderPhotoStrip(item.visitId);
@@ -1911,6 +2247,41 @@
     /**
      * Simple toast notification (top of scroll area)
      */
+    function showCameraPermissionBanner() {
+        var existing = document.getElementById('mw-cam-permission-banner');
+        if (existing) return; // already visible
+
+        var banner = document.createElement('div');
+        banner.id = 'mw-cam-permission-banner';
+        banner.style.cssText =
+            'position: fixed; top: 70px; left: 12px; right: 12px; z-index: 10000; ' +
+            'background: #1a1a2e; color: #fff; border-radius: 12px; ' +
+            'padding: 14px 16px 12px; box-shadow: 0 6px 24px rgba(0,0,0,0.35); ' +
+            'font-size: 0.84rem; line-height: 1.5;';
+
+        banner.innerHTML =
+            '<div style="display:flex;align-items:flex-start;gap:10px;">' +
+                '<span style="font-size:1.3rem;flex-shrink:0;">📷</span>' +
+                '<div>' +
+                    '<strong style="display:block;margin-bottom:4px;">Camera access blocked</strong>' +
+                    'To enable multi-shot mode, open your phone\'s <strong>Settings</strong> &rarr; ' +
+                    '<strong>Apps</strong> &rarr; find this app &rarr; <strong>Permissions</strong> ' +
+                    '&rarr; turn on <strong>Camera</strong>.' +
+                    '<div style="margin-top:6px;color:#aaa;">Using your device\'s camera app for now.</div>' +
+                '</div>' +
+            '</div>' +
+            '<button id="mw-cam-perm-dismiss" style="' +
+                'margin-top:12px;width:100%;padding:8px;border:none;border-radius:8px;' +
+                'background:#2d8659;color:#fff;font-weight:700;font-size:0.85rem;cursor:pointer;">' +
+                'Got it' +
+            '</button>';
+
+        document.body.appendChild(banner);
+        document.getElementById('mw-cam-perm-dismiss').addEventListener('click', function() {
+            banner.remove();
+        });
+    }
+
     function showToast(msg) {
         var existing = document.querySelector('.mw-mc-toast');
         if (existing) existing.remove();
@@ -2255,16 +2626,29 @@
     function pvSetTiming(visitId) {
         var timerEl    = document.querySelector('[data-pv-timer="' + visitId + '"]');
         var clockInBtn = document.querySelector('[data-pv-clockin="' + visitId + '"]');
-        if (timerEl)    timerEl.style.display    = 'flex';
-        if (clockInBtn) clockInBtn.style.display = 'none';
+        if (timerEl) timerEl.style.display = 'none'; // clock is now in the button
+        if (clockInBtn) {
+            clockInBtn.disabled = true;
+            clockInBtn.classList.add('is-clocked-in');
+            clockInBtn.innerHTML =
+                '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' +
+                '<span class="mw-mc-footer-elapsed" data-pv-elapsed="' + visitId + '">0:00</span>';
+            clockInBtn.style.display = 'flex';
+        }
     }
 
     /** Show clock-in, hide timer for a specific visit's section footer */
     function pvSetIdle(visitId) {
         var timerEl    = document.querySelector('[data-pv-timer="' + visitId + '"]');
         var clockInBtn = document.querySelector('[data-pv-clockin="' + visitId + '"]');
-        if (timerEl)    timerEl.style.display    = 'none';
-        if (clockInBtn) clockInBtn.style.display = 'flex';
+        if (timerEl) timerEl.style.display = 'none';
+        if (clockInBtn) {
+            clockInBtn.disabled = false;
+            clockInBtn.classList.remove('is-clocked-in');
+            clockInBtn.innerHTML =
+                '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Clock In';
+            clockInBtn.style.display = 'flex';
+        }
     }
 
     /** Hide the per-visit section footer entirely (visit completed) */
@@ -2289,8 +2673,15 @@
 
             // Set initial state
             if (v && v.status === 'in_progress' && v.startTime) {
-                if (timerEl)    timerEl.style.display    = 'flex';
-                if (clockInBtn) clockInBtn.style.display = 'none';
+                if (timerEl) timerEl.style.display = 'none';
+                if (clockInBtn) {
+                    clockInBtn.disabled = true;
+                    clockInBtn.classList.add('is-clocked-in');
+                    clockInBtn.innerHTML =
+                        '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' +
+                        '<span class="mw-mc-footer-elapsed" data-pv-elapsed="' + visitId + '">0:00</span>';
+                    clockInBtn.style.display = 'flex';
+                }
             } else if (v && v.status === 'scheduled') {
                 if (timerEl)    timerEl.style.display    = 'none';
                 if (clockInBtn) clockInBtn.style.display = 'flex';
@@ -2348,7 +2739,7 @@
                     completeBtn.innerHTML = '<span>Completing…</span>';
 
                     var v = visits[visitId];
-                    var isRunning = v && v.status === 'in_progress' && v.startTime;
+                    var isRunning = v && v.startTime && v.status !== 'completed';
 
                     if (isRunning) {
                         // Stop the timer → automatically marks visit complete
@@ -2418,10 +2809,17 @@
             var runningVisitId = getRunningVisitForCard(card);
 
             if (runningVisitId) {
-                // A timer is active: show the timer, hide clock-in
+                // A timer is active: transform the clock-in button to show the digital clock
                 footer.classList.add('is-timing');
-                if (timerEl) timerEl.style.display = 'flex';
-                if (clockInBtn) clockInBtn.style.display = 'none';
+                if (timerEl) timerEl.style.display = 'none';
+                if (clockInBtn) {
+                    clockInBtn.disabled = true;
+                    clockInBtn.classList.add('is-clocked-in');
+                    clockInBtn.innerHTML =
+                        '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' +
+                        '<span class="mw-mc-footer-elapsed" data-footer-elapsed="' + stopId + '">0:00</span>';
+                    clockInBtn.style.display = 'flex';
+                }
                 startFooterTimer(stopId, runningVisitId);
             } else if (clockInVisitId) {
                 // No timer: show clock-in button
@@ -2481,7 +2879,9 @@
         pills.forEach(function(p) {
             if (result) return;
             var vid = parseInt(p.dataset.visitId, 10);
-            if (vid && visits[vid] && visits[vid].status === 'in_progress' && visits[vid].startTime) {
+            // Any status with a startTime means a timer is actively running (includes
+        // 'in_progress', 'prompt_before', 'prompt_after'). Skip already-completed visits.
+        if (vid && visits[vid] && visits[vid].startTime && visits[vid].status !== 'completed') {
                 result = vid;
             }
         });
@@ -2529,8 +2929,15 @@
             var timerEl    = footer.querySelector('[data-footer-timer]');
             var clockInBtn = footer.querySelector('[data-footer-clockin]');
             footer.classList.add('is-timing');
-            if (timerEl)    timerEl.style.display    = 'flex';
-            if (clockInBtn) clockInBtn.style.display = 'none';
+            if (timerEl) timerEl.style.display = 'none'; // clock is now in the button
+            if (clockInBtn) {
+                clockInBtn.disabled = true;
+                clockInBtn.classList.add('is-clocked-in');
+                clockInBtn.innerHTML =
+                    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' +
+                    '<span class="mw-mc-footer-elapsed" data-footer-elapsed="' + stopId + '">0:00</span>';
+                clockInBtn.style.display = 'flex';
+            }
         });
         startFooterTimer(stopId, visitId);
     }

@@ -15,7 +15,8 @@ if (($user['role'] ?? '') !== 'admin') {
     exit;
 }
 
-$activeTab  = in_array($_GET['tab'] ?? '', ['categories','questions','leaderboard','campaigns']) ? $_GET['tab'] : 'questions';
+$activeTab    = in_array($_GET['tab'] ?? '', ['categories','questions','leaderboard','campaigns','library']) ? $_GET['tab'] : 'questions';
+$autoImport   = isset($_GET['action']) && $_GET['action'] === 'import';
 $csrfToken  = function_exists('generateCSRFToken') ? generateCSRFToken() : '';
 $pageTitle  = 'Quiz Admin';
 $activePage = 'quiz';
@@ -46,6 +47,9 @@ $activePage = 'quiz';
     <li class="nav-item">
         <a class="nav-link <?php echo $activeTab === 'campaigns' ? 'active' : ''; ?>" href="?tab=campaigns">🌱 Seasonal Campaigns</a>
     </li>
+    <li class="nav-item">
+        <a class="nav-link <?php echo $activeTab === 'library' ? 'active' : ''; ?>" href="?tab=library">🌿 Plant &amp; Weed Library</a>
+    </li>
 </ul>
 
 <!-- ══════════════════════════════════════════════════════════════════════════
@@ -60,9 +64,15 @@ $activePage = 'quiz';
                 <option value="">All Categories</option>
             </select>
         </div>
-        <button class="btn mw-btn-green btn-sm" onclick="openQuestionModal(null)">
-            <i data-feather="plus" style="width:14px;height:14px;"></i> Add Question
-        </button>
+        <div class="d-flex gap-2">
+            <button class="btn btn-sm btn-outline-success" onclick="$('#bulkSeedModal').modal('show')"
+                    title="Auto-attach Wikipedia images to questions that have none">
+                <i data-feather="image" style="width:14px;height:14px;"></i> Bulk Seed Images
+            </button>
+            <button class="btn mw-btn-green btn-sm" onclick="openQuestionModal(null)">
+                <i data-feather="plus" style="width:14px;height:14px;"></i> Add Question
+            </button>
+        </div>
     </div>
 
     <div class="card">
@@ -180,6 +190,281 @@ $activePage = 'quiz';
         <div class="card-body p-0">
             <div id="campaignsList">
                 <div class="text-center py-4 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Loading…</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     TAB: PLANT & WEED LIBRARY
+═══════════════════════════════════════════════════════════════════════════ -->
+<div id="tabLibrary" <?php echo $activeTab !== 'library' ? 'style="display:none"' : ''; ?>>
+
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <p class="text-muted small mb-0">Reference library of plants and weeds. Use entries to quickly create quiz questions.</p>
+        <div class="d-flex gap-2">
+            <button class="btn btn-outline-secondary btn-sm" onclick="openPlantImportModal()" title="Upload a PictureThis card to auto-extract plant data">
+                <i data-feather="camera" style="width:14px;height:14px;"></i> Import from Photo
+            </button>
+            <button class="btn mw-btn-green btn-sm" onclick="openLibraryModal(null)">
+                <i data-feather="plus" style="width:14px;height:14px;"></i> Add Entry
+            </button>
+        </div>
+    </div>
+
+    <!-- Search + filter -->
+    <div class="card mb-3">
+        <div class="card-body py-2 px-3">
+            <div class="d-flex align-items-center gap-3 flex-wrap">
+                <div class="flex-grow-1" style="max-width:340px;">
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text"><i data-feather="search" style="width:13px;height:13px;"></i></span>
+                        <input type="text" id="libSearch" class="form-control" placeholder="Search by name, latin name, or tags…"
+                               oninput="filterLibraryDisplay()">
+                    </div>
+                </div>
+                <div class="d-flex gap-1 flex-wrap" id="libTypeFilters">
+                    <button class="btn btn-sm btn-primary lib-type-btn active" data-type="">All</button>
+                    <button class="btn btn-sm btn-outline-danger lib-type-btn"   data-type="weed">Weeds</button>
+                    <button class="btn btn-sm btn-outline-success lib-type-btn"  data-type="plant">Plants</button>
+                    <button class="btn btn-sm btn-outline-info lib-type-btn"     data-type="grass">Grass</button>
+                    <button class="btn btn-sm btn-outline-secondary lib-type-btn" data-type="shrub">Shrubs</button>
+                    <button class="btn btn-sm btn-outline-secondary lib-type-btn" data-type="tree">Trees</button>
+                    <button class="btn btn-sm btn-outline-warning lib-type-btn"  data-type="fungus">Fungus</button>
+                </div>
+                <span class="text-muted small ms-auto" id="libCount"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Card grid -->
+    <div id="libraryGrid" class="mw-lib-grid">
+        <div class="text-center py-5 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Loading…</div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     MODAL: Import Plant from Photo
+═══════════════════════════════════════════════════════════════════════════ -->
+<div class="modal fade" id="plantImportModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable mw-plant-import-dialog">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <div>
+                    <h5 class="modal-title mb-0">Import Plant Card</h5>
+                    <small class="text-muted" id="piStepLabel">Step 1 · Choose a photo</small>
+                </div>
+                <button type="button" class="btn-close" data-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+
+                <!-- Step 1: Choose photo -->
+                <div id="piStep1">
+                    <div id="piDropzone" onclick="document.getElementById('piFileInput').click()"
+                         class="mw-pi-dropzone">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#2D8659" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:56px;height:56px;margin:0 auto 16px;display:block;"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                        <p class="mb-2 fw-bold" style="font-size:18px;color:#1A5F4A;">Tap to choose a photo</p>
+                        <p class="mb-0" style="font-size:14px;color:#6b7280;line-height:1.4;">Use a PictureThis share card or<br>any plant photo with text</p>
+                    </div>
+                    <input type="file" id="piFileInput" accept="image/jpeg,image/png,image/webp,image/gif" style="display:none;" onchange="handlePlantImportFile(this)">
+
+                    <div id="piFilePreview" class="mt-4 text-center" style="display:none;">
+                        <img id="piFileThumb" src="" alt="" style="max-height:240px;max-width:100%;border-radius:10px;border:1px solid #dee2e6;object-fit:contain;">
+                        <p class="small text-muted mt-2 mb-0" id="piFileName"></p>
+                    </div>
+
+                    <div class="mt-4" id="piScanWrap" style="display:none;">
+                        <button class="btn mw-btn-green mw-pi-scan-btn" id="piRunOcrBtn" onclick="runPlantImport()">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;vertical-align:-3px;margin-right:8px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>Scan Plant Card
+                        </button>
+                    </div>
+
+                    <div id="piOcrStatus" class="mt-4" style="display:none;">
+                        <div class="d-flex align-items-center gap-2 text-muted justify-content-center py-2">
+                            <div class="spinner-border spinner-border-sm"></div>
+                            <span id="piOcrStatusText">Scanning…</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 2: Review extracted data -->
+                <div id="piStep2" style="display:none;">
+
+                    <!-- Saved image preview -->
+                    <div id="piStep2ImgWrap" class="mb-3 text-center" style="display:none;">
+                        <img id="piSavedThumb" src="" alt="" style="max-height:140px;max-width:100%;border-radius:8px;border:1px solid #dee2e6;object-fit:contain;">
+                        <p class="text-muted small mt-1 mb-0">✓ Photo saved</p>
+                    </div>
+
+                    <!-- Merge alert (shown when plant already exists) -->
+                    <div id="piMergeBanner" class="alert alert-info d-flex align-items-start gap-2 py-2 mb-3" style="display:none;">
+                        <i data-feather="refresh-cw" style="width:16px;height:16px;flex-shrink:0;margin-top:2px;"></i>
+                        <div class="flex-grow-1">
+                            <strong id="piMergeTitle" class="small"></strong>
+                            <p class="mb-1 small" id="piMergeDesc"></p>
+                            <button type="button" class="btn btn-xs btn-outline-secondary" style="font-size:11px;padding:1px 8px;" onclick="piSaveAsNew()">Save as new entry instead</button>
+                        </div>
+                    </div>
+
+                    <div class="row g-3">
+                        <!-- Left: extracted plant fields -->
+                        <div class="col-md-5">
+                            <div class="card">
+                                <div class="card-header py-2 px-3 d-flex align-items-center justify-content-between">
+                                    <strong class="small">Plant Details</strong>
+                                    <span class="badge small" id="piConfidenceBadge"></span>
+                                </div>
+                                <div class="card-body py-2">
+                                    <div class="row g-2">
+                                        <div class="col-12">
+                                            <label class="form-label small fw-bold mb-1">Common Name <span class="text-danger">*</span></label>
+                                            <input type="text" id="piCommonName" class="form-control form-control-sm">
+                                        </div>
+                                        <div class="col-12">
+                                            <label class="form-label small fw-bold mb-1">Scientific Name</label>
+                                            <input type="text" id="piLatinName" class="form-control form-control-sm" style="font-style:italic;">
+                                        </div>
+                                        <div class="col-6">
+                                            <label class="form-label small fw-bold mb-1">Type</label>
+                                            <select id="piType" class="form-select form-select-sm">
+                                                <option value="plant">Plant</option>
+                                                <option value="weed">Weed</option>
+                                                <option value="grass">Grass</option>
+                                                <option value="shrub">Shrub</option>
+                                                <option value="tree">Tree</option>
+                                                <option value="fungus">Fungus</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-6">
+                                            <label class="form-label small fw-bold mb-1">Sunlight</label>
+                                            <input type="text" id="piSunlight" class="form-control form-control-sm">
+                                        </div>
+                                        <div class="col-6">
+                                            <label class="form-label small fw-bold mb-1">Watering</label>
+                                            <input type="text" id="piWatering" class="form-control form-control-sm">
+                                        </div>
+                                        <div class="col-6">
+                                            <label class="form-label small fw-bold mb-1">Toxicity</label>
+                                            <input type="text" id="piToxicity" class="form-control form-control-sm">
+                                        </div>
+                                        <div class="col-12">
+                                            <label class="form-label small fw-bold mb-1">Tags</label>
+                                            <input type="text" id="piTags" class="form-control form-control-sm" placeholder="comma-separated">
+                                        </div>
+                                        <div class="col-12">
+                                            <label class="form-label small fw-bold mb-1">Description</label>
+                                            <textarea id="piDescription" class="form-control form-control-sm" rows="3"></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Right: suggested quiz questions -->
+                        <div class="col-md-7">
+                            <div class="card">
+                                <div class="card-header py-2 px-3">
+                                    <strong class="small">Suggested Questions</strong>
+                                    <span class="text-muted small ms-2">Check the ones to generate</span>
+                                </div>
+                                <div class="card-body p-0">
+                                    <div id="piQuestionList"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+            <div class="modal-footer py-2" id="piFooter" style="display:none;">
+                <button type="button" class="btn btn-sm btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="startImportOver()">
+                    <i data-feather="refresh-cw" style="width:13px;height:13px;"></i> Try Another
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="piSaveNewBtn" onclick="piSaveAsNew()" style="display:none;">Save as New</button>
+                <button type="button" class="btn btn-sm btn-outline-success" onclick="saveImportToLibrary()">
+                    <i data-feather="bookmark" style="width:13px;height:13px;"></i> <span id="piSaveLibLabel">Save to Library</span>
+                </button>
+                <button type="button" class="btn btn-sm mw-btn-green" onclick="saveImportAll()">
+                    <i data-feather="check-circle" style="width:13px;height:13px;"></i> <span id="piSaveAllLabel">Save + Add Questions</span>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     MODAL: Add / Edit Library Entry
+═══════════════════════════════════════════════════════════════════════════ -->
+<div class="modal fade" id="libraryModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="libModalTitle">Add Library Entry</h5>
+                <button type="button" class="btn-close" data-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="libId">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label small fw-bold">Common Name <span class="text-danger">*</span></label>
+                        <input type="text" id="libCommonName" class="form-control form-control-sm"
+                               placeholder="e.g. Dandelion">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small fw-bold">Latin / Scientific Name</label>
+                        <input type="text" id="libLatinName" class="form-control form-control-sm"
+                               placeholder="e.g. Taraxacum officinale" style="font-style:italic;">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small fw-bold">Type <span class="text-danger">*</span></label>
+                        <select id="libType" class="form-select form-select-sm">
+                            <option value="weed">Weed</option>
+                            <option value="plant">Plant</option>
+                            <option value="grass">Grass</option>
+                            <option value="shrub">Shrub</option>
+                            <option value="tree">Tree</option>
+                            <option value="fungus">Fungus / Disease</option>
+                        </select>
+                    </div>
+                    <div class="col-md-8">
+                        <label class="form-label small fw-bold">Tags <span class="text-muted fw-normal">(comma-separated, for search)</span></label>
+                        <input type="text" id="libTags" class="form-control form-control-sm"
+                               placeholder="e.g. broadleaf, summer, invasive, lawn">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small fw-bold">Description</label>
+                        <textarea id="libDescription" class="form-control form-control-sm" rows="2"
+                                  placeholder="Brief description shown in library cards and pre-filled into quiz learn notes."></textarea>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small fw-bold">Identification Notes <span class="text-muted fw-normal">(how to ID it in the field)</span></label>
+                        <textarea id="libIdNotes" class="form-control form-control-sm" rows="2"
+                                  placeholder="e.g. Hollow stem with milky sap, deep taproot, jagged basal rosette leaves."></textarea>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small fw-bold">Image</label>
+                        <div class="d-flex gap-2 align-items-start flex-wrap">
+                            <div id="libImgPreview" style="width:80px;height:80px;border:1px solid #dee2e6;border-radius:6px;background:#f8f9fa;display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;">
+                                <i data-feather="image" style="width:28px;height:28px;color:#ccc;" id="libImgPlaceholder"></i>
+                                <img id="libImgThumb" src="" alt="" style="width:100%;height:100%;object-fit:cover;display:none;">
+                            </div>
+                            <div class="flex-grow-1">
+                                <input type="text" id="libImagePath" class="form-control form-control-sm mb-2"
+                                       placeholder="Paste image URL, or upload below"
+                                       oninput="updateLibImgPreview(this.value)">
+                                <label class="btn btn-sm btn-outline-secondary mb-0" style="cursor:pointer;">
+                                    <i data-feather="upload" style="width:13px;height:13px;"></i> Upload Image
+                                    <input type="file" id="libImageFile" accept="image/*" style="display:none;" onchange="uploadLibraryImage(this)">
+                                </label>
+                                <div class="text-muted mt-1" style="font-size:11px;" id="libUploadStatus"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-sm btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-sm mw-btn-green" onclick="saveLibraryEntry()">Save Entry</button>
             </div>
         </div>
     </div>
@@ -369,6 +654,9 @@ $activePage = 'quiz';
                             <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addImageByUrl()">
                                 <i data-feather="link" style="width:13px;height:13px;"></i> Add by URL
                             </button>
+                            <button type="button" class="btn btn-sm btn-outline-success" onclick="openWikiSearch()">
+                                <i data-feather="search" style="width:13px;height:13px;"></i> Find Image (Wikimedia)
+                            </button>
                         </div>
                         <div class="text-muted" style="font-size:11px;margin-top:5px;">First image is primary. Crew sees all images as a rotating stack during the quiz and study mode.</div>
                     </div>
@@ -440,6 +728,88 @@ $activePage = 'quiz';
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
                 <button type="button" class="btn mw-btn-green" onclick="saveCategory()">Save Category</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     MODAL: Wikimedia Commons Image Search
+═══════════════════════════════════════════════════════════════════════════ -->
+<div class="modal fade" id="wikiSearchModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <div>
+                    <h5 class="modal-title mb-0">🔍 Find Image — Wikimedia Commons</h5>
+                    <small class="text-muted">Open-licence images (CC BY-SA / public domain)</small>
+                </div>
+                <button type="button" class="btn-close" data-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Search bar -->
+                <div class="input-group mb-3">
+                    <input type="text" id="wikiSearchInput" class="form-control"
+                           placeholder="e.g. Dandelion, Creeping buttercup, String trimmer…"
+                           onkeydown="if(event.key==='Enter') runWikiSearch()">
+                    <button class="btn mw-btn-green" onclick="runWikiSearch()" id="wikiSearchBtn">Search</button>
+                </div>
+                <div id="wikiSearchStatus" class="text-muted small mb-2" style="display:none;"></div>
+                <!-- Results grid -->
+                <div id="wikiSearchResults" class="row g-2"></div>
+                <!-- Attribution notice -->
+                <div class="mt-3 p-2 rounded" style="background:#f0f7f4;font-size:11px;color:#555;">
+                    <strong>Licence:</strong> Images are from Wikimedia Commons and are available under open licences
+                    (Creative Commons CC BY-SA or public domain). By adding an image you confirm it will be used
+                    for educational purposes within this app.
+                </div>
+            </div>
+            <div class="modal-footer py-2">
+                <button type="button" class="btn btn-sm btn-secondary" data-dismiss="modal">Cancel</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     MODAL: Bulk Image Seed
+═══════════════════════════════════════════════════════════════════════════ -->
+<div class="modal fade" id="bulkSeedModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <div>
+                    <h5 class="modal-title mb-0">🌿 Bulk Seed Images from Wikipedia</h5>
+                    <small class="text-muted">Auto-attaches open-licence Wikipedia images to all questions that have none</small>
+                </div>
+                <button type="button" class="btn-close" data-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info py-2 small mb-3">
+                    <strong>How it works:</strong> For each question without an image, this tool looks up the
+                    correct answer on Wikipedia and attaches the article's main photo. Images are CC BY-SA
+                    (Wikimedia Commons). Takes ~30–60 seconds depending on how many questions need images.
+                </div>
+                <div class="d-flex gap-2 mb-3">
+                    <button class="btn btn-sm btn-outline-secondary" onclick="runBulkSeed(true)" id="bulkDryBtn">
+                        <i data-feather="eye" style="width:13px;height:13px;"></i> Dry Run (preview only)
+                    </button>
+                    <button class="btn btn-sm mw-btn-green" onclick="runBulkSeed(false)" id="bulkRunBtn">
+                        <i data-feather="download-cloud" style="width:13px;height:13px;"></i> Run &amp; Seed Images
+                    </button>
+                </div>
+                <div id="bulkSeedStatus" style="display:none;">
+                    <div class="d-flex align-items-center gap-2 text-muted mb-2" id="bulkSeedSpinner">
+                        <div class="spinner-border spinner-border-sm"></div>
+                        <span id="bulkSeedStatusText">Running…</span>
+                    </div>
+                    <div id="bulkSeedStats" class="mb-2" style="display:none;"></div>
+                    <pre id="bulkSeedLog" class="small p-2 rounded"
+                         style="max-height:320px;overflow-y:auto;background:#f8f9fa;font-size:11px;line-height:1.4;"></pre>
+                </div>
+            </div>
+            <div class="modal-footer py-2">
+                <button type="button" class="btn btn-sm btn-secondary" data-dismiss="modal">Close</button>
             </div>
         </div>
     </div>
@@ -1041,6 +1411,572 @@ function escHtml(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// ══ Plant & Weed Library ══════════════════════════════════════════════════════
+
+const LIB_TYPE_COLORS = {
+    weed:   { bg: '#dc3545', label: 'Weed' },
+    plant:  { bg: '#198754', label: 'Plant' },
+    grass:  { bg: '#0dcaf0', label: 'Grass' },
+    shrub:  { bg: '#6f42c1', label: 'Shrub' },
+    tree:   { bg: '#146c43', label: 'Tree' },
+    fungus: { bg: '#fd7e14', label: 'Fungus' },
+};
+
+let allLibraryEntries = [];
+let libActiveType = '';
+
+async function loadLibrary() {
+    const grid = document.getElementById('libraryGrid');
+    if (!grid) return;
+    grid.innerHTML = '<div class="text-center py-5 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Loading…</div>';
+    const r = await fetch('/crm/api/quiz.php?action=library_list');
+    const d = await r.json();
+    if (!d.success) { grid.innerHTML = '<div class="text-center py-4 text-danger">Failed to load library.</div>'; return; }
+    allLibraryEntries = d.entries || [];
+    filterLibraryDisplay();
+}
+
+function filterLibraryDisplay() {
+    const search = (document.getElementById('libSearch')?.value || '').toLowerCase();
+    const grid   = document.getElementById('libraryGrid');
+    if (!grid) return;
+
+    let entries = allLibraryEntries;
+    if (libActiveType) entries = entries.filter(e => e.type === libActiveType);
+    if (search) {
+        entries = entries.filter(e =>
+            (e.common_name  || '').toLowerCase().includes(search) ||
+            (e.latin_name   || '').toLowerCase().includes(search) ||
+            (e.tags         || '').toLowerCase().includes(search) ||
+            (e.description  || '').toLowerCase().includes(search)
+        );
+    }
+
+    const countEl = document.getElementById('libCount');
+    if (countEl) countEl.textContent = entries.length + ' entr' + (entries.length === 1 ? 'y' : 'ies');
+
+    if (!entries.length) {
+        grid.innerHTML = '<div class="text-center py-5 text-muted" style="grid-column:1/-1;">No entries found. Click "Add Entry" to get started.</div>';
+        return;
+    }
+
+    grid.innerHTML = entries.map(e => {
+        const tc = LIB_TYPE_COLORS[e.type] || { bg: '#6c757d', label: e.type };
+        const img = e.image_path
+            ? `<img src="${escHtml(e.image_path)}" alt="" style="width:100%;height:140px;object-fit:cover;">`
+            : `<div style="width:100%;height:140px;background:#f0f4f1;display:flex;align-items:center;justify-content:center;"><i data-feather="image" style="width:36px;height:36px;color:#ccc;"></i></div>`;
+        const tags = (e.tags || '').split(',').filter(Boolean).map(t =>
+            `<span class="badge bg-light text-dark border" style="font-size:10px;">${escHtml(t.trim())}</span>`
+        ).join(' ');
+        const latin = e.latin_name ? `<div class="text-muted" style="font-size:11px;font-style:italic;">${escHtml(e.latin_name)}</div>` : '';
+        const desc  = e.description ? `<div class="text-muted mt-1" style="font-size:12px;line-height:1.3;">${escHtml(e.description).slice(0,100)}${e.description.length>100?'…':''}</div>` : '';
+        const entryJson = escHtml(JSON.stringify(e));
+        return `<div class="mw-lib-card" data-type="${escHtml(e.type)}">
+            <div class="mw-lib-card-img">${img}</div>
+            <span class="mw-lib-type-badge" style="background:${tc.bg};">${tc.label}</span>
+            <div class="mw-lib-card-body">
+                <div class="fw-bold" style="font-size:13px;">${escHtml(e.common_name)}</div>
+                ${latin}
+                ${desc}
+                ${tags ? `<div class="mt-1 d-flex flex-wrap gap-1">${tags}</div>` : ''}
+                <div class="mw-lib-card-actions">
+                    <button class="btn btn-xs btn-outline-secondary" onclick="openLibraryModal(${e.id})">Edit</button>
+                    <button class="btn btn-xs mw-btn-green" onclick='useInQuestion(${JSON.stringify(e)})'>Use in Question</button>
+                    <button class="btn btn-xs btn-outline-danger" onclick="deleteLibraryEntry(${e.id})">Delete</button>
+                </div>
+            </div>
+        </div>`;
+    }).join('');
+    feather.replace();
+}
+
+// Type filter pills
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.lib-type-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            document.querySelectorAll('.lib-type-btn').forEach(b => b.classList.remove('active','btn-primary','btn-danger','btn-success','btn-info','btn-warning'));
+            document.querySelectorAll('.lib-type-btn').forEach(b => {
+                if (!b.classList.contains('active')) {
+                    const t = b.dataset.type;
+                    b.classList.add(t ? 'btn-outline-' + (LIB_TYPE_COLORS[t] ? typeToBootstrap(t) : 'secondary') : 'btn-outline-secondary');
+                }
+            });
+            this.classList.add('active');
+            if (!this.dataset.type) {
+                this.classList.remove('btn-outline-secondary'); this.classList.add('btn-primary');
+            }
+            libActiveType = this.dataset.type;
+            filterLibraryDisplay();
+        });
+    });
+});
+
+function typeToBootstrap(t) {
+    const m = { weed:'danger', plant:'success', grass:'info', shrub:'secondary', tree:'secondary', fungus:'warning' };
+    return m[t] || 'secondary';
+}
+
+function openLibraryModal(id) {
+    document.getElementById('libId').value          = '';
+    document.getElementById('libCommonName').value  = '';
+    document.getElementById('libLatinName').value   = '';
+    document.getElementById('libType').value        = 'weed';
+    document.getElementById('libTags').value        = '';
+    document.getElementById('libDescription').value = '';
+    document.getElementById('libIdNotes').value     = '';
+    document.getElementById('libImagePath').value   = '';
+    document.getElementById('libUploadStatus').textContent = '';
+    updateLibImgPreview('');
+    document.getElementById('libModalTitle').textContent = id ? 'Edit Entry' : 'Add Library Entry';
+
+    if (id) {
+        const entry = allLibraryEntries.find(e => parseInt(e.id) === id);
+        if (entry) {
+            document.getElementById('libId').value          = entry.id;
+            document.getElementById('libCommonName').value  = entry.common_name || '';
+            document.getElementById('libLatinName').value   = entry.latin_name  || '';
+            document.getElementById('libType').value        = entry.type        || 'weed';
+            document.getElementById('libTags').value        = entry.tags        || '';
+            document.getElementById('libDescription').value = entry.description || '';
+            document.getElementById('libIdNotes').value     = entry.identification_notes || '';
+            document.getElementById('libImagePath').value   = entry.image_path  || '';
+            updateLibImgPreview(entry.image_path || '');
+        }
+    }
+    $('#libraryModal').modal('show');
+}
+
+async function saveLibraryEntry() {
+    const name = document.getElementById('libCommonName').value.trim();
+    if (!name) { alert('Common name is required.'); return; }
+    const id = document.getElementById('libId').value;
+    const payload = {
+        csrf_token:           CSRF,
+        common_name:          name,
+        latin_name:           document.getElementById('libLatinName').value.trim() || null,
+        type:                 document.getElementById('libType').value,
+        tags:                 document.getElementById('libTags').value.trim() || null,
+        description:          document.getElementById('libDescription').value.trim() || null,
+        identification_notes: document.getElementById('libIdNotes').value.trim() || null,
+        image_path:           document.getElementById('libImagePath').value.trim() || null,
+    };
+    if (id) payload.id = parseInt(id);
+    const r = await fetch('/crm/api/quiz.php?action=save_library_entry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+    const d = await r.json();
+    if (d.success) {
+        $('#libraryModal').modal('hide');
+        loadLibrary();
+    } else {
+        alert(d.error || 'Save failed');
+    }
+}
+
+async function deleteLibraryEntry(id) {
+    if (!confirm('Delete this entry from the library?')) return;
+    const r = await fetch('/crm/api/quiz.php?action=delete_library_entry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, csrf_token: CSRF }),
+    });
+    const d = await r.json();
+    if (d.success) loadLibrary();
+    else alert(d.error || 'Delete failed');
+}
+
+async function uploadLibraryImage(input) {
+    const file = input.files[0];
+    if (!file) return;
+    const statusEl = document.getElementById('libUploadStatus');
+    statusEl.textContent = 'Uploading…';
+    const fd = new FormData();
+    fd.append('image', file);
+    const r = await fetch('/crm/api/quiz.php?action=upload_library_image', { method: 'POST', body: fd });
+    const d = await r.json();
+    if (d.success && d.image_path) {
+        document.getElementById('libImagePath').value = d.image_path;
+        updateLibImgPreview(d.image_path);
+        statusEl.textContent = 'Uploaded.';
+    } else {
+        statusEl.textContent = d.error || 'Upload failed';
+    }
+    input.value = '';
+}
+
+function updateLibImgPreview(url) {
+    const thumb = document.getElementById('libImgThumb');
+    const placeholder = document.getElementById('libImgPlaceholder');
+    if (url) {
+        thumb.src = url;
+        thumb.style.display = 'block';
+        if (placeholder) placeholder.style.display = 'none';
+    } else {
+        thumb.style.display = 'none';
+        if (placeholder) placeholder.style.display = '';
+    }
+}
+
+/**
+ * Pre-fill the question modal from a library entry and switch to the Questions tab.
+ * The admin still needs to add answer options and save.
+ */
+function useInQuestion(entry) {
+    $('#libraryModal').modal('hide');
+
+    // Switch to Questions tab
+    document.querySelectorAll('.nav-link').forEach(a => a.classList.remove('active'));
+    document.querySelectorAll('[id^="tab"]').forEach(d => d.style.display = 'none');
+    const qTab = document.querySelector('a[href="?tab=questions"]');
+    if (qTab) qTab.classList.add('active');
+    const qDiv = document.getElementById('tabQuestions');
+    if (qDiv) qDiv.style.display = '';
+
+    // Build learn notes from library data
+    let learnNotes = entry.common_name;
+    if (entry.latin_name) learnNotes += ' (' + entry.latin_name + ')';
+    if (entry.description) learnNotes += '\n' + entry.description;
+    if (entry.identification_notes) learnNotes += '\n\nID Notes: ' + entry.identification_notes;
+
+    // Auto-select category: Weed ID for weeds, Plant/Grass ID for plants/grass
+    const targetCatName = (entry.type === 'weed') ? 'Weed Identification' : 'Plant & Grass ID';
+
+    openQuestionModal(null);
+
+    // Fill fields after modal opens (short delay for DOM)
+    setTimeout(() => {
+        document.getElementById('qmText').value       = 'Identify this ' + entry.type + ':';
+        document.getElementById('qmLearnNotes').value = learnNotes;
+
+        // Set category
+        const catSelect = document.getElementById('qmCategory');
+        if (catSelect) {
+            for (let opt of catSelect.options) {
+                if (opt.text.includes('Weed') && entry.type === 'weed') { catSelect.value = opt.value; break; }
+                if ((opt.text.includes('Plant') || opt.text.includes('Grass')) && entry.type !== 'weed') { catSelect.value = opt.value; break; }
+            }
+        }
+
+        // Add image if present
+        if (entry.image_path && qmImages.length < 5) {
+            qmImages.push({ image_path: entry.image_path, caption: '' });
+            renderImageManager();
+        }
+
+        feather.replace();
+    }, 200);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PLANT IMPORT FROM PHOTO
+// ══════════════════════════════════════════════════════════════════════════════
+
+let piImportData  = null;  // holds last API response
+let piPendingFile = null;  // holds File object across iOS (DataTransfer not supported)
+let piMergeId     = 0;     // >0 = update existing library entry, 0 = create new
+
+function openPlantImportModal() {
+    startImportOver();
+    $('#plantImportModal').modal('show');
+}
+
+function startImportOver() {
+    piImportData  = null;
+    piPendingFile = null;
+    piMergeId     = 0;
+    document.getElementById('piStep1').style.display = '';
+    document.getElementById('piStep2').style.display = 'none';
+    document.getElementById('piFooter').style.display = 'none';
+    document.getElementById('piFilePreview').style.display = 'none';
+    document.getElementById('piScanWrap').style.display = 'none';
+    document.getElementById('piOcrStatus').style.display = 'none';
+    document.getElementById('piFileInput').value = '';
+    document.getElementById('piStepLabel').textContent = 'Step 1 · Choose a photo';
+    document.getElementById('piMergeBanner').style.display = 'none';
+    document.getElementById('piSaveNewBtn').style.display = 'none';
+    document.getElementById('piSaveLibLabel').textContent = 'Save to Library';
+    document.getElementById('piSaveAllLabel').textContent = 'Save + Add Questions';
+    document.getElementById('piStep2ImgWrap').style.display = 'none';
+}
+
+function handlePlantImportFile(input) {
+    const file = input ? input.files[0] : null;
+    if (!file) return;
+    piPendingFile = file;  // store for upload — avoids DataTransfer (unsupported on iOS)
+    const objUrl = URL.createObjectURL(file);
+    document.getElementById('piFileThumb').src = objUrl;
+    document.getElementById('piFileName').textContent = file.name + ' (' + (file.size / 1024).toFixed(0) + ' KB)';
+    document.getElementById('piFilePreview').style.display = '';
+    document.getElementById('piScanWrap').style.display = '';
+}
+
+// Called from auto-import flow (IndexedDB → file blob, no input element)
+function loadPlantFileFromBlob(file) {
+    piPendingFile = file;
+    const objUrl = URL.createObjectURL(file);
+    document.getElementById('piFileThumb').src = objUrl;
+    document.getElementById('piFileName').textContent = file.name + ' (' + (file.size / 1024).toFixed(0) + ' KB)';
+    document.getElementById('piFilePreview').style.display = '';
+    document.getElementById('piScanWrap').style.display = '';
+}
+
+// Dropzone drag-over highlight
+document.addEventListener('DOMContentLoaded', function() {
+    const dz = document.getElementById('piDropzone');
+    if (!dz) return;
+    dz.addEventListener('dragover', e => { e.preventDefault(); dz.style.borderColor = 'var(--mw-green)'; });
+    dz.addEventListener('dragleave', () => { dz.style.borderColor = '#dee2e6'; });
+    dz.addEventListener('drop', e => {
+        e.preventDefault();
+        dz.style.borderColor = '#dee2e6';
+        const files = e.dataTransfer.files;
+        if (files.length) {
+            const dt = new DataTransfer();
+            dt.items.add(files[0]);
+            document.getElementById('piFileInput').files = dt.files;
+            handlePlantImportFile(document.getElementById('piFileInput'));
+        }
+    });
+});
+
+async function runPlantImport() {
+    const file = piPendingFile || (document.getElementById('piFileInput').files[0] || null);
+    if (!file) { alert('Please choose an image first.'); return; }
+
+    document.getElementById('piScanWrap').style.display = 'none';
+    document.getElementById('piOcrStatus').style.display = '';
+    document.getElementById('piOcrStatusText').textContent = 'Running OCR on image…';
+
+    const fd = new FormData();
+    fd.append('image', file);
+    fd.append('csrf_token', CSRF);
+
+    let data;
+    try {
+        document.getElementById('piOcrStatusText').textContent = 'Extracting plant data + looking up Wikipedia…';
+        const r = await fetch('/crm/api/quiz-plant-import.php', { method: 'POST', body: fd });
+        data = await r.json();
+    } catch (e) {
+        document.getElementById('piOcrStatus').style.display = 'none';
+        document.getElementById('piScanWrap').style.display = '';
+        alert('Network error — try again.');
+        return;
+    }
+
+    document.getElementById('piOcrStatus').style.display = 'none';
+
+    if (!data.success) {
+        document.getElementById('piScanWrap').style.display = '';
+        alert('Import failed: ' + (data.error || 'Unknown error'));
+        return;
+    }
+
+    piImportData = data;
+    populateImportReview(data);
+}
+
+function populateImportReview(data) {
+    const p = data.plant;
+
+    document.getElementById('piCommonName').value  = p.common_name || '';
+    document.getElementById('piLatinName').value   = p.latin_name  || '';
+    document.getElementById('piType').value        = p.type        || 'plant';
+    document.getElementById('piSunlight').value    = p.sunlight    || '';
+    document.getElementById('piWatering').value    = p.watering    || '';
+    document.getElementById('piToxicity').value    = p.toxicity    || '';
+    document.getElementById('piTags').value        = p.tags        || '';
+    document.getElementById('piDescription').value = data.wikipedia_summary || '';
+
+    // Show saved image at top of step 2
+    if (data.image_path) {
+        const thumb = document.getElementById('piSavedThumb');
+        thumb.src = data.image_path;
+        document.getElementById('piStep2ImgWrap').style.display = '';
+    }
+
+    // Update step label
+    document.getElementById('piStepLabel').textContent = 'Step 2 · Review & save';
+
+    // Handle merge — existing plant in library
+    if (data.existing_entry) {
+        piMergeId = data.existing_entry.id;
+        const name = data.existing_entry.common_name || 'This plant';
+        document.getElementById('piMergeTitle').textContent = name + ' is already in your library';
+        document.getElementById('piMergeDesc').textContent = 'Saving will update the existing entry with the new photo and any filled-in fields.';
+        document.getElementById('piMergeBanner').style.display = '';
+        document.getElementById('piSaveNewBtn').style.display = '';
+        document.getElementById('piSaveLibLabel').textContent = 'Update Library Entry';
+        document.getElementById('piSaveAllLabel').textContent = 'Update + Add Questions';
+    } else {
+        piMergeId = 0;
+        document.getElementById('piMergeBanner').style.display = 'none';
+        document.getElementById('piSaveNewBtn').style.display = 'none';
+        document.getElementById('piSaveLibLabel').textContent = 'Save to Library';
+        document.getElementById('piSaveAllLabel').textContent = 'Save + Add Questions';
+    }
+
+    // Confidence badge
+    const fields = [p.common_name, p.latin_name, p.sunlight, p.toxicity].filter(Boolean).length;
+    const badge  = document.getElementById('piConfidenceBadge');
+    if (fields >= 3) { badge.textContent = 'Good match'; badge.className = 'badge bg-success small'; }
+    else if (fields >= 2) { badge.textContent = 'Partial match'; badge.className = 'badge bg-warning small'; }
+    else { badge.textContent = 'Low confidence — check fields'; badge.className = 'badge bg-danger small'; }
+
+    // Build question checklist
+    const list = document.getElementById('piQuestionList');
+    list.innerHTML = '';
+    if (!data.questions || !data.questions.length) {
+        list.innerHTML = '<p class="text-muted small p-3">No questions could be generated. Fill in the plant data and try again.</p>';
+    } else {
+        data.questions.forEach((q, i) => {
+            const checked = q.selected ? 'checked' : '';
+            const typeLabel = q.type === 'photo_id' ? '📷 Photo ID' : '❓ Multiple Choice';
+            const imgHtml = q.image_path
+                ? `<img src="${q.image_path}" alt="" style="width:48px;height:48px;object-fit:cover;border-radius:4px;border:1px solid #dee2e6;flex-shrink:0;">`
+                : '';
+            const opts = (q.options || []).map((o, oi) =>
+                `<span class="badge ${oi === 0 ? 'bg-success' : 'bg-light text-dark border'} me-1 mb-1">${o}</span>`
+            ).join('');
+            list.innerHTML += `
+                <div class="d-flex gap-3 align-items-start p-3 border-bottom" id="piQ${i}">
+                    <div class="form-check pt-1" style="flex-shrink:0;">
+                        <input class="form-check-input" type="checkbox" id="piQCheck${i}" ${checked}>
+                    </div>
+                    ${imgHtml}
+                    <div class="flex-grow-1 min-w-0">
+                        <div class="d-flex align-items-center gap-2 mb-1">
+                            <span class="badge bg-secondary" style="font-size:10px;">${typeLabel}</span>
+                            <span class="badge bg-light text-dark border" style="font-size:10px;">${q.difficulty}</span>
+                        </div>
+                        <p class="mb-1 small fw-bold">${q.question_text}</p>
+                        <div class="mb-1">${opts}</div>
+                        <p class="text-muted mb-0" style="font-size:11px;">Learn notes: ${(q.learn_notes || '').substring(0, 100)}…</p>
+                    </div>
+                </div>`;
+        });
+    }
+
+    document.getElementById('piStep1').style.display = 'none';
+    document.getElementById('piStep2').style.display = '';
+    document.getElementById('piFooter').style.display = '';
+    feather.replace();
+}
+
+function getImportPlantPayload() {
+    return {
+        csrf_token:           CSRF,
+        id:                   piMergeId || 0,
+        common_name:          document.getElementById('piCommonName').value.trim(),
+        latin_name:           document.getElementById('piLatinName').value.trim() || null,
+        type:                 document.getElementById('piType').value,
+        tags:                 document.getElementById('piTags').value.trim() || null,
+        description:          document.getElementById('piDescription').value.trim() || null,
+        identification_notes: null,
+        image_path:           (piImportData && piImportData.image_path) || null,
+    };
+}
+
+function piSaveAsNew() {
+    piMergeId = 0;
+    document.getElementById('piMergeBanner').style.display = 'none';
+    document.getElementById('piSaveNewBtn').style.display = 'none';
+    document.getElementById('piSaveLibLabel').textContent = 'Save to Library';
+    document.getElementById('piSaveAllLabel').textContent = 'Save + Add Questions';
+}
+
+async function saveImportToLibrary() {
+    const name = document.getElementById('piCommonName').value.trim();
+    if (!name) { alert('Common name is required.'); return; }
+
+    const r = await fetch('/crm/api/quiz.php?action=save_library_entry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(getImportPlantPayload()),
+    });
+    const d = await r.json();
+    if (d.success) {
+        $('#plantImportModal').modal('hide');
+        loadLibrary();
+        alert('Plant saved to library.');
+    } else {
+        alert(d.error || 'Save failed');
+    }
+}
+
+async function saveImportAll() {
+    const name = document.getElementById('piCommonName').value.trim();
+    if (!name) { alert('Common name is required.'); return; }
+
+    // 1. Save to library
+    const libR = await fetch('/crm/api/quiz.php?action=save_library_entry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(getImportPlantPayload()),
+    });
+    const libD = await libR.json();
+    if (!libD.success) { alert(libD.error || 'Library save failed'); return; }
+
+    // 2. Generate selected questions
+    if (!piImportData || !piImportData.questions) {
+        $('#plantImportModal').modal('hide');
+        loadLibrary();
+        return;
+    }
+
+    const selectedQuestions = piImportData.questions.filter((q, i) => {
+        const cb = document.getElementById('piQCheck' + i);
+        return cb && cb.checked;
+    });
+
+    if (!selectedQuestions.length) {
+        $('#plantImportModal').modal('hide');
+        loadLibrary();
+        alert('Plant saved to library. No questions were selected to generate.');
+        return;
+    }
+
+    // Find the correct category ID (Plant & Grass ID or Weed ID)
+    const plantType = document.getElementById('piType').value;
+    const targetCatName = plantType === 'weed' ? 'Weed Identification' : 'Plant & Grass ID';
+    let catId = null;
+    if (window.allCategories) {
+        const cat = window.allCategories.find(c => c.name && c.name.includes(plantType === 'weed' ? 'Weed' : 'Plant'));
+        if (cat) catId = parseInt(cat.id);
+    }
+
+    let saved = 0, failed = 0;
+    for (const q of selectedQuestions) {
+        const options = (q.options || []).map((o, i) => ({ text: o, is_correct: i === 0 }));
+        const payload = {
+            csrf_token:    CSRF,
+            category_id:   catId,
+            question_text: q.question_text,
+            question_type: q.type || 'multiple_choice',
+            difficulty:    q.difficulty || 'medium',
+            learn_notes:   q.learn_notes || '',
+            is_active:     1,
+            options:       options,
+            image_path:    q.image_path || null,
+            images:        q.image_path ? [{ image_path: q.image_path, caption: name }] : [],
+        };
+        const qr = await fetch('/crm/api/quiz.php?action=save_question', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        const qd = await qr.json();
+        if (qd.success) saved++; else failed++;
+    }
+
+    $('#plantImportModal').modal('hide');
+    loadLibrary();
+    const msg = `Plant saved to library. ${saved} question${saved !== 1 ? 's' : ''} generated.`
+        + (failed ? ` (${failed} failed — check category assignment)` : '');
+    alert(msg);
+}
+
 // ── Init ────────────────────────────────────────────────────────────────────
 loadCategories().then(() => {
     <?php if ($activeTab === 'questions'): ?>
@@ -1050,8 +1986,49 @@ loadCategories().then(() => {
     loadPrizeHistory();
     <?php elseif ($activeTab === 'campaigns'): ?>
     loadCampaignsList();
+    <?php elseif ($activeTab === 'library'): ?>
+    loadLibrary();
     <?php endif; ?>
 });
+
+// ── Auto-open plant import modal (from mobile menu file picker) ──────────────
+<?php if ($autoImport): ?>
+(function() {
+    function openImportWithFile(file) {
+        openPlantImportModal();
+        // Small delay for modal animation to settle
+        setTimeout(function() {
+            if (!file) return;
+            // Use loadPlantFileFromBlob — avoids DataTransfer which iOS Safari doesn't support
+            loadPlantFileFromBlob(file);
+        }, 300);
+    }
+
+    // Try to retrieve pending file from IndexedDB
+    var req = indexedDB.open('mw_plant_import', 1);
+    req.onupgradeneeded = function(e) {
+        e.target.result.createObjectStore('pending', { keyPath: 'id' });
+    };
+    req.onsuccess = function(e) {
+        var db  = e.target.result;
+        var tx  = db.transaction('pending', 'readwrite');
+        var get = tx.objectStore('pending').get(1);
+        get.onsuccess = function() {
+            var record = get.result;
+            // Clear it right away so it doesn't re-open on refresh
+            tx.objectStore('pending').delete(1);
+            if (record && record.file) {
+                openImportWithFile(record.file);
+            } else {
+                // No file stored — just open the modal (manual upload)
+                openPlantImportModal();
+            }
+        };
+        get.onerror = function() { openPlantImportModal(); };
+    };
+    req.onerror = function() { openPlantImportModal(); };
+})();
+<?php endif; ?>
 
 // Pre-load leaderboard data for prize dropdown on that tab
 <?php if ($activeTab !== 'leaderboard'): ?>
@@ -1064,6 +2041,154 @@ setTimeout(() => {
 <?php if ($activeTab !== 'campaigns'): ?>
 // Load campaigns silently for the campaigns tab when navigating to it
 <?php endif; ?>
+
+// ══ Wikimedia Image Search ════════════════════════════════════════════════════
+
+let wikiSearchCallback = null; // function(url) called when user picks an image
+
+function openWikiSearch() {
+    // Pre-populate from the correct answer in the question modal if available
+    const correctOpt = document.querySelector('#qmOptions input[type="radio"]:checked');
+    let hint = '';
+    if (correctOpt) {
+        const row   = correctOpt.closest('.mw-option-row');
+        const input = row ? row.querySelector('input[type="text"]') : null;
+        if (input) hint = input.value.trim();
+    }
+    document.getElementById('wikiSearchInput').value = hint;
+    document.getElementById('wikiSearchResults').innerHTML = '';
+    document.getElementById('wikiSearchStatus').style.display = 'none';
+
+    wikiSearchCallback = (url) => {
+        // Push directly into the question modal image list
+        if (typeof addWikiImageToQuestion === 'function') addWikiImageToQuestion(url);
+        $('#wikiSearchModal').modal('hide');
+    };
+
+    $('#wikiSearchModal').modal('show');
+
+    if (hint) {
+        setTimeout(runWikiSearch, 300);
+    }
+}
+
+async function runWikiSearch() {
+    const q   = document.getElementById('wikiSearchInput').value.trim();
+    const btn = document.getElementById('wikiSearchBtn');
+    const res = document.getElementById('wikiSearchResults');
+    const st  = document.getElementById('wikiSearchStatus');
+    if (!q) return;
+
+    btn.disabled = true;
+    btn.textContent = 'Searching…';
+    res.innerHTML = '<div class="col-12 text-center text-muted py-3"><div class="spinner-border spinner-border-sm me-2"></div>Searching Wikimedia Commons…</div>';
+    st.style.display = 'none';
+
+    try {
+        const r = await fetch(`/crm/api/quiz-image-search.php?action=search&q=${encodeURIComponent(q)}&limit=9`);
+        const d = await r.json();
+
+        if (!d.success || !d.images || !d.images.length) {
+            res.innerHTML = `<div class="col-12 text-center text-muted py-4">No images found for "<strong>${escHtml(q)}</strong>". Try a scientific name or shorter term.</div>`;
+        } else {
+            st.textContent = `${d.images.length} result${d.images.length !== 1 ? 's' : ''} from Wikimedia Commons`;
+            st.style.display = '';
+            res.innerHTML = d.images.map(img => `
+                <div class="col-4">
+                    <div class="mw-wiki-thumb" onclick="pickWikiImage('${escHtml(img.thumb_url)}')"
+                         title="${escHtml(img.attribution)}">
+                        <img src="${escHtml(img.thumb_url)}" alt="${escHtml(img.title)}"
+                             onerror="this.closest('.mw-wiki-thumb').style.display='none'">
+                        <div class="mw-wiki-caption">${escHtml(img.license)}</div>
+                    </div>
+                </div>
+            `).join('');
+        }
+    } catch (e) {
+        res.innerHTML = '<div class="col-12 text-danger small py-3">Search failed — check your connection.</div>';
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Search';
+}
+
+function pickWikiImage(url) {
+    if (wikiSearchCallback) wikiSearchCallback(url);
+}
+
+// Called by the search callback — pushes the Wikimedia URL into qmImages
+function addWikiImageToQuestion(url) {
+    if (!url) return;
+    if (!Array.isArray(window.qmImages)) window.qmImages = [];
+    if (window.qmImages.length >= 5) {
+        alert('Maximum 5 images per question. Remove one first.');
+        return;
+    }
+    window.qmImages.push({ image_path: url, caption: 'Source: Wikimedia Commons (CC BY-SA)', sort_order: window.qmImages.length });
+    if (typeof renderImageManager === 'function') renderImageManager();
+}
+
+// ══ Bulk Image Seed ═══════════════════════════════════════════════════════════
+
+async function runBulkSeed(dry) {
+    const dryBtn  = document.getElementById('bulkDryBtn');
+    const runBtn  = document.getElementById('bulkRunBtn');
+    const status  = document.getElementById('bulkSeedStatus');
+    const spinner = document.getElementById('bulkSeedSpinner');
+    const stText  = document.getElementById('bulkSeedStatusText');
+    const stats   = document.getElementById('bulkSeedStats');
+    const logEl   = document.getElementById('bulkSeedLog');
+
+    dryBtn.disabled = true;
+    runBtn.disabled = true;
+    status.style.display = '';
+    spinner.style.display = 'flex';
+    stats.style.display   = 'none';
+    logEl.textContent     = '';
+    stText.textContent    = dry ? 'Running dry-run preview…' : 'Fetching images from Wikipedia… (this may take ~60s)';
+
+    try {
+        const url  = '/crm/api/run-migration-quiz-images.php' + (dry ? '?dry=1' : '');
+        const r    = await fetch(url);
+        const d    = await r.json();
+
+        spinner.style.display = 'none';
+
+        if (!d.success) {
+            stText.textContent = 'Error: ' + (d.error || 'Unknown error');
+            stText.style.color = '#dc3545';
+        } else {
+            const s = d.stats;
+            stats.style.display = '';
+            stats.innerHTML = `
+                <div class="d-flex gap-3 flex-wrap small">
+                    <span class="badge bg-secondary">Found: ${s.found}</span>
+                    <span class="badge bg-success">Seeded: ${s.seeded}</span>
+                    <span class="badge bg-warning text-dark">No image: ${s.no_image}</span>
+                    <span class="badge bg-danger">Errors: ${s.failed}</span>
+                    ${d.dry_run ? '<span class="badge bg-info text-dark">DRY RUN — nothing written</span>' : ''}
+                </div>
+            `;
+            stText.textContent = d.dry_run
+                ? `Preview complete. ${s.seeded} image(s) would be seeded.`
+                : `Done! ${s.seeded} image(s) attached. Reload questions to see them.`;
+
+            logEl.textContent = (d.log || []).join('\n');
+
+            if (!d.dry_run && s.seeded > 0) {
+                // Refresh question list in background
+                if (typeof loadQuestions === 'function') setTimeout(loadQuestions, 1500);
+            }
+        }
+    } catch (e) {
+        spinner.style.display = 'none';
+        stText.textContent    = 'Request failed: ' + e.message;
+        stText.style.color    = '#dc3545';
+    }
+
+    dryBtn.disabled = false;
+    runBtn.disabled = false;
+}
 </script>
 
 <?php include __DIR__ . '/includes/appstack_footer.php'; ?>

@@ -49,6 +49,13 @@ final class ScheduleViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var lastFetched: Date?
 
+    /// GPS trail polylines for the selected date — caller's own trail for crew,
+    /// every tracked crew member for admins.
+    @Published var crewRoutes: [CrewRoute] = []
+
+    /// Latest known position per crew member (last 24 h). Same visibility rules.
+    @Published var crewLive: [CrewLiveLocation] = []
+
     // MARK: - Private
 
     private let apiClient: APIClient
@@ -68,6 +75,24 @@ final class ScheduleViewModel: ObservableObject {
     func refresh() async {
         await loadWeek(for: selectedDate)
         await loadDay(selectedDate)
+        await loadCrewTrails(for: selectedDate)
+    }
+
+    /// Fetches GPS trail polylines + live crew positions for the given date.
+    /// Failures are silent — trails are non-essential, the rest of the schedule
+    /// view should keep working if the endpoint errors or is offline.
+    func loadCrewTrails(for date: Date) async {
+        let dateString = isoDateString(from: date)
+        do {
+            let response: CrewTrailsResponse = try await apiClient.request(
+                .scheduleCrewTrails(date: dateString)
+            )
+            crewRoutes = response.routes.filter { !$0.points.isEmpty }
+            crewLive   = response.live
+        } catch {
+            crewRoutes = []
+            crewLive   = []
+        }
     }
 
     /// Fetches the week summary strip (7 ScheduleDay objects).
@@ -149,6 +174,7 @@ final class ScheduleViewModel: ObservableObject {
         }
 
         await loadDay(date)
+        await loadCrewTrails(for: date)
     }
 
     /// Invalidates the cache for the current day and reloads.
@@ -157,6 +183,32 @@ final class ScheduleViewModel: ObservableObject {
         stopCache.removeValue(forKey: dateString)
         stopCacheFetched.removeValue(forKey: dateString)
         await refresh()
+    }
+
+    /// Moves the selected date forward or backward by the given number of weeks.
+    func advanceWeek(by weeks: Int) async {
+        let newDate = calendar.date(byAdding: .weekOfYear, value: weeks, to: selectedDate) ?? selectedDate
+        await selectDate(newDate)
+    }
+
+    /// Week range label shown in the nav bar principal slot.
+    /// Same month:   "Jun 8–14, 2026"
+    /// Cross-month:  "May 28 – Jun 3, 2026"
+    var weekRangeLabel: String {
+        let monday = mondayOf(week: selectedDate)
+        let sunday = calendar.date(byAdding: .day, value: 6, to: monday) ?? monday
+        let f      = DateFormatter()
+        f.dateFormat = "MMM d"
+        f.locale     = Locale(identifier: "en_CA")
+        let year   = calendar.component(.year,  from: sunday)
+        let sMonth = calendar.component(.month, from: monday)
+        let eMonth = calendar.component(.month, from: sunday)
+        if sMonth == eMonth {
+            let endDay = calendar.component(.day, from: sunday)
+            return "\(f.string(from: monday))–\(endDay), \(year)"
+        } else {
+            return "\(f.string(from: monday)) – \(f.string(from: sunday)), \(year)"
+        }
     }
 
     // MARK: - Date Utilities

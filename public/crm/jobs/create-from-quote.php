@@ -397,256 +397,346 @@ if ($propLat && $propLng && $apiKey) {
               <div class="mw-error-message"><?php echo htmlspecialchars($error); ?></div>
           <?php endif; ?>
 
+          <form method="POST" id="createPlanForm">
+              <input type="hidden" name="csrf_token"   value="<?php echo $csrfToken; ?>">
+              <input type="hidden" name="contract_id"  value="<?php echo (int)$contractId; ?>">
+
+          <!-- ═══ TOP ROW: Scheduling (left) | Intelligence (right) ═══ -->
+          <div class="row mb-3">
+
+              <!-- TOP LEFT: Scheduling -->
+              <div class="col-lg-6">
+                  <div class="card">
+                      <div class="card-header">
+                          <h5 class="card-title mb-0">Scheduling</h5>
+                      </div>
+                      <div class="card-body">
+
+                          <?php if ($nextVisitDate): ?>
+                          <div class="mw-cfq-align-option mb-3">
+                              <label class="d-flex align-items-center" style="gap: 8px; cursor: pointer;">
+                                  <input type="checkbox" name="align_with_existing" value="1" id="alignCheckbox"
+                                         onchange="toggleAlignDate()">
+                                  <span>
+                                      Align with existing visit on
+                                      <strong><?php echo date('l, M j', strtotime($nextVisitDate)); ?></strong>
+                                      <small class="text-muted">(combine into one trip)</small>
+                                  </span>
+                              </label>
+                          </div>
+                          <?php endif; ?>
+
+                          <div class="mw-form-row three mw-cfq-sched-row">
+                              <div class="mw-form-group">
+                                  <label class="form-label">Start Date</label>
+                                  <input type="date" name="plan_start_date" id="startDateInput" class="form-control"
+                                         value="<?php echo date('Y-m-d'); ?>">
+                              </div>
+                              <div class="mw-form-group">
+                                  <label class="form-label">End Date</label>
+                                  <input type="date" name="plan_end_date" class="form-control">
+                                  <small class="text-muted">Blank = ongoing</small>
+                              </div>
+                              <div class="mw-form-group">
+                                  <label class="form-label">Horizon (days)</label>
+                                  <input type="number" name="horizon_days" class="form-control" value="28" min="7" max="90">
+                              </div>
+                          </div>
+
+                          <div class="mw-form-row three mw-cfq-sched-row">
+                              <div class="mw-form-group">
+                                  <label class="form-label">Start Time</label>
+                                  <input type="time" name="default_time_start" class="form-control" value="09:00">
+                              </div>
+                              <div class="mw-form-group">
+                                  <label class="form-label">End Time</label>
+                                  <input type="time" name="default_time_end" class="form-control" value="10:00">
+                              </div>
+                              <div class="mw-form-group">
+                                  <label class="form-label">Duration (min)</label>
+                                  <input type="number" name="estimated_duration" class="form-control" value="60" min="15" step="15">
+                              </div>
+                          </div>
+
+                          <div class="mw-form-group">
+                              <label class="form-label">Crew Assignment</label>
+                              <div class="mw-crew-wrapper">
+                                  <div class="mw-crew-chips" id="crewChips">
+                                      <button type="button" class="mw-crew-add-btn" id="crewAddBtn" onclick="toggleCrewDropdown()">+ Assign</button>
+                                  </div>
+                                  <div class="mw-crew-dropdown" id="crewDropdown">
+                                      <?php foreach ($staff as $s): ?>
+                                          <div class="mw-crew-dropdown-item"
+                                               data-id="<?php echo (int)$s['id']; ?>"
+                                               data-name="<?php echo htmlspecialchars($s['full_name'], ENT_QUOTES); ?>"
+                                               onclick="assignCrew(<?php echo (int)$s['id']; ?>, this.dataset.name)">
+                                              <?php echo htmlspecialchars($s['full_name']); ?>
+                                              <small class="text-muted"><?php echo htmlspecialchars($s['role']); ?></small>
+                                          </div>
+                                      <?php endforeach; ?>
+                                  </div>
+                              </div>
+                              <input type="hidden" name="default_crew_id" id="defaultCrewIdHidden" value="">
+                              <small class="text-muted">First person assigned is the crew lead.</small>
+                          </div>
+
+                          <!-- Recurring options -->
+                          <div class="mw-recurring-options" id="recurringOptions">
+                              <h6 class="mb-3">Recurrence Settings</h6>
+                              <div class="mw-freq-picker" id="freqPicker">
+                                  <button type="button" class="mw-freq-btn" data-freq="daily">Daily</button>
+                                  <button type="button" class="mw-freq-btn active" data-freq="weekly">Weekly</button>
+                                  <button type="button" class="mw-freq-btn" data-freq="monthly">Monthly</button>
+                                  <button type="button" class="mw-freq-btn" data-freq="yearly">Yearly</button>
+                                  <button type="button" class="mw-freq-btn" data-freq="custom">Custom</button>
+                              </div>
+                              <div class="mw-interval-row" id="intervalRow">
+                                  <span class="mw-interval-label">Every</span>
+                                  <input type="number" name="recurrence_interval" id="recurrenceInterval"
+                                         class="form-control form-control-sm" value="1" min="1" max="365">
+                                  <span class="mw-interval-label" id="intervalUnitLabel">week(s)</span>
+                              </div>
+                              <div id="dowPickerWrap">
+                                  <label class="form-label mb-2">On</label>
+                                  <div class="mw-dow-picker" id="dowPicker">
+                                      <button type="button" class="mw-dow-btn" data-dow="0">S</button>
+                                      <button type="button" class="mw-dow-btn" data-dow="1">M</button>
+                                      <button type="button" class="mw-dow-btn" data-dow="2">T</button>
+                                      <button type="button" class="mw-dow-btn" data-dow="3">W</button>
+                                      <button type="button" class="mw-dow-btn" data-dow="4">T</button>
+                                      <button type="button" class="mw-dow-btn" data-dow="5">F</button>
+                                      <button type="button" class="mw-dow-btn" data-dow="6">S</button>
+                                  </div>
+                              </div>
+                              <div id="customUnitWrap" style="display:none;" class="mb-2">
+                                  <select name="recurrence_interval_unit" id="recurrenceUnit" class="form-control form-control-sm" style="width:140px;">
+                                      <option value="days">Days</option>
+                                      <option value="weeks" selected>Weeks</option>
+                                      <option value="months">Months</option>
+                                      <option value="years">Years</option>
+                                  </select>
+                              </div>
+                              <input type="hidden" name="recurrence_pattern" id="recurrencePatternHidden" value="weekly">
+                              <input type="hidden" name="recurrence_day_of_week" id="recurrenceDowHidden" value="">
+                              <div class="mw-recurrence-summary" id="recurrenceSummary">
+                                  <i data-feather="repeat" style="width:14px;height:14px;"></i>
+                                  <span id="recurrenceSummaryText">Repeats every week</span>
+                              </div>
+                          </div>
+
+                      </div>
+                  </div>
+              </div><!-- /col top-left -->
+
+              <!-- TOP RIGHT: Scheduling Intelligence -->
+              <div class="col-lg-6">
+                  <?php if ($propLat && $propLng): ?>
+                  <div class="card mw-sched-intel h-100">
+                      <div class="card-header" style="background: var(--mw-light);">
+                          <h5 class="card-title mb-0" style="display:flex;align-items:center;gap:6px;font-size:0.95rem;">
+                              <i data-feather="map-pin" style="width:16px;height:16px;"></i>
+                              Scheduling Intelligence
+                          </h5>
+                      </div>
+                      <div class="card-body p-0">
+                          <div class="mw-si-day-grid">
+                              <?php
+                              $maxCount = 1;
+                              if (!empty($dayStats)) {
+                                  foreach ($dayStats as $ds) {
+                                      if ($ds['count'] > $maxCount) $maxCount = $ds['count'];
+                                  }
+                              }
+                              for ($d = 1; $d <= 6; $d++):
+                                  $stat = isset($dayStats[$d]) ? $dayStats[$d] : ['count' => 0, 'avg_distance' => 0];
+                                  $isBest = ($d === $bestDay && $bestDay !== null);
+                                  $barPct = $stat['count'] > 0 ? round(($stat['count'] / $maxCount) * 100) : 0;
+                              ?>
+                              <div class="mw-si-day-col <?php echo $isBest ? 'mw-si-best' : ''; ?>"
+                                   data-dow="<?php echo $d; ?>"
+                                   onclick="selectScheduleDay(<?php echo $d; ?>)">
+                                  <div class="mw-si-day-name"><?php echo $dayNames[$d]; ?></div>
+                                  <div class="mw-si-day-bar-wrap">
+                                      <div class="mw-si-day-bar" style="height: <?php echo max(4, $barPct); ?>%;"></div>
+                                  </div>
+                                  <div class="mw-si-day-count"><?php echo $stat['count']; ?></div>
+                                  <?php if ($stat['count'] > 0): ?>
+                                  <div class="mw-si-day-dist"><?php echo $stat['avg_distance']; ?>km</div>
+                                  <?php endif; ?>
+                                  <?php if ($isBest): ?>
+                                  <div class="mw-si-best-badge">Best</div>
+                                  <?php endif; ?>
+                              </div>
+                              <?php endfor; ?>
+                          </div>
+                          <div id="schedIntelMap" class="mw-si-map"></div>
+                          <?php if (!empty($nearbyPlans)): ?>
+                          <div class="mw-si-nearby-list">
+                              <div class="mw-si-list-header">
+                                  <small class="text-muted"><?php echo count($nearbyPlans); ?> nearby recurring client<?php echo count($nearbyPlans) !== 1 ? 's' : ''; ?> within 5km</small>
+                                  <a href="#" onclick="selectScheduleDay(null); return false;" class="mw-si-show-all" style="font-size:0.7rem;">Show all</a>
+                              </div>
+                              <?php foreach ($nearbyPlans as $np): ?>
+                              <div class="mw-si-nearby-item"
+                                   data-dow="<?php echo $np['recurrence_day_of_week'] !== null ? (int)$np['recurrence_day_of_week'] : ''; ?>"
+                                   data-lat="<?php echo (float)$np['latitude']; ?>"
+                                   data-lng="<?php echo (float)$np['longitude']; ?>"
+                                   onclick="highlightOnMap(<?php echo (float)$np['latitude']; ?>, <?php echo (float)$np['longitude']; ?>)">
+                                  <div class="mw-si-nearby-main">
+                                      <div class="mw-si-nearby-address"><?php echo htmlspecialchars($np['address']); ?></div>
+                                      <div class="mw-si-nearby-meta">
+                                          <?php echo htmlspecialchars($np['service_type']); ?>
+                                          &middot; <?php echo round((float)$np['distance_km'], 1); ?>km
+                                          <?php if ($np['crew_name']): ?>
+                                          &middot; <?php echo htmlspecialchars($np['crew_name']); ?>
+                                          <?php endif; ?>
+                                      </div>
+                                  </div>
+                                  <div class="mw-si-nearby-day">
+                                      <?php
+                                      $dowVal = $np['recurrence_day_of_week'];
+                                      echo ($dowVal !== null) ? $dayNames[(int)$dowVal] : '?';
+                                      ?>
+                                      <?php if ($np['default_time_start']): ?>
+                                      <div class="mw-si-nearby-time"><?php echo date('g:ia', strtotime($np['default_time_start'])); ?></div>
+                                      <?php endif; ?>
+                                  </div>
+                              </div>
+                              <?php endforeach; ?>
+                          </div>
+                          <?php else: ?>
+                          <div class="mw-si-no-data">
+                              <p class="mb-1">No nearby recurring clients within 5km.</p>
+                              <small class="text-muted">Data will appear as you add more recurring plans.</small>
+                          </div>
+                          <?php endif; ?>
+                      </div>
+                  </div>
+                  <?php else: ?>
+                  <div class="card">
+                      <div class="card-body text-center text-muted py-4">
+                          <i data-feather="map-pin" style="width:24px;height:24px;opacity:0.4;"></i>
+                          <p class="mb-0 mt-2 small">Property has no GPS coordinates.<br>Add them to enable scheduling intelligence.</p>
+                      </div>
+                  </div>
+                  <?php endif; ?>
+              </div><!-- /col top-right -->
+
+          </div><!-- /.row top -->
+
+          <!-- ═══ BOTTOM ROW: Plan Items + Details (left) | Quote Panel (right) ═══ -->
           <div class="row">
-              <!-- ═══ LEFT: Plan Creation Form ═══ -->
+
+              <!-- BOTTOM LEFT: Plan Items + Plan Details + Fertilizer + Submit -->
               <div class="col-lg-7">
-                  <form method="POST" id="createPlanForm">
-                      <input type="hidden" name="csrf_token"   value="<?php echo $csrfToken; ?>">
-                      <input type="hidden" name="contract_id"  value="<?php echo (int)$contractId; ?>">
 
-                      <!-- Plan Items (populated from quote items) -->
-                      <div class="card">
-                          <div class="card-header d-flex justify-content-between align-items-center">
-                              <h5 class="card-title mb-0">Plan Items</h5>
-                              <div class="d-flex" style="gap:6px;">
-                                  <button type="button" class="btn btn-sm btn-outline-primary" onclick="openPlanBundlePicker()">
-                                      <i data-feather="package" style="width:13px;height:13px;vertical-align:middle;margin-right:2px;"></i> Add Bundle
-                                  </button>
-                                  <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addManualItem()">
-                                      <i data-feather="plus" style="width:14px;height:14px;"></i> Add Item
-                                  </button>
-                              </div>
-                          </div>
-                          <div class="card-body">
-                              <div class="mw-cfq-items-empty" id="itemsEmpty">
-                                  Click items from the quote panel on the right to add them here.
-                              </div>
-                              <table class="mw-line-items-table" id="planItemsTable" style="display:none;">
-                                  <thead>
-                                      <tr>
-                                          <th>Service</th>
-                                          <th>Description</th>
-                                          <th>Qty</th>
-                                          <th class="text-right">Price</th>
-                                          <th class="text-right">Total</th>
-                                          <th></th>
-                                      </tr>
-                                  </thead>
-                                  <tbody id="planItemsBody"></tbody>
-                                  <tfoot>
-                                      <tr>
-                                          <td colspan="4" class="text-right"><strong>Per Visit Total</strong></td>
-                                          <td class="text-right"><strong id="planItemsTotal">$0.00</strong></td>
-                                          <td></td>
-                                      </tr>
-                                  </tfoot>
-                              </table>
+                  <!-- Plan Items -->
+                  <div class="card">
+                      <div class="card-header d-flex justify-content-between align-items-center">
+                          <h5 class="card-title mb-0">Plan Items</h5>
+                          <div class="d-flex" style="gap:6px;">
+                              <button type="button" class="btn btn-sm btn-outline-primary" onclick="openPlanBundlePicker()">
+                                  <i data-feather="package" style="width:13px;height:13px;vertical-align:middle;margin-right:2px;"></i> Add Bundle
+                              </button>
+                              <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addManualItem()">
+                                  <i data-feather="plus" style="width:14px;height:14px;"></i> Add Item
+                              </button>
                           </div>
                       </div>
-
-                      <!-- Plan Details -->
-                      <div class="card">
-                          <div class="card-header">
-                              <h5 class="card-title mb-0">Plan Details</h5>
+                      <div class="card-body">
+                          <div class="mw-cfq-items-empty" id="itemsEmpty">
+                              Click items from the quote panel on the right to add them here.
                           </div>
-                          <div class="card-body">
+                          <table class="mw-line-items-table" id="planItemsTable" style="display:none;">
+                              <thead>
+                                  <tr>
+                                      <th>Service</th>
+                                      <th>Description</th>
+                                      <th>Qty</th>
+                                      <th class="text-right">Price</th>
+                                      <th class="text-right">Total</th>
+                                      <th></th>
+                                  </tr>
+                              </thead>
+                              <tbody id="planItemsBody"></tbody>
+                              <tfoot>
+                                  <tr>
+                                      <td colspan="4" class="text-right"><strong>Per Visit Total</strong></td>
+                                      <td class="text-right"><strong id="planItemsTotal">$0.00</strong></td>
+                                      <td></td>
+                                  </tr>
+                              </tfoot>
+                          </table>
+                      </div>
+                  </div>
+
+                  <!-- Plan Details -->
+                  <div class="card">
+                      <div class="card-header">
+                          <h5 class="card-title mb-0">Plan Details</h5>
+                      </div>
+                      <div class="card-body">
+                          <div class="mw-form-group">
+                              <label class="form-label">Plan Title *</label>
+                              <input type="text" name="title" id="planTitle" class="form-control" required
+                                     placeholder="e.g., Weekly Lawn Care">
+                          </div>
+                          <div class="mw-form-row mw-cfq-plan-details-row">
                               <div class="mw-form-group">
-                                  <label class="form-label">Plan Title *</label>
-                                  <input type="text" name="title" id="planTitle" class="form-control" required
-                                         placeholder="e.g., Weekly Lawn Care">
+                                  <label class="form-label">Service Type</label>
+                                  <select name="service_type" id="serviceTypeSelect" class="form-control">
+                                      <option value="landscaping">Landscaping</option>
+                                      <option value="lawn_care">Lawn Care</option>
+                                      <option value="snow_removal">Snow Removal</option>
+                                      <option value="hedge_trimming">Hedge Trimming</option>
+                                      <option value="garden_maintenance">Garden Maintenance</option>
+                                      <option value="seasonal_cleanup">Seasonal Cleanup</option>
+                                  </select>
                               </div>
-
-                              <div class="mw-form-row">
-                                  <div class="mw-form-group">
-                                      <label class="form-label">Service Type</label>
-                                      <select name="service_type" id="serviceTypeSelect" class="form-control">
-                                          <option value="landscaping">Landscaping</option>
-                                          <option value="lawn_care">Lawn Care</option>
-                                          <option value="snow_removal">Snow Removal</option>
-                                          <option value="hedge_trimming">Hedge Trimming</option>
-                                          <option value="garden_maintenance">Garden Maintenance</option>
-                                          <option value="seasonal_cleanup">Seasonal Cleanup</option>
-                                      </select>
-                                  </div>
-                                  <div class="mw-form-group">
-                                      <label class="form-label">Plan Type</label>
-                                      <select name="plan_type" id="planType" class="form-control" onchange="toggleRecurring()">
-                                          <option value="one_time">One-Time</option>
-                                          <option value="recurring">Recurring</option>
-                                      </select>
-                                  </div>
-                              </div>
-
                               <div class="mw-form-group">
-                                  <label class="form-label">Description</label>
-                                  <textarea name="description" class="form-control" rows="2"
-                                            placeholder="Service details, special instructions..."></textarea>
+                                  <label class="form-label">Plan Type</label>
+                                  <select name="plan_type" id="planType" class="form-control" onchange="toggleRecurring()">
+                                      <option value="one_time">One-Time</option>
+                                      <option value="recurring">Recurring</option>
+                                  </select>
                               </div>
+                          </div>
+                          <div class="mw-form-group">
+                              <label class="form-label">Description</label>
+                              <textarea name="description" class="form-control" rows="2"
+                                        placeholder="Service details, special instructions..."></textarea>
                           </div>
                       </div>
+                  </div>
 
-                      <!-- Scheduling -->
-                      <div class="card">
-                          <div class="card-header">
-                              <h5 class="card-title mb-0">Scheduling</h5>
-                          </div>
-                          <div class="card-body">
-
-                              <?php if ($nextVisitDate): ?>
-                              <div class="mw-cfq-align-option mb-3">
-                                  <label class="d-flex align-items-center" style="gap: 8px; cursor: pointer;">
-                                      <input type="checkbox" name="align_with_existing" value="1" id="alignCheckbox"
-                                             onchange="toggleAlignDate()">
-                                      <span>
-                                          Align with existing visit on
-                                          <strong><?php echo date('l, M j', strtotime($nextVisitDate)); ?></strong>
-                                          <small class="text-muted">(combine into one trip)</small>
-                                      </span>
-                                  </label>
-                              </div>
-                              <?php endif; ?>
-
-                              <div class="mw-form-row three">
-                                  <div class="mw-form-group">
-                                      <label class="form-label">Start Date</label>
-                                      <input type="date" name="plan_start_date" id="startDateInput" class="form-control"
-                                             value="<?php echo date('Y-m-d'); ?>">
-                                  </div>
-                                  <div class="mw-form-group">
-                                      <label class="form-label">End Date</label>
-                                      <input type="date" name="plan_end_date" class="form-control">
-                                      <small class="text-muted">Blank = ongoing</small>
-                                  </div>
-                                  <div class="mw-form-group">
-                                      <label class="form-label">Horizon (days)</label>
-                                      <input type="number" name="horizon_days" class="form-control" value="28" min="7" max="90">
-                                  </div>
-                              </div>
-
-                              <div class="mw-form-row three">
-                                  <div class="mw-form-group">
-                                      <label class="form-label">Start Time</label>
-                                      <input type="time" name="default_time_start" class="form-control" value="09:00">
-                                  </div>
-                                  <div class="mw-form-group">
-                                      <label class="form-label">End Time</label>
-                                      <input type="time" name="default_time_end" class="form-control" value="10:00">
-                                  </div>
-                                  <div class="mw-form-group">
-                                      <label class="form-label">Duration (min)</label>
-                                      <input type="number" name="estimated_duration" class="form-control" value="60" min="15" step="15">
-                                  </div>
-                              </div>
-
-                              <div class="mw-form-group">
-                                  <label class="form-label">Crew Assignment</label>
-                                  <div class="mw-crew-wrapper">
-                                      <div class="mw-crew-chips" id="crewChips">
-                                          <button type="button" class="mw-crew-add-btn" id="crewAddBtn" onclick="toggleCrewDropdown()">+ Assign</button>
-                                      </div>
-                                      <div class="mw-crew-dropdown" id="crewDropdown">
-                                          <?php foreach ($staff as $s): ?>
-                                              <div class="mw-crew-dropdown-item"
-                                                   data-id="<?php echo (int)$s['id']; ?>"
-                                                   data-name="<?php echo htmlspecialchars($s['full_name'], ENT_QUOTES); ?>"
-                                                   onclick="assignCrew(<?php echo (int)$s['id']; ?>, this.dataset.name)">
-                                                  <?php echo htmlspecialchars($s['full_name']); ?>
-                                                  <small class="text-muted"><?php echo htmlspecialchars($s['role']); ?></small>
-                                              </div>
-                                          <?php endforeach; ?>
-                                      </div>
-                                  </div>
-                                  <input type="hidden" name="default_crew_id" id="defaultCrewIdHidden" value="">
-                                  <small class="text-muted">First person assigned is the crew lead.</small>
-                              </div>
-
-                              <!-- Recurring options — Jobber-style -->
-                              <div class="mw-recurring-options" id="recurringOptions">
-                                  <h6 class="mb-3">Recurrence Settings</h6>
-
-                                  <!-- Frequency pill buttons -->
-                                  <div class="mw-freq-picker" id="freqPicker">
-                                      <button type="button" class="mw-freq-btn" data-freq="daily">Daily</button>
-                                      <button type="button" class="mw-freq-btn active" data-freq="weekly">Weekly</button>
-                                      <button type="button" class="mw-freq-btn" data-freq="monthly">Monthly</button>
-                                      <button type="button" class="mw-freq-btn" data-freq="yearly">Yearly</button>
-                                      <button type="button" class="mw-freq-btn" data-freq="custom">Custom</button>
-                                  </div>
-
-                                  <!-- Interval row -->
-                                  <div class="mw-interval-row" id="intervalRow">
-                                      <span class="mw-interval-label">Every</span>
-                                      <input type="number" name="recurrence_interval" id="recurrenceInterval"
-                                             class="form-control form-control-sm" value="1" min="1" max="365">
-                                      <span class="mw-interval-label" id="intervalUnitLabel">week(s)</span>
-                                  </div>
-
-                                  <!-- Day-of-week picker (weekly) -->
-                                  <div id="dowPickerWrap">
-                                      <label class="form-label mb-2">On</label>
-                                      <div class="mw-dow-picker" id="dowPicker">
-                                          <button type="button" class="mw-dow-btn" data-dow="0">S</button>
-                                          <button type="button" class="mw-dow-btn" data-dow="1">M</button>
-                                          <button type="button" class="mw-dow-btn" data-dow="2">T</button>
-                                          <button type="button" class="mw-dow-btn" data-dow="3">W</button>
-                                          <button type="button" class="mw-dow-btn" data-dow="4">T</button>
-                                          <button type="button" class="mw-dow-btn" data-dow="5">F</button>
-                                          <button type="button" class="mw-dow-btn" data-dow="6">S</button>
-                                      </div>
-                                  </div>
-
-                                  <!-- Custom unit picker (custom only) -->
-                                  <div id="customUnitWrap" style="display:none;" class="mb-2">
-                                      <select name="recurrence_interval_unit" id="recurrenceUnit" class="form-control form-control-sm" style="width:140px;">
-                                          <option value="days">Days</option>
-                                          <option value="weeks" selected>Weeks</option>
-                                          <option value="months">Months</option>
-                                          <option value="years">Years</option>
-                                      </select>
-                                  </div>
-
-                                  <!-- Hidden fields synced by JS -->
-                                  <input type="hidden" name="recurrence_pattern" id="recurrencePatternHidden" value="weekly">
-                                  <input type="hidden" name="recurrence_day_of_week" id="recurrenceDowHidden" value="">
-
-                                  <!-- Summary -->
-                                  <div class="mw-recurrence-summary" id="recurrenceSummary">
-                                      <i data-feather="repeat" style="width:14px;height:14px;"></i>
-                                      <span id="recurrenceSummaryText">Repeats every week</span>
-                                  </div>
-                              </div>
-
-                          </div>
+                  <!-- Fertilizer / Prepaid Bundle Dates (hidden unless prepaid bundle added) -->
+                  <div class="card mt-3" id="fertDatesCard" style="display:none;border-left:3px solid var(--mw-green);">
+                      <div class="card-header" style="background:var(--mw-light);">
+                          <h5 class="card-title mb-0 d-flex align-items-center" style="gap:8px;">
+                              <i data-feather="calendar" style="width:16px;height:16px;color:var(--mw-green);"></i>
+                              Application Dates
+                              <span class="badge badge-pill" style="background:var(--mw-green);color:#fff;font-size:10px;" id="fertAppCountBadge"></span>
+                          </h5>
+                          <small class="text-muted">Dates auto-suggested from the bundle's seasonal schedule. Adjust as needed.</small>
                       </div>
-
-                      <!-- Fertilizer / Prepaid Bundle Dates (hidden unless prepaid bundle added) -->
-                      <div class="card mt-3" id="fertDatesCard" style="display:none;border-left:3px solid var(--mw-green);">
-                          <div class="card-header" style="background:var(--mw-light);">
-                              <h5 class="card-title mb-0 d-flex align-items-center" style="gap:8px;">
-                                  <i data-feather="calendar" style="width:16px;height:16px;color:var(--mw-green);"></i>
-                                  Application Dates
-                                  <span class="badge badge-pill" style="background:var(--mw-green);color:#fff;font-size:10px;" id="fertAppCountBadge"></span>
-                              </h5>
-                              <small class="text-muted">Dates auto-suggested from the bundle's seasonal schedule. Adjust as needed.</small>
-                          </div>
-                          <div class="card-body">
-                              <p class="text-muted small mb-2">Each application will be created as a <strong>$0 pre-paid visit</strong>. Materials are auto-calculated from property measurements and product application rates.</p>
-                              <div id="fertDateRows"></div>
-                              <input type="hidden" name="is_prepaid_bundle" id="isPrepaidBundle" value="0">
-                              <input type="hidden" name="source_bundle_id" id="sourceBundleId" value="">
-                          </div>
+                      <div class="card-body">
+                          <p class="text-muted small mb-2">Each application will be created as a <strong>$0 pre-paid visit</strong>. Materials are auto-calculated from property measurements and product application rates.</p>
+                          <div id="fertDateRows"></div>
+                          <input type="hidden" name="is_prepaid_bundle" id="isPrepaidBundle" value="0">
+                          <input type="hidden" name="source_bundle_id" id="sourceBundleId" value="">
                       </div>
+                  </div>
 
-                      <div class="mw-form-actions">
-                          <button type="submit" class="btn btn-primary" id="submitBtn" disabled>
-                              <i data-feather="check" class="mr-1"></i> Create Plan
-                          </button>
-                          <a href="../quotes/view.php?id=<?php echo $quoteId; ?>" class="btn btn-secondary">Cancel</a>
-                      </div>
-                  </form>
-              </div>
+                  <div class="mw-form-actions">
+                      <button type="submit" class="btn btn-primary" id="submitBtn" disabled>
+                          <i data-feather="check" class="mr-1"></i> Create Plan
+                      </button>
+                      <a href="../quotes/view.php?id=<?php echo $quoteId; ?>" class="btn btn-secondary">Cancel</a>
+                  </div>
 
-              <!-- ═══ RIGHT: Quote Reference Panel ═══ -->
+              </div><!-- /col bottom-left -->
+
+              <!-- BOTTOM RIGHT: Quote Reference Panel -->
               <div class="col-lg-5">
                   <div class="mw-cfq-quote-panel">
                       <div class="card">
@@ -675,6 +765,7 @@ if ($propLat && $propLng && $apiKey) {
                               <h6 class="mb-2">Line Items</h6>
                               <p class="text-muted small mb-3">Click available items to add them to the plan.</p>
 
+                              <div style="max-height:calc(100vh - 260px);overflow-y:auto;margin:0 -8px;padding:0 8px;">
                               <?php
                               $prevBundleId = null;
                               foreach ($lineItems as $li):
@@ -718,6 +809,7 @@ if ($propLat && $propLng && $apiKey) {
                                       </div>
                                   </div>
                               <?php endforeach; ?>
+                              </div><!-- /scrollable list -->
 
                               <div class="mw-cfq-progress mt-3">
                                   <?php
@@ -736,106 +828,11 @@ if ($propLat && $propLng && $apiKey) {
                           </div>
                       </div>
                   </div>
+              </div><!-- /col bottom-right -->
 
-                  <!-- ═══ Scheduling Intelligence Panel ═══ -->
-                  <?php if ($propLat && $propLng): ?>
-                  <div class="card mt-3 mw-sched-intel">
-                      <div class="card-header" style="background: var(--mw-light);">
-                          <h5 class="card-title mb-0" style="display:flex;align-items:center;gap:6px;font-size:0.95rem;">
-                              <i data-feather="map-pin" style="width:16px;height:16px;"></i>
-                              Scheduling Intelligence
-                          </h5>
-                      </div>
-                      <div class="card-body p-0">
-                          <!-- Day Recommendation Grid -->
-                          <div class="mw-si-day-grid">
-                              <?php
-                              $maxCount = 1;
-                              if (!empty($dayStats)) {
-                                  foreach ($dayStats as $ds) {
-                                      if ($ds['count'] > $maxCount) $maxCount = $ds['count'];
-                                  }
-                              }
-                              for ($d = 1; $d <= 6; $d++):
-                                  $stat = isset($dayStats[$d]) ? $dayStats[$d] : ['count' => 0, 'avg_distance' => 0];
-                                  $isBest = ($d === $bestDay && $bestDay !== null);
-                                  $barPct = $stat['count'] > 0 ? round(($stat['count'] / $maxCount) * 100) : 0;
-                              ?>
-                              <div class="mw-si-day-col <?php echo $isBest ? 'mw-si-best' : ''; ?>"
-                                   data-dow="<?php echo $d; ?>"
-                                   onclick="selectScheduleDay(<?php echo $d; ?>)">
-                                  <div class="mw-si-day-name"><?php echo $dayNames[$d]; ?></div>
-                                  <div class="mw-si-day-bar-wrap">
-                                      <div class="mw-si-day-bar" style="height: <?php echo max(4, $barPct); ?>%;"></div>
-                                  </div>
-                                  <div class="mw-si-day-count"><?php echo $stat['count']; ?></div>
-                                  <?php if ($stat['count'] > 0): ?>
-                                  <div class="mw-si-day-dist"><?php echo $stat['avg_distance']; ?>km</div>
-                                  <?php endif; ?>
-                                  <?php if ($isBest): ?>
-                                  <div class="mw-si-best-badge">Best</div>
-                                  <?php endif; ?>
-                              </div>
-                              <?php endfor; ?>
-                          </div>
+          </div><!-- /.row bottom -->
 
-                          <!-- Map -->
-                          <div id="schedIntelMap" class="mw-si-map"></div>
-
-                          <!-- Nearby Clients List -->
-                          <?php if (!empty($nearbyPlans)): ?>
-                          <div class="mw-si-nearby-list">
-                              <div class="mw-si-list-header">
-                                  <small class="text-muted"><?php echo count($nearbyPlans); ?> nearby recurring client<?php echo count($nearbyPlans) !== 1 ? 's' : ''; ?> within 5km</small>
-                                  <a href="#" onclick="selectScheduleDay(null); return false;" class="mw-si-show-all" style="font-size:0.7rem;">Show all</a>
-                              </div>
-                              <?php foreach ($nearbyPlans as $np): ?>
-                              <div class="mw-si-nearby-item"
-                                   data-dow="<?php echo $np['recurrence_day_of_week'] !== null ? (int)$np['recurrence_day_of_week'] : ''; ?>"
-                                   data-lat="<?php echo (float)$np['latitude']; ?>"
-                                   data-lng="<?php echo (float)$np['longitude']; ?>"
-                                   onclick="highlightOnMap(<?php echo (float)$np['latitude']; ?>, <?php echo (float)$np['longitude']; ?>)">
-                                  <div class="mw-si-nearby-main">
-                                      <div class="mw-si-nearby-address"><?php echo htmlspecialchars($np['address']); ?></div>
-                                      <div class="mw-si-nearby-meta">
-                                          <?php echo htmlspecialchars($np['service_type']); ?>
-                                          &middot; <?php echo round((float)$np['distance_km'], 1); ?>km
-                                          <?php if ($np['crew_name']): ?>
-                                          &middot; <?php echo htmlspecialchars($np['crew_name']); ?>
-                                          <?php endif; ?>
-                                      </div>
-                                  </div>
-                                  <div class="mw-si-nearby-day">
-                                      <?php
-                                      $dowVal = $np['recurrence_day_of_week'];
-                                      echo ($dowVal !== null) ? $dayNames[(int)$dowVal] : '?';
-                                      ?>
-                                      <?php if ($np['default_time_start']): ?>
-                                      <div class="mw-si-nearby-time"><?php echo date('g:ia', strtotime($np['default_time_start'])); ?></div>
-                                      <?php endif; ?>
-                                  </div>
-                              </div>
-                              <?php endforeach; ?>
-                          </div>
-                          <?php else: ?>
-                          <div class="mw-si-no-data">
-                              <p class="mb-1">No nearby recurring clients within 5km.</p>
-                              <small class="text-muted">Data will appear as you add more recurring plans.</small>
-                          </div>
-                          <?php endif; ?>
-                      </div>
-                  </div>
-                  <?php elseif (!$propLat || !$propLng): ?>
-                  <div class="card mt-3">
-                      <div class="card-body text-center text-muted py-4">
-                          <i data-feather="map-pin" style="width:24px;height:24px;opacity:0.4;"></i>
-                          <p class="mb-0 mt-2 small">Property has no GPS coordinates.<br>Add them to enable scheduling intelligence.</p>
-                      </div>
-                  </div>
-                  <?php endif; ?>
-
-              </div>
-          </div>
+          </form>
 
           <script>
           (function() {

@@ -1,0 +1,249 @@
+/**
+ * Schedule Team Layer — Live crew positions as a toggleable overlay
+ *
+ * Pass 1 of the unified-map plan: drops live-team markers onto the
+ * schedule day-view map. Polls the same endpoint the dedicated crew-map
+ * page uses, so there's no new backend surface.
+ *
+ * Usage (from schedule.php):
+ *   MwTeamLayer.init();                         // wire the toggle button
+ *   MwTeamLayer.setVisible(true|false);         // show/hide + poll on/off
+ *
+ * Depends on:
+ *   - MwDayViewMap.getMap()                     — Google Maps instance
+ *   - /crm/api/crew-location.php?action=live    — live positions endpoint
+ *
+ * @package Mowology CRM
+ */
+var MwTeamLayer = (function() {
+    'use strict';
+
+    // ── Config ──
+    var API_URL   = '/crm/api/crew-location.php?action=live';
+    var POLL_MS   = 30000;       // matches crew-map.php
+    var LS_KEY    = 'mwTeamLayerVisible';
+
+    // ── State ──
+    var visible        = false;
+    var pollTimer      = null;
+    var markers        = {};     // user_id → { marker, infoWindow, data }
+    var toggleBtn      = null;
+    var mapReadyChecks = 0;
+
+    // ═══════════════════════════════════════════════════
+    //  PUBLIC API
+    // ═══════════════════════════════════════════════════
+
+    function init() {
+        toggleBtn = document.getElementById('mwDvMapTeamToggle');
+        if (!toggleBtn) return;
+
+        toggleBtn.addEventListener('click', function() {
+            setVisible(!visible);
+        });
+
+        // Restore previous state from localStorage
+        var saved = null;
+        try { saved = localStorage.getItem(LS_KEY); } catch (e) {}
+        if (saved === '1') {
+            // Wait for the day map to finish booting before flipping on
+            waitForMap(function() { setVisible(true); });
+        }
+    }
+
+    function setVisible(show) {
+        visible = !!show;
+        try { localStorage.setItem(LS_KEY, visible ? '1' : '0'); } catch (e) {}
+
+        if (toggleBtn) {
+            toggleBtn.classList.toggle('active', visible);
+            toggleBtn.setAttribute('aria-pressed', visible ? 'true' : 'false');
+        }
+
+        if (visible) {
+            waitForMap(function() {
+                fetchAndRender();
+                startPolling();
+            });
+        } else {
+            stopPolling();
+            clearMarkers();
+        }
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  MAP LIFECYCLE
+    // ═══════════════════════════════════════════════════
+
+    function getMap() {
+        if (typeof MwDayViewMap === 'undefined') return null;
+        if (typeof MwDayViewMap.getMap !== 'function') return null;
+        return MwDayViewMap.getMap();
+    }
+
+    function waitForMap(cb) {
+        var m = getMap();
+        if (m) { cb(m); return; }
+
+        mapReadyChecks = 0;
+        var poll = setInterval(function() {
+            mapReadyChecks++;
+            var ready = getMap();
+            if (ready) {
+                clearInterval(poll);
+                cb(ready);
+            } else if (mapReadyChecks > 50) {   // 10s timeout
+                clearInterval(poll);
+            }
+        }, 200);
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  POLLING
+    // ═══════════════════════════════════════════════════
+
+    function startPolling() {
+        stopPolling();
+        pollTimer = setInterval(fetchAndRender, POLL_MS);
+    }
+
+    function stopPolling() {
+        if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    }
+
+    function fetchAndRender() {
+        fetch(API_URL, { credentials: 'same-origin' })
+            .then(function(r) { return r.ok ? r.json() : null; })
+            .then(function(json) {
+                if (!json || !json.success) return;
+                render(json.crew || []);
+            })
+            .catch(function() { /* swallow — next poll will retry */ });
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  MARKERS  (reuses the crew-map.php icon/color conventions)
+    // ═══════════════════════════════════════════════════
+
+    function render(crew) {
+        var map = getMap();
+        if (!map) return;
+
+        var activeIds = {};
+
+        crew.forEach(function(m) {
+            if (!m.lat || !m.lng) return;
+
+            activeIds[m.user_id] = true;
+
+            var pos         = { lat: parseFloat(m.lat), lng: parseFloat(m.lng) };
+            var secondsAgo  = parseInt(m.seconds_ago, 10) || 0;
+            var isClocked   = parseInt(m.is_clocked_in, 10) === 1;
+            var color       = getMarkerColor(secondsAgo, isClocked);
+            var initial     = (m.full_name || 'U').charAt(0).toUpperCase();
+
+            if (markers[m.user_id]) {
+                markers[m.user_id].marker.setPosition(pos);
+                markers[m.user_id].marker.setIcon(buildIcon(color, initial));
+            } else {
+                var marker = new google.maps.Marker({
+                    position: pos,
+                    map: map,
+                    icon: buildIcon(color, initial),
+                    title: m.full_name,
+                    zIndex: 1000
+                });
+
+                var iw = new google.maps.InfoWindow();
+                marker.addListener('click', function() {
+                    iw.setContent(buildInfoContent(m));
+                    iw.open(map, marker);
+                });
+
+                markers[m.user_id] = { marker: marker, infoWindow: iw };
+            }
+
+            markers[m.user_id].data = m;
+        });
+
+        // Remove stale markers (crew who left the active set)
+        Object.keys(markers).forEach(function(uid) {
+            if (!activeIds[uid]) {
+                markers[uid].marker.setMap(null);
+                if (markers[uid].infoWindow) markers[uid].infoWindow.close();
+                delete markers[uid];
+            }
+        });
+    }
+
+    function clearMarkers() {
+        Object.keys(markers).forEach(function(uid) {
+            markers[uid].marker.setMap(null);
+            if (markers[uid].infoWindow) markers[uid].infoWindow.close();
+        });
+        markers = {};
+    }
+
+    function getMarkerColor(secondsAgo, isClocked) {
+        if (!isClocked)         return '#9ca3af';   // gray — offline
+        if (secondsAgo > 300)   return '#f59e0b';   // amber — stale
+        return '#22c55e';                           // green — live
+    }
+
+    function buildIcon(color, initial) {
+        var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="36" height="44" viewBox="0 0 36 44">' +
+            '<path d="M18 0C8.06 0 0 8.06 0 18c0 11.25 18 26 18 26s18-14.75 18-26C36 8.06 27.94 0 18 0z" fill="' + color + '" stroke="white" stroke-width="2"/>' +
+            '<circle cx="18" cy="16" r="10" fill="white" opacity="0.3"/>' +
+            '<text x="18" y="21" text-anchor="middle" font-size="13" font-weight="bold" fill="white" font-family="Arial">' + escapeAttr(initial) + '</text>' +
+            '</svg>';
+        return {
+            url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
+            scaledSize: new google.maps.Size(36, 44),
+            anchor: new google.maps.Point(18, 44)
+        };
+    }
+
+    function buildInfoContent(m) {
+        var secondsAgo = parseInt(m.seconds_ago, 10) || 0;
+        var ago = secondsAgo < 60 ? secondsAgo + 's ago' : Math.floor(secondsAgo / 60) + 'm ago';
+        var accuracy = m.accuracy_meters ? m.accuracy_meters + 'm' : 'unknown';
+        var isClocked = parseInt(m.is_clocked_in, 10) === 1;
+        var status = isClocked ? (secondsAgo > 300 ? 'Stale' : 'Active') : 'Offline';
+        var statusColor = isClocked ? (secondsAgo > 300 ? '#f59e0b' : '#22c55e') : '#9ca3af';
+
+        return '<div style="padding:8px;min-width:180px;">' +
+            '<h6 style="margin:0 0 6px 0;color:var(--mw-forest,#0D3B2E);">' + escapeHtml(m.full_name) + '</h6>' +
+            '<p style="margin:0 0 4px 0;font-size:11px;">' +
+                '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + statusColor + ';margin-right:4px;"></span>' +
+                '<strong>' + status + '</strong> &mdash; ' + escapeHtml(m.role || '') +
+            '</p>' +
+            '<p style="margin:2px 0;font-size:11px;color:#666;">Updated: ' + ago + '</p>' +
+            '<p style="margin:2px 0;font-size:11px;color:#666;">Accuracy: ' + accuracy + '</p>' +
+            '</div>';
+    }
+
+    function escapeHtml(s) {
+        s = (s == null) ? '' : String(s);
+        return s.replace(/[&<>"']/g, function(c) {
+            return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
+        });
+    }
+    function escapeAttr(s) { return escapeHtml(s); }
+
+    // ═══════════════════════════════════════════════════
+    //  BOOT
+    // ═══════════════════════════════════════════════════
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+
+    return {
+        init: init,
+        setVisible: setVisible,
+        isVisible: function() { return visible; }
+    };
+
+})();

@@ -178,6 +178,113 @@ $lowMargin = $lowStmt->fetchAll(PDO::FETCH_ASSOC);
 $svcListStmt = $db->query("SELECT DISTINCT service_type FROM visit_margin_snapshots WHERE service_type IS NOT NULL ORDER BY service_type");
 $availableServices = $svcListStmt->fetchAll(PDO::FETCH_COLUMN);
 
+// ── Insights & Recommendations data ─────────────────────────────────────────
+// Industry benchmarks (from Breakthrough Academy Profitability Playbook)
+$benchmarks = [
+    'maintenance' => [
+        'label'    => 'Maintenance',
+        'gross'    => ['needs_work' => 40, 'solid' => 45, 'exceptional' => 55],
+        'net'      => ['needs_work' => 10, 'solid' => 12, 'exceptional' => 18],
+    ],
+    'construction' => [
+        'label'    => 'Construction / Design',
+        'gross'    => ['needs_work' => 30, 'solid' => 34, 'exceptional' => 40],
+        'net'      => ['needs_work' => 10, 'solid' => 15, 'exceptional' => 20],
+    ],
+];
+
+// Per-plan profitability with route efficiency (drive cost as % of revenue)
+$planInsightsStmt = $db->prepare("
+    SELECT
+        jp.id                                   AS plan_id,
+        jp.plan_number,
+        jp.service_type,
+        jp.estimated_duration_minutes,
+        jp.price_per_visit,
+        CONCAT(c.first_name, ' ', c.last_name)  AS client_name,
+        p.address                               AS property_address,
+        p.city,
+        p.postal_code,
+        COUNT(vms.visit_id)                     AS visit_count,
+        COALESCE(SUM(vms.quoted_amount), 0)     AS total_revenue,
+        COALESCE(SUM(vms.labor_cost), 0)        AS total_labor,
+        COALESCE(SUM(vms.material_cost), 0)     AS total_material,
+        COALESCE(SUM(vms.drive_cost), 0)        AS total_drive,
+        COALESCE(SUM(vms.gross_margin), 0)      AS total_margin,
+        AVG(vms.margin_pct)                     AS avg_margin_pct,
+        AVG(vms.drive_cost)                     AS avg_drive_cost,
+        AVG(jv.actual_duration_minutes)         AS avg_actual_minutes
+    FROM visit_margin_snapshots vms
+    JOIN job_plans   jp ON jp.id = vms.plan_id
+    JOIN job_visits  jv ON jv.id = vms.visit_id
+    LEFT JOIN contacts   c ON c.id = vms.contact_id
+    LEFT JOIN properties p ON p.id = vms.property_id
+    WHERE vms.visit_date BETWEEN ? AND ?
+    GROUP BY jp.id, jp.plan_number, jp.service_type, jp.estimated_duration_minutes,
+             jp.price_per_visit, c.first_name, c.last_name, p.address, p.city, p.postal_code
+    HAVING COUNT(vms.visit_id) >= 1
+    ORDER BY AVG(vms.margin_pct) ASC
+");
+$planInsightsStmt->execute([$dateFrom, $dateTo]);
+$planInsights = $planInsightsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Classify each plan with actionable recommendations
+$insights = [];
+foreach ($planInsights as $pi) {
+    $margin    = $pi['avg_margin_pct'] !== null ? (float)$pi['avg_margin_pct'] : null;
+    $driveRatio = ($pi['total_revenue'] > 0)
+        ? round(($pi['total_drive'] / $pi['total_revenue']) * 100, 1)
+        : 0;
+    $durationDrift = 0;
+    if ($pi['estimated_duration_minutes'] > 0 && $pi['avg_actual_minutes'] > 0) {
+        $durationDrift = round((($pi['avg_actual_minutes'] - $pi['estimated_duration_minutes']) / $pi['estimated_duration_minutes']) * 100, 0);
+    }
+
+    // Build recommendations
+    $recs = [];
+    $severity = 'ok'; // ok, warning, danger
+
+    // 1. Margin check
+    if ($margin !== null && $margin < 0) {
+        $recs[] = ['icon' => 'alert-circle', 'color' => '#dc3545', 'text' => 'Losing money — reprice or drop this job'];
+        $severity = 'danger';
+    } elseif ($margin !== null && $margin < 20) {
+        $recs[] = ['icon' => 'alert-triangle', 'color' => '#f59e0b', 'text' => 'Below target margin — review pricing'];
+        $severity = 'warning';
+    }
+
+    // 2. Route efficiency
+    if ($driveRatio > 25) {
+        $recs[] = ['icon' => 'navigation', 'color' => '#dc3545', 'text' => "Drive cost is {$driveRatio}% of revenue — consider rerouting to a closer crew day"];
+        if ($severity === 'ok') $severity = 'warning';
+    } elseif ($driveRatio > 15) {
+        $recs[] = ['icon' => 'navigation', 'color' => '#f59e0b', 'text' => "Drive cost is {$driveRatio}% of revenue — check if a closer route day exists"];
+    }
+
+    // 3. Estimate accuracy
+    if ($durationDrift > 30) {
+        $recs[] = ['icon' => 'clock', 'color' => '#f59e0b', 'text' => "Taking {$durationDrift}% longer than estimated — update duration estimate"];
+    } elseif ($durationDrift < -20) {
+        $recs[] = ['icon' => 'zap', 'color' => '#2D8659', 'text' => "Completing " . abs($durationDrift) . "% faster than estimated — crew is efficient here"];
+    }
+
+    // 4. Revenue check
+    if ($pi['price_per_visit'] > 0 && $margin !== null && $margin >= 40) {
+        $recs[] = ['icon' => 'thumbs-up', 'color' => '#2D8659', 'text' => 'Strong performer — keep this job'];
+    }
+
+    $pi['drive_ratio']      = $driveRatio;
+    $pi['duration_drift']   = $durationDrift;
+    $pi['recommendations']  = $recs;
+    $pi['severity']         = $severity;
+    $insights[] = $pi;
+}
+
+// Separate into categories
+$insightsDanger  = array_filter($insights, fn($i) => $i['severity'] === 'danger');
+$insightsWarning = array_filter($insights, fn($i) => $i['severity'] === 'warning');
+$insightsOk      = array_filter($insights, fn($i) => $i['severity'] === 'ok' && !empty($i['recommendations']));
+
 // ── Spectrum data (only when spectrum view is active) ─────────────────────────
 $spectrumData = ['weeks52' => [], 'months' => [], 'services' => [], 'crew' => [], 'waterfall' => []];
 $ytdSpec      = ['revenue' => 0, 'costs' => 0, 'net' => 0, 'margin' => 0];
@@ -306,10 +413,10 @@ $extraHead  = $view === 'spectrum'
 <?php include __DIR__ . '/includes/appstack_head.php'; ?>
 
 <!-- ── Header ──────────────────────────────────────────────────────────────── -->
-<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap" style="gap:8px;">
-    <div>
-        <h1 class="h3 mb-1">Profitability</h1>
-        <p class="text-muted mb-0" style="font-size:0.85rem;">
+<div class="mw-page-header">
+  <div class="mw-page-header-left">
+    <h1 class="mw-page-title">Profitability</h1>
+    <p class="mw-page-subtitle" style="font-size:0.85rem;">
             <?php echo htmlspecialchars($periodLabel); ?>
             <?php if ($totalCompleted > 0 && $snapshotCoverage < 100): ?>
             &mdash; <span class="badge badge-<?php echo $snapshotCoverage < 50 ? 'warning' : 'info'; ?>" style="font-size:0.7rem;">
@@ -318,7 +425,7 @@ $extraHead  = $view === 'spectrum'
             <?php endif; ?>
         </p>
     </div>
-    <div class="d-flex flex-wrap" style="gap:8px;">
+    <div class="mw-page-actions flex-wrap" style="gap:8px;">
         <div class="btn-group btn-group-sm">
             <?php foreach (['this_month' => 'This Month', 'last_month' => 'Last Month', 'last_90' => 'Last 90d', 'ytd' => 'YTD'] as $p => $l): ?>
             <a href="?period=<?php echo $p; ?><?php echo $serviceFilter ? '&service=' . urlencode($serviceFilter) : ''; ?><?php echo $view === 'spectrum' ? '&view=spectrum' : ''; ?>"
@@ -382,7 +489,8 @@ $extraHead  = $view === 'spectrum'
     $kpis = [
         ['label'=>'Revenue',          'val'=>fmt_money($totalRev ?: null),                  'icon'=>'dollar-sign',    'accent'=>'#3b82f6'],
         ['label'=>'Gross Margin',     'val'=>fmt_money($totalMar ?: null, true),             'icon'=>'trending-up',    'accent'=>$totalMar < 0 ? '#dc3545' : '#2D8659'],
-        ['label'=>'Avg Margin %',     'val'=>fmt_pct($avgPct),                              'icon'=>'percent',        'accent'=>($avgPct ?? 100) < 20 ? '#f59e0b' : '#2D8659'],
+        ['label'=>'Avg Margin %',     'val'=>fmt_pct($avgPct) . ($avgPct !== null ? '<div style="font-size:.6rem;color:#9ca3af;margin-top:2px;">' . ($avgPct >= 45 ? '&#9733; Exceptional' : ($avgPct >= 34 ? '&#9679; Solid' : '&#9660; Needs Work')) . '</div>' : ''),
+                                                                                              'icon'=>'percent',        'accent'=>($avgPct ?? 100) < 20 ? '#f59e0b' : '#2D8659'],
         ['label'=>'Labor Cost',       'val'=>fmt_money($totalLab ?: null),                   'icon'=>'users',          'accent'=>'#f59e0b'],
         ['label'=>'Material Cost',    'val'=>fmt_money($totalMat ?: null),                   'icon'=>'package',        'accent'=>'#8b5cf6'],
         ['label'=>'Drive Cost',       'val'=>fmt_money($totalDrv ?: null),                   'icon'=>'navigation',     'accent'=>'#6b7280'],
@@ -580,6 +688,159 @@ $extraHead  = $view === 'spectrum'
                             <i data-feather="external-link" style="width:12px;height:12px;"></i>
                         </a>
                         <?php endif; ?>
+                    </td>
+                </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     INDUSTRY BENCHMARKS (Breakthrough Academy Profitability Playbook)
+     ══════════════════════════════════════════════════════════════════════════ -->
+<?php if ($avgPct !== null): ?>
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center" style="background:var(--mw-forest);color:#fff;">
+        <h5 class="card-title mb-0" style="color:#fff;">
+            <i data-feather="target" style="width:15px;height:15px;display:inline;"></i>
+            Industry Benchmarks
+        </h5>
+        <span style="font-size:.72rem;opacity:.8;">Source: Breakthrough Academy — 1,537 contractors benchmarked</span>
+    </div>
+    <div class="card-body py-3">
+        <div class="row">
+            <?php foreach ($benchmarks as $bKey => $b): ?>
+            <div class="col-md-6 mb-3">
+                <h6 class="mb-2" style="font-size:.85rem;font-weight:700;"><?php echo $b['label']; ?></h6>
+                <div style="display:flex;align-items:center;gap:4px;margin-bottom:6px;">
+                    <div style="font-size:.68rem;color:#9ca3af;width:80px;">Gross Margin</div>
+                    <div style="flex:1;height:18px;background:#f3f4f6;border-radius:9px;position:relative;overflow:hidden;">
+                        <!-- Benchmark zones -->
+                        <div style="position:absolute;top:0;left:0;height:100%;width:<?php echo $b['gross']['needs_work']; ?>%;background:#fecaca;border-radius:9px 0 0 9px;" title="Needs Work: <<?php echo $b['gross']['needs_work']; ?>%"></div>
+                        <div style="position:absolute;top:0;left:<?php echo $b['gross']['needs_work']; ?>%;height:100%;width:<?php echo $b['gross']['exceptional'] - $b['gross']['needs_work']; ?>%;background:#fef08a;" title="Solid: <?php echo $b['gross']['solid']; ?>-<?php echo $b['gross']['exceptional']; ?>%"></div>
+                        <div style="position:absolute;top:0;left:<?php echo $b['gross']['exceptional']; ?>%;height:100%;width:<?php echo 100 - $b['gross']['exceptional']; ?>%;background:#bbf7d0;border-radius:0 9px 9px 0;" title="Exceptional: ><?php echo $b['gross']['exceptional']; ?>%"></div>
+                        <!-- Your position marker -->
+                        <?php if ($avgPct !== null): ?>
+                        <div style="position:absolute;top:-1px;left:<?php echo min(98, max(1, $avgPct)); ?>%;width:3px;height:20px;background:#111;border-radius:2px;" title="Your avg: <?php echo number_format($avgPct, 1); ?>%"></div>
+                        <?php endif; ?>
+                    </div>
+                    <div style="font-size:.68rem;min-width:32px;text-align:right;">
+                        <?php
+                        if ($avgPct >= $b['gross']['exceptional']) echo '<span style="color:#059669;font-weight:700;">&#9733;</span>';
+                        elseif ($avgPct >= $b['gross']['solid']) echo '<span style="color:#d97706;">&#9679;</span>';
+                        else echo '<span style="color:#dc2626;">&#9660;</span>';
+                        ?>
+                    </div>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:.6rem;color:#9ca3af;padding:0 80px 0 80px;">
+                    <span>&lt;<?php echo $b['gross']['needs_work']; ?>%</span>
+                    <span><?php echo $b['gross']['solid']; ?>-<?php echo $b['gross']['exceptional']; ?>%</span>
+                    <span>&gt;<?php echo $b['gross']['exceptional']; ?>%</span>
+                </div>
+            </div>
+            <?php endforeach; ?>
+        </div>
+        <div class="mt-2 text-center" style="font-size:.75rem;color:#6b7280;">
+            <?php if ($avgPct >= 45): ?>
+                <i data-feather="award" style="width:14px;height:14px;display:inline;color:#059669;"></i>
+                <strong style="color:#059669;">Your <?php echo number_format($avgPct, 1); ?>% margin is in the Exceptional range for maintenance</strong>
+            <?php elseif ($avgPct >= 34): ?>
+                <i data-feather="check-circle" style="width:14px;height:14px;display:inline;color:#d97706;"></i>
+                <strong style="color:#d97706;">Your <?php echo number_format($avgPct, 1); ?>% margin is Solid — room to push toward Exceptional (>45%)</strong>
+            <?php elseif ($avgPct >= 0): ?>
+                <i data-feather="alert-triangle" style="width:14px;height:14px;display:inline;color:#dc2626;"></i>
+                <strong style="color:#dc2626;">Your <?php echo number_format($avgPct, 1); ?>% margin Needs Work — focus on pricing and efficiency</strong>
+            <?php else: ?>
+                <i data-feather="alert-circle" style="width:14px;height:14px;display:inline;color:#dc2626;"></i>
+                <strong style="color:#dc2626;">Negative margin — immediate action needed on pricing and costs</strong>
+            <?php endif; ?>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     INSIGHTS & RECOMMENDATIONS — What's Working vs. What Needs Fixing
+     ══════════════════════════════════════════════════════════════════════════ -->
+<?php if (!empty($insights)): ?>
+<div class="card mb-4">
+    <div class="card-header" style="background:var(--mw-forest);color:#fff;">
+        <h5 class="card-title mb-0" style="color:#fff;">
+            <i data-feather="compass" style="width:15px;height:15px;display:inline;"></i>
+            Insights &amp; Recommendations
+            <span class="badge badge-light ml-2" style="font-size:.7rem;color:var(--mw-forest);">
+                <?php echo count($insightsDanger); ?> critical
+                &middot; <?php echo count($insightsWarning); ?> review
+                &middot; <?php echo count($insightsOk); ?> healthy
+            </span>
+        </h5>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0" style="font-size:.82rem;">
+                <thead style="background:#f9fafb;">
+                    <tr>
+                        <th style="width:26px;"></th>
+                        <th>Job / Client</th>
+                        <th>Area</th>
+                        <th class="text-right">Margin</th>
+                        <th class="text-right">Drive %</th>
+                        <th class="text-right">Duration Drift</th>
+                        <th style="min-width:240px;">Recommendation</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                <?php foreach ($insights as $ins):
+                    if (empty($ins['recommendations'])) continue;
+                    $rowBg = $ins['severity'] === 'danger' ? 'background:#fef2f2;' : ($ins['severity'] === 'warning' ? 'background:#fffbeb;' : '');
+                    $sevIcon = $ins['severity'] === 'danger' ? '&#128308;' : ($ins['severity'] === 'warning' ? '&#128992;' : '&#128994;');
+                ?>
+                <tr style="<?php echo $rowBg; ?>">
+                    <td class="text-center"><?php echo $sevIcon; ?></td>
+                    <td>
+                        <strong><?php echo htmlspecialchars(trim($ins['client_name'] ?? '—')); ?></strong>
+                        <div style="font-size:.68rem;color:#9ca3af;"><?php echo htmlspecialchars($ins['plan_number'] ?? ''); ?></div>
+                    </td>
+                    <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="<?php echo htmlspecialchars(($ins['property_address'] ?? '') . ', ' . ($ins['city'] ?? '')); ?>">
+                        <?php echo htmlspecialchars($ins['postal_code'] ?? ($ins['city'] ?? '—')); ?>
+                    </td>
+                    <td class="text-right"><?php echo fmt_pct($ins['avg_margin_pct'] !== null ? (float)$ins['avg_margin_pct'] : null); ?></td>
+                    <td class="text-right">
+                        <?php if ($ins['drive_ratio'] > 25): ?>
+                            <span class="text-danger font-weight-bold"><?php echo $ins['drive_ratio']; ?>%</span>
+                        <?php elseif ($ins['drive_ratio'] > 15): ?>
+                            <span class="text-warning"><?php echo $ins['drive_ratio']; ?>%</span>
+                        <?php else: ?>
+                            <?php echo $ins['drive_ratio']; ?>%
+                        <?php endif; ?>
+                    </td>
+                    <td class="text-right">
+                        <?php if ($ins['duration_drift'] > 20): ?>
+                            <span class="text-danger">+<?php echo $ins['duration_drift']; ?>%</span>
+                        <?php elseif ($ins['duration_drift'] < -10): ?>
+                            <span class="text-success"><?php echo $ins['duration_drift']; ?>%</span>
+                        <?php elseif ($ins['duration_drift'] != 0): ?>
+                            <?php echo ($ins['duration_drift'] > 0 ? '+' : '') . $ins['duration_drift']; ?>%
+                        <?php else: ?>
+                            <span class="text-muted">—</span>
+                        <?php endif; ?>
+                    </td>
+                    <td>
+                        <?php foreach ($ins['recommendations'] as $rec): ?>
+                        <div style="display:flex;align-items:flex-start;gap:4px;margin-bottom:3px;">
+                            <i data-feather="<?php echo $rec['icon']; ?>" style="width:13px;height:13px;flex-shrink:0;margin-top:1px;color:<?php echo $rec['color']; ?>;"></i>
+                            <span style="font-size:.78rem;"><?php echo htmlspecialchars($rec['text']); ?></span>
+                        </div>
+                        <?php endforeach; ?>
+                    </td>
+                    <td>
+                        <a href="/crm/jobs/view.php?id=<?php echo (int)$ins['plan_id']; ?>" class="btn btn-sm btn-outline-secondary" title="View job">
+                            <i data-feather="external-link" style="width:12px;height:12px;"></i>
+                        </a>
                     </td>
                 </tr>
                 <?php endforeach; ?>

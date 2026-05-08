@@ -103,16 +103,29 @@ try {
                 }
             }
 
-            // Group importable by FSA for preview
+            // Group importable by FSA for preview — sort by proximity priority
             $fsaPreview = [];
             foreach ($importable as $row) {
                 $fsa = extractFsa($row['postal_code']) ?? 'No postal code';
                 if (!isset($fsaPreview[$fsa])) $fsaPreview[$fsa] = 0;
                 $fsaPreview[$fsa]++;
             }
-            arsort($fsaPreview);
+            // Sort: proximity priority first, then count descending
+            uksort($fsaPreview, function($a, $b) use ($fsaPreview) {
+                $pa = computeSortPriority(false, $a === 'No postal code' ? null : $a);
+                $pb = computeSortPriority(false, $b === 'No postal code' ? null : $b);
+                if ($pa !== $pb) return $pa <=> $pb;
+                return $fsaPreview[$b] <=> $fsaPreview[$a];
+            });
 
-            // Sample rows for preview (first 20)
+            // Sort importable rows by priority for sample (so service-area shows first)
+            usort($importable, function($a, $b) {
+                $pa = computeSortPriority(false, extractFsa($a['postal_code']));
+                $pb = computeSortPriority(false, extractFsa($b['postal_code']));
+                return $pa <=> $pb;
+            });
+
+            // Sample rows for preview (first 20) — now ordered by proximity
             $sampleRows = array_slice($importable, 0, 20);
             $sampleData = array_map(fn($r) => [
                 'name' => trim($r['first_name'] . ' ' . $r['last_name']),
@@ -198,8 +211,8 @@ try {
             ");
 
             $queueStmt = $db->prepare("
-                INSERT INTO jobber_reconsent_queue (contact_id, fsa, status, import_batch, created_at)
-                VALUES (?, ?, 'pending_approval', ?, NOW())
+                INSERT INTO jobber_reconsent_queue (contact_id, fsa, is_current_client, sort_priority, status, import_batch, created_at)
+                VALUES (?, ?, ?, ?, 'pending_approval', ?, NOW())
             ");
 
             $db->beginTransaction();
@@ -251,9 +264,11 @@ try {
                         ]);
                     }
 
-                    // Queue for reconsent
+                    // Queue for reconsent — compute priority
                     $fsa = extractFsa($postal);
-                    $queueStmt->execute([$contactId, $fsa, $batchId]);
+                    $isCurrent = isCurrentClient($db, $contactId);
+                    $sortPriority = computeSortPriority($isCurrent, $fsa);
+                    $queueStmt->execute([$contactId, $fsa, $isCurrent ? 1 : 0, $sortPriority, $batchId]);
 
                     $imported++;
                 }
@@ -291,6 +306,8 @@ try {
                     SUM(CASE WHEN jrq.status = 'skipped' THEN 1 ELSE 0 END) AS skipped_count,
                     SUM(CASE WHEN jrq.status = 'queued' THEN 1 ELSE 0 END) AS queued_count,
                     SUM(CASE WHEN jrq.status = 'sent' THEN 1 ELSE 0 END) AS sent_count,
+                    SUM(CASE WHEN jrq.is_current_client = 1 THEN 1 ELSE 0 END) AS current_client_count,
+                    MIN(jrq.sort_priority) AS best_priority,
                     GROUP_CONCAT(DISTINCT CONCAT(c.first_name, ' ', c.last_name) ORDER BY c.last_name SEPARATOR ', ') AS all_names,
                     MIN(p.city) AS city
                 FROM jobber_reconsent_queue jrq
@@ -298,7 +315,7 @@ try {
                 LEFT JOIN properties p ON p.site_contact_id = c.id
                 WHERE 1=1 $batchWhere
                 GROUP BY COALESCE(jrq.fsa, '---')
-                ORDER BY contact_count DESC
+                ORDER BY best_priority ASC, contact_count DESC
             ");
             $stmt->execute($params);
             $fsaBlocks = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -467,14 +484,14 @@ try {
             $limit = min(20, max(1, (int)($input['limit'] ?? 10)));
 
             $stmt = $db->prepare("
-                SELECT jrq.id, jrq.contact_id, c.email, c.first_name
+                SELECT jrq.id, jrq.contact_id, jrq.attempts, c.email, c.first_name
                 FROM jobber_reconsent_queue jrq
                 JOIN contacts c ON jrq.contact_id = c.id
                 WHERE jrq.status = 'queued'
                   AND c.email IS NOT NULL AND c.email != ''
                   AND c.is_active = 1
                   AND jrq.attempts < 3
-                ORDER BY jrq.created_at ASC
+                ORDER BY jrq.sort_priority ASC, jrq.created_at ASC
                 LIMIT $limit
             ");
             $stmt->execute();
@@ -498,6 +515,70 @@ try {
             }
 
             echo json_encode(['success' => true, 'sent' => $sent, 'failed' => $failed, 'total' => count($contacts)]);
+            break;
+
+        // ── Skip a single queue entry (dashboard review) ────────────────
+        case 'skip':
+            if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+                echo json_encode(['success' => false, 'error' => 'POST required']); break;
+            }
+            $input = json_decode(file_get_contents('php://input'), true);
+            $queueId = (int)($input['queue_id'] ?? 0);
+            if (!$queueId) {
+                echo json_encode(['success' => false, 'error' => 'queue_id required']); break;
+            }
+
+            $stmt = $db->prepare("UPDATE jobber_reconsent_queue SET status='skipped' WHERE id=? AND status='queued'");
+            $stmt->execute([$queueId]);
+            echo json_encode(['success' => true, 'updated' => $stmt->rowCount()]);
+            break;
+
+        // ── Get next review batch for dashboard ────────────────────────
+        case 'review-batch':
+            $limit = min(20, max(1, (int)($_GET['limit'] ?? 10)));
+            $stmt = $db->prepare("
+                SELECT
+                    jrq.id AS queue_id,
+                    jrq.contact_id,
+                    jrq.fsa,
+                    jrq.is_current_client,
+                    jrq.sort_priority,
+                    c.first_name,
+                    c.last_name,
+                    c.email,
+                    p.address AS service_address,
+                    p.city AS service_city
+                FROM jobber_reconsent_queue jrq
+                JOIN contacts c ON jrq.contact_id = c.id
+                LEFT JOIN properties p ON p.site_contact_id = c.id
+                WHERE jrq.status = 'queued'
+                  AND c.email IS NOT NULL AND c.email != ''
+                  AND c.is_active = 1
+                  AND jrq.attempts < 3
+                ORDER BY jrq.sort_priority ASC, jrq.created_at ASC
+                LIMIT $limit
+            ");
+            $stmt->execute();
+            $batch = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Queue totals for progress bar
+            $totals = $db->query("
+                SELECT
+                    COUNT(*) AS total,
+                    SUM(status = 'queued') AS queued,
+                    SUM(status = 'sent') AS sent,
+                    SUM(status = 'skipped') AS skipped,
+                    SUM(status = 'failed') AS failed,
+                    SUM(status = 'expired') AS expired,
+                    SUM(status = 'pending_approval') AS pending_approval
+                FROM jobber_reconsent_queue
+            ")->fetch(PDO::FETCH_ASSOC);
+
+            echo json_encode([
+                'success' => true,
+                'batch' => $batch,
+                'totals' => $totals,
+            ]);
             break;
 
         default:
@@ -631,7 +712,7 @@ function mapProvinceCode(string $state): string
 
 /**
  * Send a re-consent opt-in email to a contact.
- * Mirrors sendOptInEmail() from optin.php but self-contained.
+ * Uses two email variants: current client (warm) vs inactive (re-engagement).
  */
 function sendReconsentEmail(PDO $db, int $contactId): array
 {
@@ -664,22 +745,43 @@ function sendReconsentEmail(PDO $db, int $contactId): array
            ->execute([$contactId, $contact['email'], $rawToken, $expiresAt]);
     }
 
+    // Determine if this is a current client (visited in last 12 months)
+    $isCurrent = isCurrentClient($db, $contactId);
+
     $baseUrl    = defined('SITE_URL') ? SITE_URL : 'https://mowology.ca';
-    $confirmUrl = $baseUrl . '/crm/api/optin-confirm.php?token=' . urlencode($rawToken);
+    $confirmUrl = $baseUrl . '/optin-confirm.php?token=' . urlencode($rawToken);
     $firstName  = $contact['first_name'] ?: 'Valued Customer';
 
-    $subject = 'Please confirm your email preferences — Mowology Landscaping';
-    $body = '<h2>Hi ' . htmlspecialchars($firstName) . ',</h2>
-<p>We\'ve recently upgraded our marketing system and want to make sure you still want to hear from us.</p>
-<p>We send occasional updates about seasonal services, special offers, and landscaping tips tailored to your property.</p>
+    // Build variant-specific email
+    if ($isCurrent) {
+        $subject = 'Stay in the loop — Mowology Landscaping';
+        $body = '<h2>Hi ' . htmlspecialchars($firstName) . ',</h2>
+<p>As a valued Mowology client, we want to make sure you\'re getting the most out of our services.</p>
+<p>We occasionally send updates about seasonal care tips, scheduling reminders, and exclusive offers for existing clients.</p>
+<p>To keep receiving these updates, just confirm below:</p>
 <p style="margin:24px 0;">
   <a href="' . htmlspecialchars($confirmUrl) . '"
      style="background:#2D8659;color:#fff;padding:14px 28px;text-decoration:none;border-radius:6px;font-size:16px;font-weight:600;display:inline-block;">
-    ✓ Yes, keep me subscribed
+    Yes, keep me subscribed
   </a>
 </p>
-<p style="color:#666;font-size:13px;">If you do not wish to receive marketing emails, simply ignore this message. You can always unsubscribe at any time.</p>
+<p style="color:#666;font-size:13px;">If you prefer not to receive these updates, simply ignore this email. Your service schedule is not affected either way.</p>
 <p style="color:#666;font-size:13px;">This link expires in 30 days.</p>';
+    } else {
+        $subject = 'We\'d love to hear from you — Mowology Landscaping';
+        $body = '<h2>Hi ' . htmlspecialchars($firstName) . ',</h2>
+<p>It\'s been a while since we last worked together, and we wanted to reach out.</p>
+<p>Spring is here and our crews are gearing up for the season. Whether you need lawn care, garden maintenance, hedge trimming, or a fresh landscape design, we\'d love to help again.</p>
+<p>If you\'d like to stay on our list for seasonal offers and updates, just confirm below:</p>
+<p style="margin:24px 0;">
+  <a href="' . htmlspecialchars($confirmUrl) . '"
+     style="background:#2D8659;color:#fff;padding:14px 28px;text-decoration:none;border-radius:6px;font-size:16px;font-weight:600;display:inline-block;">
+    Yes, keep me subscribed
+  </a>
+</p>
+<p style="color:#666;font-size:13px;">If you\'re no longer interested, simply ignore this email and you won\'t hear from us again.</p>
+<p style="color:#666;font-size:13px;">This link expires in 30 days.</p>';
+    }
 
     require_once CRM_INCLUDES . '/messaging.php';
     $displayName = trim($contact['first_name'] . ' ' . ($contact['last_name'] ?? ''));
@@ -691,5 +793,65 @@ function sendReconsentEmail(PDO $db, int $contactId): array
 
     $db->prepare("UPDATE marketing_optin_tokens SET sent_at=NOW() WHERE token=?")->execute([$rawToken]);
 
-    return ['success' => true, 'contact_id' => $contactId];
+    return ['success' => true, 'contact_id' => $contactId, 'variant' => $isCurrent ? 'current' : 'inactive'];
+}
+
+/**
+ * Check if a contact is a current client (has visits in the last 12 months).
+ */
+function isCurrentClient(PDO $db, int $contactId): bool
+{
+    try {
+        // Check via properties → job_plans → job_visits
+        $stmt = $db->prepare("
+            SELECT 1
+            FROM properties p
+            JOIN job_plans jp ON jp.property_id = p.id
+            JOIN job_visits jv ON jv.plan_id = jp.id
+            WHERE p.site_contact_id = ?
+              AND jv.scheduled_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
+            LIMIT 1
+        ");
+        $stmt->execute([$contactId]);
+        return (bool)$stmt->fetchColumn();
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+
+/**
+ * Compute sort_priority for a queue entry based on current-client status and FSA.
+ * Lower number = higher priority. North Van (V7G-R) and West Van (V7S-W) are
+ * no longer serviced — deprioritized.
+ *   Current client + Vancouver east (core) = 1
+ *   Current client + Vancouver west        = 2
+ *   Current client + Burnaby/Richmond      = 3
+ *   Current client + elsewhere (still BC)  = 4
+ *   Inactive + same tiers                  = 11..14
+ *   Any North/West Vancouver (not serviced)= 90..91
+ */
+function computeSortPriority(bool $isCurrent, ?string $fsa): int
+{
+    // Vancouver east (core service hub, Main/Knight/Fraser corridors)
+    $coreFsas = ['V5K','V5L','V5M','V5N','V5P','V5R','V5S','V5T','V5V','V5W','V5X'];
+    // Vancouver west (Kitsilano, Point Grey, Kerrisdale, Marpole)
+    $nearFsas = ['V6H','V6J','V6K','V6L','V6M','V6N','V6P','V6R','V6S','V6T'];
+    // Inner Burnaby + Richmond (still serviceable)
+    $extendedFsas = ['V5A','V5B','V5C','V5E','V5G','V5H','V5J','V6A','V6B','V6C','V6E','V6G','V6Z','V7C','V7E','V7Y'];
+    // No longer serviced — North Van (V7G-V7R) + West Van (V7S-V7W)
+    $noService = ['V7G','V7H','V7J','V7K','V7L','V7M','V7N','V7P','V7R','V7S','V7T','V7V','V7W'];
+
+    $fsaUp = $fsa ? strtoupper($fsa) : null;
+
+    // Deprioritize non-serviced areas heavily (even if current-ish)
+    if ($fsaUp && in_array($fsaUp, $noService)) {
+        return $isCurrent ? 90 : 91;
+    }
+
+    $base = $isCurrent ? 0 : 10;
+
+    if ($fsaUp && in_array($fsaUp, $coreFsas))     return $base + 1;
+    if ($fsaUp && in_array($fsaUp, $nearFsas))     return $base + 2;
+    if ($fsaUp && in_array($fsaUp, $extendedFsas)) return $base + 3;
+    return $base + 4;
 }

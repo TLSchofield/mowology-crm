@@ -17,6 +17,7 @@ header('Cache-Control: no-store');
 requireLogin();
 requirePermission('admin');
 $user = getCurrentUser();
+session_write_close();
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);

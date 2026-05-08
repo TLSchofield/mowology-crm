@@ -95,7 +95,7 @@ $activePage = 'marketing';
             </div>
             <div class="card">
               <div class="card-body p-0">
-                <table class="table table-hover mb-0" id="referrersTable">
+                <table class="mw-table" id="referrersTable">
                   <thead class="thead-light">
                     <tr>
                       <th>Client</th>
@@ -130,7 +130,7 @@ $activePage = 'marketing';
             </div>
             <div class="card">
               <div class="card-body p-0">
-                <table class="table table-hover mb-0" id="referralsTable">
+                <table class="mw-table" id="referralsTable">
                   <thead class="thead-light">
                     <tr>
                       <th>Referrer</th>

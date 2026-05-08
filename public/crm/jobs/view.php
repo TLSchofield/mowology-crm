@@ -415,29 +415,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         $newDate = $_POST['visit_date'] ?? '';
         $newTimeStart = !empty($_POST['visit_time_start']) ? $_POST['visit_time_start'] : null;
         $newTimeEnd = !empty($_POST['visit_time_end']) ? $_POST['visit_time_end'] : null;
-        $newCrewId = !empty($_POST['visit_crew_id']) ? intval($_POST['visit_crew_id']) : null;
+        $newCrewIds = !empty($_POST['visit_crew_ids']) && is_array($_POST['visit_crew_ids'])
+            ? array_values(array_filter(array_map('intval', $_POST['visit_crew_ids']), function($id) { return $id > 0; }))
+            : [];
 
         if ($visitId && $newDate) {
-            $moved = moveVisit($visitId, $newDate, $newTimeStart, $user['id']);
+            moveVisit($visitId, $newDate, $newTimeStart, $user['id']);
 
-            // Also update time end and crew
-            $updates = [];
-            $updateParams = [];
             if ($newTimeEnd !== null) {
-                $updates[] = "scheduled_time_end = ?";
-                $updateParams[] = $newTimeEnd;
+                $stmt = $db->prepare("UPDATE job_visits SET scheduled_time_end = ? WHERE id = ?");
+                $stmt->execute([$newTimeEnd, $visitId]);
             }
-            if ($newCrewId !== null) {
-                $updates[] = "assigned_crew_id = ?";
-                $updateParams[] = $newCrewId;
-            } elseif (isset($_POST['visit_crew_id']) && $_POST['visit_crew_id'] === '') {
-                $updates[] = "assigned_crew_id = NULL";
-            }
-            if (!empty($updates)) {
-                $updateParams[] = $visitId;
-                $stmt = $db->prepare("UPDATE job_visits SET " . implode(', ', $updates) . " WHERE id = ?");
-                $stmt->execute($updateParams);
-            }
+
+            setVisitCrewAssignments($visitId, $newCrewIds);
 
             header("Location: view.php?id={$planId}&visit_updated=1");
             exit;
@@ -450,6 +440,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
 // ── Load Plan Data ───────────────────────────────────────────────────
 
 $plan = getPlanDetails($planId);
+$TAX_RATE = 0.05;   // BC GST — price_per_visit is stored gross (incl. tax)
 
 if (!$plan) {
     header('Location: index.php');
@@ -481,6 +472,18 @@ $profitability = getPlanProfitability($planId);
 
 // Get visits
 $visits = getPlanVisits($planId, null, 200, 0);
+
+// Batch-load multi-crew assignments for all visits
+$visitCrewMap = [];
+if (!empty($visits)) {
+    $visitIds = array_column($visits, 'id');
+    $placeholders = implode(',', array_fill(0, count($visitIds), '?'));
+    $vcStmt = $db->prepare("SELECT vca.visit_id, vca.user_id, vca.role, u.full_name FROM visit_crew_assignments vca JOIN users u ON vca.user_id = u.id WHERE vca.visit_id IN ($placeholders) ORDER BY FIELD(vca.role,'lead','crew')");
+    $vcStmt->execute($visitIds);
+    foreach ($vcStmt->fetchAll(PDO::FETCH_ASSOC) as $vcRow) {
+        $visitCrewMap[$vcRow['visit_id']][] = $vcRow;
+    }
+}
 
 // Get plan line items
 $planLineItems = getPlanLineItems($planId);
@@ -960,9 +963,9 @@ if ($hasPropCoords) {
                                 </span>
                             </div>
                             <div class="mw-detail-row">
-                                <span class="mw-detail-label">Price / Visit</span>
+                                <span class="mw-detail-label">Price / Visit <small class="text-muted">(excl. GST)</small></span>
                                 <span class="mw-detail-value">
-                                    <?php echo $plan['price_per_visit'] ? formatCurrency($plan['price_per_visit']) : 'N/A'; ?>
+                                    <?php echo $plan['price_per_visit'] ? formatCurrency($plan['price_per_visit'] / (1 + $TAX_RATE)) : 'N/A'; ?>
                                 </span>
                             </div>
                             <div class="mw-detail-row">
@@ -1288,7 +1291,7 @@ if ($hasPropCoords) {
                         </div>
                     <?php else: ?>
                         <div class="table-responsive">
-                            <table class="table table-hover mb-0" id="visitsTable">
+                            <table class="mw-table" id="visitsTable">
                                 <thead>
                                     <tr>
                                         <th>Visit #</th>
@@ -1331,7 +1334,17 @@ if ($hasPropCoords) {
                                                 <?php endif; ?>
                                             </td>
                                             <td>
-                                                <?php echo htmlspecialchars($visit['crew_name'] ?? 'Unassigned'); ?>
+                                                <?php
+                                                $vCrew = $visitCrewMap[$visit['id']] ?? [];
+                                                if (!empty($vCrew)) {
+                                                    $names = array_column($vCrew, 'full_name');
+                                                    echo htmlspecialchars(count($names) > 2
+                                                        ? $names[0] . ' +' . (count($names) - 1)
+                                                        : implode(', ', $names));
+                                                } else {
+                                                    echo htmlspecialchars($visit['crew_name'] ?? 'Unassigned');
+                                                }
+                                                ?>
                                             </td>
                                             <td>
                                                 <?php if ($visit['status'] === 'completed' && empty($visit['invoice_id']) && empty($plan['contract_id'])): ?>
@@ -1360,7 +1373,7 @@ if ($hasPropCoords) {
                                                 <?php if ($visit['actual_amount']): ?>
                                                     <?php echo formatCurrency($visit['actual_amount']); ?>
                                                 <?php elseif ($plan['price_per_visit']): ?>
-                                                    <span class="text-muted"><?php echo formatCurrency($plan['price_per_visit']); ?></span>
+                                                    <span class="text-muted"><?php echo formatCurrency($plan['price_per_visit'] / (1 + $TAX_RATE)); ?></span>
                                                 <?php else: ?>
                                                     <span class="text-muted">-</span>
                                                 <?php endif; ?>
@@ -1368,7 +1381,7 @@ if ($hasPropCoords) {
                                             <td class="text-right">
                                                 <?php if ($visit['status'] === 'scheduled'): ?>
                                                     <button type="button" class="btn btn-sm btn-outline-primary"
-                                                            onclick="openEditVisitModal(<?php echo (int)$visit['id']; ?>, '<?php echo htmlspecialchars($visit['visit_number'], ENT_QUOTES); ?>', '<?php echo $visit['scheduled_date']; ?>', '<?php echo $visit['scheduled_time_start'] ?? ''; ?>', '<?php echo $visit['scheduled_time_end'] ?? ''; ?>', '<?php echo $visit['assigned_crew_id'] ?? ''; ?>')"
+                                                            onclick="openEditVisitModal(<?php echo (int)$visit['id']; ?>, '<?php echo htmlspecialchars($visit['visit_number'], ENT_QUOTES); ?>', '<?php echo $visit['scheduled_date']; ?>', '<?php echo $visit['scheduled_time_start'] ?? ''; ?>', '<?php echo $visit['scheduled_time_end'] ?? ''; ?>')"
                                                             title="Edit visit">
                                                         <i data-feather="edit-2" style="width: 12px; height: 12px;"></i>
                                                     </button>
@@ -1408,7 +1421,7 @@ if ($hasPropCoords) {
                                                         <?php echo $visit['completed_at'] ? formatDateTime($visit['completed_at']) : ''; ?>
                                                     </span>
                                                     <button type="button" class="btn btn-sm btn-outline-secondary"
-                                                            onclick="openEditVisitModal(<?php echo (int)$visit['id']; ?>, '<?php echo htmlspecialchars($visit['visit_number'], ENT_QUOTES); ?>', '<?php echo $visit['scheduled_date']; ?>', '<?php echo $visit['scheduled_time_start'] ?? ''; ?>', '<?php echo $visit['scheduled_time_end'] ?? ''; ?>', '<?php echo $visit['assigned_crew_id'] ?? ''; ?>')"
+                                                            onclick="openEditVisitModal(<?php echo (int)$visit['id']; ?>, '<?php echo htmlspecialchars($visit['visit_number'], ENT_QUOTES); ?>', '<?php echo $visit['scheduled_date']; ?>', '<?php echo $visit['scheduled_time_start'] ?? ''; ?>', '<?php echo $visit['scheduled_time_end'] ?? ''; ?>')"
                                                             title="Edit visit">
                                                         <i data-feather="edit-2" style="width: 12px; height: 12px;"></i>
                                                     </button>
@@ -1488,6 +1501,85 @@ if ($hasPropCoords) {
                     </div>
                 </div>
                 <?php endif; ?>
+            </div>
+
+            <!-- ══════════════════════════════════════════════════════
+                 Photos Section — all photos from this plan's visits
+                 ══════════════════════════════════════════════════════ -->
+            <?php
+            $planPhotos = [];
+            try {
+                $pStmt = $db->prepare("
+                    SELECT vp.id, vp.visit_id, vp.photo_type, vp.filename, vp.caption,
+                           vp.thumb_path, vp.grid_path, vp.view_path,
+                           vp.uploaded_at, vp.uploaded_by_name,
+                           jv.scheduled_date, jv.status AS visit_status
+                    FROM visit_photos vp
+                    JOIN job_visits jv ON jv.id = vp.visit_id
+                    WHERE jv.plan_id = ?
+                      AND vp.deleted_at IS NULL
+                    ORDER BY jv.scheduled_date DESC, vp.uploaded_at ASC
+                    LIMIT 60
+                ");
+                $pStmt->execute([$planId]);
+                $planPhotos = $pStmt->fetchAll(PDO::FETCH_ASSOC);
+            } catch (Throwable $e) { $planPhotos = []; }
+
+            // Group by visit date for visual grouping
+            $photosByDate = [];
+            foreach ($planPhotos as $ph) {
+                $date = $ph['scheduled_date'] ?: 'undated';
+                if (!isset($photosByDate[$date])) $photosByDate[$date] = [];
+                $photosByDate[$date][] = $ph;
+            }
+            ?>
+            <div class="card mb-4" id="planPhotosCard">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">
+                        <i data-feather="camera" style="width:15px;height:15px;vertical-align:-2px;margin-right:4px;"></i>
+                        Photos
+                        <?php if (!empty($planPhotos)): ?>
+                            <span class="badge badge-secondary ml-2"><?php echo count($planPhotos); ?></span>
+                        <?php endif; ?>
+                    </h5>
+                    <?php if (!empty($planPhotos)): ?>
+                    <a href="/crm/photos_appstack.php?plan_id=<?php echo (int)$planId; ?>" class="btn btn-sm btn-outline-secondary">
+                        <i data-feather="external-link" style="width:13px;height:13px;"></i> View all
+                    </a>
+                    <?php endif; ?>
+                </div>
+                <div class="card-body">
+                    <?php if (empty($planPhotos)): ?>
+                        <div class="text-center text-muted py-3">
+                            <i data-feather="image" style="width:28px;height:28px;opacity:0.5;"></i>
+                            <p class="mt-2 mb-0 small">No photos uploaded for this job yet.</p>
+                            <p class="small text-muted">Photos taken by crew during visits will appear here.</p>
+                        </div>
+                    <?php else: ?>
+                        <?php foreach ($photosByDate as $date => $dayPhotos): ?>
+                            <div class="mw-plan-photo-day mb-3">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <strong class="text-muted small text-uppercase" style="letter-spacing:0.5px;">
+                                        <?php echo $date === 'undated' ? 'No date' : date('D, M j, Y', strtotime($date)); ?>
+                                    </strong>
+                                    <span class="text-muted small"><?php echo count($dayPhotos); ?> photo<?php echo count($dayPhotos) === 1 ? '' : 's'; ?></span>
+                                </div>
+                                <div class="mw-plan-photo-grid">
+                                    <?php foreach ($dayPhotos as $ph):
+                                        $url = $ph['thumb_path'] ?: $ph['grid_path'] ?: ('/uploads/photos/' . $ph['filename']);
+                                        $fullUrl = $ph['view_path'] ?: ('/uploads/photos/' . $ph['filename']);
+                                        $typeLabel = ucfirst($ph['photo_type'] ?? 'other');
+                                    ?>
+                                    <a href="<?php echo h($fullUrl); ?>" target="_blank" class="mw-plan-photo-tile" title="<?php echo h($typeLabel); ?> &middot; <?php echo h($ph['uploaded_by_name'] ?? 'Crew'); ?>">
+                                        <img src="<?php echo h($url); ?>" alt="" loading="lazy">
+                                        <span class="mw-plan-photo-badge mw-pp-<?php echo h($ph['photo_type']); ?>"><?php echo h($typeLabel); ?></span>
+                                    </a>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </div>
             </div>
 
             <!-- ══════════════════════════════════════════════════════
@@ -2058,6 +2150,9 @@ if ($hasPropCoords) {
                         </div>
                     </div>
 
+                    <!-- Route Intelligence Hint — populated by JS on DOW/crew change -->
+                    <div id="editRouteHint" style="display:none;"></div>
+
                     <!-- Custom unit picker -->
                     <div id="editCustomUnitWrap" style="<?php echo $editIsCustom ? '' : 'display:none;'; ?>" class="mb-2">
                         <select name="recurrence_interval_unit" id="editRecurrenceUnit" class="form-control form-control-sm" style="width:140px;">
@@ -2314,12 +2409,23 @@ if ($hasPropCoords) {
                 </div>
                 <div class="form-group">
                     <label class="form-label">Crew</label>
-                    <select name="visit_crew_id" id="editVisitCrew" class="form-control">
-                        <option value="">Unassigned</option>
-                        <?php foreach ($staff as $s): ?>
-                            <option value="<?php echo $s['id']; ?>"><?php echo htmlspecialchars($s['full_name']); ?></option>
-                        <?php endforeach; ?>
-                    </select>
+                    <div class="mw-crew-wrapper">
+                        <div class="mw-crew-chips" id="visitEditCrewChips">
+                            <button type="button" class="mw-crew-add-btn" onclick="visitEditToggleCrewDropdown()">+ Assign</button>
+                        </div>
+                        <div class="mw-crew-dropdown" id="visitEditCrewDropdown">
+                            <?php foreach ($staff as $s): ?>
+                                <div class="mw-crew-dropdown-item"
+                                     data-id="<?php echo (int)$s['id']; ?>"
+                                     data-name="<?php echo htmlspecialchars($s['full_name'], ENT_QUOTES); ?>"
+                                     onclick="visitEditAssignCrew(<?php echo (int)$s['id']; ?>, this.dataset.name)">
+                                    <?php echo htmlspecialchars($s['full_name']); ?>
+                                    <small class="text-muted"><?php echo htmlspecialchars($s['role']); ?></small>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                    <small class="text-muted">First person assigned is the crew lead.</small>
                 </div>
 
                 <div class="mw-modal-actions">
@@ -2406,6 +2512,10 @@ if ($hasPropCoords) {
             });
         });
 
+        // Property coordinates (used by route hint)
+        var PLAN_PROP_LAT = <?php echo (float)($plan['latitude']  ?? 0); ?>;
+        var PLAN_PROP_LNG = <?php echo (float)($plan['longitude'] ?? 0); ?>;
+
         // ── Contract value from server ────────────────────────
         var editContractTotal = <?php echo json_encode($contractTotal); ?>; // null or float (raw per-cycle amount)
         var editContractLabel = <?php echo json_encode($contractLabel); ?>; // "CTR-2026-0001" etc.
@@ -2459,6 +2569,7 @@ if ($hasPropCoords) {
                 editUpdateSummaryText();
                 editCalcContractHelper();
                 editUpdateRevenuePreview();
+                editRouteHintUpdate(d);
             });
         });
 
@@ -2580,6 +2691,65 @@ if ($hasPropCoords) {
             container.innerHTML = html;
             document.getElementById('editDefaultCrewIdHidden').value = editAssignedCrew.length > 0 ? editAssignedCrew[0].id : '';
             editUpdateRevenuePreview();
+            editRouteHintUpdate();
+        }
+
+        // ── Route Intelligence Hint ───────────────────────────────
+        var editHintTimer = null;
+
+        function editRouteHintUpdate(clickedDow) {
+            var dow = (clickedDow !== undefined && clickedDow !== null)
+                ? clickedDow
+                : (editSelectedDows.length > 0 ? editSelectedDows[0] : null);
+
+            var el = document.getElementById('editRouteHint');
+            if (dow === null || dow === undefined || !el) return;
+
+            if (editHintTimer) clearTimeout(editHintTimer);
+            editHintTimer = setTimeout(function() { editRouteHintFetch(dow); }, 250);
+        }
+
+        function editRouteHintFetch(dow) {
+            var el = document.getElementById('editRouteHint');
+            if (!el) return;
+            el.innerHTML = '<span class="mw-route-hint-loading">Checking route…</span>';
+            el.style.display = 'block';
+
+            var url = '/crm/api/route-day-hint.php?dow=' + dow
+                + '&prop_lat=' + PLAN_PROP_LAT
+                + '&prop_lng=' + PLAN_PROP_LNG;
+            var crewId = editAssignedCrew.length > 0 ? editAssignedCrew[0].id : null;
+            if (crewId) url += '&crew_id=' + crewId;
+
+            fetch(url, { credentials: 'same-origin' })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (!data || !data.success) { el.style.display = 'none'; return; }
+                    editRouteHintRender(el, data);
+                })
+                .catch(function() { el.style.display = 'none'; });
+        }
+
+        function editRouteHintRender(el, data) {
+            if (!data.stop_count || data.feasibility === 'empty') {
+                el.innerHTML = '<div class="mw-route-hint mw-route-hint-empty">'
+                    + '<span class="mw-route-hint-dot"></span>'
+                    + 'No stops scheduled on ' + escHtml(data.date_label) + ' yet'
+                    + '</div>';
+                el.style.display = 'block';
+                return;
+            }
+            var stops = data.stop_count === 1 ? '1 stop' : data.stop_count + ' stops';
+            var load  = Math.round(data.day_load_pct) + '% day load';
+            var near  = data.nearest_km !== null
+                ? ' · ' + (data.nearest_km < 1 ? '< 1km' : data.nearest_km.toFixed(1) + 'km') + ' to nearest'
+                : '';
+            el.innerHTML = '<div class="mw-route-hint mw-route-hint-' + data.feasibility + '">'
+                + '<span class="mw-route-hint-dot"></span>'
+                + '<strong>' + escHtml(data.date_label) + '</strong>: '
+                + stops + ' · ' + load + near
+                + '</div>';
+            el.style.display = 'block';
         }
 
         // ── Contract Rate Calculator ──────────────────────────────
@@ -2869,16 +3039,75 @@ if ($hasPropCoords) {
         });
 
         // ── Edit Visit modal ────────────────────────────────
-        function openEditVisitModal(visitId, visitNumber, date, timeStart, timeEnd, crewId) {
+        var visitCrewData = <?php
+            $visitCrewJs = [];
+            foreach ($visits as $v) {
+                $vCrew = $visitCrewMap[$v['id']] ?? [];
+                if (empty($vCrew) && !empty($v['assigned_crew_id'])) {
+                    $vCrew = [['user_id' => (int)$v['assigned_crew_id'], 'full_name' => $v['crew_name'] ?? '']];
+                }
+                $visitCrewJs[(int)$v['id']] = array_map(function($c) {
+                    return ['id' => (int)$c['user_id'], 'name' => $c['full_name']];
+                }, $vCrew);
+            }
+            echo json_encode($visitCrewJs);
+        ?>;
+
+        var visitEditAssignedCrew = [];
+
+        function openEditVisitModal(visitId, visitNumber, date, timeStart, timeEnd) {
             document.getElementById('editVisitId').value = visitId;
             document.getElementById('editVisitNumber').textContent = visitNumber;
             document.getElementById('editVisitDate').value = date;
             document.getElementById('editVisitTimeStart').value = timeStart || '';
             document.getElementById('editVisitTimeEnd').value = timeEnd || '';
-            var crewSelect = document.getElementById('editVisitCrew');
-            crewSelect.value = crewId || '';
+            visitEditAssignedCrew = visitCrewData[visitId] ? visitCrewData[visitId].slice() : [];
+            visitEditRenderCrewChips();
             showModal('editVisitModal');
         }
+
+        function visitEditToggleCrewDropdown() {
+            var dd = document.getElementById('visitEditCrewDropdown');
+            dd.classList.toggle('show');
+            dd.querySelectorAll('.mw-crew-dropdown-item').forEach(function(item) {
+                var id = parseInt(item.dataset.id);
+                item.classList.toggle('disabled', visitEditAssignedCrew.some(function(c) { return c.id === id; }));
+            });
+        }
+
+        function visitEditAssignCrew(id, name) {
+            if (visitEditAssignedCrew.some(function(c) { return c.id === id; })) return;
+            visitEditAssignedCrew.push({ id: id, name: name });
+            visitEditRenderCrewChips();
+            document.getElementById('visitEditCrewDropdown').classList.remove('show');
+        }
+
+        function visitEditRemoveCrew(id) {
+            visitEditAssignedCrew = visitEditAssignedCrew.filter(function(c) { return c.id !== id; });
+            visitEditRenderCrewChips();
+        }
+
+        function visitEditRenderCrewChips() {
+            var container = document.getElementById('visitEditCrewChips');
+            var html = '';
+            visitEditAssignedCrew.forEach(function(c, idx) {
+                var isLead = (idx === 0);
+                html += '<span class="mw-crew-chip ' + (isLead ? 'mw-crew-lead' : '') + '">' +
+                    escHtml(c.name) + (isLead ? ' (Lead)' : '') +
+                    '<button type="button" class="mw-crew-chip-remove" onclick="visitEditRemoveCrew(' + c.id + ')">&times;</button>' +
+                    '<input type="hidden" name="visit_crew_ids[]" value="' + c.id + '">' +
+                    '</span>';
+            });
+            html += '<button type="button" class="mw-crew-add-btn" onclick="visitEditToggleCrewDropdown()">+ Assign</button>';
+            container.innerHTML = html;
+        }
+
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('#visitEditCrewChips') && !e.target.closest('#visitEditCrewDropdown')) {
+                var dd = document.getElementById('visitEditCrewDropdown');
+                if (dd) dd.classList.remove('show');
+            }
+        });
 
         // ── Edit Line Items ─────────────────────────────────
         var editItemIndex = <?php echo count($planLineItems); ?>;
@@ -3114,7 +3343,7 @@ if ($hasPropCoords) {
                     // JSON.stringify uses raw " which breaks HTML attribute parsing — replace with &quot;
                     function qj(v) { return JSON.stringify(String(v == null ? '' : v)).replace(/"/g, '&quot;'); }
 
-                    var html = '<div class="table-responsive"><table class="table table-sm mb-0">' +
+                    var html = '<div class="table-responsive"><table class="mw-table">' +
                         '<thead class="thead-light"><tr>' +
                         '<th>Visit</th><th>Crew Member</th><th>Clock In</th><th>Clock Out</th><th class="text-right">Duration</th><th>Status</th>' +
                         (CAN_EDIT ? '<th></th>' : '') +
@@ -3378,7 +3607,7 @@ if ($hasPropCoords) {
                                 '</tr>';
                         }).join('');
 
-                        body.innerHTML = '<div class="table-responsive"><table class="table table-sm mb-0">' +
+                        body.innerHTML = '<div class="table-responsive"><table class="mw-table">' +
                             '<thead class="thead-light"><tr>' +
                             '<th>Date</th><th>Vendor</th><th>Category</th>' +
                             '<th class="text-right">Total</th><th>Status</th>' +
@@ -3436,6 +3665,18 @@ if ($hasPropCoords) {
             };
 
             loadJobExpenses();
+        })();
+
+        // Pre-load route hint for the already-selected day when modal first opens
+        (function() {
+            var editBtn = document.querySelector('[onclick="showModal(\'editPlanModal\')"]');
+            if (editBtn) {
+                editBtn.addEventListener('click', function() {
+                    if (editSelectedDows.length > 0) {
+                        editRouteHintUpdate(editSelectedDows[0]);
+                    }
+                });
+            }
         })();
     </script>
 

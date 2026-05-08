@@ -1,9 +1,13 @@
 <?php
 require_once __DIR__ . '/auth.php';
 
-// If already logged in, go to app launch
+header('Cache-Control: no-store, no-cache, must-revalidate');
+header('Pragma: no-cache');
+
+// If already logged in, route to the correct portal
 if (isLoggedIn()) {
-    header('Location: /crm/app-launch.php');
+    $u = getCurrentUser();
+    header('Location: ' . (!empty($u['is_driver']) ? '/crm/driver-portal.php' : '/crm/app-launch.php'));
     exit();
 }
 
@@ -26,7 +30,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Too many login attempts. Please try again in a few minutes.';
         } else {
             if (loginUser($email, $password)) {
-                header('Location: /crm/app-launch.php');
+                $dest = !empty($_SESSION['user_is_driver']) ? '/crm/driver-portal.php' : '/crm/app-launch.php';
+                header('Location: ' . $dest);
                 exit();
             } else {
                 $error = 'Invalid email or password.';
@@ -356,6 +361,13 @@ $csrf_token = generateCSRFToken();
             font-size: 22px;
             opacity: 0.7;
         }
+        @keyframes banner-pulse {
+            0%, 100% { border-color: #e85d04; box-shadow: 0 2px 12px rgba(232,93,4,0.2); }
+            50%       { border-color: #ff7a1f; box-shadow: 0 2px 20px rgba(232,93,4,0.5); }
+        }
+        .app-banner-urgent {
+            animation: banner-pulse 2s ease-in-out infinite;
+        }
     </style>
 </head>
 <body>
@@ -365,18 +377,18 @@ $csrf_token = generateCSRFToken();
             <div class="tagline">Client Management System</div>
         </div>
         
+        <div id="appBanner" class="app-banner" style="display:none;">
+            <div class="app-banner-icon" id="bannerIcon"></div>
+            <div class="app-banner-text">
+                <span class="app-banner-label" id="bannerLabel"></span>
+                <div class="app-banner-title" id="bannerTitle"></div>
+                <div class="app-banner-desc" id="bannerDesc"></div>
+            </div>
+            <div class="app-banner-arrow" id="bannerArrow"></div>
+        </div>
+
         <form class="login-form" method="POST" action="">
             <h2 class="form-title">Welcome Back</h2>
-
-            <a href="/crm/downloads/mowology-crew.apk" id="appBanner" class="app-banner" download>
-                <div class="app-banner-icon">🤖</div>
-                <div class="app-banner-text">
-                    <span class="app-banner-label">Android App</span>
-                    <div class="app-banner-title">Download Mowology Crew App</div>
-                    <div class="app-banner-desc">Install the native Android app for GPS tracking &amp; time clock</div>
-                </div>
-                <div class="app-banner-arrow">⬇</div>
-            </a>
 
             <?php if ($error): ?>
                 <div class="error-message"><?php echo htmlspecialchars($error); ?></div>
@@ -385,15 +397,15 @@ $csrf_token = generateCSRFToken();
             <input type="hidden" name="csrf_token" value="<?php echo $csrf_token; ?>">
             
             <div class="form-group">
-                <label class="form-label" for="email">Email Address</label>
-                <input 
-                    type="email" 
-                    id="email" 
-                    name="email" 
-                    class="form-input" 
-                    required 
-                    autocomplete="email"
-                    placeholder="your@email.com"
+                <label class="form-label" for="email">Email or Username</label>
+                <input
+                    type="text"
+                    id="email"
+                    name="email"
+                    class="form-input"
+                    required
+                    autocomplete="username"
+                    placeholder="your@email.com or username"
                     value="<?php echo isset($_POST['email']) ? htmlspecialchars($_POST['email']) : ''; ?>"
                 >
             </div>
@@ -424,62 +436,116 @@ $csrf_token = generateCSRFToken();
 (function() {
     'use strict';
     var ua = navigator.userAgent || '';
-    var isAndroid = /Android/i.test(ua);
-    var isCapacitor = window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform();
+    var isAndroid  = /Android/i.test(ua);
+    var isCapacitor = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
     var banner = document.getElementById('appBanner');
 
-    // Helper: compare semver strings — returns true if b > a
-    function isNewer(a, b) {
+    // semver compare — returns 1 if a > b, -1 if a < b, 0 if equal
+    function semverCmp(a, b) {
         var pa = (a || '0').split('.').map(Number);
         var pb = (b || '0').split('.').map(Number);
         for (var i = 0; i < 3; i++) {
-            if ((pb[i] || 0) > (pa[i] || 0)) return true;
-            if ((pb[i] || 0) < (pa[i] || 0)) return false;
+            if ((pa[i] || 0) > (pb[i] || 0)) return 1;
+            if ((pa[i] || 0) < (pb[i] || 0)) return -1;
         }
-        return false;
+        return 0;
     }
 
-    function showUpdateBanner(latestVersion, apkUrl, releaseNotes) {
-        // Mutate the banner into an "update available" style
-        banner.querySelector('.app-banner-label').textContent = 'Update Available';
-        banner.querySelector('.app-banner-title').textContent = 'New version ' + latestVersion + ' ready';
-        banner.querySelector('.app-banner-desc').textContent = releaseNotes || 'Tap to download and install the update.';
-        banner.querySelector('.app-banner-icon').textContent = '⬆️';
-        banner.href = apkUrl;
-        banner.setAttribute('download', '');
-        banner.style.borderColor = '#e85d04'; // orange accent for urgency
+    var _apkUrl = '/crm/downloads/mowology-crew.apk';
+
+    // Tap handler — only active on update-available and download banners
+    window.handleAppBannerClick = function() {
+        window.location.href = 'https://mowology.ca' + _apkUrl;
+    };
+
+    // State: up-to-date (non-interactive, reassuring)
+    function showUpToDateBanner(version) {
+        banner.querySelector('#bannerIcon').textContent = '✓';
+        banner.querySelector('#bannerLabel').textContent = 'Mowology Crew';
+        banner.querySelector('#bannerTitle').textContent = 'Up to date — v' + version;
+        banner.querySelector('#bannerDesc').textContent = 'You are running the latest version.';
+        banner.querySelector('#bannerArrow').textContent = '';
+        banner.style.borderColor = '#2D8659';
+        banner.style.opacity = '0.85';
+        banner.style.cursor = 'default';
+        banner.removeAttribute('onclick');
         banner.style.display = 'flex';
     }
 
-    function showDownloadBanner() {
-        // Standard "install the app" banner for browser users
-        if (banner) banner.style.display = 'flex';
+    // State: update required (prominent, actionable)
+    function showUpdateBanner(latestVersion, apkUrl, releaseNotes) {
+        _apkUrl = apkUrl || _apkUrl;
+        banner.querySelector('#bannerIcon').textContent = '⬆';
+        banner.querySelector('#bannerLabel').textContent = 'Update Required';
+        banner.querySelector('#bannerTitle').textContent = 'Version ' + latestVersion + ' is available';
+        banner.querySelector('#bannerDesc').textContent = releaseNotes || 'Tap to download and install the update now.';
+        banner.querySelector('#bannerArrow').textContent = '›';
+        banner.style.borderColor = '#e85d04';
+        banner.style.opacity = '1';
+        banner.style.cursor = 'pointer';
+        banner.setAttribute('onclick', 'handleAppBannerClick()');
+        banner.style.display = 'flex';
+
+        // Pulse the border to demand attention
+        banner.classList.add('app-banner-urgent');
     }
 
-    // Fetch latest version from server
+    // State: download prompt (Android browser, not yet installed)
+    function showDownloadBanner() {
+        banner.querySelector('#bannerIcon').textContent = '⬇';
+        banner.querySelector('#bannerLabel').textContent = 'Android App';
+        banner.querySelector('#bannerTitle').textContent = 'Install Mowology Crew';
+        banner.querySelector('#bannerDesc').textContent = 'Get the native app for GPS tracking and time clock.';
+        banner.querySelector('#bannerArrow').textContent = '›';
+        banner.style.borderColor = '';
+        banner.style.opacity = '1';
+        banner.style.cursor = 'pointer';
+        banner.setAttribute('onclick', 'handleAppBannerClick()');
+        banner.style.display = 'flex';
+    }
+
     function checkVersion(installedVersion) {
         fetch('/crm/api/app-version.php', { credentials: 'same-origin' })
             .then(function(r) { return r.ok ? r.json() : null; })
             .then(function(data) {
-                if (!data) return;
-                if (installedVersion && isNewer(installedVersion, data.version)) {
-                    showUpdateBanner(data.version, data.apk_url, data.release_notes);
-                } else if (!installedVersion && isAndroid && !isCapacitor) {
+                if (!data || !data.version) return;
+
+                if (installedVersion === null) {
+                    // Android browser — no installed version, just offer download
                     showDownloadBanner();
+                    return;
+                }
+
+                var cmp = semverCmp(installedVersion, data.version);
+                if (cmp < 0) {
+                    // Installed is older than server — demand update
+                    showUpdateBanner(data.version, data.apk_url, data.release_notes);
+                } else {
+                    // Installed is same or newer — reassure
+                    showUpToDateBanner(installedVersion);
                 }
             })
             .catch(function() {
-                // Network error — fall back to simple logic
-                if (isAndroid && !isCapacitor) showDownloadBanner();
+                if (!isCapacitor && isAndroid) showDownloadBanner();
             });
     }
 
     if (isCapacitor) {
-        // Inside the native app — check if an update is available
-        var installedVersion = (window.MwNative && window.MwNative.appVersion) ? window.MwNative.appVersion : null;
+        // MwNativeAndroid is a JavascriptInterface injected by MainActivity into ALL
+        // pages in the WebView — it's available here on the login page directly,
+        // without needing capacitor-bridge.js (which only loads inside /crm/ pages).
+        var installedVersion = (window.MwNativeAndroid && typeof window.MwNativeAndroid.getVersion === 'function')
+            ? window.MwNativeAndroid.getVersion()
+            : null;
+
+        if (installedVersion === null) {
+            // Old APK build without the version interface — demand update immediately.
+            // checkVersion() will refine this once the fetch completes.
+            showUpdateBanner('latest', _apkUrl, 'Please update to the latest version for best performance.');
+        }
+
         checkVersion(installedVersion);
     } else if (isAndroid) {
-        // Android browser — just show the download banner (no installed version to compare)
         checkVersion(null);
     }
 })();

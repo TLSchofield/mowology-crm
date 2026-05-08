@@ -30,6 +30,7 @@ try {
 
     requireLogin();
     $user = getCurrentUser();
+    session_write_close(); // release session lock before DB queries
     requirePermission('expenses.view');
 
     $canEdit = userHasPermission('expenses.edit');
@@ -178,7 +179,7 @@ try {
             throw new Exception('Invalid action: ' . htmlspecialchars($action));
     }
 
-} catch (Exception $e) {
+} catch (Throwable $e) {
     http_response_code(400);
     echo json_encode(['success' => false, 'error' => $e->getMessage()]);
 }
@@ -227,6 +228,21 @@ function handleList(PDO $db): void
 
     $whereClause = implode(' AND ', $where);
 
+    // Sort — whitelist columns to prevent SQL injection
+    $sortableColumns = [
+        'date'     => 'e.expense_date',
+        'vendor'   => 'COALESCE(v.name, e.vendor_name_raw)',
+        'category' => 'e.accounting_category',
+        'total'    => 'e.total',
+        'status'   => 'e.status',
+    ];
+    $sortBy  = $_GET['sort_by']  ?? 'date';
+    $sortDir = strtoupper($_GET['sort_dir'] ?? 'DESC') === 'ASC' ? 'ASC' : 'DESC';
+    $orderCol = $sortableColumns[$sortBy] ?? 'e.expense_date';
+    // Secondary sort for stable ordering within same value
+    $secondary = ($sortBy === 'date') ? ", e.created_at {$sortDir}" : ", e.expense_date DESC";
+    $orderBy = "{$orderCol} {$sortDir}{$secondary}";
+
     // Count total
     $countStmt = $db->prepare("SELECT COUNT(*) FROM expenses e WHERE {$whereClause}");
     $countStmt->execute($params);
@@ -244,7 +260,7 @@ function handleList(PDO $db): void
         LEFT JOIN users u ON u.id = e.created_by
         LEFT JOIN media_assets ma ON ma.id = e.receipt_media_id
         WHERE {$whereClause}
-        ORDER BY e.created_at DESC
+        ORDER BY {$orderBy}
         LIMIT {$perPage} OFFSET {$offset}
     ");
     $stmt->execute($params);

@@ -1,0 +1,112 @@
+/**
+ * Mowology Skeleton Loaders
+ * ══════════════════════════════════════════════════════════════════════
+ * Shimmering gray placeholders for content that hasn't arrived yet.
+ * Intended for:
+ *   - Pull-to-refresh states
+ *   - Ajax content that replaces a list
+ *   - Page-navigation loading gap (JS adds a skeleton overlay on
+ *     pagehide, browser shows it until the new page paints)
+ *
+ * Use
+ *   <div class="mw-skeleton mw-skeleton--text" style="width: 60%"></div>
+ *   <div class="mw-skeleton mw-skeleton--card"></div>
+ *
+ * Container attribute
+ *   <div aria-busy="true">…skeletons…</div>
+ *   (screen readers recognise aria-busy and wait for updates)
+ *
+ * Honours prefers-reduced-motion — shimmer animation disabled for
+ * users who requested reduced motion.
+ */
+
+@keyframes mw-skeleton-shimmer {
+  from { background-position: -200% 0; }
+  to   { background-position: 200% 0; }
+}
+
+.mw-skeleton {
+  display: block;
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(
+    90deg,
+    var(--mw-ink-200, #E5E7EB) 0%,
+    var(--mw-ink-100, #F3F4F6) 50%,
+    var(--mw-ink-200, #E5E7EB) 100%
+  );
+  background-size: 200% 100%;
+  animation: mw-skeleton-shimmer 1.4s ease-in-out infinite;
+  border-radius: var(--mw-radius-sm, 8px);
+  color: transparent;
+  user-select: none;
+  pointer-events: none;
+}
+
+/* ── Common variants ─────────────────────────────────── */
+
+.mw-skeleton--text {
+  height: 0.875rem;
+  border-radius: var(--mw-radius-sm, 8px);
+  margin: 0.25rem 0;
+}
+
+.mw-skeleton--text-lg {
+  height: 1.25rem;
+}
+
+.mw-skeleton--avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+}
+
+.mw-skeleton--card {
+  height: 112px;
+  border-radius: var(--mw-radius-lg, 16px);
+  margin: 0 0 12px 0;
+}
+
+.mw-skeleton--card-lg {
+  height: 196px;
+  border-radius: var(--mw-radius-lg, 16px);
+  margin: 0 0 16px 0;
+}
+
+/* ── Card-list helper — pre-built layout for schedule.php ── */
+
+.mw-skeleton-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+}
+
+/* Stacked card skeletons with staggered animation delays so the
+   shimmer flows down the list instead of pulsing in unison. */
+.mw-skeleton-card-list .mw-skeleton--card:nth-child(2) { animation-delay: 100ms; }
+.mw-skeleton-card-list .mw-skeleton--card:nth-child(3) { animation-delay: 200ms; }
+.mw-skeleton-card-list .mw-skeleton--card:nth-child(4) { animation-delay: 300ms; }
+.mw-skeleton-card-list .mw-skeleton--card:nth-child(5) { animation-delay: 400ms; }
+.mw-skeleton-card-list .mw-skeleton--card:nth-child(6) { animation-delay: 500ms; }
+
+/* ── Reduced motion — freeze the animation ──────────── */
+@media (prefers-reduced-motion: reduce) {
+  .mw-skeleton {
+    animation: none;
+    background: var(--mw-ink-200, #E5E7EB);
+  }
+}
+
+/* ── Dark mode ready (flips background colours) ────── */
+@media (prefers-color-scheme: dark) {
+  .mw-skeleton {
+    background: linear-gradient(
+      90deg,
+      #2a2f36 0%,
+      #3a3f46 50%,
+      #2a2f36 100%
+    );
+    background-size: 200% 100%;
+  }
+}

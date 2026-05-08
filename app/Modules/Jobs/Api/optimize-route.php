@@ -40,8 +40,9 @@ try {
     }
     session_write_close(); // CSRF verified — release session lock before DB work
 
-    $date   = $input['date'];
-    $crewId = isset($input['crew_id']) ? (int)$input['crew_id'] : null;
+    $date       = $input['date'];
+    $crewId     = isset($input['crew_id']) ? (int)$input['crew_id'] : null;
+    $fromStopId = isset($input['from_stop_id']) ? (int)$input['from_stop_id'] : null;
 
     if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
         throw new Exception('Invalid date format');
@@ -95,6 +96,36 @@ try {
         'address' => $s['property_address'] ?? '',
     ], $rows);
 
+    // If from_stop_id is provided, lock stops before it and optimise the rest
+    // from that stop's position (useful for "optimise from here" mid-route).
+    if ($fromStopId !== null) {
+        $fromIdx = null;
+        foreach ($stopData as $i => $s) {
+            if ($s['id'] === $fromStopId) { $fromIdx = $i; break; }
+        }
+
+        if ($fromIdx !== null && $fromIdx < count($stopData) - 1) {
+            $remaining     = array_slice($stopData, $fromIdx);
+            $originalDist  = routeTotalDistM($remaining);
+            $optimised     = nearestNeighbourFromStop($remaining);
+            $optimisedDist = routeTotalDistM($optimised);
+            $savingsKm     = round(max(0.0, ($originalDist - $optimisedDist) / 1000), 2);
+
+            $upd = $db->prepare('UPDATE calendar_stops SET route_order = ? WHERE id = ?');
+            foreach ($optimised as $newPos => $s) {
+                $upd->execute([$fromIdx + $newPos, $s['id']]);
+            }
+
+            echo json_encode([
+                'success'    => true,
+                'count'      => count($optimised),
+                'savings_km' => $savingsKm,
+                'message'    => $savingsKm >= 0.1 ? "Route optimised from stop — saved {$savingsKm} km" : 'Route optimised from stop',
+            ]);
+            exit;
+        }
+    }
+
     $originalDist  = routeTotalDistM($stopData);
     $optimised     = nearestNeighbourM($stopData);
     $optimisedDist = routeTotalDistM($optimised);
@@ -120,6 +151,32 @@ try {
 } catch (Throwable $e) {
     http_response_code(400);
     echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+}
+
+// ── Nearest-neighbour from a fixed start ──────────────────────────────────────
+// Fixes stops[0] as the starting point (e.g. "optimise from here") and runs
+// nearest-neighbour on the remaining stops from that position.
+function nearestNeighbourFromStop(array $stops): array
+{
+    if (count($stops) <= 1) return $stops;
+
+    $ordered   = [$stops[0]];
+    $unvisited = array_values(array_slice($stops, 1));
+    $current   = $stops[0];
+
+    while (!empty($unvisited)) {
+        $nearestIdx  = 0;
+        $nearestDist = PHP_FLOAT_MAX;
+        foreach ($unvisited as $i => $s) {
+            $d = haversineM($current['lat'], $current['lng'], $s['lat'], $s['lng']);
+            if ($d < $nearestDist) { $nearestDist = $d; $nearestIdx = $i; }
+        }
+        $current   = $unvisited[$nearestIdx];
+        $ordered[] = $current;
+        array_splice($unvisited, $nearestIdx, 1);
+    }
+
+    return $ordered;
 }
 
 // ── Nearest-neighbour greedy algorithm ────────────────────────────────────────

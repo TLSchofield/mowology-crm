@@ -9,8 +9,8 @@
  * Active page keys: 'dashboard', 'clients', 'companies', 'quotes', 'jobs',
  *                   'invoices', 'schedule', 'timeclock', 'expenses',
  *                   'profitability', 'cost-factors', 'intel', 'marketing', 'social', 'cms', 'media',
- *                   'team', 'leaderboard', 'quiz', 'map', 'photos', 'products', 'portfolio',
- *                   'work-zones', 'users', 'settings'
+ *                   'team', 'leaderboard', 'quiz', 'map', 'live-map', 'photos', 'products', 'portfolio',
+ *                   'work-zones', 'users', 'settings', 'privacy', 'certification'
  *
  * Nav items support two types:
  *   - Section headers: ['type' => 'header', 'label' => 'Section Name']
@@ -32,15 +32,20 @@ try {
     }
 } catch (Throwable $__e) { /* table may not exist yet */ }
 
-// Overdue task count for badge (silent fail if tasks table not yet created)
+// Overdue task count + pending purchase count for badge (silent fail if tasks table not yet created)
 $_mwOverdueTasks = 0;
+$_mwPendingPurchases = 0;
 try {
     if (isset($user['id'])) {
         $__taskStmt = getDB()->prepare("SELECT COUNT(*) FROM tasks WHERE assigned_to = ? AND status != 'completed' AND due_date IS NOT NULL AND due_date < CURDATE()");
         $__taskStmt->execute([(int)$user['id']]);
         $_mwOverdueTasks = (int)$__taskStmt->fetchColumn();
+
+        $__purStmt = getDB()->query("SELECT COUNT(*) FROM tasks WHERE task_type = 'purchase' AND (purchase_status IS NULL OR purchase_status NOT IN ('verified'))");
+        $_mwPendingPurchases = (int)$__purStmt->fetchColumn();
     }
 } catch (Throwable $__e) { /* table may not exist yet */ }
+$_mwTaskBadge = $_mwOverdueTasks + $_mwPendingPurchases;
 
 $navItems = [
 
@@ -55,7 +60,7 @@ $navItems = [
 
     // ── Pipeline ──────────────────────────────────────────────────────────────
     ['type' => 'header', 'label' => 'Pipeline'],
-    ['key' => 'tasks',     'label' => 'Tasks',     'icon' => 'check-square', 'href' => '/crm/tasks_appstack.php', 'badge' => $_mwOverdueTasks],
+    ['key' => 'tasks',     'label' => 'Tasks',     'icon' => 'check-square', 'href' => '/crm/tasks_appstack.php', 'badge' => $_mwTaskBadge],
     ['key' => 'quotes',    'label' => 'Quotes',    'icon' => 'dollar-sign', 'href' => '/crm/quotes_appstack.php',    'perm' => 'billing.view'],
     ['key' => 'contracts', 'label' => 'Contracts', 'icon' => 'pen-tool', 'href' => '/crm/contracts_appstack.php', 'perm' => 'jobs.view'],
     ['key' => 'jobs',      'label' => 'Jobs',      'icon' => 'briefcase',  'href' => '/crm/jobs/index.php',         'perm' => 'jobs.view'],
@@ -64,11 +69,13 @@ $navItems = [
     // ── Schedule ──────────────────────────────────────────────────────────────
     ['type' => 'header', 'label' => 'Schedule'],
     ['key' => 'schedule',    'label' => 'Schedule',    'icon' => 'calendar', 'href' => '/crm/jobs/schedule.php',          'perm' => 'schedule.view'],
+    ['key' => 'live-map',    'label' => 'Map',         'icon' => 'map',      'href' => '/crm/map.php',                    'perm' => 'team.view'],
     ['key' => 'timeclock',   'label' => 'Time Clock',  'icon' => 'clock',    'href' => '/crm/timeclock/my-schedule.php',  'perm' => 'schedule.view'],
     ['key' => 'work-zones',  'label' => 'Work Zones',  'icon' => 'map-pin',  'href' => '/crm/zone-report_appstack.php',   'perm' => 'jobs.view'],
 
     // ── Financials ────────────────────────────────────────────────────────────
     ['type' => 'header', 'label' => 'Financials'],
+    ['key' => 'accounting',    'label' => 'Accounting',    'icon' => 'book-open',   'href' => '/crm/accounting_appstack.php',         'perm' => 'expenses.view'],
     ['key' => 'expenses',      'label' => 'Expenses',      'icon' => 'credit-card', 'href' => '/crm/expenses_appstack.php',          'perm' => 'expenses.view'],
     ['key' => 'profitability', 'label' => 'Profitability', 'icon' => 'trending-up', 'href' => '/crm/profitability_appstack.php',     'perm' => 'expenses.view'],
     ['key' => 'cost-factors',  'label' => 'Cost Factors',  'icon' => 'sliders',     'href' => '/crm/products/cost-factors.php',      'perm' => 'expenses.view'],
@@ -95,7 +102,8 @@ $navItems = [
     ['type' => 'header', 'label' => 'Team'],
     ['key' => 'team',        'label' => 'Team',           'icon' => 'user-check',  'href' => '/crm/team/index.php',            'perm' => 'team.view'],
     ['key' => 'leaderboard', 'label' => 'Leaderboard',    'icon' => 'award',       'href' => '/crm/leaderboard_appstack.php',  'perm' => 'team.view'],
-    ['key' => 'quiz',        'label' => 'Knowledge Quiz', 'icon' => 'book-open',   'href' => '/crm/quiz_appstack.php'],
+    ['key' => 'quiz',          'label' => 'Knowledge Quiz',  'icon' => 'book-open',   'href' => '/crm/quiz_appstack.php'],
+    ['key' => 'certification', 'label' => 'Certification',    'icon' => 'award',       'href' => '/crm/certification_appstack.php'],
     ['key' => 'map',         'label' => 'Territory Map',  'icon' => 'map',         'href' => '/crm/map_appstack.php',          'perm' => 'jobs.view'],
 
     // ── Library ───────────────────────────────────────────────────────────────
@@ -152,6 +160,21 @@ $navItems = [
                     <span class="align-middle">Import Data</span>
                 </a>
             </li>
+            <li class="sidebar-item<?php echo ($activePage === 'privacy') ? ' active' : ''; ?>">
+                <a class="sidebar-link" href="/crm/privacy_appstack.php">
+                    <i class="align-middle" data-feather="lock"></i>
+                    <span class="align-middle">Privacy &amp; Data</span>
+                </a>
+            </li>
+            <?php endif; ?>
+
+            <?php if (!function_exists('userHasPermission') || userHasPermission('database.manage')): ?>
+            <li class="sidebar-item<?php echo ($activePage === 'sites') ? ' active' : ''; ?>">
+                <a class="sidebar-link" href="/crm/sites_appstack.php">
+                    <i class="align-middle" data-feather="globe"></i>
+                    <span class="align-middle">Tenant Sites</span>
+                </a>
+            </li>
             <?php endif; ?>
 
             <?php if (!function_exists('userHasPermission') || userHasPermission('users.manage')): ?>
@@ -168,6 +191,15 @@ $navItems = [
                 <a class="sidebar-link" href="/crm/settings.php">
                     <i class="align-middle" data-feather="settings"></i>
                     <span class="align-middle">Settings</span>
+                </a>
+            </li>
+            <?php endif; ?>
+
+            <?php if (($user['role'] ?? '') === 'admin'): ?>
+            <li class="sidebar-item<?php echo ($activePage === 'system-log') ? ' active' : ''; ?>">
+                <a class="sidebar-link" href="/crm/system-log_appstack.php">
+                    <i class="align-middle" data-feather="alert-circle"></i>
+                    <span class="align-middle">System Log</span>
                 </a>
             </li>
             <?php endif; ?>

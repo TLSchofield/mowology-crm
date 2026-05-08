@@ -88,7 +88,7 @@ class TripReportPdf
             $driverId = $report['driver_id'];
             $filename = 'trip_' . $driverId . '_' . $date . '.pdf';
             $fullPath = $dir . '/' . $filename;
-            $relPath  = 'storage/pdfs/trip-reports/' . $filename;
+            $relPath  = 'app/Storage/pdfs/trip-reports/' . $filename;
 
             $mpdf->Output($fullPath, \Mpdf\Output\Destination::FILE);
 

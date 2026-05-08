@@ -40,6 +40,7 @@ try {
 
     requireLogin();
     $user = getCurrentUser();
+session_write_close();
     requirePermission('expenses.send');
 
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {

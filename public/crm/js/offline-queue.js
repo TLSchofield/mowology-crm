@@ -36,6 +36,19 @@
     var STORE_NAME = 'pending-actions';
     var MAX_RETRIES = 5;
 
+    // ── UUID v4 generator ────────────────────────────────────────────────────────
+
+    function generateUUID() {
+        if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+            return crypto.randomUUID();
+        }
+        // Fallback for older WebView environments
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+            var r = Math.random() * 16 | 0;
+            return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+        });
+    }
+
     // POST requests to these endpoints are queued when offline.
     // GET requests (status checks) always pass through — they need live data.
     var QUEUED_ENDPOINTS = [
@@ -198,14 +211,15 @@
         } catch (e) { /* non-JSON body */ }
 
         var record = {
-            endpoint:  url,
-            method:    (options && options.method) || 'POST',
-            body:      bodyObj,     // plain object — IDB-safe
-            bodyRaw:   typeof bodyStr === 'string' ? bodyStr : null,
-            headers:   (options && options.headers) || {},
-            label:     guessLabel(url, bodyObj),
-            timestamp: Date.now(),
-            retries:   0
+            endpoint:        url,
+            method:          (options && options.method) || 'POST',
+            body:            bodyObj,     // plain object — IDB-safe
+            bodyRaw:         typeof bodyStr === 'string' ? bodyStr : null,
+            headers:         (options && options.headers) || {},
+            label:           guessLabel(url, bodyObj),
+            timestamp:       Date.now(),
+            retries:         0,
+            idempotencyKey:  generateUUID()   // stable across all retries of this action
         };
 
         return addRecord(record).then(function () {
@@ -233,6 +247,11 @@
         } else if (record.body) {
             opts.body = JSON.stringify(record.body);
             opts.headers['Content-Type'] = 'application/json';
+        }
+
+        // Include idempotency key so the server deduplicates replays.
+        if (record.idempotencyKey) {
+            opts.headers['Idempotency-Key'] = record.idempotencyKey;
         }
 
         // Merge any original headers (e.g. X-Requested-With), don't override Content-Type
@@ -385,17 +404,26 @@
     };
 
     // ── Connectivity event listeners ─────────────────────────────────────────────
+    // AbortController so all listeners can be cleared in one call on
+    // pagehide. Without this, a shift with 50+ navigations leaks 100+
+    // zombie listeners (~200 KB). D5.
+    var _offlineQueueAbort = new AbortController();
+    var _signal = { signal: _offlineQueueAbort.signal };
 
     window.addEventListener('online', function () {
         updateUI();
         syncNow().then(function (result) {
             if (result.replayed > 0) updateUI();
         });
-    });
+    }, _signal);
 
     window.addEventListener('offline', function () {
         updateUI();
-    });
+    }, _signal);
+
+    window.addEventListener('pagehide', function () {
+        try { _offlineQueueAbort.abort(); } catch (e) { /* ignore */ }
+    }, { once: true });
 
     // iOS PWA / all platforms: sync when the app is foregrounded
     document.addEventListener('visibilitychange', function () {
@@ -404,7 +432,7 @@
                 if (count > 0) syncNow().then(updateUI);
             });
         }
-    });
+    }, _signal);
 
     // Desktop + some mobile: sync on window focus
     window.addEventListener('focus', function () {
@@ -413,7 +441,7 @@
                 if (count > 0) syncNow().then(updateUI);
             });
         }
-    });
+    }, _signal);
 
     // Android Capacitor: MwNative.network is more reliable than navigator.onLine
     if (window.MwNative && window.MwNative.network) {

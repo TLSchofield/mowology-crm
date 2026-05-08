@@ -3,8 +3,9 @@ crm/config.php
 .env
 *.log
 
-# Database backups
+# Database backups (but allow migration files)
 *.sql
+!database/migrations/*.sql
 crm/backup/
 
 # OS files
@@ -24,6 +25,7 @@ cache/
 storage/schema_snapshot.json
 storage/schema_history/*.json
 
-# Vendor packages — deploy via FTP, not git
-# (mpdf is already deployed; stripe added Feb 2026)
-vendor/stripe/
+# Vendor packages
+# mpdf excluded — 93MB of font files, deploy via FTP if needed
+vendor/mpdf/
+public/vendor/stripe/stripe-php/README.md

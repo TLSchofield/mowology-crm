@@ -1,0 +1,24 @@
+-- ═══════════════════════════════════════════════════════════════
+-- Migration 1009 — Manual invoice resend tracking
+-- ═══════════════════════════════════════════════════════════════
+--
+-- Adds two columns to the `invoices` table to distinguish
+-- crew-initiated resends (from the view.php "Resend" button) from
+-- automated overdue reminders (from the invoice_reminders cron).
+--
+-- The existing `reminder_count` + `last_reminder_sent_at` columns
+-- stay owned by `app/Modules/Marketing/Cron/invoice_reminders.php`
+-- so the cron's dunning cap logic keeps working untouched.
+--
+-- The new `resend_count` + `last_resent_at` columns are owned by
+-- `public/crm/invoices/view.php` when the user clicks Resend on
+-- a sent invoice. The two counters stay independent so the
+-- Engagement panel can show "Crew resent 3×, Auto-reminder 1×".
+--
+-- Idempotent: safe to run multiple times.
+-- Rollback:
+--   ALTER TABLE invoices DROP COLUMN resend_count;
+--   ALTER TABLE invoices DROP COLUMN last_resent_at;
+
+-- Run via /crm/api/run-migration-1009.php (web runner handles the
+-- information_schema existence check).

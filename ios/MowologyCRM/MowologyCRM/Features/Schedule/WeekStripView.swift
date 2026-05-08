@@ -11,22 +11,19 @@ struct WeekStripView: View {
 
     @Binding var selectedDate: Date
     let weekDays: [ScheduleDay]
+    @Namespace private var chipNamespace
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(weekDays) { day in
-                    DayChip(
-                        day: day,
-                        isSelected: isSelected(day)
-                    ) {
-                        selectDay(day)
-                    }
+        HStack(spacing: 4) {
+            ForEach(weekDays) { day in
+                DayChip(day: day, isSelected: isSelected(day), ns: chipNamespace) {
+                    selectDay(day)
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
         }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
         .background(Color(.systemBackground))
     }
 
@@ -38,7 +35,7 @@ struct WeekStripView: View {
 
     private func selectDay(_ day: ScheduleDay) {
         guard let date = parseISODate(day.date) else { return }
-        withAnimation(.easeInOut(duration: 0.2)) {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
             selectedDate = date
         }
     }
@@ -64,13 +61,14 @@ private struct DayChip: View {
 
     let day: ScheduleDay
     let isSelected: Bool
+    let ns: Namespace.ID
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             VStack(spacing: 4) {
 
-                // Day name (e.g. "MON")
+                // Day name (e.g. "Mon")
                 Text(day.dayName.prefix(3).uppercased())
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(isSelected ? .white : .secondary)
@@ -81,28 +79,38 @@ private struct DayChip: View {
                     .foregroundStyle(isSelected ? .white : (day.isToday ? Color.MW.green : .primary))
 
                 // Activity dot
-                if day.stopCount > 0 {
-                    Circle()
-                        .fill(day.hasIncomplete ? Color.MW.orange : Color.MW.green)
-                        .frame(width: 6, height: 6)
-                } else {
-                    Circle()
-                        .fill(Color.clear)
-                        .frame(width: 6, height: 6)
+                Circle()
+                    .fill(
+                        day.stopCount > 0
+                            ? (day.hasIncomplete ? Color.MW.orange : Color.MW.green)
+                            : Color.clear
+                    )
+                    .frame(width: 6, height: 6)
+            }
+            .frame(maxWidth: .infinity, minHeight: 72)
+            .background {
+                ZStack {
+                    // Base layer — fades out when selected
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(day.isToday ? Color.MW.green.opacity(0.08) : Color(.systemGray6))
+                        .opacity(isSelected ? 0 : 1)
+
+                    // Selected pill — matchedGeometryEffect makes it slide
+                    // between chips rather than cross-fade in place.
+                    if isSelected {
+                        RoundedRectangle(cornerRadius: 14)
+                            .fill(Color.MW.green)
+                            .matchedGeometryEffect(id: "chip", in: ns)
+                    }
                 }
             }
-            .frame(width: 48, height: 72)
-            .background(
-                RoundedRectangle(cornerRadius: 14)
-                    .fill(isSelected ? Color.MW.green : (day.isToday ? Color.MW.green.opacity(0.08) : Color(.systemGray6)))
-            )
-            .overlay(
+            .overlay {
                 RoundedRectangle(cornerRadius: 14)
                     .stroke(
                         day.isToday && !isSelected ? Color.MW.green.opacity(0.4) : Color.clear,
                         lineWidth: 1.5
                     )
-            )
+            }
         }
         .buttonStyle(.plain)
     }

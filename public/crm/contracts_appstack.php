@@ -168,7 +168,7 @@ $activePage = 'contracts';
           <?php else: ?>
               <div class="card">
                   <div class="table-responsive">
-                      <table class="table table-hover mb-0">
+                      <table class="mw-table">
                           <thead>
                               <tr>
                                   <th>Contract</th>

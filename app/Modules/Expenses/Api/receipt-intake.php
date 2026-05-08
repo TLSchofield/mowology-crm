@@ -68,14 +68,8 @@ try {
         $rlUserId = (int)$user['id'];
         $rlWindow = date('Y-m-d H:00:00'); // Current hour bucket
 
-        // Upsert: increment counter for this user+hour
-        $rlDb->prepare("
-            INSERT INTO upload_rate_limits (user_id, window_start, upload_count)
-            VALUES (?, ?, 1)
-            ON DUPLICATE KEY UPDATE upload_count = upload_count + 1
-        ")->execute([$rlUserId, $rlWindow]);
-
-        // Check count
+        // Bug #6 fix: read BEFORE write — previous code incremented first, making the 21st
+        // upload permanently consume one slot even when it was rejected on the same request.
         $rlStmt = $rlDb->prepare("
             SELECT upload_count FROM upload_rate_limits
             WHERE user_id = ? AND window_start = ?
@@ -83,11 +77,18 @@ try {
         $rlStmt->execute([$rlUserId, $rlWindow]);
         $rlCount = (int)($rlStmt->fetchColumn() ?: 0);
 
-        if ($rlCount > 20) {
+        if ($rlCount >= 20) {
             http_response_code(429);
             echo json_encode(['success' => false, 'error' => 'Too many uploads — please wait before uploading more receipts (limit: 20/hour)']);
             exit;
         }
+
+        // Below limit — increment counter for this upload
+        $rlDb->prepare("
+            INSERT INTO upload_rate_limits (user_id, window_start, upload_count)
+            VALUES (?, ?, 1)
+            ON DUPLICATE KEY UPDATE upload_count = upload_count + 1
+        ")->execute([$rlUserId, $rlWindow]);
     } catch (Throwable $rlEx) {
         // If rate limit table doesn't exist yet, log and continue — non-blocking
         error_log('Rate limit check error (non-fatal): ' . $rlEx->getMessage());
@@ -122,12 +123,32 @@ try {
         require_once APP_ROOT . '/Services/Receipts/TesseractPreScreen.php';
 
         $preScreen = tesseractPreScreen($filePath);
+
+        // Vendor-aware threshold: quick name-only match on Tesseract text
+        $rescanEarlyVendorId = null;
+        if (!empty($preScreen['text'])) {
+            try {
+                $rescanEarlyMatch = suggestReceiptMeta($preScreen['text'], null, null, null);
+                $rescanEarlyVendorId = !empty($rescanEarlyMatch['vendor_id']) ? (int)$rescanEarlyMatch['vendor_id'] : null;
+            } catch (Throwable $e) { /* non-fatal */ }
+        }
+        $rescanTessThreshold = getVendorTesseractThreshold($rescanEarlyVendorId);
+        $rescanScore = $preScreen['score'];
+        // Only apply vendor threshold when Tesseract ran cleanly — preserve original
+        // fallback decision (use_vision) when Tesseract errored or scored 0.
+        if (empty($preScreen['error']) && $rescanScore > 0) {
+            $rescanDecision = $rescanScore >= $rescanTessThreshold ? 'use_tesseract'
+                            : ($rescanScore >= 30 ? 'use_vision' : 'skip');
+        } else {
+            $rescanDecision = $preScreen['decision']; // use_vision (Tesseract failed/missing)
+        }
+
         $ocrResult = ['success' => false, 'text' => '', 'raw_response' => null, 'error' => null];
         $ocrSource = 'none';
-        if ($preScreen['decision'] === 'use_tesseract') {
+        if ($rescanDecision === 'use_tesseract') {
             $ocrResult = ['success' => true, 'text' => $preScreen['text'], 'raw_response' => null, 'error' => null];
             $ocrSource = 'tesseract';
-        } elseif ($preScreen['decision'] === 'use_vision') {
+        } elseif ($rescanDecision === 'use_vision') {
             $ocrResult = extractTextFromImage($filePath);
             $ocrSource = 'vision';
         }
@@ -136,10 +157,90 @@ try {
         $suggestions = [];
         if ($ocrResult['success'] && !empty($ocrText)) {
             $parsed      = parseReceiptText($ocrText, $ocrResult['raw_response'] ?? null);
-            $suggestions = suggestReceiptMeta($ocrText, null, null, null);
+            $suggestions = suggestReceiptMeta($ocrText, null, null, null, $parsed);
             if (!empty($suggestions['vendor_id'])) {
                 $parsed = applyLearnedPatterns((int)$suggestions['vendor_id'], $parsed, $ocrText);
                 $parsed = matchVendorProducts((int)$suggestions['vendor_id'], $ocrText, $parsed);
+
+                // Back-fill location + phone/website if vendor is missing them
+                try {
+                    $locCheckDb = getDB();
+                    $locData = extractVendorLocationFromOcr($ocrText);
+                    // Update vendors.phone / vendors.website if blank
+                    if ($locData['phone'] || $locData['website']) {
+                        $vRow = $locCheckDb->prepare("SELECT phone, website FROM vendors WHERE id = ?");
+                        $vRow->execute([(int)$suggestions['vendor_id']]);
+                        $vCurrent = $vRow->fetch(PDO::FETCH_ASSOC);
+                        if ($vCurrent) {
+                            if ($locData['phone'] && empty($vCurrent['phone'])) {
+                                $locCheckDb->prepare("UPDATE vendors SET phone = ? WHERE id = ?")->execute([$locData['phone'], (int)$suggestions['vendor_id']]);
+                            }
+                            if ($locData['website'] && empty($vCurrent['website'])) {
+                                $locCheckDb->prepare("UPDATE vendors SET website = ? WHERE id = ?")->execute([$locData['website'], (int)$suggestions['vendor_id']]);
+                            }
+                        }
+                    }
+                    // Insert preferred location if none exists yet
+                    $locCount = $locCheckDb->prepare("SELECT COUNT(*) FROM vendor_locations WHERE vendor_id = ?");
+                    $locCount->execute([(int)$suggestions['vendor_id']]);
+                    if ((int)$locCount->fetchColumn() === 0 && ($locData['address'] || $locData['city'] || $locData['phone'])) {
+                        $locIns = $locCheckDb->prepare("INSERT INTO vendor_locations (vendor_id, label, address, city, phone, is_preferred) VALUES (?, 'Main', ?, ?, ?, 1)");
+                        $locIns->execute([(int)$suggestions['vendor_id'], $locData['address'], $locData['city'], $locData['phone']]);
+                        $suggestions['vendor_location_added'] = true;
+                    }
+                } catch (Throwable $le) {
+                    error_log('Vendor location back-fill failed: ' . $le->getMessage());
+                }
+            }
+            // Gated vendor auto-creation (same logic as main upload path)
+            if (empty($suggestions['vendor_id']) && !empty($parsed['vendor_hint'])) {
+                $rescanVendorName = strtoupper(trim($parsed['vendor_hint']));
+                if (strlen($rescanVendorName) >= 3) {
+                    try {
+                        $rescanDb = getDB();
+                        $rescanGateResult = gateVendorAutoCreation($rescanVendorName, $rescanDb);
+                        if ($rescanGateResult['action'] === 'match' && $rescanGateResult['vendor']) {
+                            $suggestions['vendor_id']        = (int)$rescanGateResult['vendor']['id'];
+                            $suggestions['vendor_name']      = $rescanGateResult['vendor']['name'];
+                            $suggestions['vendor_confidence'] = 65;
+                        } elseif ($rescanGateResult['action'] === 'review' && $rescanGateResult['vendor']) {
+                            $suggestions['vendor_id']        = (int)$rescanGateResult['vendor']['id'];
+                            $suggestions['vendor_name']      = $rescanGateResult['vendor']['name'];
+                            $suggestions['vendor_confidence'] = 40;
+                            $suggestions['vendor_needs_review'] = true;
+                        } elseif ($rescanGateResult['action'] === 'create') {
+                            $chk = $rescanDb->prepare("SELECT id FROM vendors WHERE UPPER(name) = ? LIMIT 1");
+                            $chk->execute([$rescanVendorName]);
+                            $existingVendorId = $chk->fetchColumn();
+                            if ($existingVendorId) {
+                                $suggestions['vendor_id']        = (int)$existingVendorId;
+                                $suggestions['vendor_name']      = $rescanVendorName;
+                                $suggestions['vendor_confidence'] = 80;
+                            } else {
+                                $ins = $rescanDb->prepare("INSERT INTO vendors (name, aliases, is_active) VALUES (?, ?, 1)");
+                                $ins->execute([$rescanVendorName, strtolower($rescanVendorName)]);
+                                $newRescanVendorId = (int)$rescanDb->lastInsertId();
+                                $suggestions['vendor_id']         = $newRescanVendorId;
+                                $suggestions['vendor_name']       = $rescanVendorName;
+                                $suggestions['vendor_confidence']  = 70;
+                                $suggestions['vendor_auto_created'] = true;
+
+                                // Extract address/phone from receipt and save as vendor location
+                                $rescanLocData = extractVendorLocationFromOcr($ocrText ?? '');
+                                if ($rescanLocData['address'] || $rescanLocData['city'] || $rescanLocData['phone']) {
+                                    try {
+                                        $rescanLocIns = $rescanDb->prepare("INSERT INTO vendor_locations (vendor_id, label, address, city, phone, is_preferred) VALUES (?, 'Main', ?, ?, ?, 1)");
+                                        $rescanLocIns->execute([$newRescanVendorId, $rescanLocData['address'], $rescanLocData['city'], $rescanLocData['phone']]);
+                                    } catch (Throwable $le) {
+                                        error_log('Vendor location from rescan receipt failed: ' . $le->getMessage());
+                                    }
+                                }
+                            }
+                        }
+                    } catch (Throwable $e) {
+                        error_log('Rescan vendor auto-creation error: ' . $e->getMessage());
+                    }
+                }
             }
         }
         echo json_encode([
@@ -228,6 +329,36 @@ try {
         }
     }
 
+    // Bug #7 fix: HEIC/HEIF bypasses GD stripping (GD cannot read HEIC) — convert to JPEG
+    // via Imagick (strips all EXIF/GPS metadata in the process). If Imagick is unavailable,
+    // the file is stored as-is and GPS coordinates from POST are used instead of raw EXIF.
+    if (in_array($mimeType, ['image/heic', 'image/heif'])) {
+        if (extension_loaded('imagick')) {
+            try {
+                $im = new Imagick($filePath);
+                $im->setImageFormat('jpeg');
+                $im->setImageCompressionQuality(90);
+                $im->stripImage(); // Remove all EXIF / GPS metadata
+                $newStoredName = preg_replace('/\.(heic|heif)$/i', '.jpg', $storedName);
+                $newFilePath   = $uploadDir . $newStoredName;
+                $newWebPath    = '/uploads/receipts/' . $newStoredName;
+                $im->writeImage($newFilePath);
+                $im->destroy();
+                @unlink($filePath);
+                $filePath    = $newFilePath;
+                $webPath     = $newWebPath;
+                $storedName  = $newStoredName;
+                $mimeType    = 'image/jpeg';
+            } catch (Throwable $heicEx) {
+                error_log('HEIC→JPEG conversion failed for ' . $storedName . ': ' . $heicEx->getMessage());
+                // Leave as-is — EXIF not stripped, GPS from POST is still used
+            }
+        } else {
+            // Imagick not available — EXIF cannot be stripped from HEIC; log and continue
+            error_log('HEIC EXIF warning: Imagick unavailable, raw HEIC stored: ' . $storedName);
+        }
+    }
+
     // Get GPS from POST
     $lat = isset($_POST['lat']) && $_POST['lat'] !== '' ? (float)$_POST['lat'] : null;
     $lng = isset($_POST['lng']) && $_POST['lng'] !== '' ? (float)$_POST['lng'] : null;
@@ -293,7 +424,26 @@ try {
     // we skip the Vision API entirely (saves cost). Poor quality → Vision.
     // Not a receipt at all (score < 30) → skip all OCR, let user fill manually.
     $preScreen = tesseractPreScreen($filePath);
-    $preScreenDecision = $preScreen['decision']; // use_tesseract | use_vision | skip
+
+    // Vendor-aware threshold: quick name-only match on Tesseract text before
+    // committing to Vision. Trusted vendors get a lower threshold (skip Vision more often).
+    $earlyVendorId = null;
+    if (!empty($preScreen['text'])) {
+        try {
+            $earlyMatch = suggestReceiptMeta($preScreen['text'], null, null, null);
+            $earlyVendorId = !empty($earlyMatch['vendor_id']) ? (int)$earlyMatch['vendor_id'] : null;
+        } catch (Throwable $e) { /* non-fatal */ }
+    }
+    $tessThreshold = getVendorTesseractThreshold($earlyVendorId);
+    $preScreenScore = $preScreen['score'];
+    // Only apply vendor threshold when Tesseract ran cleanly — preserve original
+    // fallback decision (use_vision) when Tesseract errored or scored 0.
+    if (empty($preScreen['error']) && $preScreenScore > 0) {
+        $preScreenDecision = $preScreenScore >= $tessThreshold ? 'use_tesseract'
+                           : ($preScreenScore >= 30 ? 'use_vision' : 'skip');
+    } else {
+        $preScreenDecision = $preScreen['decision']; // use_vision (Tesseract failed/missing)
+    }
 
     $ocrResult = ['success' => false, 'text' => '', 'raw_response' => null, 'error' => null];
     $ocrSource  = 'none';  // 'tesseract' | 'vision' | 'none'
@@ -323,7 +473,7 @@ try {
     if ($ocrAvailable && !empty($ocrText)) {
         $rawResponse = $ocrResult['raw_response'] ?? null;
         $parsed = parseReceiptText($ocrText, $rawResponse);
-        $suggestions = suggestReceiptMeta($ocrText, $lat, $lng, $jobId);
+        $suggestions = suggestReceiptMeta($ocrText, $lat, $lng, $jobId, $parsed);
 
         // Apply learned vendor-specific patterns to enhance parsed results
         if (!empty($suggestions['vendor_id'])) {
@@ -331,6 +481,45 @@ try {
 
             // Match OCR text against vendor's known product catalog
             $parsed = matchVendorProducts((int)$suggestions['vendor_id'], $ocrText, $parsed);
+
+            // Re-run category inference after product matching (may have enriched line_items)
+            if (!empty($parsed['product_matches']) && empty($suggestions['category_from_line_items'])) {
+                $enrichedSuggestions = suggestReceiptMeta($ocrText, null, null, null, $parsed);
+                if (!empty($enrichedSuggestions['category_from_line_items'])) {
+                    $suggestions['accounting_category']      = $enrichedSuggestions['accounting_category'];
+                    $suggestions['category_confidence']      = $enrichedSuggestions['category_confidence'];
+                    $suggestions['category_from_line_items'] = true;
+                }
+            }
+
+            // Back-fill location if vendor has none yet
+            try {
+                $locCheckDb = getDB();
+                $locData = extractVendorLocationFromOcr($ocrText);
+                // Update vendors.phone / vendors.website if blank
+                if ($locData['phone'] || $locData['website']) {
+                    $vRow = $locCheckDb->prepare("SELECT phone, website FROM vendors WHERE id = ?");
+                    $vRow->execute([(int)$suggestions['vendor_id']]);
+                    $vCurrent = $vRow->fetch(PDO::FETCH_ASSOC);
+                    if ($vCurrent) {
+                        if ($locData['phone'] && empty($vCurrent['phone'])) {
+                            $locCheckDb->prepare("UPDATE vendors SET phone = ? WHERE id = ?")->execute([$locData['phone'], (int)$suggestions['vendor_id']]);
+                        }
+                        if ($locData['website'] && empty($vCurrent['website'])) {
+                            $locCheckDb->prepare("UPDATE vendors SET website = ? WHERE id = ?")->execute([$locData['website'], (int)$suggestions['vendor_id']]);
+                        }
+                    }
+                }
+                // Insert preferred location if none exists yet
+                $locCount = $locCheckDb->prepare("SELECT COUNT(*) FROM vendor_locations WHERE vendor_id = ?");
+                $locCount->execute([(int)$suggestions['vendor_id']]);
+                if ((int)$locCount->fetchColumn() === 0 && ($locData['address'] || $locData['city'] || $locData['phone'])) {
+                    $locIns = $locCheckDb->prepare("INSERT INTO vendor_locations (vendor_id, label, address, city, phone, is_preferred) VALUES (?, 'Main', ?, ?, ?, 1)");
+                    $locIns->execute([(int)$suggestions['vendor_id'], $locData['address'], $locData['city'], $locData['phone']]);
+                }
+            } catch (Throwable $le) {
+                error_log('Vendor location back-fill failed: ' . $le->getMessage());
+            }
         }
 
         // Apply GST-exempt override: if matched vendor doesn't charge GST, zero it out
@@ -402,6 +591,17 @@ try {
                             $suggestions['vendor_confidence'] = 70;
                             $suggestions['match_details'][] = 'Auto-created from OCR vendor hint';
                             $suggestions['vendor_auto_created'] = true;
+
+                            // Extract address/phone from receipt and save as vendor location
+                            $locData = extractVendorLocationFromOcr($ocrText ?? '');
+                            if ($locData['address'] || $locData['city'] || $locData['phone']) {
+                                try {
+                                    $locIns = $db->prepare("INSERT INTO vendor_locations (vendor_id, label, address, city, phone, is_preferred) VALUES (?, 'Main', ?, ?, ?, 1)");
+                                    $locIns->execute([$newVendorId, $locData['address'], $locData['city'], $locData['phone']]);
+                                } catch (Throwable $le) {
+                                    error_log('Vendor location from receipt failed: ' . $le->getMessage());
+                                }
+                            }
                         }
                     }
                 } catch (Throwable $e) {

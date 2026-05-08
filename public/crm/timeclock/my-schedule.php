@@ -105,11 +105,15 @@ $activePage = 'timeclock';
     <div>
         <h1 class="h3 mb-1 mw-schedule-title-desktop">My Schedule</h1>
         <div class="mw-schedule-date-nav">
-            <a href="?date=<?php echo $prevDate; ?>" class="btn btn-sm btn-outline-secondary">&laquo;</a>
+            <a href="?date=<?php echo $prevDate; ?>" class="btn btn-sm btn-outline-secondary" aria-label="Previous day">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+            </a>
             <span class="mw-schedule-date-display">
                 <?php echo date('l, M j, Y', strtotime($viewDate)); ?>
             </span>
-            <a href="?date=<?php echo $nextDate; ?>" class="btn btn-sm btn-outline-secondary">&raquo;</a>
+            <a href="?date=<?php echo $nextDate; ?>" class="btn btn-sm btn-outline-secondary" aria-label="Next day">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+            </a>
             <?php if (!$isToday): ?>
                 <a href="?date=<?php echo date('Y-m-d'); ?>" class="mw-schedule-today-btn">Today</a>
             <?php endif; ?>

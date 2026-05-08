@@ -168,6 +168,7 @@ var MwDayViewMap = (function() {
                 titleEl.textContent = unassigned.length > 0 ? unassigned.length + ' unassigned stop' + (unassigned.length !== 1 ? 's' : '') : 'No stops';
                 clearRoute();
                 fitBoundsAll(unassigned);
+                placePurchaseTaskMarkers();
                 return;
             }
 
@@ -221,6 +222,7 @@ var MwDayViewMap = (function() {
                     placeMarker(leg.end_location, stop, 0, true, false);
                     titleEl.textContent = '1 stop \u00b7 ' + leg.duration.text + ' \u00b7 ' + leg.distance.text;
                     map.fitBounds(result.routes[0].bounds, { top: 40, right: 40, bottom: 40, left: 40 });
+                    placePurchaseTaskMarkers();
                 } else {
                     showStopMarkerOnly(stop, 0);
                 }
@@ -239,6 +241,7 @@ var MwDayViewMap = (function() {
             map.setZoom(14);
         }
         titleEl.textContent = '1 stop';
+        placePurchaseTaskMarkers();
     }
 
     function multiStopRoute(assigned, hasGPS) {
@@ -417,6 +420,7 @@ var MwDayViewMap = (function() {
 
                 // Reorder cards to match optimized route
                 reorderCards(ordered);
+                placePurchaseTaskMarkers();
             } else {
                 console.warn('[DayViewMap] Directions failed:', status);
                 showAllMarkersSorted(allAssigned);
@@ -484,6 +488,15 @@ var MwDayViewMap = (function() {
                 any = true;
             }
         });
+
+        placePurchaseTaskMarkers();
+
+        if (window._mwPurchaseMarkers) {
+            window._mwPurchaseMarkers.forEach(function(m) {
+                var p = m.getPosition();
+                if (p) { bounds.extend(p); any = true; }
+            });
+        }
 
         if (any) map.fitBounds(bounds, { top: 40, right: 40, bottom: 40, left: 40 });
         titleEl.textContent = sorted.length + ' stops';
@@ -625,7 +638,83 @@ var MwDayViewMap = (function() {
             userMarker.setMap(null);
             userMarker = null;
         }
+        // Clear purchase task markers
+        if (window._mwPurchaseMarkers) {
+            window._mwPurchaseMarkers.forEach(function(m) { m.setMap(null); });
+        }
+        window._mwPurchaseMarkers = [];
         clearRoute();
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  PURCHASE TASK PINS
+    // ═══════════════════════════════════════════════════
+
+    function placePurchaseTaskMarkers() {
+        if (!map) return;
+        if (!window.MW_SCHEDULE_STATE || !Array.isArray(MW_SCHEDULE_STATE.purchaseTasks)) return;
+
+        window._mwPurchaseMarkers = window._mwPurchaseMarkers || [];
+
+        var statusLabels = { requested: 'Requested', assigned: 'Assigned', en_route: 'En Route', at_vendor: 'At Vendor', purchased: 'Purchased', delivered: 'Delivered', verified: 'Verified' };
+
+        MW_SCHEDULE_STATE.purchaseTasks.forEach(function(task) {
+            if (!task.lat || !task.lng) return;
+
+            var pos = new google.maps.LatLng(task.lat, task.lng);
+            var icon = createPinIcon('#e85d04', '\uD83D\uDED2', 34, false);
+
+            // Use 🛒 symbol — falls back gracefully to P if SVG text renders oddly
+            var svgLabel = 'P';
+            icon = createPinIcon('#e85d04', svgLabel, 34, false);
+
+            var statusLabel = statusLabels[task.purchase_status] || task.purchase_status || '';
+            var infoContent =
+                '<div style="font-family:sans-serif;font-size:13px;max-width:200px;line-height:1.5">' +
+                '<strong style="color:#e85d04">' + (task.task_number || 'Purchase Task') + '</strong><br>' +
+                '<strong>' + (task.vendor_name || '') + '</strong>' +
+                (task.location_label ? '<br><span style="color:#666">' + task.location_label + '</span>' : '') +
+                '<br><span style="background:#e85d04;color:#fff;padding:1px 6px;border-radius:10px;font-size:11px">' + statusLabel + '</span>' +
+                (task.items_count ? '<br>' + task.items_count + ' item' + (task.items_count !== 1 ? 's' : '') : '') +
+                (task.estimated_total ? ' &mdash; $' + parseFloat(task.estimated_total).toFixed(2) + ' est.' : '') +
+                (task.assigned_to_name ? '<br><span style="color:#555">👤 ' + task.assigned_to_name + '</span>' : '') +
+                '</div>';
+
+            var infoWindow = new google.maps.InfoWindow({ content: infoContent });
+
+            var marker = new google.maps.Marker({
+                position: pos,
+                map: map,
+                icon: icon,
+                title: (task.vendor_name || 'Purchase Task') + ' — ' + statusLabel,
+                zIndex: 50
+            });
+
+            marker.addListener('click', function() {
+                infoWindow.open(map, marker);
+            });
+
+            window._mwPurchaseMarkers.push(marker);
+        });
+
+        // Extend map viewport to include any purchase task pins outside current bounds.
+        // Delay 400ms so any preceding fitBounds (route) can settle first.
+        if (window._mwPurchaseMarkers.length) {
+            setTimeout(function() {
+                if (!map) return;
+                var curBounds = map.getBounds();
+                if (!curBounds) return;
+                var extended = false;
+                window._mwPurchaseMarkers.forEach(function(m) {
+                    var p = m.getPosition();
+                    if (p && !curBounds.contains(p)) {
+                        curBounds.extend(p);
+                        extended = true;
+                    }
+                });
+                if (extended) map.fitBounds(curBounds, { top: 40, right: 40, bottom: 40, left: 40 });
+            }, 400);
+        }
     }
 
     // ═══════════════════════════════════════════════════
@@ -870,7 +959,159 @@ var MwDayViewMap = (function() {
 
     return {
         recompute: computeRoute,
-        getPinnedStopId: function() { return pinnedStopId; }
+        getPinnedStopId: function() { return pinnedStopId; },
+        getMap: function() { return map; }
     };
 
 })();
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  Desktop Day View — Per-Card Complete & Reopen Actions
+// ═══════════════════════════════════════════════════════════════════════════
+(function() {
+    'use strict';
+
+    function showDvToast(msg, type, linkHref, linkLabel) {
+        var existing = document.getElementById('mw-dv-toast');
+        if (existing) existing.remove();
+
+        var toast = document.createElement('div');
+        toast.id = 'mw-dv-toast';
+        toast.className = 'mw-dv-toast mw-dv-toast-' + (type || 'success');
+        toast.innerHTML = msg;
+        if (linkHref && linkLabel) {
+            toast.innerHTML += ' <a href="' + linkHref + '" class="mw-dv-toast-link">' + linkLabel + ' &rarr;</a>';
+        }
+        document.body.appendChild(toast);
+        setTimeout(function() { toast.classList.add('mw-dv-toast-visible'); }, 10);
+        setTimeout(function() {
+            toast.classList.remove('mw-dv-toast-visible');
+            setTimeout(function() { if (toast.parentNode) toast.parentNode.removeChild(toast); }, 400);
+        }, 5000);
+    }
+
+    function dvPost(payload, onSuccess, onError) {
+        fetch('/crm/api/pow-actions.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(Object.assign({ csrf_token: (window.MW_CSRF || '') }, payload))
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                onSuccess(data);
+            } else {
+                onError(data.error || 'An error occurred.');
+            }
+        })
+        .catch(function(err) { onError('Network error. Please try again.'); });
+    }
+
+    function setCardDoneState(card, invoiceId, invoiceNumber) {
+        // Swap stop-status class
+        card.className = card.className.replace(/mw-stop-status-\w+/g, '') + ' mw-stop-status-done';
+
+        var footer = card.querySelector('.mw-dv-card-footer');
+        if (!footer) return;
+
+        var visitIds = (footer.querySelector('[data-visit-ids]') || {}).dataset
+            ? footer.querySelector('[data-visit-ids]').dataset.visitIds || ''
+            : (footer.querySelector('[data-stop-id]') ? footer.querySelector('[data-stop-id]').dataset.stopId : '');
+        var stopId   = card.dataset.stopId || '';
+
+        var invoiceHtml = '';
+        if (invoiceId && invoiceNumber) {
+            invoiceHtml = '<a class="mw-dv-invoice-link" href="/crm/invoices/view.php?id=' + invoiceId + '">'
+                        + escapeHtml(invoiceNumber) + ' &rarr;</a>';
+        }
+        var reopenVisitIds = visitIds || stopId;
+
+        footer.className = 'mw-dv-card-footer mw-dv-footer-done';
+        footer.innerHTML =
+            '<span class="mw-dv-done-badge">'
+            + '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
+            + ' Completed</span>'
+            + invoiceHtml
+            + '<button class="mw-dv-btn-reopen" data-stop-id="' + escapeHtml(stopId) + '" data-visit-ids="' + escapeHtml(reopenVisitIds) + '" title="Reopen this stop">Reopen</button>';
+    }
+
+    function setCardPendingState(card) {
+        card.className = card.className.replace(/mw-stop-status-\w+/g, '') + ' mw-stop-status-scheduled';
+
+        var footer = card.querySelector('.mw-dv-card-footer');
+        if (!footer) return;
+
+        var stopId = card.dataset.stopId || '';
+        footer.className = 'mw-dv-card-footer mw-dv-footer-pending';
+        footer.innerHTML =
+            '<button class="mw-dv-btn-complete mw-dv-btn-complete-invoice" data-stop-id="' + escapeHtml(stopId) + '" data-invoice="1">'
+            + '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>'
+            + ' Complete &amp; Invoice</button>'
+            + '<button class="mw-dv-btn-complete mw-dv-btn-complete-noinvoice" data-stop-id="' + escapeHtml(stopId) + '" data-invoice="0">'
+            + 'Complete &#8212; No Invoice</button>';
+    }
+
+    function escapeHtml(str) {
+        return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function dvCompleteStop(card, stopId, withInvoice) {
+        var btns = card.querySelectorAll('.mw-dv-btn-complete');
+        btns.forEach(function(b) { b.disabled = true; b.style.opacity = '0.6'; });
+
+        dvPost(
+            { action: 'complete_stop', stop_id: stopId, invoice: withInvoice ? 1 : 0 },
+            function(data) {
+                setCardDoneState(card, data.invoice_id, data.invoice_number);
+                if (data.invoice_number) {
+                    showDvToast(
+                        'Stop completed.',
+                        'success',
+                        '/crm/invoices/view.php?id=' + data.invoice_id,
+                        'View invoice ' + data.invoice_number
+                    );
+                } else {
+                    showDvToast('Stop marked complete.', 'success');
+                }
+            },
+            function(errMsg) {
+                btns.forEach(function(b) { b.disabled = false; b.style.opacity = ''; });
+                showDvToast(errMsg, 'error');
+            }
+        );
+    }
+
+    function dvReopenStop(card, visitId) {
+        dvPost(
+            { action: 'reopen_visit', visit_id: visitId },
+            function() {
+                setCardPendingState(card);
+                showDvToast('Stop reopened — marked as scheduled.', 'info');
+            },
+            function(errMsg) {
+                showDvToast(errMsg, 'error');
+            }
+        );
+    }
+
+    document.addEventListener('click', function(e) {
+        var btn = e.target.closest('.mw-dv-btn-complete');
+        if (btn) {
+            var card = btn.closest('.mw-dv-card');
+            if (!card) return;
+            dvCompleteStop(card, parseInt(card.dataset.stopId, 10), btn.dataset.invoice === '1');
+            return;
+        }
+
+        var reopen = e.target.closest('.mw-dv-btn-reopen');
+        if (reopen) {
+            if (!confirm('Reopen this stop? All visits will be marked as scheduled again.')) return;
+            var rCard = reopen.closest('.mw-dv-card');
+            if (!rCard) return;
+            var visitIds = (reopen.dataset.visitIds || '').split(',').map(Number).filter(Boolean);
+            if (!visitIds.length) return;
+            dvReopenStop(rCard, visitIds[0]);
+        }
+    });
+
+}());

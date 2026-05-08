@@ -128,7 +128,7 @@
         width: 44px;    /* widened from 28px — glove-safe touch target */
         height: 48px;   /* raised from 44px — meets 48px minimum */
         flex-shrink: 0;
-        color: #bbb;
+        color: var(--mw-ink-300, #bbb);
         text-decoration: none;
         touch-action: manipulation;
         -webkit-tap-highlight-color: transparent;
@@ -1001,6 +1001,8 @@
         flex-direction: column;
         flex: 1;
         min-height: 0;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
         /* Override the base border-top/margin-top so hero has clean top spacing */
         border-top: none;
         margin-top: 0;
@@ -1653,17 +1655,38 @@
         height: 72px;
     }
 
+    /* ── Obsidian Root™ icon tile in photo strip ── */
+    /* Sits inside .mw-mc-photo-strips alongside photo placeholders/thumbs */
+    .mw-mc-or-tile {
+        flex: 0 0 80px;
+        width: 80px;
+        height: 80px;
+        border-radius: 8px;
+        overflow: hidden;
+        display: inline-flex;
+        align-items: stretch;
+    }
+    .mw-mc-or-tile img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+        border-radius: 0;
+    }
+    /* Hero card: match taller thumb height */
+    .mw-mc-card-hero .mw-mc-or-tile {
+        height: 110px;
+    }
+
     /* ── Additionals row ── */
     .mw-mc-photo-additionals {
         display: flex;
         flex-direction: row;
-        flex-wrap: nowrap;
+        flex-wrap: wrap;
         gap: 6px;
-        align-items: center;
+        align-items: flex-start;
         width: 100%;
         padding: 4px 0 0 0;
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
     }
 
     /* Additional photo thumbs: compact squares */
@@ -1706,6 +1729,37 @@
         background: #efefef;
         border-color: #aaa;
         color: #555;
+    }
+
+    /* Gallery multi-select button — next to camera additionals */
+    .mw-mc-gallery-btn {
+        flex: 0 0 auto;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 3px;
+        min-width: 60px;
+        height: 60px;
+        border-radius: 8px;
+        border: 2px dashed var(--mw-green, #2D8659);
+        background: var(--mw-light, #E8F3F0);
+        color: var(--mw-green, #2D8659);
+        cursor: pointer;
+        padding: 0 8px;
+        font-size: 0.58rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
+        transition: background 0.15s, border-color 0.15s, color 0.15s;
+        -webkit-tap-highlight-color: transparent;
+        white-space: nowrap;
+    }
+
+    .mw-mc-gallery-btn:active {
+        background: #cde8db;
+        border-color: var(--mw-dark, #1A5F4A);
+        color: var(--mw-dark, #1A5F4A);
     }
 
     /* ════════════════════════════════════════════════════
@@ -2131,6 +2185,79 @@
 
     .mw-mc-expense-review-img-expanded .mw-mc-expense-review-img-hint {
         opacity: 0;
+    }
+
+    /* ── Compact Receipt Thumbnail (replaces collapsible wrap) ── */
+    .mw-mc-expense-review-img-compact {
+        height: 52px;
+        overflow: hidden;
+        cursor: pointer;
+        border-radius: 8px;
+        margin: 8px 12px 4px;
+        -webkit-tap-highlight-color: transparent;
+        transition: height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .mw-mc-expense-review-img-compact img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        object-position: top;
+        border-radius: 8px;
+    }
+    .mw-mc-expense-review-img-compact.mw-mc-expense-review-img-expanded {
+        height: 220px;
+    }
+    .mw-mc-expense-review-img-compact.mw-mc-expense-review-img-expanded img {
+        object-fit: contain;
+        background: #fafaf8;
+    }
+
+    /* ── Field Error State ── */
+    .mw-mc-field-error {
+        background: #ffeaea !important;
+        border-color: #e53e3e !important;
+        border-radius: 8px;
+    }
+
+    /* ── Collapsible Tax Section ── */
+    .mw-mc-expense-tax-section {
+        margin-bottom: 10px;
+    }
+    .mw-mc-expense-tax-toggle {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: var(--mw-light);
+        border: none;
+        border-radius: 8px;
+        padding: 8px 12px;
+        font-size: 13px;
+        color: var(--mw-green);
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+    }
+    .mw-mc-expense-tax-summary-text {
+        font-weight: 500;
+    }
+    .mw-mc-expense-tax-toggle .mw-mc-expense-chevron {
+        transition: transform 0.2s ease;
+        flex-shrink: 0;
+        margin-left: 8px;
+        stroke: var(--mw-green);
+    }
+    .mw-mc-expense-tax-fields {
+        padding-top: 6px;
+    }
+    .mw-mc-expense-tax-toggle.mw-mc-expense-tax-warn {
+        background: #fff3e0;
+        color: var(--mw-orange);
+    }
+    .mw-mc-expense-tax-toggle.mw-mc-expense-tax-warn .mw-mc-expense-chevron {
+        stroke: var(--mw-orange);
+    }
+    .mw-mc-expense-tax-toggle.mw-mc-expense-tax-warn .mw-mc-expense-tax-summary-text::before {
+        content: '⚠ ';
     }
 
     /* ── Review Form ── */
@@ -3334,12 +3461,13 @@
     border-radius: 12px;
 }
 
+/* ── Optimise-from-here button (green) ── */
 .mw-mv-card-go {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 34px;
-    height: 34px;
+    width: 48px;
+    height: 48px;
     border: none;
     border-radius: 50%;
     background: var(--mw-green, #2D8659);
@@ -3347,7 +3475,7 @@
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
     flex-shrink: 0;
-    box-shadow: 0 2px 6px rgba(45, 134, 89, 0.3);
+    box-shadow: 0 2px 8px rgba(45, 134, 89, 0.35);
     transition: background 0.15s ease, transform 0.15s ease;
 }
 
@@ -3356,17 +3484,13 @@
     transform: scale(0.92);
 }
 
-.mw-mv-card-go svg {
-    margin-left: 1px;
-}
-
-/* ── Navigate (external turn-by-turn) button ── */
+/* ── Google Maps navigation button (orange) ── */
 .mw-mv-card-nav {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 34px;
-    height: 34px;
+    width: 48px;
+    height: 48px;
     border: none;
     border-radius: 50%;
     background: var(--mw-orange, #e85d04);
@@ -3374,7 +3498,7 @@
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
     flex-shrink: 0;
-    box-shadow: 0 2px 6px rgba(232, 93, 4, 0.3);
+    box-shadow: 0 2px 8px rgba(232, 93, 4, 0.35);
     transition: background 0.15s ease, transform 0.15s ease;
 }
 
@@ -3386,7 +3510,7 @@
 /* ── Card button group ── */
 .mw-mv-card-btns {
     display: flex;
-    gap: 8px;
+    gap: 10px;
     align-items: center;
 }
 
@@ -3630,6 +3754,204 @@
 
 
 /* ══════════════════════════════════════════════════════
+   Fertilizer / Obsidian Root™ Row + Card Flip
+   ══════════════════════════════════════════════════════ */
+
+/* Flip container — wraps front + back inside card-body */
+.mw-mc-card-body {
+    perspective: 900px;
+}
+.mw-mc-flip-inner {
+    position: relative;
+    transform-style: preserve-3d;
+    transition: transform 0.38s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.mw-mc-card--flipped .mw-mc-flip-inner {
+    transform: rotateY(180deg);
+}
+.mw-mc-flip-front {
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+}
+.mw-mc-flip-back {
+    position: absolute;
+    inset: 0;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+    transform: rotateY(180deg);
+    background: #fff;
+    border-radius: 12px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* Fert row — sits between profit bar and card footer */
+.mw-mc-fert-row {
+    display: flex;
+    align-items: center;
+    padding: 7px 12px 5px;
+    border-top: 1px solid #F0F4F2;
+    margin-top: 4px;
+}
+.mw-mc-fert-flip-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: none;
+    border: none;
+    padding: 4px 0;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    font-family: inherit;
+    flex: 1;
+    min-width: 0;
+}
+.mw-mc-fert-flip-btn .or-icon img {
+    display: block;
+    border-radius: 50%;
+}
+.mw-mc-fert-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: #1A1A1A;
+    white-space: nowrap;
+}
+.mw-mc-fert-status-label {
+    font-size: 0.62rem;
+    color: #9CA3AF;
+    white-space: nowrap;
+    margin-left: auto;
+    padding-right: 6px;
+}
+.mw-mc-fert-row[data-or-status="enrolled"] .mw-mc-fert-status-label { color: #2D8659; }
+.mw-mc-fert-row[data-or-status="offer"]    .mw-mc-fert-status-label { color: #CC0000; }
+
+/* Flip hint arrow (right side of fert row) */
+.mw-mc-fert-flip-arrow {
+    flex-shrink: 0;
+    color: #D1D5DB;
+    display: flex;
+    align-items: center;
+}
+
+/* Back face — fertilizer panel */
+.mw-mc-fert-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 180px;
+}
+.mw-mc-fert-panel-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px 10px;
+    border-bottom: 1px solid #F0F4F2;
+}
+.mw-mc-fert-panel-title {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #111;
+    line-height: 1.2;
+}
+.mw-mc-fert-panel-sub {
+    font-size: 0.62rem;
+    color: #6B7280;
+    margin-top: 1px;
+}
+.mw-mc-fert-close {
+    margin-left: auto;
+    background: none;
+    border: none;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: #6B7280;
+    font-size: 1rem;
+    -webkit-tap-highlight-color: transparent;
+    flex-shrink: 0;
+}
+.mw-mc-fert-close:active { background: #F3F4F6; }
+.mw-mc-fert-panel-body {
+    padding: 12px 14px;
+    flex: 1;
+}
+.mw-mc-fert-stat-row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+.mw-mc-fert-stat {
+    flex: 1;
+    background: #F9FAFB;
+    border-radius: 8px;
+    padding: 8px 10px;
+    text-align: center;
+}
+.mw-mc-fert-stat-val {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #111;
+}
+.mw-mc-fert-stat-lbl {
+    font-size: 0.55rem;
+    color: #9CA3AF;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-top: 2px;
+}
+.mw-mc-fert-log-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
+    padding: 10px;
+    background: linear-gradient(135deg, #2D8659, #1A5F4A);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    font-family: inherit;
+    margin-top: 4px;
+}
+.mw-mc-fert-log-btn:active { opacity: 0.85; }
+.mw-mc-fert-none-msg {
+    font-size: 0.7rem;
+    color: #9CA3AF;
+    text-align: center;
+    padding: 16px 0 8px;
+}
+
+/* Compact card fert icon — inline in expand-detail */
+.mw-mc-fert-compact {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding-top: 6px;
+}
+.mw-mc-fert-compact-label {
+    font-size: 0.65rem;
+    color: #6B7280;
+}
+.mw-mc-fert-compact-status {
+    font-size: 0.62rem;
+    font-weight: 600;
+}
+.mw-mc-fert-compact[data-or-status="enrolled"] .mw-mc-fert-compact-status { color: #2D8659; }
+.mw-mc-fert-compact[data-or-status="offer"]    .mw-mc-fert-compact-status { color: #CC0000; }
+.mw-mc-fert-compact[data-or-status="none"]     .mw-mc-fert-compact-status { color: #9CA3AF; }
+
+
+/* ══════════════════════════════════════════════════════
    Mobile Confidence Dots (Expenses)
    ══════════════════════════════════════════════════════ */
 .mw-mc-conf-dot {
@@ -3858,16 +4180,34 @@
     background: #FFE0B2;
 }
 
+/* Clock-in button transformed into digital clock when timer is running */
+.mw-mc-footer-btn-clockin.is-clocked-in {
+    background: rgba(45, 134, 89, 0.1);
+    color: var(--mw-green, #2D8659);
+    border: 1.5px solid rgba(45, 134, 89, 0.3);
+    cursor: default;
+    font-size: 1rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.05em;
+}
+
+.mw-mc-footer-btn-clockin.is-clocked-in:active {
+    transform: none;
+    background: rgba(45, 134, 89, 0.1);
+}
+
 /* ══════════════════════════════════════════════════════════
    PER-VISIT SECTIONS (inside expand-detail)
    Each section: [service pill] → [photo strip] → [action footer]
    ══════════════════════════════════════════════════════════ */
 
-/* Hide the shared card-footer when expanded — per-visit footers take over.
-   Hero cards are always expanded via CSS (never get .mw-mc-expanded), so
-   target both cases here. */
-.mw-mc-card-compact.mw-mc-expanded .mw-mc-card-footer,
-.mw-mc-card-hero .mw-mc-card-footer {
+/* Hide the shared card-footer when a compact card is manually expanded —
+   per-visit footers inside expand-detail take over for that case.
+   Hero cards keep their card-footer visible at the bottom (expand-detail
+   content can be taller than the card height and gets clipped by
+   overflow:hidden, so per-visit footers inside it are not reliably visible). */
+.mw-mc-card-compact.mw-mc-expanded .mw-mc-card-footer {
     display: none;
 }
 
@@ -4434,4 +4774,546 @@
     opacity: 0.55;
     cursor: not-allowed;
     transform: none;
+}
+
+/* ══ Obsidian Root™ icon variants — or-icon-full / sell / grey ══════════ */
+
+/* Base or-icon span — wraps the logo image in the fert row */
+.or-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    overflow: hidden;
+    flex-shrink: 0;
+    transition: filter 0.2s ease, opacity 0.2s ease;
+}
+.or-icon img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    border-radius: 50%;
+    transition: filter 0.2s ease;
+}
+
+/* ── ENROLLED: full colour, crisp ── */
+.or-icon-full img,
+.or-icon-full.or-icon img {
+    filter: none;
+    opacity: 1;
+}
+/* Tile variant in photo strip */
+.mw-mc-or-tile.or-icon-full {
+    border: 2px solid #2D8659;
+    box-shadow: 0 0 0 2px rgba(45,134,89,0.15);
+    background: #f0faf4;
+}
+.mw-mc-or-tile.or-icon-full img {
+    filter: none;
+    opacity: 1;
+}
+
+/* ── OFFER / SELL: warm amber tint — client could be enrolled ── */
+.or-icon-sell img,
+.or-icon-sell.or-icon img {
+    filter: saturate(0.6) sepia(0.25) brightness(1.05);
+    opacity: 0.9;
+}
+.mw-mc-or-tile.or-icon-sell {
+    border: 2px dashed #F59E0B;
+    background: #fffbeb;
+}
+.mw-mc-or-tile.or-icon-sell img {
+    filter: saturate(0.6) sepia(0.25) brightness(1.05);
+    opacity: 0.9;
+}
+
+/* ── NOT ENROLLED: full greyscale ── */
+.or-icon-grey img,
+.or-icon-grey.or-icon img {
+    filter: grayscale(100%) brightness(1.05);
+    opacity: 0.5;
+}
+.mw-mc-or-tile.or-icon-grey {
+    border: 2px dashed #ccc;
+    background: #f5f5f5;
+}
+.mw-mc-or-tile.or-icon-grey img {
+    filter: grayscale(100%) brightness(1.05);
+    opacity: 0.5;
+}
+
+/* ── Fert row status label colours (also in mobile-cards body above,
+       repeat here for specificity after or-icon additions) ── */
+.mw-mc-fert-row[data-or-status="enrolled"] .mw-mc-fert-label { color: #2D8659; }
+.mw-mc-fert-row[data-or-status="offer"]    .mw-mc-fert-label { color: #CC6600; }
+.mw-mc-fert-row[data-or-status="none"]     .mw-mc-fert-label { color: #6B7280; }
+
+/* ── Photo strip OR tile: ensure identical dimensions to photo placeholders ── */
+.mw-mc-or-tile {
+    flex: 0 0 80px;
+    width: 80px;
+    height: 80px;
+    border-radius: 10px;
+    overflow: hidden;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+}
+.mw-mc-card-hero .mw-mc-or-tile {
+    height: 110px;
+}
+
+/* ══ Desktop schedule stop card — OR badge ════════════════════════════════ */
+
+/* Base badge container on desktop stop cards */
+.mw-stop-or-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    overflow: hidden;
+    flex-shrink: 0;
+    transition: filter 0.2s, opacity 0.2s;
+}
+.mw-stop-or-badge img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    transition: filter 0.2s, opacity 0.2s;
+}
+
+/* Enrolled: full colour, green ring */
+.mw-stop-or-badge.or-icon-full {
+    box-shadow: 0 0 0 2px rgba(45,134,89,0.35);
+    background: #f0faf4;
+}
+.mw-stop-or-badge.or-icon-full img {
+    filter: none;
+    opacity: 1;
+}
+
+/* Offer: amber ring */
+.mw-stop-or-badge.or-icon-sell {
+    box-shadow: 0 0 0 2px rgba(245,158,11,0.4);
+    background: #fffbeb;
+}
+.mw-stop-or-badge.or-icon-sell img {
+    filter: saturate(0.5) sepia(0.3) brightness(1.05);
+    opacity: 0.85;
+}
+
+/* Not enrolled: greyed out, no ring */
+.mw-stop-or-badge.or-icon-grey {
+    background: #f0f0f0;
+}
+.mw-stop-or-badge.or-icon-grey img {
+    filter: grayscale(100%) brightness(1.1);
+    opacity: 0.35;
+}
+
+/* ══ Compact inline indicator — stronger visual distinction at 20px ═══════ */
+
+/* Entire compact fades when not enrolled */
+.mw-mc-fert-compact[data-or-status="none"] {
+    opacity: 0.45;
+}
+.mw-mc-fert-compact[data-or-status="enrolled"] .or-icon img {
+    filter: none;
+    opacity: 1;
+}
+/* Extra aggression on grey at small sizes — opacity alone not enough */
+.mw-mc-fert-compact[data-or-status="none"] .or-icon-grey img,
+.mw-mc-fert-compact .or-icon-grey img {
+    filter: grayscale(100%) brightness(1.15);
+    opacity: 0.4;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   OBSIDIAN ROOT™ FULL-WIDTH TILE
+   Replaces the thin fert-row and tiny compact indicator.
+   Matches Before/After photo tile height so the crew sees it
+   at the same visual prominence as the camera action tiles.
+   ══════════════════════════════════════════════════════════════════ */
+.mw-mc-or-full-tile {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 14px;
+    width: 100%;
+    height: 80px;
+    border-radius: 8px;
+    border: 2px dashed #ccc;
+    background: #f5f5f5;
+    padding: 0 16px;
+    margin: 8px 0 0;
+    cursor: default;
+    -webkit-tap-highlight-color: transparent;
+    text-align: left;
+    box-sizing: border-box;
+    transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+}
+/* Button reset — active card uses <button type="button"> */
+button.mw-mc-or-full-tile {
+    font-family: inherit;
+    cursor: pointer;
+}
+button.mw-mc-or-full-tile:active { opacity: 0.82; }
+
+.mw-mc-or-full-tile img {
+    width: 56px;
+    height: 56px;
+    object-fit: contain;
+    flex-shrink: 0;
+    display: block;
+    transition: filter 0.2s, opacity 0.2s;
+}
+.mw-mc-or-full-tile-text {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    flex: 1;
+    min-width: 0;
+}
+.mw-mc-or-tile-name {
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #6B7280;
+}
+.mw-mc-or-tile-status {
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+    color: #9CA3AF;
+}
+.mw-mc-or-tile-chevron {
+    flex-shrink: 0;
+    color: #D1D5DB;
+}
+
+/* ── Enrolled — green solid border, full-colour logo ── */
+.mw-mc-or-full-tile.or-icon-full {
+    border-color: var(--mw-green, #2D8659);
+    border-style: solid;
+    background: #f0faf4;
+    cursor: pointer;
+}
+.mw-mc-or-full-tile.or-icon-full img {
+    filter: none;
+    opacity: 1;
+}
+.mw-mc-or-full-tile.or-icon-full .mw-mc-or-tile-name  { color: var(--mw-green, #2D8659); }
+.mw-mc-or-full-tile.or-icon-full .mw-mc-or-tile-status { color: var(--mw-green, #2D8659); }
+.mw-mc-or-full-tile.or-icon-full .mw-mc-or-tile-chevron { color: var(--mw-green, #2D8659); }
+
+/* ── Offer — red dashed border, full-colour logo ── */
+.mw-mc-or-full-tile.or-icon-sell {
+    border-color: #CC0000;
+    border-style: dashed;
+    background: #fff8f8;
+    cursor: pointer;
+}
+.mw-mc-or-full-tile.or-icon-sell img {
+    filter: none;
+    opacity: 1;
+}
+.mw-mc-or-full-tile.or-icon-sell .mw-mc-or-tile-name  { color: #CC0000; }
+.mw-mc-or-full-tile.or-icon-sell .mw-mc-or-tile-status { color: #CC0000; }
+.mw-mc-or-full-tile.or-icon-sell .mw-mc-or-tile-chevron { color: #CC0000; }
+
+/* ── Not enrolled — grey dashed, greyscale logo ── */
+.mw-mc-or-full-tile.or-icon-grey img {
+    filter: grayscale(100%) brightness(1.05);
+    opacity: 0.4;
+}
+.mw-mc-or-full-tile.or-icon-grey .mw-mc-or-tile-name  { color: #9CA3AF; }
+.mw-mc-or-full-tile.or-icon-grey .mw-mc-or-tile-status { color: #B0B8C1; }
+
+/* Hero card: match 110px photo tile height */
+.mw-mc-card-hero .mw-mc-or-full-tile { height: 110px; }
+
+/* ═══════════════════════════════════════════════════════════
+   ACTIVE JOB PANEL
+   Persistent on-job control surface — shown after clock-in.
+   Hidden by default; JS reveals it via showActivePanel().
+   ═══════════════════════════════════════════════════════════ */
+
+.mw-mc-active-panel {
+    overflow: hidden;
+}
+
+/* ── Hero (forest green header) ─────────────────────────── */
+.mw-mc-ap-hero {
+    background: linear-gradient(160deg, #0D3B2E 0%, #1A5F4A 100%);
+    padding: 14px 18px 18px;
+}
+
+.mw-mc-ap-header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.mw-mc-ap-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(127, 216, 88, 0.15);
+    border: 1px solid rgba(127, 216, 88, 0.35);
+    border-radius: 20px;
+    padding: 3px 10px;
+    font-size: 10px;
+    font-weight: 700;
+    color: #7FD858;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+}
+
+.mw-mc-ap-pulse-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #7FD858;
+    flex-shrink: 0;
+    animation: mw-ap-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes mw-ap-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%       { opacity: 0.4; transform: scale(0.65); }
+}
+
+.mw-mc-ap-stop-label {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.35);
+    font-weight: 500;
+}
+
+.mw-mc-ap-address {
+    font-size: 16px;
+    font-weight: 700;
+    color: #fff;
+    line-height: 1.2;
+    margin-bottom: 2px;
+}
+
+.mw-mc-ap-client {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.55);
+    margin-bottom: 10px;
+}
+
+.mw-mc-ap-timer-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.mw-mc-ap-timer {
+    font-size: 44px;
+    font-weight: 200;
+    color: #fff;
+    letter-spacing: 3px;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    transition: opacity 0.3s;
+}
+
+.mw-mc-ap-timer-lbl {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.35);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    align-self: center;
+}
+
+.mw-mc-ap-pause-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 20px;
+    padding: 6px 16px;
+    font-size: 12px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.85);
+    cursor: pointer;
+    min-height: 36px;
+    transition: background 0.2s, border-color 0.2s, color 0.2s;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.mw-mc-ap-pause-icon {
+    font-size: 13px;
+    line-height: 1;
+}
+
+/* ── Paused state ────────────────────────────────────────── */
+.mw-mc-active-panel.mw-mc-ap-paused .mw-mc-ap-hero {
+    background: linear-gradient(160deg, #1a2e28 0%, #243d35 100%);
+}
+
+.mw-mc-active-panel.mw-mc-ap-paused .mw-mc-ap-timer {
+    opacity: 0.5;
+}
+
+.mw-mc-active-panel.mw-mc-ap-paused .mw-mc-ap-pulse-dot {
+    animation: none;
+    opacity: 0.3;
+}
+
+.mw-mc-active-panel.mw-mc-ap-paused .mw-mc-ap-pause-btn {
+    background: rgba(255, 195, 0, 0.15);
+    border-color: rgba(255, 195, 0, 0.4);
+    color: #ffc300;
+}
+
+/* ── Body (light section below hero) ────────────────────── */
+.mw-mc-ap-body {
+    background: #F4F7F5;
+    padding: 14px 16px 16px;
+}
+
+.mw-mc-ap-section-lbl {
+    font-size: 10px;
+    font-weight: 700;
+    color: #2D8659;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-bottom: 8px;
+}
+
+/* ── Photo row ───────────────────────────────────────────── */
+.mw-mc-ap-photo-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 14px;
+}
+
+.mw-mc-ap-photo-btn {
+    min-height: 72px;
+    background: #fff;
+    border: 1.5px solid #D4E8DE;
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s, box-shadow 0.2s, transform 0.1s;
+    -webkit-tap-highlight-color: transparent;
+    padding: 8px 4px;
+}
+
+.mw-mc-ap-photo-btn:active {
+    transform: scale(0.96);
+}
+
+.mw-mc-ap-photo-icon {
+    font-size: 22px;
+    display: block;
+    line-height: 1;
+}
+
+.mw-mc-ap-photo-lbl {
+    font-size: 11px;
+    font-weight: 600;
+    color: #1A5F4A;
+}
+
+/* Photo taken state */
+.mw-mc-ap-photo-btn.mw-mc-ap-photo-taken {
+    border-color: #2D8659;
+    background: #EAF5ED;
+}
+
+.mw-mc-ap-photo-btn.mw-mc-ap-photo-taken .mw-mc-ap-photo-lbl {
+    color: #2D8659;
+}
+
+/* Prompt state — pulsing call-to-action */
+.mw-mc-ap-photo-btn.mw-mc-ap-photo-prompt {
+    border-color: #2D8659;
+    animation: mw-ap-photo-prompt 1.6s ease-in-out infinite;
+}
+
+@keyframes mw-ap-photo-prompt {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(45, 134, 89, 0); }
+    50%       { box-shadow: 0 0 0 5px rgba(45, 134, 89, 0.22); }
+}
+
+/* ── Stats strip ─────────────────────────────────────────── */
+.mw-mc-ap-stats {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.mw-mc-ap-stat {
+    flex: 1;
+    background: #fff;
+    border: 1px solid #D4E8DE;
+    border-radius: 10px;
+    padding: 10px 6px;
+    text-align: center;
+}
+
+.mw-mc-ap-stat-val {
+    font-size: 14px;
+    font-weight: 700;
+    color: #0D3B2E;
+    line-height: 1.1;
+}
+
+.mw-mc-ap-stat-lbl {
+    font-size: 9px;
+    color: #AAA;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-top: 3px;
+}
+
+/* ── Notes box ───────────────────────────────────────────── */
+.mw-mc-ap-notes {
+    background: #fff;
+    border: 1px solid #D4E8DE;
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: 12px;
+    color: #555;
+    line-height: 1.5;
+    margin-bottom: 12px;
+}
+
+/* ── Complete Job button ─────────────────────────────────── */
+.mw-mc-ap-finish-btn {
+    width: 100%;
+    background: #2D8659;
+    color: #fff;
+    border: none;
+    border-radius: 12px;
+    padding: 14px;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    letter-spacing: 0.3px;
+    transition: background 0.15s, transform 0.1s;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.mw-mc-ap-finish-btn:active {
+    background: #1A5F4A;
+    transform: scale(0.98);
 }

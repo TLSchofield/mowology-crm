@@ -2,108 +2,102 @@
 //  RouteStore.swift
 //  MowologyCRM
 //
-//  Persists GPS breadcrumbs per visit using SwiftData.
-//  These points feed the visit timeline on the CRM dashboard and provide
-//  a local audit trail independent of the server-side proof-of-work chain.
-//
-//  Design notes:
-//  - Mirrors the PingQueue SwiftData pattern already established in this app.
-//  - record() is fire-and-forget from the GPS ping loop; it must never throw.
-//  - purge() is called on clock-out to keep local storage bounded.
-//  - No network sync here — the GPS ping loop already uploads fixes live;
-//    RouteStore is purely a local breadcrumb trail for diagnostic/replay.
+//  Stores one GPS fix per minute per active visit for route-replay in the
+//  dispatcher map. Retains points for 7 days then auto-purges.
 //
 
 import Foundation
-import CoreLocation
 import SwiftData
+import CoreLocation
 
-// MARK: - RoutePoint (SwiftData model)
+// MARK: - RoutePoint
 
 @Model
 final class RoutePoint {
-    var visitId:    Int
-    var lat:        Double
-    var lng:        Double
-    var accuracy:   Double
-    var recordedAt: Date
+    var visitId:   Int
+    var lat:       Double
+    var lng:       Double
+    var accuracy:  Double
+    var heading:   Double   // degrees clockwise from north; -1 when unavailable
+    var speed:     Double   // m/s; -1 when unavailable
+    var timestamp: Date
 
-    init(visitId: Int, lat: Double, lng: Double, accuracy: Double) {
-        self.visitId    = visitId
-        self.lat        = lat
-        self.lng        = lng
-        self.accuracy   = accuracy
-        self.recordedAt = Date()
+    init(visitId: Int, location: CLLocation) {
+        self.visitId   = visitId
+        self.lat       = location.coordinate.latitude
+        self.lng       = location.coordinate.longitude
+        self.accuracy  = max(0, location.horizontalAccuracy)
+        self.heading   = location.course  >= 0 ? location.course  : -1
+        self.speed     = location.speed   >= 0 ? location.speed   : -1
+        self.timestamp = location.timestamp
     }
 }
 
 // MARK: - RouteStore
 
+/// Thread-safe (MainActor) route-point store.
+/// One point per minute per visit, 7-day retention, max ~600 points/shift.
 @MainActor
 final class RouteStore {
 
     static let shared = RouteStore()
 
     private let container: ModelContainer
+    // Last stored timestamp per visitId — prevents double-storage within the same minute.
+    private var lastRecordTime: [Int: Date] = [:]
+    private let minInterval: TimeInterval   = 60   // seconds between stored points
 
     private init() {
         do {
             container = try ModelContainer(for: RoutePoint.self)
         } catch {
-            // Persistent store failed (schema change, corrupt DB) — fall back
-            // to in-memory so the ping loop keeps running without crashing.
-            let cfg = ModelConfiguration(isStoredInMemoryOnly: true)
-            container = try! ModelContainer(for: RoutePoint.self,
-                                            configurations: cfg)
-            print("[RouteStore] SwiftData init failed, in-memory fallback: \(error)")
+            let config = ModelConfiguration(isStoredInMemoryOnly: true)
+            container = try! ModelContainer(for: RoutePoint.self, configurations: config)
+            print("[RouteStore] SwiftData init failed, using in-memory fallback: \(error)")
         }
+        purgeExpired()
     }
 
     // MARK: - Record
 
-    /// Append a GPS fix for the given visit.
-    /// Silently drops fixes with invalid accuracy (horizontal accuracy < 0).
+    /// Store a fix for this visit if ≥60 s have elapsed since the last stored point.
+    /// Call from the ping loop inside `VisitDetailViewModel`.
     func record(visitId: Int, location: CLLocation) {
-        guard location.horizontalAccuracy >= 0 else { return }
-        let accuracy = location.horizontalAccuracy
+        let now = Date()
+        if let last = lastRecordTime[visitId],
+           now.timeIntervalSince(last) < minInterval { return }
+        lastRecordTime[visitId] = now
+
         let ctx = ModelContext(container)
-        ctx.insert(RoutePoint(
-            visitId:  visitId,
-            lat:      location.coordinate.latitude,
-            lng:      location.coordinate.longitude,
-            accuracy: accuracy
-        ))
+        ctx.insert(RoutePoint(visitId: visitId, location: location))
         try? ctx.save()
     }
 
-    // MARK: - Purge
+    // MARK: - Query
 
-    /// Delete points older than the given interval.
-    /// Default is 48 hours — long enough to cover an overnight re-sync,
-    /// short enough to keep the local store from growing unbounded.
-    func purge(olderThan interval: TimeInterval = 48 * 3600) {
-        let cutoff = Date().addingTimeInterval(-interval)
-        let ctx = ModelContext(container)
-        guard let stale = try? ctx.fetch(
-            FetchDescriptor<RoutePoint>(
-                predicate: #Predicate { $0.recordedAt < cutoff }
-            )
-        ) else { return }
-        stale.forEach { ctx.delete($0) }
-        try? ctx.save()
+    /// Returns all stored route points for a visit, oldest first.
+    func points(for visitId: Int) -> [RoutePoint] {
+        let ctx  = ModelContext(container)
+        let desc = FetchDescriptor<RoutePoint>(
+            predicate: #Predicate { $0.visitId == visitId },
+            sortBy:    [SortDescriptor(\.timestamp)]
+        )
+        return (try? ctx.fetch(desc)) ?? []
     }
 
-    // MARK: - Read (for diagnostics / future replay)
+    /// Returns the most-recent point for a visit, or nil.
+    func lastPoint(for visitId: Int) -> RoutePoint? {
+        points(for: visitId).last
+    }
 
-    /// Return all points for a visit, ordered by recording time.
-    func points(forVisit visitId: Int) -> [RoutePoint] {
-        let ctx = ModelContext(container)
-        let vid = visitId
-        return (try? ctx.fetch(
-            FetchDescriptor<RoutePoint>(
-                predicate:  #Predicate { $0.visitId == vid },
-                sortBy:     [SortDescriptor(\.recordedAt)]
-            )
-        )) ?? []
+    // MARK: - Cleanup
+
+    /// Delete points older than `days` days. Called once on init.
+    private func purgeExpired(days: Int = 7) {
+        let ctx    = ModelContext(container)
+        let cutoff = Date().addingTimeInterval(-Double(days) * 24 * 3600)
+        let all    = (try? ctx.fetch(FetchDescriptor<RoutePoint>())) ?? []
+        for pt in all where pt.timestamp < cutoff { ctx.delete(pt) }
+        try? ctx.save()
     }
 }

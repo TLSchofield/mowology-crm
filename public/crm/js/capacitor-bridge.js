@@ -68,30 +68,41 @@
     var LocalNotifications = Plugins.LocalNotifications;
     var Network = Plugins.Network;
     var MwTracking = Plugins.MwTracking; // Custom plugin
+    var App = Plugins.App; // For hardware back button + app state
 
     // ── Location Processor (JS-side noise filter) ──────────
-    // Supplements the native accuracy gating with JS-side smoothing
+    // Supplements the native activity-based distance filter with JS-side
+    // quality gating. Two tiers:
+    //   Hard reject  — accuracy > 80 m (indoor/tunnel noise, cold GPS)
+    //   Soft reject  — accuracy > 50 m AND speed < 0.5 m/s (stationary bad fix)
+    //   Teleport     — apparent speed > 60 m/s vs previous accepted fix
     var locationProcessor = {
-        ACCURACY_THRESHOLD: 200, // meters — reject only wildly inaccurate fixes
-        SPEED_MAX_MPS: 42,       // ~150 km/h — reject teleports
-        MIN_DISTANCE: 5,         // meters — skip tiny jitters when still
+        ACCURACY_HARD:  80,   // meters — always reject above this
+        ACCURACY_SOFT:  50,   // meters — reject if speed is below SPEED_FLOOR
+        SPEED_FLOOR:   0.5,   // m/s — below this the device is effectively still
+        SPEED_TELEPORT: 60,   // m/s (~216 km/h) — physically impossible on foot/bike
+        MIN_DISTANCE:    5,   // meters — suppress micro-jitter when still
         lastAccepted: null,
         stationaryCount: 0,
-        totalReceived: 0,        // Always accept first 3 fixes for fast startup
+        totalReceived: 0,
 
         process: function(pos) {
             this.totalReceived++;
 
-            // Always accept the first 3 positions so latestPosition gets set quickly.
-            // Without this, accuracy gating on startup (indoors, cold GPS) can block
-            // ALL positions and leave the tracking widget permanently stale.
+            // Always accept the first 3 fixes so the UI populates quickly on cold start.
             if (this.totalReceived <= 3) {
                 this.lastAccepted = pos;
                 return true;
             }
 
-            // Accuracy gate — relaxed to 200m to handle indoors/urban canyon
-            if (pos.accuracy > this.ACCURACY_THRESHOLD) {
+            // Hard accuracy reject
+            if (pos.accuracy > this.ACCURACY_HARD) {
+                return false;
+            }
+
+            // Soft accuracy reject: bad fix while stationary
+            var speed = pos.speed || 0;
+            if (pos.accuracy > this.ACCURACY_SOFT && speed < this.SPEED_FLOOR) {
                 return false;
             }
 
@@ -102,12 +113,12 @@
                 );
                 var timeDelta = (pos.timestamp - this.lastAccepted.timestamp) / 1000;
 
-                // Speed sanity check
-                if (timeDelta > 0 && dist / timeDelta > this.SPEED_MAX_MPS) {
-                    return false; // GPS teleport
+                // Teleport detection (GPS multi-path artifact)
+                if (timeDelta > 0 && dist / timeDelta > this.SPEED_TELEPORT) {
+                    return false;
                 }
 
-                // Jitter filter when stationary — accept every 3rd (was 10th)
+                // Jitter filter when stationary — accept every 3rd sub-threshold fix
                 if (dist < this.MIN_DISTANCE) {
                     this.stationaryCount++;
                     if (this.stationaryCount % 3 !== 0) {
@@ -120,6 +131,103 @@
 
             this.lastAccepted = pos;
             return true;
+        }
+    };
+
+    // ── Route Buffer ────────────────────────────────────────
+    // Stores one accepted fix per minute (max 600 = 10-hour shift).
+    // Dispatcher can call MwNative.route.points(visitId) to get the
+    // full polyline for route replay.
+    var routeBuffer = {
+        points:        [],
+        lastPointMs:   0,
+        lastPingMs:    0,
+        MIN_INTERVAL:  60 * 1000,  // 1 point per minute
+        MAX_POINTS:    600,        // 10-hour shift ceiling
+
+        add: function(pos, visitId) {
+            var now = Date.now();
+            this.lastPingMs = now;
+            if (now - this.lastPointMs < this.MIN_INTERVAL) return;
+            this.lastPointMs = now;
+            this.points.push({
+                lat:      pos.lat,
+                lng:      pos.lng,
+                accuracy: pos.accuracy,
+                heading:  pos.heading  || 0,
+                speed:    pos.speed    || 0,
+                ts:       now,
+                visitId:  visitId || null
+            });
+            if (this.points.length > this.MAX_POINTS) this.points.shift();
+        },
+
+        getPoints: function(visitId) {
+            if (visitId == null) return this.points.slice();
+            return this.points.filter(function(p) { return p.visitId === visitId; });
+        },
+
+        reset: function(visitId) {
+            if (visitId == null) {
+                this.points = [];
+            } else {
+                this.points = this.points.filter(function(p) { return p.visitId !== visitId; });
+            }
+        },
+
+        minutesSinceLastPing: function() {
+            return this.lastPingMs ? (Date.now() - this.lastPingMs) / 60000 : Infinity;
+        }
+    };
+
+    // ── Arrival + Dwell Tracker ─────────────────────────────
+    // Tracks dispatcher-trust metrics for one visit at a time.
+    // Reset via arrivalTracker.configure(lat, lng) on job start.
+    var arrivalTracker = {
+        siteCoord:     null,  // { lat, lng }
+        arrivalTime:   null,  // ms — first fix within 30 m
+        jobStartTime:  null,  // ms — when clock-in was confirmed
+        jobEndTime:    null,  // ms — when clock-out was confirmed
+        worstAccuracy: 0,     // metres
+        ARRIVAL_RADIUS: 30,   // metres
+
+        configure: function(lat, lng) {
+            this.siteCoord     = { lat: lat, lng: lng };
+            this.arrivalTime   = null;
+            this.jobStartTime  = null;
+            this.jobEndTime    = null;
+            this.worstAccuracy = 0;
+        },
+
+        observe: function(pos) {
+            if (!this.siteCoord) return;
+            if (pos.accuracy > this.worstAccuracy) this.worstAccuracy = pos.accuracy;
+            if (!this.arrivalTime) {
+                var dist = haversineDistance(
+                    pos.lat, pos.lng,
+                    this.siteCoord.lat, this.siteCoord.lng
+                );
+                if (dist <= this.ARRIVAL_RADIUS) this.arrivalTime = Date.now();
+            }
+        },
+
+        jobStarted:   function() { this.jobStartTime = Date.now(); },
+        jobCompleted: function() { this.jobEndTime   = Date.now(); },
+
+        metrics: function() {
+            var badge = this.worstAccuracy <= 25 ? 'High Accuracy'
+                      : this.worstAccuracy <= 50 ? 'Normal'
+                      : 'Verify';
+            var arrivalMin = (this.arrivalTime && this.jobStartTime)
+                ? Math.round((this.jobStartTime - this.arrivalTime) / 60000) : null;
+            var dwellMin = (this.jobStartTime && this.jobEndTime)
+                ? Math.round((this.jobEndTime - this.jobStartTime) / 60000) : null;
+            return {
+                accuracy_badge:          badge,
+                arrival_confidence_min:  arrivalMin,
+                dwell_minutes:           dwellMin,
+                worst_fix_accuracy_m:    Math.round(this.worstAccuracy)
+            };
         }
     };
 
@@ -157,8 +265,17 @@
         'UNKNOWN': 15
     };
 
+    // Read installed app version from the native JavascriptInterface injected
+    // by MainActivity. Falls back to null if the interface is not available
+    // (older APK build without the interface). login.php uses this to decide
+    // which banner state to show (up-to-date / update-available).
+    var _nativeVersion = (window.MwNativeAndroid && typeof window.MwNativeAndroid.getVersion === 'function')
+        ? window.MwNativeAndroid.getVersion()
+        : null;
+
     window.MwNative = {
         isNative: true,
+        appVersion: _nativeVersion,
         _bgWatchId: null,
         _currentActivity: 'UNKNOWN',
 
@@ -183,8 +300,36 @@
                     return;
                 }
 
-                var distanceFilter = options.distanceFilter || 10;
+                // D6 — Adaptive distance filter at startup.
+                // Query the current activity from MwTracking before we
+                // pin a filter. This prevents the "10 m filter while
+                // still" scenario that wakes the GPS chip every few
+                // seconds in a parked truck. Falls back to the caller's
+                // requested filter, then to 15 m if we know nothing.
+                if (!options.distanceFilter && MwTracking && MwTracking.getHealth) {
+                    MwTracking.getHealth().then(function (h) {
+                        var act = (h && h.currentActivity) || 'UNKNOWN';
+                        var filter = activityDistanceFilter[act] || 15;
+                        window.MwNative._currentActivity = act;
+                        console.log('[MwNative] Initial activity:', act, '→ distanceFilter', filter);
+                        window.MwNative.geo._reallyStart(callback, filter);
+                    }).catch(function () {
+                        window.MwNative.geo._reallyStart(callback, 15);
+                    });
+                    return;
+                }
 
+                var distanceFilter = options.distanceFilter || 10;
+                this._reallyStart(callback, distanceFilter);
+            },
+
+            /**
+             * Internal — hand off to BackgroundGeolocation.addWatcher
+             * with the chosen distance filter. Split out from the
+             * public startBackgroundTracking so the async
+             * getHealth() path can call back in cleanly.
+             */
+            _reallyStart: function(callback, distanceFilter) {
                 BackgroundGeolocation.addWatcher({
                     backgroundTitle: 'Mowology GPS Tracking',
                     backgroundMessage: 'Tracking your location for crew management',
@@ -216,6 +361,12 @@
                     if (!locationProcessor.process(pos)) {
                         return; // Filtered out
                     }
+
+                    // Route replay — 1 point/min, tied to active visit if known
+                    routeBuffer.add(pos, window.MwNative.pow._visitId || null);
+
+                    // Arrival + dwell tracking
+                    arrivalTracker.observe(pos);
 
                     // Store in native Room DB via MwTracking plugin
                     if (MwTracking) {
@@ -442,6 +593,103 @@
         }
     };
 
+    // ── D7 — App lifecycle (pause / resume) ─────────────────
+    // When the user backgrounds the app, raise the GPS distance
+    // filter to the STILL bucket (50 m). When they foreground it
+    // again, restore the filter matching the current activity.
+    // Implemented by removing the current watcher and re-adding
+    // with the new filter — the @capacitor-community/background-
+    // geolocation plugin doesn't support live filter updates.
+    if (App && App.addListener) {
+        var pausedFilter = null;
+        App.addListener('pause', function () {
+            if (window.MwNative._bgWatchId === null) return;
+            console.log('[MwNative] App pause → raising GPS filter to STILL (50 m)');
+            pausedFilter = activityDistanceFilter[window.MwNative._currentActivity] || 15;
+            try {
+                BackgroundGeolocation.removeWatcher({ id: window.MwNative._bgWatchId });
+                window.MwNative._bgWatchId = null;
+                window.MwNative.geo.watchId = null;
+            } catch (e) { /* ignore */ }
+            // Re-add at the higher filter so native updates still flow
+            // but drain less battery. Uses the last-known callback via
+            // MwTracking events rather than a fresh JS callback.
+            if (BackgroundGeolocation) {
+                BackgroundGeolocation.addWatcher({
+                    backgroundTitle: 'Mowology GPS Tracking',
+                    backgroundMessage: 'Tracking your location for crew management',
+                    requestPermissions: false,
+                    stale: false,
+                    distanceFilter: 50
+                }, function (location) {
+                    if (!location) return;
+                    if (MwTracking) {
+                        MwTracking.storePoint({
+                            lat: location.latitude,
+                            lng: location.longitude,
+                            accuracy: location.accuracy || 0,
+                            speed: location.speed || 0,
+                            heading: location.bearing || 0,
+                            altitude: location.altitude || 0,
+                            provider: 'fused',
+                            timestamp: location.time || Date.now()
+                        }).catch(function () {});
+                    }
+                }).then(function (id) {
+                    window.MwNative._bgWatchId = id;
+                    window.MwNative.geo.watchId = id;
+                }).catch(function () {});
+            }
+        });
+
+        App.addListener('resume', function () {
+            if (pausedFilter === null) return;
+            console.log('[MwNative] App resume → restoring GPS filter', pausedFilter);
+            // Caller should re-subscribe; for now, just log so the
+            // tracking widget can react via the existing
+            // mw-activity-changed event.
+            document.dispatchEvent(new CustomEvent('mw-app-resumed', {
+                detail: { distanceFilter: pausedFilter }
+            }));
+            pausedFilter = null;
+        });
+        console.log('[MwNative] App pause/resume lifecycle listeners registered');
+    }
+
+    // ── Hardware Back Button (Android) ──────────────────────
+    // Pages can call e.preventDefault() on the 'mw-native-back' event to
+    // take over the back action. If no handler claims it, we close any
+    // open menu overlay first; otherwise fall through to history.back()
+    // or exit the app at the root of the stack.
+    if (App && App.addListener) {
+        App.addListener('backButton', function (data) {
+            var ev = new CustomEvent('mw-native-back', {
+                cancelable: true,
+                detail: { canGoBack: !!(data && data.canGoBack) }
+            });
+            var claimed = !document.dispatchEvent(ev); // preventDefault() → false → claimed
+            if (claimed) return;
+
+            // Default 1: close any open menu/overlay
+            var openMenu = document.querySelector(
+                '.mw-mobile-menu-overlay.open, .hb-menu-overlay.open, .dp-overlay.open'
+            );
+            if (openMenu) {
+                openMenu.classList.remove('open');
+                document.body.style.overflow = '';
+                return;
+            }
+
+            // Default 2: normal browser back, or exit at root
+            if (data && data.canGoBack) {
+                window.history.back();
+            } else if (App.exitApp) {
+                App.exitApp();
+            }
+        });
+        console.log('[MwNative] Hardware back button handler registered');
+    }
+
     // ── Auto-initialize ─────────────────────────────────────
     window.MwNative.network.init();
     window.MwNative.notifications.init();
@@ -525,6 +773,13 @@
 
     console.log('[MwNative] Capacitor bridge v2 initialized (with MwTracking)');
 
+    // Signal to photo-queue.js (and any other modules) that the bridge is ready.
+    // photo-queue.js registers MwNative.network.onStatusChange in response to this
+    // event when the bridge loads after photo-queue.js has already run.
+    document.dispatchEvent(new CustomEvent('mw-capacitor-ready', {
+        detail: { MwNative: window.MwNative }
+    }));
+
     // ── Proof of Work — Visit GPS Integration ──────────────────────────────
     // When the visit-work page is active, pump GPS points into the PoW GPS
     // sync buffer. The visit-work page's JS owns the IndexedDB buffer and
@@ -540,17 +795,34 @@
     window.MwNative.pow = {
         _visitId: null,
         _active:  false,
+        _locationListenerAttached: false,
 
         /**
          * Start Proof-of-Work GPS emission for a specific visit.
          * Piggy-backs on the existing background tracking watcher.
          * @param {number} visitId
          */
+        _inactivityTimer: null,
+
         startVisitTracking: function(visitId) {
             if (this._active) return;
             this._visitId = visitId;
             this._active  = true;
             console.log('[MwNative.pow] Visit tracking started for visit', visitId);
+
+            // Inactivity check — fires every 5 min while visit is active.
+            // If no accepted fix for >8 min, nudge the crew via local notification.
+            var self = this;
+            this._inactivityTimer = setInterval(function() {
+                if (!self._active) return;
+                if (routeBuffer.minutesSinceLastPing() > 8) {
+                    window.MwNative.notifications.notify(
+                        'Mowology GPS',
+                        'GPS tracking paused. Open the app to resume.',
+                        99901
+                    );
+                }
+            }, 5 * 60 * 1000);
 
             // If background tracking is already running (from clock-in session),
             // hook into the existing stream via the activityChanged/location events.
@@ -561,8 +833,11 @@
                     window.MwNative.pow._emit(pos);
                 }, { distanceFilter: 5 }); // 5m for walk-level granularity
             } else {
-                // Existing watcher active — listen via MwTracking native events
-                if (MwTracking && MwTracking.addListener) {
+                // Existing watcher active — listen via MwTracking native events.
+                // Guard prevents duplicate listeners if startVisitTracking is
+                // called more than once in a session (e.g., after a reconnect).
+                if (!this._locationListenerAttached && MwTracking && MwTracking.addListener) {
+                    this._locationListenerAttached = true;
                     MwTracking.addListener('locationUpdate', function(data) {
                         if (!window.MwNative.pow._active) return;
                         var pos = {
@@ -592,6 +867,10 @@
             if (!this._active) return;
             this._active  = false;
             this._visitId = null;
+            if (this._inactivityTimer) {
+                clearInterval(this._inactivityTimer);
+                this._inactivityTimer = null;
+            }
             console.log('[MwNative.pow] Visit tracking stopped');
         },
 
@@ -617,6 +896,24 @@
         }
     };
 
+    // ── Route + Accountability Public API ──────────────────────────────────
+    // Called by schedule-pill-workflow.js and clock-in/out handlers.
+    //
+    //   MwNative.route.setJobSite(lat, lng)   — configure arrival tracker
+    //   MwNative.route.jobStarted()            — record job-start timestamp
+    //   MwNative.route.jobCompleted()          — record job-end timestamp
+    //   MwNative.route.points(visitId)         — get route-replay polyline array
+    //   MwNative.route.metrics()               — get { accuracy_badge, arrival_confidence_min, dwell_minutes }
+    //   MwNative.route.reset(visitId)          — clear route buffer for a visit
+    window.MwNative.route = {
+        setJobSite:   function(lat, lng)  { arrivalTracker.configure(lat, lng); },
+        jobStarted:   function()          { arrivalTracker.jobStarted();   },
+        jobCompleted: function()          { arrivalTracker.jobCompleted(); },
+        points:       function(visitId)   { return routeBuffer.getPoints(visitId); },
+        metrics:      function()          { return arrivalTracker.metrics(); },
+        reset:        function(visitId)   { routeBuffer.reset(visitId); }
+    };
+
     // Auto-detect visit page and start tracking
     (function() {
         var match = window.location.pathname.match(/visit-work\.php/);
@@ -632,5 +929,86 @@
             }, 800);
         }
     })();
+
+    // ── Force Update Check ──────────────────────────────────────────────────
+    // Compare the installed build against the server's minimum required version.
+    // If the installed version is too old (or force_update=true on the server),
+    // inject a full-screen overlay the crew CANNOT dismiss — they must download
+    // the new APK to continue using the app.
+    (function() {
+        var installed = _nativeVersion; // string like "1.1.0" from MwNativeAndroid.getVersion()
+
+        fetch('/crm/api/app-version.php', { method: 'GET', cache: 'no-store' })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var android = data.android || data; // handle both nested and legacy flat format
+                var minVersion  = android.min_version || android.version || null;
+                var forceUpdate = android.force_update === true;
+
+                if (forceUpdate) {
+                    _showUpdateOverlay(android);
+                    return;
+                }
+
+                // If we can't read the installed version, allow through — avoids
+                // blocking on older APKs that predate the getVersion() interface.
+                if (!minVersion || !installed) return;
+
+                if (_semverLessThan(installed, minVersion)) {
+                    _showUpdateOverlay(android);
+                }
+            })
+            .catch(function() {
+                // Network error — never block the app, crew may be offline
+            });
+    })();
+
+    function _semverLessThan(a, b) {
+        var ap = (a || '0').split('.').map(Number);
+        var bp = (b || '0').split('.').map(Number);
+        for (var i = 0; i < 3; i++) {
+            var av = ap[i] || 0, bv = bp[i] || 0;
+            if (av < bv) return true;
+            if (av > bv) return false;
+        }
+        return false;
+    }
+
+    function _showUpdateOverlay(data) {
+        if (document.getElementById('mw-force-update')) return;
+
+        var apkUrl  = data.apk_url || '/crm/downloads/mowology-crew.apk';
+        var version = data.version ? ' v' + data.version : '';
+        var notes   = data.release_notes
+            ? '<p style="margin:0 0 1.5rem;font-size:.83rem;color:#93c9b8;max-width:300px;line-height:1.55;">'
+              + data.release_notes.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</p>'
+            : '<div style="margin-bottom:1.5rem;"></div>';
+
+        var el = document.createElement('div');
+        el.id  = 'mw-force-update';
+        el.setAttribute('style',
+            'position:fixed;inset:0;background:#0D3B2E;z-index:2147483647;' +
+            'display:flex;flex-direction:column;align-items:center;justify-content:center;' +
+            'padding:2rem 1.5rem;box-sizing:border-box;text-align:center;' +
+            'color:#fff;font-family:system-ui,-apple-system,sans-serif;');
+
+        el.innerHTML =
+            '<img src="/assets/favicon/android-chrome-192x192.png" ' +
+                'style="width:80px;height:80px;border-radius:20px;margin-bottom:1.25rem;" alt="">' +
+            '<h2 style="margin:0 0 .4rem;font-size:1.5rem;color:#7FD858;font-weight:700;">Update Required</h2>' +
+            '<p style="margin:0 0 .9rem;font-size:1rem;color:#c8e8de;">Mowology Crew' + version + ' is now available.</p>' +
+            notes +
+            '<a href="' + apkUrl + '" ' +
+                'style="display:inline-block;background:#7FD858;color:#0D3B2E;font-weight:700;' +
+                'padding:.85rem 2.5rem;border-radius:10px;font-size:1rem;text-decoration:none;' +
+                '-webkit-tap-highlight-color:transparent;min-width:200px;">' +
+                'Download Update' +
+            '</a>' +
+            '<p style="margin:1.25rem 0 0;font-size:.75rem;color:#5a8870;">You must update to continue using this app.</p>';
+
+        document.body.style.overflow = 'hidden';
+        document.body.appendChild(el);
+        console.log('[MwNative] Force update overlay shown — installed:', installed, 'required:', data.min_version || data.version);
+    }
 
 })();

@@ -19,7 +19,7 @@
  * URL so the WebView can use a service worker just like a browser can).
  */
 
-var CACHE_VERSION = 'mw-v30';
+var CACHE_VERSION = 'mw-v43';
 var SHELL_CACHE  = 'mw-shell-' + CACHE_VERSION;
 var PAGE_CACHE   = 'mw-pages-' + CACHE_VERSION;
 var IMG_CACHE    = 'mw-images-' + CACHE_VERSION;
@@ -30,38 +30,59 @@ var TILE_CACHE   = 'mw-tiles-v2'; // satellite tiles — long-lived, NOT version
  * All static assets the schedule page needs to render, versioned so
  * a CACHE_VERSION bump fetches fresh copies automatically.
  */
+// Prefer the .min.js / .min.css siblings produced by
+// scripts/minify-assets.php — they ship ~30-60% smaller over the wire.
+// Full files remain available at their original URLs for debugging.
 var APP_SHELL = [
   /* ── Core AppStack frame ── */
   '/crm/css/classic.css',
-  '/crm/css/mowology-brand.css?v=20260228a',
-  '/crm/css/mobile-cards.css?v=20260301a',
-  '/crm/css/mobile-nav.css?v=20260225a',
-  '/crm/js/app.js',
-  '/crm/js/feather-helper.js',
+  '/crm/css/tokens.min.css',
+  '/crm/css/mowology-brand.min.css?v=20260419a',
+  '/crm/css/mowology-a11y.min.css',
+  '/crm/css/mobile-cards.min.css?v=20260419a',
+  '/crm/css/mobile-nav.min.css?v=20260318a',
+  '/crm/css/mw-sync-status.min.css',
+  '/crm/css/mw-skeleton.min.css',
+  '/crm/js/app.min.js',
+  '/crm/js/feather-helper.min.js',
+
+  /* ── Shared UI primitives ── */
+  '/crm/js/mw-toast.min.js',
+  '/crm/js/mw-sync-status.min.js',
+  '/crm/js/mw-haptics.min.js',
+  '/crm/js/mw-api-toast.min.js',
+  '/crm/js/sw-register.min.js',
 
   /* ── Schedule page JS ── */
-  '/crm/js/time-clock-widget.js?v=20260214h',
-  '/crm/js/capacitor-bridge.js?v=20260304',
-  '/crm/js/navigation-launcher.js?v=20260225c',
-  '/crm/js/schedule-route-map.js?v=20260226b',
-  '/crm/js/schedule-pill-workflow.js?v=20260228e',
-  '/crm/js/schedule-drag-drop.js',
-  '/crm/js/route-engine.js?v=20260219a',
-  '/crm/js/offline-receipts.js',
+  '/crm/js/time-clock-widget.min.js?v=20260419a',
+  '/crm/js/capacitor-bridge.min.js?v=20260304',
+  '/crm/js/navigation-launcher.min.js?v=20260225c',
+  '/crm/js/schedule-route-map.min.js?v=20260226b',
+  '/crm/js/schedule-pill-workflow.min.js?v=20260310a',
+  '/crm/js/schedule-drag-drop.min.js',
+  '/crm/js/route-engine.min.js?v=20260219a',
+  '/crm/js/offline-receipts.min.js',
+  '/crm/js/photo-queue.min.js?v=20260401a',
+  '/crm/js/mw-schedule-search.min.js',
+  '/crm/js/mw-pull-refresh.min.js',
 
   /* ── Geofence / location ── */
-  '/crm/js/geofence/geofence-manager.js',
-  '/crm/js/geofence/location-sampler.js',
-  '/crm/js/geofence/sync-queue.js',
+  '/crm/js/geofence/geofence-manager.min.js',
+  '/crm/js/geofence/location-sampler.min.js',
+  '/crm/js/geofence/sync-queue.min.js',
 
   /* ── App icons ── */
   '/assets/favicon/apple-touch-icon.png',
   '/assets/favicon/android-chrome-192x192.png',
   '/assets/favicon/android-chrome-512x512.png',
   '/assets/favicon/favicon-32x32.png',
+  '/assets/favicon/favicon-16x16.png',
 
   /* ── App launch ── */
-  '/assets/img/logo/mowology-logo.jpg'
+  '/assets/img/logo/mowology-logo.jpg',
+
+  /* ── Branded offline fallback (served on nav failures) ── */
+  '/crm/offline.html'
 ];
 
 /**
@@ -134,14 +155,26 @@ self.addEventListener('fetch', function(event) {
   // Only handle same-origin requests from here on
   if (url.origin !== self.location.origin) return;
 
-  // ── Navigation requests → bypass SW entirely ──
-  // Android Chrome/WebView enforces a hard ~5s timeout on SW navigation responses.
-  // If the PHP page is slow (DB connection + queries on shared hosting), the SW
-  // response deadline expires and Chrome fails with ERR_FAILED — even when the
-  // server is healthy and would have responded in 6–8s.
-  // Bypassing navigations lets the browser show a normal loading spinner instead
-  // of hard-failing. Static assets (CSS/JS) still use cache-first for fast loads.
-  if (request.mode === 'navigate') return;
+  // ── Navigation requests ──
+  // Android Chrome/WebView enforces a hard ~5s timeout on SW navigation responses,
+  // so when online we bypass the SW entirely — the browser handles the request
+  // and shows its normal loading spinner on slow PHP pages. However, when we
+  // know we're offline (navigator.onLine === false), we serve the branded
+  // /crm/offline.html from the shell cache instead of the browser's default
+  // "no internet" error page. This is the common field scenario for crews.
+  if (request.mode === 'navigate') {
+    if (self.navigator && self.navigator.onLine === false) {
+      event.respondWith(
+        caches.match('/crm/offline.html').then(function (cached) {
+          return cached || fetch('/crm/offline.html').catch(function () {
+            return new Response('Offline', { status: 503, statusText: 'Offline' });
+          });
+        })
+      );
+      return;
+    }
+    return;
+  }
 
   var pathname = url.pathname;
 
@@ -305,10 +338,13 @@ function latLngToTile(lat, lng, zoom) {
   return { x: x, y: y };
 }
 
-// ── Background Sync: retry failed receipt uploads ──
+// ── Background Sync: retry failed uploads ──
 self.addEventListener('sync', function(event) {
   if (event.tag === 'receipt-upload') {
     event.waitUntil(syncPendingReceipts());
+  }
+  if (event.tag === 'photo-queue-sync') {
+    event.waitUntil(syncPendingPhotos());
   }
 });
 
@@ -360,6 +396,144 @@ function syncPendingReceipts() {
         });
       };
     };
+  });
+}
+
+/**
+ * Process the photo upload queue when the Background Sync tag fires.
+ *
+ * Strategy (two-tier):
+ *   1. If open CRM pages exist, post them a 'process-photo-queue' message.
+ *      Pages have full access to the Capacitor Filesystem + MwPhotoQueue engine.
+ *   2. If no pages are open (true background), process IDB-stored blobs directly
+ *      from the SW context (Capacitor Filesystem is not accessible here).
+ *
+ * The SW path only handles records with storageType === 'idb'. Filesystem-stored
+ * records are left as 'pending' for the app to pick up on next launch.
+ */
+function syncPendingPhotos() {
+  return self.clients.matchAll({ includeUncontrolled: true }).then(function(clients) {
+    var crmClients = clients.filter(function(c) { return c.url.indexOf('/crm/') !== -1; });
+
+    if (crmClients.length > 0) {
+      // Pages are open — hand off to the full MwPhotoQueue engine
+      crmClients.forEach(function(c) {
+        c.postMessage({ type: 'process-photo-queue' });
+      });
+      return;
+    }
+
+    // No open pages — process IDB blobs directly from the SW
+    return syncPhotosFromSW();
+  });
+}
+
+/**
+ * Direct SW photo upload: reads photo-queue IDB → loads blobs from photo-store
+ * IDB → uploads to server. Only processes storageType === 'idb' records.
+ */
+function syncPhotosFromSW() {
+  return new Promise(function(resolve) {
+    var qReq = indexedDB.open('mowology-photo-queue', 1);
+    qReq.onerror = function() { resolve(); };
+    qReq.onsuccess = function(e) {
+      var qDb = e.target.result;
+      if (!qDb.objectStoreNames.contains('uploads')) { resolve(); return; }
+
+      var tx     = qDb.transaction('uploads', 'readonly');
+      var getAll = tx.objectStore('uploads').getAll();
+      getAll.onsuccess = function() {
+        // Only handle IDB-stored blobs that haven't exhausted retries
+        var records = (getAll.result || []).filter(function(r) {
+          return (r.status === 'pending' || r.status === 'failed') &&
+                 r.storageType === 'idb' &&
+                 (r.retries || 0) < 5;
+        });
+
+        if (!records.length) { resolve(); return; }
+
+        var bReq = indexedDB.open('mowology-photo-store', 1);
+        bReq.onerror = function() { resolve(); };
+        bReq.onsuccess = function(be) {
+          var bDb   = be.target.result;
+          var chain = Promise.resolve();
+          records.forEach(function(record) {
+            chain = chain.then(function() {
+              return uploadPhotoFromSW(record, qDb, bDb);
+            });
+          });
+          chain.then(resolve).catch(resolve);
+        };
+      };
+      getAll.onerror = function() { resolve(); };
+    };
+  });
+}
+
+function uploadPhotoFromSW(record, qDb, bDb) {
+  return new Promise(function(resolve) {
+    if (!bDb.objectStoreNames.contains('blobs')) { resolve(); return; }
+
+    var blobTx  = bDb.transaction('blobs', 'readonly');
+    var blobReq = blobTx.objectStore('blobs').get(record.storageRef);
+
+    blobReq.onsuccess = function() {
+      var blobRecord = blobReq.result;
+
+      if (!blobRecord || !blobRecord.blob) {
+        // Storage entry gone (OS cleared cache) — remove stale queue record
+        var delTx = qDb.transaction('uploads', 'readwrite');
+        delTx.objectStore('uploads').delete(record.id);
+        resolve(); return;
+      }
+
+      var formData = new FormData();
+      formData.append('files[]',        blobRecord.blob, record.filename || 'photo.jpg');
+      formData.append('csrf_token',     record.csrf        || '');
+      formData.append('context_type',   record.contextType || '');
+      formData.append('context_id',     String(record.contextId || ''));
+      formData.append('category',       record.category    || '');
+      formData.append('visibility',     record.visibility  || 'internal');
+      if (record.powStamp)     formData.append('pow_stamp',    record.powStamp);
+      if (record.gpsLat)      formData.append('gps_lat',      String(record.gpsLat));
+      if (record.gpsLng)      formData.append('gps_lng',      String(record.gpsLng));
+      if (record.gpsAccuracy) formData.append('gps_accuracy', String(record.gpsAccuracy));
+
+      fetch(record.uploadUrl || '/crm/api/media-upload.php', { method: 'POST', body: formData })
+        .then(function(res) { return res.json(); })
+        .then(function(resp) {
+          var fr = (resp.results && resp.results[0]) ? resp.results[0] : null;
+          if (resp.success && fr && fr.success) {
+            // Remove from queue and blob store
+            var delQ = qDb.transaction('uploads', 'readwrite');
+            delQ.objectStore('uploads').delete(record.id);
+            var delB = bDb.transaction('blobs', 'readwrite');
+            delB.objectStore('blobs').delete(record.storageRef);
+            // Notify any pages that open later
+            self.clients.matchAll().then(function(clients) {
+              clients.forEach(function(c) {
+                c.postMessage({ type: 'photo-queue-synced' });
+              });
+            });
+          } else {
+            // Server rejection — mark failed, don't retry from SW
+            var pTx  = qDb.transaction('uploads', 'readwrite');
+            var store = pTx.objectStore('uploads');
+            var pGet  = store.get(record.id);
+            pGet.onsuccess = function() {
+              var rec = pGet.result;
+              if (rec) { rec.status = 'failed'; rec.retries = (rec.retries || 0) + 1; store.put(rec); }
+            };
+          }
+          resolve();
+        })
+        .catch(function() {
+          // Network error — leave as pending; Background Sync will retry
+          resolve();
+        });
+    };
+
+    blobReq.onerror = function() { resolve(); };
   });
 }
 
@@ -454,6 +628,7 @@ function staleWhileRevalidate(request, cacheName) {
 /**
  * Network-first: try network, fall back to cache if offline.
  * Best for API calls where stale data could be misleading.
+ * PAGE_CACHE writes also trigger the LRU trimmer below.
  */
 function networkFirst(request, cacheName) {
   // Use redirect:'follow' — navigation requests have redirect:'manual' by spec,
@@ -461,13 +636,48 @@ function networkFirst(request, cacheName) {
   return fetch(request, { redirect: 'follow' }).then(function(response) {
     if (response.ok) {
       var clone = response.clone();
-      caches.open(cacheName).then(function(cache) { cache.put(request, clone); });
+      caches.open(cacheName).then(function(cache) {
+        cache.put(request, clone).then(function () {
+          if (cacheName === PAGE_CACHE) trimPageCache(cache);
+        });
+      });
     }
     return response;
   }).catch(function() {
     return caches.match(request).then(function(cached) {
       return cached || offlinePage();
     });
+  });
+}
+
+/**
+ * Keep PAGE_CACHE bounded to MAX_PAGES entries so a long shift of
+ * schedule / homebase / clients navigations doesn't grow the cache
+ * past the QuotaExceededError ceiling on older Android devices.
+ *
+ * Strategy: cache.keys() returns entries in insertion order (per the
+ * CacheStorage spec). When over the cap we delete the oldest 20% of
+ * entries in a single pass. Runs asynchronously so it never blocks
+ * the fetch response.
+ */
+var MAX_PAGES = 30;
+var _pageTrimRunning = false;
+
+function trimPageCache(cache) {
+  if (_pageTrimRunning) return;
+  _pageTrimRunning = true;
+
+  cache.keys().then(function (keys) {
+    if (keys.length <= MAX_PAGES) { _pageTrimRunning = false; return; }
+    var deleteCount = Math.ceil(keys.length * 0.2);
+    var deletes = keys.slice(0, deleteCount).map(function (key) {
+      return cache.delete(key);
+    });
+    return Promise.all(deletes);
+  }).then(function () {
+    _pageTrimRunning = false;
+  }).catch(function () {
+    _pageTrimRunning = false;
   });
 }
 

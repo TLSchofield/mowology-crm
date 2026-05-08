@@ -31,3 +31,15 @@ textarea:focus {
   outline: none;
   border-color: var(--mowology-green);
 }
+
+/* Validation states (toggled by JS class, not inline style) */
+input.input-error,
+select.input-error,
+textarea.input-error {
+  border-color: #dc3545;
+}
+input.input-valid,
+select.input-valid,
+textarea.input-valid {
+  border-color: var(--mowology-green);
+}

@@ -28,6 +28,7 @@ if (!defined('APP_ROOT')) {
     unset($__publicCandidate);
 
     define('PROJECT_ROOT', dirname(APP_ROOT));          // Parent of /app/
+    define('VENDOR_ROOT', PROJECT_ROOT . '/vendor');    // Composer vendor dir
     define('CRM_ROOT', PUBLIC_ROOT . '/crm');
     define('CRM_INCLUDES', CRM_ROOT . '/includes');
     define('STORAGE_ROOT', APP_ROOT . '/Storage');

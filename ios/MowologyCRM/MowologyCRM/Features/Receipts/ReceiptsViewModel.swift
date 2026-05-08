@@ -4,7 +4,6 @@
 //
 
 import Foundation
-import UIKit
 
 @MainActor
 final class ReceiptsViewModel: ObservableObject {
@@ -16,38 +15,19 @@ final class ReceiptsViewModel: ObservableObject {
     @Published var currentPage = 1
     @Published var totalPages  = 1
 
-    // MARK: - Upload + Vision state
-    @Published var isUploading:      Bool = false   // background server upload in progress
-    @Published var uploadError:      String?
-    @Published var intakeResponse:   ReceiptIntakeResponse?
-    @Published var visionPreFill:    VisionPreFill?  // fast on-device pre-fill (available before server response)
-    @Published var capturedImage:    UIImage?        // locally-captured photo shown immediately in review
+    // MARK: - Upload state
+    @Published var isUploading   = false
+    @Published var uploadError:   String?
+    @Published var intakeResponse: ReceiptIntakeResponse?
 
     // MARK: - Save state
     @Published var isSaving     = false
     @Published var saveError:    String?
 
-    // MARK: - Metadata (categories, payment methods — fetched from server)
-    @Published var categories: [String] = []
-    @Published var paymentMethods: [String] = ["credit_card", "debit", "cash", "etransfer", "company_card"]
-
     private let apiClient: APIClient
 
     init(apiClient: APIClient) {
         self.apiClient = apiClient
-    }
-
-    // MARK: - Metadata
-
-    func loadMeta() async {
-        guard categories.isEmpty else { return }
-        do {
-            let meta: ExpenseMetaResponse = try await apiClient.request(.expenseMeta)
-            if !meta.accountingCategories.isEmpty { categories = meta.accountingCategories }
-            if !meta.paymentMethods.isEmpty       { paymentMethods = meta.paymentMethods }
-        } catch {
-            // Non-fatal: review view still works with empty picker or cached defaults.
-        }
     }
 
     // MARK: - Load
@@ -74,38 +54,14 @@ final class ReceiptsViewModel: ObservableObject {
         await loadExpenses(page: currentPage + 1)
     }
 
-    // MARK: - Image
-
-    /// Fetches raw JPEG/PNG bytes for a receipt using the bearer token.
-    /// Callers should display a placeholder if this throws.
-    func fetchReceiptImage(mediaId: Int) async throws -> Data {
-        return try await apiClient.fetchReceiptImageData(mediaId: mediaId)
-    }
-
-    // MARK: - Vision OCR
-
-    /// Runs on-device Vision OCR and stores the result in `visionPreFill`.
-    /// Called in parallel with image compression — takes ~150-250 ms.
-    func runVisionOCR(on image: UIImage) async {
-        visionPreFill = await VisionOCRService.scan(image)
-    }
-
     // MARK: - Upload
 
-    /// Uploads the compressed image in the background.
-    /// Sends Vision-extracted text so the server can skip Tesseract.
     func uploadImage(_ imageData: Data, lat: Double?, lng: Double?) async {
         isUploading   = true
         uploadError   = nil
         intakeResponse = nil
         do {
-            intakeResponse = try await apiClient.uploadReceipt(
-                imageData:  imageData,
-                visionText: visionPreFill?.rawText,
-                lat:        lat,
-                lng:        lng,
-                jobId:      nil
-            )
+            intakeResponse = try await apiClient.uploadReceipt(imageData: imageData, lat: lat, lng: lng, jobId: nil)
         } catch let err as APIError {
             if case .networkError = err {
                 ReceiptQueue.shared.enqueue(imageData: imageData, lat: lat, lng: lng, jobId: nil)

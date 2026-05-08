@@ -66,6 +66,8 @@ $bottomNav = [
 ];
 
 // Menu grid items (all nav sections shown in the slide-up)
+// Crew users already have the Driver Portal in the bottom nav — skip it in the
+// grid to avoid duplication. Non-crew users still see it in the grid.
 $menuItems = [
     ['key' => 'dashboard',     'label' => 'Dashboard',  'href' => '/crm/dashboard_appstack.php',
      'icon' => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>'],
@@ -85,11 +87,19 @@ $menuItems = [
      'icon' => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>'],
     ['key' => 'map',           'label' => 'Map',        'href' => '/crm/map_appstack.php',
      'icon' => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>'],
-    ['key' => 'driver',        'label' => 'Driver',     'href' => '/crm/driver-portal.php',
-     'icon' => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>'],
     ['key' => 'timeclock',    'label' => 'Clock',      'href' => '/crm/timeclock/my-timesheet.php',
      'icon' => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>'],
+    ['key' => 'quiz',         'label' => 'Quiz',       'href' => '/crm/quiz_appstack.php',
+     'icon' => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>'],
+    // Admin only — handled separately below as file-picker button
 ];
+
+// Add Driver Portal tile for non-crew (admin/office) users. Crew already have
+// it in the bottom bar (line 59), so showing it again in the grid is noise.
+if (!$_isCrew) {
+    $menuItems[] = ['key' => 'driver', 'label' => 'Driver', 'href' => '/crm/driver-portal.php',
+        'icon' => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>'];
+}
 ?>
 
 <!-- ── Mobile Top Bar ── -->
@@ -170,6 +180,18 @@ $menuItems = [
             <?php endforeach; ?>
         </div>
 
+        <?php if ($_mobileUserRole === 'admin'): ?>
+        <!-- Admin quick action: import plant card photo -->
+        <div class="mw-mobile-plant-import-bar">
+            <label for="mwPlantImportFile" class="mw-mobile-plant-import-btn">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/><line x1="12" y1="11" x2="12" y2="15"/><line x1="10" y1="13" x2="14" y2="13"/></svg>
+                Import Plant Card
+            </label>
+            <input type="file" id="mwPlantImportFile" accept="image/jpeg,image/png,image/webp,image/gif" style="display:none;">
+            <span class="mw-mobile-plant-import-hint">Choose from photos or camera</span>
+        </div>
+        <?php endif; ?>
+
         <!-- Account actions -->
         <div class="mw-mobile-menu-actions">
             <a href="/crm/profile.php" class="mw-mobile-menu-action">
@@ -193,18 +215,56 @@ $menuItems = [
 (function() {
     var overlay  = document.getElementById('mwMobileMenuOverlay');
     var scrim    = document.getElementById('mwMobileMenuScrim');
+    var sheet    = document.getElementById('mwMobileMenuSheet');
     var botBtn   = document.getElementById('mwMobileMenuBtnBottom');
 
-    if (!overlay) return;
+    if (!overlay || !sheet) return;
+
+    // ── Background prefetch nav pages on first menu open ─────────────
+    // Fires low-priority fetch() calls so the browser has the HTML in its
+    // HTTP cache before the user taps. Runs once per page load.
+    var _prefetchDone = false;
+    function prefetchNavPages() {
+        if (_prefetchDone) return;
+        _prefetchDone = true;
+
+        // Collect hrefs from the nav grid (skip # links)
+        var links = sheet.querySelectorAll('.mw-mobile-menu-item[href]');
+        var urls  = [];
+        links.forEach(function(a) {
+            var href = a.getAttribute('href');
+            if (href && href !== '#' && href !== window.location.pathname) {
+                urls.push(href);
+            }
+        });
+
+        // Prefetch in batches of 3 so we don't hammer shared hosting
+        var i = 0;
+        function fetchNext() {
+            var batch = urls.slice(i, i + 3);
+            if (!batch.length) return;
+            i += 3;
+            Promise.all(batch.map(function(url) {
+                return fetch(url, { credentials: 'same-origin', priority: 'low' })
+                    .catch(function() { /* best-effort, ignore errors */ });
+            })).then(function() {
+                // Small gap between batches to stay off the hot path
+                if (i < urls.length) setTimeout(fetchNext, 600);
+            });
+        }
+        // Start after a short delay so menu open animation gets priority
+        setTimeout(fetchNext, 400);
+    }
 
     function openMenu() {
+        sheet.style.transform = ''; // reset any leftover drag position
         overlay.classList.add('mw-menu-open');
-        document.body.style.overflow = 'hidden';
+        prefetchNavPages();
     }
 
     function closeMenu() {
         overlay.classList.remove('mw-menu-open');
-        document.body.style.overflow = '';
+        // CSS transition: visibility delays 0.32s so the slide-down is visible
     }
 
     if (botBtn) botBtn.addEventListener('click', openMenu);
@@ -214,6 +274,80 @@ $menuItems = [
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') closeMenu();
     });
+
+    // ── Swipe-to-dismiss ───────────────────────────────────────────
+    var touchStartY   = 0;
+    var touchStartScroll = 0;
+    var DISMISS_THRESHOLD = 72; // px downward to trigger close
+
+    sheet.addEventListener('touchstart', function(e) {
+        touchStartY      = e.touches[0].clientY;
+        touchStartScroll = sheet.scrollTop;
+    }, { passive: true });
+
+    sheet.addEventListener('touchmove', function(e) {
+        var dy = e.touches[0].clientY - touchStartY;
+        // Only drag-to-dismiss when sheet is scrolled to the very top and
+        // the finger is moving downward. Otherwise let normal scroll happen.
+        if (touchStartScroll <= 0 && dy > 0) {
+            sheet.classList.add('mw-sheet-dragging');
+            var clamped = Math.max(0, dy);
+            sheet.style.transform = 'translateY(' + clamped + 'px)';
+            // Fade scrim proportionally
+            var ratio = Math.max(0, 1 - clamped / 220);
+            scrim.style.background = 'rgba(0,0,0,' + (0.45 * ratio).toFixed(3) + ')';
+            e.preventDefault();
+        }
+    }, { passive: false });
+
+    sheet.addEventListener('touchend', function(e) {
+        var dy = e.changedTouches[0].clientY - touchStartY;
+        sheet.classList.remove('mw-sheet-dragging');
+        scrim.style.background = ''; // let CSS take back over
+
+        if (touchStartScroll <= 0 && dy > DISMISS_THRESHOLD) {
+            // Finger dragged far enough — snap to bottom and close
+            sheet.style.transform = 'translateY(100%)';
+            // Small delay so the snap animation is visible before overlay hides
+            setTimeout(function() {
+                sheet.style.transform = '';
+                closeMenu();
+            }, 60);
+        } else {
+            // Snap back to fully open
+            sheet.style.transform = '';
+        }
+    }, { passive: true });
+
+    // ── Plant import file picker ────────────────────────────────────────────
+    var plantFileInput = document.getElementById('mwPlantImportFile');
+    if (plantFileInput) {
+        plantFileInput.addEventListener('change', function() {
+            var file = this.files[0];
+            if (!file) return;
+
+            // Store file in IndexedDB so it survives the page navigation
+            var req = indexedDB.open('mw_plant_import', 1);
+            req.onupgradeneeded = function(e) {
+                e.target.result.createObjectStore('pending', { keyPath: 'id' });
+            };
+            req.onsuccess = function(e) {
+                var db = e.target.result;
+                var tx = db.transaction('pending', 'readwrite');
+                tx.objectStore('pending').put({ id: 1, file: file, name: file.name, type: file.type });
+                tx.oncomplete = function() {
+                    window.location.href = '/crm/quiz-admin_appstack.php?tab=library&action=import';
+                };
+                tx.onerror = function() {
+                    // IndexedDB failed — fall back to navigating without the file
+                    window.location.href = '/crm/quiz-admin_appstack.php?tab=library&action=import';
+                };
+            };
+            req.onerror = function() {
+                window.location.href = '/crm/quiz-admin_appstack.php?tab=library&action=import';
+            };
+        });
+    }
 
     // Sync clock widget — move the existing clockWidget into the mobile topbar slot
     // (the appstack topbar is hidden on mobile, so the JS-enhanced widget needs

@@ -1,0 +1,7 @@
+-- Migration 1016: Add location_ping_rate to users table
+--
+-- Adds per-user GPS ping rate control: low (10 min), medium (2 min), high (30 s).
+-- Default is 'high' to preserve existing 30-second behaviour.
+--
+-- Safe to apply multiple times — uses information_schema check before ALTER.
+-- Run via: /crm/api/run-migration-1016.php

@@ -183,19 +183,19 @@ $activePage = 'quotes';
               <?php unset($_SESSION['alert']); ?>
           <?php endif; ?>
 
-          <div class="d-flex justify-content-between align-items-center mb-4">
-              <div>
-                  <h1 class="h3 mb-0">Quotes</h1>
-                  <p class="text-muted mb-0">Incoming requests &amp; quote management</p>
-              </div>
-              <div>
-                  <a href="/crm/api/export-quotes.php" class="btn btn-outline-secondary mr-1" title="Export CSV">
-                      <i data-feather="download" style="width:16px;height:16px;"></i> Export
-                  </a>
-                  <a href="quotes/create.php" class="btn btn-primary">
-                      <i data-feather="plus"></i> Create Quote
-                  </a>
-              </div>
+          <div class="mw-page-header">
+            <div class="mw-page-header-left">
+              <h1 class="mw-page-title">Quotes</h1>
+              <p class="mw-page-subtitle">Incoming requests &amp; quote management</p>
+            </div>
+            <div class="mw-page-actions">
+              <a href="/crm/api/export-quotes.php" class="btn btn-outline-secondary" title="Export CSV">
+                <i data-feather="download"></i> Export
+              </a>
+              <a href="quotes/create.php" class="btn btn-primary">
+                <i data-feather="plus"></i> Create Quote
+              </a>
+            </div>
           </div>
 
           <!-- Pipeline Summary Bar -->
@@ -525,16 +525,16 @@ $activePage = 'quotes';
                                       }
                                       if (empty($clientName)) $clientName = 'N/A';
                                   ?>
-                                      <tr>
+                                      <tr data-href="quotes/view.php?id=<?php echo $quote['id']; ?>">
                                           <td class="mw-bulk-checkbox-cell">
                                               <input type="checkbox" class="mw-bulk-checkbox mw-bulk-row-select" data-id="<?php echo (int)$quote['id']; ?>">
                                           </td>
                                           <td>
-                                              <strong><?php echo htmlspecialchars($quote['quote_number']); ?></strong>
+                                              <span class="mw-cell-primary"><?php echo htmlspecialchars($quote['quote_number']); ?></span>
                                           </td>
                                           <td>
-                                              <div class="font-weight-bold"><?php echo htmlspecialchars($clientName); ?></div>
-                                              <small class="text-muted"><?php echo htmlspecialchars($quote['property_address'] ?? ''); ?></small>
+                                              <span class="mw-cell-primary"><?php echo htmlspecialchars($clientName); ?></span>
+                                              <span class="mw-cell-secondary"><?php echo htmlspecialchars($quote['property_address'] ?? ''); ?></span>
                                           </td>
                                           <td><?php echo ucfirst(str_replace('_', ' ', $quote['service_types'] ?? '')); ?></td>
                                           <td><strong><?php echo formatCurrency($quote['total_amount']); ?></strong></td>
@@ -605,6 +605,15 @@ $activePage = 'quotes';
                       localStorage.setItem('quotesViewMode', view);
                   });
               });
+          });
+
+          // ── Clickable table rows ─────────────────────────────
+          document.addEventListener('click', function(e) {
+              var row = e.target.closest('tr[data-href]');
+              if (!row) return;
+              // Ignore clicks on checkboxes and action buttons/links
+              if (e.target.closest('.mw-bulk-checkbox-cell') || e.target.closest('.actions')) return;
+              window.location.href = row.dataset.href;
           });
 
           // ── Bulk Delete ──────────────────────────────────────

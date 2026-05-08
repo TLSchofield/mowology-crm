@@ -11,7 +11,6 @@ struct MainTabView: View {
 
     @EnvironmentObject private var authSession: AuthSession
 
-    private var isAdmin: Bool { authSession.user?.isAdmin ?? false }
 
     var body: some View {
         TabView {
@@ -25,27 +24,42 @@ struct MainTabView: View {
                     Label("Time Clock", systemImage: "clock.fill")
                 }
 
-            JobsListView(authSession: authSession)
-                .tabItem {
-                    Label("Jobs", systemImage: "briefcase.fill")
-                }
-
             ReceiptsView(authSession: authSession)
                 .environmentObject(authSession)
                 .tabItem {
                     Label("Receipts", systemImage: "doc.text.image")
                 }
 
+            // Account / sign out
             accountTab
                 .tabItem {
                     Label("Account", systemImage: "person.fill")
                 }
         }
         .tint(Color.MW.green)
-        .onAppear {
-            // Ask for location permission on first authenticated launch so crews
-            // see the system prompt in context — not buried inside clock-in.
-            GPSTrackingService.shared.requestPermissionIfNeeded()
+    }
+
+    // MARK: - Placeholder
+
+    private func comingSoonTab(title: String, icon: String) -> some View {
+        NavigationStack {
+            VStack(spacing: 16) {
+                Image(systemName: icon)
+                    .font(.system(size: 48))
+                    .foregroundStyle(Color(.systemGray3))
+
+                Text(title)
+                    .font(.title2.bold())
+                    .foregroundStyle(.primary)
+
+                Text("Coming soon in v2")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(.systemGroupedBackground))
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
         }
     }
 
@@ -67,28 +81,9 @@ struct MainTabView: View {
                                 Text(user.email)
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
-                                Text(user.role.capitalized)
-                                    .font(.caption2)
-                                    .foregroundStyle(Color.MW.green)
                             }
                         }
                         .padding(.vertical, 4)
-                    }
-                }
-
-                if isAdmin {
-                    Section("Admin") {
-                        NavigationLink {
-                            QuotesView(authSession: authSession)
-                        } label: {
-                            Label("Quotes", systemImage: "doc.text")
-                        }
-
-                        NavigationLink {
-                            InvoicesView(authSession: authSession)
-                        } label: {
-                            Label("Invoices", systemImage: "doc.plaintext")
-                        }
                     }
                 }
 

@@ -13,6 +13,13 @@ $GLOBALS['crm_error_handler'] = $errorHandler;
 $pageTitle = 'Business Settings';
 $activePage = 'settings';
 $csrfToken = generateCSRFToken();
+
+// Load quiz preshift settings server-side so they're always correct on render
+$db = getDB();
+$_quizRows = $db->query("SELECT setting_key, setting_value FROM ops_settings WHERE setting_key IN ('quiz_preshift_enabled','quiz_preshift_session_length','manager_override_pin')")->fetchAll(PDO::FETCH_KEY_PAIR);
+$_quizEnabled     = ($_quizRows['quiz_preshift_enabled'] ?? '0') === '1';
+$_quizLen         = (int)($_quizRows['quiz_preshift_session_length'] ?? 3);
+$_managerPinSet   = !empty($_quizRows['manager_override_pin']);
 $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) . '">'
            . '<script src="/crm/js/email-templates.js?v=1" defer></script>';
 ?>
@@ -145,6 +152,11 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         <label for="company_address" class="form-label">Address</label>
                         <textarea class="form-control" id="company_address" rows="3" maxlength="1000"></textarea>
                     </div>
+                    <div class="mb-3">
+                        <label for="company_tagline" class="form-label">Tagline / Slogan <span class="mw-help-tooltip" data-help="A short, memorable line shown under your company name at the top of every invoice. Keep it fun, keep it brief.">?</span></label>
+                        <input type="text" class="form-control" id="company_tagline" maxlength="255" placeholder="e.g. Because your grass deserves better.">
+                        <small class="form-text text-muted">Shown under the company name on invoice PDFs. Max 255 chars.</small>
+                    </div>
                     <div class="row mb-3">
                         <div class="col-md-6">
                             <label for="office_latitude" class="form-label">Office Latitude <span class="mw-help-tooltip" data-help="GPS coordinates of your office/yard. Used for the dashboard map to show when crew are at the office.">?</span></label>
@@ -163,8 +175,8 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 <div class="card-body">
                     <div class="row mb-3">
                         <div class="col-md-6">
-                            <label for="gst_registration" class="form-label">GST # (e.g., R123456789) <span class="mw-help-tooltip" data-help="Your CRA GST/HST registration number. Displayed on invoices and quotes for tax compliance.">?</span></label>
-                            <input type="text" class="form-control" id="gst_registration" maxlength="50">
+                            <label for="gst_registration" class="form-label">GST Business Number (e.g., 123456789 RT0001) <span class="mw-help-tooltip" data-help="Your CRA GST/HST registration number (Business Number). Displayed on invoices and quotes for tax compliance.">?</span></label>
+                            <input type="text" class="form-control" id="gst_registration" maxlength="50" placeholder="123456789 RT0001">
                         </div>
                         <div class="col-md-6">
                             <label for="pst_registration" class="form-label">PST #</label>
@@ -630,11 +642,11 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     <div class="row mb-3">
                         <div class="col-md-4">
                             <label for="holiday_date" class="form-label">Date <span class="text-danger">*</span></label>
-                            <input type="date" class="form-control" id="holiday_date" required>
+                            <input type="date" class="form-control" id="holiday_date">
                         </div>
                         <div class="col-md-4">
                             <label for="holiday_name" class="form-label">Holiday Name <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" id="holiday_name" maxlength="100" required>
+                            <input type="text" class="form-control" id="holiday_name" maxlength="100">
                         </div>
                         <div class="col-md-2">
                             <label class="form-label">Annual</label>
@@ -705,16 +717,16 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     <div class="row mb-3">
                         <div class="col-md-4">
                             <label for="tag_label" class="form-label">Label <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" id="tag_label" maxlength="100" required placeholder="e.g. Dog Warning">
+                            <input type="text" class="form-control" id="tag_label" maxlength="100" placeholder="e.g. Dog Warning">
                         </div>
                         <div class="col-md-4">
                             <label for="tag_key" class="form-label">Key <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" id="tag_key" maxlength="100" required placeholder="e.g. dog_warning">
+                            <input type="text" class="form-control" id="tag_key" maxlength="100" placeholder="e.g. dog_warning">
                             <small class="form-text text-muted">Lowercase, underscores only. Auto-generated from label.</small>
                         </div>
                         <div class="col-md-4">
                             <label for="tag_group" class="form-label">Group <span class="text-danger">*</span></label>
-                            <select class="form-control" id="tag_group" required>
+                            <select class="form-control" id="tag_group">
                                 <option value="">Select group...</option>
                                 <option value="property_access">Property Access</option>
                                 <option value="property_warning">Property Warning</option>
@@ -807,7 +819,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     <div class="row mb-3">
                         <div class="col-md-4">
                             <label for="st_label" class="form-label">Label <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" id="st_label" maxlength="100" required placeholder="e.g. Lawn Care">
+                            <input type="text" class="form-control" id="st_label" maxlength="100" placeholder="e.g. Lawn Care">
                         </div>
                         <div class="col-md-3">
                             <label for="st_slug" class="form-label">Slug <span class="text-danger">*</span></label>
@@ -1074,7 +1086,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     <div class="form-group row mb-3">
                         <div class="col-12">
                             <div class="custom-control custom-switch">
-                                <input type="checkbox" class="custom-control-input" id="quiz_preshift_enabled">
+                                <input type="checkbox" class="custom-control-input" id="quiz_preshift_enabled" <?= $_quizEnabled ? 'checked' : '' ?>>
                                 <label class="custom-control-label" for="quiz_preshift_enabled">
                                     Require pre-shift quiz before clock-in
                                 </label>
@@ -1085,9 +1097,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     <div class="form-group row mb-3">
                         <label class="col-sm-4 col-form-label">Questions per session</label>
                         <div class="col-sm-4">
-                            <select class="form-control" id="quiz_preshift_session_length">
-                                <option value="3">3 questions</option>
-                                <option value="5">5 questions</option>
+                            <select class="form-control" id="quiz_preshift_session_length" autocomplete="off">
+                                <option value="3" <?= $_quizLen === 3 ? 'selected' : '' ?>>3 questions</option>
+                                <option value="5" <?= $_quizLen === 5 ? 'selected' : '' ?>>5 questions</option>
                             </select>
                             <small class="form-text text-muted">Uses the seasonal question blending algorithm.</small>
                         </div>
@@ -1101,6 +1113,42 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         <i data-feather="database" style="width:14px;height:14px;margin-right:4px;vertical-align:-2px;"></i>
                         Run Migration (first time only)
                     </a>
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header"><h5 class="card-title mb-0">Manager Override PIN</h5></div>
+                <div class="card-body">
+                    <p class="text-muted mb-3">
+                        A 4-digit PIN that allows a manager to bypass the pre-trip inspection overlay on the Driver Portal in exceptional cases (office day, vehicle not used, etc.).
+                        Every bypass is logged. Leave blank to disable the bypass option entirely.
+                    </p>
+                    <?php if ($_managerPinSet): ?>
+                    <div class="alert alert-success py-2 mb-3" style="font-size:13px;">
+                        <i data-feather="check-circle" style="width:14px;height:14px;margin-right:4px;vertical-align:-2px;"></i>
+                        A PIN is currently set. Enter a new value below to change it, or clear the field and save to remove it.
+                    </div>
+                    <?php else: ?>
+                    <div class="alert alert-warning py-2 mb-3" style="font-size:13px;">
+                        <i data-feather="alert-triangle" style="width:14px;height:14px;margin-right:4px;vertical-align:-2px;"></i>
+                        No PIN set — the bypass option is hidden on the Driver Portal.
+                    </div>
+                    <?php endif; ?>
+                    <div class="form-group row mb-3">
+                        <label class="col-sm-3 col-form-label">4-Digit PIN</label>
+                        <div class="col-sm-3">
+                            <input type="password" class="form-control" id="managerOverridePin"
+                                   maxlength="4" inputmode="numeric" pattern="[0-9]*"
+                                   autocomplete="new-password"
+                                   placeholder="<?php echo $_managerPinSet ? '(set — enter new to change)' : '0000'; ?>">
+                            <small class="form-text text-muted">Digits only. Clear to disable the bypass.</small>
+                        </div>
+                    </div>
+                    <div id="managerPinSaveResult" class="alert" style="display:none;"></div>
+                    <button type="button" class="btn btn-primary" id="saveManagerPinBtn">
+                        <i data-feather="save" style="width:15px;height:15px;margin-right:4px;vertical-align:-2px;"></i>
+                        Save PIN
+                    </button>
                 </div>
             </div>
         </div>
@@ -1964,6 +2012,7 @@ document.addEventListener('DOMContentLoaded', function () {
 <script>
 (function () {
     var formDirty = false;
+    var justSavedAt = 0; // epoch ms — suppresses beforeunload briefly after a save
     var formEl = document.getElementById('settingsForm');
     if (!formEl) return;
 
@@ -1971,11 +2020,33 @@ document.addEventListener('DOMContentLoaded', function () {
     formEl.addEventListener('input', function () { formDirty = true; });
     formEl.addEventListener('change', function () { formDirty = true; });
 
-    // Clear dirty flag on successful form submit
-    formEl.addEventListener('submit', function () { formDirty = false; });
+    // Clear dirty flag on submit (fires before business-settings.js kicks off AJAX save).
+    // Use capture phase so we win regardless of listener attach order.
+    formEl.addEventListener('submit', function () {
+        formDirty = false;
+        justSavedAt = Date.now();
+    }, true);
+
+    // Also clear on Save button click — defensive guard if submit event somehow doesn't fire
+    // (e.g., HTML5 validation blocks it, or setupFormSubmit failed to attach).
+    var saveBtn = formEl.querySelector('button[type="submit"]');
+    if (saveBtn) {
+        saveBtn.addEventListener('click', function () {
+            formDirty = false;
+            justSavedAt = Date.now();
+        });
+    }
+
+    // Listen for explicit "settings saved" custom event from business-settings.js
+    window.addEventListener('settings:saved', function () {
+        formDirty = false;
+        justSavedAt = Date.now();
+    });
 
     // Warn before leaving with unsaved changes
     window.addEventListener('beforeunload', function (e) {
+        // Suppress for 30s after a save — avoids nag when navigating away immediately after saving
+        if (Date.now() - justSavedAt < 30000) return;
         if (formDirty) {
             e.preventDefault();
             e.returnValue = '';
@@ -2119,22 +2190,6 @@ document.addEventListener('DOMContentLoaded', function () {
 (function () {
     const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content || '';
 
-    function loadQuizPreshiftSettings() {
-        Promise.all([
-            fetch('/crm/api/ops-settings.php?action=get&key=quiz_preshift_enabled').then(r => r.json()),
-            fetch('/crm/api/ops-settings.php?action=get&key=quiz_preshift_session_length').then(r => r.json())
-        ]).then(function ([enabledData, lenData]) {
-            const toggle = document.getElementById('quiz_preshift_enabled');
-            const select = document.getElementById('quiz_preshift_session_length');
-            if (toggle && enabledData.success && enabledData.value !== null) {
-                toggle.checked = (enabledData.value === '1');
-            }
-            if (select && lenData.success && lenData.value !== null) {
-                select.value = lenData.value;
-            }
-        }).catch(() => {});
-    }
-
     function saveQuizPreshiftSettings() {
         const toggle = document.getElementById('quiz_preshift_enabled');
         const select = document.getElementById('quiz_preshift_session_length');
@@ -2182,11 +2237,65 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     document.addEventListener('DOMContentLoaded', function () {
-        loadQuizPreshiftSettings();
         var saveBtn = document.getElementById('saveQuizPreshiftBtn');
         if (saveBtn) saveBtn.addEventListener('click', saveQuizPreshiftSettings);
-        var tab = document.getElementById('quiz-tab');
-        if (tab) tab.addEventListener('shown.bs.tab', loadQuizPreshiftSettings);
+    });
+})();
+
+// MANAGER OVERRIDE PIN — save to ops_settings
+// ─────────────────────────────────────────────────────────────────────────────
+(function () {
+    const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+    document.addEventListener('DOMContentLoaded', function () {
+        var btn = document.getElementById('saveManagerPinBtn');
+        if (!btn) return;
+        btn.addEventListener('click', function () {
+            var pinInput = document.getElementById('managerOverridePin');
+            var res      = document.getElementById('managerPinSaveResult');
+            var pin      = pinInput.value.trim();
+
+            if (pin && (!/^\d{4}$/.test(pin))) {
+                res.className = 'alert alert-danger';
+                res.textContent = 'PIN must be exactly 4 digits.';
+                res.style.display = 'block';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Saving...';
+            res.style.display = 'none';
+
+            fetch('/crm/api/ops-settings.php?action=save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ csrf_token: csrf(), key: 'manager_override_pin', value: pin, description: '4-digit manager PIN to bypass pre-trip inspection' })
+            })
+            .then(r => r.json())
+            .then(function (data) {
+                if (data.success) {
+                    res.className = 'alert alert-success';
+                    res.textContent = pin ? 'PIN saved.' : 'PIN cleared — bypass disabled.';
+                    pinInput.value = '';
+                    pinInput.placeholder = pin ? '(set — enter new to change)' : '0000';
+                } else {
+                    res.className = 'alert alert-danger';
+                    res.textContent = data.error || 'Failed to save PIN.';
+                }
+                res.style.display = 'block';
+                setTimeout(() => { res.style.display = 'none'; }, 3000);
+            })
+            .catch(() => {
+                res.className = 'alert alert-danger';
+                res.textContent = 'Network error. Please try again.';
+                res.style.display = 'block';
+            })
+            .finally(() => {
+                btn.disabled = false;
+                btn.innerHTML = '<i data-feather="save" style="width:15px;height:15px;margin-right:4px;vertical-align:-2px;"></i> Save PIN';
+                if (typeof feather !== 'undefined') feather.replace();
+            });
+        });
     });
 })();
 </script>

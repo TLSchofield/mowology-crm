@@ -40,7 +40,7 @@ if (!in_array($user['role'], ['admin', 'staff'])) {
 
 $pageTitle = 'Media Library';
 $activePage = 'media';
-$extraHead = '<script src="/crm/js/media-uploader.js" defer></script>';
+$extraHead = '<script src="/crm/js/media-uploader.js?v=20260312b" defer></script>';
 
 // Active tab
 $activeTab = $_GET['tab'] ?? 'assets';

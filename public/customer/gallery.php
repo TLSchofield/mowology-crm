@@ -36,32 +36,64 @@ $totalPhotos  = 0;
 $allPhotoIds  = [];
 
 if (!$error && $contact) {
-    $stmt = $db->prepare("
-        SELECT
-            vp.id, vp.photo_type, vp.filename, vp.caption,
-            vp.thumb_path, vp.view_path, vp.sort_order, vp.uploaded_at,
-            vp.visit_id, vp.service_type AS photo_service_type,
-            v.visit_number, v.status, v.completed_at, v.started_at,
-            v.service_type AS visit_service_type,
-            jp.service_type AS plan_service_type,
-            pr.id AS pr_id,
-            pr.address AS property_address,
-            pr.city AS property_city,
-            pr.province AS property_province
-        FROM visit_photos vp
-        JOIN job_visits v ON v.id = vp.visit_id
-        JOIN job_plans jp ON jp.id = v.plan_id
-        JOIN properties pr ON pr.id = jp.property_id
-        JOIN contacts c ON c.id = pr.site_contact_id
-        WHERE c.id = ?
-          AND vp.deleted_at IS NULL
-          AND v.status = 'completed'
-        ORDER BY pr.id ASC,
-                 v.completed_at DESC,
-                 FIELD(vp.photo_type,'before','after','additional','during','issue','other'),
-                 vp.sort_order ASC, vp.uploaded_at ASC
-        LIMIT 300
-    ");
+    // Try with consent column (migration 1025); fall back if missing
+    try {
+        $stmt = $db->prepare("
+            SELECT
+                vp.id, vp.photo_type, vp.filename, vp.caption,
+                vp.thumb_path, vp.view_path, vp.sort_order, vp.uploaded_at,
+                vp.visit_id, vp.service_type AS photo_service_type,
+                vp.consent_portfolio, vp.before_after_pair_id,
+                v.visit_number, v.status, v.completed_at, v.started_at,
+                v.service_type AS visit_service_type,
+                jp.service_type AS plan_service_type,
+                pr.id AS pr_id,
+                pr.address AS property_address,
+                pr.city AS property_city,
+                pr.province AS property_province
+            FROM visit_photos vp
+            JOIN job_visits v ON v.id = vp.visit_id
+            JOIN job_plans jp ON jp.id = v.plan_id
+            JOIN properties pr ON pr.id = jp.property_id
+            JOIN contacts c ON c.id = pr.site_contact_id
+            WHERE c.id = ?
+              AND vp.deleted_at IS NULL
+              AND v.status = 'completed'
+            ORDER BY pr.id ASC,
+                     v.completed_at DESC,
+                     FIELD(vp.photo_type,'before','after','additional','during','issue','other'),
+                     vp.sort_order ASC, vp.uploaded_at ASC
+            LIMIT 500
+        ");
+    } catch (PDOException $e) {
+        $stmt = $db->prepare("
+            SELECT
+                vp.id, vp.photo_type, vp.filename, vp.caption,
+                vp.thumb_path, vp.view_path, vp.sort_order, vp.uploaded_at,
+                vp.visit_id, vp.service_type AS photo_service_type,
+                NULL AS consent_portfolio, NULL AS before_after_pair_id,
+                v.visit_number, v.status, v.completed_at, v.started_at,
+                v.service_type AS visit_service_type,
+                jp.service_type AS plan_service_type,
+                pr.id AS pr_id,
+                pr.address AS property_address,
+                pr.city AS property_city,
+                pr.province AS property_province
+            FROM visit_photos vp
+            JOIN job_visits v ON v.id = vp.visit_id
+            JOIN job_plans jp ON jp.id = v.plan_id
+            JOIN properties pr ON pr.id = jp.property_id
+            JOIN contacts c ON c.id = pr.site_contact_id
+            WHERE c.id = ?
+              AND vp.deleted_at IS NULL
+              AND v.status = 'completed'
+            ORDER BY pr.id ASC,
+                     v.completed_at DESC,
+                     FIELD(vp.photo_type,'before','after','additional','during','issue','other'),
+                     vp.sort_order ASC, vp.uploaded_at ASC
+            LIMIT 500
+        ");
+    }
     $stmt->execute([$contact['id']]);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -271,6 +303,38 @@ $serviceLabels = [
       background: rgba(232,93,4,0.85); color: #fff;
       font-size: 9px; padding: 2px 5px; border-radius: 3px;
     }
+    .gal-photo-consent {
+      position: absolute; bottom: 4px; right: 4px;
+      background: rgba(0,0,0,0.55); color: #fff;
+      border: none; cursor: pointer;
+      width: 26px; height: 26px; border-radius: 50%;
+      font-size: 14px; line-height: 1;
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.15s, color 0.15s;
+    }
+    .gal-photo-consent:hover { background: rgba(232,93,4,0.95); color: #fff; }
+    .gal-photo.is-shared .gal-photo-consent {
+      background: #e85d04; color: #fff;
+    }
+    .gal-photo.is-shared { outline: 2px solid #e85d04; outline-offset: -2px; }
+
+    /* Header actions (download all, share hint) */
+    .gal-header-actions {
+      display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px;
+    }
+    .gal-header-btn {
+      display: inline-block;
+      background: #fff; color: #1A5F4A;
+      padding: 9px 18px; border-radius: 8px;
+      font-size: 14px; font-weight: 600;
+      text-decoration: none; border: none; cursor: pointer;
+      transition: transform 0.15s;
+    }
+    .gal-header-btn:hover { transform: translateY(-1px); }
+    .gal-header-btn-outline {
+      background: transparent; color: #fff; border: 1.5px solid rgba(255,255,255,0.4);
+    }
+    .gal-header-btn-outline:hover { background: rgba(255,255,255,0.1); }
 
     /* ── Empty ──────────────────────────────── */
     .gal-empty { text-align: center; padding: 60px 24px; color: #888; }
@@ -379,6 +443,16 @@ $serviceLabels = [
         <span class="gal-stat-lbl"><?= count($properties) === 1 ? 'Property' : 'Properties' ?></span>
       </div>
     </div>
+    <?php if ($totalPhotos > 0): ?>
+    <div class="gal-header-actions">
+      <a href="/customer/gallery-download.php?token=<?= urlencode($token) ?>" class="gal-header-btn">
+        ⬇ Download All as ZIP
+      </a>
+      <button type="button" class="gal-header-btn gal-header-btn-outline" onclick="mwShowConsentHelp()">
+        ⭐ Share in portfolio
+      </button>
+    </div>
+    <?php endif; ?>
   </div>
 
   <!-- ── Filter bar ────────────────────────────────────────────────────── -->
@@ -471,11 +545,12 @@ $serviceLabels = [
           $hasAnn = isset($annotationsByPhoto[$ph['id']]) && !empty($annotationsByPhoto[$ph['id']]);
           $typeClass = in_array($pType, ['before','after','additional']) ? $pType : 'additional';
           ?>
-          <div class="gal-photo"
+          <div class="gal-photo<?= !empty($ph['consent_portfolio']) ? ' is-shared' : '' ?>"
                data-view="<?= htmlspecialchars($ph['_view_url']) ?>"
                data-type="<?= htmlspecialchars($pType) ?>"
                data-caption="<?= htmlspecialchars($ph['caption'] ?? '') ?>"
                data-photo-id="<?= (int)$ph['id'] ?>"
+               data-consent="<?= (int)($ph['consent_portfolio'] ?? 0) ?>"
                data-filter-type="<?= htmlspecialchars($typeClass) ?>">
             <img src="<?= htmlspecialchars($ph['_thumb_url']) ?>"
                  loading="lazy"
@@ -485,6 +560,11 @@ $serviceLabels = [
             <?php if ($hasAnn): ?>
             <span class="gal-photo-ann">&#9998;</span>
             <?php endif; ?>
+            <button type="button" class="gal-photo-consent"
+                    title="<?= !empty($ph['consent_portfolio']) ? 'You\'ve allowed this photo in our portfolio. Click to change.' : 'Allow this photo to appear in our public portfolio?' ?>"
+                    onclick="event.stopPropagation(); mwToggleConsent(<?= (int)$ph['id'] ?>, this);">
+              <?= !empty($ph['consent_portfolio']) ? '★' : '☆' ?>
+            </button>
           </div>
           <?php endforeach; ?>
         </div>
@@ -677,6 +757,42 @@ $serviceLabels = [
   });
 
 })();
+
+// ── Consent toggle ─────────────────────────────────────────────────────
+window.mwToggleConsent = function(photoId, btn) {
+  var tile = btn.closest('.gal-photo');
+  var current = tile && tile.dataset.consent === '1';
+  var next = current ? 0 : 1;
+  btn.disabled = true;
+  var formData = new FormData();
+  formData.append('token', <?= json_encode($token) ?>);
+  formData.append('photo_id', photoId);
+  formData.append('consent', next);
+  fetch('/customer/api/photo-consent.php', { method: 'POST', body: formData })
+    .then(r => r.json())
+    .then(d => {
+      btn.disabled = false;
+      if (d.success) {
+        tile.dataset.consent = next;
+        tile.classList.toggle('is-shared', next === 1);
+        btn.textContent = next === 1 ? '\u2605' : '\u2606';
+        btn.title = next === 1
+          ? 'You\'ve allowed this photo in our portfolio. Click to change.'
+          : 'Allow this photo to appear in our public portfolio?';
+      } else {
+        alert('Could not save: ' + (d.error || 'unknown'));
+      }
+    })
+    .catch(function(err) { btn.disabled = false; alert('Network error'); });
+};
+
+window.mwShowConsentHelp = function() {
+  alert(
+    'Click the \u2606 star on any photo to allow Mowology to use it in our public portfolio.\n\n' +
+    'Starred photos (\u2605) show your home\u2019s transformations to help others discover our work. ' +
+    'We never include identifying details. You can turn this off anytime.'
+  );
+};
 </script>
 
 <?php endif; ?>

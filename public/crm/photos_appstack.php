@@ -29,56 +29,87 @@ if ($propertyId) {
     if ($prop) $propertyLabel = htmlspecialchars($prop['address'] . ', ' . $prop['city']);
 }
 
-$properties = $db->query("SELECT p.id, p.address, p.city FROM properties p ORDER BY p.address")->fetchAll(PDO::FETCH_ASSOC);
+$properties   = $db->query("SELECT p.id, p.address, p.city FROM properties p ORDER BY p.address")->fetchAll(PDO::FETCH_ASSOC);
 $serviceTypes = $db->query("SELECT DISTINCT service_type FROM job_plans WHERE service_type IS NOT NULL AND service_type != '' ORDER BY service_type")->fetchAll(PDO::FETCH_COLUMN);
-$crewMembers = $db->query("SELECT id, full_name FROM users ORDER BY full_name")->fetchAll(PDO::FETCH_ASSOC);
+$crewMembers  = $db->query("SELECT id, full_name FROM users ORDER BY full_name")->fetchAll(PDO::FETCH_ASSOC);
 
-$where  = ['vp.deleted_at IS NULL'];
+// Photos are stored in media_assets + media_links (unified media system).
+// visit_photos is the old table and has 0 rows — all uploads go through media-upload.php.
+$where  = ["ml.context_type = 'job_visit'", "(ma.status IS NULL OR ma.status != 'deleted')"];
 $params = [];
 
 if ($propertyId) {
-    $where[] = 'vp.property_id = ?';
+    $where[] = 'jp.property_id = ?';
     $params[] = $propertyId;
 } elseif ($contactId) {
-    $where[] = 'vp.property_id IN (SELECT id FROM properties WHERE site_contact_id = ?)';
+    $where[] = 'jp.property_id IN (SELECT id FROM properties WHERE site_contact_id = ?)';
     $params[] = $contactId;
 }
 
 if ($photoType && in_array($photoType, ['before','after','additional','during','issue','other'])) {
-    $where[] = 'vp.photo_type = ?';
+    $where[] = 'ml.category = ?';
     $params[] = $photoType;
 }
-if ($serviceType) { $where[] = 'vp.service_type = ?'; $params[] = $serviceType; }
-if ($crewId) { $where[] = 'vp.uploaded_by = ?'; $params[] = $crewId; }
-if ($dateFrom) { $where[] = 'vp.uploaded_at >= ?'; $params[] = $dateFrom . ' 00:00:00'; }
-if ($dateTo) { $where[] = 'vp.uploaded_at <= ?'; $params[] = $dateTo . ' 23:59:59'; }
+if ($serviceType) { $where[] = 'jp.service_type = ?'; $params[] = $serviceType; }
+if ($crewId)      { $where[] = 'ma.created_by = ?';  $params[] = $crewId; }
+if ($dateFrom)    { $where[] = 'ma.created_at >= ?';  $params[] = $dateFrom . ' 00:00:00'; }
+if ($dateTo)      { $where[] = 'ma.created_at <= ?';  $params[] = $dateTo . ' 23:59:59'; }
 if ($search) {
-    $like = '%' . $search . '%';
-    $where[] = '(vp.tags LIKE ? OR vp.caption LIKE ? OR vp.uploaded_by_name LIKE ? OR pr.address LIKE ?)';
-    $params = array_merge($params, [$like, $like, $like, $like]);
+    $like    = '%' . $search . '%';
+    $where[] = '(ma.tags_json LIKE ? OR ma.caption LIKE ? OR u.full_name LIKE ? OR pr.address LIKE ?)';
+    $params  = array_merge($params, [$like, $like, $like, $like]);
 }
 
 $whereSQL = implode(' AND ', $where);
 
-$countStmt = $db->prepare("SELECT COUNT(*) FROM visit_photos vp LEFT JOIN properties pr ON pr.id = vp.property_id WHERE {$whereSQL}");
+$countStmt = $db->prepare("
+    SELECT COUNT(*)
+    FROM media_links ml
+    JOIN media_assets ma ON ma.id = ml.media_id
+    JOIN job_visits jv   ON jv.id = ml.context_id
+    JOIN job_plans jp    ON jp.id = jv.plan_id
+    LEFT JOIN properties pr ON pr.id = jp.property_id
+    LEFT JOIN users u       ON u.id  = ma.created_by
+    WHERE {$whereSQL}
+");
 $countStmt->execute($params);
 $totalPhotos = (int)$countStmt->fetchColumn();
 $totalPages  = max(1, (int)ceil($totalPhotos / $perPage));
 
 $stmt = $db->prepare("
-    SELECT vp.id, vp.visit_id, vp.photo_type, vp.filename, vp.caption,
-           vp.tags, vp.thumb_path, vp.grid_path, vp.view_path,
-           vp.uploaded_at, vp.uploaded_by, vp.uploaded_by_name,
-           vp.service_type, vp.property_id, vp.sha256,
-           jv.scheduled_date, jv.visit_number,
-           jp.title AS plan_title, jp.plan_number,
-           pr.address AS property_address, pr.city AS property_city
-    FROM visit_photos vp
-    JOIN job_visits jv ON jv.id = vp.visit_id
-    JOIN job_plans jp ON jp.id = jv.plan_id
-    LEFT JOIN properties pr ON pr.id = vp.property_id
+    SELECT
+        ma.id,
+        ml.context_id           AS visit_id,
+        ml.category             AS photo_type,
+        ma.stored_filename      AS filename,
+        ma.caption,
+        ma.tags_json            AS tags,
+        ma.file_path,
+        COALESCE(mv_t.file_path, ma.file_path) AS thumb_path,
+        COALESCE(mv_v.file_path, ma.file_path) AS view_path,
+        ma.created_at           AS uploaded_at,
+        ma.created_by           AS uploaded_by,
+        u.full_name             AS uploaded_by_name,
+        jp.service_type,
+        jp.property_id,
+        jv.scheduled_date,
+        jv.visit_number,
+        jp.title                AS plan_title,
+        jp.plan_number,
+        pr.address              AS property_address,
+        pr.city                 AS property_city
+    FROM media_links ml
+    JOIN media_assets ma  ON ma.id  = ml.media_id
+    JOIN job_visits jv    ON jv.id  = ml.context_id
+    JOIN job_plans jp     ON jp.id  = jv.plan_id
+    LEFT JOIN properties pr  ON pr.id = jp.property_id
+    LEFT JOIN users u        ON u.id  = ma.created_by
+    LEFT JOIN media_variants mv_t ON mv_t.media_id = ma.id
+        AND mv_t.variant_type = 'thumb_square' AND mv_t.format = 'jpeg'
+    LEFT JOIN media_variants mv_v ON mv_v.media_id = ma.id
+        AND mv_v.variant_type = 'responsive' AND mv_v.width >= 1024
     WHERE {$whereSQL}
-    ORDER BY vp.uploaded_at DESC
+    ORDER BY ma.created_at DESC
     LIMIT {$perPage} OFFSET {$offset}
 ");
 $stmt->execute($params);
@@ -100,15 +131,15 @@ foreach ($photos as $p) {
             'photos'      => [],
         ];
     }
-    $origUrl = '/uploads/photos/' . $p['filename'];
+    $origUrl = $p['file_path'];
     $groups[$visitKey]['photos'][] = [
         'id'          => (int)$p['id'],
         'visit_id'    => (int)$p['visit_id'],
         'type'        => $p['photo_type'],
         'caption'     => $p['caption'],
         'tags'        => $p['tags'] ? (json_decode($p['tags'], true) ?: []) : [],
-        'thumb_url'   => $p['thumb_path'] ?? $p['grid_path'] ?? $origUrl,
-        'view_url'    => $p['view_path'] ?? $origUrl,
+        'thumb_url'   => $p['thumb_path'],
+        'view_url'    => $p['view_path'],
         'orig_url'    => $origUrl,
         'uploaded_at' => $p['uploaded_at'],
         'uploaded_by' => $p['uploaded_by_name'],
@@ -122,21 +153,20 @@ $extraHead  = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken)
 ?>
 <?php include 'includes/appstack_head.php'; ?>
 
-<div class="mw-page-header d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-    <div>
-        <h1 class="h3 mb-0">
-            <i data-feather="camera" class="align-middle mr-2" style="width:24px;height:24px;"></i>
-            <?php echo $propertyLabel ? 'Photos — ' . $propertyLabel : 'Photo Timeline'; ?>
+<div class="mw-page-header">
+    <div class="mw-page-header-left">
+        <h1 class="mw-page-title">
+            <?php echo $propertyLabel ? 'Photos — ' . htmlspecialchars($propertyLabel) : 'Photo Timeline'; ?>
         </h1>
-        <p class="text-muted mb-0 mt-1">
+        <p class="mw-page-subtitle">
             <?php echo number_format($totalPhotos); ?> photo<?php echo $totalPhotos !== 1 ? 's' : ''; ?>
             <?php if ($propertyId): ?>across all visits<?php endif; ?>
         </p>
     </div>
     <?php if ($isAdmin && !empty($groups)): ?>
-    <div class="d-flex gap-2">
+    <div class="mw-page-actions">
         <button id="btnSelectMode" class="btn btn-sm btn-outline-secondary" onclick="toggleSelectMode()">
-            <i data-feather="check-square" style="width:14px;height:14px;"></i> Select
+            <i data-feather="check-square"></i> Select
         </button>
     </div>
     <?php endif; ?>
@@ -685,7 +715,7 @@ function cancelSelectMode() {
     selectedIds=[]; document.querySelectorAll('.mw-timeline-photo.is-selected').forEach(function(t){t.classList.remove('is-selected');}); updateBatchBar();
 }
 function togglePhotoSelect(e,photoId) {
-    var tile=e.currentTarget||document.querySelector('.mw-timeline-photo[data-photo-id="'+photoId+'"]');
+    var tile=(e.currentTarget||e.target).closest('.mw-timeline-photo')||document.querySelector('.mw-timeline-photo[data-photo-id="'+photoId+'"]');
     var idx=selectedIds.indexOf(photoId);
     if (idx===-1) { selectedIds.push(photoId); if(tile) tile.classList.add('is-selected'); }
     else { selectedIds.splice(idx,1); if(tile) tile.classList.remove('is-selected'); }

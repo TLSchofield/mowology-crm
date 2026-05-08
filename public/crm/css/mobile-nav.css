@@ -86,7 +86,7 @@
         color: #fff;
         font-weight: 800;
         font-size: 0.9rem;
-        font-family: 'Montserrat', sans-serif;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
         letter-spacing: -0.5px;
         flex-shrink: 0;
     }
@@ -95,7 +95,7 @@
         font-size: 0.92rem;
         font-weight: 700;
         color: #1a1a1a;
-        font-family: 'Montserrat', sans-serif;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -114,13 +114,13 @@
         align-items: center;
     }
 
-    /* Search button in topbar */
+    /* Search button in topbar — 48x48 touch target per WCAG AAA */
     .mw-mobile-search-btn {
         display: flex;
         align-items: center;
         justify-content: center;
-        width: 40px;
-        height: 40px;
+        width: 48px;
+        height: 48px;
         border: none;
         border-radius: 10px;
         background: transparent;
@@ -170,7 +170,7 @@
         color: #9e9e9e;
         font-size: 0.68rem;
         font-weight: 600;
-        font-family: 'Montserrat', sans-serif;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
         text-decoration: none;
         cursor: pointer;
         touch-action: manipulation;
@@ -180,10 +180,12 @@
         letter-spacing: 0.2px;
     }
 
-    .mw-mobile-nav-btn:hover,
+    .mw-mobile-nav-btn:hover { color: #555; text-decoration: none; }
+
     .mw-mobile-nav-btn:active {
-        color: #555;
+        color: #2D8659;
         text-decoration: none;
+        transform: scale(0.92);
     }
 
     .mw-mobile-nav-btn svg {
@@ -211,11 +213,14 @@
         z-index: 1070;
         visibility: hidden;
         pointer-events: none;
+        /* Delay hiding until the sheet's close animation finishes (0.32s) */
+        transition: visibility 0s linear 0.32s;
     }
 
     .mw-mobile-menu-overlay.mw-menu-open {
         visibility: visible;
         pointer-events: auto;
+        transition: visibility 0s; /* show immediately */
     }
 
     /* Dark scrim behind the sheet */
@@ -223,7 +228,7 @@
         position: absolute;
         inset: 0;
         background: rgba(0,0,0,0);
-        transition: background 0.25s ease;
+        transition: background 0.28s ease;
     }
 
     .mw-mobile-menu-overlay.mw-menu-open .mw-mobile-menu-scrim {
@@ -240,14 +245,21 @@
         border-radius: 20px 20px 0 0;
         padding: 0 0 calc(env(safe-area-inset-bottom, 0px) + 12px);
         transform: translateY(100%);
-        transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
-        max-height: 80vh;
+        transition: transform 0.32s cubic-bezier(0.32, 0.72, 0, 1);
+        max-height: 85vh;
         overflow-y: auto;
         -webkit-overflow-scrolling: touch;
+        overscroll-behavior-y: contain;
+        will-change: transform;
     }
 
     .mw-mobile-menu-overlay.mw-menu-open .mw-mobile-menu-sheet {
         transform: translateY(0);
+    }
+
+    /* Suppress transition while finger is actively dragging */
+    .mw-mobile-menu-sheet.mw-sheet-dragging {
+        transition: none !important;
     }
 
     /* Drag handle */
@@ -286,7 +298,7 @@
         justify-content: center;
         font-weight: 700;
         font-size: 1rem;
-        font-family: 'Montserrat', sans-serif;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
         flex-shrink: 0;
     }
 
@@ -294,7 +306,7 @@
         font-weight: 700;
         font-size: 0.9rem;
         color: #1a1a1a;
-        font-family: 'Montserrat', sans-serif;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
     }
 
     .mw-mobile-menu-role {
@@ -323,15 +335,21 @@
         color: #444;
         font-size: 0.72rem;
         font-weight: 600;
-        font-family: 'Montserrat', sans-serif;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
         transition: background 0.15s ease, color 0.15s ease;
         -webkit-tap-highlight-color: transparent;
         text-align: center;
         line-height: 1.2;
     }
 
-    .mw-mobile-menu-item:hover,
     .mw-mobile-menu-item:active {
+        background: #ebebeb;
+        text-decoration: none;
+        color: #1a1a1a;
+        transform: scale(0.96);
+    }
+
+    .mw-mobile-menu-item:hover {
         background: #f4f4f4;
         text-decoration: none;
         color: #1a1a1a;
@@ -359,6 +377,42 @@
         color: #fff;
     }
 
+    /* Plant import quick-action bar (admin only) */
+    .mw-mobile-plant-import-bar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 16px;
+        margin: 4px 12px 8px;
+        background: linear-gradient(135deg, #e8f3f0 0%, #f0f8f4 100%);
+        border: 1px solid #c8e6d8;
+        border-radius: 14px;
+    }
+
+    .mw-mobile-plant-import-btn {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 9px 16px;
+        background: #2D8659;
+        color: #fff;
+        border-radius: 10px;
+        font-size: 0.8rem;
+        font-weight: 700;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        cursor: pointer;
+        white-space: nowrap;
+        -webkit-tap-highlight-color: transparent;
+        flex-shrink: 0;
+    }
+
+    .mw-mobile-plant-import-hint {
+        font-size: 0.72rem;
+        color: #5a7a6a;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        line-height: 1.3;
+    }
+
     /* Bottom actions in sheet (profile, settings, logout) */
     .mw-mobile-menu-actions {
         display: flex;
@@ -378,7 +432,7 @@
         color: #444;
         font-size: 0.85rem;
         font-weight: 600;
-        font-family: 'Montserrat', sans-serif;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
         transition: background 0.15s ease;
         -webkit-tap-highlight-color: transparent;
     }
@@ -514,3 +568,14 @@ body.mw-page-schedule .mw-mobile-bottombar {
     display: none !important;
 }
 /* Keep the slide-up menu overlay available for the schedule's Menu button */
+
+/* ════════════════════════════════════════════════════════
+   DRIVER PORTAL OVERRIDE
+   The driver portal has its own full-screen UI (splash, quiz,
+   homebase, overlays). Suppress global nav bars entirely.
+   body.mw-page-driver is set by driver-portal.php via $bodyClass.
+*/
+body.mw-page-driver .mw-mobile-topbar,
+body.mw-page-driver .mw-mobile-bottombar {
+    display: none !important;
+}

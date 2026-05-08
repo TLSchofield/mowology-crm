@@ -17,12 +17,12 @@ $activePage = 'leaderboard';
 ?>
 <?php include __DIR__ . '/includes/appstack_head.php'; ?>
 
-<div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
-    <div>
-        <h1 class="h3 mb-0 fw-bold">🏆 Crew Leaderboard</h1>
-        <p class="text-muted mb-0 small" id="weekLabel">Loading…</p>
+<div class="mw-page-header">
+    <div class="mw-page-header-left">
+        <h1 class="mw-page-title">Crew Leaderboard</h1>
+        <p class="mw-page-subtitle" id="weekLabel">Loading…</p>
     </div>
-    <div class="d-flex gap-2 flex-wrap">
+    <div class="mw-page-actions">
         <input type="week" id="weekPicker" class="form-control form-control-sm" style="width:160px;" title="Jump to week">
         <?php if ($canRecalculate): ?>
         <button class="btn btn-sm btn-outline-secondary" id="recalcBtn" onclick="recalculate()">

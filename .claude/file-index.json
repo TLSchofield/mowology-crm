@@ -1,0 +1,56 @@
+{
+  "_note": "Key function/class locations. Use file:line to jump directly. Updated Mar 2026.",
+
+  "auth": {
+    "requireLogin":       { "file": "app/Core/Auth/auth.php",    "line": 72 },
+    "getCurrentUser":     { "file": "app/Core/Auth/auth.php",    "line": 94 },
+    "generateCSRFToken":  { "file": "app/Core/Auth/auth.php",    "line": 280 },
+    "verifyCSRFToken":    { "file": "app/Core/Auth/auth.php",    "line": 287 },
+    "h":                  { "file": "app/Core/Auth/auth.php",    "line": 50 }
+  },
+
+  "database": {
+    "Database (class)":   { "file": "app/Core/config.php",       "line": 103 },
+    "getDB":              { "file": "app/Core/config.php",       "line": 46 },
+    "APP_ROOT":           { "file": "app/Core/paths.php",        "line": 18 },
+    "PUBLIC_ROOT":        { "file": "app/Core/paths.php",        "line": 24 }
+  },
+
+  "messaging": {
+    "sendCrmEmail":       { "file": "app/Services/Messaging/SmtpMailer.php",     "line": 166 },
+    "sendSms":            { "file": "app/Services/Messaging/MessagingService.php", "line": 123 },
+    "MessagingService":   { "file": "app/Services/Messaging/MessagingService.php", "line": 1 }
+  },
+
+  "services": {
+    "QuoteService":       { "file": "app/Modules/Quotes/Services/QuoteService.php",         "line": 25 },
+    "AccountingService":  { "file": "app/Modules/Accounting/Services/AccountingService.php", "line": 18 },
+    "ContactService":     { "file": "app/Modules/Contacts/Services/ContactService.php",      "line": 14 }
+  },
+
+  "helpers": {
+    "generateQuoteNumber":   { "file": "app/Services/CrmFunctions.php", "line": 12 },
+    "generateInvoiceNumber": { "file": "app/Services/CrmFunctions.php", "line": 30 },
+    "writeSystemLog":        { "file": "app/Services/CrmFunctions.php", "line": 2718 }
+  },
+
+  "ui": {
+    "navItems ($navItems array)":     { "file": "public/crm/includes/appstack_sidebar.php", "line": 50 },
+    "initAddressAutocomplete (JS)":   { "file": "public/crm/clients_appstack.php",          "line": 6269 },
+    "appstack_head.php":              { "file": "public/crm/includes/appstack_head.php",     "line": 1 },
+    "appstack_footer.php":            { "file": "public/crm/includes/appstack_footer.php",   "line": 1 },
+    "mowology-brand.css":             { "file": "public/crm/css/mowology-brand.css",         "line": 1 }
+  },
+
+  "stripe": {
+    "webhook handler":        { "file": "public/api/stripe/webhook.php",               "line": 1 },
+    "invoice payment intent": { "file": "public/customer/api/invoice-payment-intent.php", "line": 1 },
+    "customer invoice page":  { "file": "public/customer/invoice.php",                 "line": 1 }
+  },
+
+  "dev_tools": {
+    "dev-context API":        { "file": "public/crm/api/dev-context.php",             "line": 1 },
+    "fetch-dev-context hook": { "file": ".claude/hooks/fetch-dev-context.sh",         "line": 1 },
+    "hook settings":          { "file": ".claude/settings.json",                      "line": 1 }
+  }
+}

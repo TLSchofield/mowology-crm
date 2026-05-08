@@ -170,20 +170,27 @@ if ($contact && !$error) {
         $completedVisits = [];
     }
 
-    // Photos for all completed visits
-    $visitPhotos = [];
+    // Photos for all completed visits (+ soft-delete exclusion + thumb/view paths)
+    $visitPhotos  = [];
+    $recentPhotos = []; // flat, most recent first, for top-level card
+    $photoTotal   = 0;
     if (!empty($completedVisits)) {
         $visitIds = array_column($completedVisits, 'id');
         $placeholders = implode(',', array_fill(0, count($visitIds), '?'));
         try {
             $stmt = $db->prepare("
-                SELECT visit_id, id, filename, photo_type, caption
+                SELECT visit_id, id, filename, photo_type, caption,
+                       thumb_path, grid_path, view_path, uploaded_at
                 FROM visit_photos
                 WHERE visit_id IN ($placeholders)
-                ORDER BY photo_type, uploaded_at
+                  AND deleted_at IS NULL
+                ORDER BY uploaded_at DESC
             ");
             $stmt->execute($visitIds);
-            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $photo) {
+            $allRows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $photoTotal = count($allRows);
+            $recentPhotos = array_slice($allRows, 0, 4); // 4 most recent for the summary card
+            foreach ($allRows as $photo) {
                 $visitPhotos[$photo['visit_id']][] = $photo;
             }
         } catch (Exception $e) {
@@ -300,6 +307,11 @@ function statusBadge(string $status, bool $overdue = false): string {
         endif;
       ?>
       <div class="portal-hero-sub"><?php echo $subText; ?></div>
+      <?php if (!empty($contact['portal_token']) && !$adminMode): ?>
+        <a href="/customer/profile.php?token=<?php echo urlencode($contact['portal_token']); ?>" class="portal-hero-link">
+          &#9881; Update my details
+        </a>
+      <?php endif; ?>
       <?php if ($adminMode && $portalUrl): ?>
         <div class="portal-link-label">Client's portal link</div>
         <div class="portal-link-copy">
@@ -324,6 +336,27 @@ function statusBadge(string $status, bool $overdue = false): string {
       </div>
       <?php endforeach; ?>
     </div>
+    <?php endif; ?>
+
+    <?php if ($photoTotal > 0): ?>
+    <?php
+        $galleryUrl = !empty($contact['portal_token'])
+            ? '/customer/gallery.php?token=' . urlencode($contact['portal_token'])
+            : '/customer/gallery.php';
+    ?>
+    <a href="<?php echo htmlspecialchars($galleryUrl); ?>" class="portal-photos-summary">
+      <div class="portal-photos-thumbs">
+        <?php foreach ($recentPhotos as $rp):
+            $url = $rp['thumb_path'] ?: $rp['grid_path'] ?: ('/uploads/photos/' . $rp['filename']);
+        ?>
+          <img src="<?php echo htmlspecialchars($url); ?>" alt="" loading="lazy">
+        <?php endforeach; ?>
+      </div>
+      <div class="portal-photos-summary-text">
+        <div class="portal-photos-summary-count"><?php echo $photoTotal; ?> photo<?php echo $photoTotal === 1 ? '' : 's'; ?></div>
+        <div class="portal-photos-summary-sub">View your property gallery →</div>
+      </div>
+    </a>
     <?php endif; ?>
 
     <?php if (!$hasAnything): ?>
@@ -520,6 +553,11 @@ function statusBadge(string $status, bool $overdue = false): string {
                   <?php if ($amt): ?>
                     <span class="portal-visit-stat"><?php echo htmlspecialchars($amt); ?></span>
                   <?php endif; ?>
+                  <?php if (!empty($contact['portal_token']) && !$adminMode): ?>
+                    <button type="button" class="portal-visit-rebook-btn" onclick="mwRebookVisit(<?php echo (int)$v['id']; ?>, '<?php echo htmlspecialchars(addslashes($label), ENT_QUOTES); ?>')">
+                      &#8634; Book again
+                    </button>
+                  <?php endif; ?>
                 </div>
                 <?php
                   $vPhotos = $visitPhotos[$v['id']] ?? [];
@@ -668,6 +706,44 @@ function showToast(msg) {
   toast.textContent = msg || 'Link copied!';
   toast.classList.add('show');
   setTimeout(function() { toast.classList.remove('show'); }, 2500);
+}
+
+// ── Rebook (request service again) ────────────────────────────────────
+function mwRebookVisit(visitId, serviceLabel) {
+  var note = prompt(
+    'Request another ' + serviceLabel + ' service?\n\n' +
+    'Add a note if you\'d like (optional — e.g. preferred time, extra items, access instructions):'
+  );
+  if (note === null) return; // cancelled
+
+  var btns = document.querySelectorAll('button[onclick*="mwRebookVisit(' + visitId + ',');
+  btns.forEach(function(b) { b.disabled = true; b.textContent = 'Sending...'; });
+
+  var formData = new FormData();
+  formData.append('token', <?php echo json_encode($contact['portal_token'] ?? ''); ?>);
+  formData.append('visit_id', visitId);
+  formData.append('notes', note || '');
+
+  fetch('/customer/api/rebook.php', { method: 'POST', body: formData })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.success) {
+        btns.forEach(function(b) {
+          b.textContent = d.duplicate ? '\u2713 Already requested' : '\u2713 Request sent';
+          b.style.background = '#2D8659';
+          b.style.color = '#fff';
+          b.style.borderColor = '#2D8659';
+        });
+        alert(d.message || 'Request sent!');
+      } else {
+        btns.forEach(function(b) { b.disabled = false; b.textContent = '\u21BB Book again'; });
+        alert('Error: ' + (d.error || 'Unknown'));
+      }
+    })
+    .catch(function() {
+      btns.forEach(function(b) { b.disabled = false; b.textContent = '\u21BB Book again'; });
+      alert('Network error — please try again.');
+    });
 }
 </script>
 

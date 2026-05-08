@@ -15,6 +15,7 @@ header('Content-Type: application/json');
 try {
     requireLogin();
     $user = getCurrentUser();
+session_write_close();
 
     if (!verifyCSRFToken($_POST['csrf_token'] ?? '')) {
         throw new \RuntimeException('Invalid CSRF token');

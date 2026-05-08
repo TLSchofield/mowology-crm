@@ -116,7 +116,7 @@ function badgeClassForType(?string $type): string {
     <?php else: ?>
 
       <div class="table-responsive">
-        <table class="table table-hover align-middle">
+        <table class="mw-table">
           <thead class="table-light">
             <tr>
               <th style="width: 40px;">#</th>

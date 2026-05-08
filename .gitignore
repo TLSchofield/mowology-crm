@@ -39,3 +39,6 @@ Thumbs.db
 crm/logs/
 tmp/
 cache/
+
+# Claude dev tools
+.claude/context.token

@@ -89,6 +89,15 @@ $stmt = $db->prepare("
 $stmt->execute([$invoiceId]);
 $invoiceRecipients = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+// Build portal URL — refresh token if missing or expired
+$_tokenExpired = !empty($invoice['token_expires_at']) && strtotime($invoice['token_expires_at']) < time();
+if (empty($invoice['access_token']) || $_tokenExpired) {
+    $invoice['access_token'] = generateAccessToken();
+    $db->prepare("UPDATE invoices SET access_token = ?, token_expires_at = DATE_ADD(NOW(), INTERVAL 90 DAY) WHERE id = ?")
+       ->execute([$invoice['access_token'], $invoiceId]);
+}
+$invoicePortalUrl = 'https://mowology.ca/customer/invoice.php?token=' . urlencode($invoice['access_token']);
+
 // Get activity for this invoice
 $stmt = $db->prepare("
     SELECT a.*, u.full_name
@@ -132,20 +141,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         $stmt->execute([$invoiceId]);
         $recipients = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        // Generate PDF once (used for all recipients)
+        // Generate PDF once (used for all recipients).
+        // We always regenerate on send so the PDF reflects the latest invoice state
+        // (line items, totals, bill-to) — caching stale PDFs confuses customers.
         $attachPath = null;
         require_once dirname(__DIR__) . '/includes/pdf_bootstrap.php';
         require_once dirname(__DIR__) . '/includes/PdfGenerator.php';
 
-        $pdfGen = new PdfGenerator();
-        $existingPath = $pdfGen->getPdfPath('invoice', $invoiceId);
-        if ($existingPath) {
-            $attachPath = $existingPath;
+        $pdfGen    = new PdfGenerator();
+        $pdfResult = $pdfGen->generateInvoicePdf($invoiceId);
+        if (!empty($pdfResult['success']) && !empty($pdfResult['path']) && file_exists($pdfResult['path'])) {
+            $attachPath = $pdfResult['path'];
         } else {
-            $pdfResult = $pdfGen->generateInvoicePdf($invoiceId);
-            if ($pdfResult['success']) {
-                $attachPath = $pdfResult['path'];
+            // Fall back to any cached copy so the email still has an attachment
+            $cached = $pdfGen->getPdfPath('invoice', $invoiceId);
+            if ($cached && file_exists($cached)) {
+                $attachPath = $cached;
             }
+            error_log("Invoice send: PDF generation failed for invoice {$invoiceId}: " . ($pdfResult['error'] ?? 'unknown') . ($attachPath ? ' — using cached copy' : ' — sending WITHOUT attachment'));
         }
 
         // Ensure the invoice has a valid (non-expired) access_token
@@ -163,7 +176,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         $billToLines       = [];
         if ($billToCompany)     { $billToLines[] = '<strong>' . htmlspecialchars($billToCompany) . '</strong>'; }
         if ($billToContactName) { $billToLines[] = htmlspecialchars($billToContactName); }
-        $invoiceViewUrl = 'https://mowology.ca/customer/invoice.php?token=' . urlencode($invoice['access_token']);
+        $invoiceViewUrl   = 'https://mowology.ca/customer/invoice.php?token=' . urlencode($invoice['access_token']);
+        $invoicePdfUrl    = 'https://mowology.ca/customer/api/invoice-pdf.php?token=' . urlencode($invoice['access_token']);
+        $invoicePrintUrl  = $invoicePdfUrl . '&inline=1';
 
         // Send to each recipient
         $sentTo = [];
@@ -266,21 +281,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         // Build activity log message
         $attachNote = $attachPath ? ' (with PDF attached)' : '';
         if (!empty($sentTo)) {
-            // Update status to 'sent' only now that we know at least one email went out
-            $oldStatus = $invoice['status'] ?? 'draft';
-            $db->prepare("UPDATE invoices SET status = 'sent', sent_at = NOW() WHERE id = ? AND status IN ('draft', 'sent')")
-               ->execute([$invoiceId]);
-            trackFieldChange('invoice', $invoiceId, 'status', $oldStatus, 'sent', $user['id']);
+            // Distinguish a first send from a manual resend.
+            // Resend = the invoice already has a sent_at timestamp.
+            // First-send: stamp sent_at + flip status to 'sent'.
+            // Resend:     bump resend_count + last_resent_at, leave
+            //             sent_at and status alone so the original
+            //             timeline is preserved.
+            $isResend = !empty($invoice['sent_at']);
+
+            if ($isResend) {
+                $db->prepare("
+                    UPDATE invoices
+                    SET resend_count   = COALESCE(resend_count, 0) + 1,
+                        last_resent_at = NOW()
+                    WHERE id = ?
+                ")->execute([$invoiceId]);
+                // Refresh in-memory copy so the Engagement panel renders
+                // the new counter + timestamp without an extra round trip.
+                $invoice['resend_count']   = (int)($invoice['resend_count'] ?? 0) + 1;
+                $invoice['last_resent_at'] = date('Y-m-d H:i:s');
+            } else {
+                $oldStatus = $invoice['status'] ?? 'draft';
+                $db->prepare("
+                    UPDATE invoices
+                    SET status = 'sent', sent_at = NOW()
+                    WHERE id = ? AND status IN ('draft', 'sent')
+                ")->execute([$invoiceId]);
+                trackFieldChange('invoice', $invoiceId, 'status', $oldStatus, 'sent', $user['id']);
+                $invoice['status'] = 'sent';
+            }
 
             $recipientList = implode(', ', $sentTo);
-            $details = "Invoice sent to {$recipientList}{$attachNote}";
+            $verb          = $isResend ? 'resent' : 'sent';
+            $actionLabel   = $isResend ? 'Invoice resent' : 'Invoice sent';
+            $details       = "Invoice {$verb} to {$recipientList}{$attachNote}";
             if (!empty($smsSentTo)) {
                 $details .= "; SMS sent to: " . implode(', ', $smsSentTo);
             }
-            logActivityExtended($user['id'], 'Invoice sent', $details, null, null, null, $invoiceId);
+            logActivityExtended($user['id'], $actionLabel, $details, null, null, null, $invoiceId);
 
-            $invoice['status'] = 'sent';
-            $message = "Invoice sent successfully to " . count($sentTo) . " recipient(s)";
+            $messageVerb = $isResend ? 'resent' : 'sent';
+            $message     = "Invoice {$messageVerb} successfully to " . count($sentTo) . " recipient(s)";
             if (!empty($smsSentTo)) {
                 $message .= " and SMS sent to " . count($smsSentTo) . " contact(s)";
             }
@@ -444,6 +485,13 @@ $extraHead = $isPayable
                   </div>
               </div>
               <div class="mw-header-actions">
+                  <!-- Copy customer portal link -->
+                  <button type="button" class="btn btn-outline-secondary" id="mw-copy-link-btn"
+                          onclick="mwCopyInvoiceLink(this)"
+                          title="Copy customer portal link to clipboard">
+                      <i data-feather="link" class="mr-1"></i> Copy Link
+                  </button>
+
                   <!-- PDF Actions -->
                   <a href="../documents/generate_pdf.php?type=invoice&id=<?php echo $invoiceId; ?>&action=download"
                      class="btn btn-outline-secondary" title="Download PDF">
@@ -456,7 +504,13 @@ $extraHead = $isPayable
                       </button>
                   </form>
 
-                  <?php if (in_array($invoice['status'], ['draft', 'sent'])): ?>
+                  <?php if ($invoice['status'] !== 'paid' && userHasPermission('billing.edit')): ?>
+                      <a href="edit.php?id=<?php echo $invoiceId; ?>" class="btn btn-outline-primary" title="Edit this invoice">
+                          <i data-feather="edit" class="mr-1"></i> Edit
+                      </a>
+                  <?php endif; ?>
+
+                  <?php if ($invoice['status'] !== 'paid'): ?>
                       <form method="POST" class="d-inline">
                           <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
                           <input type="hidden" name="action" value="send">
@@ -487,20 +541,39 @@ $extraHead = $isPayable
                       <div class="card-body">
                           <?php
                               $contactFullName = trim(($invoice['contact_first'] ?? '') . ' ' . ($invoice['contact_last'] ?? ''));
-                              $displayCompany = $invoice['company_name'] ?? '';
+                              $displayCompany  = $invoice['company_name'] ?? '';
+                              // Priority: manual bill_to_name override →
+                              // company_name → contact full name.
+                              $billToHeading   = !empty($invoice['bill_to_name'])
+                                  ? $invoice['bill_to_name']
+                                  : ($displayCompany ?: $contactFullName);
                           ?>
-                          <?php if ($displayCompany): ?>
+                          <?php if ($billToHeading): ?>
                           <div class="mw-detail-row">
-                              <span class="mw-detail-label">Company</span>
-                              <span class="mw-detail-value"><?php echo htmlspecialchars($displayCompany); ?></span>
+                              <span class="mw-detail-label"><?php echo !empty($invoice['bill_to_name']) ? 'Billed To' : ($displayCompany ? 'Company' : 'Bill To'); ?></span>
+                              <span class="mw-detail-value" style="font-weight:600;"><?php echo htmlspecialchars($billToHeading); ?></span>
                           </div>
                           <?php endif; ?>
+                          <?php
+                              // Show the contact as Attn: only when it's a
+                              // different string from what's already rendered
+                              // as the Bill To (avoids "Contact: Monica Nicule"
+                              // appearing twice when Monica IS the billing entity).
+                              $showContactLine = $contactFullName !== '' && strcasecmp($billToHeading, $contactFullName) !== 0;
+                          ?>
+                          <?php if ($showContactLine): ?>
                           <div class="mw-detail-row">
-                              <span class="mw-detail-label">Contact</span>
+                              <span class="mw-detail-label">Attn</span>
                               <span class="mw-detail-value">
-                                  <?php echo htmlspecialchars($contactFullName ?: 'N/A'); ?>
+                                  <?php echo htmlspecialchars($contactFullName); ?>
                               </span>
                           </div>
+                          <?php elseif ($contactFullName === '' && empty($invoice['bill_to_name'])): ?>
+                          <div class="mw-detail-row">
+                              <span class="mw-detail-label">Contact</span>
+                              <span class="mw-detail-value">N/A</span>
+                          </div>
+                          <?php endif; ?>
                           <?php
                               $billAddrParts = array_filter([
                                   $invoice['billing_address'] ?? '',
@@ -801,7 +874,11 @@ $extraHead = $isPayable
                                   </div>
                                   <div class="mw-tracking-stat-label">Email Opened</div>
                               </div>
-                              <div class="mw-tracking-stat">
+                              <div class="mw-tracking-stat" title="Times the crew has manually clicked Resend">
+                                  <div class="mw-tracking-stat-value"><?php echo (int)($invoice['resend_count'] ?? 0); ?></div>
+                                  <div class="mw-tracking-stat-label">Resends</div>
+                              </div>
+                              <div class="mw-tracking-stat" title="Automated overdue reminders sent by the cron">
                                   <div class="mw-tracking-stat-value"><?php echo (int)($invoice['reminder_count'] ?? 0); ?></div>
                                   <div class="mw-tracking-stat-label">Reminders</div>
                               </div>
@@ -853,11 +930,24 @@ $extraHead = $isPayable
                               </div>
                               <?php endif; ?>
 
+                              <?php if ((int)($invoice['resend_count'] ?? 0) > 0 && !empty($invoice['last_resent_at'])): ?>
+                              <div class="mw-timeline-item">
+                                  <div class="mw-timeline-dot mw-dot-sent"></div>
+                                  <div class="mw-timeline-content">
+                                      <div class="mw-timeline-label">
+                                          Resent by crew
+                                          (<?php echo (int)$invoice['resend_count']; ?> time<?php echo $invoice['resend_count'] == 1 ? '' : 's'; ?>)
+                                      </div>
+                                      <div class="mw-timeline-time">Last: <?php echo formatDateTime($invoice['last_resent_at'], 'M j, Y g:i A'); ?></div>
+                                  </div>
+                              </div>
+                              <?php endif; ?>
+
                               <?php if (!empty($invoice['last_reminder_sent_at'])): ?>
                               <div class="mw-timeline-item">
                                   <div class="mw-timeline-dot mw-dot-reminder"></div>
                                   <div class="mw-timeline-content">
-                                      <div class="mw-timeline-label">Reminder sent (<?php echo (int)$invoice['reminder_count']; ?> total)</div>
+                                      <div class="mw-timeline-label">Auto-reminder sent (<?php echo (int)$invoice['reminder_count']; ?> total)</div>
                                       <div class="mw-timeline-time"><?php echo formatDateTime($invoice['last_reminder_sent_at'], 'M j, Y g:i A'); ?></div>
                                   </div>
                               </div>
@@ -1048,6 +1138,18 @@ $extraHead = $isPayable
 
 <?php if ($isPayable): ?>
 <script>
+var _mwInvoicePortalUrl = <?php echo json_encode($invoicePortalUrl); ?>;
+function mwCopyInvoiceLink(btn) {
+    navigator.clipboard.writeText(_mwInvoicePortalUrl).then(function () {
+        btn.innerHTML = '<i data-feather="check" class="mr-1"></i> Copied!';
+        if (typeof feather !== 'undefined') feather.replace();
+        setTimeout(function () {
+            btn.innerHTML = '<i data-feather="link" class="mr-1"></i> Copy Link';
+            if (typeof feather !== 'undefined') feather.replace();
+        }, 2000);
+    });
+}
+
 (function () {
     'use strict';
 

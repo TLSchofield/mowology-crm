@@ -190,6 +190,10 @@
         showSuccess('Settings saved successfully');
         // Re-populate form with saved data
         populateForm(data.settings);
+        // Notify the unsaved-changes tracker that a save just happened
+        try {
+          window.dispatchEvent(new CustomEvent('settings:saved'));
+        } catch (_) { /* legacy browsers — ignore */ }
         // Hide success message after 3 seconds
         setTimeout(() => {
           successEl.style.display = 'none';

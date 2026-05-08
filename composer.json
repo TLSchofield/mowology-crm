@@ -1,0 +1,23 @@
+{
+    "name": "mowology/crm",
+    "description": "Mowology CRM",
+    "type": "project",
+    "authors": [
+        {
+            "name": "Tim Schofield",
+            "email": "timschofield@example.com"
+        }
+    ],
+    "require": {
+        "smalot/pdfparser": "^2.12",
+        "matthiasmullie/minify": "^1.3"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^10.5"
+    },
+    "autoload-dev": {
+        "classmap": [
+            "app/Modules/Accounting/Services/"
+        ]
+    }
+}

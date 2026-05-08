@@ -223,7 +223,20 @@ try {
         ];
     }
 
-    // ── 6. Build response ───────────────────────────────────────────────
+    // ── 6. Vendor locations (static reference layer) ────────────────────
+    $vendors = $db->query("
+        SELECT vl.id, vl.vendor_id, vl.label, vl.address, vl.lat, vl.lng,
+               vl.city, vl.phone, vl.hours_weekday, vl.is_preferred,
+               v.name AS vendor_name
+        FROM vendor_locations vl
+        JOIN vendors v ON vl.vendor_id = v.id
+        WHERE v.is_active = 1
+          AND vl.lat IS NOT NULL AND vl.lat != 0
+          AND vl.lng IS NOT NULL AND vl.lng != 0
+        ORDER BY v.name, vl.is_preferred DESC
+    ")->fetchAll();
+
+    // ── 7. Build response ───────────────────────────────────────────────
     $response = [
         'success' => true,
         'crew'    => $crew,
@@ -231,6 +244,7 @@ try {
         'office'  => ($officeLat && $officeLng)
             ? ['lat' => $officeLat, 'lng' => $officeLng, 'label' => 'Office']
             : null,
+        'vendors' => $vendors,
         'date'    => $today,
     ];
 

@@ -1,0 +1,277 @@
+/**
+ * Mowology Accessibility + Mobile Form Fixes
+ * ───────────────────────────────────────────
+ * Loaded after mowology-brand.css from appstack_head.php. Keeps
+ * a11y-critical rules in their own file so they are never lost during
+ * brand.css maintenance and are trivial to audit.
+ *
+ * Scope: AppStack CRM pages. Standalone driver pages (homebase,
+ * driver-log, driver-log-post, app-launch) inline the equivalent
+ * rules in their own <style> blocks because they do not load this
+ * stylesheet.
+ */
+
+/* ── Prevent iOS/Android auto-zoom on form focus ─────────
+   Mobile browsers zoom the viewport when an input's computed font-size
+   is below 16px. That behaviour loses the user's scroll position on
+   every tap. Enforcing ≥ 16px on the smallest screens kills the bug
+   without touching the viewport meta (which desktop a11y users need
+   for pinch-zoom). */
+@media (max-width: 991.98px) {
+  input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]),
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+
+/* ── Visible focus rings ────────────────────────────────
+   Applies :focus-visible to every interactive element so keyboard and
+   Android TalkBack users always see where they are. Uses the brand
+   green at 2px for strong contrast on both light and dark backgrounds.
+   Pair with outline-offset so the ring sits clear of the element
+   border. :focus-visible does not fire on mouse clicks, so mouse users
+   see the existing hover/active states unchanged.
+
+   Uses :where() so the selector has zero specificity — component CSS
+   with normal specificity still wins. */
+:where(
+  a,
+  button,
+  input,
+  textarea,
+  select,
+  summary,
+  [role="button"],
+  [role="link"],
+  [role="tab"],
+  [tabindex]
+):focus-visible {
+  outline: 2px solid var(--mw-green, #2D8659);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ── Job-card action row — Call + Navigate buttons ────────
+   Sits at the top-right of every active and compact stop card. The
+   GO button is pre-existing; the .mw-mc-btn-call is new (see
+   partials/job-card.php). Kept in a11y.css so brand.css stays the
+   user's workspace. */
+.mw-mc-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.mw-mc-btn-call {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  border-radius: var(--mw-radius-md, 12px);
+  background: var(--mw-color-success, #16A34A);
+  color: #fff;
+  text-decoration: none;
+  box-shadow: var(--mw-shadow-sm, 0 2px 8px rgba(17,24,39,0.06));
+  transition: transform var(--mw-dur-fast, 120ms) var(--mw-ease-out, cubic-bezier(0.2,0.8,0.2,1)),
+              filter var(--mw-dur-fast, 120ms);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mw-mc-btn-call:hover,
+.mw-mc-btn-call:focus {
+  color: #fff;
+  text-decoration: none;
+  filter: brightness(1.08);
+}
+
+.mw-mc-btn-call:active {
+  transform: scale(0.94);
+}
+
+.mw-mc-btn-call svg {
+  stroke: #fff;
+}
+
+/* Bump to 44x44 on real touch devices so the tap target clears WCAG */
+@media (hover: none) and (pointer: coarse) {
+  .mw-mc-btn-call {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* ── API error toast — retry variant ─────────────────────
+   Styles the .mw-toast--has-action variant rendered by
+   /crm/js/mw-api-toast.js when an API returns a retryable error. */
+.mw-toast.mw-toast--has-action {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-right: 8px;
+}
+
+.mw-toast .mw-toast-action {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: var(--mw-radius-sm, 8px);
+  padding: 6px 12px;
+  font-family: inherit;
+  font-size: var(--mw-text-xs, 0.75rem);
+  font-weight: var(--mw-weight-bold, 700);
+  cursor: pointer;
+  min-height: 32px;
+  -webkit-tap-highlight-color: transparent;
+  white-space: nowrap;
+  transition: background var(--mw-dur-fast, 120ms) var(--mw-ease-out, cubic-bezier(0.2,0.8,0.2,1));
+}
+
+.mw-toast .mw-toast-action:hover,
+.mw-toast .mw-toast-action:focus {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.mw-toast.mw-toast--leaving {
+  opacity: 0;
+  transform: translateY(-8px);
+  transition: opacity var(--mw-dur-base, 200ms) var(--mw-ease-out, cubic-bezier(0.2,0.8,0.2,1)),
+              transform var(--mw-dur-base, 200ms) var(--mw-ease-out, cubic-bezier(0.2,0.8,0.2,1));
+}
+
+/* ── Schedule client-side search (B8) ────────────────────
+   Injected by /crm/js/mw-schedule-search.js into .mw-mc-container
+   right after the top bar. Mobile-first; also appears on desktop
+   since the schedule week view has the same card layout. */
+.mw-mc-search-wrap {
+  padding: 8px 12px 4px;
+  background: var(--mw-ink-0, #fff);
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+.mw-mc-search-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.mw-mc-search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  stroke: var(--mw-ink-500, #6B7280);
+  pointer-events: none;
+}
+
+.mw-mc-search-input {
+  flex: 1;
+  width: 100%;
+  border: 1.5px solid var(--mw-ink-200, #E5E7EB);
+  border-radius: var(--mw-radius-md, 12px);
+  padding: 10px 36px 10px 36px;
+  font-family: inherit;
+  font-size: 16px; /* prevents mobile auto-zoom */
+  color: var(--mw-ink-900, #111827);
+  background: var(--mw-ink-50, #F9FAFB);
+  min-height: 44px;
+  -webkit-appearance: none;
+  transition: border-color var(--mw-dur-fast, 120ms), background var(--mw-dur-fast, 120ms);
+}
+
+.mw-mc-search-input:focus {
+  outline: none;
+  border-color: var(--mw-green, #2D8659);
+  background: var(--mw-ink-0, #fff);
+}
+
+.mw-mc-search-clear {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  font-size: 24px;
+  line-height: 1;
+  color: var(--mw-ink-500, #6B7280);
+  cursor: pointer;
+  border-radius: var(--mw-radius-pill, 9999px);
+}
+
+.mw-mc-search-clear:hover {
+  background: var(--mw-ink-100, #F3F4F6);
+  color: var(--mw-ink-900, #111827);
+}
+
+.mw-mc-search-count {
+  font-family: inherit;
+  font-size: var(--mw-text-xs, 0.75rem);
+  color: var(--mw-ink-500, #6B7280);
+  padding: 4px 4px 2px;
+  min-height: 1em;
+}
+
+.mw-mc-search-wrap:not(.mw-mc-search-active) .mw-mc-search-count {
+  display: none;
+}
+
+/* ── Pull-to-refresh loader (B6) ─────────────────────────
+   Injected by /crm/js/mw-pull-refresh.js at the top of
+   .mw-mc-container. Height is driven directly by JS to follow the
+   user's finger; CSS only owns the visual. */
+.mw-mc-pull-loader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  overflow: hidden;
+  height: 0;
+  color: var(--mw-ink-500, #6B7280);
+  font-family: var(--mw-font-sans, 'Inter', sans-serif);
+  font-size: var(--mw-text-xs, 0.75rem);
+  font-weight: var(--mw-weight-semibold, 600);
+  background: var(--mw-ink-50, #F9FAFB);
+  gap: 4px;
+  padding-bottom: 6px;
+}
+
+.mw-mc-pull-loader .mw-mc-pull-spinner svg {
+  stroke: var(--mw-ink-500, #6B7280);
+  transition: transform var(--mw-dur-fast, 120ms) var(--mw-ease-out, cubic-bezier(0.2,0.8,0.2,1)),
+              stroke var(--mw-dur-fast, 120ms);
+}
+
+.mw-mc-pull-loader.mw-mc-pull-ready {
+  color: var(--mw-green, #2D8659);
+}
+
+.mw-mc-pull-loader.mw-mc-pull-ready .mw-mc-pull-spinner svg {
+  stroke: var(--mw-green, #2D8659);
+  transform: rotate(180deg);
+}
+
+@keyframes mw-mc-pull-spin {
+  to { transform: rotate(360deg); }
+}
+
+.mw-mc-pull-loader.mw-mc-pull-loading .mw-mc-pull-spinner svg {
+  animation: mw-mc-pull-spin 0.9s linear infinite;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mw-mc-pull-loader .mw-mc-pull-spinner svg,
+  .mw-mc-pull-loader.mw-mc-pull-loading .mw-mc-pull-spinner svg {
+    animation: none;
+    transition: none;
+  }
+}

@@ -324,26 +324,34 @@ function cms_getCurrentSiteUser(): ?array
 /**
  * Get menu items for a site (for public rendering).
  *
+ * Tries to read from cms_menus with site_id + items JSON column.
+ * Returns null if table/columns don't exist yet (pre-migration safe).
+ *
  * @param string $menuKey Menu key (e.g. 'main')
  * @param int    $siteId  Site ID
- * @return array|null Array of nav items or null if no menu found
+ * @return array|null Array of nav items [{key, label, href}] or null
  */
 function cms_getSiteMenuItems(string $menuKey, int $siteId): ?array
 {
-    $db = getDB();
-    $stmt = $db->prepare("
-        SELECT items
-        FROM cms_menus
-        WHERE menu_key = ? AND site_id = ?
-        LIMIT 1
-    ");
-    $stmt->execute([$menuKey, $siteId]);
-    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    try {
+        $db = getDB();
+        $stmt = $db->prepare("
+            SELECT items
+            FROM cms_menus
+            WHERE menu_key = ? AND site_id = ?
+            LIMIT 1
+        ");
+        $stmt->execute([$menuKey, $siteId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    if (!$row || empty($row['items'])) {
+        if ($row && !empty($row['items'])) {
+            $items = json_decode($row['items'], true);
+            return is_array($items) ? $items : null;
+        }
+
+        return null;
+    } catch (\Throwable $e) {
+        // Table or column doesn't exist yet — return null to trigger fallback
         return null;
     }
-
-    $items = json_decode($row['items'], true);
-    return is_array($items) ? $items : null;
 }

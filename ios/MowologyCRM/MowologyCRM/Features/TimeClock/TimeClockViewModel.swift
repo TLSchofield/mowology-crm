@@ -5,8 +5,6 @@
 
 import Foundation
 import Combine
-import ActivityKit
-import WidgetKit
 
 @MainActor
 final class TimeClockViewModel: ObservableObject {
@@ -18,9 +16,7 @@ final class TimeClockViewModel: ObservableObject {
     @Published var clockInTime: String? = nil
     @Published var elapsedSeconds: Int  = 0
 
-    @Published var activeJob: ActiveJobTimer? = nil {
-        didSet { updateLiveActivity(job: activeJob) }
-    }
+    @Published var activeJob: ActiveJobTimer? = nil
 
     @Published var isLoading: Bool   = false
     @Published var errorMessage: String? = nil
@@ -29,45 +25,14 @@ final class TimeClockViewModel: ObservableObject {
 
     private let apiClient: APIClient
     private var tickTimer: AnyCancellable?
-    private var liveActivity: Activity<MowJobActivity>?
 
     // MARK: - Init
 
     private let authSession: AuthSession
-    private var arrivalObserver: NSObjectProtocol?
 
     init(authSession: AuthSession) {
         self.authSession = authSession
         self.apiClient   = APIClient(authSession: authSession)
-
-        // Wire geofence auto-clock-in: AppDelegate posts mwArrivalClockIn when the
-        // crew member taps "Clock In" on the arrival notification action.
-        arrivalObserver = NotificationCenter.default.addObserver(
-            forName: .mwArrivalClockIn,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            guard let self else { return }
-            Task { await self.clockIn() }
-        }
-
-        // When a job timer start auto-creates a clock-in, resync displayed state
-        // so the elapsed counter and clock-in time are accurate.
-        NotificationCenter.default.addObserver(
-            forName: .mwAutoClockIn,
-            object:  nil,
-            queue:   .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                await self?.loadStatus()
-            }
-        }
-    }
-
-    deinit {
-        if let ob = arrivalObserver {
-            NotificationCenter.default.removeObserver(ob)
-        }
     }
 
     // MARK: - Load
@@ -110,8 +75,6 @@ final class TimeClockViewModel: ObservableObject {
             if clockedIn {
                 startTicking()
                 GPSTrackingService.shared.start(authSession: authSession)
-                startLiveActivity(elapsed: elapsedSeconds)
-                syncWidgetState()
             }
         } catch {
             errorMessage = friendlyError(error)
@@ -140,8 +103,6 @@ final class TimeClockViewModel: ObservableObject {
             activeJob      = nil
             stopTicking()
             GPSTrackingService.shared.stop()
-            endLiveActivity()
-            syncWidgetState()
             _ = response // totalMinutes available here if needed for summary display
         } catch {
             errorMessage = friendlyError(error)
@@ -175,12 +136,9 @@ final class TimeClockViewModel: ObservableObject {
             startTicking()
             // Resume always-on tracking if still clocked in after app relaunch.
             GPSTrackingService.shared.start(authSession: authSession)
-            startLiveActivity(elapsed: elapsedSeconds)
-            syncWidgetState()
         } else {
             stopTicking()
             GPSTrackingService.shared.stop()
-            syncWidgetState()
         }
     }
 
@@ -203,60 +161,5 @@ final class TimeClockViewModel: ObservableObject {
             return apiError.localizedDescription
         }
         return error.localizedDescription
-    }
-
-    // MARK: - Live Activity
-
-    private func startLiveActivity(elapsed: Int) {
-        guard ActivityAuthorizationInfo().areActivitiesEnabled,
-              liveActivity == nil else { return }
-        let clockInDate = Date().addingTimeInterval(-Double(elapsed))
-        let attrs = MowJobActivity(
-            clockInDate: clockInDate,
-            crewName: authSession.user?.name ?? "Crew"
-        )
-        let initialState = MowJobActivity.ContentState(
-            jobTitle: activeJob?.jobTitle,
-            address: activeJob?.propertyAddress,
-            isOnJob: activeJob != nil
-        )
-        liveActivity = try? Activity.request(
-            attributes: attrs,
-            content: .init(state: initialState, staleDate: nil),
-            pushType: nil
-        )
-    }
-
-    private func updateLiveActivity(job: ActiveJobTimer?) {
-        guard let activity = liveActivity else { return }
-        let newState = MowJobActivity.ContentState(
-            jobTitle: job?.jobTitle,
-            address: job?.propertyAddress,
-            isOnJob: job != nil
-        )
-        Task { await activity.update(.init(state: newState, staleDate: nil)) }
-    }
-
-    private func endLiveActivity() {
-        guard let activity = liveActivity else { return }
-        liveActivity = nil
-        let finalState = MowJobActivity.ContentState(jobTitle: nil, address: nil, isOnJob: false)
-        Task { await activity.end(.init(state: finalState, staleDate: nil), dismissalPolicy: .immediate) }
-    }
-
-    // MARK: - Widget shared state
-
-    private func syncWidgetState() {
-        let defaults = UserDefaults(suiteName: AppDelegate.appGroupId) ?? .standard
-        defaults.set(clockedIn, forKey: "mw.widget.clockedIn")
-        if clockedIn {
-            let epoch = Date().addingTimeInterval(-Double(elapsedSeconds)).timeIntervalSince1970
-            defaults.set(epoch, forKey: "mw.widget.clockInEpoch")
-            let name = authSession.user?.name ?? "Crew"
-            defaults.set(name, forKey: "mw.widget.crewName")
-        } else {
-            defaults.removeObject(forKey: "mw.widget.clockInEpoch")
-        }
-        WidgetCenter.shared.reloadTimelines(ofKind: "ClockStatusWidget")
     }
 }

@@ -167,14 +167,16 @@ $activePage = 'quotes';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
-          <div class="d-flex justify-content-between align-items-center mb-4">
-              <div>
-                  <h1 class="h3 mb-0">Quotes</h1>
-                  <p class="text-muted mb-0">Manage and send quotes to customers</p>
+          <div class="mw-page-header">
+              <div class="mw-page-header-left">
+                  <h1 class="mw-page-title">Quotes</h1>
+                  <p class="mw-page-subtitle">Manage and send quotes to customers</p>
               </div>
-              <a href="create.php" class="btn btn-primary">
-                  <i data-feather="plus"></i> Create Quote
-              </a>
+              <div class="mw-page-actions">
+                  <a href="create.php" class="btn btn-primary">
+                      <i data-feather="plus"></i> Create Quote
+                  </a>
+              </div>
           </div>
 
           <div class="d-flex flex-wrap align-items-center mb-3" style="gap: 16px;">
@@ -262,11 +264,11 @@ $activePage = 'quotes';
                                   ?>
                                   <tr class="<?php echo $rowClass; ?>" data-href="view.php?id=<?php echo (int)$quote['id']; ?>">
                                       <td>
-                                          <strong><?php echo htmlspecialchars($quote['quote_number']); ?></strong>
+                                          <span class="mw-cell-primary"><?php echo htmlspecialchars($quote['quote_number']); ?></span>
                                       </td>
                                       <td>
-                                          <div class="font-weight-bold"><?php echo htmlspecialchars($quote['client_display_name'] ?? 'N/A'); ?></div>
-                                          <small class="text-muted"><?php echo htmlspecialchars($quote['property_address'] ?? ''); ?></small>
+                                          <span class="mw-cell-primary"><?php echo htmlspecialchars($quote['client_display_name'] ?? 'N/A'); ?></span>
+                                          <span class="mw-cell-secondary"><?php echo htmlspecialchars($quote['property_address'] ?? ''); ?></span>
                                       </td>
                                       <td><?php echo ucfirst(str_replace('_', ' ', $quote['service_types'] ?? '')); ?></td>
                                       <td><strong><?php echo formatCurrency($quote['amount']); ?></strong></td>

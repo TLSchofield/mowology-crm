@@ -1079,7 +1079,7 @@ $activePage = 'portfolio';
 
 
 
-<script src="/crm/js/media-uploader.js"></script>
+<script src="/crm/js/media-uploader.js?v=20260312b"></script>
 <script>
 const CSRF_TOKEN = '<?php echo $csrfToken; ?>';
 

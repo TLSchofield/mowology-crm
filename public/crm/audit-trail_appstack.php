@@ -84,9 +84,11 @@ $entityTypes = ['contact', 'quote', 'job_plan', 'invoice', 'task'];
 ?>
 <?php include 'includes/appstack_head.php'; ?>
 
-          <div class="d-flex justify-content-between align-items-center mb-3">
-              <h1 class="h3 mb-0">Audit Trail</h1>
-              <span class="text-muted"><?= number_format($totalRows) ?> changes</span>
+          <div class="mw-page-header">
+            <div class="mw-page-header-left">
+              <h1 class="mw-page-title">Audit Trail</h1>
+            </div>
+            <span class="text-muted"><?= number_format($totalRows) ?> changes</span>
           </div>
 
           <!-- Filters -->
@@ -134,7 +136,7 @@ $entityTypes = ['contact', 'quote', 'job_plan', 'invoice', 'task'];
           <!-- Changes Table -->
           <div class="card">
               <div class="table-responsive">
-                  <table class="table table-sm table-hover mb-0">
+                  <table class="mw-table">
                       <thead>
                           <tr>
                               <th>When</th>

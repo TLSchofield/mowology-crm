@@ -20,6 +20,16 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
+<!-- Pointer to the unified map. Legacy crew-map remains live for now so
+     existing bookmarks keep working; the canonical map is at /crm/map.php. -->
+<div class="alert alert-info d-flex justify-content-between align-items-center mb-3" role="alert">
+    <span>
+        <strong>New:</strong> The unified Map page combines live crew, scheduled jobs,
+        and route history with shareable Dispatch / Planning / Review presets.
+    </span>
+    <a href="/crm/map.php" class="btn btn-sm btn-success ml-3">Open new Map &rarr;</a>
+</div>
+
 <!-- Header -->
 <div class="d-flex justify-content-between align-items-center mb-3">
     <div>
@@ -166,7 +176,7 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
     var routeVisible = {}; // user_id -> boolean (toggle per crew)
     var routesEnabled = false;
     var STOP_MIN_MINUTES = 5; // minimum minutes to count as a stop
-    var STOP_RADIUS_METERS = 50; // max radius to count as same location
+    var STOP_RADIUS_METERS = 75; // max radius to count as same location (was 50; increased for truck GPS jitter near buildings)
 
     // Job overlay state
     var jobOverlays = []; // array of JobCardOverlay instances
@@ -594,48 +604,57 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
 
         routeData.forEach(function(route, index) {
             if (!routeVisible[route.user_id]) return;
-            if (route.points.length < 2) return;
+            if (!route.points.length) return;
 
             var color = ROUTE_COLORS[index % ROUTE_COLORS.length];
             var path = route.points.map(function(p) {
                 return { lat: p.lat, lng: p.lng };
             });
 
-            // Draw polyline
-            var polyline = new google.maps.Polyline({
-                path: path,
-                geodesic: true,
-                strokeColor: color,
-                strokeOpacity: 0.8,
-                strokeWeight: 3,
-                map: gmap,
-                zIndex: 500
-            });
+            // Draw polyline only when 2+ points exist
+            if (route.points.length >= 2) {
+                var polyline = new google.maps.Polyline({
+                    path: path,
+                    geodesic: true,
+                    strokeColor: color,
+                    strokeOpacity: 0.8,
+                    strokeWeight: 3,
+                    map: gmap,
+                    zIndex: 500
+                });
+                routePolylines[route.user_id] = polyline;
+            }
 
-            routePolylines[route.user_id] = polyline;
+            // Always draw a start/last-known marker (even for single-ping routes)
+            var isSinglePing = route.points.length === 1;
+            var startLabel = isSinglePing
+                ? route.full_name + ' — Only ping (' + formatTime(route.points[0].time) + ')'
+                : route.full_name + ' — Start (' + formatTime(route.points[0].time) + ')';
 
-            // Start marker (small circle)
             var startMarker = new google.maps.Marker({
                 position: path[0],
                 map: gmap,
                 icon: {
                     path: google.maps.SymbolPath.CIRCLE,
-                    scale: 6,
+                    scale: isSinglePing ? 8 : 6,
                     fillColor: color,
                     fillOpacity: 1,
                     strokeColor: '#fff',
                     strokeWeight: 2
                 },
-                title: route.full_name + ' — Start (' + formatTime(route.points[0].time) + ')',
+                title: startLabel,
                 zIndex: 600
             });
 
             var startInfo = new google.maps.InfoWindow({
                 content: '<div style="padding:6px;font-size:12px;">' +
                     '<strong>' + escapeHtml(route.full_name) + '</strong><br>' +
-                    'Started: ' + formatTime(route.points[0].time) + '<br>' +
-                    'Last ping: ' + formatTime(route.points[route.points.length - 1].time) + '<br>' +
-                    'Points: ' + route.points.length +
+                    (isSinglePing
+                        ? 'Only ping: ' + formatTime(route.points[0].time) + '<br><em style="color:#f59e0b;">No route — awaiting more pings</em>'
+                        : 'Started: ' + formatTime(route.points[0].time) + '<br>' +
+                          'Last ping: ' + formatTime(route.points[route.points.length - 1].time) + '<br>' +
+                          'Points: ' + route.points.length
+                    ) +
                     '</div>'
             });
 
@@ -645,7 +664,8 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
 
             routeStartMarkers[route.user_id] = startMarker;
 
-            // Detect and draw stop markers
+            // Detect and draw stop markers (only meaningful with 2+ points)
+            if (isSinglePing) return;
             var stops = detectStops(route.points);
             stops.forEach(function(stop) {
                 var durationMin = Math.round(stop.duration / 60);
@@ -687,49 +707,75 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
      * Detect stops: clusters of GPS points within STOP_RADIUS_METERS
      * that span >= STOP_MIN_MINUTES. Returns array of {lat, lng, startTime, endTime, duration}.
      */
+    /**
+     * Detect stops using a rolling-centroid algorithm.
+     *
+     * The old approach anchored on the first point and measured every
+     * subsequent point from that fixed anchor. A single GPS-jitter ping
+     * >50m from the anchor would break the cluster, even if the vehicle
+     * was clearly parked (the centroid barely moved).
+     *
+     * New approach: maintain a running centroid of the cluster.  Each new
+     * point is measured against the centroid — not the anchor.  A single
+     * outlier ping is tolerated (MAX_OUTLIERS consecutive pings allowed
+     * before the cluster breaks).  This handles typical truck GPS bounce
+     * near buildings and under tree canopy.
+     */
     function detectStops(points) {
         if (points.length < 2) return [];
         var stops = [];
+        var MAX_OUTLIERS = 3; // consecutive out-of-radius pings tolerated before breaking
+
         var i = 0;
-
         while (i < points.length) {
-            var anchorLat = points[i].lat;
-            var anchorLng = points[i].lng;
+            // Start a new candidate cluster
+            var sumLat = points[i].lat;
+            var sumLng = points[i].lng;
+            var count  = 1;
             var j = i + 1;
+            var outliers = 0;
 
-            // Expand cluster while points stay within radius of anchor
             while (j < points.length) {
-                var dist = google.maps.geometry.spherical.computeDistanceBetween(
-                    new google.maps.LatLng(anchorLat, anchorLng),
-                    new google.maps.LatLng(points[j].lat, points[j].lng)
-                );
-                if (dist > STOP_RADIUS_METERS) break;
+                var centroid = new google.maps.LatLng(sumLat / count, sumLng / count);
+                var candidate = new google.maps.LatLng(points[j].lat, points[j].lng);
+                var dist = google.maps.geometry.spherical.computeDistanceBetween(centroid, candidate);
+
+                if (dist > STOP_RADIUS_METERS) {
+                    outliers++;
+                    if (outliers > MAX_OUTLIERS) break;
+                    // Skip this outlier ping but keep scanning
+                    j++;
+                    continue;
+                }
+
+                // Point is inside the cluster — absorb it into the centroid
+                outliers = 0;
+                sumLat += points[j].lat;
+                sumLng += points[j].lng;
+                count++;
                 j++;
             }
 
-            // j is now first point outside the cluster (or end of array)
-            var clusterStart = parseTimestamp(points[i].time);
-            var clusterEnd = parseTimestamp(points[j - 1].time);
-            var durationSec = (clusterEnd - clusterStart) / 1000;
+            // Walk back past any trailing outliers — they aren't part of the stop
+            var clusterEnd = j - 1 - outliers;
+            if (clusterEnd < i) clusterEnd = i;
 
-            if (durationSec >= STOP_MIN_MINUTES * 60) {
-                // Compute centroid of the cluster
-                var sumLat = 0, sumLng = 0, count = j - i;
-                for (var k = i; k < j; k++) {
-                    sumLat += points[k].lat;
-                    sumLng += points[k].lng;
-                }
+            var startTs = parseTimestamp(points[i].time);
+            var endTs   = parseTimestamp(points[clusterEnd].time);
+            var durationSec = (endTs - startTs) / 1000;
+
+            if (durationSec >= STOP_MIN_MINUTES * 60 && count >= 2) {
                 stops.push({
                     lat: sumLat / count,
                     lng: sumLng / count,
                     startTime: points[i].time,
-                    endTime: points[j - 1].time,
-                    duration: durationSec
+                    endTime:   points[clusterEnd].time,
+                    duration:  durationSec
                 });
             }
 
-            // Move past this cluster
-            i = j;
+            // Move past this cluster (skip outlier tail too)
+            i = Math.max(j, clusterEnd + 1);
         }
 
         return stops;
@@ -812,21 +858,26 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
             var color = ROUTE_COLORS[index % ROUTE_COLORS.length];
             var firstTime = route.points[0].time;
             var lastTime = route.points[route.points.length - 1].time;
-            var distance = calcRouteDistance(route.points);
-            var stops = detectStops(route.points);
-            var stopsText = stops.length === 0 ? 'no stops' :
-                stops.length + ' stop' + (stops.length > 1 ? 's' : '');
+
+            var detailLine;
+            if (route.points.length === 1) {
+                detailLine = '1 ping &middot; awaiting more';
+            } else {
+                var distance = calcRouteDistance(route.points);
+                var stops = detectStops(route.points);
+                var stopsText = stops.length === 0 ? 'no stops' :
+                    stops.length + ' stop' + (stops.length > 1 ? 's' : '');
+                detailLine = route.points.length + ' pings &middot; ~' + distance + ' km &middot; ' + stopsText;
+            }
 
             html += '<div class="mw-route-stat-item">' +
                 '<div class="mw-route-stat-dot" style="background:' + color + ';"></div>' +
                 '<div class="mw-route-stat-info">' +
                     '<div class="mw-route-stat-name">' + escapeHtml(route.full_name) + '</div>' +
                     '<div class="mw-route-stat-detail">' +
-                        formatTime(firstTime) + ' &mdash; ' + formatTime(lastTime) +
+                        formatTime(firstTime) + (route.points.length > 1 ? ' &mdash; ' + formatTime(lastTime) : '') +
                     '</div>' +
-                    '<div class="mw-route-stat-detail">' +
-                        route.points.length + ' pings &middot; ~' + distance + ' km &middot; ' + stopsText +
-                    '</div>' +
+                    '<div class="mw-route-stat-detail">' + detailLine + '</div>' +
                 '</div>' +
                 '</div>';
         });

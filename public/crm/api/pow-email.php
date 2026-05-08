@@ -32,6 +32,7 @@ try {
 
     requireLogin();
     $user = getCurrentUser();
+session_write_close();
 
     if (!userHasPermission('jobs.edit') && ($user['role'] ?? '') !== 'admin') {
         http_response_code(403);

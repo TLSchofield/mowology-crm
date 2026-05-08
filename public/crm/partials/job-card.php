@@ -20,6 +20,14 @@
  *   seasonal_cleanup    => #455A64
  */
 
+// Preferred contact phone for one-tap call — try mobile first (most
+// reliable for SMS + calls), fall back to landline. Sanitise to digits
+// + leading '+' so tel: URIs work on Android and iOS.
+$rawPhone = $stop['contact_mobile'] ?? $stop['contact_phone'] ?? '';
+$contactPhone = preg_replace('/[^0-9+]/', '', (string)$rawPhone);
+// Trim obviously-empty results ("+" or "00" etc.)
+if (strlen($contactPhone) < 7) $contactPhone = '';
+
 // Determine primary service type from the first visit
 $primaryServiceType = '';
 $primaryPlanTitle = '';
@@ -32,6 +40,21 @@ if (!empty($stop['visits'])) {
     $estimatedDuration = (int)($stop['visits'][0]['estimated_duration'] ?? 0);
     $visitId = (int)($stop['visits'][0]['visit_id'] ?? 0);
     $visitStatus = $stop['visits'][0]['visit_status'] ?? 'scheduled';
+}
+
+// Footer targets the first schedulable visit (in_progress or scheduled).
+// If all visits are already completed (stop status not yet propagated), hide
+// the Complete Job button — calling end_visit on a completed visit returns
+// "cannot be ended from current status".
+$footerVisitId = $visitId;
+$hasSchedulableVisit = false;
+foreach ($stop['visits'] as $_fv) {
+    $_fvStatus = $_fv['visit_status'] ?? 'scheduled';
+    if ($_fvStatus === 'scheduled' || $_fvStatus === 'in_progress') {
+        $footerVisitId = (int)($_fv['visit_id'] ?? $visitId);
+        $hasSchedulableVisit = true;
+        break;
+    }
 }
 
 // Job type color mapping — use $serviceColors if passed from parent, else DB with hardcoded fallback
@@ -185,6 +208,11 @@ function renderPropertyTags(array $tags, array $tagIcons): string {
 endif;
 
 $stopTags = $stop['tags'] ?? [];
+
+// Obsidian Root™ / fertilizer program status
+$orStatus      = $stop['or_status'] ?? 'none';
+$orIconVariant = ($orStatus === 'enrolled') ? 'full' : (($orStatus === 'offer') ? 'sell' : 'grey');
+$orStatusLabel = ($orStatus === 'enrolled') ? 'Active Program' : (($orStatus === 'offer') ? 'Offer Program' : 'Not Enrolled');
 ?>
 
 <?php if ($isActive): ?>
@@ -202,6 +230,8 @@ $stopTags = $stop['tags'] ?? [];
     <div class="mw-mc-accent" style="background: <?php echo $accentColor; ?>"></div>
 
     <div class="mw-mc-card-body">
+    <div class="mw-mc-flip-inner">
+    <div class="mw-mc-flip-front">
         <div class="mw-mc-card-header">
             <!-- Top row: uses exact same classes as compact card (.mw-mc-compact-main) — proven to work -->
             <div class="mw-mc-compact-main">
@@ -219,12 +249,23 @@ $stopTags = $stop['tags'] ?? [];
                     </div>
                 </div>
                 <?php if ($stopStatus !== 'completed' && $stopStatus !== 'skipped'): ?>
-                <button type="button" class="mw-mc-btn-route mw-mc-compact-route mw-mc-compact-go"
-                        data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
-                        data-address="<?php echo htmlspecialchars($stop['property_address'] ?? ''); ?>">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
-                    <span>GO</span>
-                </button>
+                <div class="mw-mc-header-actions">
+                    <?php if ($contactPhone): ?>
+                    <a href="tel:<?php echo htmlspecialchars($contactPhone); ?>"
+                       class="mw-mc-btn-call"
+                       data-haptic="tap"
+                       aria-label="Call <?php echo htmlspecialchars($clientName ?: 'customer'); ?>"
+                       onclick="event.stopPropagation();">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                    </a>
+                    <?php endif; ?>
+                    <button type="button" class="mw-mc-btn-route mw-mc-compact-route mw-mc-compact-go"
+                            data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
+                            data-address="<?php echo htmlspecialchars($stop['property_address'] ?? ''); ?>">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+                        <span>GO</span>
+                    </button>
+                </div>
                 <?php endif; ?>
             </div>
 
@@ -289,9 +330,103 @@ $stopTags = $stop['tags'] ?? [];
             <?php endif; ?>
         </div>
 
-        <?php if ($stopStatus !== 'completed' && $stopStatus !== 'skipped'): ?>
+        <!-- ── Obsidian Root™ Program Tile (matches Before/After tile dimensions) ── -->
+        <button type="button"
+                class="mw-mc-or-full-tile or-icon-<?php echo $orIconVariant; ?>"
+                data-or-status="<?php echo htmlspecialchars($orStatus); ?>"
+                data-flip-card="<?php echo (int)$stop['stop_id']; ?>">
+            <img src="/assets/images/programs/obsidian-root-logo.png"
+                 width="56" height="56"
+                 alt="Obsidian Root™"
+                 decoding="async">
+            <div class="mw-mc-or-full-tile-text">
+                <span class="mw-mc-or-tile-name">Obsidian Root™</span>
+                <span class="mw-mc-or-tile-status"><?php echo htmlspecialchars($orStatusLabel); ?></span>
+            </div>
+            <?php if ($orStatus !== 'none'): ?>
+            <svg class="mw-mc-or-tile-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+            <?php endif; ?>
+        </button>
+
+        <?php if ($stopStatus !== 'completed' && $stopStatus !== 'skipped' && $hasSchedulableVisit):
+            $apNotes   = trim($stop['property_notes'] ?? $stop['notes'] ?? '');
+            $apVisible = ($visitStatus === 'in_progress');
+        ?>
+        <!-- ── Active Job Panel (shown after clock-in; hidden until timer starts for manual jobs) ── -->
+        <div class="mw-mc-active-panel"
+             data-ap-visit="<?php echo (int)$footerVisitId; ?>"
+             <?php echo $apVisible ? '' : 'style="display:none;"'; ?>>
+            <div class="mw-mc-ap-hero">
+                <div class="mw-mc-ap-header-row">
+                    <div class="mw-mc-ap-badge">
+                        <span class="mw-mc-ap-pulse-dot"></span> On Job
+                    </div>
+                    <div class="mw-mc-ap-stop-label">Stop <?php echo (int)($stop['sequence_number'] ?? 1); ?></div>
+                </div>
+                <div class="mw-mc-ap-address"><?php echo htmlspecialchars($streetAddress); ?></div>
+                <?php if ($clientName): ?>
+                    <div class="mw-mc-ap-client"><?php echo $clientName; ?></div>
+                <?php endif; ?>
+                <div class="mw-mc-ap-timer-row">
+                    <div class="mw-mc-ap-timer" data-ap-timer="<?php echo (int)$footerVisitId; ?>">0:00</div>
+                    <div class="mw-mc-ap-timer-lbl">elapsed</div>
+                </div>
+                <button type="button" class="mw-mc-ap-pause-btn" data-ap-pause="<?php echo (int)$footerVisitId; ?>">
+                    <span class="mw-mc-ap-pause-icon">⏸</span>
+                    <span class="mw-mc-ap-pause-label">Pause</span>
+                </button>
+            </div>
+            <div class="mw-mc-ap-body">
+                <div class="mw-mc-ap-section-lbl">Photos</div>
+                <div class="mw-mc-ap-photo-row">
+                    <button type="button" class="mw-mc-ap-photo-btn" data-ap-photo="before" data-ap-pv="<?php echo (int)$footerVisitId; ?>">
+                        <span class="mw-mc-ap-photo-icon">📷</span>
+                        <span class="mw-mc-ap-photo-lbl">Before</span>
+                    </button>
+                    <button type="button" class="mw-mc-ap-photo-btn" data-ap-photo="after" data-ap-pv="<?php echo (int)$footerVisitId; ?>">
+                        <span class="mw-mc-ap-photo-icon">📷</span>
+                        <span class="mw-mc-ap-photo-lbl">After</span>
+                    </button>
+                    <button type="button" class="mw-mc-ap-photo-btn" data-ap-photo="additional" data-ap-pv="<?php echo (int)$footerVisitId; ?>">
+                        <span class="mw-mc-ap-photo-icon">📷</span>
+                        <span class="mw-mc-ap-photo-lbl">Additional</span>
+                    </button>
+                </div>
+                <?php if ($lawnSqFtDisplay || $durationDisplay || $lastVisitDisplay): ?>
+                <div class="mw-mc-ap-stats">
+                    <?php if ($lawnSqFtDisplay): ?>
+                    <div class="mw-mc-ap-stat">
+                        <div class="mw-mc-ap-stat-val"><?php echo htmlspecialchars($lawnSqFtDisplay); ?></div>
+                        <div class="mw-mc-ap-stat-lbl">Lawn</div>
+                    </div>
+                    <?php endif; ?>
+                    <?php if ($durationDisplay): ?>
+                    <div class="mw-mc-ap-stat">
+                        <div class="mw-mc-ap-stat-val"><?php echo htmlspecialchars($durationDisplay); ?></div>
+                        <div class="mw-mc-ap-stat-lbl">Est.</div>
+                    </div>
+                    <?php endif; ?>
+                    <?php if ($lastVisitDisplay): ?>
+                    <div class="mw-mc-ap-stat">
+                        <div class="mw-mc-ap-stat-val"><?php echo htmlspecialchars($lastVisitDisplay); ?></div>
+                        <div class="mw-mc-ap-stat-lbl">Last Visit</div>
+                    </div>
+                    <?php endif; ?>
+                </div>
+                <?php endif; ?>
+                <?php if ($apNotes): ?>
+                <div class="mw-mc-ap-notes">📝 <?php echo htmlspecialchars($apNotes); ?></div>
+                <?php endif; ?>
+                <button type="button" class="mw-mc-ap-finish-btn" data-ap-finish="<?php echo (int)$footerVisitId; ?>">
+                    ✓ Complete Job
+                </button>
+            </div>
+        </div>
+        <?php endif; ?>
+
+        <?php if ($stopStatus !== 'completed' && $stopStatus !== 'skipped' && $hasSchedulableVisit): ?>
         <!-- ── Card Action Footer: Clock In / Timer + Complete ── -->
-        <div class="mw-mc-card-footer" data-footer-stop="<?php echo (int)$stop['stop_id']; ?>" data-footer-visit="<?php echo $visitId; ?>">
+        <div class="mw-mc-card-footer" data-footer-stop="<?php echo (int)$stop['stop_id']; ?>" data-footer-visit="<?php echo $footerVisitId; ?>">
             <div class="mw-mc-footer-timer" data-footer-timer="<?php echo (int)$stop['stop_id']; ?>" style="display:none;">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                 <span class="mw-mc-footer-elapsed" data-footer-elapsed="<?php echo (int)$stop['stop_id']; ?>">0:00</span>
@@ -307,7 +442,56 @@ $stopTags = $stop['tags'] ?? [];
         </div>
         <?php endif; ?>
 
-    </div>
+    </div><!-- /.mw-mc-flip-front -->
+
+    <!-- ── Card Back: Fertilizer Panel ── -->
+    <div class="mw-mc-flip-back">
+        <div class="mw-mc-fert-panel">
+            <div class="mw-mc-fert-panel-header">
+                <span class="or-icon or-icon-<?php echo $orIconVariant; ?>" style="width:48px;height:48px;flex-shrink:0;">
+                    <img src="/assets/images/programs/obsidian-root-logo.png" width="48" height="48" alt="Obsidian Root™">
+                </span>
+                <div>
+                    <div class="mw-mc-fert-panel-title">Obsidian Root™</div>
+                    <div class="mw-mc-fert-panel-sub"><?php echo htmlspecialchars($orStatusLabel); ?></div>
+                </div>
+                <button type="button" class="mw-mc-fert-close" data-flip-card="<?php echo (int)$stop['stop_id']; ?>">&#x2715;</button>
+            </div>
+            <div class="mw-mc-fert-panel-body">
+                <?php if ($orStatus === 'enrolled'): ?>
+                    <div class="mw-mc-fert-stat-row">
+                        <div class="mw-mc-fert-stat">
+                            <div class="mw-mc-fert-stat-val">—</div>
+                            <div class="mw-mc-fert-stat-lbl">Last Applied</div>
+                        </div>
+                        <div class="mw-mc-fert-stat">
+                            <div class="mw-mc-fert-stat-val">—</div>
+                            <div class="mw-mc-fert-stat-lbl">Next Due</div>
+                        </div>
+                        <div class="mw-mc-fert-stat">
+                            <div class="mw-mc-fert-stat-val">—</div>
+                            <div class="mw-mc-fert-stat-lbl">Applications</div>
+                        </div>
+                    </div>
+                    <button type="button" class="mw-mc-fert-log-btn">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        Log Application
+                    </button>
+                <?php elseif ($orStatus === 'offer'): ?>
+                    <div class="mw-mc-fert-none-msg">This client doesn't have an Obsidian Root™ program.<br>Consider offering it today.</div>
+                    <button type="button" class="mw-mc-fert-log-btn" style="background: linear-gradient(135deg, #CC0000, #8B0000);">
+                        Offer Program
+                    </button>
+                <?php else: ?>
+                    <div class="mw-mc-fert-none-msg">No fertilizer program on file for this property.</div>
+                <?php endif; ?>
+            </div>
+        </div>
+    </div><!-- /.mw-mc-flip-back -->
+
+    </div><!-- /.mw-mc-flip-inner -->
+
+    </div><!-- /.mw-mc-card-body -->
 
     <!-- Hidden camera input for photo capture -->
     <input type="file" class="mw-mc-camera-input" accept="image/*" capture="environment"
@@ -350,13 +534,24 @@ $stopTags = $stop['tags'] ?? [];
             </div>
 
             <?php if ($stopStatus !== 'completed' && $stopStatus !== 'skipped'): ?>
-                <button type="button" class="mw-mc-compact-route mw-mc-compact-go"
-                        data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
-                        data-address="<?php echo htmlspecialchars($stop['property_address'] ?? ''); ?>"
-                        onclick="event.stopPropagation(); (function(sid){ var isMobile=window.matchMedia('(max-width:991px)').matches||('ontouchstart' in window&&window.innerWidth<=991); if(isMobile&&typeof MwRouteMap!=='undefined'&&MwRouteMap.launchNavToStop){MwRouteMap.launchNavToStop(sid);return;} if(typeof MwRouteMap!=='undefined')MwRouteMap.openToStop(sid); })(<?php echo (int)$stop['stop_id']; ?>);">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
-                    GO
-                </button>
+                <div class="mw-mc-header-actions">
+                    <?php if ($contactPhone): ?>
+                    <a href="tel:<?php echo htmlspecialchars($contactPhone); ?>"
+                       class="mw-mc-btn-call"
+                       data-haptic="tap"
+                       aria-label="Call <?php echo htmlspecialchars($clientName ?: 'customer'); ?>"
+                       onclick="event.stopPropagation();">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                    </a>
+                    <?php endif; ?>
+                    <button type="button" class="mw-mc-compact-route mw-mc-compact-go"
+                            data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
+                            data-address="<?php echo htmlspecialchars($stop['property_address'] ?? ''); ?>"
+                            onclick="event.stopPropagation(); (function(sid){ var isMobile=window.matchMedia('(max-width:991px)').matches||('ontouchstart' in window&&window.innerWidth<=991); if(isMobile&&typeof MwRouteMap!=='undefined'&&MwRouteMap.launchNavToStop){MwRouteMap.launchNavToStop(sid);return;} if(typeof MwRouteMap!=='undefined')MwRouteMap.openToStop(sid); })(<?php echo (int)$stop['stop_id']; ?>);">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+                        GO
+                    </button>
+                </div>
             <?php endif; ?>
         </div>
 
@@ -421,14 +616,18 @@ $stopTags = $stop['tags'] ?? [];
                 </div>
             <?php endif; ?>
 
-            <?php if ($stopStatus !== 'completed' && $stopStatus !== 'skipped'): ?>
-            <button type="button" class="mw-mc-expand-route-link mw-mc-btn-route"
-                    data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
-                    data-address="<?php echo htmlspecialchars($stop['property_address'] ?? ''); ?>">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
-                Optimize route
-            </button>
-            <?php endif; ?>
+            <!-- Obsidian Root™ tile — matches Before/After photo tile dimensions -->
+            <div class="mw-mc-or-full-tile or-icon-<?php echo $orIconVariant; ?>"
+                 data-or-status="<?php echo htmlspecialchars($orStatus); ?>">
+                <img src="/assets/images/programs/obsidian-root-logo.png"
+                     width="56" height="56"
+                     alt="Obsidian Root™"
+                     decoding="async">
+                <div class="mw-mc-or-full-tile-text">
+                    <span class="mw-mc-or-tile-name">Obsidian Root™</span>
+                    <span class="mw-mc-or-tile-status"><?php echo htmlspecialchars($orStatusLabel); ?></span>
+                </div>
+            </div>
 
             <?php if (!empty($stop['visits'])): ?>
                 <?php $multiVisit = count($stop['visits']) > 1; ?>
@@ -481,9 +680,85 @@ $stopTags = $stop['tags'] ?? [];
             <?php endif; ?>
         </div>
 
-        <?php if ($stopStatus !== 'completed' && $stopStatus !== 'skipped'): ?>
+        <?php if ($stopStatus !== 'completed' && $stopStatus !== 'skipped' && $hasSchedulableVisit):
+            $apNotes   = trim($stop['property_notes'] ?? $stop['notes'] ?? '');
+            $apVisible = ($visitStatus === 'in_progress');
+        ?>
+        <!-- ── Active Job Panel (shown after clock-in) ── -->
+        <div class="mw-mc-active-panel"
+             data-ap-visit="<?php echo (int)$footerVisitId; ?>"
+             <?php echo $apVisible ? '' : 'style="display:none;"'; ?>>
+            <div class="mw-mc-ap-hero">
+                <div class="mw-mc-ap-header-row">
+                    <div class="mw-mc-ap-badge">
+                        <span class="mw-mc-ap-pulse-dot"></span> On Job
+                    </div>
+                    <div class="mw-mc-ap-stop-label">Stop <?php echo (int)($stop['sequence_number'] ?? 1); ?></div>
+                </div>
+                <div class="mw-mc-ap-address"><?php echo htmlspecialchars($streetAddress); ?></div>
+                <?php if ($clientName): ?>
+                    <div class="mw-mc-ap-client"><?php echo $clientName; ?></div>
+                <?php endif; ?>
+                <div class="mw-mc-ap-timer-row">
+                    <div class="mw-mc-ap-timer" data-ap-timer="<?php echo (int)$footerVisitId; ?>">0:00</div>
+                    <div class="mw-mc-ap-timer-lbl">elapsed</div>
+                </div>
+                <button type="button" class="mw-mc-ap-pause-btn" data-ap-pause="<?php echo (int)$footerVisitId; ?>">
+                    <span class="mw-mc-ap-pause-icon">⏸</span>
+                    <span class="mw-mc-ap-pause-label">Pause</span>
+                </button>
+            </div>
+            <div class="mw-mc-ap-body">
+                <div class="mw-mc-ap-section-lbl">Photos</div>
+                <div class="mw-mc-ap-photo-row">
+                    <button type="button" class="mw-mc-ap-photo-btn" data-ap-photo="before" data-ap-pv="<?php echo (int)$footerVisitId; ?>">
+                        <span class="mw-mc-ap-photo-icon">📷</span>
+                        <span class="mw-mc-ap-photo-lbl">Before</span>
+                    </button>
+                    <button type="button" class="mw-mc-ap-photo-btn" data-ap-photo="after" data-ap-pv="<?php echo (int)$footerVisitId; ?>">
+                        <span class="mw-mc-ap-photo-icon">📷</span>
+                        <span class="mw-mc-ap-photo-lbl">After</span>
+                    </button>
+                    <button type="button" class="mw-mc-ap-photo-btn" data-ap-photo="additional" data-ap-pv="<?php echo (int)$footerVisitId; ?>">
+                        <span class="mw-mc-ap-photo-icon">📷</span>
+                        <span class="mw-mc-ap-photo-lbl">Additional</span>
+                    </button>
+                </div>
+                <?php if ($lawnSqFtDisplay || $durationDisplay || $lastVisitDisplay): ?>
+                <div class="mw-mc-ap-stats">
+                    <?php if ($lawnSqFtDisplay): ?>
+                    <div class="mw-mc-ap-stat">
+                        <div class="mw-mc-ap-stat-val"><?php echo htmlspecialchars($lawnSqFtDisplay); ?></div>
+                        <div class="mw-mc-ap-stat-lbl">Lawn</div>
+                    </div>
+                    <?php endif; ?>
+                    <?php if ($durationDisplay): ?>
+                    <div class="mw-mc-ap-stat">
+                        <div class="mw-mc-ap-stat-val"><?php echo htmlspecialchars($durationDisplay); ?></div>
+                        <div class="mw-mc-ap-stat-lbl">Est.</div>
+                    </div>
+                    <?php endif; ?>
+                    <?php if ($lastVisitDisplay): ?>
+                    <div class="mw-mc-ap-stat">
+                        <div class="mw-mc-ap-stat-val"><?php echo htmlspecialchars($lastVisitDisplay); ?></div>
+                        <div class="mw-mc-ap-stat-lbl">Last Visit</div>
+                    </div>
+                    <?php endif; ?>
+                </div>
+                <?php endif; ?>
+                <?php if ($apNotes): ?>
+                <div class="mw-mc-ap-notes">📝 <?php echo htmlspecialchars($apNotes); ?></div>
+                <?php endif; ?>
+                <button type="button" class="mw-mc-ap-finish-btn" data-ap-finish="<?php echo (int)$footerVisitId; ?>">
+                    ✓ Complete Job
+                </button>
+            </div>
+        </div>
+        <?php endif; ?>
+
+        <?php if ($stopStatus !== 'completed' && $stopStatus !== 'skipped' && $hasSchedulableVisit): ?>
         <!-- ── Card Action Footer: Clock In / Timer + Complete ── -->
-        <div class="mw-mc-card-footer" data-footer-stop="<?php echo (int)$stop['stop_id']; ?>" data-footer-visit="<?php echo $visitId; ?>">
+        <div class="mw-mc-card-footer" data-footer-stop="<?php echo (int)$stop['stop_id']; ?>" data-footer-visit="<?php echo $footerVisitId; ?>">
             <div class="mw-mc-footer-timer" data-footer-timer="<?php echo (int)$stop['stop_id']; ?>" style="display:none;">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                 <span class="mw-mc-footer-elapsed" data-footer-elapsed="<?php echo (int)$stop['stop_id']; ?>">0:00</span>

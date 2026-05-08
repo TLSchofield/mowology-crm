@@ -54,7 +54,7 @@ $lng = $property['longitude'] ?? $property['lng'] ?? -123.1207;
 $returnTo = '';
 if (!empty($_GET['return_to'])) {
     $raw = $_GET['return_to'];
-    if (preg_match('#^(clients_appstack|quote-workflow|dashboard_appstack|jobs/)#', $raw)) {
+    if (preg_match('#^(clients_appstack|contracts/view\.php|quote-workflow|dashboard_appstack|jobs/)#', $raw)) {
         $returnTo = $raw;
     }
 }

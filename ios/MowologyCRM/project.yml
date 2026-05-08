@@ -17,9 +17,6 @@ settings:
     PRODUCT_BUNDLE_IDENTIFIER: ca.mowology.crm-field
 
 targets:
-
-  # ─── Main app ─────────────────────────────────────────────────────────────
-
   MowologyCRM:
     type: application
     platform: iOS
@@ -28,7 +25,6 @@ targets:
       - path: MowologyCRM
         excludes:
           - "**/*.md"
-      # JobActivityAttributes compiled into both main app and widget extension
     info:
       path: MowologyCRM/Resources/Info.plist
       properties:
@@ -41,76 +37,18 @@ targets:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        NSLocationWhenInUseUsageDescription: "Mowology uses your location to show you on the job map and to record arrival at job sites."
-        NSLocationAlwaysAndWhenInUseUsageDescription: "Mowology needs background location access to keep logging your GPS during a shift, even when the app is in the background. This powers proof-of-work tracking and the crew location map."
-        NSLocationAlwaysUsageDescription: "Mowology tracks your location in the background to log GPS pings, detect job-site arrivals, and auto-clock-in when you reach a stop."
-        NSCameraUsageDescription: "Used to scan receipts for expense tracking and capture before/after job site photos."
-        NSPhotoLibraryUsageDescription: "Used to choose an existing receipt or job site photo from your library."
-        NSCalendarsFullAccessUsageDescription: "Mowology can sync today's job schedule to your Calendar so stops appear alongside personal events."
-        NSContactsUsageDescription: "Used to save client contact details to your address book for quick calling."
-        NSSupportsLiveActivities: true
+        NSLocationWhenInUseUsageDescription: "Used to log your GPS location when starting and completing jobs."
+        NSLocationAlwaysAndWhenInUseUsageDescription: "Used to send your location to dispatch every 30–120 seconds while you have an active job, even when the app is in the background."
+        NSMotionUsageDescription: "Used to detect whether you are walking, driving, or stationary so the app can adjust GPS frequency and save battery during your shift."
         UIBackgroundModes:
           - location
           - fetch
-          - remote-notification
-          - processing
         BGTaskSchedulerPermittedIdentifiers:
-          - ca.mowology.crm-field.ping
+          - ca.mowology.gps-refresh
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: false
-    entitlements:
-      path: MowologyCRM/MowologyCRM.entitlements
     settings:
       base:
         INFOPLIST_FILE: MowologyCRM/Resources/Info.plist
         CODE_SIGN_STYLE: Automatic
-        CODE_SIGN_ENTITLEMENTS: MowologyCRM/MowologyCRM.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-    dependencies:
-      - sdk: WidgetKit.framework
-      - sdk: ActivityKit.framework
-      - target: MowologyWidgets
-        embed: true
-
-  # ─── Widget extension ──────────────────────────────────────────────────────
-
-  MowologyWidgets:
-    type: app-extension
-    platform: iOS
-    deploymentTarget: "17.0"
-    sources:
-      - path: MowologyWidgets
-        excludes:
-          - "**/*.md"
-      # Share the ActivityAttributes model with the main app
-      - path: MowologyCRM/Core/Models/JobActivityAttributes.swift
-    info:
-      path: MowologyWidgets/Info.plist
-      properties:
-        CFBundleDisplayName: Mowology Widgets
-        NSExtension:
-          NSExtensionPointIdentifier: com.apple.widgetkit-extension
-    entitlements:
-      path: MowologyWidgets/MowologyWidgets.entitlements
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: ca.mowology.crm-field.widgets
-        CODE_SIGN_STYLE: Automatic
-        CODE_SIGN_ENTITLEMENTS: MowologyWidgets/MowologyWidgets.entitlements
-        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
-    dependencies:
-      - sdk: WidgetKit.framework
-      - sdk: ActivityKit.framework
-
-  MowologyCRMTests:
-    type: bundle.unit-test
-    platform: iOS
-    deploymentTarget: "17.0"
-    sources:
-      - path: MowologyCRMTests
-    dependencies:
-      - target: MowologyCRM
-    settings:
-      base:
-        BUNDLE_LOADER: "$(TEST_HOST)"
-        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/MowologyCRM.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/MowologyCRM"

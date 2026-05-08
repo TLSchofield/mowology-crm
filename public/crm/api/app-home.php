@@ -50,6 +50,18 @@ $enabledRow = $db->query(
 )->fetch(PDO::FETCH_ASSOC);
 $quizEnabled = ($enabledRow && $enabledRow['setting_value'] == '1');
 
+// Per-user override: if the user has quiz_preshift_skip set, treat quiz as disabled for them.
+// Wrapped defensively — column may not exist until migration 1015 runs.
+if ($quizEnabled) {
+    try {
+        $skipRow = $db->prepare("SELECT quiz_preshift_skip FROM users WHERE id = ?");
+        $skipRow->execute([$user['id']]);
+        if ($skipRow->fetchColumn()) $quizEnabled = false;
+    } catch (Throwable $e) {
+        // Column not yet migrated — ignore, quiz stays enabled
+    }
+}
+
 $quizDone = false;
 $quizSessionLength = 3;
 if ($quizEnabled) {
@@ -109,7 +121,80 @@ try {
     error_log('[app-home] Weather fetch failed: ' . $e->getMessage());
 }
 
-// ── 5. User greeting ─────────────────────────────────────────────────
+// ── 5. Daily plant care memory ───────────────────────────────────────
+// Pull a seasonal plant care tip from the quiz question bank.
+// Categories: Plant & Grass ID, Weed ID, Turf & Soil, Pest & Disease ID.
+// Seeded daily (deterministic per user+date so it doesn't flicker on reload).
+$memory = [];
+try {
+    $month = (int)date('n');
+
+    // Seasonal tag mapping: which category slugs are most relevant this month.
+    // Spring = plant/turf heavy, Summer = pest/weed heavy, Fall/Winter = turf/soil.
+    if ($month >= 3 && $month <= 5) {
+        $seasonLabel = 'Spring tip';
+        $seasonIcon  = '🌱';
+        $catPriority = ['Plant & Grass ID', 'Turf & Soil', 'Weed ID'];
+    } elseif ($month >= 6 && $month <= 8) {
+        $seasonLabel = 'Summer tip';
+        $seasonIcon  = '☀️';
+        $catPriority = ['Pest & Disease ID', 'Weed ID', 'Turf & Soil'];
+    } elseif ($month >= 9 && $month <= 11) {
+        $seasonLabel = 'Fall tip';
+        $seasonIcon  = '🍂';
+        $catPriority = ['Turf & Soil', 'Plant & Grass ID', 'Weed ID'];
+    } else {
+        $seasonLabel = 'Winter tip';
+        $seasonIcon  = '❄️';
+        $catPriority = ['Turf & Soil', 'Plant & Grass ID', 'Pest & Disease ID'];
+    }
+
+    // Deterministic seed: user_id + day-of-year → stable within a day, rotates daily.
+    $daySeed = (int)$user['id'] + (int)date('z');
+
+    // Try categories in priority order; fall back to any plant-care category.
+    $allCats = array_unique(array_merge($catPriority, [
+        'Plant & Grass ID', 'Weed ID', 'Turf & Soil', 'Pest & Disease ID'
+    ]));
+    $placeholders = implode(',', array_fill(0, count($allCats), '?'));
+
+    $memStmt = $db->prepare(
+        "SELECT q.id, q.question_text, q.learn_notes,
+                o.option_text AS correct_answer,
+                c.name AS category_name, c.colour AS category_colour,
+                (SELECT qi.image_path FROM quiz_question_images qi
+                 WHERE qi.question_id = q.id ORDER BY qi.sort_order LIMIT 1) AS image_path
+         FROM quiz_questions q
+         JOIN quiz_categories c ON c.id = q.category_id
+         JOIN quiz_options o    ON o.question_id = q.id AND o.is_correct = 1
+         WHERE q.is_active = 1
+           AND c.name IN ($placeholders)
+           AND q.question_text IS NOT NULL AND TRIM(q.question_text) != ''
+           AND (q.learn_notes IS NOT NULL AND q.learn_notes != '')
+         ORDER BY (q.id + ?) % 10000
+         LIMIT 1"
+    );
+    $memStmt->execute(array_merge($allCats, [$daySeed]));
+    $memRow = $memStmt->fetch(PDO::FETCH_ASSOC);
+
+    if ($memRow) {
+        $memory = [
+            'question'        => $memRow['question_text'],
+            'answer'          => $memRow['correct_answer'],
+            'learn_notes'     => $memRow['learn_notes'],
+            'category'        => $memRow['category_name'],
+            'category_colour' => $memRow['category_colour'] ?: '#2D8659',
+            'image_path'      => $memRow['image_path'],
+            'season_label'    => $seasonLabel,
+            'season_icon'     => $seasonIcon,
+        ];
+    }
+} catch (Throwable $e) {
+    // Memory card is non-critical
+    error_log('[app-home] Memory tip fetch failed: ' . $e->getMessage());
+}
+
+// ── 6. User greeting ─────────────────────────────────────────────────
 $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0];
 $hour = (int)date('G');
 if ($hour < 12) {
@@ -144,4 +229,5 @@ echo json_encode([
         'duration_min'    => $todayDuration,
     ],
     'weather' => $weather,
+    'memory'  => $memory,
 ]);

@@ -12,6 +12,7 @@ struct StopCardView: View {
     let stop: Stop
     let isAdmin: Bool
 
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
 
@@ -177,7 +178,6 @@ private struct ServiceBadge: View {
         companyName: nil,
         lawnSqft: nil,
         crewNames: ["John Doe"],
-        crewMembers: nil,
         visitCount: 1,
         visits: [sampleVisit]
     )
