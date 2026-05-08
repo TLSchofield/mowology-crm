@@ -305,6 +305,37 @@ $activePage = 'jobs';
         <span class="text-muted small" id="photo-upload-status"></span>
       </div>
 
+      <!-- Trio: Before snapshot / After snapshot / Heart endorsement -->
+      <div class="mw-visit-trio mb-2" id="work-trio">
+        <!-- Before slot — JS updates this thumbnail once photos load -->
+        <div class="mw-visit-trio-slot mw-visit-trio-slot--before" id="trio-before">
+          <label class="mw-trio-add-btn" title="Add before photo">
+            <i data-feather="camera" style="width:22px;height:22px;"></i>
+            <span>Before</span>
+            <input type="file" accept="image/*" capture="environment"
+                   class="photo-trigger" data-type="before" style="display:none">
+          </label>
+        </div>
+        <!-- After slot — JS updates this thumbnail once photos load -->
+        <div class="mw-visit-trio-slot mw-visit-trio-slot--after" id="trio-after">
+          <label class="mw-trio-add-btn" title="Add after photo">
+            <i data-feather="camera" style="width:22px;height:22px;"></i>
+            <span>After</span>
+            <input type="file" accept="image/*" capture="environment"
+                   class="photo-trigger" data-type="after" style="display:none">
+          </label>
+        </div>
+        <!-- Heart / endorsement button -->
+        <button class="mw-visit-flag-btn" id="work-flag-btn"
+                data-visit-id="<?= $visitId ?>"
+                data-csrf="<?= htmlspecialchars($csrfToken) ?>"
+                title="Endorse this visit for review + marketing">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+          </svg>
+        </button>
+      </div>
+
       <!-- Capture buttons: Before / After / Additional -->
       <div class="mw-photo-capture-row">
         <label class="mw-photo-btn mw-photo-btn--before">
@@ -411,8 +442,7 @@ $activePage = 'jobs';
 <input type="hidden" id="pow-status" value="<?= htmlspecialchars($visit['status']) ?>">
 <input type="hidden" id="pow-started-at" value="<?= htmlspecialchars($visit['started_at'] ?? '') ?>">
 <input type="hidden" id="pow-extras-rate" value="<?= htmlspecialchars((string)$extrasRatePerBlock) ?>">
-<input type="hidden" id="pow-required-photos" value="<?= htmlspecialchars(json_encode($photoTypesRequired)) ?>">
-<input type="hidden" id="pow-photos-block" value="<?= $photosBlockCompletion ? '1' : '0' ?>">
+<input type="hidden" id="pow-is-flagged" value="<?= !empty($visit['is_flagged']) ? '1' : '0' ?>">
 
 <!-- ─ Billable Extras Modal ───────────────────────────────────────────────── -->
 <?php if ($visit['status'] === 'in_progress'): ?>
@@ -1769,6 +1799,73 @@ $activePage = 'jobs';
     return d.innerHTML;
   }
 
+})();
+
+// ── Visit flag (heart) toggle ────────────────────────────────────────────────
+(function() {
+  var btn       = document.getElementById('work-flag-btn');
+  var isFlagged = document.getElementById('pow-is-flagged');
+  if (!btn) return;
+
+  // Set initial state from server
+  if (isFlagged && isFlagged.value === '1') {
+    btn.classList.add('active');
+    btn.title = 'Endorsed — tap to remove';
+  }
+
+  btn.addEventListener('click', function() {
+    btn.disabled = true;
+    fetch('/crm/api/visit-flag.php', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: 'visit_id=' + encodeURIComponent(btn.dataset.visitId)
+          + '&csrf_token=' + encodeURIComponent(btn.dataset.csrf)
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.success) {
+        btn.classList.toggle('active', data.is_flagged);
+        btn.title = data.is_flagged
+          ? 'Endorsed — tap to remove'
+          : 'Endorse this visit for review + marketing';
+        if (isFlagged) isFlagged.value = data.is_flagged ? '1' : '0';
+      }
+    })
+    .catch(function() { /* silent */ })
+    .finally(function() { btn.disabled = false; });
+  });
+
+  // Update trio slots when photos grid renders (watch for first before/after thumb)
+  function updateTrioSlot(type) {
+    var grid  = document.getElementById('grid-' + type);
+    var slot  = document.getElementById('trio-' + type);
+    if (!grid || !slot) return;
+    var img = grid.querySelector('img');
+    if (img && slot.querySelector('label')) {
+      var newImg = document.createElement('img');
+      newImg.src = img.src;
+      newImg.alt = type;
+      newImg.style.cursor = 'pointer';
+      newImg.addEventListener('click', function() {
+        var tile = img.closest('[data-view-url]');
+        if (tile) window.open(tile.dataset.viewUrl, '_blank');
+      });
+      slot.innerHTML = '';
+      slot.appendChild(newImg);
+    }
+  }
+
+  // Poll until photos container is visible, then update trio
+  var trioInterval = setInterval(function() {
+    var container = document.getElementById('photos-container');
+    if (container && container.style.display !== 'none') {
+      updateTrioSlot('before');
+      updateTrioSlot('after');
+      clearInterval(trioInterval);
+    }
+  }, 500);
+  // Stop polling after 15s regardless
+  setTimeout(function() { clearInterval(trioInterval); }, 15000);
 })();
 </script>
 
