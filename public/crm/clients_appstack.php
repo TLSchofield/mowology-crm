@@ -710,6 +710,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $receiveSms = isset($_POST['receive_sms']) ? 1 : 0;
                 $receiveMarketing = isset($_POST['receive_marketing']) ? 1 : 0;
                 $consentQuoteFollowup = isset($_POST['consent_quote_followup']) ? 1 : 0;
+                $hasReviewed = isset($_POST['has_reviewed']) ? 1 : 0;
                 $notes = trim($_POST['notes'] ?? '');
 
                 if (empty($firstName)) {
@@ -728,13 +729,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             UPDATE contacts SET
                                 first_name = ?, last_name = ?, email = ?, phone = ?, mobile = ?,
                                 preferred_contact_method = ?, receive_sms = ?, receive_marketing = ?,
-                                consent_quote_followup = ?, notes = ?
+                                consent_quote_followup = ?, has_reviewed = ?, notes = ?
                             WHERE id = ?
                         ");
                         $stmt->execute([
                             $firstName, $lastName, $email, $phone, $mobile,
                             $preferredContact, $receiveSms, $receiveMarketing,
-                            $consentQuoteFollowup, $notes, $contactId
+                            $consentQuoteFollowup, $hasReviewed, $notes, $contactId
                         ]);
 
                         // Track field changes
@@ -744,7 +745,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 'email' => $email, 'phone' => $phone, 'mobile' => $mobile,
                                 'preferred_contact_method' => $preferredContact,
                                 'receive_sms' => (string)$receiveSms, 'receive_marketing' => (string)$receiveMarketing,
-                                'consent_quote_followup' => (string)$consentQuoteFollowup, 'notes' => $notes,
+                                'consent_quote_followup' => (string)$consentQuoteFollowup,
+                                'has_reviewed' => (string)$hasReviewed, 'notes' => $notes,
                             ], $user['id']);
                         }
 
@@ -2310,6 +2312,14 @@ $unconvertedRequests = $db->query("
                             <?php echo (!empty($_POST['consent_quote_followup']) || (!isset($_POST['action']) && !empty($contact['consent_quote_followup']))) ? 'checked' : ''; ?>>
                           <label class="custom-control-label" for="consentQuoteFollowup">
                             Consent to quote follow-up
+                          </label>
+                        </div>
+                        <div class="custom-control custom-checkbox">
+                          <input type="checkbox" class="custom-control-input" id="hasReviewed" name="has_reviewed"
+                            <?php echo (!empty($_POST['has_reviewed']) || (!isset($_POST['action']) && !empty($contact['has_reviewed']))) ? 'checked' : ''; ?>>
+                          <label class="custom-control-label" for="hasReviewed">
+                            Client has left a Google review
+                            <small class="d-block text-muted">Permanently stops all future review request emails &amp; SMS</small>
                           </label>
                         </div>
                       </div>

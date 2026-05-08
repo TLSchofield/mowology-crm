@@ -352,6 +352,57 @@ if (!empty($gpsPoints) && $apiKey) {
       </div>
       <div class="card-body">
 
+        <!-- ── Before / After / Heart trio ─────────────────────────────── -->
+        <?php
+            $firstBefore = $photoGroups['before'][0] ?? null;
+            $firstAfter  = $photoGroups['after'][0]  ?? null;
+        ?>
+        <div class="mw-visit-trio mb-3">
+          <!-- Before slot -->
+          <div class="mw-visit-trio-slot mw-visit-trio-slot--before">
+            <?php if ($firstBefore): ?>
+              <img src="<?= htmlspecialchars($firstBefore['_thumb_url']) ?>"
+                   alt="Before"
+                   data-view-url="<?= htmlspecialchars($firstBefore['_view_url']) ?>"
+                   class="mw-trio-photo-link">
+            <?php elseif (!$isLocked || $isAdmin): ?>
+              <label class="mw-trio-add-btn" title="Add before photo">
+                <i data-feather="camera" style="width:22px;height:22px;"></i>
+                <span>Before</span>
+                <input type="file" accept="image/*" class="mw-detail-upload-input" data-type="before" style="display:none">
+              </label>
+            <?php else: ?>
+              <span class="text-muted small">No before</span>
+            <?php endif; ?>
+          </div>
+          <!-- After slot -->
+          <div class="mw-visit-trio-slot mw-visit-trio-slot--after">
+            <?php if ($firstAfter): ?>
+              <img src="<?= htmlspecialchars($firstAfter['_thumb_url']) ?>"
+                   alt="After"
+                   data-view-url="<?= htmlspecialchars($firstAfter['_view_url']) ?>"
+                   class="mw-trio-photo-link">
+            <?php elseif (!$isLocked || $isAdmin): ?>
+              <label class="mw-trio-add-btn" title="Add after photo">
+                <i data-feather="camera" style="width:22px;height:22px;"></i>
+                <span>After</span>
+                <input type="file" accept="image/*" class="mw-detail-upload-input" data-type="after" style="display:none">
+              </label>
+            <?php else: ?>
+              <span class="text-muted small">No after</span>
+            <?php endif; ?>
+          </div>
+          <!-- Heart / endorsement button -->
+          <button class="mw-visit-flag-btn<?= !empty($visit['is_flagged']) ? ' active' : '' ?>"
+                  data-visit-id="<?= $visitId ?>"
+                  data-csrf="<?= htmlspecialchars($csrfToken) ?>"
+                  title="<?= !empty($visit['is_flagged']) ? 'Endorsed — tap to remove' : 'Endorse this visit for review + marketing' ?>">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+            </svg>
+          </button>
+        </div>
+
         <?php if (empty($photos)): ?>
         <p class="text-muted text-center py-3 mb-0" id="no-photos-msg">No photos uploaded yet.</p>
         <?php endif; ?>
@@ -1393,6 +1444,42 @@ if (!empty($gpsPoints) && $apiKey) {
     return d.innerHTML;
   }
 
+})();
+
+// ── Visit flag (heart) toggle ────────────────────────────────────────────────
+(function() {
+  var btn = document.querySelector('.mw-visit-flag-btn');
+  if (!btn) return;
+
+  // Lightbox on trio photo links
+  document.querySelectorAll('.mw-trio-photo-link').forEach(function(img) {
+    img.style.cursor = 'pointer';
+    img.addEventListener('click', function() {
+      var url = img.dataset.viewUrl;
+      if (url) window.open(url, '_blank');
+    });
+  });
+
+  btn.addEventListener('click', function() {
+    btn.disabled = true;
+    fetch('/crm/api/visit-flag.php', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: 'visit_id=' + encodeURIComponent(btn.dataset.visitId)
+          + '&csrf_token=' + encodeURIComponent(btn.dataset.csrf)
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.success) {
+        btn.classList.toggle('active', data.is_flagged);
+        btn.title = data.is_flagged
+          ? 'Endorsed — tap to remove'
+          : 'Endorse this visit for review + marketing';
+      }
+    })
+    .catch(function() { /* silent — UI reverts on next load */ })
+    .finally(function() { btn.disabled = false; });
+  });
 })();
 </script>
 

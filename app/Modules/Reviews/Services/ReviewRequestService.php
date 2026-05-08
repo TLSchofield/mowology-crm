@@ -60,25 +60,30 @@ class ReviewRequestService
     public static function maybeSend(int $visitId, PDO $db): void
     {
         try {
-            // ── 1. Resolve contact from visit ────────────────────────────────
+            // ── 1. Quality gate: crew must have endorsed this visit ───────────
+            if (!self::isVisitFlagged($visitId, $db)) {
+                return; // No crew endorsement — skip silently
+            }
+
+            // ── 2. Resolve contact from visit ────────────────────────────────
             $contact = self::resolveContact($visitId, $db);
             if (!$contact) {
                 return; // No contact attached to this visit
             }
 
-            // ── 2. Eligibility checks ─────────────────────────────────────────
+            // ── 3. Eligibility checks ─────────────────────────────────────────
             if (!self::isEligible($contact)) {
                 return;
             }
 
-            // ── 3. Get Google Review URL ──────────────────────────────────────
+            // ── 4. Get Google Review URL ──────────────────────────────────────
             $reviewUrl = self::getReviewUrl($db);
             if (!$reviewUrl) {
                 error_log("ReviewRequestService: google_review_url not set in ops_settings — skipping");
                 return;
             }
 
-            // ── 4. Send email (required) ──────────────────────────────────────
+            // ── 5. Send email (required) ──────────────────────────────────────
             $emailSent = false;
             if (!empty($contact['email'])) {
                 $emailResult = self::sendReviewEmail($contact, $reviewUrl);
@@ -88,7 +93,7 @@ class ReviewRequestService
                 }
             }
 
-            // ── 5. Send SMS (optional — consent required) ─────────────────────
+            // ── 6. Send SMS (optional — consent required) ─────────────────────
             $smsSent = false;
             $smsPhone = self::getSmsPhone($contact);
             if ($smsPhone && hasSmConsent((int)$contact['id'])) {
@@ -99,7 +104,7 @@ class ReviewRequestService
                 }
             }
 
-            // ── 6. Update records ─────────────────────────────────────────────
+            // ── 7. Update records ─────────────────────────────────────────────
             if ($emailSent || $smsSent) {
                 self::recordSent($visitId, (int)$contact['id'], $db);
             }
@@ -135,7 +140,8 @@ class ReviewRequestService
                 c.consent_sms,
                 c.review_request_sent_at,
                 c.review_request_sent_count,
-                c.review_request_opted_out
+                c.review_request_opted_out,
+                c.has_reviewed
             FROM job_visits jv
             JOIN job_plans  jp ON jp.id = jv.plan_id
             JOIN properties  p ON p.id  = jp.property_id
@@ -153,6 +159,11 @@ class ReviewRequestService
      */
     private static function isEligible(array $contact): bool
     {
+        // Permanent stop: client has already left a Google review
+        if (!empty($contact['has_reviewed'])) {
+            return false;
+        }
+
         // Must be active
         if (empty($contact['is_active'])) {
             return false;
@@ -305,6 +316,17 @@ class ReviewRequestService
         }
 
         return sendSms($phone, $body, 'Mowology');
+    }
+
+    /**
+     * Returns true if the crew endorsed this visit (is_flagged = 1).
+     * Hard gate: no flag = no review request.
+     */
+    private static function isVisitFlagged(int $visitId, PDO $db): bool
+    {
+        $stmt = $db->prepare('SELECT is_flagged FROM job_visits WHERE id = ? LIMIT 1');
+        $stmt->execute([$visitId]);
+        return (bool)$stmt->fetchColumn();
     }
 
     /**

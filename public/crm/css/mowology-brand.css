@@ -19041,6 +19041,81 @@ body.mw-no-scroll {
 .mw-photo-tile:hover .mw-photo-delete-btn { opacity: 1; }
 
 /* ── Before / After columns (visit-detail.php) ───────────────────────────── */
+/* ── Visit Trio (Before / After / Heart) ──────────────────────────────────── */
+.mw-visit-trio {
+    display: flex;
+    gap: 8px;
+}
+.mw-visit-trio-slot {
+    flex: 1;
+    min-height: 80px;
+    border-radius: 10px;
+    border: 2px dashed var(--mw-light);
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #fff;
+    position: relative;
+}
+.mw-visit-trio-slot img {
+    width: 100%;
+    height: 100%;
+    min-height: 80px;
+    object-fit: cover;
+    display: block;
+    cursor: pointer;
+    border-radius: 8px;
+}
+.mw-trio-add-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    width: 100%;
+    height: 100%;
+    min-height: 80px;
+    cursor: pointer;
+    color: var(--mw-green);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    transition: background 0.15s;
+}
+.mw-trio-add-btn:hover { background: var(--mw-light); }
+.mw-visit-flag-btn {
+    flex: 1;
+    min-height: 80px;
+    border-radius: 10px;
+    border: 2px solid var(--mw-light);
+    cursor: pointer;
+    background: #fff;
+    transition: background 0.15s, border-color 0.15s, transform 0.1s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    outline: none;
+}
+.mw-visit-flag-btn:active { transform: scale(0.92); }
+.mw-visit-flag-btn:disabled { opacity: 0.6; cursor: default; }
+.mw-visit-flag-btn.active {
+    background: rgba(232,93,4,0.08);
+    border-color: rgba(232,93,4,0.4);
+}
+.mw-visit-flag-btn svg {
+    width: 32px;
+    height: 32px;
+    color: #bbb;
+    transition: color 0.15s, fill 0.15s;
+}
+.mw-visit-flag-btn.active svg {
+    color: var(--mw-orange);
+    fill: var(--mw-orange);
+}
+
 .mw-ba-row {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -24934,6 +25009,42 @@ body.mw-no-scroll {
   padding: 3rem 1.5rem; text-align: center;
   color: #9ca3af; font-size: 0.9rem;
 }
+
+/* ── BA Import from Field Photos ────────────────────────────────────────── */
+.mw-ba-import-row {
+  padding: 16px;
+  border-bottom: 1px solid var(--mw-light);
+}
+.mw-ba-import-row:last-child { border-bottom: none; }
+.mw-ba-import-meta { margin-bottom: 10px; font-size: 0.9rem; }
+.mw-ba-import-photos {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.mw-ba-import-col { min-width: 120px; }
+.mw-ba-import-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #888;
+  margin-bottom: 6px;
+}
+.mw-ba-import-thumbs { display: flex; flex-wrap: wrap; gap: 6px; }
+.mw-ba-import-thumb {
+  width: 70px;
+  height: 70px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.1s;
+}
+.mw-ba-import-thumb:hover { border-color: var(--mw-green); }
+.mw-ba-import-thumb.selected { border-color: var(--mw-orange); transform: scale(1.05); }
+.mw-ba-import-form { flex: 1; min-width: 220px; }
 
 /* ── Dashboard Live Operations Map ──────────────────────────────────────── */
 .mw-ops-map-card {
