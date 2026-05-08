@@ -610,13 +610,6 @@ try {
             $insertStmt->execute($insertParams);
             $inserted = $insertStmt->rowCount();
 
-            // Refresh cached count
-            $db->prepare("
-                UPDATE job_visits
-                SET gps_points_count = (SELECT COUNT(*) FROM visit_gps_points WHERE visit_id = ?)
-                WHERE id = ?
-            ")->execute([$visitId, $visitId]);
-
             $cntStmt = $db->prepare("SELECT COUNT(*) FROM visit_gps_points WHERE visit_id = ?");
             $cntStmt->execute([$visitId]);
             $total = (int)$cntStmt->fetchColumn();
