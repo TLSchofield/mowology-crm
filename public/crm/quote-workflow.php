@@ -211,7 +211,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     if ($_POST['action'] === 'update_status') {
         if (verifyCSRFToken($_POST['csrf_token'] ?? '')) {
             $newStatus = $_POST['new_status'] ?? '';
-            $allowed = ['reviewing', 'declined', 'spam'];
+            $allowed = ['reviewing', 'declined', 'spam', 'converted'];
             if (in_array($newStatus, $allowed)) {
                 $db->prepare("UPDATE quote_requests SET status = ?, updated_at = NOW() WHERE id = ?")
                    ->execute([$newStatus, $requestId]);

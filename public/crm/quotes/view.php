@@ -229,9 +229,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // --- UPDATE QUOTE STATUS ---
             if ($emailSent || $smsSent) {
                 $oldStatus = $quote['status'];
-                $stmt = $db->prepare("UPDATE quotes SET status = 'sent', sent_at = NOW(), sent_via = ? WHERE id = ?");
-                $stmt->execute([implode(',', $sentVia), $quoteId]);
-                trackFieldChange('quote', $quoteId, 'status', $oldStatus, 'sent', $user['id']);
+                // Don't downgrade from accepted back to sent on resend
+                if ($oldStatus !== 'accepted') {
+                    $stmt = $db->prepare("UPDATE quotes SET status = 'sent', sent_at = NOW(), sent_via = ? WHERE id = ?");
+                    $stmt->execute([implode(',', $sentVia), $quoteId]);
+                    trackFieldChange('quote', $quoteId, 'status', $oldStatus, 'sent', $user['id']);
+                } else {
+                    $stmt = $db->prepare("UPDATE quotes SET sent_at = NOW(), sent_via = ? WHERE id = ?");
+                    $stmt->execute([implode(',', $sentVia), $quoteId]);
+                }
 
                 logQuoteSentEvent($quoteId);
 

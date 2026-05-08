@@ -230,6 +230,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && $quote['status'] 
 
                 $db->commit();
 
+                // Advance the source quote request to 'accepted' (non-fatal if missing)
+                try {
+                    $db->prepare("UPDATE quote_requests SET status = 'accepted', updated_at = NOW() WHERE quote_id = ? AND status NOT IN ('converted', 'declined', 'spam')")
+                       ->execute([$quote['id']]);
+                } catch (PDOException $e) {
+                    // Non-fatal — acceptance recorded even if request status update fails
+                }
+
                 $quote['status'] = 'accepted';
                 $success = 'Thank you! Your quote has been accepted. We will be in touch shortly to schedule your service.';
 
