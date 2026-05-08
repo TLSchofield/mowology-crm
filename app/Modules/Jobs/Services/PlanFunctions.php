@@ -354,6 +354,14 @@ function createPlanFromQuote(int $quoteId, int $userId): array {
             // Non-fatal — plan is created, line items can be added manually
         }
 
+        // Mark the source quote request as converted so it leaves the dashboard queue
+        try {
+            $db->prepare("UPDATE quote_requests SET status = 'converted', updated_at = NOW() WHERE quote_id = ?")
+               ->execute([$quoteId]);
+        } catch (PDOException $e) {
+            // Non-fatal — plan is created, request status update is best-effort
+        }
+
         // ROI attribution
         if (function_exists('createROIAttribution')) {
             $leadEventId = !empty($quote['lead_event_id']) ? (int)$quote['lead_event_id'] : null;
