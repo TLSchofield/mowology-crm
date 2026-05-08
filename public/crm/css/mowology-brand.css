@@ -19116,6 +19116,51 @@ body.mw-no-scroll {
     fill: var(--mw-orange);
 }
 
+/* Review-earned feedback strip (visit-detail + visit-work) */
+.mw-review-earned-strip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 12px;
+    margin-bottom: 12px;
+    border-radius: 8px;
+    background: rgba(45, 134, 89, 0.08);
+    border: 1px solid rgba(45, 134, 89, 0.25);
+    font-size: 13px;
+    color: var(--mw-dark);
+}
+.mw-review-earned-heart {
+    color: var(--mw-orange);
+    font-size: 16px;
+    line-height: 1;
+}
+
+/* Dashboard — Review Earned card */
+.mw-review-reward-card { margin-bottom: 20px; }
+.mw-review-reward-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--mw-light);
+}
+.mw-review-reward-item:last-child { border-bottom: none; }
+.mw-review-reward-heart {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: rgba(232, 93, 4, 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--mw-orange);
+    font-size: 16px;
+    flex-shrink: 0;
+}
+.mw-review-reward-meta { flex: 1; min-width: 0; }
+.mw-review-reward-title { font-weight: 600; font-size: 13px; color: var(--mw-forest); }
+.mw-review-reward-sub { font-size: 12px; color: #888; }
+
 .mw-ba-row {
     display: grid;
     grid-template-columns: 1fr 1fr;

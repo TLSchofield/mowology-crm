@@ -107,6 +107,41 @@ try {
         $crewToday = $crewStmt->fetchAll(PDO::FETCH_ASSOC);
     } catch (Exception $e) { $crewToday = []; }
 
+    // Endorsed visits that earned a review — crew sees their own; admin sees all recent
+    $reviewsEarned = [];
+    try {
+        if ($isAdmin) {
+            $reStmt = $db->prepare("
+                SELECT jv.id, jv.visit_number, jp.title AS plan_title, jp.service_type,
+                       c.first_name, c.last_name, u.full_name AS crew_name, jv.completed_at
+                FROM job_visits jv
+                JOIN job_plans jp ON jp.id = jv.plan_id
+                LEFT JOIN properties pr ON pr.id = jp.property_id
+                LEFT JOIN contacts c ON c.id = pr.site_contact_id
+                LEFT JOIN users u ON u.id = jv.assigned_crew_id
+                WHERE jv.is_flagged = 1 AND c.has_reviewed = 1
+                ORDER BY jv.completed_at DESC
+                LIMIT 5
+            ");
+            $reStmt->execute([]);
+        } else {
+            $reStmt = $db->prepare("
+                SELECT jv.id, jv.visit_number, jp.title AS plan_title, jp.service_type,
+                       c.first_name, c.last_name, NULL AS crew_name, jv.completed_at
+                FROM job_visits jv
+                JOIN job_plans jp ON jp.id = jv.plan_id
+                LEFT JOIN properties pr ON pr.id = jp.property_id
+                LEFT JOIN contacts c ON c.id = pr.site_contact_id
+                WHERE jv.is_flagged = 1 AND c.has_reviewed = 1
+                  AND jv.assigned_crew_id = ?
+                ORDER BY jv.completed_at DESC
+                LIMIT 5
+            ");
+            $reStmt->execute([$user['id']]);
+        }
+        $reviewsEarned = $reStmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Exception $e) { $reviewsEarned = []; }
+
 } catch(PDOException $e) {
     $errorHandler->logDatabaseError($e, '', [], 'Unable to load dashboard data. Please refresh the page.');
     $stats = [];
@@ -115,6 +150,7 @@ try {
     $quoteRequests = [];
     $workQueueItems = [];
     $crewToday = [];
+    $reviewsEarned = [];
 }
 
 $pageTitle = 'Dashboard';
@@ -637,6 +673,44 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
               </div>
             </div>
           </div>
+
+          <?php if (!empty($reviewsEarned)): ?>
+          <!-- Reviews Earned by Crew Endorsements -->
+          <div class="row mt-2">
+            <div class="col-12">
+              <div class="card mw-review-reward-card">
+                <div class="card-header">
+                  <h5 class="card-title mb-0">
+                    <span style="color:var(--mw-orange);margin-right:6px;">&#9829;</span>
+                    <?php echo $isAdmin ? 'Reviews Earned by Field Endorsements' : 'Your Endorsements — Reviews Received'; ?>
+                  </h5>
+                </div>
+                <div class="card-body py-2">
+                  <?php foreach ($reviewsEarned as $re): ?>
+                  <div class="mw-review-reward-item">
+                    <div class="mw-review-reward-heart">&#9829;</div>
+                    <div class="mw-review-reward-meta">
+                      <div class="mw-review-reward-title">
+                        <?php echo h(trim(($re['first_name'] ?? '') . ' ' . ($re['last_name'] ?? '')) ?: 'Client'); ?>
+                        &mdash; <?php echo h($re['plan_title'] ?: ucfirst($re['service_type'])); ?>
+                      </div>
+                      <div class="mw-review-reward-sub">
+                        <?php if ($isAdmin && !empty($re['crew_name'])): ?>
+                          Endorsed by <?php echo h($re['crew_name']); ?> &middot;
+                        <?php endif; ?>
+                        Visit <?php echo h($re['visit_number'] ?? ''); ?>
+                        <?php if ($re['completed_at']): ?>&middot; <?php echo date('M j', strtotime($re['completed_at'])); ?><?php endif; ?>
+                        &middot; <strong style="color:var(--mw-green);">&#9733;&#9733;&#9733;&#9733;&#9733; Reviewed</strong>
+                      </div>
+                    </div>
+                    <a href="/crm/jobs/visit-detail.php?id=<?php echo (int)$re['id']; ?>" class="btn btn-sm btn-outline-secondary">View</a>
+                  </div>
+                  <?php endforeach; ?>
+                </div>
+              </div>
+            </div>
+          </div>
+          <?php endif; ?>
 
 <!-- ── Dashboard Live Operations Map ───────────────────────────────────── -->
 <script>
