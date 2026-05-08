@@ -32,7 +32,6 @@ try {
 
     requireLogin();
     $user = getCurrentUser();
-    session_write_close();
 
     $isAdmin = ($user['role'] ?? '') === 'admin' || userHasPermission('jobs.edit');
 
@@ -57,10 +56,12 @@ try {
         exit;
     }
 
+    session_write_close();
+
     $db = getDB();
 
     // Load visit
-    $stmt = $db->prepare("SELECT id, assigned_crew_id, locked_at, is_flagged FROM job_visits WHERE id = ?");
+    $stmt = $db->prepare("SELECT id, assigned_crew_id, status, is_flagged FROM job_visits WHERE id = ?");
     $stmt->execute([$visitId]);
     $visit = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -78,8 +79,9 @@ try {
         exit;
     }
 
-    // Locked visits: admin can still flag, crew cannot
-    if ($visit['locked_at'] !== null && !$isAdmin) {
+    // Locked statuses: admin can still flag, crew cannot
+    $lockedStatuses = ['completed', 'cancelled', 'skipped'];
+    if (!$isAdmin && in_array(strtolower((string)($visit['status'] ?? '')), $lockedStatuses, true)) {
         http_response_code(403);
         echo json_encode(['error' => 'Visit is locked']);
         exit;
