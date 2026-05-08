@@ -109,9 +109,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $dueDate       = $_POST['due_date'] ?? date('Y-m-d', strtotime('+30 days'));
         $description   = trim($_POST['description'] ?? '');
         $subtotal      = floatval($_POST['subtotal'] ?? 0);
-        $taxRate       = 0.05;
-        $taxAmount     = round($subtotal * $taxRate, 2);
-        $total         = $subtotal + $taxAmount;
+        // Read GST rate from business settings (falls back to 5% if not configured)
+        $bsStmt = $db->query("SELECT gst_rate, gst_registration FROM business_settings LIMIT 1");
+        $bs = $bsStmt ? $bsStmt->fetch(PDO::FETCH_ASSOC) : [];
+        $taxRate   = round(floatval($bs['gst_rate'] ?? 5.00) / 100, 4);
+        $gstNumber = trim($bs['gst_registration'] ?? '');
+        $taxAmount = round($subtotal * $taxRate, 2);
+        $total     = $subtotal + $taxAmount;
         $notes         = trim($_POST['notes'] ?? '');
         $extrasMinutes = max(0, intval($_POST['extras_minutes'] ?? 0));
         $extrasAmount  = round(max(0.0, floatval($_POST['extras_amount'] ?? 0)), 2);
@@ -157,14 +161,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         invoice_number, company_id, contact_id, property_id,
                         plan_id, visit_id,
                         invoice_date, issue_date, due_date,
-                        subtotal, tax_rate, tax_amount,
+                        subtotal, tax_rate, tax_amount, gst_number,
                         total_amount, total, balance_due,
                         notes, access_token, token_expires_at,
                         service_address, service_city, service_province, service_postal_code,
                         billing_address, billing_city, billing_province, billing_postal_code,
                         address_differs,
                         status, created_by
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 90 DAY), ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 90 DAY), ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)
                 ");
                 $stmt->execute([
                     $invoiceNumber,
@@ -179,6 +183,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $subtotal,
                     $taxRate,
                     $taxAmount,
+                    $gstNumber ?: null,
                     $total,
                     $total,
                     $total,

@@ -278,7 +278,7 @@ function fmtDate(string $d): string {
                     <span class="portal-table-num"><?php echo fmt(floatval($invoice['subtotal'])); ?></span>
                 </div>
                 <div class="portal-total-row">
-                    <span>GST (<?php echo round(($invoice['tax_rate'] ?: 0.05) * 100); ?>%)</span>
+                    <span>GST (<?php echo round(($invoice['tax_rate'] ?: 0.05) * 100); ?>%)<?php if (!empty($invoice['gst_number'])): ?><br><small style="font-weight:400;font-size:0.78em;opacity:0.7;">Reg# <?php echo htmlspecialchars($invoice['gst_number']); ?></small><?php endif; ?></span>
                     <span class="portal-table-num"><?php echo fmt(floatval($invoice['tax_amount'] ?? 0)); ?></span>
                 </div>
                 <div class="portal-total-row grand">

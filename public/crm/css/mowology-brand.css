@@ -26178,3 +26178,39 @@ body.mw-no-scroll {
   color: #aaa;
   margin-top: 4px;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   CRA Tax Report
+   ───────────────────────────────────────────────────────────────────────── */
+.mw-cra-table { border: 1px solid var(--mw-light); border-radius: 8px; overflow: hidden; }
+.mw-cra-row {
+  display: grid;
+  grid-template-columns: 80px 1fr 140px;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--mw-light);
+  gap: 12px;
+}
+.mw-cra-row:last-child { border-bottom: none; }
+.mw-cra-row--total {
+  background: var(--mw-light);
+  font-weight: 600;
+}
+.mw-cra-line {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--mw-forest);
+  background: var(--mw-light);
+  padding: 3px 8px;
+  border-radius: 4px;
+  text-align: center;
+}
+.mw-cra-row--total .mw-cra-line { background: rgba(0,0,0,0.06); }
+.mw-cra-desc { font-size: 0.9rem; color: #444; }
+.mw-cra-amount { font-size: 1.05rem; font-weight: 600; text-align: right; color: var(--mw-forest); }
+
+@media print {
+  .sidebar, .topbar, .btn, form.card { display: none !important; }
+  .card { box-shadow: none !important; border: 1px solid #ddd !important; }
+  .mw-cra-table { page-break-inside: avoid; }
+}

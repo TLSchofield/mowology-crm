@@ -73,6 +73,7 @@ $navItems = [
     ['key' => 'profitability', 'label' => 'Profitability', 'icon' => 'trending-up', 'href' => '/crm/profitability_appstack.php',     'perm' => 'expenses.view'],
     ['key' => 'cost-factors',  'label' => 'Cost Factors',  'icon' => 'sliders',     'href' => '/crm/products/cost-factors.php',      'perm' => 'expenses.view'],
     ['key' => 'reports',      'label' => 'Reports',       'icon' => 'bar-chart-2', 'href' => '/crm/reports_appstack.php',           'perm' => 'expenses.view'],
+    ['key' => 'tax-report',  'label' => 'CRA Tax Report', 'icon' => 'percent',     'href' => '/crm/tax-report_appstack.php',         'perm' => 'billing.view'],
 
     // ── Growth ────────────────────────────────────────────────────────────────
     ['type' => 'header', 'label' => 'Growth'],
