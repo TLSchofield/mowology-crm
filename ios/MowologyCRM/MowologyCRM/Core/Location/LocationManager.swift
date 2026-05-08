@@ -42,6 +42,10 @@ final class LocationManager: NSObject {
     private(set) var lastLocation: CLLocation?         = nil
     private(set) var currentActivity: ActivityType     = .unknown
 
+    /// Called on every valid, filtered CLLocation update.
+    /// GPSTrackingService sets this to drive its delegate-based ping trigger.
+    var onLocationFix: ((CLLocation) -> Void)?
+
     // MARK: - Private
 
     private let manager = CLLocationManager()
@@ -54,7 +58,7 @@ final class LocationManager: NSObject {
         manager.desiredAccuracy                     = kCLLocationAccuracyBestForNavigation
         manager.distanceFilter                      = 10      // meters — suppress micro-jitter
         manager.pausesLocationUpdatesAutomatically  = false   // field app must not pause
-        manager.activityType                        = .automotiveNavigation
+        manager.activityType                        = .other  // no road-snapping; crew is on foot
     }
 
     // MARK: - Permission
@@ -116,6 +120,7 @@ extension LocationManager: CLLocationManagerDelegate {
               loc.horizontalAccuracy <= 200 else { return }
         lastLocation    = loc
         currentActivity = deriveActivity(from: loc)
+        onLocationFix?(loc)
     }
 
     func locationManager(_ manager: CLLocationManager,
