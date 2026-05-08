@@ -114,6 +114,8 @@ foreach ($dayStops as $stop) {
             'scheduled_start'    => isset($v['scheduled_time_start'])
                 ? substr((string)$v['scheduled_time_start'], 0, 5)
                 : null,
+            'is_flagged'          => (bool)($v['is_flagged'] ?? false),
+            'contact_has_reviewed'=> (bool)($v['contact_has_reviewed'] ?? false),
         ];
     }
 

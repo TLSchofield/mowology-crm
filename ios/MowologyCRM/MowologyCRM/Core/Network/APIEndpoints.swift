@@ -44,49 +44,45 @@ enum APIEndpoint {
     /// GET /api/expenses/expense-list — paginated list of the user's expenses (JWT).
     case expenseList(page: Int)
 
-    // MARK: - URL
 
-    /// Builds the full URL for the endpoint. Returns `nil` only if the base
-    /// URL string is somehow malformed (should never happen in production).
-    var url: URL? {
-        switch self {
-        case .tokenAuth:
-            return URL(string: "\(baseURLString)/auth/token.php")
-
-        case .scheduleDay(let date):
-            var components = URLComponents(string: "\(baseURLString)/schedule/day")
-            components?.queryItems = [URLQueryItem(name: "date", value: date)]
+        case .receiptImage(let mediaId):
+            var components = URLComponents(string: "\(baseURLString)/expenses/receipt-image")
+            components?.queryItems = [URLQueryItem(name: "id", value: "\(mediaId)")]
             return components?.url
 
-        case .scheduleWeek(let start):
-            var components = URLComponents(string: "\(baseURLString)/schedule/week")
-            components?.queryItems = [URLQueryItem(name: "start", value: start)]
+        case .jobPhoto:
+            return URL(string: "\(baseURLString)/schedule/job-photo")
+
+        case .deviceTokenRegister:
+            return URL(string: "\(baseURLString)/auth/device-token.php")
+
+        case .powActions:
+            return URL(string: "https://mowology.ca/crm/api/pow-actions.php")
+
+        case .powGpsSync:
+            return URL(string: "https://mowology.ca/crm/api/pow-gps-sync.php")
+
+        case .scheduleJobs(let status, let limit, let offset):
+            var components = URLComponents(string: "\(baseURLString)/schedule/jobs")
+            components?.queryItems = [
+                URLQueryItem(name: "status", value: status),
+                URLQueryItem(name: "limit",  value: "\(limit)"),
+                URLQueryItem(name: "offset", value: "\(offset)"),
+            ]
             return components?.url
 
-        case .scheduleTimer:
-            return URL(string: "\(baseURLString)/schedule/timer")
-
-        case .scheduleLocation:
-            return URL(string: "\(baseURLString)/schedule/location")
-
-        case .scheduleClock:
-            return URL(string: "\(baseURLString)/schedule/clock")
-
-        case .scheduleClockStatus:
-            var components = URLComponents(string: "\(baseURLString)/schedule/clock")
-            components?.queryItems = [URLQueryItem(name: "action", value: "status")]
+        case .scheduleQuotes(let status):
+            var components = URLComponents(string: "\(baseURLString)/schedule/quotes")
+            components?.queryItems = [URLQueryItem(name: "status", value: status)]
             return components?.url
 
-        case .receiptUpload:
-            return URL(string: "\(baseURLString)/expenses/receipt-upload")
-
-        case .expenseSave:
-            return URL(string: "\(baseURLString)/expenses/expense-save")
-
-        case .expenseList(let page):
-            var components = URLComponents(string: "\(baseURLString)/expenses/expense-list")
-            components?.queryItems = [URLQueryItem(name: "page", value: "\(page)")]
+        case .scheduleInvoices(let status):
+            var components = URLComponents(string: "\(baseURLString)/schedule/invoices")
+            components?.queryItems = [URLQueryItem(name: "status", value: status)]
             return components?.url
+
+        case .visitFlag:
+            return URL(string: "\(baseURLString)/schedule/visit-flag")
         }
     }
 
@@ -104,7 +100,16 @@ enum APIEndpoint {
              .scheduleClockStatus,
              .receiptUpload,
              .expenseSave,
-             .expenseList: return true
+             .expenseList,
+             .receiptImage,
+             .jobPhoto,
+             .deviceTokenRegister,
+             .powActions,
+             .powGpsSync,
+             .scheduleJobs,
+             .scheduleQuotes,
+             .scheduleInvoices,
+             .visitFlag: return true
         }
     }
 
@@ -122,7 +127,12 @@ enum APIEndpoint {
              .scheduleLocation,
              .scheduleClock,
              .receiptUpload,
-             .expenseSave:         return "POST"
+             .expenseSave,
+             .jobPhoto,
+             .deviceTokenRegister,
+             .powActions,
+             .powGpsSync,
+             .visitFlag: return "POST"
 
         case .expenseList:         return "GET"
         }

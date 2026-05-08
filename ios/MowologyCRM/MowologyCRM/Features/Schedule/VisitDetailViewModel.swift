@@ -24,6 +24,11 @@ final class VisitDetailViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var autoClockInNotice: String?
 
+    /// Local override for flag state: [visitId: isFlagged]. Wins over Visit.isFlagged once set.
+    @Published private(set) var flagOverrides:  [Int: Bool] = [:]
+    /// Visit IDs with an in-flight flag toggle request — drives the heart loading indicator.
+    @Published private(set) var flagLoadingIds: Set<Int>    = []
+
     // MARK: - Private
 
     private let stop: Stop
@@ -159,59 +164,35 @@ final class VisitDetailViewModel: ObservableObject {
         isLoading = false
     }
 
-    // MARK: - Exponential Backoff
+    // MARK: - Flag Toggle
 
-    /// Retry up to 4 times with delays 2 s → 4 s → 8 s → 30 s (cap).
-    /// Only retries on network errors; server errors (4xx/5xx) surface immediately.
-    private func withExponentialBackoff<T>(
-        maxAttempts: Int = 4,
-        _ operation: () async throws -> T
-    ) async throws -> T {
-        var delay: TimeInterval = 2
-        var lastError: Error?
-
-        for attempt in 1...maxAttempts {
-            do {
-                return try await operation()
-            } catch let err as APIError {
-                if case .networkError = err {
-                    lastError = err
-                    if attempt < maxAttempts {
-                        try? await Task.sleep(for: .seconds(delay))
-                        delay = min(delay * 2, 30)
-                    }
-                } else {
-                    throw err   // don't retry auth/server errors
-                }
-            } catch {
-                throw error
-            }
-        }
-
-        throw lastError ?? APIError.networkError(URLError(.timedOut))
+    /// Resolves the current flag state for a visit, preferring local override over server value.
+    func isFlagged(for visit: Visit) -> Bool {
+        flagOverrides[visit.visitId] ?? visit.isFlagged
     }
 
-    // MARK: - Pending Transition Drain (reconnect path)
+    func toggleFlag(_ visit: Visit) async {
+        let visitId = visit.visitId
+        guard !flagLoadingIds.contains(visitId) else { return }
 
-    /// Re-submit any job transitions that were persisted but never confirmed.
-    /// Called automatically when PingQueue posts `.mwPingQueueOnline`.
-    private func drainPendingTransitions() async {
-        guard !isLoading else { return }
-        for visit in stop.visits {
-            let vid    = visit.visitId
-            let status = visitStatuses[vid] ?? visit.visitStatus
-            if transitionQueue.hasPending(visitId: vid, action: "start"),
-               status.lowercased() == "scheduled" {
-                await startJob(visitId: vid)
+        flagLoadingIds.insert(visitId)
+
+        do {
+            let response: VisitFlagResponse = try await apiClient.request(
+                .visitFlag,
+                body: ["visit_id": visitId]
+            )
+            if response.success {
+                flagOverrides[visitId] = response.isFlagged
             }
-            if transitionQueue.hasPending(visitId: vid, action: "stop"),
-               status.lowercased() == "in_progress" {
-                await completeJob(visitId: vid)
-            }
+        } catch {
+            // Non-fatal — the heart reverts to its previous state silently.
         }
+
+        flagLoadingIds.remove(visitId)
     }
 
-    // MARK: - Live Job Timer
+    // MARK: - Private
 
     private func startTicking() {
         stopTicking()

@@ -1091,8 +1091,8 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
             jp.service_type,
             jp.price_per_visit,
             jp.estimated_duration_minutes,
-            jv.is_invoiced,
-            jv.invoice_id
+            COALESCE(jv.is_flagged, 0) AS is_flagged,
+            COALESCE(ct.has_reviewed, 0) AS contact_has_reviewed
         FROM calendar_stops cs
         JOIN properties p ON cs.property_id = p.id
         LEFT JOIN company_properties cp ON p.id = cp.property_id

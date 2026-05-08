@@ -151,9 +151,13 @@ $actionAliases = [
     'schedule' => [
         'day'                => 'day',
         'week'               => 'week',
-        'timer'              => 'timer',
-        'clock'              => 'clock',
-        'location'           => 'location',
+        'clock'              => 'clock',       // Mobile time-clock (JWT) — GET status / POST clock_in|clock_out
+        'jobs'               => 'jobs',        // Mobile jobs history (JWT) — GET paginated visit list
+        'quotes'             => 'quotes',      // Mobile quotes (JWT, admin only)
+        'invoices'           => 'invoices',    // Mobile invoices (JWT, admin only)
+        'job-photo'          => 'job-photo',   // Mobile before/after photo upload (JWT)
+        'crew-trails'        => 'crew-trails', // Mobile crew GPS trail playback (JWT)
+        'visit-flag'         => 'visit-flag',  // Mobile visit endorsement heart toggle (JWT)
     ],
 ];
 
