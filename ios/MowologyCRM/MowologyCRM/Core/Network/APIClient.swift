@@ -43,8 +43,11 @@ final class APIClient: ObservableObject {
         self.authSession = authSession
 
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest  = 30
-        config.timeoutIntervalForResource = 60
+        // schedule/week joins ~8 tables and on shared hosting cold caches can
+        // sit past 30s. 60s/120s gives heavy queries headroom while still
+        // failing genuinely broken endpoints in a reasonable time.
+        config.timeoutIntervalForRequest  = 60
+        config.timeoutIntervalForResource = 120
         self.session = URLSession(configuration: config)
 
         self.decoder = JSONDecoder()
