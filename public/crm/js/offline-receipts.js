@@ -5,23 +5,36 @@
  * Automatically syncs via Background Sync API when connectivity restores.
  * Falls back to manual retry if Background Sync is not supported.
  *
- * Database: mowology-receipts  (version 1)
- * Store:    pending-receipts   (keyPath: id, autoIncrement)
+ * Database: mowology-receipts  (version 2)
+ *   Store: pending-receipts  (keyPath: id, autoIncrement)
+ *     Record shape: { id, blob, lat, lng, csrf, timestamp }
+ *   Store: pending-ocr       (keyPath: ocr_job_id)   ← v2
+ *     Record shape: { ocr_job_id, media_id, file_path, queued_at }
  *
- * Each record: { id, blob, lat, lng, csrf, timestamp }
+ * The pending-ocr store tracks server-side OCR jobs that are still
+ * 'pending' or 'processing'. Endpoints can return either 200 (legacy
+ * synchronous OCR) or 202 (async queue, with `ocr_job_id` in the
+ * envelope's `data` field). Today only iOS uploads via /receipt-upload
+ * return 202; the web/CSRF /receipt-intake path is still synchronous.
+ * The receipt-detail UI (and any future inbox/parsing view) can
+ * subscribe via OfflineReceipts.pollOcrJob() once a 202 path is wired.
  *
  * Usage:
- *   OfflineReceipts.init()           — open DB, set up listeners
- *   OfflineReceipts.queue(file, lat, lng, csrf)  — save to IDB + register sync
- *   OfflineReceipts.getPendingCount() — returns Promise<number>
- *   OfflineReceipts.syncNow()        — manually trigger upload of all pending
+ *   OfflineReceipts.init()                        — open DB, set up listeners
+ *   OfflineReceipts.queue(file, lat, lng, csrf)   — save to IDB + register sync
+ *   OfflineReceipts.getPendingCount()             — Promise<number> queued uploads
+ *   OfflineReceipts.syncNow()                     — manually upload all pending
+ *   OfflineReceipts.getPendingOcrJobs()           — Promise<Array> of jobs awaiting OCR
+ *   OfflineReceipts.pollOcrJob(id, opts)          — poll receipt-ocr-status.php every 5s
+ *                                                    until complete/failed/timeout (60s)
  */
 (function() {
     'use strict';
 
     var DB_NAME    = 'mowology-receipts';
-    var DB_VERSION = 1;
+    var DB_VERSION = 2;
     var STORE_NAME = 'pending-receipts';
+    var OCR_STORE  = 'pending-ocr';
     var db = null;
 
     /**
@@ -39,6 +52,9 @@
                 var database = e.target.result;
                 if (!database.objectStoreNames.contains(STORE_NAME)) {
                     database.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
+                }
+                if (!database.objectStoreNames.contains(OCR_STORE)) {
+                    database.createObjectStore(OCR_STORE, { keyPath: 'ocr_job_id' });
                 }
             };
 
@@ -181,6 +197,10 @@
      * Upload a single receipt record to the intake API.
      * @param {object} receipt — record from IndexedDB
      * @returns {Promise<boolean>} — true if upload succeeded
+     *
+     * Accepts both legacy 200 (synchronous OCR) and 202 (async OCR queue)
+     * responses. When the server returns an ocr_job_id, the job is recorded
+     * in the pending-ocr store so the UI can poll for completion later.
      */
     function uploadOne(receipt) {
         var formData = new FormData();
@@ -193,10 +213,147 @@
             method: 'POST',
             body: formData
         }).then(function(r) {
-            return r.ok;
+            if (!r.ok) return false;
+            // Async path: 202 Accepted with ocr_job_id → record for later polling.
+            // Sync path:  200 OK with full payload → no extra bookkeeping.
+            return r.json().then(function(data) {
+                var inner = (data && data.data) ? data.data : data;
+                var jobId = inner && (inner.ocr_job_id || inner.ocrJobId);
+                if (jobId) {
+                    return recordPendingOcr({
+                        ocr_job_id: jobId,
+                        media_id:   inner.media_id   || null,
+                        file_path:  inner.file_path  || null,
+                        queued_at:  Date.now()
+                    }).then(function() { return true; }, function() { return true; });
+                }
+                return true;
+            }).catch(function() {
+                // Server returned 200/202 but body wasn't JSON — still treat upload
+                // as successful since the file is on the server.
+                return true;
+            });
         }).catch(function() {
             return false;
         });
+    }
+
+    // ── OCR job tracking (post-202) ──────────────────────────────────
+
+    /**
+     * Persist a pending OCR job record so the UI can poll for completion later.
+     * @param {object} jobRecord — { ocr_job_id, media_id, file_path, queued_at }
+     */
+    function recordPendingOcr(jobRecord) {
+        return openDB().then(function(database) {
+            return new Promise(function(resolve, reject) {
+                if (!database.objectStoreNames.contains(OCR_STORE)) { resolve(); return; }
+                var tx = database.transaction(OCR_STORE, 'readwrite');
+                tx.objectStore(OCR_STORE).put(jobRecord);
+                tx.oncomplete = function() { resolve(); };
+                tx.onerror    = function() { reject(new Error('Failed to record OCR job')); };
+            });
+        });
+    }
+
+    /**
+     * @returns {Promise<Array>} — pending OCR job records (oldest first)
+     */
+    function getPendingOcrJobs() {
+        return openDB().then(function(database) {
+            return new Promise(function(resolve) {
+                if (!database.objectStoreNames.contains(OCR_STORE)) { resolve([]); return; }
+                var tx = database.transaction(OCR_STORE, 'readonly');
+                var req = tx.objectStore(OCR_STORE).getAll();
+                req.onsuccess = function() {
+                    var rows = (req.result || []).slice().sort(function(a, b) {
+                        return (a.queued_at || 0) - (b.queued_at || 0);
+                    });
+                    resolve(rows);
+                };
+                req.onerror = function() { resolve([]); };
+            });
+        }).catch(function() { return []; });
+    }
+
+    /**
+     * Remove a pending OCR job record (call when complete/failed/dismissed).
+     */
+    function clearPendingOcr(jobId) {
+        return openDB().then(function(database) {
+            return new Promise(function(resolve) {
+                if (!database.objectStoreNames.contains(OCR_STORE)) { resolve(); return; }
+                var tx = database.transaction(OCR_STORE, 'readwrite');
+                tx.objectStore(OCR_STORE).delete(jobId);
+                tx.oncomplete = function() { resolve(); };
+                tx.onerror    = function() { resolve(); };
+            });
+        });
+    }
+
+    /**
+     * Poll receipt-ocr-status.php every 5s until the job reaches a terminal
+     * state ('complete' or 'failed') or 60s elapses.
+     *
+     * @param {number} jobId
+     * @param {object} [opts]
+     * @param {(payload: object) => void} [opts.onComplete] — fires once with the parsed payload
+     * @param {(payload: object) => void} [opts.onFailed]   — fires once with the error payload
+     * @param {() => void}                 [opts.onTimeout] — fires once after ~60s with no terminal state
+     * @param {(payload: object) => void} [opts.onTick]     — fires every poll (status: 'pending'|'processing')
+     * @returns {{stop: () => void}} — call .stop() to cancel polling early
+     */
+    function pollOcrJob(jobId, opts) {
+        opts = opts || {};
+        var POLL_MS    = 5000;
+        var MAX_POLLS  = 12;          // 12 × 5s = 60s
+        var pollCount  = 0;
+        var stopped    = false;
+        var timer      = null;
+
+        function done() { stopped = true; if (timer) { clearTimeout(timer); timer = null; } }
+
+        function fire() {
+            if (stopped) return;
+            fetch('/crm/api/receipt-ocr-status.php?id=' + encodeURIComponent(jobId), {
+                credentials: 'same-origin'
+            }).then(function(r) {
+                return r.json().catch(function() { return null; });
+            }).then(function(envelope) {
+                if (stopped) return;
+                var payload = envelope && envelope.data ? envelope.data : envelope;
+                if (!payload || !payload.status) {
+                    pollCount++;
+                    if (pollCount >= MAX_POLLS) { done(); if (opts.onTimeout) opts.onTimeout(); return; }
+                    timer = setTimeout(fire, POLL_MS);
+                    return;
+                }
+                if (payload.status === 'complete') {
+                    done();
+                    clearPendingOcr(jobId);
+                    if (opts.onComplete) opts.onComplete(payload);
+                    return;
+                }
+                if (payload.status === 'failed') {
+                    done();
+                    clearPendingOcr(jobId);
+                    if (opts.onFailed) opts.onFailed(payload);
+                    return;
+                }
+                if (opts.onTick) opts.onTick(payload);
+                pollCount++;
+                if (pollCount >= MAX_POLLS) { done(); if (opts.onTimeout) opts.onTimeout(); return; }
+                timer = setTimeout(fire, POLL_MS);
+            }).catch(function() {
+                if (stopped) return;
+                pollCount++;
+                if (pollCount >= MAX_POLLS) { done(); if (opts.onTimeout) opts.onTimeout(); return; }
+                timer = setTimeout(fire, POLL_MS);
+            });
+        }
+
+        fire();
+        return { stop: done };
     }
 
     /**
@@ -394,7 +551,11 @@
         remove: deleteRecord,
         getPendingCount: getPendingCount,
         syncNow: syncNow,
-        updatePendingBadge: updatePendingBadge
+        updatePendingBadge: updatePendingBadge,
+        // OCR job polling (post-202)
+        getPendingOcrJobs: getPendingOcrJobs,
+        clearPendingOcr:   clearPendingOcr,
+        pollOcrJob:        pollOcrJob
     };
 
 })();
