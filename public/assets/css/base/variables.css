@@ -16,6 +16,36 @@
 
   /* Backgrounds & borders */
   --bg-light: #f8f9fa;
+  --bg-green-tint: #f0f7f4;
   --bg-white: #ffffff;
   --border-color: #e0e0e0;
+
+  /* Dark / premium backgrounds (enhanced sections) */
+  --bg-dark: #0d1f12;
+  --bg-forest: #1a3d2b;
+  --bg-forest-deep: #0f2518;
+
+  /* Gold accent (trust stats, star ratings, labels on dark sections) */
+  --mw-gold: #c9a84c;
+
+  /* Shadow tiers */
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.07), 0 1px 2px rgba(0,0,0,0.05);
+  --shadow-md: 0 4px 14px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.06);
+  --shadow-lg: 0 10px 32px rgba(0,0,0,0.12), 0 4px 12px rgba(0,0,0,0.07);
+  --shadow-green: 0 6px 24px rgba(45,134,89,0.22);
+
+  /* Border radii */
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --radius-full: 9999px;
+
+  /* Transitions */
+  --transition-fast: 150ms ease;
+  --transition-base: 250ms ease;
+  --transition-slow: 400ms ease;
+
+  /* Typography */
+  --font-heading: 'Playfair Display', Georgia, serif;
+  --font-body: 'DM Sans', system-ui, sans-serif;
 }

@@ -24,7 +24,7 @@
 @import "components/cta.css";
 
 /* ---- Pages ---- */
-@import "pages/home.css";
+@import "pages/home.css?v=2";
 @import "pages/services.css";
 @import "pages/contact.css";
 @import "pages/portfolio.css";
