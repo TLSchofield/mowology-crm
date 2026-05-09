@@ -19,7 +19,7 @@
  * URL so the WebView can use a service worker just like a browser can).
  */
 
-var CACHE_VERSION = 'mw-v43';
+var CACHE_VERSION = 'mw-v44';
 var SHELL_CACHE  = 'mw-shell-' + CACHE_VERSION;
 var PAGE_CACHE   = 'mw-pages-' + CACHE_VERSION;
 var IMG_CACHE    = 'mw-images-' + CACHE_VERSION;
@@ -350,53 +350,199 @@ self.addEventListener('sync', function(event) {
 
 /**
  * Process pending receipts from IndexedDB when back online.
+ *
+ * Mirrors the foreground retry logic in offline-receipts.js:
+ *   - 2xx + json.success + media_id (or duplicate_image) → delete record
+ *   - 4xx (except 408/429) → mark failed_unrecoverable; user surfaces via banner
+ *   - 408/429/5xx/network → increment attempts; exponential backoff;
+ *                           at MAX_ATTEMPTS → mark deadletter
  */
-function syncPendingReceipts() {
-  return new Promise(function(resolve) {
-    var dbReq = indexedDB.open('mowology-receipts', 1);
-    dbReq.onerror = function() { resolve(); };
-    dbReq.onsuccess = function(e) {
-      var db = e.target.result;
-      if (!db.objectStoreNames.contains('pending-receipts')) {
-        resolve();
-        return;
+var MAX_RECEIPT_ATTEMPTS = 5;
+
+function generateIdempotencyKey() {
+  if (self.crypto && typeof self.crypto.randomUUID === 'function') {
+    return self.crypto.randomUUID();
+  }
+  var d = Date.now();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    var r = (d + Math.random() * 16) % 16 | 0;
+    d = Math.floor(d / 16);
+    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+  });
+}
+
+function computeNextAttemptAt(attempts) {
+  var seconds = Math.min(3600, Math.pow(2, attempts));
+  return Date.now() + seconds * 1000;
+}
+
+function openReceiptDB() {
+  return new Promise(function(resolve, reject) {
+    // Match the v2 schema set by offline-receipts.js. The page loads first in
+    // practice (PWA); SW only runs upgrade if the page hasn't yet.
+    var req = indexedDB.open('mowology-receipts', 2);
+    req.onupgradeneeded = function(e) {
+      var database = e.target.result;
+      var tx = e.target.transaction;
+      var store;
+      if (!database.objectStoreNames.contains('pending-receipts')) {
+        store = database.createObjectStore('pending-receipts', { keyPath: 'id', autoIncrement: true });
+      } else {
+        store = tx.objectStore('pending-receipts');
       }
-      var tx = db.transaction('pending-receipts', 'readwrite');
-      var store = tx.objectStore('pending-receipts');
-      var getAll = store.getAll();
+      if (e.oldVersion < 2) {
+        var cursorReq = store.openCursor();
+        cursorReq.onsuccess = function(ev) {
+          var cursor = ev.target.result;
+          if (!cursor) return;
+          var rec = cursor.value;
+          if (typeof rec.attempts !== 'number') rec.attempts = 0;
+          if (!rec.status) rec.status = 'pending';
+          if (!rec.idempotencyKey) rec.idempotencyKey = generateIdempotencyKey();
+          if (typeof rec.lastAttemptAt !== 'number') rec.lastAttemptAt = 0;
+          if (typeof rec.nextAttemptAt !== 'number') rec.nextAttemptAt = 0;
+          if (!rec.lastError) rec.lastError = '';
+          cursor.update(rec);
+          cursor.continue();
+        };
+      }
+    };
+    req.onsuccess = function(e) { resolve(e.target.result); };
+    req.onerror = function() { reject(new Error('IDB open failed')); };
+  });
+}
+
+function updateReceiptRecord(db, id, patch) {
+  return new Promise(function(resolve) {
+    var tx = db.transaction('pending-receipts', 'readwrite');
+    var store = tx.objectStore('pending-receipts');
+    var getReq = store.get(id);
+    getReq.onsuccess = function() {
+      var rec = getReq.result;
+      if (!rec) { resolve(false); return; }
+      for (var k in patch) {
+        if (Object.prototype.hasOwnProperty.call(patch, k)) rec[k] = patch[k];
+      }
+      var putReq = store.put(rec);
+      putReq.onsuccess = function() { resolve(true); };
+      putReq.onerror = function() { resolve(false); };
+    };
+    getReq.onerror = function() { resolve(false); };
+  });
+}
+
+function deleteReceiptRecord(db, id) {
+  return new Promise(function(resolve) {
+    var tx = db.transaction('pending-receipts', 'readwrite');
+    tx.objectStore('pending-receipts').delete(id);
+    tx.oncomplete = function() { resolve(); };
+    tx.onerror = function() { resolve(); };
+  });
+}
+
+function syncPendingReceipts() {
+  return openReceiptDB().then(function(db) {
+    return new Promise(function(resolve) {
+      if (!db.objectStoreNames.contains('pending-receipts')) { resolve(); return; }
+      var tx = db.transaction('pending-receipts', 'readonly');
+      var getAll = tx.objectStore('pending-receipts').getAll();
       getAll.onsuccess = function() {
-        var receipts = getAll.result || [];
-        if (!receipts.length) { resolve(); return; }
-
-        var uploads = receipts.map(function(receipt) {
-          var formData = new FormData();
-          formData.append('receipt_photo', receipt.blob, 'receipt.jpg');
-          formData.append('csrf_token', receipt.csrf || '');
-          if (receipt.lat) formData.append('lat', receipt.lat);
-          if (receipt.lng) formData.append('lng', receipt.lng);
-
-          return fetch('/crm/api/receipt-intake.php', {
-            method: 'POST',
-            body: formData,
-          }).then(function(r) {
-            if (r.ok) {
-              var delTx = db.transaction('pending-receipts', 'readwrite');
-              delTx.objectStore('pending-receipts').delete(receipt.id);
-            }
-          }).catch(function() { /* retry on next sync */ });
+        var rows = getAll.result || [];
+        var now = Date.now();
+        var eligible = rows.filter(function(r) {
+          var s = r.status || 'pending';
+          if (s !== 'pending') return false;
+          return (r.nextAttemptAt || 0) <= now;
         });
+        if (!eligible.length) { resolve(); return; }
 
-        Promise.all(uploads).then(function() {
-          self.clients.matchAll().then(function(clients) {
-            clients.forEach(function(client) {
-              client.postMessage({ type: 'receipts-synced', count: receipts.length });
+        var chain = Promise.resolve();
+        var uploadedCount = 0;
+
+        eligible.forEach(function(receipt) {
+          chain = chain.then(function() {
+            return uploadReceiptFromSW(db, receipt).then(function(ok) {
+              if (ok) uploadedCount++;
             });
           });
-          resolve();
         });
+
+        chain.then(function() {
+          if (uploadedCount > 0) {
+            self.clients.matchAll().then(function(clients) {
+              clients.forEach(function(client) {
+                client.postMessage({ type: 'receipts-synced', count: uploadedCount });
+              });
+            });
+          }
+          resolve();
+        }).catch(function() { resolve(); });
       };
-    };
+      getAll.onerror = function() { resolve(); };
+    });
+  }).catch(function() { /* IDB unavailable */ });
+}
+
+function uploadReceiptFromSW(db, receipt) {
+  var idempotencyKey = receipt.idempotencyKey || generateIdempotencyKey();
+
+  var formData = new FormData();
+  formData.append('receipt_photo', receipt.blob, 'receipt.jpg');
+  formData.append('csrf_token', receipt.csrf || '');
+  formData.append('idempotency_key', idempotencyKey);
+  if (receipt.lat) formData.append('lat', receipt.lat);
+  if (receipt.lng) formData.append('lng', receipt.lng);
+
+  return fetch('/crm/api/receipt-intake.php', {
+    method: 'POST',
+    headers: { 'Idempotency-Key': idempotencyKey },
+    body: formData
+  }).then(function(r) {
+    return r.text().then(function(body) {
+      var json = null;
+      try { json = body ? JSON.parse(body) : null; } catch (e) { /* non-JSON */ }
+
+      if (r.ok) {
+        var ok = !!(json && json.success && (json.media_id || (json.duplicate_image && json.duplicate_image.existing_media_id)));
+        if (ok) {
+          return deleteReceiptRecord(db, receipt.id).then(function() { return true; });
+        }
+        return swRecordTransientFailure(db, receipt, 'No media_id in response');
+      }
+      if (r.status >= 400 && r.status < 500 && r.status !== 408 && r.status !== 429) {
+        var msg = 'HTTP ' + r.status + (json && json.error ? ' — ' + json.error : '');
+        return swRecordUnrecoverable(db, receipt, msg);
+      }
+      return swRecordTransientFailure(db, receipt, 'HTTP ' + r.status);
+    });
+  }).catch(function(err) {
+    return swRecordTransientFailure(db, receipt, (err && err.message) ? err.message : 'Network error');
   });
+}
+
+function swRecordUnrecoverable(db, receipt, errMsg) {
+  return updateReceiptRecord(db, receipt.id, {
+    status: 'failed_unrecoverable',
+    lastError: String(errMsg || '').slice(0, 500),
+    lastAttemptAt: Date.now(),
+    attempts: (receipt.attempts || 0) + 1
+  }).then(function() { return false; });
+}
+
+function swRecordTransientFailure(db, receipt, errMsg) {
+  var attempts = (receipt.attempts || 0) + 1;
+  var patch = {
+    attempts: attempts,
+    lastAttemptAt: Date.now(),
+    lastError: String(errMsg || '').slice(0, 500)
+  };
+  if (attempts >= MAX_RECEIPT_ATTEMPTS) {
+    patch.status = 'deadletter';
+  } else {
+    patch.status = 'pending';
+    patch.nextAttemptAt = computeNextAttemptAt(attempts);
+  }
+  return updateReceiptRecord(db, receipt.id, patch).then(function() { return false; });
 }
 
 /**

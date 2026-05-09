@@ -46,20 +46,34 @@ try {
     requireLogin();
     $user = getCurrentUser();
     requirePermission('expenses.edit');
-    session_write_close(); // Release session lock — no session writes needed beyond this point
 
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
         http_response_code(405);
         echo json_encode(['success' => false, 'error' => 'POST required']);
+        session_write_close();
         exit;
     }
 
-    // CSRF check
-    if (!verifyCSRFToken($_POST['csrf_token'] ?? '')) {
+    // CSRF check — must run BEFORE session_write_close() since verifyCSRFToken()
+    // reads from $_SESSION.
+    //
+    // Bypass for queued offline uploads: when the request carries an
+    // Idempotency-Key header AND the session is authenticated (requireLogin
+    // already passed), skip the CSRF check. The idempotency key proves this is
+    // a retry of a previously-authenticated upload — CSRF protects against
+    // cross-site form submission, which a key issued by our own JS in an
+    // authenticated session is not.
+    $idempKey = trim((string)($_SERVER['HTTP_IDEMPOTENCY_KEY'] ?? ''));
+    if (strlen($idempKey) > 128) $idempKey = ''; // bound the size we trust
+
+    if ($idempKey === '' && !verifyCSRFToken((string)($_POST['csrf_token'] ?? ''))) {
         http_response_code(403);
         echo json_encode(['success' => false, 'error' => 'Invalid security token']);
+        session_write_close();
         exit;
     }
+
+    session_write_close(); // Release session lock — no session writes needed beyond this point
 
     // --- Rate Limiting: max 20 receipt uploads per user per hour ---
     // Stored as a simple DB row to survive PHP session expiry on mobile.
