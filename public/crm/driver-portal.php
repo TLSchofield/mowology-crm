@@ -60,10 +60,50 @@ $summaryMinutes += $totalStops > 0 ? (max(0, $totalStops - 1) * 8 + 10) : 0;
 $activeClock = getActiveClockEntry($user['id']);
 $isClockedIn = (bool)$activeClock;
 
-// Already clocked in — skip the portal, go straight to the day's stops
+// Redirect to schedule only if there are still incomplete visits today
 if ($isClockedIn) {
-    header('Location: /crm/jobs/schedule.php');
-    exit;
+    $hasIncompleteVisits = false;
+    foreach ($jobs as $j) {
+        if (($j['status'] ?? '') !== 'completed') {
+            $hasIncompleteVisits = true;
+            break;
+        }
+    }
+    if ($hasIncompleteVisits) {
+        header('Location: /crm/jobs/schedule.php');
+        exit;
+    }
+    // All visits done — fall through to show end-of-day portal
+}
+
+// ── HOS auto-populate — computed from actual clock-in/out times ──────────────
+$hosAutoValue   = '';
+$hosOffDutyAuto = '';
+$clockSource    = $activeClock ?: null;
+if (!$clockSource) {
+    // Driver already clocked out — find today's completed entry
+    $csStmt = $db->prepare("
+        SELECT clock_in, clock_out, total_minutes
+        FROM time_clock_entries
+        WHERE user_id = ? AND DATE(clock_in) = ? AND status = 'completed'
+        ORDER BY clock_out DESC LIMIT 1
+    ");
+    $csStmt->execute([$user['id'], $today]);
+    $clockSource = $csStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+}
+if ($clockSource) {
+    $inTime  = strtotime($clockSource['clock_in']);
+    $outTime = isset($clockSource['clock_out']) && $clockSource['clock_out']
+               ? strtotime($clockSource['clock_out'])
+               : time();
+    $inFmt   = date('g:ia', $inTime);
+    $outFmt  = date('g:ia', $outTime);
+    $durMins = isset($clockSource['total_minutes']) && (int)$clockSource['total_minutes'] > 0
+               ? (int)$clockSource['total_minutes']
+               : (int)(($outTime - $inTime) / 60);
+    $durHrs  = round($durMins / 60, 1);
+    $hosAutoValue   = "{$inFmt} – {$outFmt} ({$durHrs} hrs)";
+    $hosOffDutyAuto = round(24 - $durHrs, 1) . ' hrs';
 }
 
 // ── Trip report ───────────────────────────────────────────────────────────────
@@ -182,13 +222,25 @@ $extraHead  = '<link href="/crm/css/mobile-cards.css?v=20260506a" rel="styleshee
             </div>
         </div>
 
-        <!-- Clock in card -->
-        <div class="mw-ds-clock-card">
+        <!-- Clock card — shows clock-in (morning) or clock-out (end of day) -->
+        <div class="mw-ds-clock-card<?php echo $isClockedIn ? ' is-active' : ''; ?>">
             <div class="mw-ds-clock-info">
-                <div class="mw-ds-clock-dot"></div>
-                <span class="mw-ds-clock-status">Not clocked in</span>
+                <div class="mw-ds-clock-dot<?php echo $isClockedIn ? ' is-on' : ''; ?>"></div>
+                <?php if ($isClockedIn && $activeClock): ?>
+                    <span class="mw-ds-clock-status">Clocked in &mdash; <?php echo date('g:i a', strtotime($activeClock['clock_in'])); ?></span>
+                <?php elseif ($isClockedIn): ?>
+                    <span class="mw-ds-clock-status">Clocked in</span>
+                <?php else: ?>
+                    <span class="mw-ds-clock-status">Not clocked in</span>
+                <?php endif; ?>
             </div>
-            <button class="mw-ds-clock-btn mw-ds-clock-btn-in" id="dpClockInBtn" type="button" onclick="dpClockIn()">Clock In</button>
+            <?php if ($isClockedIn): ?>
+                <button class="mw-ds-clock-btn mw-ds-clock-btn-out" id="dpClockOutBtn"
+                        type="button" onclick="dpClockOut()">Clock Out</button>
+            <?php else: ?>
+                <button class="mw-ds-clock-btn mw-ds-clock-btn-in" id="dpClockInBtn"
+                        type="button" onclick="dpClockIn()">Clock In</button>
+            <?php endif; ?>
         </div>
 
     </div><!-- /.mw-ds-wrap -->
@@ -431,7 +483,7 @@ $extraHead  = '<link href="/crm/css/mobile-cards.css?v=20260506a" rel="styleshee
                     <label>On-Duty Driving Time — Start Time to Finish</label>
                     <input type="text" name="hos_on_duty_driving"
                            placeholder="e.g. 7:00am – 4:30pm (9.5 hrs)"
-                           value="<?php echo htmlspecialchars((string)($tripReport['hos_on_duty_driving'] ?? '')); ?>">
+                           value="<?php echo htmlspecialchars((string)($tripReport['hos_on_duty_driving'] ?: $hosAutoValue)); ?>">
                 </div>
                 <div class="dp-field">
                     <label>On-Duty Other</label>
@@ -443,7 +495,7 @@ $extraHead  = '<link href="/crm/css/mobile-cards.css?v=20260506a" rel="styleshee
                     <label>Off-Duty</label>
                     <input type="text" name="hos_off_duty"
                            placeholder="e.g. 14 hrs"
-                           value="<?php echo htmlspecialchars((string)($tripReport['hos_off_duty'] ?? '')); ?>">
+                           value="<?php echo htmlspecialchars((string)($tripReport['hos_off_duty'] ?: $hosOffDutyAuto)); ?>">
                 </div>
             </div>
 
@@ -469,7 +521,7 @@ function mwInjectFlatlineCSS() {
 }
 var DP = {
     csrf:        <?php echo json_encode($csrf); ?>,
-    isClockedIn: false,
+    isClockedIn: <?php echo $isClockedIn ? 'true' : 'false'; ?>,
     preComplete: <?php echo $preComplete ? 'true' : 'false'; ?>,
     postComplete:<?php echo $postComplete ? 'true' : 'false'; ?>,
     clockStart:  null,
