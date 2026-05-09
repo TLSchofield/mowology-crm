@@ -95,7 +95,7 @@ $menuItems = [
 <!-- ── Mobile Top Bar ── -->
 <div class="mw-mobile-topbar">
     <div class="mw-mobile-topbar-left">
-        <div class="mw-mobile-topbar-logo">M</div>
+        <img src="/assets/favicon/apple-touch-icon.png" alt="Mowology" class="mw-mobile-topbar-logo-img">
         <span class="mw-mobile-topbar-title"><?php echo htmlspecialchars($mobileTitle); ?></span>
     </div>
     <div class="mw-mobile-topbar-right">

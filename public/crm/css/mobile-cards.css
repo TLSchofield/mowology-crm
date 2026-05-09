@@ -225,6 +225,7 @@
         background: var(--mw-green, #2D8659);
         color: #fff;
         font-weight: 700;
+        filter: drop-shadow(0 2px 5px rgba(45,134,89,0.45));
     }
 
     /* ── Calendar strip weather + holiday indicators ──────────────────────── */
@@ -454,6 +455,7 @@
 
     .mw-mc-card-active .mw-mc-card-body {
         padding: 20px 18px;
+        background: linear-gradient(180deg, var(--mc-accent-tint, transparent) 0%, transparent 64px);
     }
 
     .mw-mc-card-active .mw-mc-accent {
@@ -469,9 +471,11 @@
     }
 
     .mw-mc-time {
-        font-size: 1.1rem;
-        font-weight: 700;
+        font-size: 1.25rem;
+        font-weight: 800;
         color: #1a1a1a;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: -0.3px;
     }
 
     .mw-mc-duration {

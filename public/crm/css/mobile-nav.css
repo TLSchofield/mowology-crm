@@ -60,9 +60,9 @@
         z-index: 1060;
         height: calc(env(safe-area-inset-top, 0px) + 56px);
         padding: calc(env(safe-area-inset-top, 0px) + 10px) 14px 10px;
-        background: #fff;
-        border-bottom: 1px solid #ebe8e2;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        background: linear-gradient(180deg, #ffffff 0%, #faf9f7 100%);
+        border-bottom: none;
+        box-shadow: 0 1px 0 #eae7e1, 0 4px 14px rgba(0,0,0,0.07);
     }
 
     .mw-mobile-topbar-left {
@@ -73,7 +73,7 @@
         flex: 1;
     }
 
-    /* Mowology "M" logo mark */
+    /* Mowology "M" logo mark — kept for fallback */
     .mw-mobile-topbar-logo {
         width: 28px;
         height: 28px;
@@ -89,6 +89,17 @@
         font-family: 'Montserrat', sans-serif;
         letter-spacing: -0.5px;
         flex-shrink: 0;
+    }
+
+    /* Real app icon replaces the gradient "M" box */
+    .mw-mobile-topbar-logo-img {
+        width: 28px;
+        height: 28px;
+        border-radius: 7px;
+        flex-shrink: 0;
+        object-fit: cover;
+        display: block;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.18);
     }
 
     .mw-mobile-topbar-title {
@@ -178,6 +189,7 @@
         line-height: 1;
         transition: color 0.15s ease;
         letter-spacing: 0.2px;
+        position: relative;
     }
 
     .mw-mobile-nav-btn:hover,
@@ -189,11 +201,36 @@
     .mw-mobile-nav-btn svg {
         display: block;
         flex-shrink: 0;
+        position: relative;
+        z-index: 1;
     }
 
-    /* Active tab */
+    .mw-mobile-nav-btn span {
+        position: relative;
+        z-index: 1;
+    }
+
+    /* Active tab — pill background slides in behind icon + label */
     .mw-mobile-nav-btn.mw-mobile-nav-active {
         color: #2D8659;
+    }
+
+    .mw-mobile-nav-btn.mw-mobile-nav-active::before {
+        content: '';
+        position: absolute;
+        top: 5px;
+        bottom: 5px;
+        left: 6px;
+        right: 6px;
+        background: #E8F3F0;
+        border-radius: 12px;
+        z-index: 0;
+        animation: mw-nav-pill-in 0.22s cubic-bezier(0.32, 0.72, 0, 1) both;
+    }
+
+    @keyframes mw-nav-pill-in {
+        from { transform: scaleX(0.55); opacity: 0; }
+        to   { transform: scaleX(1);    opacity: 1; }
     }
 
     .mw-mobile-nav-btn.mw-mobile-nav-active svg {
