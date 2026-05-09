@@ -94,6 +94,7 @@ try {
         $remaining = $batchSize - $totalSent;
         $sends = $db->prepare("
             SELECT cs.*, c.first_name, c.last_name, c.email AS contact_email,
+                   c.receive_marketing, c.consent_email_express_at, c.consent_email_implied_at,
                    p.address, p.city,
                    prod.name AS product_name, prod.base_price AS product_price,
                    prod.description AS product_description
@@ -127,6 +128,20 @@ try {
             $email = $send['contact_email'] ?? $send['email'];
             if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
                 $db->prepare("UPDATE campaign_sends SET status = 'failed', error_message = 'Invalid email' WHERE id = ?")
+                   ->execute([$send['id']]);
+                $totalFailed++;
+                continue;
+            }
+
+            // CASL: re-verify consent at send time (recipient list may be stale)
+            $contactForConsent = [
+                'email'                      => $email,
+                'receive_marketing'          => $send['receive_marketing'] ?? 0,
+                'consent_email_express_at'   => $send['consent_email_express_at'] ?? null,
+                'consent_email_implied_at'   => $send['consent_email_implied_at'] ?? null,
+            ];
+            if (!canSendMarketing($contactForConsent, 'email')) {
+                $db->prepare("UPDATE campaign_sends SET status = 'skipped', error_message = 'no_consent' WHERE id = ?")
                    ->execute([$send['id']]);
                 $totalFailed++;
                 continue;

@@ -177,6 +177,16 @@ foreach ($invoices as $inv) {
             }
         }
 
+        // CASL: refresh implied consent clock (2-year window from last transaction)
+        if ($newStatus === 'paid' && !empty($inv['contact_id'])) {
+            try {
+                $db->prepare("UPDATE contacts SET consent_email_implied_at = NOW() WHERE id = ?")
+                   ->execute([$inv['contact_id']]);
+            } catch (\Throwable $__e) {
+                error_log('[record-payment] implied consent update error: ' . $__e->getMessage());
+            }
+        }
+
     } catch (PDOException $e) {
         if ($db->inTransaction()) $db->rollBack();
         error_log("record-payment.php PDO error invoice {$id}: " . $e->getMessage());

@@ -6202,6 +6202,11 @@ tr[data-href] { cursor: pointer; }
   text-decoration: line-through;
 }
 
+.mw-contact-pref-badge.implied {
+  background: #fff3cd;
+  color: #856404;
+}
+
 @media (max-width: 991px) {
   .mw-contact-header {
     flex-direction: column;
