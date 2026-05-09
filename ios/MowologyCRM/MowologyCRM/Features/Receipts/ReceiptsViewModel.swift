@@ -60,11 +60,27 @@ final class ReceiptsViewModel: ObservableObject {
         isUploading   = true
         uploadError   = nil
         intakeResponse = nil
+        // Generate the idempotency key up-front so a first-attempt timeout (where
+        // the server may have already processed the upload) can be retried without
+        // creating a duplicate expense.
+        let idempotencyKey = UUID().uuidString
         do {
-            intakeResponse = try await apiClient.uploadReceipt(imageData: imageData, lat: lat, lng: lng, jobId: nil)
+            intakeResponse = try await apiClient.uploadReceipt(
+                imageData:      imageData,
+                lat:            lat,
+                lng:            lng,
+                jobId:          nil,
+                idempotencyKey: idempotencyKey
+            )
         } catch let err as APIError {
             if case .networkError = err {
-                ReceiptQueue.shared.enqueue(imageData: imageData, lat: lat, lng: lng, jobId: nil)
+                ReceiptQueue.shared.enqueue(
+                    imageData:      imageData,
+                    lat:            lat,
+                    lng:            lng,
+                    jobId:          nil,
+                    idempotencyKey: idempotencyKey
+                )
                 uploadError = "No connection — receipt queued and will upload automatically."
             } else {
                 uploadError = err.errorDescription

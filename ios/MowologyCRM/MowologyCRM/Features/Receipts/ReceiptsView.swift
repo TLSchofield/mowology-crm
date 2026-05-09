@@ -12,6 +12,7 @@ struct ReceiptsView: View {
 
     @EnvironmentObject private var authSession: AuthSession
     @StateObject private var viewModel: ReceiptsViewModel
+    @ObservedObject private var queue = ReceiptQueue.shared
 
     // Camera as fullScreenCover — must be on the root view, not inside a sheet.
     @State private var showCamera   = false
@@ -19,6 +20,7 @@ struct ReceiptsView: View {
     @State private var showReview   = false
     @State private var pickerItem: PhotosPickerItem?
     @State private var showErrorAlert = false
+    @State private var showQueueFailureAlert = false
 
     private let impact          = UIImpactFeedbackGenerator(style: .medium)
     private let locationManager = CLLocationManager()
@@ -80,6 +82,15 @@ struct ReceiptsView: View {
             Button("OK") { viewModel.uploadError = nil }
         } message: {
             Text(viewModel.uploadError ?? "")
+        }
+        // Surface unrecoverable queue failures (item exhausted its 5 retries).
+        .onChange(of: queue.lastFailureMessage) { _, msg in
+            if msg != nil { showQueueFailureAlert = true }
+        }
+        .alert("Receipt Upload Failed", isPresented: $showQueueFailureAlert) {
+            Button("OK") { queue.lastFailureMessage = nil }
+        } message: {
+            Text(queue.lastFailureMessage ?? "")
         }
         .onChange(of: pickerItem) { _, newItem in
             guard let newItem else { return }
@@ -224,12 +235,20 @@ struct ReceiptsView: View {
         ToolbarItem(placement: .principal) {
             HStack(spacing: 6) {
                 Text("Receipts").font(.headline.weight(.semibold))
-                if ReceiptQueue.shared.pendingCount > 0 {
-                    Text("\(ReceiptQueue.shared.pendingCount) pending")
+                if queue.pendingCount > 0 {
+                    Text("\(queue.pendingCount) pending")
                         .font(.caption2.weight(.semibold))
                         .padding(.horizontal, 6).padding(.vertical, 2)
                         .background(Color.MW.orange.opacity(0.15))
                         .foregroundStyle(Color.MW.orange)
+                        .clipShape(Capsule())
+                }
+                if queue.failedCount > 0 {
+                    Text("\(queue.failedCount) failed")
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(Color.red.opacity(0.15))
+                        .foregroundStyle(Color.red)
                         .clipShape(Capsule())
                 }
             }

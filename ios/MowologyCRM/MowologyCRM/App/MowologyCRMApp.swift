@@ -20,6 +20,11 @@ struct MowologyCRMApp: App {
     init() {
         registerBackgroundTask()
         requestNotificationPermission()
+        // One-shot cleanup of stale receipt temp files (>7 days). Cheap; runs off
+        // the main thread because the cleanup helper is `nonisolated`.
+        Task.detached(priority: .utility) {
+            ReceiptQueue.cleanupOldTempFiles()
+        }
     }
 
     // MARK: - Scene
@@ -28,6 +33,21 @@ struct MowologyCRMApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(authSession)
+                .task {
+                    // Wire the receipt-queue monitor to APIClient so reconnects
+                    // automatically drain queued uploads. Uses the user's auth
+                    // session, so it has to start *after* the env object is set.
+                    let client = APIClient(authSession: authSession)
+                    ReceiptQueue.shared.startMonitoring { data, lat, lng, jobId, key in
+                        try await client.uploadReceipt(
+                            imageData:      data,
+                            lat:            lat,
+                            lng:            lng,
+                            jobId:          jobId,
+                            idempotencyKey: key
+                        )
+                    }
+                }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .background {

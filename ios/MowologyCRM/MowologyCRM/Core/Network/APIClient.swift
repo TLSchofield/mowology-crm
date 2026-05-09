@@ -136,7 +136,15 @@ final class APIClient: ObservableObject {
     // MARK: - Multipart Upload
 
     /// Uploads a receipt image as multipart/form-data and returns OCR suggestions.
-    func uploadReceipt(imageData: Data, lat: Double?, lng: Double?, jobId: Int?) async throws -> ReceiptIntakeResponse {
+    /// `idempotencyKey` (when non-nil) is sent as the `Idempotency-Key` header so
+    /// the server deduplicates retries against its `idempotency_keys` table.
+    func uploadReceipt(
+        imageData: Data,
+        lat: Double?,
+        lng: Double?,
+        jobId: Int?,
+        idempotencyKey: String? = nil
+    ) async throws -> ReceiptIntakeResponse {
         guard let url = APIEndpoint.receiptUpload.url else { throw APIError.invalidURL }
 
         let boundary = "MwBoundary-\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
@@ -145,6 +153,9 @@ final class APIClient: ObservableObject {
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         if let token = authSession?.token {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        if let key = idempotencyKey {
+            request.setValue(key, forHTTPHeaderField: "Idempotency-Key")
         }
 
         var body = Data()
