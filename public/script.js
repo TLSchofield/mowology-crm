@@ -198,7 +198,10 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!ticking) {
             requestAnimationFrame(function() {
                 const scrollY = window.pageYOffset;
-                heroBg.style.transform = 'translateY(' + (scrollY * 0.25) + 'px)';
+                const heroHeight = heroBg.parentElement ? heroBg.parentElement.offsetHeight : 600;
+                const maxShift = heroHeight * 0.08;
+                const shift = Math.min(scrollY * 0.12, maxShift);
+                heroBg.style.transform = 'translateY(' + shift + 'px)';
                 ticking = false;
             });
             ticking = true;
