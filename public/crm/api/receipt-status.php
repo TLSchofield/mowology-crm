@@ -1,24 +1,28 @@
 <?php
 /**
- * API: Receipt OCR Status (Async Polling)
- *
- * Returns the current OCR processing status for a media asset.
- * Used by the expenses page to poll after upload for async OCR results.
+ * API: Receipt OCR Status (legacy media-keyed polling).
  *
  * GET /crm/api/receipt-status.php?media_id=<id>
  *
- * Returns JSON:
- * {
- *   success: bool,
- *   media_id: int,
- *   ocr_status: 'pending' | 'processing' | 'ready' | 'failed',
- * }
+ * Returns:
+ *   {
+ *     success: bool,
+ *     media_id: int,
+ *     ocr_status: 'pending' | 'processing' | 'ready' | 'failed',
+ *     // when ocr_status = 'ready', the parsed payload is included so the
+ *     // existing pollOcrStatus() in expenses_appstack.php can rebuild
+ *     // the review modal without a second round trip:
+ *     ocr_text?: string, parsed?: {...}, suggestions?: {...},
+ *     field_confidences?: {...}, gst_validation?: {...},
+ *     job_suggestions?: [...], ocr_source?: string
+ *   }
  *
- * Current implementation: OCR is synchronous in receipt-intake.php so this
- * endpoint always returns 'ready'. It exists as a forward-compatibility shim
- * for when OCR is moved to an async background queue. The client-side polling
- * loop in expenses_appstack.php only activates when receipt-intake returns
- * ocr_status='processing'; synchronous responses skip polling entirely.
+ * Resolution order:
+ *   1. Look up the most recent expense_ocr_jobs row for this media_id.
+ *      Map status: pending|processing → 'processing', complete → 'ready',
+ *      failed → 'failed'.
+ *   2. Fall back to media_assets.status — preserves behaviour for receipts
+ *      that pre-date the async queue.
  */
 
 declare(strict_types=1);
@@ -42,8 +46,10 @@ try {
     require_once CRM_INCLUDES . '/functions.php';
 
     requireLogin();
-    session_write_close();
     requirePermission('expenses.view');
+    if (function_exists('session_write_close') && session_status() === PHP_SESSION_ACTIVE) {
+        session_write_close();
+    }
 
     $mediaId = (int)($_GET['media_id'] ?? 0);
     if (!$mediaId) {
@@ -54,7 +60,50 @@ try {
 
     $db = getDB();
 
-    // Check the media asset status column
+    // ── Async queue first ──
+    try {
+        $jobStmt = $db->prepare("
+            SELECT id, status, parsed_json, parsed_raw_text, error
+            FROM expense_ocr_jobs
+            WHERE media_id = ?
+            ORDER BY id DESC
+            LIMIT 1
+        ");
+        $jobStmt->execute([$mediaId]);
+        $job = $jobStmt->fetch(PDO::FETCH_ASSOC);
+    } catch (Throwable $e) {
+        // Table may not exist yet pre-migration — fall through to legacy lookup.
+        $job = null;
+    }
+
+    if ($job) {
+        $jobStatus = (string)$job['status'];
+        $resp = [
+            'success'    => true,
+            'media_id'   => $mediaId,
+            'ocr_status' => $jobStatus === 'complete' ? 'ready'
+                          : ($jobStatus === 'failed' ? 'failed' : 'processing'),
+        ];
+        if ($jobStatus === 'complete' && !empty($job['parsed_json'])) {
+            $decoded = json_decode((string)$job['parsed_json'], true);
+            if (is_array($decoded)) {
+                $resp['ocr_text']          = $decoded['ocr_text']          ?? ($job['parsed_raw_text'] ?? '');
+                $resp['ocr_available']     = $decoded['ocr_available']     ?? false;
+                $resp['ocr_source']        = $decoded['ocr_source']        ?? 'none';
+                $resp['parsed']            = $decoded['parsed']            ?? new stdClass();
+                $resp['suggestions']       = $decoded['suggestions']       ?? new stdClass();
+                $resp['field_confidences'] = $decoded['field_confidences'] ?? new stdClass();
+                $resp['gst_validation']    = $decoded['gst_validation']    ?? null;
+                $resp['job_suggestions']   = $decoded['job_suggestions']   ?? [];
+            }
+        } elseif ($jobStatus === 'failed') {
+            $resp['error'] = $job['error'] ?? 'OCR processing failed';
+        }
+        echo json_encode($resp);
+        exit;
+    }
+
+    // ── Legacy fallback: media_assets.status ──
     $stmt = $db->prepare("SELECT id, status FROM media_assets WHERE id = ? LIMIT 1");
     $stmt->execute([$mediaId]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -65,11 +114,8 @@ try {
         exit;
     }
 
-    // Map media status to OCR status
-    // 'processing' means background OCR is still running (future async mode).
-    // All other statuses mean ready (current synchronous mode).
     $mediaStatus = $row['status'] ?? 'ready';
-    $ocrStatus = ($mediaStatus === 'processing') ? 'processing' : 'ready';
+    $ocrStatus   = ($mediaStatus === 'processing') ? 'processing' : 'ready';
 
     echo json_encode([
         'success'    => true,

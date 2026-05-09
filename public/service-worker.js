@@ -19,7 +19,7 @@
  * URL so the WebView can use a service worker just like a browser can).
  */
 
-var CACHE_VERSION = 'mw-v30';
+var CACHE_VERSION = 'mw-v31';
 var SHELL_CACHE  = 'mw-shell-' + CACHE_VERSION;
 var PAGE_CACHE   = 'mw-pages-' + CACHE_VERSION;
 var IMG_CACHE    = 'mw-images-' + CACHE_VERSION;
@@ -314,11 +314,28 @@ self.addEventListener('sync', function(event) {
 
 /**
  * Process pending receipts from IndexedDB when back online.
+ *
+ * Treats both 200 (legacy synchronous OCR) and 202 (Phase 3 async queue)
+ * as success: the server has the file either way, so the queued upload
+ * record can be removed. When the server returns an `ocr_job_id`, it's
+ * stored in the lightweight `pending-ocr` IDB store so a foreground
+ * client can poll receipt-ocr-status.php later via OfflineReceipts.pollOcrJob().
+ *
+ * DB version bumped to 2 — schema upgrade adds the pending-ocr store.
  */
 function syncPendingReceipts() {
   return new Promise(function(resolve) {
-    var dbReq = indexedDB.open('mowology-receipts', 1);
+    var dbReq = indexedDB.open('mowology-receipts', 2);
     dbReq.onerror = function() { resolve(); };
+    dbReq.onupgradeneeded = function(e) {
+      var d = e.target.result;
+      if (!d.objectStoreNames.contains('pending-receipts')) {
+        d.createObjectStore('pending-receipts', { keyPath: 'id', autoIncrement: true });
+      }
+      if (!d.objectStoreNames.contains('pending-ocr')) {
+        d.createObjectStore('pending-ocr', { keyPath: 'ocr_job_id' });
+      }
+    };
     dbReq.onsuccess = function(e) {
       var db = e.target.result;
       if (!db.objectStoreNames.contains('pending-receipts')) {
@@ -343,10 +360,23 @@ function syncPendingReceipts() {
             method: 'POST',
             body: formData,
           }).then(function(r) {
-            if (r.ok) {
-              var delTx = db.transaction('pending-receipts', 'readwrite');
-              delTx.objectStore('pending-receipts').delete(receipt.id);
-            }
+            if (!r.ok) return; // network/server error — leave queued for next sync
+            // Remove from upload queue first — file is on the server.
+            var delTx = db.transaction('pending-receipts', 'readwrite');
+            delTx.objectStore('pending-receipts').delete(receipt.id);
+            // Best-effort: capture ocr_job_id from a 202 envelope if present.
+            return r.json().then(function(json) {
+              var inner = (json && json.data) ? json.data : json;
+              var jobId = inner && (inner.ocr_job_id || inner.ocrJobId);
+              if (!jobId || !db.objectStoreNames.contains('pending-ocr')) return;
+              var ocrTx = db.transaction('pending-ocr', 'readwrite');
+              ocrTx.objectStore('pending-ocr').put({
+                ocr_job_id: jobId,
+                media_id:   inner.media_id   || null,
+                file_path:  inner.file_path  || null,
+                queued_at:  Date.now()
+              });
+            }).catch(function() { /* non-JSON 200/202 — ignore */ });
           }).catch(function() { /* retry on next sync */ });
         });
 
