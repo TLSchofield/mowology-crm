@@ -605,6 +605,20 @@
     width: 24px;
 }
 
+/* ── Scroll reveal (CSS-driven, JS adds .is-visible) ── */
+
+@media (prefers-reduced-motion: no-preference) {
+    .service-card, .feature, .area-card, .mw-stat {
+        opacity: 0;
+        transform: translateY(20px);
+        transition: opacity 0.5s ease, transform 0.5s ease;
+    }
+    .service-card.is-visible, .feature.is-visible, .area-card.is-visible, .mw-stat.is-visible {
+        opacity: 1;
+        transform: none;
+    }
+}
+
 /* ── Responsive ─────────────────────────────────────── */
 
 @media (max-width: 768px) {

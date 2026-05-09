@@ -157,27 +157,18 @@ function isInViewport(element) {
     );
 }
 
-// Animate elements on scroll using IntersectionObserver
+// Subtle scroll-reveal using IntersectionObserver (adds .is-visible class, no JS opacity override)
 document.addEventListener('DOMContentLoaded', function() {
-    const targets = document.querySelectorAll('.service-card, .feature, .mw-testi-card, .portfolio-item, .value-card, .area-card, .mw-stat');
-    if (!targets.length) return;
-
-    targets.forEach(function(el) {
-        el.style.opacity = '0';
-        el.style.transform = 'translateY(24px)';
-        el.style.transition = 'opacity 0.55s ease, transform 0.55s ease';
-    });
-
+    if (!window.IntersectionObserver) return;
+    const targets = document.querySelectorAll('.service-card, .feature, .area-card, .mw-stat');
     const observer = new IntersectionObserver(function(entries) {
         entries.forEach(function(entry) {
             if (entry.isIntersecting) {
-                entry.target.style.opacity = '1';
-                entry.target.style.transform = 'translateY(0)';
+                entry.target.classList.add('is-visible');
                 observer.unobserve(entry.target);
             }
         });
-    }, { threshold: 0.1 });
-
+    }, { threshold: 0.08, rootMargin: '0px 0px -40px 0px' });
     targets.forEach(function(el) { observer.observe(el); });
 });
 
