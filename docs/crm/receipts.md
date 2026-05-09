@@ -79,7 +79,18 @@ Clients should poll until they see a terminal state or give up after ~60s.
 
 ## Deploy sequence (post-merge)
 
-Once the PR merges to `main` and cPanel auto-deploys:
+> ⚠️ **cPanel auto-deploy only copies `public/`.** The
+> [`.cpanel.yml`](../../.cpanel.yml) deploy task is `cp -R public/. $DEPLOYPATH/`
+> — so anything outside `public/` (i.e. `app/`, `database/migrations/`,
+> top-level docs) **does not** auto-deploy from a `main` merge. This
+> caught us once: PR #18 merged cleanly, but `database/migrations/994_*.sql`
+> and `app/Modules/Expenses/Cron/process_ocr_queue.php` had to be FTP-uploaded
+> by hand before the migration appeared in the Database Manager UI and
+> the cron could fire. **Use the `/deploy` slash command (or `lftp`
+> directly) for any path under `app/` or `database/`.**
+
+Once the PR merges to `main`, cPanel auto-deploys `public/`, and you've
+manually FTP-deployed the `app/` + `database/` files:
 
 1. **Apply the migration via the in-app runner.** Open
    [`/crm/database_appstack.php`](../../public/crm/database_appstack.php) (admin only)
@@ -88,7 +99,11 @@ Once the PR merges to `main` and cPanel auto-deploys:
    [`migrations-manager.js`](../../public/crm/js/migrations-manager.js)
    to [`app/Modules/Database/Api/migrations-manager.php`](../../app/Modules/Database/Api/migrations-manager.php),
    which logs each apply so the migration can't run twice.
-2. **Register the cron** in cPanel (run every minute):
+2. **Register the cron** in cPanel (run every minute), but only **after**
+   step 1 has succeeded. If the cron fires while `expense_ocr_jobs` doesn't
+   exist yet, every tick logs a PDO exception, and CanadianWebHosting
+   throttles the entire account — the Database Manager page can start
+   returning 503 until the cron is paused. Order matters.
    ```
    * * * * * /usr/local/bin/php /home/mowology/public_html/app/Modules/Expenses/Cron/process_ocr_queue.php >/dev/null 2>&1
    ```
