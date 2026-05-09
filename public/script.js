@@ -157,29 +157,28 @@ function isInViewport(element) {
     );
 }
 
-// Add fade-in animation to elements as they scroll into view
+// Animate elements on scroll using IntersectionObserver
 document.addEventListener('DOMContentLoaded', function() {
-    const animateElements = document.querySelectorAll('.service-card, .feature, .mw-testi-card, .testimonial-card, .portfolio-item, .value-card');
-    
-    function checkAnimation() {
-        animateElements.forEach(element => {
-            if (isInViewport(element)) {
-                element.style.opacity = '1';
-                element.style.transform = 'translateY(0)';
+    const targets = document.querySelectorAll('.service-card, .feature, .mw-testi-card, .portfolio-item, .value-card, .area-card, .mw-stat');
+    if (!targets.length) return;
+
+    targets.forEach(function(el) {
+        el.style.opacity = '0';
+        el.style.transform = 'translateY(24px)';
+        el.style.transition = 'opacity 0.55s ease, transform 0.55s ease';
+    });
+
+    const observer = new IntersectionObserver(function(entries) {
+        entries.forEach(function(entry) {
+            if (entry.isIntersecting) {
+                entry.target.style.opacity = '1';
+                entry.target.style.transform = 'translateY(0)';
+                observer.unobserve(entry.target);
             }
         });
-    }
-    
-    // Set initial state
-    animateElements.forEach(element => {
-        element.style.opacity = '0';
-        element.style.transform = 'translateY(20px)';
-        element.style.transition = 'opacity 0.6s ease, transform 0.6s ease';
-    });
-    
-    // Check on scroll and load
-    window.addEventListener('scroll', checkAnimation);
-    checkAnimation();
+    }, { threshold: 0.1 });
+
+    targets.forEach(function(el) { observer.observe(el); });
 });
 
 // ── Hero Particles ───────────────────────────────────
