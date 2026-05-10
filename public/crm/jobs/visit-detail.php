@@ -172,6 +172,71 @@ $statusColor = $statusColors[$visit['status']] ?? 'secondary';
 
 $csrfToken = generateCSRFToken();
 
+// ── Invoice prefill (admin only, completed visit, no existing invoice) ────────
+$canCreateInvoice = $isAdmin && $visit['status'] === 'completed' && empty($visit['invoice_id']);
+$invoicePrefillJson = 'null';
+if ($canCreateInvoice) {
+    // Plan line items
+    $stmtLI = $db->prepare("
+        SELECT description, quantity, unit_price, line_total, sort_order
+        FROM plan_line_items WHERE plan_id = ? ORDER BY sort_order ASC, id ASC
+    ");
+    $stmtLI->execute([$visit['plan_id']]);
+    $prefillLineItems = $stmtLI->fetchAll(PDO::FETCH_ASSOC);
+
+    // Fall back to plan price_per_visit if no line items
+    if (empty($prefillLineItems)) {
+        $stmtPv = $db->prepare("SELECT price_per_visit FROM job_plans WHERE id = ?");
+        $stmtPv->execute([$visit['plan_id']]);
+        $pv = (float)$stmtPv->fetchColumn();
+        if ($pv > 0) {
+            $prefillLineItems = [[
+                'description' => $visit['plan_title'] ?? 'Lawn Care Service',
+                'quantity'    => 1,
+                'unit_price'  => $pv,
+                'line_total'  => $pv,
+                'sort_order'  => 1,
+            ]];
+        }
+    }
+
+    // Tax rate from business_settings
+    $prefillGstRate = 0.05;
+    $prefillGstNum  = '';
+    try {
+        $stmtBs = $db->query("SELECT gst_rate, gst_registration FROM business_settings LIMIT 1");
+        $bsRow  = $stmtBs ? $stmtBs->fetch(PDO::FETCH_ASSOC) : [];
+        if ($bsRow && isset($bsRow['gst_rate'])) $prefillGstRate = round((float)$bsRow['gst_rate'] / 100, 4);
+        if ($bsRow && !empty($bsRow['gst_registration'])) $prefillGstNum = $bsRow['gst_registration'];
+    } catch (Exception $e) {}
+
+    $prefillSubtotal = array_sum(array_column($prefillLineItems, 'line_total'));
+    $prefillTaxAmt   = round($prefillSubtotal * $prefillGstRate, 2);
+    $lastNote = !empty($notes) ? (end($notes)['content'] ?? '') : '';
+
+    $invoicePrefillJson = json_encode([
+        'line_items'      => array_map(function($li) {
+            return [
+                'description' => $li['description'],
+                'qty'         => (float)$li['quantity'],
+                'unit_price'  => (float)$li['unit_price'],
+                'line_total'  => (float)$li['line_total'],
+            ];
+        }, $prefillLineItems),
+        'subtotal'        => $prefillSubtotal,
+        'gst_rate'        => $prefillGstRate,
+        'gst_number'      => $prefillGstNum,
+        'tax_amount'      => $prefillTaxAmt,
+        'total'           => $prefillSubtotal + $prefillTaxAmt,
+        'client_name'     => trim(($visit['contact_first'] ?? '') . ' ' . ($visit['contact_last'] ?? '')),
+        'service_address' => trim(($visit['property_address'] ?? '') . ', ' . ($visit['property_city'] ?? '')),
+        'recipient_email' => $visit['contact_email'] ?? '',
+        'recipient_phone' => $visit['contact_phone'] ?? '',
+        'due_date'        => date('Y-m-d', strtotime('+30 days')),
+        'notes'           => $lastNote,
+    ]);
+}
+
 $pageTitle  = 'Visit ' . ($visit['visit_number'] ?? $visitId);
 $activePage = 'jobs';
 
@@ -203,10 +268,10 @@ if (!empty($gpsPoints) && $apiKey) {
     </p>
   </div>
   <div class="d-flex gap-2">
-    <?php if ($visit['status'] === 'completed' && empty($visit['invoice_id'])): ?>
-    <a href="/crm/invoices/create.php?visit_id=<?= $visitId ?>" class="btn btn-warning btn-sm">
+    <?php if ($canCreateInvoice): ?>
+    <button type="button" class="btn btn-warning btn-sm" id="btn-create-invoice">
       <i data-feather="file-plus" class="mr-1"></i> Create Invoice
-    </a>
+    </button>
     <?php elseif (!empty($visit['invoice_id'])): ?>
     <a href="/crm/invoices/view.php?id=<?= (int)$visit['invoice_id'] ?>" class="btn btn-outline-success btn-sm">
       <i data-feather="file-text" class="mr-1"></i> View Invoice
@@ -743,6 +808,124 @@ if (!empty($gpsPoints) && $apiKey) {
         <?php endforeach; ?>
       </tbody>
     </table>
+  </div>
+</div>
+<?php endif; ?>
+
+<!-- ── Invoice Compose Modal ──────────────────────────────────────────────── -->
+<?php if ($canCreateInvoice): ?>
+<div class="modal fade" id="invoiceComposeModal" tabindex="-1" role="dialog" aria-modal="true">
+  <div class="modal-dialog modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header" style="background:var(--mw-green);color:#fff;">
+        <h5 class="modal-title">
+          <i data-feather="file-plus" style="width:17px;height:17px;vertical-align:text-bottom;margin-right:6px;"></i>Create Invoice
+        </h5>
+        <button type="button" class="close" data-dismiss="modal" style="color:#fff;opacity:.8;">&times;</button>
+      </div>
+
+      <div class="modal-body" id="inv-modal-body">
+
+        <!-- Edit state -->
+        <div id="inv-state-edit">
+          <!-- Client + date header -->
+          <div class="d-flex justify-content-between align-items-start mb-3">
+            <div>
+              <div class="font-weight-600 text-dark" id="inv-client-name" style="font-size:1.05em;"></div>
+              <div class="text-muted small" id="inv-service-addr"></div>
+            </div>
+            <div class="text-right small">
+              <div class="text-muted">Issue date: <strong><?= date('M j, Y') ?></strong></div>
+              <div class="text-muted mt-1 d-flex align-items-center justify-content-end">
+                Due:&nbsp;
+                <input type="date" id="inv-due-date" class="form-control form-control-sm"
+                       style="width:140px;" value="<?= date('Y-m-d', strtotime('+30 days')) ?>">
+              </div>
+            </div>
+          </div>
+
+          <!-- Line items -->
+          <div class="table-responsive">
+            <table class="table table-sm mb-0" id="inv-items-table">
+              <thead class="thead-light">
+                <tr>
+                  <th>Description</th>
+                  <th class="text-right" style="width:80px;">Qty</th>
+                  <th class="text-right" style="width:110px;">Unit Price</th>
+                  <th class="text-right" style="width:100px;">Total</th>
+                  <th style="width:36px;"></th>
+                </tr>
+              </thead>
+              <tbody id="inv-items-body"></tbody>
+              <tfoot>
+                <tr>
+                  <td colspan="5" class="pt-1 pb-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="inv-add-line" style="font-size:12px;">
+                      <i data-feather="plus" style="width:12px;height:12px;"></i> Add line
+                    </button>
+                  </td>
+                </tr>
+                <tr>
+                  <td colspan="3" class="text-right text-muted small border-top pt-2">Subtotal</td>
+                  <td class="text-right font-weight-600 border-top pt-2" id="inv-subtotal">$0.00</td>
+                  <td class="border-top"></td>
+                </tr>
+                <tr>
+                  <td colspan="3" class="text-right text-muted small" id="inv-gst-label">GST (5%)</td>
+                  <td class="text-right" id="inv-tax">$0.00</td>
+                  <td></td>
+                </tr>
+                <tr class="border-top">
+                  <td colspan="3" class="text-right font-weight-600">Total</td>
+                  <td class="text-right font-weight-600" style="font-size:1.15em;color:var(--mw-green);" id="inv-total">$0.00</td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          <!-- Note + send options -->
+          <div class="form-group mt-3 mb-2">
+            <label class="small font-weight-600" for="inv-note">Note to client (optional)</label>
+            <textarea id="inv-note" class="form-control form-control-sm" rows="2"
+              placeholder="E.g. side gate was locked — will trim hedges next visit…"></textarea>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="inv-send-now" checked>
+            <label class="form-check-label small" for="inv-send-now">
+              Send invoice to client by email now
+            </label>
+          </div>
+          <?php if (!empty($visit['contact_email'])): ?>
+          <div class="text-muted mt-1" style="font-size:11px;padding-left:20px;">
+            → <?= htmlspecialchars($visit['contact_email']) ?>
+          </div>
+          <?php endif; ?>
+        </div><!-- /inv-state-edit -->
+
+        <!-- Success state -->
+        <div id="inv-state-success" style="display:none;" class="text-center py-4">
+          <div style="font-size:52px;line-height:1;">✅</div>
+          <h5 class="mt-3 font-weight-600" id="inv-success-number" style="color:var(--mw-green);"></h5>
+          <p class="text-muted small" id="inv-success-detail"></p>
+          <a href="#" class="btn btn-sm btn-outline-success mt-1" id="inv-view-link">
+            <i data-feather="eye" style="width:13px;height:13px;"></i> View Invoice
+          </a>
+        </div>
+
+        <!-- Error banner -->
+        <div id="inv-state-error" class="alert alert-danger mt-2" style="display:none;"></div>
+
+      </div><!-- /modal-body -->
+
+      <div class="modal-footer" id="inv-modal-footer">
+        <button class="btn btn-secondary btn-sm" data-dismiss="modal">Cancel</button>
+        <button class="btn btn-sm" id="inv-submit-btn"
+                style="background:var(--mw-green);color:#fff;border-color:var(--mw-dark);">
+          <i data-feather="send" style="width:13px;height:13px;"></i> Create &amp; Send Invoice
+        </button>
+      </div>
+    </div>
   </div>
 </div>
 <?php endif; ?>
@@ -1392,6 +1575,196 @@ if (!empty($gpsPoints) && $apiKey) {
     d.appendChild(document.createTextNode(str || ''));
     return d.innerHTML;
   }
+
+  // ── Invoice Compose ────────────────────────────────────────────────────────
+<?php if ($canCreateInvoice): ?>
+  (function() {
+    var prefill = <?= $invoicePrefillJson ?>;
+    if (!prefill) return;
+
+    var gstRate  = prefill.gst_rate || 0.05;
+    var lineItems = [];
+
+    function clonePrefillItems() {
+      lineItems = (prefill.line_items || []).map(function(li) {
+        return { description: li.description, qty: li.qty, unit_price: li.unit_price };
+      });
+    }
+
+    function fmt(n) { return '$' + parseFloat(n || 0).toFixed(2); }
+
+    function recompute() {
+      var subtotal = 0;
+      lineItems.forEach(function(li) { subtotal += (li.qty || 0) * (li.unit_price || 0); });
+      var tax   = Math.round(subtotal * gstRate * 100) / 100;
+      var total = subtotal + tax;
+      document.getElementById('inv-subtotal').textContent = fmt(subtotal);
+      document.getElementById('inv-tax').textContent      = fmt(tax);
+      document.getElementById('inv-total').textContent    = fmt(total);
+      var pct = Math.round(gstRate * 100);
+      document.getElementById('inv-gst-label').textContent = 'GST (' + pct + '%)';
+    }
+
+    function renderRows() {
+      var tbody = document.getElementById('inv-items-body');
+      if (!tbody) return;
+      tbody.innerHTML = '';
+      lineItems.forEach(function(li, i) {
+        var lineTotal = (li.qty || 0) * (li.unit_price || 0);
+        var tr = document.createElement('tr');
+        tr.innerHTML =
+          '<td><input type="text" class="form-control form-control-sm inv-desc" data-idx="' + i + '" value="' + escHtml(li.description) + '"></td>' +
+          '<td><input type="number" class="form-control form-control-sm text-right inv-qty" data-idx="' + i + '" value="' + (li.qty || 0) + '" min="0" step="0.25" style="width:72px;margin-left:auto;"></td>' +
+          '<td><div class="input-group input-group-sm" style="width:108px;margin-left:auto;"><div class="input-group-prepend"><span class="input-group-text" style="padding:0 5px;">$</span></div><input type="number" class="form-control text-right inv-price" data-idx="' + i + '" value="' + (li.unit_price || 0).toFixed(2) + '" min="0" step="0.01"></div></td>' +
+          '<td class="text-right align-middle inv-line-total" data-idx="' + i + '">' + fmt(lineTotal) + '</td>' +
+          '<td class="align-middle text-center"><button type="button" class="inv-remove-line" data-idx="' + i + '" style="border:none;background:transparent;color:#aaa;font-size:15px;cursor:pointer;padding:0 4px;" title="Remove">✕</button></td>';
+        tbody.appendChild(tr);
+      });
+      recompute();
+      if (typeof feather !== 'undefined') feather.replace();
+    }
+
+    // Input delegation
+    document.addEventListener('input', function(e) {
+      var el  = e.target;
+      var idx = parseInt(el.dataset.idx, 10);
+      if (isNaN(idx) || idx < 0 || idx >= lineItems.length) return;
+      if (el.classList.contains('inv-desc')) {
+        lineItems[idx].description = el.value;
+      } else if (el.classList.contains('inv-qty') || el.classList.contains('inv-price')) {
+        if (el.classList.contains('inv-qty'))   lineItems[idx].qty        = parseFloat(el.value) || 0;
+        if (el.classList.contains('inv-price'))  lineItems[idx].unit_price = parseFloat(el.value) || 0;
+        var lt = (lineItems[idx].qty || 0) * (lineItems[idx].unit_price || 0);
+        var ltCell = document.querySelector('.inv-line-total[data-idx="' + idx + '"]');
+        if (ltCell) ltCell.textContent = fmt(lt);
+        recompute();
+      }
+    });
+
+    // Remove row delegation
+    document.addEventListener('click', function(e) {
+      if (!e.target.classList.contains('inv-remove-line')) return;
+      var idx = parseInt(e.target.dataset.idx, 10);
+      if (!isNaN(idx) && lineItems.length > 1) {
+        lineItems.splice(idx, 1);
+        renderRows();
+      }
+    });
+
+    // Add line
+    var addLineBtn = document.getElementById('inv-add-line');
+    if (addLineBtn) {
+      addLineBtn.addEventListener('click', function() {
+        lineItems.push({ description: 'Service', qty: 1, unit_price: 0 });
+        renderRows();
+      });
+    }
+
+    // Send now toggle → update button label
+    var sendNowChk = document.getElementById('inv-send-now');
+    var submitBtn  = document.getElementById('inv-submit-btn');
+    if (sendNowChk && submitBtn) {
+      sendNowChk.addEventListener('change', function() {
+        submitBtn.innerHTML = this.checked
+          ? '<i data-feather="send" style="width:13px;height:13px;"></i> Create &amp; Send Invoice'
+          : '<i data-feather="save" style="width:13px;height:13px;"></i> Save as Draft';
+        if (typeof feather !== 'undefined') feather.replace();
+      });
+    }
+
+    // Open modal button
+    var btnOpen = document.getElementById('btn-create-invoice');
+    if (btnOpen && typeof $ !== 'undefined') {
+      btnOpen.addEventListener('click', function() {
+        // Reset states
+        document.getElementById('inv-state-edit').style.display    = '';
+        document.getElementById('inv-state-success').style.display = 'none';
+        document.getElementById('inv-state-error').style.display   = 'none';
+        document.getElementById('inv-modal-footer').style.display  = '';
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.innerHTML = '<i data-feather="send" style="width:13px;height:13px;"></i> Create &amp; Send Invoice'; }
+
+        // Populate header
+        var cnEl = document.getElementById('inv-client-name');
+        var saEl = document.getElementById('inv-service-addr');
+        if (cnEl) cnEl.textContent = prefill.client_name || 'Client';
+        if (saEl) saEl.textContent = prefill.service_address || '';
+
+        // Note
+        var noteEl = document.getElementById('inv-note');
+        if (noteEl && prefill.notes) noteEl.value = prefill.notes;
+
+        // Line items
+        clonePrefillItems();
+        renderRows();
+
+        $('#invoiceComposeModal').modal('show');
+        if (typeof feather !== 'undefined') feather.replace();
+      });
+    }
+
+    // Submit invoice
+    if (submitBtn) {
+      submitBtn.addEventListener('click', function() {
+        var self    = this;
+        var sendNow = sendNowChk ? sendNowChk.checked : true;
+        var dueDate = document.getElementById('inv-due-date').value;
+        var note    = (document.getElementById('inv-note').value || '').trim();
+
+        self.disabled = true;
+        self.innerHTML = '<span class="spinner-border spinner-border-sm mr-1"></span>Creating…';
+
+        fetch('/crm/api/invoice-create.php', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            visit_id:   VISIT_ID,
+            csrf_token: CSRF,
+            line_items: lineItems,
+            due_date:   dueDate,
+            notes:      note,
+            send_now:   sendNow,
+          })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+          var errEl = document.getElementById('inv-state-error');
+          if (res.success) {
+            document.getElementById('inv-state-edit').style.display    = 'none';
+            document.getElementById('inv-modal-footer').style.display  = 'none';
+            document.getElementById('inv-state-success').style.display = '';
+
+            var numEl    = document.getElementById('inv-success-number');
+            var detailEl = document.getElementById('inv-success-detail');
+            var viewLink = document.getElementById('inv-view-link');
+            if (numEl) numEl.textContent = res.invoice_number + ' — ' + fmt(res.total);
+            var detail = 'Invoice ' + (res.status === 'sent' ? 'created and sent' : 'saved as draft');
+            if (res.sent_to && res.sent_to.length) detail += ' · emailed to ' + res.sent_to.join(', ');
+            if (detailEl) detailEl.textContent = detail;
+            if (viewLink) viewLink.href = '/crm/invoices/view.php?id=' + res.invoice_id;
+            if (typeof feather !== 'undefined') feather.replace();
+            // Reload page header after 4 s so button switches to "View Invoice"
+            setTimeout(function() { location.reload(); }, 4000);
+          } else {
+            errEl.style.display = '';
+            errEl.textContent   = res.error || 'Failed to create invoice. Please try again.';
+            self.disabled       = false;
+            self.innerHTML      = '<i data-feather="send" style="width:13px;height:13px;"></i> Create &amp; Send Invoice';
+            if (typeof feather !== 'undefined') feather.replace();
+          }
+        })
+        .catch(function() {
+          var errEl = document.getElementById('inv-state-error');
+          errEl.style.display = '';
+          errEl.textContent   = 'Network error. Please try again.';
+          self.disabled       = false;
+          self.innerHTML      = '<i data-feather="send" style="width:13px;height:13px;"></i> Create &amp; Send Invoice';
+          if (typeof feather !== 'undefined') feather.replace();
+        });
+      });
+    }
+  })();
+<?php endif; ?>
 
 })();
 </script>
