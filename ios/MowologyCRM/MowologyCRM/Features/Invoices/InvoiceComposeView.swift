@@ -77,6 +77,9 @@ struct InvoiceComposeView: View {
                 // ── Line items ───────────────────────────────────────────────
                 lineItemsCard
 
+                // ── Nominal request charge ───────────────────────────────────
+                nominalRequestCard
+
                 // ── Totals ───────────────────────────────────────────────────
                 totalsCard(prefill: prefill)
 
@@ -151,6 +154,30 @@ struct InvoiceComposeView: View {
                     .foregroundStyle(Color.MW.green)
             }
         }
+        .padding(16)
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    // MARK: - Nominal request card
+
+    private var nominalRequestCard: some View {
+        Toggle(isOn: $vm.nominalRequestEnabled) {
+            HStack(spacing: 10) {
+                Image(systemName: "plus.circle.fill")
+                    .foregroundStyle(vm.nominalRequestEnabled ? Color.MW.green : .secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Nominal client request")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(Color.MW.dark)
+                    Text("Add $10.00 for small on-site requests")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .toggleStyle(.switch)
+        .tint(Color.MW.green)
         .padding(16)
         .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 12))
