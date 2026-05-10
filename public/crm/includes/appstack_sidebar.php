@@ -7,7 +7,7 @@
  *   $activePage   — string matching a key below to highlight the active nav item
  *
  * Active page keys: 'dashboard', 'clients', 'companies', 'quotes', 'jobs',
- *                   'invoices', 'schedule', 'timeclock', 'expenses',
+ *                   'invoices', 'schedule', 'timeclock', 'timesheets', 'payroll-summary', 'expenses',
  *                   'profitability', 'cost-factors', 'intel', 'marketing', 'social', 'cms', 'media',
  *                   'team', 'leaderboard', 'quiz', 'map', 'photos', 'products', 'portfolio',
  *                   'work-zones', 'users', 'settings'
@@ -63,9 +63,11 @@ $navItems = [
 
     // ── Schedule ──────────────────────────────────────────────────────────────
     ['type' => 'header', 'label' => 'Schedule'],
-    ['key' => 'schedule',    'label' => 'Schedule',    'icon' => 'calendar', 'href' => '/crm/jobs/schedule.php',          'perm' => 'schedule.view'],
-    ['key' => 'timeclock',   'label' => 'Time Clock',  'icon' => 'clock',    'href' => '/crm/timeclock/my-schedule.php',  'perm' => 'schedule.view'],
-    ['key' => 'work-zones',  'label' => 'Work Zones',  'icon' => 'map-pin',  'href' => '/crm/zone-report_appstack.php',   'perm' => 'jobs.view'],
+    ['key' => 'schedule',         'label' => 'Schedule',       'icon' => 'calendar',   'href' => '/crm/jobs/schedule.php',               'perm' => 'schedule.view'],
+    ['key' => 'timeclock',        'label' => 'Time Clock',     'icon' => 'clock',      'href' => '/crm/timeclock/my-schedule.php',       'perm' => 'schedule.view'],
+    ['key' => 'timesheets',       'label' => 'Timesheets',     'icon' => 'file-text',  'href' => '/crm/timeclock/timesheets.php',        'perm' => 'timer.override'],
+    ['key' => 'payroll-summary',  'label' => 'Payroll',        'icon' => 'dollar-sign','href' => '/crm/timeclock/payroll-summary.php',  'perm' => 'timer.override'],
+    ['key' => 'work-zones',       'label' => 'Work Zones',     'icon' => 'map-pin',    'href' => '/crm/zone-report_appstack.php',        'perm' => 'jobs.view'],
 
     // ── Financials ────────────────────────────────────────────────────────────
     ['type' => 'header', 'label' => 'Financials'],

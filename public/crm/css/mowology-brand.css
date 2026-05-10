@@ -10935,10 +10935,11 @@ textarea.font-monospace {
   font-weight: 600;
 }
 
-.mw-ts-status-pending { background: #fef3c7; color: #92400e; }
-.mw-ts-status-submitted { background: #dbeafe; color: #1e40af; }
-.mw-ts-status-approved { background: #dcfce7; color: #166534; }
-.mw-ts-status-rejected { background: #fecaca; color: #991b1b; }
+.mw-ts-status-pending      { background: #fef3c7; color: #92400e; }
+.mw-ts-status-submitted    { background: #dbeafe; color: #1e40af; }
+.mw-ts-status-approved     { background: #dcfce7; color: #166534; }
+.mw-ts-status-rejected     { background: #fecaca; color: #991b1b; }
+.mw-ts-status-no_timesheet { background: #f3f4f6; color: #6b7280; }
 
 /* Timesheet detail — daily breakdown */
 .mw-ts-day-row {
@@ -26213,4 +26214,235 @@ body.mw-no-scroll {
   .sidebar, .topbar, .btn, form.card { display: none !important; }
   .card { box-shadow: none !important; border: 1px solid #ddd !important; }
   .mw-cra-table { page-break-inside: avoid; }
+}
+
+/* ── Timesheet Pay Summary & Payroll ─────────────────────────────────────── */
+
+/* Pay summary stat row (timesheet-detail.php) */
+.mw-pay-summary {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.mw-pay-card {
+  flex: 1;
+  min-width: 130px;
+  background: #fff;
+  border-radius: 12px;
+  border: 1px solid #e8ede9;
+  padding: 14px 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.mw-pay-card-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #888;
+  font-family: 'Montserrat', sans-serif;
+}
+.mw-pay-card-value {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #1a2e1a;
+  font-family: 'Montserrat', sans-serif;
+  line-height: 1.2;
+}
+.mw-pay-card-sub {
+  font-size: 0.7rem;
+  color: #aaa;
+}
+.mw-pay-card--gross .mw-pay-card-value {
+  color: var(--mw-green);
+  font-size: 1.3rem;
+}
+.mw-pay-card--ot .mw-pay-card-value {
+  color: #e67e22;
+}
+
+/* OT badge — inline amber flag */
+.mw-ot-badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  background: #fff3cd;
+  color: #8a5700;
+  vertical-align: middle;
+  margin-left: 6px;
+  font-family: 'Montserrat', sans-serif;
+}
+
+/* Manager entry action buttons */
+.mw-entry-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.mw-entry-actions .btn {
+  padding: 2px 8px;
+  font-size: 0.72rem;
+  border-radius: 6px;
+  line-height: 1.6;
+}
+.mw-entry-voided {
+  opacity: 0.45;
+  text-decoration: line-through;
+}
+.mw-entry-voided .mw-entry-actions { display: none; }
+
+/* Day "Add Entry" button */
+.mw-day-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.73rem;
+  font-weight: 600;
+  color: var(--mw-green);
+  background: none;
+  border: 1px dashed var(--mw-green);
+  border-radius: 8px;
+  padding: 4px 12px;
+  margin: 6px 0 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+  font-family: 'Montserrat', sans-serif;
+}
+.mw-day-add-btn:hover { background: var(--mw-light); }
+
+/* Timesheet detail — OT day highlight */
+.mw-ts-day-row--ot .mw-ts-day-header {
+  background: linear-gradient(90deg, #fff9ee 0%, #fff 100%);
+}
+
+/* Entry edit modal */
+.mw-entry-modal .modal-header {
+  background: var(--mw-green);
+  color: #fff;
+  border-radius: 12px 12px 0 0;
+}
+.mw-entry-modal .modal-header .close { color: #fff; opacity: 0.8; }
+.mw-entry-modal .modal-content { border-radius: 12px; border: none; }
+
+/* ── Payroll Summary page (payroll-summary.php) ──────────────────────────── */
+.mw-payroll-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.mw-payroll-period-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: var(--mw-light);
+  border-radius: 24px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--mw-forest);
+  font-family: 'Montserrat', sans-serif;
+}
+.mw-payroll-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+}
+.mw-payroll-table thead th {
+  background: var(--mw-forest);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 11px 14px;
+  font-family: 'Montserrat', sans-serif;
+  white-space: nowrap;
+}
+.mw-payroll-table tbody td {
+  padding: 12px 14px;
+  font-size: 0.88rem;
+  border-bottom: 1px solid #f0f4f1;
+  vertical-align: middle;
+}
+.mw-payroll-table tbody tr:last-child td { border-bottom: none; }
+.mw-payroll-table tbody tr:hover { background: #f8fbf9; }
+.mw-payroll-table tfoot td {
+  padding: 12px 14px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  background: #f0f4f1;
+  border-top: 2px solid #ddeedd;
+}
+.mw-payroll-emp-name {
+  font-weight: 700;
+  color: #1a2e1a;
+}
+.mw-payroll-emp-rate {
+  font-size: 0.75rem;
+  color: #888;
+}
+.mw-payroll-gross {
+  font-weight: 800;
+  color: var(--mw-green);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 0.95rem;
+}
+.mw-payroll-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
+  margin-bottom: 20px;
+  padding: 16px;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+}
+.mw-payroll-preset-btns {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.mw-payroll-preset-btn {
+  padding: 5px 12px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  border-radius: 20px;
+  border: 1px solid #ccdbc6;
+  background: #fff;
+  color: var(--mw-forest);
+  cursor: pointer;
+  transition: background 0.15s;
+  font-family: 'Montserrat', sans-serif;
+}
+.mw-payroll-preset-btn.active,
+.mw-payroll-preset-btn:hover {
+  background: var(--mw-green);
+  border-color: var(--mw-green);
+  color: #fff;
+}
+.mw-payroll-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+@media print {
+  .mw-payroll-filter-bar, .mw-payroll-actions, .sidebar, .topbar,
+  .nav-tabs, .breadcrumb { display: none !important; }
+  .mw-payroll-table { box-shadow: none !important; }
+  .mw-payroll-table thead th { background: #333 !important; -webkit-print-color-adjust: exact; }
 }
