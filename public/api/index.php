@@ -64,6 +64,7 @@ $moduleMap = [
     'settings'  => 'Settings',
     'schedule'  => 'Schedule',    // Mobile iOS schedule API (JWT-authenticated)
     'expenses'  => 'Expenses',    // Mobile iOS expense/receipt API (JWT-authenticated)
+    'reports'   => 'Reports',     // Mobile iOS reports API (JWT-authenticated, admin only)
 ];
 
 if (!isset($moduleMap[$module])) {
@@ -152,11 +153,17 @@ $actionAliases = [
         'day'                => 'day',
         'week'               => 'week',
         'clock'              => 'clock',       // Mobile time-clock (JWT) — GET status / POST clock_in|clock_out
+        'timer'              => 'timer',       // Mobile job timer (JWT) — POST start|stop
+        'location'           => 'location',   // Mobile GPS ping (JWT) — POST lat/lng
+        'quiz'               => 'quiz',        // Mobile pre-shift quiz gate (JWT)
         'jobs'               => 'jobs',        // Mobile jobs history (JWT) — GET paginated visit list
         'quotes'             => 'quotes',      // Mobile quotes (JWT, admin only)
         'invoices'           => 'invoices',    // Mobile invoices (JWT, admin only)
         'job-photo'          => 'job-photo',   // Mobile before/after photo upload (JWT)
         'crew-trails'        => 'crew-trails', // Mobile crew GPS trail playback (JWT)
+    ],
+    'reports' => [
+        'data'               => 'data',        // Mobile reports API (JWT, admin only)
     ],
 ];
 

@@ -79,6 +79,12 @@ struct MainTabView: View {
                 if isAdmin {
                     Section("Admin") {
                         NavigationLink {
+                            ReportsView(authSession: authSession)
+                        } label: {
+                            Label("Reports", systemImage: "chart.bar.xaxis")
+                        }
+
+                        NavigationLink {
                             QuotesView(authSession: authSession)
                         } label: {
                             Label("Quotes", systemImage: "doc.text")

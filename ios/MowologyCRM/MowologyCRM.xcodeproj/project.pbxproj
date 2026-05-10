@@ -71,6 +71,13 @@
 		58CC284E2C4C447088CDBFC2 /* VisitWorkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C133E57A28A6AF23D6B4CAF /* VisitWorkView.swift */; };
 		95847CD0E60048FA99052C64 /* VisitWorkViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB2823D3497805DBBA0F6047 /* VisitWorkViewModel.swift */; };
 		1F135BB4A8874AC3A99BD695 /* LiveReceiptScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BCAA6456C9F805D11DD98B4 /* LiveReceiptScanner.swift */; };
+		9D7CC29B6BBEEF179CFFE7D4 /* QuizModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F06A0B4B24F5406ED443904 /* QuizModels.swift */; };
+		6C9DEDEB83C1AC4FD7FD1416 /* QuizViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EF023D65CCE6720BF2F70F2 /* QuizViewModel.swift */; };
+		D5EE0190C306146C1538F766 /* QuizView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADFBC63B4ED3CD11F30D135A /* QuizView.swift */; };
+		C0734BEA0E27A259E9D0695A /* ReportModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE1FDC55765844BAF489EBCF /* ReportModels.swift */; };
+		AFAD015BB9D78959494D5C31 /* ReportsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5A0DE48EB02D5C9747FE99C /* ReportsViewModel.swift */; };
+		9E8E0E391B7C1BA00510EA2D /* ReportChartView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32F7049E1633310D7975230D /* ReportChartView.swift */; };
+		ABEF5AB12F4577F4BE9E15A6 /* ReportsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E14E7E9BFCD3A7EC8E4BE4AB /* ReportsView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -151,6 +158,13 @@
 		C55F15FFA1FF6284895E3895 /* JobsListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobsListView.swift; sourceTree = "<group>"; };
 		BF8B37CB99942ABF04099B57 /* InvoicesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InvoicesView.swift; sourceTree = "<group>"; };
 		0DD35F027AA028DAB116C92A /* QuotesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuotesView.swift; sourceTree = "<group>"; };
+		1F06A0B4B24F5406ED443904 /* QuizModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuizModels.swift; sourceTree = "<group>"; };
+		5EF023D65CCE6720BF2F70F2 /* QuizViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuizViewModel.swift; sourceTree = "<group>"; };
+		ADFBC63B4ED3CD11F30D135A /* QuizView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuizView.swift; sourceTree = "<group>"; };
+		BE1FDC55765844BAF489EBCF /* ReportModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReportModels.swift; sourceTree = "<group>"; };
+		A5A0DE48EB02D5C9747FE99C /* ReportsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReportsViewModel.swift; sourceTree = "<group>"; };
+		32F7049E1633310D7975230D /* ReportChartView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReportChartView.swift; sourceTree = "<group>"; };
+		E14E7E9BFCD3A7EC8E4BE4AB /* ReportsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReportsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -377,7 +391,9 @@
 				B4C5D6E7F8A9B0C1D2E3F4A5 /* ReceiptsView.swift */,
 				D4E5F6A7B8C9D0E1F2A3B4C5 /* ReceiptsViewModel.swift */,
 				2BCAA6456C9F805D11DD98B4 /* LiveReceiptScanner.swift */,
-			);
+							E0AAB5304BFC39D72D5240BB /* Quiz */,
+				B0EB05AB43577A0E6AB7A5EC /* Reports */,
+);
 			path = Receipts;
 			sourceTree = "<group>";
 		};
@@ -449,6 +465,22 @@
 				6B5EFFFBCFAAD856E43264A9 /* ShowScheduleIntent.swift */,
 			);
 			path = AppIntents;
+			sourceTree = "<group>";
+		};
+		E0AAB5304BFC39D72D5240BB /* Quiz */ = {
+			isa = PBXGroup;
+			children = (
+				1F06A0B4B24F5406ED443904 /* QuizModels.swift */,
+			);
+			path = Quiz;
+			sourceTree = "<group>";
+		};
+		B0EB05AB43577A0E6AB7A5EC /* Reports */ = {
+			isa = PBXGroup;
+			children = (
+				BE1FDC55765844BAF489EBCF /* ReportModels.swift */,
+			);
+			path = Reports;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
