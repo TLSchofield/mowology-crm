@@ -354,7 +354,7 @@ function processOcrJob(int $mediaId, int $userId, string $webPath, string $mimeT
 
     if ($ocrAvailable && $ocrText !== '') {
         $parsed      = parseReceiptText($ocrText, $ocrResult['raw_response'] ?? null);
-        $suggestions = suggestReceiptMeta($ocrText, $lat, $lng, null, $parsed);
+        $suggestions = suggestReceiptMeta($ocrText, $lat, $lng, null);
 
         if (!empty($suggestions['vendor_id'])) {
             $parsed = applyLearnedPatterns((int)$suggestions['vendor_id'], $parsed, $ocrText);

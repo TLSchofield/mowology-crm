@@ -48,7 +48,7 @@
 		5AAFF6AF9E68378A400F6657 /* ClockInIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90C667FF46EC2B266DE11963 /* ClockInIntent.swift */; };
 		73F6FC84E47A1D864C3B18E5 /* ShowScheduleIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B5EFFFBCFAAD856E43264A9 /* ShowScheduleIntent.swift */; };
 		1B0ED1F5E664CA7DB3018231 /* ClockOutIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE94A123C42B905BE6904B4F /* ClockOutIntent.swift */; };
-		051C7D44A1A436394997983C /* LocalOCR.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10B4DAEACB7DA7EA31C4B251 /* LocalOCR.swift */; };
+
 		9F3DA5FD077BA73C4F89DBC3 /* DeviceTokenService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70B6262F1652C439EF4C0F33 /* DeviceTokenService.swift */; };
 		9D8769DD00DDEAF3E56D1C2E /* JobsListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C55F15FFA1FF6284895E3895 /* JobsListView.swift */; };
 		658DF7B600099EE97BE2B7D7 /* InvoicesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF8B37CB99942ABF04099B57 /* InvoicesView.swift */; };
@@ -70,7 +70,7 @@
 		7D3606ABAAAE4FF98BF3029E /* JobPhotoSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A1B218A949D694791F7CC50 /* JobPhotoSection.swift */; };
 		58CC284E2C4C447088CDBFC2 /* VisitWorkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C133E57A28A6AF23D6B4CAF /* VisitWorkView.swift */; };
 		95847CD0E60048FA99052C64 /* VisitWorkViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB2823D3497805DBBA0F6047 /* VisitWorkViewModel.swift */; };
-		1F135BB4A8874AC3A99BD695 /* LiveReceiptScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BCAA6456C9F805D11DD98B4 /* LiveReceiptScanner.swift */; };
+
 		9D7CC29B6BBEEF179CFFE7D4 /* QuizModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F06A0B4B24F5406ED443904 /* QuizModels.swift */; };
 		6C9DEDEB83C1AC4FD7FD1416 /* QuizViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EF023D65CCE6720BF2F70F2 /* QuizViewModel.swift */; };
 		D5EE0190C306146C1538F766 /* QuizView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADFBC63B4ED3CD11F30D135A /* QuizView.swift */; };
@@ -108,7 +108,6 @@
 		1F2E3D4C5B6A7980A1B2C3D4 /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
 		23FD0CE4AE1671A750AF3E16 /* JobsQuotesInvoicesModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobsQuotesInvoicesModels.swift; sourceTree = "<group>"; };
 		25C65D44A564B9D1F3913F66 /* QuotesViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuotesViewModel.swift; sourceTree = "<group>"; };
-		2BCAA6456C9F805D11DD98B4 /* LiveReceiptScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveReceiptScanner.swift; sourceTree = "<group>"; };
 		2E7C92CC6796BADE174216F5 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
 		37E412C65849505E8688DCD3 /* ArrivalMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArrivalMonitor.swift; sourceTree = "<group>"; };
 		3A1B218A949D694791F7CC50 /* JobPhotoSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobPhotoSection.swift; sourceTree = "<group>"; };
@@ -165,7 +164,6 @@
 		90C667FF46EC2B266DE11963 /* ClockInIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClockInIntent.swift; sourceTree = "<group>"; };
 		6B5EFFFBCFAAD856E43264A9 /* ShowScheduleIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowScheduleIntent.swift; sourceTree = "<group>"; };
 		CE94A123C42B905BE6904B4F /* ClockOutIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClockOutIntent.swift; sourceTree = "<group>"; };
-		10B4DAEACB7DA7EA31C4B251 /* LocalOCR.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalOCR.swift; sourceTree = "<group>"; };
 		70B6262F1652C439EF4C0F33 /* DeviceTokenService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceTokenService.swift; sourceTree = "<group>"; };
 		C55F15FFA1FF6284895E3895 /* JobsListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobsListView.swift; sourceTree = "<group>"; };
 		BF8B37CB99942ABF04099B57 /* InvoicesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InvoicesView.swift; sourceTree = "<group>"; };
@@ -205,8 +203,7 @@
 			isa = PBXGroup;
 			children = (
 				7D6FBBBC8A8782A7FE767C2B /* CalendarSyncService.swift */,
-				10B4DAEACB7DA7EA31C4B251 /* LocalOCR.swift */,
-				70B6262F1652C439EF4C0F33 /* DeviceTokenService.swift */,
+					70B6262F1652C439EF4C0F33 /* DeviceTokenService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -422,8 +419,7 @@
 				F3A4B5C6D7E8F9A0B1C2D3E4 /* ReceiptReviewView.swift */,
 				B4C5D6E7F8A9B0C1D2E3F4A5 /* ReceiptsView.swift */,
 				D4E5F6A7B8C9D0E1F2A3B4C5 /* ReceiptsViewModel.swift */,
-				2BCAA6456C9F805D11DD98B4 /* LiveReceiptScanner.swift */,
-			);
+				);
 			path = Receipts;
 			sourceTree = "<group>";
 		};
@@ -676,9 +672,7 @@
 				7D3606ABAAAE4FF98BF3029E /* JobPhotoSection.swift in Sources */,
 				58CC284E2C4C447088CDBFC2 /* VisitWorkView.swift in Sources */,
 				95847CD0E60048FA99052C64 /* VisitWorkViewModel.swift in Sources */,
-				1F135BB4A8874AC3A99BD695 /* LiveReceiptScanner.swift in Sources */,
-				051C7D44A1A436394997983C /* LocalOCR.swift in Sources */,
-				9F3DA5FD077BA73C4F89DBC3 /* DeviceTokenService.swift in Sources */,
+					9F3DA5FD077BA73C4F89DBC3 /* DeviceTokenService.swift in Sources */,
 				5AAFF6AF9E68378A400F6657 /* ClockInIntent.swift in Sources */,
 				1B0ED1F5E664CA7DB3018231 /* ClockOutIntent.swift in Sources */,
 				73F6FC84E47A1D864C3B18E5 /* ShowScheduleIntent.swift in Sources */,

@@ -395,7 +395,7 @@ try {
     //   empty JSON array ([]) instead of an object ({}).
     if ($ocrAvailable && !empty($ocrText)) {
         $parsed      = parseReceiptText($ocrText, $ocrResult['raw_response'] ?? null);
-        $suggestions = suggestReceiptMeta($ocrText, $lat, $lng, $jobId, $parsed);
+        $suggestions = suggestReceiptMeta($ocrText, $lat, $lng, $jobId);
 
         if (!empty($suggestions['vendor_id'])) {
             $parsed = applyLearnedPatterns((int)$suggestions['vendor_id'], $parsed, $ocrText);
