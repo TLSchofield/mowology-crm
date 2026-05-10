@@ -53,6 +53,30 @@ $serviceColors = [
 // GPS proximity setting
 $gpsProximityMeters = (int)getTimeClockSetting('gps_proximity_meters', '150');
 
+// Load this employee's scheduled shift for the viewed date
+$viewDow = (int)date('w', strtotime($viewDate)); // 0=Sun … 6=Sat
+$shiftStmt = $db->prepare("
+    SELECT start_time, end_time, notes
+    FROM crew_work_schedules
+    WHERE user_id = ? AND day_of_week = ?
+");
+$shiftStmt->execute([$user['id'], $viewDow]);
+$todayShift = $shiftStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+
+// Load week's schedule (Mon–Sun) for the week containing $viewDate
+$weekShiftStmt = $db->prepare("
+    SELECT day_of_week, start_time, end_time, notes
+    FROM crew_work_schedules
+    WHERE user_id = ?
+    ORDER BY day_of_week ASC
+");
+$weekShiftStmt->execute([$user['id']]);
+$weekShifts = [];
+foreach ($weekShiftStmt->fetchAll(PDO::FETCH_ASSOC) as $ws) {
+    $weekShifts[(int)$ws['day_of_week']] = $ws;
+}
+$hasAnySchedule = !empty($weekShifts);
+
 // All jobs for today (any crew) — used for GPS proximity so ANY crew near a property can clock in
 $allJobsToday = $isToday ? getAllJobsForDate($viewDate) : [];
 // Filter out jobs already in the user's assigned list and completed ones
@@ -134,6 +158,74 @@ $activePage = 'timeclock';
         <?php endif; ?>
     </div>
 </div>
+
+<!-- Scheduled Shift Banner -->
+<?php if ($todayShift): ?>
+<?php
+$shiftStartFmt = date('g:i A', strtotime($todayShift['start_time']));
+$shiftEndFmt   = date('g:i A', strtotime($todayShift['end_time']));
+$shiftMinutes  = (strtotime($todayShift['end_time']) - strtotime($todayShift['start_time'])) / 60;
+$shiftH = floor($shiftMinutes / 60);
+$shiftM = (int)$shiftMinutes % 60;
+$shiftDurStr = $shiftM ? "{$shiftH}h {$shiftM}m" : "{$shiftH}h";
+?>
+<div class="mw-shift-banner">
+    <div class="mw-shift-banner-icon">
+        <i data-feather="clock" style="width:18px;height:18px;"></i>
+    </div>
+    <div class="mw-shift-banner-info">
+        <span class="mw-shift-banner-label">Your Shift</span>
+        <span class="mw-shift-banner-time"><?php echo $shiftStartFmt; ?> &ndash; <?php echo $shiftEndFmt; ?></span>
+        <span class="mw-shift-banner-dur"><?php echo $shiftDurStr; ?></span>
+        <?php if (!empty($todayShift['notes'])): ?>
+            <span class="mw-shift-banner-notes"><?php echo htmlspecialchars($todayShift['notes']); ?></span>
+        <?php endif; ?>
+    </div>
+    <?php if ($hasAnySchedule): ?>
+    <button class="mw-shift-banner-toggle btn btn-sm btn-outline-secondary"
+            onclick="document.getElementById('mwWeekSchedule').classList.toggle('d-none');">
+        <i data-feather="calendar" style="width:13px;height:13px;"></i> Week
+    </button>
+    <?php endif; ?>
+</div>
+<?php elseif ($hasAnySchedule): ?>
+<div class="mw-shift-banner mw-shift-banner--day-off">
+    <div class="mw-shift-banner-icon">
+        <i data-feather="moon" style="width:18px;height:18px;"></i>
+    </div>
+    <div class="mw-shift-banner-info">
+        <span class="mw-shift-banner-label">Day Off</span>
+        <span class="mw-shift-banner-time">Not scheduled to work today</span>
+    </div>
+    <button class="mw-shift-banner-toggle btn btn-sm btn-outline-secondary"
+            onclick="document.getElementById('mwWeekSchedule').classList.toggle('d-none');">
+        <i data-feather="calendar" style="width:13px;height:13px;"></i> Week
+    </button>
+</div>
+<?php endif; ?>
+
+<!-- Week schedule (collapsed by default) -->
+<?php if ($hasAnySchedule): ?>
+<?php
+$dayNames = [0=>'Sun',1=>'Mon',2=>'Tue',3=>'Wed',4=>'Thu',5=>'Fri',6=>'Sat'];
+?>
+<div id="mwWeekSchedule" class="mw-week-schedule d-none mb-3">
+    <div class="mw-week-schedule-title">My Weekly Schedule</div>
+    <div class="mw-week-schedule-grid">
+        <?php foreach ([1,2,3,4,5,6,0] as $wd): ?>
+        <div class="mw-week-sched-cell <?php echo isset($weekShifts[$wd]) ? 'mw-week-sched-working' : 'mw-week-sched-off'; ?> <?php echo $wd === $viewDow ? 'mw-week-sched-today' : ''; ?>">
+            <div class="mw-week-sched-day"><?php echo $dayNames[$wd]; ?></div>
+            <?php if (isset($weekShifts[$wd])): ?>
+                <div class="mw-week-sched-time"><?php echo date('g:ia', strtotime($weekShifts[$wd]['start_time'])); ?></div>
+                <div class="mw-week-sched-time"><?php echo date('g:ia', strtotime($weekShifts[$wd]['end_time'])); ?></div>
+            <?php else: ?>
+                <div class="mw-week-sched-off-label">Off</div>
+            <?php endif; ?>
+        </div>
+        <?php endforeach; ?>
+    </div>
+</div>
+<?php endif; ?>
 
 <!-- Day Stats -->
 <div class="mw-schedule-stats mb-4">

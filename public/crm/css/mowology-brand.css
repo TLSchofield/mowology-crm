@@ -26446,3 +26446,166 @@ body.mw-no-scroll {
   .mw-payroll-table { box-shadow: none !important; }
   .mw-payroll-table thead th { background: #333 !important; -webkit-print-color-adjust: exact; }
 }
+
+/* ─── Crew Work Schedule ──────────────────────────────────────────────────── */
+
+/* Shift banner on my-schedule.php */
+.mw-shift-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--mw-light);
+  border-left: 4px solid var(--mw-green);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+}
+.mw-shift-banner--day-off {
+  border-left-color: #adb5bd;
+  background: #f8f9fa;
+}
+.mw-shift-banner-icon {
+  color: var(--mw-green);
+  flex-shrink: 0;
+}
+.mw-shift-banner--day-off .mw-shift-banner-icon { color: #adb5bd; }
+.mw-shift-banner-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  flex: 1;
+}
+.mw-shift-banner-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--mw-forest);
+  background: #fff;
+  border: 1px solid var(--mw-light);
+  border-radius: 10px;
+  padding: 2px 8px;
+}
+.mw-shift-banner-time {
+  font-weight: 600;
+  color: var(--mw-forest);
+  font-size: 0.95rem;
+}
+.mw-shift-banner-dur {
+  font-size: 0.8rem;
+  color: var(--mw-green);
+  font-weight: 600;
+}
+.mw-shift-banner-notes {
+  font-size: 0.8rem;
+  color: #6c757d;
+  font-style: italic;
+}
+.mw-shift-banner-toggle {
+  flex-shrink: 0;
+  font-size: 0.78rem;
+}
+
+/* Weekly schedule grid */
+.mw-week-schedule {
+  background: #fff;
+  border: 1px solid var(--mw-light);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+}
+.mw-week-schedule-title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--mw-forest);
+  margin-bottom: 10px;
+}
+.mw-week-schedule-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+}
+.mw-week-sched-cell {
+  border-radius: 6px;
+  padding: 6px 4px;
+  text-align: center;
+  font-size: 0.75rem;
+  border: 1px solid #e9ecef;
+}
+.mw-week-sched-working {
+  background: var(--mw-light);
+  border-color: #c8dfd4;
+}
+.mw-week-sched-off {
+  background: #f8f9fa;
+  color: #adb5bd;
+}
+.mw-week-sched-today {
+  border: 2px solid var(--mw-green);
+}
+.mw-week-sched-day {
+  font-weight: 700;
+  margin-bottom: 3px;
+  color: var(--mw-forest);
+}
+.mw-week-sched-off .mw-week-sched-day { color: #adb5bd; }
+.mw-week-sched-time {
+  color: var(--mw-green);
+  font-weight: 600;
+  line-height: 1.3;
+}
+.mw-week-sched-off-label {
+  color: #adb5bd;
+  font-style: italic;
+}
+
+/* Admin schedule editor table */
+.mw-crew-sched-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+.mw-crew-sched-table thead th {
+  background: var(--mw-forest);
+  color: #fff;
+  padding: 10px 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.mw-crew-sched-row {
+  border-bottom: 1px solid var(--mw-light);
+  transition: background 0.1s;
+}
+.mw-crew-sched-active { background: #fff; }
+.mw-crew-sched-off    { background: #f8f9fa; }
+.mw-crew-sched-row td { padding: 10px 12px; vertical-align: middle; }
+.mw-crew-sched-day { font-weight: 600; color: var(--mw-forest); min-width: 100px; }
+.mw-crew-sched-off .mw-crew-sched-day { color: #adb5bd; }
+.mw-crew-sched-duration {
+  font-weight: 600;
+  color: var(--mw-green);
+  white-space: nowrap;
+  min-width: 60px;
+}
+.mw-crew-sched-time { max-width: 120px; }
+
+/* Toggle checkbox */
+.mw-crew-sched-toggle { display: inline-flex; align-items: center; }
+.mw-crew-sched-toggle input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; accent-color: var(--mw-green); }
+.mw-crew-sched-toggle label { margin: 0; cursor: pointer; }
+
+/* Schedule summary card */
+.mw-crew-sched-summary { display: flex; flex-direction: column; gap: 6px; }
+.mw-crew-sched-summary-row {
+  font-size: 0.875rem;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--mw-light);
+  color: var(--mw-forest);
+  font-weight: 500;
+}
+.mw-crew-sched-summary-row:last-child { border-bottom: none; }
