@@ -71,6 +71,12 @@ enum APIEndpoint {
     /// GET /api/schedule/invoices — admin-only invoice list.
     case scheduleInvoices(status: String)
 
+    /// GET /api/schedule/invoice-prefill?visit_id=N — prefill data for the iOS invoice compose sheet.
+    case scheduleInvoicePrefill(visitId: Int)
+
+    /// POST /api/schedule/invoice-create-send — create and optionally send an invoice from a completed visit.
+    case scheduleInvoiceCreateSend
+
     // MARK: - URL
 
     /// Builds the full URL for the endpoint. Returns `nil` only if the base
@@ -153,6 +159,14 @@ enum APIEndpoint {
             var components = URLComponents(string: "\(baseURLString)/schedule/invoices")
             components?.queryItems = [URLQueryItem(name: "status", value: status)]
             return components?.url
+
+        case .scheduleInvoicePrefill(let visitId):
+            var components = URLComponents(string: "\(baseURLString)/schedule/invoice-prefill")
+            components?.queryItems = [URLQueryItem(name: "visit_id", value: "\(visitId)")]
+            return components?.url
+
+        case .scheduleInvoiceCreateSend:
+            return URL(string: "\(baseURLString)/schedule/invoice-create-send")
         }
     }
 
@@ -179,7 +193,9 @@ enum APIEndpoint {
              .powGpsSync,
              .scheduleJobs,
              .scheduleQuotes,
-             .scheduleInvoices: return true
+             .scheduleInvoices,
+             .scheduleInvoicePrefill,
+             .scheduleInvoiceCreateSend: return true
         }
     }
 
@@ -196,7 +212,8 @@ enum APIEndpoint {
              .expenseList,
              .scheduleJobs,
              .scheduleQuotes,
-             .scheduleInvoices:    return "GET"
+             .scheduleInvoices,
+             .scheduleInvoicePrefill: return "GET"
 
         case .scheduleTimer,
              .scheduleLocation,
@@ -206,7 +223,8 @@ enum APIEndpoint {
              .jobPhoto,
              .deviceTokenRegister,
              .powActions,
-             .powGpsSync: return "POST"
+             .powGpsSync,
+             .scheduleInvoiceCreateSend: return "POST"
 
         case .receiptImage:        return "GET"
         }

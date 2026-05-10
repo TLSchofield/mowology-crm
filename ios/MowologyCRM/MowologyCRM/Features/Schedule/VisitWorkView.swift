@@ -69,6 +69,15 @@ struct VisitWorkView: View {
         } message: {
             Text(vm.errorMessage ?? "")
         }
+        .sheet(item: $vm.invoicePrefill) { prefill in
+            InvoiceComposeView(
+                visitId: visit.visitId,
+                prefill: prefill,
+                apiClient: vm.apiClient
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
     }
 
     // MARK: - Property Header
@@ -169,23 +178,50 @@ struct VisitWorkView: View {
             }
 
         } else if status == "in_progress" {
-            Button(role: .destructive) {
-                Task { await vm.endVisit() }
-            } label: {
-                Label("End Job", systemImage: "stop.fill")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-                    .background(Color.red.opacity(0.9))
-                    .foregroundStyle(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-            }
-            .disabled(vm.isLoading)
-            .overlay {
-                if vm.isLoading {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.red.opacity(0.7))
-                    ProgressView().tint(.white)
+            VStack(spacing: 12) {
+                // Admin-only: complete the visit AND immediately compose an invoice
+                if vm.isAdmin {
+                    Button {
+                        Task { await vm.completeAndInvoice() }
+                    } label: {
+                        Label("Complete & Invoice", systemImage: "checkmark.circle.fill")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(vm.isLoading ? Color.MW.green.opacity(0.6) : Color.MW.green)
+                            .foregroundStyle(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                    .disabled(vm.isLoading)
+                    .overlay {
+                        if vm.isLoading {
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.MW.green.opacity(0.5))
+                            ProgressView().tint(.white)
+                        }
+                    }
+                }
+
+                // Crew (and admin fallback): end job without invoicing
+                Button(role: .destructive) {
+                    Task { await vm.endVisit() }
+                } label: {
+                    Label(vm.isAdmin ? "End Job (no invoice)" : "End Job",
+                          systemImage: "stop.fill")
+                        .font(vm.isAdmin ? .subheadline : .headline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, vm.isAdmin ? 12 : 16)
+                        .background(Color.red.opacity(0.9))
+                        .foregroundStyle(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+                .disabled(vm.isLoading)
+                .overlay {
+                    if vm.isLoading {
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.red.opacity(0.7))
+                        ProgressView().tint(.white)
+                    }
                 }
             }
         }

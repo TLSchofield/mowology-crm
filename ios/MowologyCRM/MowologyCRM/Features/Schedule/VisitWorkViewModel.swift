@@ -65,16 +65,21 @@ final class VisitWorkViewModel: ObservableObject {
     @Published var pendingNoteText: String = ""
     @Published var noteSaved: Bool       = false
 
+    /// Non-nil after a successful end_visit + invoice-prefill fetch — triggers the compose sheet.
+    @Published var invoicePrefill: InvoicePrefill? = nil
+
     // MARK: - Private
 
     private let visit: Visit
     private let visitId: Int
-    private let apiClient: APIClient
+    let apiClient: APIClient
     private var tickTimer: AnyCancellable?
     private var gpsFlushTask: Task<Void, Never>?
     // Pending GPS breadcrumbs — appended on each flush tick, sent in batch.
     private var pendingPoints: [[String: Any]] = []
     private var lastLocation: CLLocation?
+
+    let isAdmin: Bool
 
     // MARK: - Init
 
@@ -82,6 +87,7 @@ final class VisitWorkViewModel: ObservableObject {
         self.visit     = visit
         self.visitId   = visit.visitId
         self.visitStatus = visit.visitStatus
+        self.isAdmin   = authSession.user?.isAdmin ?? false
         self.apiClient = APIClient(authSession: authSession)
 
         // If app is launched mid-visit, resume the on-screen timer.
@@ -159,6 +165,68 @@ final class VisitWorkViewModel: ObservableObject {
             errorMessage = friendlyError(error)
             startLocalTimer()
             startGpsLoop()
+        }
+
+        isLoading = false
+    }
+
+    // MARK: - Complete & Invoice (admin-only combined gesture)
+
+    /// Marks the visit complete then fetches invoice prefill data, triggering the compose sheet.
+    /// If the prefill fetch fails (e.g., no signal), the visit is still marked complete
+    /// server-side and `errorMessage` informs the admin to invoice manually later.
+    func completeAndInvoice() async {
+        guard visitStatus.lowercased() == "in_progress" else { return }
+        isLoading = true; errorMessage = nil
+
+        await flushGpsPoints()
+        stopLocalTimer()
+        gpsFlushTask?.cancel()
+        gpsFlushTask = nil
+
+        let loc = GPSTrackingService.shared.locationManager.lastLocation
+        var endBody: [String: Any] = ["action": "end_visit", "visit_id": visitId]
+        if let loc {
+            endBody["lat"] = loc.coordinate.latitude
+            endBody["lng"] = loc.coordinate.longitude
+        }
+        if !pendingNoteText.isEmpty { endBody["notes"] = pendingNoteText }
+
+        do {
+            let endResp: PowActionResponse = try await apiClient.request(.powActions, body: endBody)
+            guard endResp.success else {
+                errorMessage = endResp.message ?? "Could not complete visit."
+                startLocalTimer()
+                startGpsLoop()
+                isLoading = false
+                return
+            }
+            visitStatus = "completed"
+
+            // Fetch prefill — triggers compose sheet via .sheet(item:) in VisitWorkView
+            let prefillResp: InvoicePrefillResponse = try await apiClient.request(
+                .scheduleInvoicePrefill(visitId: visitId)
+            )
+
+            if !prefillResp.success, let existingId = prefillResp.existingInvoiceId {
+                // Already invoiced (race condition) — visit is complete, nothing more to do
+                errorMessage = "Visit complete. Already invoiced (#\(existingId))."
+            } else if let prefillData = prefillResp.data {
+                invoicePrefill = prefillData   // triggers .sheet(item: $vm.invoicePrefill)
+            } else {
+                errorMessage = "Visit complete. Open Invoices to create the invoice manually."
+            }
+
+        } catch {
+            if visitStatus.lowercased() == "completed" {
+                // end_visit succeeded but prefill failed (network dropped after completion)
+                errorMessage = "Visit complete. Open Invoices to create the invoice manually."
+            } else {
+                // end_visit itself failed — resume the job
+                errorMessage = friendlyError(error)
+                startLocalTimer()
+                startGpsLoop()
+            }
         }
 
         isLoading = false
