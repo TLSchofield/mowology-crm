@@ -114,7 +114,7 @@ struct CrewMapView: View {
 // MARK: - Crew Pin
 
 private struct CrewPin: View {
-    let member: CrewMember
+    let member: CrewMapMember
     let onTap: () -> Void
 
     private var pinColor: Color {
@@ -154,7 +154,7 @@ private struct CrewPin: View {
 // MARK: - Crew Member Detail Sheet
 
 private struct CrewMemberSheet: View {
-    let member: CrewMember
+    let member: CrewMapMember
 
     var body: some View {
         NavigationStack {

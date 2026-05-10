@@ -8,46 +8,22 @@
 
 /* Begin PBXBuildFile section */
 		040D77CC7FC7DDF02E82AD32 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73D67877BC393CECB2E02474 /* KeychainStore.swift */; };
-		051C7D44A1A436394997983C /* LocalOCR.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10B4DAEACB7DA7EA31C4B251 /* LocalOCR.swift */; };
-		06343724E4F5E8821DEF01A0 /* ActivityMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E71D5EA7EE23F42751ED95F /* ActivityMonitor.swift */; };
 		06A537ABBFB8D5873812BDD2 /* StopCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F73A09E1281950C78A2D0821 /* StopCardView.swift */; };
 		14EB12BAF8F5CB77D7A4DF95 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44859802708EFA50B0DE7353 /* RootView.swift */; };
 		16136063FF479A7B6236094C /* ScheduleDay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 816872EBC5C2A53815D7E212 /* ScheduleDay.swift */; };
 		1A500E3E80626FB6683AA6F1 /* VisitDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC8674D3A1F9F01248ECB134 /* VisitDetailView.swift */; };
-		1B0ED1F5E664CA7DB3018231 /* ClockOutIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE94A123C42B905BE6904B4F /* ClockOutIntent.swift */; };
 		1D762428510570A1A0D08B4C /* DayListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0E0EE6C511F5B6548BA7FB0 /* DayListView.swift */; };
-		1F135BB4A8874AC3A99BD695 /* LiveReceiptScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BCAA6456C9F805D11DD98B4 /* LiveReceiptScanner.swift */; };
 		2FBD157C6E8D45ACE46C8079 /* AuthSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11B9496B9E804E3CD0342C49 /* AuthSession.swift */; };
-		31D74891E9FAF8FA62EE91DF /* VisitDetailViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 868710A6EF45802F24C19AEA /* VisitDetailViewModel.swift */; };
-		37E2C4E4CFF74B63A521E6BB /* CalendarSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D6FBBBC8A8782A7FE767C2B /* CalendarSyncService.swift */; };
-		3D2BB83DBFE4061D55B7D9A4 /* QuotesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DD35F027AA028DAB116C92A /* QuotesView.swift */; };
 		42FE3CC920D2D08E173E259C /* APIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2318C0D8CC141570D7D494B /* APIError.swift */; };
-		4B04231D64BBFF7DFC55A9D2 /* InvoicesViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBFD5988D30BEC5153325102 /* InvoicesViewModel.swift */; };
-		4C4A3B8F56585787FC78DD19 /* LocationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4547C29B2A502F7AE5B446E /* LocationManager.swift */; };
 		4D2F723DF88B7B1C76F9826A /* WeekStripView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68D4D6F730154942832B001A /* WeekStripView.swift */; };
 		4F1A2B3C4D5E6F7A8B9C0D1E /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F2E3D4C5B6A7980A1B2C3D4 /* MainTabView.swift */; };
 		50553DCBC50019B902081947 /* MowologyCRMApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A756819D930BDD10EFFEC4FA /* MowologyCRMApp.swift */; };
 		559940D1EF1EF0CFE5B02CCF /* APIEndpoints.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68F3A974B3D602E24E8A79E8 /* APIEndpoints.swift */; };
-		57FCE40AF9463F23F42E2150 /* JobsListViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85758A4EC9AD151D51C79AC5 /* JobsListViewModel.swift */; };
-		58CC284E2C4C447088CDBFC2 /* VisitWorkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C133E57A28A6AF23D6B4CAF /* VisitWorkView.swift */; };
-		5AAFF6AF9E68378A400F6657 /* ClockInIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90C667FF46EC2B266DE11963 /* ClockInIntent.swift */; };
-		658DF7B600099EE97BE2B7D7 /* InvoicesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF8B37CB99942ABF04099B57 /* InvoicesView.swift */; };
-		6B34A809F8734FBACBF14EE0 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 783EC7CAE7D0D0D827FDEDBF /* AppDelegate.swift */; };
-		6F1218E0A15A15D2EB1E22A2 /* InvoiceComposeViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B2D4A49ADFFE9C4ADA14C8E /* InvoiceComposeViewModel.swift */; };
-		73F6FC84E47A1D864C3B18E5 /* ShowScheduleIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B5EFFFBCFAAD856E43264A9 /* ShowScheduleIntent.swift */; };
-		79389074C49361ABCABFE627 /* ArrivalMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37E412C65849505E8688DCD3 /* ArrivalMonitor.swift */; };
-		7D3606ABAAAE4FF98BF3029E /* JobPhotoSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A1B218A949D694791F7CC50 /* JobPhotoSection.swift */; };
-		85F56124C51718001957DF1C /* JobActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCEB9B209AB3B7603BD9A6F4 /* JobActivityAttributes.swift */; };
 		8DA04E42442B3D09E704A1CA /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E7C92CC6796BADE174216F5 /* APIClient.swift */; };
-		8E3BBCE0D44E2746B26C7579 /* QuotesViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25C65D44A564B9D1F3913F66 /* QuotesViewModel.swift */; };
 		91FBDAEEE518FB75A1B8618F /* ScheduleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6974DEA9D3487E5FED73FB01 /* ScheduleView.swift */; };
-		93A999862A264D0CAC53126E /* DayRouteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B48592BAC401D1AED784578 /* DayRouteView.swift */; };
-		95847CD0E60048FA99052C64 /* VisitWorkViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB2823D3497805DBBA0F6047 /* VisitWorkViewModel.swift */; };
 		97A54DA2AA9F9A04CA89CD15 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BC0B66BE87B94B74DD29C05 /* LoginView.swift */; };
 		98CACC8E6F7BCCE057B7ECE3 /* Stop.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84917CCF5BF871EC2B745DC4 /* Stop.swift */; };
-		9D8769DD00DDEAF3E56D1C2E /* JobsListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C55F15FFA1FF6284895E3895 /* JobsListView.swift */; };
 		9E258FAB0FCE4FA8A9137063 /* VisionOCRService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61D86DACA5EF4EC99CB9E14C /* VisionOCRService.swift */; };
-		9F3DA5FD077BA73C4F89DBC3 /* DeviceTokenService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70B6262F1652C439EF4C0F33 /* DeviceTokenService.swift */; };
 		A1B2C3D4E5F6A7B8C9D0E1F2 /* MWTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1C2D3E4F5A6B7C8D9E0F1A2 /* MWTheme.swift */; };
 		A2B3C4D5E6F7A8B9C0D1E2F3 /* ReceiptIntakeResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2C3D4E5F6A7B8C9D0E1F2A3 /* ReceiptIntakeResponse.swift */; };
 		A3B4C5D6E7F8A9B0C1D2E3F4 /* ReceiptQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3C4D5E6F7A8B9C0D1E2F3A4 /* ReceiptQueue.swift */; };
@@ -55,23 +31,18 @@
 		A5B6C7D8E9F0A1B2C3D4E5F6 /* TimeClockViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5C6D7E8F9A0B1C2D3E4F5A6 /* TimeClockViewModel.swift */; };
 		AA2D3E4F5A6B7C8D9E0F1A2B /* DevErrorBus.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB2D3E4F5A6B7C8D9E0F1A2B /* DevErrorBus.swift */; };
 		BC6EBC60EA41994E7ACED719 /* ScheduleViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEA3E082EB582E2D8825C262 /* ScheduleViewModel.swift */; };
-		C1A4F354612C4313978FF5CC /* JobsQuotesInvoicesModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23FD0CE4AE1671A750AF3E16 /* JobsQuotesInvoicesModels.swift */; };
 		C1D2E3F4A5B6C7D8E9F0A1B2 /* GPSTrackingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1E2F3A4B5C6D7E8F9A0B1C2 /* GPSTrackingService.swift */; };
 		C2D3E4F5A6B7C8D9E0F1A2B3 /* TimeClockModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2E3F4A5B6C7D8E9F0A1B2C3 /* TimeClockModels.swift */; };
 		C3D4E5F6A7B8C9D0E1F2A3B4 /* ReceiptCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3E4F5A6B7C8D9E0F1A2B3C4 /* ReceiptCaptureView.swift */; };
 		C4D5E6F7A8B9C0D1E2F3A4B5 /* ReceiptsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4E5F6A7B8C9D0E1F2A3B4C5 /* ReceiptsViewModel.swift */; };
 		C5D6E7F8A9B0C1D2E3F4A5B6 /* ErrorBannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5E6F7A8B9C0D1E2F3A4B5C6 /* ErrorBannerView.swift */; };
-		C61056E38AF63172F47C4C7E /* InvoiceModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B96F99B54C71459F19F8F5EF /* InvoiceModels.swift */; };
 		CA4E4AC42424C3DDC72267B8 /* LoginViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82CAF080C57ADDAE06034F25 /* LoginViewModel.swift */; };
-		DB1F78066AC01B0EC6419FA9 /* InvoiceComposeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFD7C52DF5206570D10D59F2 /* InvoiceComposeView.swift */; };
-		DFCB0D57E0F3364FC462E9BB /* RouteStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE29BD8142463FC512FD1208 /* RouteStore.swift */; };
 		E1F2A3B4C5D6E7F8A9B0C1D2 /* Expense.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A2B3C4D5E6F7A8B9C0D1E2 /* Expense.swift */; };
 		E2F3A4B5C6D7E8F9A0B1C2D3 /* PingQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A3B4C5D6E7F8A9B0C1D2E3 /* PingQueue.swift */; };
 		E3F4A5B6C7D8E9F0A1B2C3D4 /* ReceiptReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A4B5C6D7E8F9A0B1C2D3E4 /* ReceiptReviewView.swift */; };
 		E4F5A6B7C8D9E0F1A2B3C4D5 /* TimeClockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4A5B6C7D8E9F0A1B2C3D4E5 /* TimeClockView.swift */; };
 		E5F6A7B8C9D0E1F2A3B4C5D6 /* EmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5A6B7C8D9E0F1A2B3C4D5E6 /* EmptyStateView.swift */; };
 		E9B866846859D619AEF25219 /* Visit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46E2EA872345FA9825A6DF2E /* Visit.swift */; };
-		EE8C477DB149FED7C7D095D2 /* JobPhotoQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020780B1CE91FCD6C5F342B3 /* JobPhotoQueue.swift */; };
 		F6DE13FCED1F010D001CEC2D /* User.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9C49661C41333A49EE1D301 /* User.swift */; };
 		T2A3B4C5D6E7F8A9B0C1D2E3 /* VisionOCRServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T1A2B3C4D5E6F7A8B9C0D1E2 /* VisionOCRServiceTests.swift */; };
 		5AAFF6AF9E68378A400F6657 /* ClockInIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90C667FF46EC2B266DE11963 /* ClockInIntent.swift */; };
@@ -133,8 +104,6 @@
 
 /* Begin PBXFileReference section */
 		020780B1CE91FCD6C5F342B3 /* JobPhotoQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobPhotoQueue.swift; sourceTree = "<group>"; };
-		0DD35F027AA028DAB116C92A /* QuotesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuotesView.swift; sourceTree = "<group>"; };
-		10B4DAEACB7DA7EA31C4B251 /* LocalOCR.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalOCR.swift; sourceTree = "<group>"; };
 		11B9496B9E804E3CD0342C49 /* AuthSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthSession.swift; sourceTree = "<group>"; };
 		1F2E3D4C5B6A7980A1B2C3D4 /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
 		23FD0CE4AE1671A750AF3E16 /* JobsQuotesInvoicesModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobsQuotesInvoicesModels.swift; sourceTree = "<group>"; };
@@ -150,10 +119,8 @@
 		68F3A974B3D602E24E8A79E8 /* APIEndpoints.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIEndpoints.swift; sourceTree = "<group>"; };
 		6974DEA9D3487E5FED73FB01 /* ScheduleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleView.swift; sourceTree = "<group>"; };
 		6B48592BAC401D1AED784578 /* DayRouteView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayRouteView.swift; sourceTree = "<group>"; };
-		6B5EFFFBCFAAD856E43264A9 /* ShowScheduleIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowScheduleIntent.swift; sourceTree = "<group>"; };
 		6BC0B66BE87B94B74DD29C05 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
 		6C133E57A28A6AF23D6B4CAF /* VisitWorkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitWorkView.swift; sourceTree = "<group>"; };
-		70B6262F1652C439EF4C0F33 /* DeviceTokenService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceTokenService.swift; sourceTree = "<group>"; };
 		73D67877BC393CECB2E02474 /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
 		783EC7CAE7D0D0D827FDEDBF /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		7D6FBBBC8A8782A7FE767C2B /* CalendarSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarSyncService.swift; sourceTree = "<group>"; };
@@ -162,8 +129,6 @@
 		84917CCF5BF871EC2B745DC4 /* Stop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Stop.swift; sourceTree = "<group>"; };
 		85758A4EC9AD151D51C79AC5 /* JobsListViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobsListViewModel.swift; sourceTree = "<group>"; };
 		868710A6EF45802F24C19AEA /* VisitDetailViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitDetailViewModel.swift; sourceTree = "<group>"; };
-		90C667FF46EC2B266DE11963 /* ClockInIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClockInIntent.swift; sourceTree = "<group>"; };
-		9B2D4A49ADFFE9C4ADA14C8E /* InvoiceComposeViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InvoiceComposeViewModel.swift; sourceTree = "<group>"; };
 		9DD091BEACD0F5E731BE8B0E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		9E71D5EA7EE23F42751ED95F /* ActivityMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityMonitor.swift; sourceTree = "<group>"; };
 		A4547C29B2A502F7AE5B446E /* LocationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationManager.swift; sourceTree = "<group>"; };
@@ -176,13 +141,9 @@
 		B3C4D5E6F7A8B9C0D1E2F3A4 /* ReceiptQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptQueue.swift; sourceTree = "<group>"; };
 		B4C5D6E7F8A9B0C1D2E3F4A5 /* ReceiptsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptsView.swift; sourceTree = "<group>"; };
 		B5C6D7E8F9A0B1C2D3E4F5A6 /* TimeClockViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeClockViewModel.swift; sourceTree = "<group>"; };
-		B96F99B54C71459F19F8F5EF /* InvoiceModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InvoiceModels.swift; sourceTree = "<group>"; };
 		BB2D3E4F5A6B7C8D9E0F1A2B /* DevErrorBus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevErrorBus.swift; sourceTree = "<group>"; };
-		BF8B37CB99942ABF04099B57 /* InvoicesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InvoicesView.swift; sourceTree = "<group>"; };
 		C0E0EE6C511F5B6548BA7FB0 /* DayListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayListView.swift; sourceTree = "<group>"; };
-		C55F15FFA1FF6284895E3895 /* JobsListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobsListView.swift; sourceTree = "<group>"; };
 		C9C49661C41333A49EE1D301 /* User.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = User.swift; sourceTree = "<group>"; };
-		CE94A123C42B905BE6904B4F /* ClockOutIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClockOutIntent.swift; sourceTree = "<group>"; };
 		D1E2F3A4B5C6D7E8F9A0B1C2 /* GPSTrackingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GPSTrackingService.swift; sourceTree = "<group>"; };
 		D2E3F4A5B6C7D8E9F0A1B2C3 /* TimeClockModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeClockModels.swift; sourceTree = "<group>"; };
 		D3E4F5A6B7C8D9E0F1A2B3C4 /* ReceiptCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptCaptureView.swift; sourceTree = "<group>"; };
@@ -193,7 +154,6 @@
 		E2318C0D8CC141570D7D494B /* APIError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIError.swift; sourceTree = "<group>"; };
 		EBFD5988D30BEC5153325102 /* InvoicesViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InvoicesViewModel.swift; sourceTree = "<group>"; };
 		EE29BD8142463FC512FD1208 /* RouteStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteStore.swift; sourceTree = "<group>"; };
-		EFD7C52DF5206570D10D59F2 /* InvoiceComposeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InvoiceComposeView.swift; sourceTree = "<group>"; };
 		F1A2B3C4D5E6F7A8B9C0D1E2 /* Expense.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Expense.swift; sourceTree = "<group>"; };
 		F2A3B4C5D6E7F8A9B0C1D2E3 /* PingQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PingQueue.swift; sourceTree = "<group>"; };
 		F3A4B5C6D7E8F9A0B1C2D3E4 /* ReceiptReviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptReviewView.swift; sourceTree = "<group>"; };
@@ -259,15 +219,6 @@
 				E2318C0D8CC141570D7D494B /* APIError.swift */,
 			);
 			path = Network;
-			sourceTree = "<group>";
-		};
-		449A7DA3595AE500C4C10F01 /* Quotes */ = {
-			isa = PBXGroup;
-			children = (
-				0DD35F027AA028DAB116C92A /* QuotesView.swift */,
-				25C65D44A564B9D1F3913F66 /* QuotesViewModel.swift */,
-			);
-			path = Quotes;
 			sourceTree = "<group>";
 		};
 		51F215642B22B1FCC54B663F /* MowologyCRM */ = {
@@ -357,7 +308,7 @@
 			isa = PBXGroup;
 			children = (
 				B1C2D3E4F5A6B7C8D9E0F1A2 /* MWTheme.swift */,
-			);
+);
 			path = Design;
 			sourceTree = "<group>";
 		};
@@ -369,17 +320,8 @@
 				EE29BD8142463FC512FD1208 /* RouteStore.swift */,
 				37E412C65849505E8688DCD3 /* ArrivalMonitor.swift */,
 				9E71D5EA7EE23F42751ED95F /* ActivityMonitor.swift */,
-			);
+				);
 			path = Location;
-			sourceTree = "<group>";
-		};
-		C0AFDB7567C2432D9B9A5DF2 /* Jobs */ = {
-			isa = PBXGroup;
-			children = (
-				C55F15FFA1FF6284895E3895 /* JobsListView.swift */,
-				85758A4EC9AD151D51C79AC5 /* JobsListViewModel.swift */,
-			);
-			path = Jobs;
 			sourceTree = "<group>";
 		};
 		C3DDCAD9A79CFAAD968C288A /* Jobs */ = {
@@ -424,6 +366,36 @@
 			path = Auth;
 			sourceTree = "<group>";
 		};
+		C0AFDB7567C2432D9B9A5DF2 /* Jobs */ = {
+			isa = PBXGroup;
+			children = (
+				C55F15FFA1FF6284895E3895 /* JobsListView.swift */,
+				85758A4EC9AD151D51C79AC5 /* JobsListViewModel.swift */,
+			);
+			path = Jobs;
+			sourceTree = "<group>";
+		};
+		449A7DA3595AE500C4C10F01 /* Quotes */ = {
+			isa = PBXGroup;
+			children = (
+				0DD35F027AA028DAB116C92A /* QuotesView.swift */,
+				25C65D44A564B9D1F3913F66 /* QuotesViewModel.swift */,
+			);
+			path = Quotes;
+			sourceTree = "<group>";
+		};
+		F50530F99208E48338787BB7 /* Invoices */ = {
+			isa = PBXGroup;
+			children = (
+				BF8B37CB99942ABF04099B57 /* InvoicesView.swift */,
+				EBFD5988D30BEC5153325102 /* InvoicesViewModel.swift */,
+				B96F99B54C71459F19F8F5EF /* InvoiceModels.swift */,
+				EFD7C52DF5206570D10D59F2 /* InvoiceComposeView.swift */,
+				9B2D4A49ADFFE9C4ADA14C8E /* InvoiceComposeViewModel.swift */,
+			);
+			path = Invoices;
+			sourceTree = "<group>";
+		};
 		D0CF88BD79C1A5858F773D21 /* Features */ = {
 			isa = PBXGroup;
 			children = (
@@ -434,6 +406,11 @@
 				C0AFDB7567C2432D9B9A5DF2 /* Jobs */,
 				449A7DA3595AE500C4C10F01 /* Quotes */,
 				F50530F99208E48338787BB7 /* Invoices */,
+				E0AAB5304BFC39D72D5240BB /* Quiz */,
+				B0EB05AB43577A0E6AB7A5EC /* Reports */,
+				F9E1F780E49E5C3CCB9452C4 /* Messages */,
+				BA6AFABB3A0CA57C803870C2 /* Leaderboard */,
+				744AC6BD73746ADDE489E741 /* CrewMap */,
 			);
 			path = Features;
 			sourceTree = "<group>";
@@ -446,12 +423,7 @@
 				B4C5D6E7F8A9B0C1D2E3F4A5 /* ReceiptsView.swift */,
 				D4E5F6A7B8C9D0E1F2A3B4C5 /* ReceiptsViewModel.swift */,
 				2BCAA6456C9F805D11DD98B4 /* LiveReceiptScanner.swift */,
-							E0AAB5304BFC39D72D5240BB /* Quiz */,
-				B0EB05AB43577A0E6AB7A5EC /* Reports */,
-				F9E1F780E49E5C3CCB9452C4 /* Messages */,
-				BA6AFABB3A0CA57C803870C2 /* Leaderboard */,
-				744AC6BD73746ADDE489E741 /* CrewMap */,
-);
+			);
 			path = Receipts;
 			sourceTree = "<group>";
 		};
@@ -467,30 +439,8 @@
 			children = (
 				F4A5B6C7D8E9F0A1B2C3D4E5 /* TimeClockView.swift */,
 				B5C6D7E8F9A0B1C2D3E4F5A6 /* TimeClockViewModel.swift */,
-			);
+);
 			path = TimeClock;
-			sourceTree = "<group>";
-		};
-		E97A75DD2B91C61BF4FF5A12 /* AppIntents */ = {
-			isa = PBXGroup;
-			children = (
-				90C667FF46EC2B266DE11963 /* ClockInIntent.swift */,
-				CE94A123C42B905BE6904B4F /* ClockOutIntent.swift */,
-				6B5EFFFBCFAAD856E43264A9 /* ShowScheduleIntent.swift */,
-			);
-			path = AppIntents;
-			sourceTree = "<group>";
-		};
-		F50530F99208E48338787BB7 /* Invoices */ = {
-			isa = PBXGroup;
-			children = (
-				BF8B37CB99942ABF04099B57 /* InvoicesView.swift */,
-				EBFD5988D30BEC5153325102 /* InvoicesViewModel.swift */,
-				B96F99B54C71459F19F8F5EF /* InvoiceModels.swift */,
-				EFD7C52DF5206570D10D59F2 /* InvoiceComposeView.swift */,
-				9B2D4A49ADFFE9C4ADA14C8E /* InvoiceComposeViewModel.swift */,
-			);
-			path = Invoices;
 			sourceTree = "<group>";
 		};
 		F6A7B8C9D0E1F2A3B4C5D6E7 /* Components */ = {
@@ -551,6 +501,8 @@
 			isa = PBXGroup;
 			children = (
 				1F06A0B4B24F5406ED443904 /* QuizModels.swift */,
+				5EF023D65CCE6720BF2F70F2 /* QuizViewModel.swift */,
+				ADFBC63B4ED3CD11F30D135A /* QuizView.swift */,
 			);
 			path = Quiz;
 			sourceTree = "<group>";
@@ -559,6 +511,9 @@
 			isa = PBXGroup;
 			children = (
 				BE1FDC55765844BAF489EBCF /* ReportModels.swift */,
+				A5A0DE48EB02D5C9747FE99C /* ReportsViewModel.swift */,
+				32F7049E1633310D7975230D /* ReportChartView.swift */,
+				E14E7E9BFCD3A7EC8E4BE4AB /* ReportsView.swift */,
 			);
 			path = Reports;
 			sourceTree = "<group>";
@@ -567,6 +522,8 @@
 			isa = PBXGroup;
 			children = (
 				A522741C6A6EFBB80556D2BF /* MessageModels.swift */,
+				388179445D016F234C7B6272 /* MessagesViewModel.swift */,
+				51E5B208F2E93850099B834E /* MessagesView.swift */,
 			);
 			path = Messages;
 			sourceTree = "<group>";
@@ -575,6 +532,8 @@
 			isa = PBXGroup;
 			children = (
 				5F703E06363D9C6BE97699F0 /* LeaderboardModels.swift */,
+				13B3CE91EE4D13720EB94808 /* LeaderboardViewModel.swift */,
+				D9FEE3C2C7357DDD58576E5F /* LeaderboardView.swift */,
 			);
 			path = Leaderboard;
 			sourceTree = "<group>";
@@ -583,6 +542,8 @@
 			isa = PBXGroup;
 			children = (
 				BACA18A794492A461356FC78 /* CrewMapModels.swift */,
+				708AB5C218BE0AFA63858EBF /* CrewMapViewModel.swift */,
+				1D6CD36CB0B8E5B1EF8A3657 /* CrewMapView.swift */,
 			);
 			path = CrewMap;
 			sourceTree = "<group>";
@@ -724,6 +685,22 @@
 				C61056E38AF63172F47C4C7E /* InvoiceModels.swift in Sources */,
 				DB1F78066AC01B0EC6419FA9 /* InvoiceComposeView.swift in Sources */,
 				6F1218E0A15A15D2EB1E22A2 /* InvoiceComposeViewModel.swift in Sources */,
+				9D7CC29B6BBEEF179CFFE7D4 /* QuizModels.swift in Sources */,
+				6C9DEDEB83C1AC4FD7FD1416 /* QuizViewModel.swift in Sources */,
+				D5EE0190C306146C1538F766 /* QuizView.swift in Sources */,
+				C0734BEA0E27A259E9D0695A /* ReportModels.swift in Sources */,
+				AFAD015BB9D78959494D5C31 /* ReportsViewModel.swift in Sources */,
+				9E8E0E391B7C1BA00510EA2D /* ReportChartView.swift in Sources */,
+				ABEF5AB12F4577F4BE9E15A6 /* ReportsView.swift in Sources */,
+				0EF2FD5B8C7BF7630058E865 /* MessageModels.swift in Sources */,
+				DF7E06EB06D3D67D951125F5 /* MessagesViewModel.swift in Sources */,
+				6F21B0B47BB4E1DE832318A4 /* MessagesView.swift in Sources */,
+				E528775BAE41F9048BFCE421 /* LeaderboardModels.swift in Sources */,
+				A212A5CFC3FD9DF9D28B1555 /* LeaderboardViewModel.swift in Sources */,
+				FC18D0A93F1538DBDCFDB58B /* LeaderboardView.swift in Sources */,
+				A35A6BA92027DD5613AC1D96 /* CrewMapModels.swift in Sources */,
+				6F407981E32288EB0E5AEF15 /* CrewMapViewModel.swift in Sources */,
+				C6BA049B1A133166469E7649 /* CrewMapView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

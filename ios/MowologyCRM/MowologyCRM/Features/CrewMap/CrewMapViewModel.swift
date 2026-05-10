@@ -9,10 +9,10 @@ import MapKit
 @MainActor
 final class CrewMapViewModel: ObservableObject {
 
-    @Published private(set) var crew: [CrewMember]    = []
+    @Published private(set) var crew: [CrewMapMember]    = []
     @Published private(set) var isLoading             = false
     @Published var errorMessage: String?              = nil
-    @Published var selectedMember: CrewMember?        = nil
+    @Published var selectedMember: CrewMapMember?        = nil
 
     /// Camera region centred on all visible crew, or Metro Vancouver as default.
     @Published var region: MKCoordinateRegion = MKCoordinateRegion(

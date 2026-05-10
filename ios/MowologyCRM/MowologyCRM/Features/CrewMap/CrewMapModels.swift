@@ -10,7 +10,7 @@ import MapKit
 
 // MARK: - Crew member location
 
-struct CrewMember: Decodable, Identifiable {
+struct CrewMapMember: Decodable, Identifiable {
     let userId: Int
     let fullName: String
     let role: String
@@ -63,5 +63,5 @@ struct CrewMember: Decodable, Identifiable {
 
 struct CrewMapResponse: Decodable {
     let success: Bool
-    let crew: [CrewMember]
+    let crew: [CrewMapMember]
 }
