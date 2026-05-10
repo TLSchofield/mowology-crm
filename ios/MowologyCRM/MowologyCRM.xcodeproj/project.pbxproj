@@ -87,6 +87,9 @@
 		A35A6BA92027DD5613AC1D96 /* CrewMapModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = BACA18A794492A461356FC78 /* CrewMapModels.swift */; };
 		6F407981E32288EB0E5AEF15 /* CrewMapViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 708AB5C218BE0AFA63858EBF /* CrewMapViewModel.swift */; };
 		C6BA049B1A133166469E7649 /* CrewMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D6CD36CB0B8E5B1EF8A3657 /* CrewMapView.swift */; };
+		C61056E38AF63172F47C4C7E /* InvoiceModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B96F99B54C71459F19F8F5EF /* InvoiceModels.swift */; };
+		DB1F78066AC01B0EC6419FA9 /* InvoiceComposeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFD7C52DF5206570D10D59F2 /* InvoiceComposeView.swift */; };
+		6F1218E0A15A15D2EB1E22A2 /* InvoiceComposeViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B2D4A49ADFFE9C4ADA14C8E /* InvoiceComposeViewModel.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -183,6 +186,9 @@
 		BACA18A794492A461356FC78 /* CrewMapModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrewMapModels.swift; sourceTree = "<group>"; };
 		708AB5C218BE0AFA63858EBF /* CrewMapViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrewMapViewModel.swift; sourceTree = "<group>"; };
 		1D6CD36CB0B8E5B1EF8A3657 /* CrewMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrewMapView.swift; sourceTree = "<group>"; };
+		B96F99B54C71459F19F8F5EF /* InvoiceModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InvoiceModels.swift; sourceTree = "<group>"; };
+		EFD7C52DF5206570D10D59F2 /* InvoiceComposeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InvoiceComposeView.swift; sourceTree = "<group>"; };
+		9B2D4A49ADFFE9C4ADA14C8E /* InvoiceComposeViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InvoiceComposeViewModel.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -302,6 +308,9 @@
 			isa = PBXGroup;
 			children = (
 				B1C2D3E4F5A6B7C8D9E0F1A2 /* MWTheme.swift */,
+				B96F99B54C71459F19F8F5EF /* InvoiceModels.swift */,
+				EFD7C52DF5206570D10D59F2 /* InvoiceComposeView.swift */,
+				9B2D4A49ADFFE9C4ADA14C8E /* InvoiceComposeViewModel.swift */,
 );
 			path = Design;
 			sourceTree = "<group>";

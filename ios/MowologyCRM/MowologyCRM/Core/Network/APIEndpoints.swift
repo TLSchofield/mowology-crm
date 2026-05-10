@@ -98,6 +98,12 @@ enum APIEndpoint {
     /// GET /api/team/crew-map — live crew positions (admin only).
     case crewMapLive
 
+    /// GET /api/schedule/invoice-prefill?visit_id=N — prefill data for the iOS invoice compose sheet.
+    case scheduleInvoicePrefill(visitId: Int)
+
+    /// POST /api/schedule/invoice-create-send — create and optionally send an invoice from a completed visit.
+    case scheduleInvoiceCreateSend
+
     // MARK: - URL
 
     /// Builds the full URL for the endpoint. Returns `nil` only if the base
@@ -231,6 +237,14 @@ enum APIEndpoint {
 
         case .crewMapLive:
             return URL(string: "\(baseURLString)/team/crew-map")
+
+        case .scheduleInvoicePrefill(let visitId):
+            var components = URLComponents(string: "\(baseURLString)/schedule/invoice-prefill")
+            components?.queryItems = [URLQueryItem(name: "visit_id", value: "\(visitId)")]
+            return components?.url
+
+        case .scheduleInvoiceCreateSend:
+            return URL(string: "\(baseURLString)/schedule/invoice-create-send")
         }
     }
 
@@ -266,7 +280,9 @@ enum APIEndpoint {
              .messagesUsers,
              .messagesAction,
              .leaderboard,
-             .crewMapLive: return true
+             .crewMapLive,
+             .scheduleInvoicePrefill,
+             .scheduleInvoiceCreateSend: return true
         }
     }
 
@@ -285,7 +301,8 @@ enum APIEndpoint {
              .scheduleQuotes,
              .scheduleInvoices,
              .quizQuestion,
-             .reportsData:         return "GET"
+             .reportsData,
+             .scheduleInvoicePrefill: return "GET"
 
         case .scheduleTimer,
              .scheduleLocation,
@@ -297,7 +314,8 @@ enum APIEndpoint {
              .powActions,
              .powGpsSync,
              .quizAction,
-             .messagesAction:      return "POST"
+             .messagesAction,
+             .scheduleInvoiceCreateSend: return "POST"
 
         case .receiptImage,
              .messagesInbox,
