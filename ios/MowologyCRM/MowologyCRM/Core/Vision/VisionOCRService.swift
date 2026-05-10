@@ -21,6 +21,7 @@ struct VisionPreFill {
     let total:         String?
     let subtotal:      String?
     let gst:           String?
+    let pst:           String?   // Provincial Sales Tax (BC PST 7%, QC TVQ, etc.)
     let date:          String?   // "yyyy-MM-dd" or nil
     let paymentMethod: String?   // API payment method key or nil
 }
@@ -35,7 +36,7 @@ enum VisionOCRService {
     static func scan(_ image: UIImage) async -> VisionPreFill {
         guard let cgImage = image.cgImage else {
             return VisionPreFill(rawText: "", vendorHint: nil, total: nil,
-                                 subtotal: nil, gst: nil, date: nil, paymentMethod: nil)
+                                 subtotal: nil, gst: nil, pst: nil, date: nil, paymentMethod: nil)
         }
 
         return await withCheckedContinuation { continuation in
@@ -64,12 +65,14 @@ enum VisionOCRService {
     }
 
     private static func parse(lines: [String], rawText: String) -> VisionPreFill {
-        VisionPreFill(
+        let amounts = extractAmounts(lines)
+        return VisionPreFill(
             rawText:       rawText,
             vendorHint:    extractVendor(lines),
-            total:         extractAmounts(lines).total,
-            subtotal:      extractAmounts(lines).subtotal,
-            gst:           extractAmounts(lines).gst,
+            total:         amounts.total,
+            subtotal:      amounts.subtotal,
+            gst:           amounts.gst,
+            pst:           amounts.pst,
             date:          extractDate(lines),
             paymentMethod: extractPaymentMethod(rawText)
         )
@@ -77,13 +80,23 @@ enum VisionOCRService {
 
     // MARK: - Vendor
 
-    /// The first "real" text line (≥3 chars, not all-digits, not mostly punctuation)
-    /// is usually the store name or chain.
+    // Common short words that appear on receipts but are NOT vendor names.
+    // Includes French terms (SANS = "without", MERCI = "thank you") common on BC/QC receipts.
+    private static let vendorBlocklist: Set<String> = [
+        "SANS", "MERCI", "THANK", "THANKS",
+        "VISA", "CASH", "DEBIT", "INTERAC", "CREDIT",
+        "TOTAL", "TAXES", "RECEIPT", "INVOICE",
+        "DATE", "TIME", "REF", "AUTH", "APPROVED",
+    ]
+
+    /// The first "real" text line (≥5 chars, not all-digits, not mostly punctuation,
+    /// not a known non-vendor keyword) is usually the store name or chain.
     private static func extractVendor(_ lines: [String]) -> String? {
         for line in lines.prefix(8) {
             let t = line.trimmingCharacters(in: .whitespaces)
-            guard t.count >= 3 else { continue }
-            // Skip lines that look like addresses or numbers
+            guard t.count >= 5 else { continue }
+            if vendorBlocklist.contains(t.uppercased()) { continue }
+            // Skip lines that look like numbers or phone numbers
             if Double(t.replacingOccurrences(of: " ", with: "")) != nil { continue }
             let alphanumericCount = t.unicodeScalars.filter {
                 CharacterSet.alphanumerics.contains($0)
@@ -109,19 +122,26 @@ enum VisionOCRService {
             .filter { $0 > 0 && $0 < 99_999 }
     }
 
-    private static func extractAmounts(_ lines: [String]) -> (total: String?, subtotal: String?, gst: String?) {
+    private static func extractAmounts(_ lines: [String]) -> (total: String?, subtotal: String?, gst: String?, pst: String?) {
         var total:    Double?
         var subtotal: Double?
         var gst:      Double?
+        var pst:      Double?
 
         for line in lines {
             let u    = line.uppercased()
             let nums = amounts(in: line)
             guard let first = nums.first else { continue }
 
-            if u.contains("GST") || u.contains("TPS") || u.contains("HST") ||
-               u.contains("TVQ") || (u.contains("TAX") && !u.contains("TOTAL")) {
+            // PST / TVQ — provincial tax (must check before generic TAX to avoid misclassification)
+            if u.contains("PST") || (u.contains("TVQ") && !u.contains("GST")) {
+                if pst == nil { pst = first }
+            // GST / TPS / HST — federal tax only (no generic TAX fallthrough here)
+            } else if u.contains("GST") || u.contains("TPS") || u.contains("HST") {
                 if gst == nil { gst = first }
+            // Generic "TAX" line — conservative fallback only when neither GST nor PST found yet
+            } else if u.contains("TAX") && !u.contains("TOTAL") && gst == nil && pst == nil {
+                gst = first
             } else if u.contains("SUBTOTAL") || u.contains("SUB TOTAL") || u.contains("SUB-TOTAL") {
                 if subtotal == nil { subtotal = first }
             } else if u.contains("TOTAL") || u.contains("AMOUNT DUE") ||
@@ -131,12 +151,13 @@ enum VisionOCRService {
             }
         }
 
-        // Derive missing fields
-        if total == nil, let s = subtotal, let g = gst {
-            total = round((s + g) * 100) / 100
+        // Derive missing total (subtotal + gst + pst)
+        if total == nil, let s = subtotal {
+            let taxSum = (gst ?? 0) + (pst ?? 0)
+            total = round((s + taxSum) * 100) / 100
         }
-        // Back-calculate 5% GST when only a total is available
-        if let t = total, subtotal == nil, gst == nil {
+        // Back-calculate 5% GST when only a total is available and no taxes were found
+        if let t = total, subtotal == nil, gst == nil, pst == nil {
             let s = round(t / 1.05 * 100) / 100
             let g = round((t - s) * 100) / 100
             subtotal = s
@@ -147,7 +168,7 @@ enum VisionOCRService {
             guard let d else { return nil }
             return String(format: "%.2f", d)
         }
-        return (fmt(total), fmt(subtotal), fmt(gst))
+        return (fmt(total), fmt(subtotal), fmt(gst), fmt(pst))
     }
 
     // MARK: - Date

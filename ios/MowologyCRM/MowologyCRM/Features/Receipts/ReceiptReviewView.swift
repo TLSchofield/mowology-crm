@@ -23,6 +23,7 @@ struct ReceiptReviewView: View {
     @State private var expenseDate:   Date
     @State private var amount:        String
     @State private var gst:           String
+    @State private var pst:           String
     @State private var total:         String
     @State private var category:      String
     @State private var paymentMethod: String
@@ -38,7 +39,7 @@ struct ReceiptReviewView: View {
 
     // Focus management
     @FocusState private var focusedField: FormField?
-    private enum FormField: Hashable { case vendor, amount, gst, total, notes }
+    private enum FormField: Hashable { case vendor, amount, gst, pst, total, notes }
 
     // MARK: - Init
 
@@ -56,6 +57,7 @@ struct ReceiptReviewView: View {
         _expenseDate   = State(initialValue: Self.parseDate(p?.date ?? v?.date))
         _amount        = State(initialValue: p?.subtotal       ?? v?.subtotal       ?? "")
         _gst           = State(initialValue: p?.gst            ?? v?.gst            ?? "")
+        _pst           = State(initialValue: p?.pst            ?? v?.pst            ?? "")
         _total         = State(initialValue: p?.total          ?? v?.total          ?? "")
         _category      = State(initialValue: s?.accountingCategory ?? "")
         _paymentMethod = State(initialValue: p?.paymentMethod  ?? v?.paymentMethod  ?? "credit_card")
@@ -232,8 +234,9 @@ struct ReceiptReviewView: View {
 
     private var amountsSection: some View {
         Section("Amounts") {
-            amountRow(label: "Subtotal", value: $amount, field: .amount)
-            amountRow(label: "GST (5%)", value: $gst,    field: .gst)
+            amountRow(label: "Subtotal",  value: $amount, field: .amount)
+            amountRow(label: "GST (5%)",  value: $gst,    field: .gst)
+            amountRow(label: "PST (7%)",  value: $pst,    field: .pst)
             Divider()
             HStack {
                 Text("Total").font(.subheadline.weight(.semibold))
@@ -338,6 +341,9 @@ struct ReceiptReviewView: View {
         if !editedFields.contains("GST (5%)"), let g = p?.gst {
             gst = g
         }
+        if !editedFields.contains("PST (7%)"), let pt = p?.pst {
+            pst = pt
+        }
         if !editedFields.contains("total"), let t = p?.total {
             total = t
         }
@@ -364,6 +370,7 @@ struct ReceiptReviewView: View {
             date:          fmt.string(from: expenseDate),
             amount:        Double(amount) ?? 0,
             gst:           Double(gst)    ?? 0,
+            pst:           Double(pst)    ?? 0,
             total:         Double(total)  ?? 0,
             category:      category,
             paymentMethod: paymentMethod,
@@ -407,6 +414,7 @@ struct ReceiptReviewView: View {
         total:         "36.19",
         subtotal:      "34.47",
         gst:           "1.72",
+        pst:           nil,
         date:          "2025-05-28",
         paymentMethod: "credit_card"
     )

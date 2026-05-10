@@ -97,6 +97,32 @@ final class VisionOCRServiceTests: XCTestCase {
         2025-01-15
         """
 
+    /// Southlands Nursery — BC receipt with both GST and PST (real shape from screenshot)
+    private let southlandsNursery = """
+        Southlands Nursery
+        6505 Balaclava Street
+        Vancouver BC V6N 1L9
+        May 10, 2026
+        Herbs/Veggies x4 Herb/Veg    20.97
+        Original Price                26.96
+        Discount: Landscapers (25%)    6.99
+        Annuals                        3.74
+        Original Price                 4.99
+        Discount: Landscapers (25%)    1.25
+        Perennial x2                   9.98
+        Original Price                11.98
+        Perennial x4 4-inch Pot       26.93
+        Original Price                28.80
+        Herbs/Veggies                 30.00
+        Original Price                40.00
+        Subtotal                      90.62
+        GST Sales Tax (5%)             4.53
+        PST Sales Tax (7%)             0.80
+        Total                         96.04
+        INTERAC
+        AID: A0000002771010
+        """
+
     // =========================================================================
     // MARK: - Amount extraction
     // =========================================================================
@@ -140,9 +166,20 @@ final class VisionOCRServiceTests: XCTestCase {
 
     func testFrenchGSTLabels() {
         let fill = parseLines(from: quebecIGA)
-        // TPS or TVQ should be detected as the GST equivalent
-        XCTAssertNotNil(fill.gst, "TPS line should be detected as GST")
+        XCTAssertEqual(fill.gst,   "3.50",  "TPS should map to gst")
+        XCTAssertEqual(fill.pst,   "6.98",  "TVQ should map to pst")
         XCTAssertEqual(fill.total, "80.46", "total")
+    }
+
+    func testBCReceiptWithGSTAndPST() {
+        let fill = parseLines(from: southlandsNursery)
+        XCTAssertEqual(fill.vendorHint, "Southlands Nursery", "vendor")
+        XCTAssertEqual(fill.subtotal,   "90.62",             "subtotal")
+        XCTAssertEqual(fill.gst,        "4.53",              "GST 5%")
+        XCTAssertEqual(fill.pst,        "0.80",              "PST 7%")
+        XCTAssertEqual(fill.total,      "96.04",             "total")
+        XCTAssertEqual(fill.date,       "2026-05-10",        "date")
+        XCTAssertEqual(fill.paymentMethod, "debit",          "INTERAC → debit")
     }
 
     // =========================================================================
@@ -241,6 +278,7 @@ final class VisionOCRServiceTests: XCTestCase {
         let fill = parseLines(from: "")
         XCTAssertNil(fill.total)
         XCTAssertNil(fill.gst)
+        XCTAssertNil(fill.pst)
         XCTAssertNil(fill.subtotal)
         XCTAssertNil(fill.date)
         XCTAssertNil(fill.paymentMethod)

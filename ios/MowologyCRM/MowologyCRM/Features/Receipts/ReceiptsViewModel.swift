@@ -123,7 +123,7 @@ final class ReceiptsViewModel: ObservableObject {
 
     func saveExpense(
         vendorId: Int?, vendorName: String, date: String,
-        amount: Double, gst: Double, total: Double,
+        amount: Double, gst: Double, pst: Double, total: Double,
         category: String, paymentMethod: String,
         notes: String, mediaId: Int?,
         ocrParsed: ParsedReceipt?, lat: Double?, lng: Double?
@@ -136,6 +136,7 @@ final class ReceiptsViewModel: ObservableObject {
             "vendor_name_raw":      vendorName,
             "amount":               amount,
             "gst_amount":           gst,
+            "pst_amount":           pst,
             "total":                total,
             "accounting_category":  category,
             "payment_method":       paymentMethod,
