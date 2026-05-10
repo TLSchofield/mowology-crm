@@ -104,6 +104,9 @@ enum APIEndpoint {
     /// POST /api/schedule/invoice-create-send — create and optionally send an invoice from a completed visit.
     case scheduleInvoiceCreateSend
 
+    /// GET /api/schedule/visit-photos?visit_id=N — list uploaded before/after photos for a visit.
+    case visitPhotos(visitId: Int)
+
     // MARK: - URL
 
     /// Builds the full URL for the endpoint. Returns `nil` only if the base
@@ -245,6 +248,11 @@ enum APIEndpoint {
 
         case .scheduleInvoiceCreateSend:
             return URL(string: "\(baseURLString)/schedule/invoice-create-send")
+
+        case .visitPhotos(let visitId):
+            var components = URLComponents(string: "\(baseURLString)/schedule/visit-photos")
+            components?.queryItems = [URLQueryItem(name: "visit_id", value: "\(visitId)")]
+            return components?.url
         }
     }
 
@@ -282,7 +290,8 @@ enum APIEndpoint {
              .leaderboard,
              .crewMapLive,
              .scheduleInvoicePrefill,
-             .scheduleInvoiceCreateSend: return true
+             .scheduleInvoiceCreateSend,
+             .visitPhotos: return true
         }
     }
 
@@ -302,7 +311,8 @@ enum APIEndpoint {
              .scheduleInvoices,
              .quizQuestion,
              .reportsData,
-             .scheduleInvoicePrefill: return "GET"
+             .scheduleInvoicePrefill,
+             .visitPhotos: return "GET"
 
         case .scheduleTimer,
              .scheduleLocation,

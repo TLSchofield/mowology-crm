@@ -29,11 +29,15 @@ final class VisitDetailViewModel: ObservableObject {
 
     // MARK: - Published
 
-    @Published private(set) var isTimerRunning:      Bool   = false
-    @Published private(set) var activeVisitId:       Int?   = nil
-    @Published private(set) var timerElapsedSeconds: Int    = 0
-    @Published private(set) var isLoading:           Bool   = false
-    @Published var             errorMessage:          String? = nil
+    @Published private(set) var isTimerRunning:      Bool           = false
+    @Published private(set) var activeVisitId:       Int?           = nil
+    @Published private(set) var timerElapsedSeconds: Int            = 0
+    @Published private(set) var isLoading:           Bool           = false
+    @Published var             errorMessage:          String?        = nil
+
+    /// Live visit statuses fetched from server — overrides the stale `stop.visits` statuses.
+    /// Keyed by visit_id. Populated by syncState() and updated after start/stop actions.
+    @Published private(set) var liveStatuses: [Int: String] = [:]
 
     // MARK: - Private
 
@@ -99,6 +103,7 @@ final class VisitDetailViewModel: ObservableObject {
                 activeVisitId       = visitId
                 timerElapsedSeconds = 0
                 isTimerRunning      = true
+                liveStatuses[visitId] = "in_progress"
                 startTicking()
                 // Stamp GPS pings with this visit ID for the proof-of-work chain.
                 GPSTrackingService.shared.setActiveVisit(visitId)
@@ -132,6 +137,7 @@ final class VisitDetailViewModel: ObservableObject {
 
             if response.success {
                 stopTicking()
+                liveStatuses[visitId] = "completed"
                 isTimerRunning      = false
                 activeVisitId       = nil
                 timerElapsedSeconds = 0
