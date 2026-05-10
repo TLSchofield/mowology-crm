@@ -558,7 +558,7 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                               <a href="<?php echo $actHref; ?>" class="mw-act-name"><?php echo h($activity['name']); ?></a>
                             </div>
                             <div class="mw-act-meta">
-                              <span><?php echo h($activity['full_name'] ?? 'System'); ?></span>
+                              <span><?php echo h(ucwords(strtolower($activity['full_name'] ?? 'System'))); ?></span>
                               <span class="mw-act-sep">·</span>
                               <span><?php echo formatDateTime($activity['created_at'], 'M j, g:i A'); ?></span>
                             </div>
