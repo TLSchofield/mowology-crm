@@ -701,19 +701,22 @@ function checkProximityAutoStart(int $userId, float $lat, float $lng, float $acc
         return null;
     }
 
-    // All guards passed — auto-clock-in if needed, then start timer
-    $clockInCreated = false;
+    // Guard 10: must be clocked in — never silently auto-clock-in
     $clockEntry = getActiveClockEntry($userId);
     if (!$clockEntry) {
-        try {
-            clockIn($userId, $lat, $lng);
-            $clockInCreated = true;
-        } catch (Exception $e) {
-            // Already clocked in (race condition) — proceed
-        }
+        // Return prompt info without starting a timer
+        return [
+            'visit_id'         => $visitId,
+            'job_title'        => $nearest['title'] ?? '',
+            'job_number'       => $nearest['job_number'] ?? '',
+            'property_address' => $nearest['property_address'] ?? '',
+            'service_type'     => $serviceType,
+            'distance_meters'  => (int)round($nearestDist),
+            'needs_clock_in'   => true,
+        ];
     }
 
-    // Start the visit timer
+    // All guards passed — start the visit timer
     try {
         $entryId = startJobTimer($visitId, $userId, $lat, $lng, true);
     } catch (Exception $e) {
@@ -725,14 +728,14 @@ function checkProximityAutoStart(int $userId, float $lat, float $lng, float $acc
     unset($_SESSION[$cacheKey]);
 
     return [
-        'visit_id'        => $visitId,
-        'job_title'       => $nearest['title'] ?? '',
-        'job_number'      => $nearest['job_number'] ?? '',
+        'visit_id'         => $visitId,
+        'job_title'        => $nearest['title'] ?? '',
+        'job_number'       => $nearest['job_number'] ?? '',
         'property_address' => $nearest['property_address'] ?? '',
-        'service_type'    => $serviceType,
-        'distance_meters' => (int)round($nearestDist),
-        'entry_id'        => $entryId,
-        'clock_in_created' => $clockInCreated,
+        'service_type'     => $serviceType,
+        'distance_meters'  => (int)round($nearestDist),
+        'entry_id'         => $entryId,
+        'clock_in_created' => false,
     ];
 }
 

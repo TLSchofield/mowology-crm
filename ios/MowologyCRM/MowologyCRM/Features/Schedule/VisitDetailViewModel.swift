@@ -23,6 +23,7 @@
 
 import Foundation
 import Combine
+import UIKit
 
 @MainActor
 final class VisitDetailViewModel: ObservableObject {
@@ -38,6 +39,11 @@ final class VisitDetailViewModel: ObservableObject {
     /// Live visit statuses fetched from server — overrides the stale `stop.visits` statuses.
     /// Keyed by visit_id. Populated by syncState() and updated after start/stop actions.
     @Published private(set) var liveStatuses: [Int: String] = [:]
+
+    // Clock-in gate
+    @Published private(set) var isClockedIn:     Bool = true  // defaults true to avoid false blocks before first sync
+    @Published var             showClockInPrompt: Bool = false
+    private var pendingTimerVisitId: Int? = nil
 
     // MARK: - Private
 
@@ -72,6 +78,7 @@ final class VisitDetailViewModel: ObservableObject {
 
         do {
             let response: ClockStatusResponse = try await apiClient.request(.scheduleClockStatus)
+            isClockedIn = response.clockedIn
             if let active = response.activeJob, visitIds.contains(active.visitId) {
                 activeVisitId       = active.visitId
                 timerElapsedSeconds = active.elapsedSeconds
@@ -90,6 +97,15 @@ final class VisitDetailViewModel: ObservableObject {
 
     func startTimer(visitId: Int) async {
         guard !isTimerRunning else { return }
+
+        // Gate: must be clocked in first
+        guard isClockedIn else {
+            UINotificationFeedbackGenerator().notificationOccurred(.warning)
+            pendingTimerVisitId = visitId
+            showClockInPrompt   = true
+            return
+        }
+
         isLoading    = true
         errorMessage = nil
 
@@ -151,6 +167,37 @@ final class VisitDetailViewModel: ObservableObject {
         }
 
         isLoading = false
+    }
+
+    // MARK: - Clock-In Gate Actions
+
+    func clockInThenStart() async {
+        guard let vid = pendingTimerVisitId else { return }
+        showClockInPrompt   = false
+        pendingTimerVisitId = nil
+        isLoading           = true
+        errorMessage        = nil
+
+        do {
+            let _: ClockActionResponse = try await apiClient.request(
+                .scheduleClock,
+                body: ["action": "clock_in"]
+            )
+            isClockedIn = true
+            NotificationCenter.default.post(name: .mwAutoClockIn, object: nil)
+        } catch {
+            errorMessage = "Could not clock in. Please try again."
+            isLoading    = false
+            return
+        }
+
+        isLoading = false
+        await startTimer(visitId: vid)
+    }
+
+    func dismissClockInPrompt() {
+        showClockInPrompt   = false
+        pendingTimerVisitId = nil
     }
 
     // MARK: - Private

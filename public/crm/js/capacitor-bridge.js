@@ -411,6 +411,26 @@
             }
         },
 
+        // ── Haptic Feedback ─────────────────────────────────
+        haptic: function(style) {
+            try {
+                if (Haptics) {
+                    var styleMap = {
+                        warning: { type: 'Warning' },
+                        error:   { type: 'Error'   },
+                        success: { type: 'Success' }
+                    };
+                    if (styleMap[style]) {
+                        Haptics.notification(styleMap[style]).catch(function() {});
+                    } else {
+                        Haptics.impact({ style: 'Medium' }).catch(function() {});
+                    }
+                } else if (navigator.vibrate) {
+                    navigator.vibrate(style === 'warning' ? [100, 60, 100, 60, 200] : [150]);
+                }
+            } catch(e) {}
+        },
+
         // ── Network Status ──────────────────────────────────
         network: {
             isOnline: true,

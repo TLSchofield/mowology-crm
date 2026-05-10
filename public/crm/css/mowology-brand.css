@@ -25647,6 +25647,25 @@ body.mw-no-scroll {
   background: #fdecea;
 }
 
+/* ── Clock-In Gate Modal ────────────────────────────────────────────────── */
+
+.mw-gate-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 1049;
+}
+
+.mw-gate-modal {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1050;
+  width: min(320px, 90vw);
+  border-radius: 12px;
+}
+
 
 /* ═══════════════════════════════════════════════════════════════════════════
    Stop Detail Modal (.mw-sdm-)

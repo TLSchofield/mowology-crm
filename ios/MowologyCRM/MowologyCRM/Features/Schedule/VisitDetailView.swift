@@ -65,6 +65,20 @@ struct VisitDetailView: View {
             let visitIds = stop.visits.map { $0.visitId }
             await timerVM.syncState(visitIds: visitIds)
         }
+        .confirmationDialog(
+            "Clock In Required",
+            isPresented: $timerVM.showClockInPrompt,
+            titleVisibility: .visible
+        ) {
+            Button("Clock In & Start Job") {
+                Task { await timerVM.clockInThenStart() }
+            }
+            Button("Skip", role: .cancel) {
+                timerVM.dismissClockInPrompt()
+            }
+        } message: {
+            Text("You need to be clocked in before starting a job timer.")
+        }
     }
 
     // MARK: - Property Section

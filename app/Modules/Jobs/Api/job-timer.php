@@ -81,30 +81,23 @@ try {
             $lng = isset($input['lng']) ? (float)$input['lng'] : null;
             $autoStarted = !empty($input['auto_started']);
 
-            $entryId = startVisitTimer($visitId, $user['id'], $lat, $lng, $autoStarted);
-
-            // Auto clock-in globally if user is not already clocked in
-            $autoClockInPerformed = false;
-            $autoClockInTime      = null;
-            try {
-                $ckChk = $db->prepare(
-                    "SELECT id FROM time_clock_entries
-                     WHERE user_id = ? AND status = 'active' AND clock_out IS NULL
-                     LIMIT 1"
-                );
-                $ckChk->execute([$user['id']]);
-                if (!$ckChk->fetch()) {
-                    $db->prepare(
-                        "INSERT INTO time_clock_entries
-                         (user_id, clock_in, clock_in_lat, clock_in_lng, status, created_at, updated_at)
-                         VALUES (?, NOW(), ?, ?, 'active', NOW(), NOW())"
-                    )->execute([$user['id'], $lat, $lng]);
-                    $autoClockInPerformed = true;
-                    $autoClockInTime      = date('Y-m-d H:i:s');
-                }
-            } catch (Exception $e) {
-                // Non-fatal — timer already started successfully
+            // Gate: must be globally clocked in before starting a job timer
+            $ckChk = $db->prepare(
+                "SELECT id FROM time_clock_entries
+                 WHERE user_id = ? AND status = 'active' AND clock_out IS NULL
+                 LIMIT 1"
+            );
+            $ckChk->execute([$user['id']]);
+            if (!$ckChk->fetch()) {
+                echo json_encode([
+                    'success' => false,
+                    'error'   => 'NOT_CLOCKED_IN',
+                    'message' => 'You must be clocked in before starting a job timer.',
+                ]);
+                exit;
             }
+
+            $entryId = startVisitTimer($visitId, $user['id'], $lat, $lng, $autoStarted);
 
             // Resolve tracking requirements for this visit (product defaults + plan overrides)
             $trackingReqs = [];
@@ -113,19 +106,15 @@ try {
             }
 
             echo json_encode([
-                'success' => true,
-                'message' => 'Visit timer started',
-                'entry_id' => $entryId,
-                'visit_id' => $visitId,
-                'start_time' => date('Y-m-d H:i:s'),
-                'auto_started' => $autoStarted,
-                'auto_clock_in' => (bool)($trackingReqs['auto_clock_in'] ?? false),
+                'success'        => true,
+                'message'        => 'Visit timer started',
+                'entry_id'       => $entryId,
+                'visit_id'       => $visitId,
+                'start_time'     => date('Y-m-d H:i:s'),
+                'auto_started'   => $autoStarted,
                 'tracking_level' => $trackingReqs['tracking_level'] ?? 'standard',
                 'require_photos' => (bool)($trackingReqs['require_photos'] ?? false),
-                'require_gps' => (bool)($trackingReqs['require_gps'] ?? false),
-                'require_clock_in' => (bool)($trackingReqs['require_clock_in'] ?? false),
-                'auto_clock_in_performed' => $autoClockInPerformed,
-                'auto_clock_in_time'      => $autoClockInTime,
+                'require_gps'    => (bool)($trackingReqs['require_gps'] ?? false),
             ]);
             break;
 

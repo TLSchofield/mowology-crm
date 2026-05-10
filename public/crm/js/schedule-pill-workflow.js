@@ -535,6 +535,14 @@
     function clockIn(visitId) {
         console.log('[PillWorkflow] clockIn called for visit ' + visitId);
         var btn = activeDrawer ? activeDrawer.querySelector('[data-action="clock-in"]') : null;
+
+        // Gate: must be globally clocked in first
+        if (window.MwTimeClock && !window.MwTimeClock.isClockedIn()) {
+            alertNotClockedIn();
+            showClockInGate(visitId, function() { clockIn(visitId); });
+            return;
+        }
+
         if (btn) {
             btn.disabled = true;
             btn.innerHTML = '<span>Starting...</span>';
@@ -1906,6 +1914,76 @@
         var div = document.createElement('div');
         div.appendChild(document.createTextNode(str));
         return div.innerHTML;
+    }
+
+    /**
+     * Haptic + sound alert for the clock-in gate.
+     * Vibrates on Android native; plays a double-beep via Web Audio everywhere.
+     */
+    function alertNotClockedIn() {
+        if (window.MwNative && window.MwNative.haptic) {
+            window.MwNative.haptic('warning');
+        } else if (navigator.vibrate) {
+            navigator.vibrate([100, 60, 100, 60, 200]);
+        }
+        try {
+            var ctx = new (window.AudioContext || window.webkitAudioContext)();
+            [0, 0.22].forEach(function(offset) {
+                var osc  = ctx.createOscillator();
+                var gain = ctx.createGain();
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.frequency.value = 520;
+                osc.type = 'sine';
+                gain.gain.setValueAtTime(0.3, ctx.currentTime + offset);
+                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + offset + 0.15);
+                osc.start(ctx.currentTime + offset);
+                osc.stop(ctx.currentTime + offset + 0.15);
+            });
+        } catch(e) {}
+    }
+
+    /**
+     * Modal prompting crew to clock in before starting a job timer.
+     * onClockIn() is called after a successful global clock-in.
+     */
+    function showClockInGate(visitId, onClockIn) {
+        var existing = document.getElementById('mwClockInGateModal');
+        if (existing) existing.remove();
+
+        var modal = document.createElement('div');
+        modal.id = 'mwClockInGateModal';
+        modal.innerHTML =
+            '<div class="mw-gate-backdrop"></div>' +
+            '<div class="mw-gate-modal card shadow">' +
+            '  <div class="card-body text-center p-4">' +
+            '    <div class="mb-3">' +
+            '      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--mw-orange)" stroke-width="2">' +
+            '        <circle cx="12" cy="12" r="10"/>' +
+            '        <line x1="12" y1="8" x2="12" y2="12"/>' +
+            '        <circle cx="12" cy="16" r="1" fill="var(--mw-orange)"/>' +
+            '      </svg>' +
+            '    </div>' +
+            '    <h6 class="font-weight-bold mb-1">Clock In Required</h6>' +
+            '    <p class="text-muted small mb-3">You need to be clocked in<br>before starting a job timer.</p>' +
+            '    <button class="btn btn-primary btn-block mb-2" id="mwGateClockInBtn">Clock In &amp; Start Job</button>' +
+            '    <button class="btn btn-link text-muted btn-sm" id="mwGateSkipBtn">Skip</button>' +
+            '  </div>' +
+            '</div>';
+        document.body.appendChild(modal);
+
+        modal.querySelector('#mwGateClockInBtn').addEventListener('click', function() {
+            modal.remove();
+            if (window.MwTimeClock && window.MwTimeClock.clockInNow) {
+                window.MwTimeClock.clockInNow(function() { onClockIn(); });
+            }
+        });
+        modal.querySelector('#mwGateSkipBtn').addEventListener('click', function() {
+            modal.remove();
+        });
+        modal.querySelector('.mw-gate-backdrop').addEventListener('click', function() {
+            modal.remove();
+        });
     }
 
     /**

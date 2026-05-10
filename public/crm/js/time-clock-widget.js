@@ -937,15 +937,25 @@
      * Update widget UI and notify other components (e.g., schedule pill workflow).
      */
     function handleServerAutoStart(info) {
+        // Not clocked in — prompt crew to clock in first
+        if (info.needs_clock_in) {
+            showToast(
+                'You\'re near ' + (info.job_title || info.job_number || 'a job') +
+                ' (' + info.distance_meters + 'm). Clock in to begin.',
+                'warning'
+            );
+            // Dispatch so schedule page can show a prompt if visible
+            document.dispatchEvent(new CustomEvent('mw-proximity-needs-clock-in', {
+                detail: info
+            }));
+            return;
+        }
+
         console.log('[MwTracking] Server auto-started visit ' + info.visit_id +
                     ' (' + info.job_title + ') at ' + info.distance_meters + 'm');
 
         lastAutoStartVisitId = info.visit_id;
         hasActiveJobTimer = true;
-
-        if (info.clock_in_created) {
-            clockInTime = new Date();
-        }
 
         // Re-fetch full status to render the clocked-in widget with active job badge
         fetchStatus();
@@ -1074,7 +1084,19 @@
     // Expose for use by schedule page and pill workflow
     window.MwTimeClock = {
         fetchStatus: fetchStatus,
-        isActive: function() { return clockInTime !== null; },
+        isActive:    function() { return clockInTime !== null; },
+        isClockedIn: function() { return clockInTime !== null; },
+        clockInNow:  function(callback) {
+            MwApi.post('/crm/api/time-clock.php', { action: 'clock_in' })
+                .then(function(data) {
+                    if (data.success && data.clocked_in) {
+                        clockInTime = new Date();
+                        renderClockedIn(0, null);
+                        if (typeof callback === 'function') callback();
+                    }
+                })
+                .catch(function() {});
+        },
         isTracking: function() {
             return gpsWatchId !== null ||
                    (window.MwNative && window.MwNative.geo && window.MwNative.geo.watchId !== null);
