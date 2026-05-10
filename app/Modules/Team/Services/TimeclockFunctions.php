@@ -701,22 +701,11 @@ function checkProximityAutoStart(int $userId, float $lat, float $lng, float $acc
         return null;
     }
 
-    // Guard 10: must be clocked in — never silently auto-clock-in
-    $clockEntry = getActiveClockEntry($userId);
-    if (!$clockEntry) {
-        // Return prompt info without starting a timer
-        return [
-            'visit_id'         => $visitId,
-            'job_title'        => $nearest['title'] ?? '',
-            'job_number'       => $nearest['job_number'] ?? '',
-            'property_address' => $nearest['property_address'] ?? '',
-            'service_type'     => $serviceType,
-            'distance_meters'  => (int)round($nearestDist),
-            'needs_clock_in'   => true,
-        ];
-    }
+    // Check clock-in state — timer starts regardless, but flag if not clocked in
+    // so the client can prompt the crew to clock in globally.
+    $needsClockIn = !getActiveClockEntry($userId);
 
-    // All guards passed — start the visit timer
+    // Start the visit timer
     try {
         $entryId = startJobTimer($visitId, $userId, $lat, $lng, true);
     } catch (Exception $e) {
@@ -735,7 +724,7 @@ function checkProximityAutoStart(int $userId, float $lat, float $lng, float $acc
         'service_type'     => $serviceType,
         'distance_meters'  => (int)round($nearestDist),
         'entry_id'         => $entryId,
-        'clock_in_created' => false,
+        'needs_clock_in'   => $needsClockIn,
     ];
 }
 

@@ -937,27 +937,13 @@
      * Update widget UI and notify other components (e.g., schedule pill workflow).
      */
     function handleServerAutoStart(info) {
-        // Not clocked in — prompt crew to clock in first
-        if (info.needs_clock_in) {
-            showToast(
-                'You\'re near ' + (info.job_title || info.job_number || 'a job') +
-                ' (' + info.distance_meters + 'm). Clock in to begin.',
-                'warning'
-            );
-            // Dispatch so schedule page can show a prompt if visible
-            document.dispatchEvent(new CustomEvent('mw-proximity-needs-clock-in', {
-                detail: info
-            }));
-            return;
-        }
-
         console.log('[MwTracking] Server auto-started visit ' + info.visit_id +
                     ' (' + info.job_title + ') at ' + info.distance_meters + 'm');
 
         lastAutoStartVisitId = info.visit_id;
         hasActiveJobTimer = true;
 
-        // Re-fetch full status to render the clocked-in widget with active job badge
+        // Re-fetch full status to render the widget with active job badge
         fetchStatus();
 
         // Show toast
@@ -968,6 +954,65 @@
         document.dispatchEvent(new CustomEvent('mw-proximity-auto-start', {
             detail: info
         }));
+
+        // Timer started but crew isn't clocked in globally — prompt them
+        if (info.needs_clock_in) {
+            if (window.MwNative && window.MwNative.haptic) {
+                window.MwNative.haptic('warning');
+            } else if (navigator.vibrate) {
+                navigator.vibrate([100, 60, 100, 60, 200]);
+            }
+            document.dispatchEvent(new CustomEvent('mw-proximity-needs-clock-in', {
+                detail: info
+            }));
+            showProximityClockInBanner(info);
+        }
+    }
+
+    /**
+     * Sticky banner nudging crew to clock in after a proximity auto-start.
+     * Dismisses itself when they clock in or tap Dismiss.
+     */
+    function showProximityClockInBanner(info) {
+        var existing = document.getElementById('mwProximityClockInBanner');
+        if (existing) existing.remove();
+
+        var banner = document.createElement('div');
+        banner.id = 'mwProximityClockInBanner';
+        banner.style.cssText =
+            'position:fixed;bottom:72px;left:50%;transform:translateX(-50%);' +
+            'background:var(--mw-dark,#1A5F4A);color:#fff;border-radius:12px;' +
+            'padding:12px 16px;display:flex;align-items:center;gap:12px;' +
+            'box-shadow:0 4px 16px rgba(0,0,0,.3);z-index:1060;max-width:calc(100vw - 32px);';
+        banner.innerHTML =
+            '<div style="flex:1;font-size:0.82rem;line-height:1.3;">' +
+            '  <strong>Job timer running</strong><br>' +
+            '  <span style="opacity:.85;">Remember to clock in for payroll.</span>' +
+            '</div>' +
+            '<button id="mwProxClockInBtn" style="background:var(--mw-lime,#7FD858);color:#000;' +
+            '  border:none;border-radius:8px;padding:6px 12px;font-size:0.78rem;font-weight:700;cursor:pointer;white-space:nowrap;">' +
+            '  Clock In' +
+            '</button>' +
+            '<button id="mwProxDismissBtn" style="background:transparent;border:none;color:rgba(255,255,255,.6);' +
+            '  font-size:1.1rem;cursor:pointer;padding:2px 4px;line-height:1;">✕</button>';
+        document.body.appendChild(banner);
+
+        banner.querySelector('#mwProxClockInBtn').addEventListener('click', function() {
+            banner.remove();
+            if (window.MwTimeClock && window.MwTimeClock.clockInNow) {
+                window.MwTimeClock.clockInNow(function() {});
+            }
+        });
+        banner.querySelector('#mwProxDismissBtn').addEventListener('click', function() {
+            banner.remove();
+        });
+
+        // Auto-dismiss after 60s
+        setTimeout(function() {
+            if (document.getElementById('mwProximityClockInBanner')) {
+                banner.remove();
+            }
+        }, 60000);
     }
 
     /**
