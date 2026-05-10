@@ -74,7 +74,7 @@ enum APIEndpoint {
     /// POST /api/schedule/quiz — start a quiz session, submit an answer, or finish.
     case quizAction
 
-    /// GET /api/schedule/quiz?action=question&session_id=N&q=N — fetch one question.
+    /// GET /api/schedule/quiz?session_id=N&q=N — fetch one question.
     case quizQuestion(sessionId: Int, q: Int)
 
     /// GET /api/reports/data?report=<type>&start=...&end=... — admin reports data.
@@ -169,7 +169,6 @@ enum APIEndpoint {
         case .quizQuestion(let sessionId, let q):
             var components = URLComponents(string: "\(baseURLString)/schedule/quiz")
             components?.queryItems = [
-                URLQueryItem(name: "action",     value: "question"),
                 URLQueryItem(name: "session_id", value: "\(sessionId)"),
                 URLQueryItem(name: "q",          value: "\(q)"),
             ]

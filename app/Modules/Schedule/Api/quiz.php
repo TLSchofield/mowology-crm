@@ -6,7 +6,7 @@ declare(strict_types=1);
  *
  * Mobile Knowledge Quiz API — JWT authenticated
  *
- * GET  /api/schedule/quiz?action=question&session_id=N&q=N  — fetch one question
+ * GET  /api/schedule/quiz?session_id=N&q=N  — fetch one question
  *
  * POST /api/schedule/quiz
  *   {"action": "start",    "session_length": 10}
@@ -140,14 +140,13 @@ $method    = $_SERVER['REQUEST_METHOD'];
 $monthYear = date('Y-m');
 
 // ── GET: question ─────────────────────────────────────────────────────────────
+// GET /api/schedule/quiz?session_id=N&q=N  (no 'action' param — conflicts with dispatcher)
 
 if ($method === 'GET') {
-    $action    = $_GET['action'] ?? '';
     $sessionId = (int)($_GET['session_id'] ?? 0);
     $qNum      = (int)($_GET['q'] ?? 1);
 
-    if ($action !== 'question') qzErr('Use ?action=question');
-    if ($sessionId <= 0)        qzErr('Invalid session_id');
+    if ($sessionId <= 0) qzErr('Invalid session_id');
 
     $sess = $db->prepare("SELECT * FROM quiz_sessions WHERE id=? AND user_id=?");
     $sess->execute([$sessionId, $userId]);
