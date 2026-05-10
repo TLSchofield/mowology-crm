@@ -71,6 +71,33 @@ enum APIEndpoint {
     /// GET /api/schedule/invoices — admin-only invoice list.
     case scheduleInvoices(status: String)
 
+    /// POST /api/schedule/quiz — start a quiz session, submit an answer, or finish.
+    case quizAction
+
+    /// GET /api/schedule/quiz?session_id=N&q=N — fetch one question.
+    case quizQuestion(sessionId: Int, q: Int)
+
+    /// GET /api/reports/data?report=<type>&start=...&end=... — admin reports data.
+    case reportsData(report: String, start: String, end: String)
+
+    /// GET /api/messages/inbox?action=inbox[&page=N] — paginated inbox.
+    case messagesInbox(page: Int)
+
+    /// GET /api/messages/inbox?action=unread-count — unread message count.
+    case messagesUnreadCount
+
+    /// GET /api/messages/inbox?action=users — active users list for compose.
+    case messagesUsers
+
+    /// POST /api/messages/inbox — mark-read or compose.
+    case messagesAction
+
+    /// GET /api/gamification/leaderboard[?week=YYYY-MM-DD] — weekly leaderboard.
+    case leaderboard(week: String?)
+
+    /// GET /api/team/crew-map — live crew positions (admin only).
+    case crewMapLive
+
     // MARK: - URL
 
     /// Builds the full URL for the endpoint. Returns `nil` only if the base
@@ -153,6 +180,57 @@ enum APIEndpoint {
             var components = URLComponents(string: "\(baseURLString)/schedule/invoices")
             components?.queryItems = [URLQueryItem(name: "status", value: status)]
             return components?.url
+
+        case .quizAction:
+            return URL(string: "\(baseURLString)/schedule/quiz")
+
+        case .quizQuestion(let sessionId, let q):
+            var components = URLComponents(string: "\(baseURLString)/schedule/quiz")
+            components?.queryItems = [
+                URLQueryItem(name: "session_id", value: "\(sessionId)"),
+                URLQueryItem(name: "q",          value: "\(q)"),
+            ]
+            return components?.url
+
+        case .reportsData(let report, let start, let end):
+            var components = URLComponents(string: "\(baseURLString)/reports/data")
+            components?.queryItems = [
+                URLQueryItem(name: "report", value: report),
+                URLQueryItem(name: "start",  value: start),
+                URLQueryItem(name: "end",    value: end),
+            ]
+            return components?.url
+
+        case .messagesInbox(let page):
+            var components = URLComponents(string: "\(baseURLString)/messages/inbox")
+            components?.queryItems = [
+                URLQueryItem(name: "action", value: "inbox"),
+                URLQueryItem(name: "page",   value: "\(page)"),
+            ]
+            return components?.url
+
+        case .messagesUnreadCount:
+            var components = URLComponents(string: "\(baseURLString)/messages/inbox")
+            components?.queryItems = [URLQueryItem(name: "action", value: "unread-count")]
+            return components?.url
+
+        case .messagesUsers:
+            var components = URLComponents(string: "\(baseURLString)/messages/inbox")
+            components?.queryItems = [URLQueryItem(name: "action", value: "users")]
+            return components?.url
+
+        case .messagesAction:
+            return URL(string: "\(baseURLString)/messages/inbox")
+
+        case .leaderboard(let week):
+            var components = URLComponents(string: "\(baseURLString)/gamification/leaderboard")
+            if let w = week {
+                components?.queryItems = [URLQueryItem(name: "week", value: w)]
+            }
+            return components?.url
+
+        case .crewMapLive:
+            return URL(string: "\(baseURLString)/team/crew-map")
         }
     }
 
@@ -179,7 +257,16 @@ enum APIEndpoint {
              .powGpsSync,
              .scheduleJobs,
              .scheduleQuotes,
-             .scheduleInvoices: return true
+             .scheduleInvoices,
+             .quizAction,
+             .quizQuestion,
+             .reportsData,
+             .messagesInbox,
+             .messagesUnreadCount,
+             .messagesUsers,
+             .messagesAction,
+             .leaderboard,
+             .crewMapLive: return true
         }
     }
 
@@ -196,7 +283,9 @@ enum APIEndpoint {
              .expenseList,
              .scheduleJobs,
              .scheduleQuotes,
-             .scheduleInvoices:    return "GET"
+             .scheduleInvoices,
+             .quizQuestion,
+             .reportsData:         return "GET"
 
         case .scheduleTimer,
              .scheduleLocation,
@@ -206,9 +295,16 @@ enum APIEndpoint {
              .jobPhoto,
              .deviceTokenRegister,
              .powActions,
-             .powGpsSync: return "POST"
+             .powGpsSync,
+             .quizAction,
+             .messagesAction:      return "POST"
 
-        case .receiptImage:        return "GET"
+        case .receiptImage,
+             .messagesInbox,
+             .messagesUnreadCount,
+             .messagesUsers,
+             .leaderboard,
+             .crewMapLive:         return "GET"
         }
     }
 }
