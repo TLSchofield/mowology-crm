@@ -76,6 +76,20 @@ struct MainTabView: View {
                     }
                 }
 
+                Section {
+                    NavigationLink {
+                        MessagesView(authSession: authSession)
+                    } label: {
+                        Label("Messages", systemImage: "envelope.fill")
+                    }
+
+                    NavigationLink {
+                        LeaderboardView(authSession: authSession)
+                    } label: {
+                        Label("Leaderboard", systemImage: "trophy.fill")
+                    }
+                }
+
                 if isAdmin {
                     Section("Admin") {
                         NavigationLink {
@@ -94,6 +108,12 @@ struct MainTabView: View {
                             InvoicesView(authSession: authSession)
                         } label: {
                             Label("Invoices", systemImage: "doc.plaintext")
+                        }
+
+                        NavigationLink {
+                            CrewMapView(authSession: authSession)
+                        } label: {
+                            Label("Crew Map", systemImage: "map.fill")
                         }
                     }
                 }

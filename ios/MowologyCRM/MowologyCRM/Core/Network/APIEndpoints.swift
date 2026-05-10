@@ -80,6 +80,24 @@ enum APIEndpoint {
     /// GET /api/reports/data?report=<type>&start=...&end=... — admin reports data.
     case reportsData(report: String, start: String, end: String)
 
+    /// GET /api/messages/inbox?action=inbox[&page=N] — paginated inbox.
+    case messagesInbox(page: Int)
+
+    /// GET /api/messages/inbox?action=unread-count — unread message count.
+    case messagesUnreadCount
+
+    /// GET /api/messages/inbox?action=users — active users list for compose.
+    case messagesUsers
+
+    /// POST /api/messages/inbox — mark-read or compose.
+    case messagesAction
+
+    /// GET /api/gamification/leaderboard[?week=YYYY-MM-DD] — weekly leaderboard.
+    case leaderboard(week: String?)
+
+    /// GET /api/team/crew-map — live crew positions (admin only).
+    case crewMapLive
+
     // MARK: - URL
 
     /// Builds the full URL for the endpoint. Returns `nil` only if the base
@@ -182,6 +200,37 @@ enum APIEndpoint {
                 URLQueryItem(name: "end",    value: end),
             ]
             return components?.url
+
+        case .messagesInbox(let page):
+            var components = URLComponents(string: "\(baseURLString)/messages/inbox")
+            components?.queryItems = [
+                URLQueryItem(name: "action", value: "inbox"),
+                URLQueryItem(name: "page",   value: "\(page)"),
+            ]
+            return components?.url
+
+        case .messagesUnreadCount:
+            var components = URLComponents(string: "\(baseURLString)/messages/inbox")
+            components?.queryItems = [URLQueryItem(name: "action", value: "unread-count")]
+            return components?.url
+
+        case .messagesUsers:
+            var components = URLComponents(string: "\(baseURLString)/messages/inbox")
+            components?.queryItems = [URLQueryItem(name: "action", value: "users")]
+            return components?.url
+
+        case .messagesAction:
+            return URL(string: "\(baseURLString)/messages/inbox")
+
+        case .leaderboard(let week):
+            var components = URLComponents(string: "\(baseURLString)/gamification/leaderboard")
+            if let w = week {
+                components?.queryItems = [URLQueryItem(name: "week", value: w)]
+            }
+            return components?.url
+
+        case .crewMapLive:
+            return URL(string: "\(baseURLString)/team/crew-map")
         }
     }
 
@@ -211,7 +260,13 @@ enum APIEndpoint {
              .scheduleInvoices,
              .quizAction,
              .quizQuestion,
-             .reportsData: return true
+             .reportsData,
+             .messagesInbox,
+             .messagesUnreadCount,
+             .messagesUsers,
+             .messagesAction,
+             .leaderboard,
+             .crewMapLive: return true
         }
     }
 
@@ -241,9 +296,15 @@ enum APIEndpoint {
              .deviceTokenRegister,
              .powActions,
              .powGpsSync,
-             .quizAction:          return "POST"
+             .quizAction,
+             .messagesAction:      return "POST"
 
-        case .receiptImage:        return "GET"
+        case .receiptImage,
+             .messagesInbox,
+             .messagesUnreadCount,
+             .messagesUsers,
+             .leaderboard,
+             .crewMapLive:         return "GET"
         }
     }
 }
