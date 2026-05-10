@@ -68,7 +68,7 @@ foreach ($timesheets as $row) {
         FROM time_clock_entries
         WHERE user_id = ?
           AND DATE(clock_in) BETWEEN ? AND ?
-          AND status != 'void'
+          AND status IN ('completed', 'edited')
         GROUP BY DATE(clock_in)
     ");
     $dStmt->execute([$row['user_id'], $row['week_start'], $row['week_end']]);

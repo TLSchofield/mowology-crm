@@ -62,7 +62,7 @@ foreach ($employees as $emp) {
         FROM time_clock_entries
         WHERE user_id = ?
           AND DATE(clock_in) BETWEEN ? AND ?
-          AND status != 'void'
+          AND status IN ('completed', 'edited')
         GROUP BY DATE(clock_in)
         ORDER BY DATE(clock_in) ASC
     ");

@@ -85,7 +85,8 @@ foreach ($clockEntries as $ce) {
     $day = date('Y-m-d', strtotime($ce['clock_in']));
     if (isset($days[$day])) {
         $days[$day]['clock_entries'][] = $ce;
-        if (($ce['status'] ?? '') !== 'void') {
+        // Only count completed/edited entries in the OT calculation (matches recalculateTimesheetTotals)
+        if (in_array($ce['status'] ?? '', ['completed', 'edited'])) {
             $days[$day]['total_shift_min'] += (int)($ce['total_minutes'] ?? 0);
         }
     }
