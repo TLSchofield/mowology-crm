@@ -64,6 +64,34 @@ final class InvoiceComposeViewModel: ObservableObject {
         self.state = .editing(prefill)
     }
 
+    // MARK: - Nominal request charge ($10 quick-add)
+
+    private var nominalItemId: UUID? = nil
+    private let nominalAmount = 10.0
+    private let nominalDescription = "Nominal client request"
+
+    @Published var nominalRequestEnabled: Bool = false {
+        didSet {
+            if nominalRequestEnabled {
+                let item = PrefillLineItem(
+                    description: nominalDescription,
+                    quantity: 1.0,
+                    unitPrice: nominalAmount,
+                    lineTotal: nominalAmount,
+                    sortOrder: 998
+                )
+                nominalItemId = item.id
+                editableLineItems.append(item)
+            } else {
+                if let id = nominalItemId {
+                    editableLineItems.removeAll { $0.id == id }
+                    nominalItemId = nil
+                }
+            }
+            recomputeTotals()
+        }
+    }
+
     // MARK: - Line item editing
 
     func addLineItem() {
