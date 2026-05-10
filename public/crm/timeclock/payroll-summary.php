@@ -56,32 +56,29 @@ $grandTotalOt20 = 0;
 $grandTotalPay  = 0;
 
 foreach ($employees as $emp) {
-    // Fetch daily shift totals across the date range
-    $dStmt = $db->prepare("
-        SELECT DATE(clock_in) as day, SUM(total_minutes) as day_min
-        FROM time_clock_entries
+    // Aggregate stored weekly totals from the timesheets table.
+    // Using stored total_shift_minutes avoids corrupt time_clock_entries values.
+    $tsAggStmt = $db->prepare("
+        SELECT SUM(total_shift_minutes) as total_min,
+               GROUP_CONCAT(status) as statuses,
+               GROUP_CONCAT(id) as ts_ids
+        FROM timesheets
         WHERE user_id = ?
-          AND DATE(clock_in) BETWEEN ? AND ?
-          AND status IN ('completed', 'edited')
-        GROUP BY DATE(clock_in)
-        ORDER BY DATE(clock_in) ASC
+          AND week_start <= ?
+          AND week_end   >= ?
     ");
-    $dStmt->execute([$emp['id'], $rangeStart, $rangeEnd]);
-    $dailyRows = $dStmt->fetchAll(PDO::FETCH_ASSOC);
+    $tsAggStmt->execute([$emp['id'], $rangeEnd, $rangeStart]);
+    $tsAgg = $tsAggStmt->fetch(PDO::FETCH_ASSOC);
 
-    if (empty($dailyRows)) continue; // no hours this period
-
-    $dailyMinutes = [];
-    foreach ($dailyRows as $dr) {
-        $dailyMinutes[$dr['day']] = (int)$dr['day_min'];
-    }
+    $totalShiftMin = (int)($tsAgg['total_min'] ?? 0);
+    if ($totalShiftMin <= 0) continue; // no hours this period
 
     $rate = (float)($emp['hourly_rate'] ?? 0);
-    $pay  = OvertimeCalculator::calculate($dailyMinutes, $rate);
+    $pay  = OvertimeCalculator::calculateFromWeeklyTotal($totalShiftMin, $rate);
 
-    // Fetch timesheet statuses for this range (could span multiple weeks)
+    // Fetch individual timesheet rows for status + IDs (separate query for correctness)
     $tsStmt = $db->prepare("
-        SELECT status, week_start, id
+        SELECT id, status
         FROM timesheets
         WHERE user_id = ?
           AND week_start <= ?
@@ -99,8 +96,6 @@ foreach ($employees as $emp) {
         elseif (in_array('submitted', $sheetStatuses))  $overallStatus = 'submitted';
         else                                             $overallStatus = 'approved';
     }
-
-    $totalShiftMin = array_sum($dailyMinutes);
 
     $rows[] = [
         'emp'          => $emp,

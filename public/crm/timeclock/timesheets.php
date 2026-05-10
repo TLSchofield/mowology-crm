@@ -53,8 +53,9 @@ $stmt = $db->prepare("
 $stmt->execute($params);
 $timesheets = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-// Compute pay for each timesheet row.
-// We need per-day minutes to run OvertimeCalculator, so fetch daily shift minutes for each.
+// Compute pay for each timesheet row using the pre-aggregated total_shift_minutes
+// (the stored value from recalculateTimesheetTotals — no extra DB queries needed).
+// Weekly OT only on the list view; detail page shows accurate per-day breakdown.
 $tsPay = [];
 foreach ($timesheets as $row) {
     $rate = (float)($row['hourly_rate'] ?? 0);
@@ -62,23 +63,10 @@ foreach ($timesheets as $row) {
         $tsPay[$row['id']] = null;
         continue;
     }
-    // Fetch daily totals for this timesheet's week
-    $dStmt = $db->prepare("
-        SELECT DATE(clock_in) as day, SUM(total_minutes) as day_min
-        FROM time_clock_entries
-        WHERE user_id = ?
-          AND DATE(clock_in) BETWEEN ? AND ?
-          AND status IN ('completed', 'edited')
-        GROUP BY DATE(clock_in)
-    ");
-    $dStmt->execute([$row['user_id'], $row['week_start'], $row['week_end']]);
-    $dailyRows = $dStmt->fetchAll(PDO::FETCH_ASSOC);
-
-    $dailyMinutes = [];
-    foreach ($dailyRows as $dr) {
-        $dailyMinutes[$dr['day']] = (int)$dr['day_min'];
-    }
-    $tsPay[$row['id']] = OvertimeCalculator::calculate($dailyMinutes, $rate);
+    $tsPay[$row['id']] = OvertimeCalculator::calculateFromWeeklyTotal(
+        (int)$row['total_shift_minutes'],
+        $rate
+    );
 }
 
 // Get staff for filter dropdown

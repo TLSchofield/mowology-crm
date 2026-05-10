@@ -102,6 +102,39 @@ class OvertimeCalculator
     }
 
     /**
+     * Calculate pay from a pre-aggregated weekly total (no per-day breakdown).
+     * Use this when only the stored timesheets.total_shift_minutes is available.
+     * Applies weekly OT only (>40h = 1.5×); per-day OT is not computable.
+     *
+     * @param int   $weeklyMinutes  Total shift minutes for the week (trusted stored value).
+     * @param float $hourlyRate
+     * @return array (same shape as calculate(), daily_breakdown is empty)
+     */
+    public static function calculateFromWeeklyTotal(int $weeklyMinutes, float $hourlyRate): array
+    {
+        $weeklyMinutes = max(0, $weeklyMinutes);
+        $regMin  = min($weeklyMinutes, self::WEEKLY_REG_MAX);
+        $ot15Min = max(0, $weeklyMinutes - self::WEEKLY_REG_MAX);
+
+        $ratePerMin = $hourlyRate / 60.0;
+        $regPay     = round($regMin  * $ratePerMin, 2);
+        $ot15Pay    = round($ot15Min * $ratePerMin * 1.5, 2);
+        $grossPay   = round($regPay + $ot15Pay, 2);
+
+        return [
+            'regular_minutes' => $regMin,
+            'ot_1_5_minutes'  => $ot15Min,
+            'ot_2_0_minutes'  => 0,
+            'gross_pay'       => $grossPay,
+            'regular_pay'     => $regPay,
+            'ot_1_5_pay'      => $ot15Pay,
+            'ot_2_0_pay'      => 0.0,
+            'has_overtime'    => ($ot15Min > 0),
+            'daily_breakdown' => [],
+        ];
+    }
+
+    /**
      * Format minutes as decimal hours string, e.g. "8.50h".
      */
     public static function minutesToHours(int $minutes): string
