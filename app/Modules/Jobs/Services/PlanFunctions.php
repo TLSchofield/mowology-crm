@@ -1093,6 +1093,8 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
             jv.scheduled_time_end,
             jv.assigned_crew_id,
             jv.sequence_index,
+            jv.invoice_id,
+            jv.is_invoiced,
             jp.id AS plan_id,
             jp.title AS plan_title,
             jp.plan_number,
@@ -1211,6 +1213,8 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
                 'scheduled_time_start' => $row['scheduled_time_start'],
                 'scheduled_time_end'   => $row['scheduled_time_end'],
                 'sequence_index' => (int)$row['sequence_index'],
+                'invoice_id'     => $row['invoice_id'] ? (int)$row['invoice_id'] : null,
+                'is_invoiced'    => !empty($row['is_invoiced']),
             ];
         }
     }

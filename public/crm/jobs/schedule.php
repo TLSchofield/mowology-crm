@@ -1855,11 +1855,42 @@ if ($apiKey) {
                                           <div class="mw-profit-bar mw-profit-bar-empty" title="No profitability data yet"></div>
                                       <?php endif; ?>
 
+                                      <?php
+                                      // Invoice needed? True when completed stop has at least one uninvoiced visit
+                                      $needsInvoice = $isAdmin
+                                          && ($stop['stop_status'] ?? '') === 'completed'
+                                          && !empty($stop['visits'])
+                                          && (function() use ($stop) {
+                                              foreach ($stop['visits'] as $sv) {
+                                                  if (empty($sv['invoice_id']) && empty($sv['is_invoiced'])) return true;
+                                              }
+                                              return false;
+                                          })();
+                                      ?>
                                       <?php if (!empty($stop['visits'])): ?>
                                       <button class="mw-pro-trigger" title="Open risk analysis" aria-label="Open profit risk analysis">
                                           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/></svg>
                                           Risk
                                       </button>
+                                      <?php endif; ?>
+                                      <?php if ($needsInvoice): ?>
+                                      <?php
+                                          // Link to the first uninvoiced completed visit
+                                          $invoiceVisitId = 0;
+                                          foreach ($stop['visits'] as $sv) {
+                                              if (empty($sv['invoice_id']) && empty($sv['is_invoiced'])) {
+                                                  $invoiceVisitId = (int)$sv['visit_id'];
+                                                  break;
+                                              }
+                                          }
+                                      ?>
+                                      <a href="/crm/jobs/visit-detail.php?id=<?php echo $invoiceVisitId; ?>#inv"
+                                         class="mw-invoice-needed-btn"
+                                         title="Invoice not raised — click to create"
+                                         onclick="event.stopPropagation();">
+                                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                                          Invoice
+                                      </a>
                                       <?php endif; ?>
 
                                       <!-- Revenue strip -->
@@ -2022,6 +2053,30 @@ if ($apiKey) {
                                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/></svg>
                                   Risk
                               </button>
+                              <?php endif; ?>
+                              <?php
+                              $dvNeedsInvoice = $isAdmin
+                                  && ($stop['stop_status'] ?? '') === 'completed'
+                                  && !empty($stop['visits'])
+                                  && (function() use ($stop) {
+                                      foreach ($stop['visits'] as $sv) {
+                                          if (empty($sv['invoice_id']) && empty($sv['is_invoiced'])) return true;
+                                      }
+                                      return false;
+                                  })();
+                              if ($dvNeedsInvoice):
+                                  $dvInvVisitId = 0;
+                                  foreach ($stop['visits'] as $sv) {
+                                      if (empty($sv['invoice_id']) && empty($sv['is_invoiced'])) { $dvInvVisitId = (int)$sv['visit_id']; break; }
+                                  }
+                              ?>
+                              <a href="/crm/jobs/visit-detail.php?id=<?php echo $dvInvVisitId; ?>#inv"
+                                 class="mw-invoice-needed-btn"
+                                 title="Invoice not raised — click to create"
+                                 onclick="event.stopPropagation();">
+                                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                                  Invoice
+                              </a>
                               <?php endif; ?>
                           </div>
                       </div>
