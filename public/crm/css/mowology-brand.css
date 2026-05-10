@@ -26609,3 +26609,350 @@ body.mw-no-scroll {
   font-weight: 500;
 }
 .mw-crew-sched-summary-row:last-child { border-bottom: none; }
+
+/* ─── My Timesheet v2 ────────────────────────────────────────────────────── */
+
+.mw-ts2-page {
+  max-width: 640px;
+  margin: 0 auto;
+  padding-bottom: 32px;
+}
+
+/* Week navigation */
+.mw-ts2-week-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.mw-ts2-nav-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: #f4f4f4;
+  color: #555;
+  text-decoration: none;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.mw-ts2-nav-arrow:hover { background: #e8e8e8; text-decoration: none; }
+.mw-ts2-week-label {
+  flex: 1;
+  text-align: center;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--mw-forest);
+  font-family: 'Montserrat', sans-serif;
+}
+.mw-ts2-today-btn {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--mw-green);
+  background: var(--mw-light);
+  border: 1px solid #c8dfd4;
+  border-radius: 20px;
+  padding: 5px 12px;
+  text-decoration: none;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.mw-ts2-today-btn:hover { background: #d0ead8; text-decoration: none; }
+
+/* Day strip */
+.mw-ts2-day-strip {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  background: #f8f9fa;
+  border-radius: 12px;
+  padding: 6px;
+  margin-bottom: 16px;
+}
+.mw-ts2-day-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 7px 2px 5px;
+  border-radius: 8px;
+  text-decoration: none;
+  color: #555;
+  transition: background 0.15s;
+  min-width: 0;
+}
+.mw-ts2-day-cell:hover { background: #e8e8e8; text-decoration: none; }
+.mw-ts2-day-cell--sel {
+  background: var(--mw-forest);
+  color: #fff;
+}
+.mw-ts2-day-cell--today:not(.mw-ts2-day-cell--sel) {
+  background: var(--mw-light);
+  color: var(--mw-green);
+}
+.mw-ts2-dc-name {
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  opacity: 0.8;
+}
+.mw-ts2-day-cell--sel .mw-ts2-dc-name { opacity: 0.7; color: #fff; }
+.mw-ts2-dc-num {
+  font-size: 0.95rem;
+  font-weight: 800;
+  font-family: 'Montserrat', sans-serif;
+  line-height: 1.2;
+}
+.mw-ts2-dc-dur {
+  font-size: 0.58rem;
+  font-weight: 600;
+  margin-top: 2px;
+  color: var(--mw-green);
+  white-space: nowrap;
+  min-height: 10px;
+}
+.mw-ts2-day-cell--sel .mw-ts2-dc-dur { color: #7FD858; }
+
+/* Detail header */
+.mw-ts2-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  gap: 8px;
+}
+.mw-ts2-detail-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--mw-forest);
+  font-family: 'Montserrat', sans-serif;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.mw-ts2-today-pill {
+  font-size: 0.65rem;
+  font-weight: 700;
+  background: var(--mw-green);
+  color: #fff;
+  border-radius: 20px;
+  padding: 2px 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.mw-ts2-detail-total {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  flex-shrink: 0;
+}
+.mw-ts2-detail-total-label {
+  font-size: 0.65rem;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.mw-ts2-detail-total-val {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--mw-green);
+  font-family: 'Montserrat', sans-serif;
+}
+
+/* Scheduled shift banner */
+.mw-ts2-shift-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: var(--mw-forest);
+  background: var(--mw-light);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  border-left: 3px solid var(--mw-green);
+}
+.mw-ts2-shift-dur {
+  margin-left: auto;
+  font-weight: 700;
+  color: var(--mw-green);
+}
+
+/* Empty state */
+.mw-ts2-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 40px 20px;
+  color: #bbb;
+  text-align: center;
+}
+.mw-ts2-empty p { margin: 0; font-size: 0.9rem; }
+
+/* Clock block (global shift entry) */
+.mw-ts2-clock-block {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.06);
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+.mw-ts2-clock-block--live {
+  border: 1.5px solid var(--mw-green);
+}
+.mw-ts2-clock-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 14px;
+}
+.mw-ts2-clock-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: #f1f3f5;
+  color: #555;
+  border-radius: 20px;
+  padding: 3px 9px;
+  flex-shrink: 0;
+}
+.mw-ts2-clock-pill--live {
+  background: #dcfce7;
+  color: #15803d;
+  animation: mw-ts2-pulse 2s ease-in-out infinite;
+}
+@keyframes mw-ts2-pulse {
+  0%,100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.4); }
+  50%      { box-shadow: 0 0 0 5px rgba(34,197,94,0); }
+}
+.mw-ts2-clock-times {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.875rem;
+  color: #333;
+  flex: 1;
+}
+.mw-ts2-arrow { color: #ccc; font-size: 0.8rem; }
+.mw-ts2-clock-dur {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #666;
+  white-space: nowrap;
+}
+.mw-ts2-live-text { color: var(--mw-green) !important; font-weight: 700; }
+
+/* Job entries under a clock block */
+.mw-ts2-job-list {
+  border-top: 1px solid #f4f4f4;
+}
+.mw-ts2-job-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px 8px 18px;
+  border-bottom: 1px solid #f9f9f9;
+}
+.mw-ts2-job-row:last-child { border-bottom: none; }
+.mw-ts2-job-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.mw-ts2-job-info {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.mw-ts2-job-name {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--mw-forest);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mw-ts2-job-svc {
+  font-size: 0.7rem;
+  color: #888;
+}
+.mw-ts2-job-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  flex-shrink: 0;
+}
+.mw-ts2-job-times {
+  font-size: 0.73rem;
+  color: #777;
+  white-space: nowrap;
+}
+.mw-ts2-job-dur {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #555;
+}
+
+/* Week summary */
+.mw-ts2-week-summary {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.06);
+  margin-top: 20px;
+  overflow: hidden;
+}
+.mw-ts2-ws-title {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #999;
+  padding: 12px 14px 8px;
+  border-bottom: 1px solid #f4f4f4;
+}
+.mw-ts2-ws-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  border-bottom: 1px solid #f9f9f9;
+  text-decoration: none;
+  color: #444;
+  font-size: 0.85rem;
+  transition: background 0.1s;
+}
+.mw-ts2-ws-row:hover { background: #fafafa; text-decoration: none; color: #444; }
+.mw-ts2-ws-row--sel { background: var(--mw-light) !important; color: var(--mw-forest); }
+.mw-ts2-ws-row--today .mw-ts2-ws-day { font-weight: 700; color: var(--mw-green); }
+.mw-ts2-ws-day { flex: 1; }
+.mw-ts2-ws-jobs { font-size: 0.72rem; color: #aaa; }
+.mw-ts2-ws-dur { font-weight: 700; color: var(--mw-forest); min-width: 36px; text-align: right; }
+.mw-ts2-ws-row--sel .mw-ts2-ws-dur { color: var(--mw-green); }
+.mw-ts2-ws-total {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  background: var(--mw-forest);
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.mw-ts2-ws-total span:last-child {
+  font-size: 1.1rem;
+  font-weight: 800;
+  font-family: 'Montserrat', sans-serif;
+  color: #7FD858;
+}
