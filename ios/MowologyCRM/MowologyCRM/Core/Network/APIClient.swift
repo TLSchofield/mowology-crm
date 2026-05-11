@@ -33,6 +33,16 @@ final class APIClient: ObservableObject {
     private let session: URLSession
     private let decoder: JSONDecoder
 
+    // Transient network failures we silently retry on idempotent requests.
+    // -1005 (NSURLErrorNetworkConnectionLost) commonly fires when shared cPanel
+    // hosting recycles a keep-alive socket mid-request — the server typically
+    // processed the call but the client never read the response.
+    private static let retryableNetworkErrorCodes: Set<Int> = [
+        NSURLErrorNetworkConnectionLost,  // -1005
+        NSURLErrorTimedOut,               // -1001
+    ]
+    private static let maxRetryAttempts = 3
+
     // MARK: - Init
 
     init(authSession: AuthSession) {
@@ -48,11 +58,16 @@ final class APIClient: ObservableObject {
 
     // MARK: - Generic Request
 
+    /// Performs an HTTP request and decodes the response body into `T`.
+    ///
+    /// - Parameter retryable: pass `true` for POST endpoints whose handlers are
+    ///   safe to call twice (idempotent). GET requests retry automatically.
     func request<T: Decodable>(
         _ endpoint: APIEndpoint,
         method: String? = nil,
         body: [String: Any]? = nil,
-        extraHeaders: [String: String] = [:]
+        extraHeaders: [String: String] = [:],
+        retryable: Bool = false
     ) async throws -> T {
         guard let url = endpoint.url else {
             throw APIError.invalidURL
@@ -80,11 +95,16 @@ final class APIClient: ObservableObject {
             urlRequest.httpBody = bodyData
         }
 
+        let canRetry = retryable || (urlRequest.httpMethod ?? "GET") == "GET"
+
         let data: Data
         let response: URLResponse
 
         do {
-            (data, response) = try await session.data(for: urlRequest)
+            (data, response) = try await performDataTask(
+                urlRequest,
+                retryOnTransientError: canRetry
+            )
         } catch {
             let err = APIError.networkError(error)
             #if DEBUG
@@ -151,7 +171,7 @@ final class APIClient: ObservableObject {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await session.data(for: request)
+            (data, response) = try await performDataTask(request, retryOnTransientError: false)
         } catch {
             let err = APIError.networkError(error)
             #if DEBUG
@@ -212,7 +232,7 @@ final class APIClient: ObservableObject {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await session.data(for: request)
+            (data, response) = try await performDataTask(request, retryOnTransientError: false)
         } catch {
             let err = APIError.networkError(error)
             #if DEBUG
@@ -259,7 +279,7 @@ final class APIClient: ObservableObject {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await session.data(for: urlRequest)
+            (data, response) = try await performDataTask(urlRequest, retryOnTransientError: true)
         } catch {
             let err = APIError.networkError(error)
             #if DEBUG
@@ -282,6 +302,38 @@ final class APIClient: ObservableObject {
     }
 
     // MARK: - Private Helpers
+
+    /// Executes a data task with optional retry on transient network failures.
+    /// Retries on -1005 (NSURLErrorNetworkConnectionLost) and -1001 (timeout)
+    /// up to `maxRetryAttempts` times with exponential backoff (1s, 2s, 4s).
+    /// Re-throws the underlying URLError on the final failure.
+    private func performDataTask(
+        _ urlRequest: URLRequest,
+        retryOnTransientError: Bool
+    ) async throws -> (Data, URLResponse) {
+        let maxAttempts = retryOnTransientError ? Self.maxRetryAttempts + 1 : 1
+        var attempt = 0
+        while true {
+            attempt += 1
+            do {
+                return try await session.data(for: urlRequest)
+            } catch {
+                let nsError = error as NSError
+                let isTransient = nsError.domain == NSURLErrorDomain
+                    && Self.retryableNetworkErrorCodes.contains(nsError.code)
+                if isTransient && attempt < maxAttempts {
+                    let delaySec = pow(2.0, Double(attempt - 1))  // 1, 2, 4
+                    #if DEBUG
+                    let path = urlRequest.url?.lastPathComponent ?? "?"
+                    print("⚠️ APIClient retry \(attempt)/\(maxAttempts - 1) for \(path) — code \(nsError.code), waiting \(delaySec)s")
+                    #endif
+                    try? await Task.sleep(nanoseconds: UInt64(delaySec * 1_000_000_000))
+                    continue
+                }
+                throw error
+            }
+        }
+    }
 
     private func extractErrorMessage(from data: Data) -> String? {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {

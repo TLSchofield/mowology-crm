@@ -30,10 +30,12 @@ declare(strict_types=1);
  * │     here. This is intentional — the clock endpoint only needs the        │
  * │     core timeclock functions, not the full CRM function library.          │
  * │                                                                           │
- * │  4. IDEMPOTENCY. clockIn() throws if already clocked in. clockOut()      │
- * │     throws if not clocked in. Both exceptions are caught and returned     │
- * │     as 409 Conflict, not 500. The iOS app retries on network failure;    │
- * │     returning 409 instead of 500 prevents duplicate entries on retry.    │
+ * │  4. IDEMPOTENCY. The endpoint short-circuits when the user is already   │
+ * │     in the requested terminal state: clock_in while clocked in returns   │
+ * │     the existing entry, clock_out while not clocked in returns success.  │
+ * │     This makes a network-loss retry that lands after the server already  │
+ * │     processed the first call resolve cleanly with a 200, instead of      │
+ * │     surfacing as a 409. Mutations only happen on the first call.         │
  * └───────────────────────────────────────────────────────────────────────────┘
  */
 
@@ -132,6 +134,26 @@ if (!in_array($action, ['clock_in', 'clock_out'], true)) {
 // ── Clock In ─────────────────────────────────────────────────────────────────
 if ($action === 'clock_in') {
     try {
+        // Idempotent fast-path: if already clocked in, return the existing
+        // entry as success rather than throwing. A retry that arrives after
+        // a previous clock_in succeeded (but whose response was lost mid-flight)
+        // resolves cleanly with the user shown as clocked in.
+        $existing = getActiveClockEntry($userId);
+        if ($existing) {
+            $elapsed = (int)($existing['elapsed_seconds'] ?? max(0, time() - strtotime($existing['clock_in'])));
+            echo json_encode([
+                'success'         => true,
+                'clocked_in'      => true,
+                'entry_id'        => (int)$existing['id'],
+                'clock_in'        => $existing['clock_in'],
+                'clock_out'       => null,
+                'elapsed_seconds' => $elapsed,
+                'total_minutes'   => null,
+                'message'         => 'Already clocked in',
+            ]);
+            exit;
+        }
+
         $entryId = clockIn($userId, $lat, $lng);
         $entry   = getActiveClockEntry($userId);
 
@@ -145,14 +167,6 @@ if ($action === 'clock_in') {
             'total_minutes'   => null,
             'message'         => 'Clocked in',
         ]);
-    } catch (Exception $e) {
-        // Already clocked in → 409 so iOS doesn't retry indefinitely
-        http_response_code(409);
-        echo json_encode([
-            'success'    => false,
-            'clocked_in' => true,
-            'message'    => $e->getMessage(),
-        ]);
     } catch (Throwable $e) {
         error_log('[schedule/clock in] ' . $e->getMessage());
         http_response_code(500);
@@ -164,6 +178,25 @@ if ($action === 'clock_in') {
 // ── Clock Out ────────────────────────────────────────────────────────────────
 if ($action === 'clock_out') {
     try {
+        // Idempotent fast-path: if not currently clocked in, return success
+        // rather than throwing. Covers both "user wasn't clocked in" and
+        // "previous clock_out succeeded but the response was lost mid-flight
+        // and the iOS client retried." The crew's terminal state is the
+        // requested state, so the request is satisfied.
+        if (!getActiveClockEntry($userId)) {
+            echo json_encode([
+                'success'         => true,
+                'clocked_in'      => false,
+                'entry_id'        => null,
+                'clock_in'        => null,
+                'clock_out'       => null,
+                'elapsed_seconds' => null,
+                'total_minutes'   => null,
+                'message'         => 'Already clocked out',
+            ]);
+            exit;
+        }
+
         $totalMinutes = clockOut($userId, $lat, $lng);
 
         echo json_encode([
@@ -175,14 +208,6 @@ if ($action === 'clock_out') {
             'elapsed_seconds' => null,
             'total_minutes'   => $totalMinutes,
             'message'         => 'Clocked out',
-        ]);
-    } catch (Exception $e) {
-        // Not clocked in → 409
-        http_response_code(409);
-        echo json_encode([
-            'success'    => false,
-            'clocked_in' => false,
-            'message'    => $e->getMessage(),
         ]);
     } catch (Throwable $e) {
         error_log('[schedule/clock out] ' . $e->getMessage());

@@ -101,7 +101,8 @@ final class TimeClockViewModel: ObservableObject {
         do {
             let response: ClockActionResponse = try await apiClient.request(
                 .scheduleClock,
-                body: body
+                body: body,
+                retryable: true
             )
             clockedIn      = response.clockedIn
             entryId        = response.entryId
@@ -131,7 +132,8 @@ final class TimeClockViewModel: ObservableObject {
         do {
             let response: ClockActionResponse = try await apiClient.request(
                 .scheduleClock,
-                body: body
+                body: body,
+                retryable: true
             )
             clockedIn      = false
             entryId        = nil
