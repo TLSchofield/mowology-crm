@@ -13,6 +13,7 @@
 import SwiftUI
 import UIKit
 
+@MainActor
 struct ReceiptReviewView: View {
 
     @ObservedObject var viewModel: ReceiptsViewModel
@@ -363,6 +364,7 @@ struct ReceiptReviewView: View {
     // MARK: - Save
 
     private func save() async {
+        focusedField = nil          // dismiss keyboard before async work
         let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
         let saved = await viewModel.saveExpense(
             vendorId:      viewModel.intakeResponse?.suggestions?.vendorId,

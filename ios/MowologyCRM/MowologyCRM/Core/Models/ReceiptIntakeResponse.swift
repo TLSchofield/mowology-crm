@@ -27,6 +27,20 @@ struct ReceiptIntakeResponse: Decodable, Equatable {
         case duplicateImage = "duplicate_image"
     }
 
+    init(from decoder: Decoder) throws {
+        let c      = try decoder.container(keyedBy: CodingKeys.self)
+        success    = try c.decode(Bool.self, forKey: .success)
+        mediaId    = try c.decode(Int.self, forKey: .mediaId)
+        filePath   = try c.decodeIfPresent(String.self, forKey: .filePath)
+        // Default false — server always sends this field, but guard against older API versions
+        ocrAvailable   = try c.decodeIfPresent(Bool.self, forKey: .ocrAvailable) ?? false
+        ocrSource      = try c.decodeIfPresent(String.self, forKey: .ocrSource)
+        parsed         = try c.decodeIfPresent(ParsedReceipt.self, forKey: .parsed)
+        suggestions    = try c.decodeIfPresent(ReceiptSuggestions.self, forKey: .suggestions)
+        jobSuggestions = try c.decodeIfPresent([JobSuggestion].self, forKey: .jobSuggestions)
+        duplicateImage = try c.decodeIfPresent(DuplicateImageInfo.self, forKey: .duplicateImage)
+    }
+
     var receiptImageURL: URL? {
         guard let path = filePath, !path.isEmpty else { return nil }
         return URL(string: "https://mowology.ca\(path)")
@@ -105,15 +119,42 @@ struct ExpenseMetaResponse: Decodable {
     }
 }
 
-struct ReceiptLineItem: Codable, Identifiable, Equatable {
-    var id: String { name + (amount ?? "") }
+struct ReceiptLineItem: Identifiable, Equatable {
+    // UUID assigned at decode time — stable across renders, unique even when two
+    // items share the same name and amount (e.g. two identical line items on one receipt).
+    let id: String
     let name: String
     let amount: String?
     let quantity: String?
     let unitPrice: String?
+}
 
+extension ReceiptLineItem: Codable {
     enum CodingKeys: String, CodingKey {
         case name, amount, quantity
         case unitPrice = "unit_price"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c  = try decoder.container(keyedBy: CodingKeys.self)
+        id        = UUID().uuidString
+        name      = try c.decode(String.self, forKey: .name)
+        amount    = try c.decodeIfPresent(String.self, forKey: .amount)
+        quantity  = try c.decodeIfPresent(String.self, forKey: .quantity)
+        unitPrice = try c.decodeIfPresent(String.self, forKey: .unitPrice)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(name,      forKey: .name)
+        try c.encodeIfPresent(amount,    forKey: .amount)
+        try c.encodeIfPresent(quantity,  forKey: .quantity)
+        try c.encodeIfPresent(unitPrice, forKey: .unitPrice)
+    }
+
+    // Equality ignores the UUID — two items with identical content are considered equal
+    static func == (lhs: ReceiptLineItem, rhs: ReceiptLineItem) -> Bool {
+        lhs.name == rhs.name && lhs.amount == rhs.amount &&
+        lhs.quantity == rhs.quantity && lhs.unitPrice == rhs.unitPrice
     }
 }

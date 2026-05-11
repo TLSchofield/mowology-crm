@@ -34,9 +34,12 @@ enum VisionOCRService {
     /// Runs `VNRecognizeTextRequest` on `image` and returns extracted fields.
     /// Never throws — returns an empty VisionPreFill if Vision finds nothing.
     static func scan(_ image: UIImage) async -> VisionPreFill {
-        guard let cgImage = image.cgImage else {
-            return VisionPreFill(rawText: "", vendorHint: nil, total: nil,
-                                 subtotal: nil, gst: nil, pst: nil, date: nil, paymentMethod: nil)
+        // Normalize orientation before extracting cgImage — UIImage orientation
+        // metadata is not preserved when crossing the UIImage→CGImage boundary,
+        // so portrait photos would be scanned rotated without this step.
+        let oriented = normalizeOrientation(image)
+        guard let cgImage = oriented.cgImage else {
+            return emptyPreFill
         }
 
         return await withCheckedContinuation { continuation in
@@ -52,8 +55,28 @@ enum VisionOCRService {
             request.recognitionLanguages   = ["en-CA", "en-US", "fr-CA"]
 
             let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
-            try? handler.perform([request])
+            do {
+                try handler.perform([request])
+                // Continuation was resumed inside the request completion block above.
+            } catch {
+                // perform() threw before invoking the completion — resume so the caller never hangs.
+                continuation.resume(returning: Self.emptyPreFill)
+            }
         }
+    }
+
+    private static let emptyPreFill = VisionPreFill(
+        rawText: "", vendorHint: nil, total: nil,
+        subtotal: nil, gst: nil, pst: nil, date: nil, paymentMethod: nil
+    )
+
+    /// Returns a copy of `image` drawn upright (imageOrientation == .up).
+    /// Portrait photos from UIImagePickerController carry a 90° rotation tag
+    /// that CGImage-based APIs (including Vision) do not honour.
+    private static func normalizeOrientation(_ image: UIImage) -> UIImage {
+        guard image.imageOrientation != .up else { return image }
+        let renderer = UIGraphicsImageRenderer(size: image.size)
+        return renderer.image { _ in image.draw(at: .zero) }
     }
 
     // MARK: - Field Parsing

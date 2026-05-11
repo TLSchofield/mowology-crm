@@ -71,6 +71,9 @@ final class ReceiptsViewModel: ObservableObject {
 
     func loadNextPage() async {
         guard currentPage < totalPages, !isLoadingList else { return }
+        // Claim the loading slot synchronously before the first suspension point so that
+        // a second Task spawned by the same .onAppear fires sees isLoadingList==true and exits.
+        isLoadingList = true
         await loadExpenses(page: currentPage + 1)
     }
 
