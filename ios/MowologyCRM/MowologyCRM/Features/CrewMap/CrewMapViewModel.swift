@@ -14,11 +14,11 @@ final class CrewMapViewModel: ObservableObject {
     @Published var errorMessage: String?              = nil
     @Published var selectedMember: CrewMapMember?        = nil
 
-    /// Camera region centred on all visible crew, or Metro Vancouver as default.
-    @Published var region: MKCoordinateRegion = MKCoordinateRegion(
+    /// Camera position centred on all visible crew, or Metro Vancouver as default.
+    @Published var position: MapCameraPosition = .region(MKCoordinateRegion(
         center: CLLocationCoordinate2D(latitude: 49.2827, longitude: -123.1207),
         span: MKCoordinateSpan(latitudeDelta: 0.15, longitudeDelta: 0.15)
-    )
+    ))
 
     private let apiClient: APIClient
     private var refreshTask: Task<Void, Never>?
@@ -76,6 +76,6 @@ final class CrewMapViewModel: ObservableObject {
             latitudeDelta:  max(0.02, (maxLat - minLat) * 1.5),
             longitudeDelta: max(0.02, (maxLng - minLng) * 1.5)
         )
-        region = MKCoordinateRegion(center: centre, span: span)
+        position = .region(MKCoordinateRegion(center: centre, span: span))
     }
 }
