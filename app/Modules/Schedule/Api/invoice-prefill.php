@@ -79,10 +79,15 @@ try {
             jv.extras_amount,
             jv.extras_note,
             jv.completion_notes,
+            jv.actual_duration_minutes,
+            jv.labor_rate_snapshot,
             jp.plan_number,
             jp.title           AS plan_title,
             jp.price_per_visit,
             jp.estimated_amount,
+            jp.estimated_duration_minutes,
+            jp.pricing_model,
+            jp.invoice_timing,
             jp.property_id,
             jp.company_id,
             COALESCE(comp.company_name, '') AS company_name,
@@ -184,13 +189,39 @@ try {
             $extrasDesc = 'Additional charges';
         }
         $extrasLineItem = [
-            'description' => $extrasDesc,
-            'quantity'    => 1.0,
-            'unit_price'  => $extrasAmt,
-            'line_total'  => $extrasAmt,
-            'sort_order'  => 999,
-            'is_extras'   => true,
+            'description'    => $extrasDesc,
+            'quantity'       => 1.0,
+            'unit_price'     => $extrasAmt,
+            'line_total'     => $extrasAmt,
+            'sort_order'     => 999,
+            'is_extras'      => true,
+            'auto_calculated'=> false,
         ];
+    }
+
+    // ── Auto-extras from clock data (when no manual extras recorded) ─────────
+    // If actual time on site exceeded the estimated duration and no extras_amount
+    // was manually entered, auto-populate an extras line from the labor rate
+    // snapshot captured at completion. Shown as editable in the compose sheet.
+    if ($extrasLineItem === null) {
+        $actualMins    = (int)($visit['actual_duration_minutes'] ?? 0);
+        $estimatedMins = (int)($visit['estimated_duration_minutes'] ?? 0);
+        $laborRate     = (float)($visit['labor_rate_snapshot'] ?? 0);
+        if ($actualMins > 0 && $estimatedMins > 0 && $actualMins > $estimatedMins && $laborRate > 0) {
+            $overageMins = $actualMins - $estimatedMins;
+            $extrasCost  = round(($overageMins / 60) * $laborRate, 2);
+            if ($extrasCost > 0) {
+                $extrasLineItem = [
+                    'description'    => 'Additional time on site — ' . $overageMins . ' min (auto)',
+                    'quantity'       => 1.0,
+                    'unit_price'     => $extrasCost,
+                    'line_total'     => $extrasCost,
+                    'sort_order'     => 999,
+                    'is_extras'      => true,
+                    'auto_calculated'=> true,
+                ];
+            }
+        }
     }
 
     // ── Subtotal / tax / total ───────────────────────────────────────────────
@@ -263,6 +294,13 @@ try {
             'crew_notes'           => $crewNotes,
             'existing_invoice_id'  => null,
             'gst_number'           => $gstNum,
+            'billing_type_label'   => [
+                'per_visit'    => 'Per Visit',
+                'monthly_flat' => 'Monthly Flat',
+                'seasonal'     => 'Seasonal',
+                'custom'       => 'Custom',
+            ][$visit['pricing_model'] ?? 'per_visit'] ?? 'Per Visit',
+            'invoice_timing'       => $visit['invoice_timing'] ?? 'after_visit',
         ],
     ]);
 
