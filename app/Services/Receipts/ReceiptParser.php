@@ -115,34 +115,69 @@ function parseReceiptText(string $ocrText, ?array $rawResponse = null): array
         }
     }
 
-    // If we found subtotal and GST but no total, calculate it
-    if ($result['total'] === null && $result['subtotal'] !== null && $result['gst'] !== null) {
-        $result['total'] = number_format(
-            (float)$result['subtotal'] + (float)$result['gst'] + (float)($result['pst'] ?? 0),
-            2,
-            '.',
-            ''
-        );
+    // ── Province tax-model detection ──────────────────────────────────────────
+    // Must run after all extraction so the raw keyword scan has full OCR text.
+    // Sets tax_model, and for HST provinces moves the amount from the gst slot
+    // (where extractGST may have placed it via the GST/HST pattern) to hst.
+    $result['pst']       = $result['pst'] ?? null;
+    $result['hst']       = null;
+    $result['tax_model'] = detectTaxModel($ocrText);
+
+    if ($result['tax_model'] === 'hst') {
+        // Try dedicated HST extractor first — catches "HST (13%) $13.00" formats
+        // that extractGST() does not handle (it requires a GST prefix).
+        $hstAmount = extractHST($ocrText);
+        if ($hstAmount !== null) {
+            $result['hst'] = $hstAmount;
+            $result['gst'] = null;   // clear any GST/HST-pattern match in gst slot
+        } elseif ($result['gst'] !== null && !($result['gst_estimated'] ?? false)) {
+            // extractGST captured the HST value via the "GST/HST" or "HST INCLUDED"
+            // pattern — promote it to the hst slot.
+            $result['hst'] = $result['gst'];
+            $result['gst'] = null;
+        }
+        $result['pst'] = null;   // blended HST replaces separate PST
     }
 
-    // If we have total and GST but no subtotal, calculate subtotal = total - GST - PST
-    if ($result['subtotal'] === null && $result['total'] !== null && $result['gst'] !== null) {
-        $result['subtotal'] = number_format(
-            (float)$result['total'] - (float)$result['gst'] - (float)($result['pst'] ?? 0),
-            2,
-            '.',
-            ''
-        );
-    }
-
-    // If we have total but no GST, estimate GST at 5% (BC standard)
-    if ($result['gst'] === null && $result['total'] !== null) {
-        $total = (float)$result['total'];
-        $result['gst'] = number_format($total / 1.05 * 0.05, 2, '.', '');
-        $result['gst_estimated'] = true;
-        // Also calculate subtotal from the estimated GST
-        if ($result['subtotal'] === null) {
-            $result['subtotal'] = number_format($total / 1.05, 2, '.', '');
+    // ── Back-calculations (tax-model-aware) ───────────────────────────────────
+    if ($result['tax_model'] === 'hst') {
+        // HST model: subtotal + HST = total (no PST component)
+        if ($result['total'] === null && $result['subtotal'] !== null && $result['hst'] !== null) {
+            $result['total'] = number_format(
+                (float)$result['subtotal'] + (float)$result['hst'],
+                2, '.', ''
+            );
+        }
+        if ($result['subtotal'] === null && $result['total'] !== null && $result['hst'] !== null) {
+            $result['subtotal'] = number_format(
+                (float)$result['total'] - (float)$result['hst'],
+                2, '.', ''
+            );
+        }
+        // ⚠ Do NOT estimate HST — the rate is province-specific (ON 13%, NS/NB 15%)
+        // and cannot be determined without address context. Leave hst null if absent.
+    } else {
+        // GST+PST model (BC 5%+7%, SK 5%+6%, MB 5%+7%, QC 5%+9.975%)
+        if ($result['total'] === null && $result['subtotal'] !== null && $result['gst'] !== null) {
+            $result['total'] = number_format(
+                (float)$result['subtotal'] + (float)$result['gst'] + (float)($result['pst'] ?? 0),
+                2, '.', ''
+            );
+        }
+        if ($result['subtotal'] === null && $result['total'] !== null && $result['gst'] !== null) {
+            $result['subtotal'] = number_format(
+                (float)$result['total'] - (float)$result['gst'] - (float)($result['pst'] ?? 0),
+                2, '.', ''
+            );
+        }
+        // If we have total but no GST, estimate at 5% (BC standard fallback)
+        if ($result['gst'] === null && $result['total'] !== null) {
+            $total = (float)$result['total'];
+            $result['gst']           = number_format($total / 1.05 * 0.05, 2, '.', '');
+            $result['gst_estimated'] = true;
+            if ($result['subtotal'] === null) {
+                $result['subtotal'] = number_format($total / 1.05, 2, '.', '');
+            }
         }
     }
 
@@ -1331,6 +1366,88 @@ function semanticMatchAmounts(array $amounts, array $labelOrder): array
 // ═══════════════════════════════════════════════════════════════════════
 
 /**
+ * Detect the Canadian provincial tax model from receipt OCR text.
+ *
+ * Two models are supported:
+ *   'gst_pst' — Separate federal GST (5%) + provincial PST lines.
+ *               Used in BC (7% PST), SK (6%), MB (7%), QC (TVQ 9.975%).
+ *   'hst'     — Blended Harmonised Sales Tax: ON (13%), NS/NB/NL/PEI (15%).
+ *               Single HST line on the receipt; no separate PST.
+ *
+ * Detection is heuristic and based on OCR keyword presence:
+ *  - Explicit "HST" label with no "PST"/"TVQ" → blended HST province.
+ *  - Ambiguous (only "TAX" label, or "GST/HST" combined label) → defaults to
+ *    gst_pst, which is the safe fallback for BC.
+ *
+ * @param string $text Raw OCR text
+ * @return string 'gst_pst' | 'hst'
+ */
+function detectTaxModel(string $text): string
+{
+    $hasHst = (bool)preg_match('/\bHST\b/i', $text);
+    $hasPst = (bool)preg_match('/\b(?:PST|TVQ|QST)\b/i', $text);
+
+    // HST province: receipt has an HST label but no separate PST or QC TVQ label.
+    // "GST/HST" (federal combined label) also qualifies — federal receipts in HST
+    // provinces use "GST/HST" but carry no PST line.
+    if ($hasHst && !$hasPst) {
+        return 'hst';
+    }
+
+    return 'gst_pst';
+}
+
+/**
+ * Extract a standalone HST (Harmonised Sales Tax) amount from receipt text.
+ *
+ * Distinct from extractGST() — targets pure HST labels without the "GST/" prefix:
+ *   "HST (13%)  $13.00"   "HST 13%  $13.00"   "HST  $13.00"
+ *   "HST\n13.00"          "HST (13%)\n$\n13.00"
+ *
+ * @param string $text Raw OCR text
+ * @return string|null Formatted amount ("13.00") or null if not found
+ */
+function extractHST(string $text): ?string
+{
+    // Same-line patterns (horizontal whitespace only — [^\S\n] prevents cross-line grabs)
+    $patterns = [
+        // "HST (13%) $13.00" or "HST 13% $13.00" — with explicit dollar sign
+        '/\bHST\b[^\S\n]*(?:\([\d.]+%\)|[\d.]+%)?[^\S\n]*:?[^\S\n]*\$[^\S\n]*(\d{1,6}[.,]\d{2})/i',
+        // "HST $13.00" or "HST: 13.00" — without explicit dollar sign
+        '/\bHST\b[^\S\n]*(?:\([\d.]+%\)|[\d.]+%)?[^\S\n]*:?[^\S\n]*(\d{1,6}[.,]\d{2})(?!\d*%)/i',
+    ];
+
+    foreach ($patterns as $pattern) {
+        if (preg_match($pattern, $text, $m)) {
+            return number_format((float)str_replace(',', '.', $m[1]), 2, '.', '');
+        }
+    }
+
+    // Split-line fallback: "HST\n13.00" or "HST (13%)\n13.00" or "HST\n$\n13.00"
+    $lines     = preg_split('/\r?\n/', $text);
+    $lineCount = count($lines);
+    for ($i = 0; $i < $lineCount - 1; $i++) {
+        $line = trim($lines[$i]);
+        // Match a line that is just an HST label (optional percentage)
+        if (preg_match('/^\bHST\b(?:\s*\([\d.]+%\)|\s*[\d.]+%)?\s*:?\s*$/i', $line)) {
+            $nextLine = trim($lines[$i + 1]);
+            if (preg_match('/^\$?(\d{1,6}[.,]\d{2})\s*$/', $nextLine, $m)) {
+                return number_format((float)str_replace(',', '.', $m[1]), 2, '.', '');
+            }
+            // Three-line format: "HST\n$\n13.00"
+            if ($nextLine === '$' && $i + 2 < $lineCount) {
+                $amtLine = trim($lines[$i + 2]);
+                if (preg_match('/^\$?(\d{1,6}[.,]\d{2})\s*$/', $amtLine, $m)) {
+                    return number_format((float)str_replace(',', '.', $m[1]), 2, '.', '');
+                }
+            }
+        }
+    }
+
+    return null;
+}
+
+/**
  * Validate that subtotal + GST + PST ≈ total (within tolerance).
  * Returns a validation result that can be shown to the user.
  *
@@ -1339,26 +1456,101 @@ function semanticMatchAmounts(array $amounts, array $labelOrder): array
  */
 function validateGstMath(array $parsed): array
 {
-    $subtotal = (float)($parsed['subtotal'] ?? 0);
-    $gst      = (float)($parsed['gst'] ?? 0);
-    $pst      = (float)($parsed['pst'] ?? 0);
+    $taxModel = $parsed['tax_model'] ?? 'gst_pst';
     $total    = (float)($parsed['total'] ?? 0);
+    $subtotal = (float)($parsed['subtotal'] ?? 0);
 
-    // Need at least total and one other value
+    // ── Short-circuit: no total to validate against ───────────────────────────
     if ($total <= 0) {
-        return ['valid' => true, 'expected_total' => '0.00', 'actual_total' => '0.00', 'diff' => '0.00', 'message' => ''];
+        return [
+            'valid'            => true,
+            'expected_total'   => '0.00',
+            'actual_total'     => '0.00',
+            'diff'             => '0.00',
+            'message'          => '',
+            'gst_rate_valid'   => true,
+            'gst_rate_message' => '',
+            'tax_model'        => $taxModel,
+        ];
     }
 
+    // ── HST model: subtotal + HST = total ─────────────────────────────────────
+    if ($taxModel === 'hst') {
+        $hst = (float)($parsed['hst'] ?? 0);
+
+        if ($subtotal <= 0 && $hst <= 0) {
+            return [
+                'valid'            => true,
+                'expected_total'   => number_format($total, 2, '.', ''),
+                'actual_total'     => number_format($total, 2, '.', ''),
+                'diff'             => '0.00',
+                'message'          => '',
+                'gst_rate_valid'   => true,
+                'gst_rate_message' => '',
+                'tax_model'        => 'hst',
+            ];
+        }
+
+        $expectedTotal = $subtotal + $hst;
+        $diff      = abs($expectedTotal - $total);
+        $tolerance = max(0.05, $total * 0.005);
+        $valid     = ($diff <= $tolerance);
+
+        $message = '';
+        if (!$valid) {
+            $message = sprintf(
+                'Math check: subtotal ($%.2f) + HST ($%.2f) = $%.2f, but total is $%.2f (off by $%.2f)',
+                $subtotal, $hst, $expectedTotal, $total, $diff
+            );
+        }
+
+        // HST rate check: ON = 13%, NS/NB/NL/PEI = 15%. Accept 12–16% range.
+        $hstRateValid   = true;
+        $hstRateMessage = '';
+        if ($subtotal > 0 && $hst > 0) {
+            $rate = $hst / $subtotal;
+            if ($rate < 0.12 || $rate > 0.16) {
+                $hstRateValid   = false;
+                $hstRateMessage = sprintf(
+                    'HST rate %.1f%% is outside expected range (13%% ON / 15%% NS·NB·NL·PEI)',
+                    $rate * 100
+                );
+            }
+        }
+
+        return [
+            'valid'            => $valid,
+            'expected_total'   => number_format($expectedTotal, 2, '.', ''),
+            'actual_total'     => number_format($total, 2, '.', ''),
+            'diff'             => number_format($diff, 2, '.', ''),
+            'message'          => $message,
+            'gst_rate_valid'   => $hstRateValid,
+            'gst_rate_message' => $hstRateMessage,
+            'tax_model'        => 'hst',
+        ];
+    }
+
+    // ── GST+PST model (BC / SK / MB / QC) ────────────────────────────────────
+    $gst = (float)($parsed['gst'] ?? 0);
+    $pst = (float)($parsed['pst'] ?? 0);
+
     if ($subtotal <= 0 && $gst <= 0) {
-        return ['valid' => true, 'expected_total' => number_format($total, 2, '.', ''), 'actual_total' => number_format($total, 2, '.', ''), 'diff' => '0.00', 'message' => ''];
+        return [
+            'valid'            => true,
+            'expected_total'   => number_format($total, 2, '.', ''),
+            'actual_total'     => number_format($total, 2, '.', ''),
+            'diff'             => '0.00',
+            'message'          => '',
+            'gst_rate_valid'   => true,
+            'gst_rate_message' => '',
+            'tax_model'        => 'gst_pst',
+        ];
     }
 
     $expectedTotal = $subtotal + $gst + $pst;
-    $diff = abs($expectedTotal - $total);
-
-    // Tolerance: $0.05 or 0.5% of total, whichever is larger
+    $diff      = abs($expectedTotal - $total);
     $tolerance = max(0.05, $total * 0.005);
-    $valid = ($diff <= $tolerance);
+    $valid     = ($diff <= $tolerance);
 
     $message = '';
     if (!$valid) {
@@ -1370,17 +1562,16 @@ function validateGstMath(array $parsed): array
         );
     }
 
-    // Also check if GST is approximately 5% of subtotal
-    $gstValid = true;
-    $gstMessage = '';
+    // GST rate check: should be ~5% of subtotal (allow 2–15% for rounding edge cases)
+    $gstRateValid   = true;
+    $gstRateMessage = '';
     if ($subtotal > 0 && $gst > 0) {
-        $expectedGst = round($subtotal * 0.05, 2);
-        $gstDiff = abs($gst - $expectedGst);
+        $expectedGst  = round($subtotal * 0.05, 2);
+        $gstDiff      = abs($gst - $expectedGst);
         $gstTolerance = max(0.10, $subtotal * 0.005);
-
         if ($gstDiff > $gstTolerance) {
-            $gstValid = false;
-            $gstMessage = sprintf(
+            $gstRateValid   = false;
+            $gstRateMessage = sprintf(
                 'GST $%.2f is not ~5%% of subtotal $%.2f (expected ~$%.2f)',
                 $gst, $subtotal, $expectedGst
             );
@@ -1388,12 +1579,13 @@ function validateGstMath(array $parsed): array
     }
 
     return [
-        'valid'          => $valid,
-        'expected_total'  => number_format($expectedTotal, 2, '.', ''),
-        'actual_total'    => number_format($total, 2, '.', ''),
-        'diff'            => number_format($diff, 2, '.', ''),
-        'message'         => $message,
-        'gst_rate_valid'  => $gstValid,
-        'gst_rate_message' => $gstMessage,
+        'valid'            => $valid,
+        'expected_total'   => number_format($expectedTotal, 2, '.', ''),
+        'actual_total'     => number_format($total, 2, '.', ''),
+        'diff'             => number_format($diff, 2, '.', ''),
+        'message'          => $message,
+        'gst_rate_valid'   => $gstRateValid,
+        'gst_rate_message' => $gstRateMessage,
+        'tax_model'        => 'gst_pst',
     ];
 }

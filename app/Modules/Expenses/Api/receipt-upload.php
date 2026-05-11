@@ -469,6 +469,37 @@ try {
         }
     }
 
+    // ── Word-Level Confidence Extraction ─────────────────────────────────────
+    // Mirrors receipt-intake.php — maps Vision bounding-box word confidences onto
+    // parsed fields so iOS clients receive per-field accuracy signals (green/yellow/red).
+    // Only populated when Google Cloud Vision raw_response is available (raw_response is
+    // null on the ios_vision-only and tesseract-only paths).
+    $fieldConfidences = [];
+    $rawResponse = $ocrResult['raw_response'] ?? null;
+    if ($rawResponse) {
+        try {
+            $wordConfidences = extractWordConfidenceMap($rawResponse);
+            if (!empty($wordConfidences)) {
+                $fieldConfidences = calculateFieldConfidences($parsed, $wordConfidences);
+            }
+        } catch (Throwable $e) {
+            error_log('Confidence extraction failed: ' . $e->getMessage());
+        }
+    }
+
+    // ── GST Math Validation ───────────────────────────────────────────────────
+    // Verifies subtotal + GST + PST = total; flags mismatches for the review UI.
+    // Previously only ran on the web path (receipt-intake.php); now runs on the
+    // iOS path too so math errors are caught regardless of client.
+    $gstValidation = null;
+    if ($ocrAvailable) {
+        try {
+            $gstValidation = validateGstMath($parsed);
+        } catch (Throwable $e) {
+            error_log('GST math validation failed: ' . $e->getMessage());
+        }
+    }
+
     // ── Job suggestion ────────────────────────────────────────────────────────
     // Looks at the user's schedule for today and returns plans near $lat/$lng.
     // Displayed in the iOS review sheet as a pre-link dropdown.
@@ -499,6 +530,8 @@ try {
         'parsed'          => $parsed,
         'suggestions'     => $suggestions,
         'job_suggestions' => $jobSuggestions,
+        'field_confidences' => $fieldConfidences ?? [],
+        'gst_validation'    => $gstValidation    ?? null,
         'duplicate_image' => $duplicateImage,
     ]);
 

@@ -265,8 +265,8 @@ Must contain `client_email`, `private_key`, `token_uri`. The OAuth2 flow in `Rec
 
 | Item | File | Severity |
 |------|------|----------|
-| `validateGstMath()` not called in `receipt-upload.php` | receipt-upload.php | Medium — iOS receipts skip math validation |
-| `extractWordConfidenceMap()` + `calculateFieldConfidences()` not called in `receipt-upload.php` | receipt-upload.php | Medium — iOS receipts have no per-field confidence scores in response |
+| ~~`validateGstMath()` not called in `receipt-upload.php`~~ | ~~receipt-upload.php~~ | **Fixed** — `gst_validation` now returned on iOS path; `ReceiptReviewView` shows math-mismatch banner |
+| ~~`extractWordConfidenceMap()` + `calculateFieldConfidences()` not called in `receipt-upload.php`~~ | ~~receipt-upload.php~~ | **Fixed** — `field_confidences` now returned on iOS path; confidence dots shown on date, amount, GST, PST, total |
 | Rate limit check off-by-one (upload.php allows 20, intake.php allows 21) | Both endpoints | Low |
 | `isTesseractAvailable()` exported but never called — callers assume Tesseract present | TesseractPreScreen.php | Low |
 | Async OCR queue infrastructure dormant | receipt-intake.php, process_ocr_queue.php | Design debt — wire 202 when Vision API latency becomes a UX problem |

@@ -22,6 +22,8 @@ struct VisionPreFill {
     let subtotal:      String?
     let gst:           String?
     let pst:           String?   // Provincial Sales Tax (BC PST 7%, QC TVQ, etc.)
+    let hst:           String?   // Blended HST — ON 13%, NS/NB 15% (mutually exclusive with gst+pst)
+    let taxModel:      String?   // "gst_pst" | "hst" — nil before on-device detection runs
     let date:          String?   // "yyyy-MM-dd" or nil
     let paymentMethod: String?   // API payment method key or nil
 }
@@ -67,7 +69,8 @@ enum VisionOCRService {
 
     private static let emptyPreFill = VisionPreFill(
         rawText: "", vendorHint: nil, total: nil,
-        subtotal: nil, gst: nil, pst: nil, date: nil, paymentMethod: nil
+        subtotal: nil, gst: nil, pst: nil, hst: nil, taxModel: nil,
+        date: nil, paymentMethod: nil
     )
 
     /// Returns a copy of `image` drawn upright (imageOrientation == .up).
@@ -96,6 +99,8 @@ enum VisionOCRService {
             subtotal:      amounts.subtotal,
             gst:           amounts.gst,
             pst:           amounts.pst,
+            hst:           amounts.hst,
+            taxModel:      amounts.taxModel,
             date:          extractDate(lines),
             paymentMethod: extractPaymentMethod(rawText)
         )
@@ -145,53 +150,79 @@ enum VisionOCRService {
             .filter { $0 > 0 && $0 < 99_999 }
     }
 
-    private static func extractAmounts(_ lines: [String]) -> (total: String?, subtotal: String?, gst: String?, pst: String?) {
+    private static func extractAmounts(_ lines: [String])
+        -> (total: String?, subtotal: String?, gst: String?, pst: String?, hst: String?, taxModel: String?)
+    {
         var total:    Double?
         var subtotal: Double?
         var gst:      Double?
         var pst:      Double?
+        var hst:      Double?
 
         for line in lines {
             let u    = line.uppercased()
             let nums = amounts(in: line)
             guard let first = nums.first else { continue }
 
-            // PST / TVQ — provincial tax (must check before generic TAX to avoid misclassification)
+            // PST / TVQ — provincial tax (must check before generic TAX)
             if u.contains("PST") || (u.contains("TVQ") && !u.contains("GST")) {
                 if pst == nil { pst = first }
-            // GST / TPS / HST — federal tax only (no generic TAX fallthrough here)
-            } else if u.contains("GST") || u.contains("TPS") || u.contains("HST") {
+            // Standalone HST label (ON/NS/NB) — only when no GST prefix on the same line
+            } else if u.contains("HST") && !u.contains("GST") {
+                if hst == nil { hst = first }
+            // GST / TPS / GST+HST combined label (federal language, used in BC too)
+            } else if u.contains("GST") || u.contains("TPS") {
                 if gst == nil { gst = first }
-            // Generic "TAX" line — conservative fallback only when neither GST nor PST found yet
-            } else if u.contains("TAX") && !u.contains("TOTAL") && gst == nil && pst == nil {
+            // Generic "TAX" — conservative fallback, only when neither GST nor PST found yet
+            } else if u.contains("TAX") && !u.contains("TOTAL") && gst == nil && pst == nil && hst == nil {
                 gst = first
             } else if u.contains("SUBTOTAL") || u.contains("SUB TOTAL") || u.contains("SUB-TOTAL") {
                 if subtotal == nil { subtotal = first }
             } else if u.contains("TOTAL") || u.contains("AMOUNT DUE") ||
                       u.contains("BALANCE DUE") || u.contains("GRAND TOTAL") {
-                // Keep the largest TOTAL match (avoids picking up "SUBTOTAL" line's total)
+                // Keep the largest TOTAL match (avoids picking up SUBTOTAL's value)
                 if let curr = total { if first > curr { total = first } } else { total = first }
             }
         }
 
-        // Derive missing total (subtotal + gst + pst)
-        if total == nil, let s = subtotal {
-            let taxSum = (gst ?? 0) + (pst ?? 0)
-            total = round((s + taxSum) * 100) / 100
-        }
-        // Back-calculate 5% GST when only a total is available and no taxes were found
-        if let t = total, subtotal == nil, gst == nil, pst == nil {
-            let s = round(t / 1.05 * 100) / 100
-            let g = round((t - s) * 100) / 100
-            subtotal = s
-            gst      = g > 0 ? g : nil
+        // ── Tax-model detection ──────────────────────────────────────────────
+        // HST province: HST amount found, no PST label on the receipt.
+        // Note: if both gst AND hst were seen (unlikely but possible with "GST/HST" on a BC
+        // receipt that also has a standalone HST line), treat as gst_pst to be safe.
+        let hasHST   = hst != nil
+        let hasPST   = pst != nil
+        let taxModel = (hasHST && !hasPST) ? "hst" : "gst_pst"
+
+        // ── Back-calculations ────────────────────────────────────────────────
+        if taxModel == "hst" {
+            // HST: subtotal + HST = total
+            if total == nil, let s = subtotal, let h = hst {
+                total = round((s + h) * 100) / 100
+            }
+            if subtotal == nil, let t = total, let h = hst {
+                subtotal = round((t - h) * 100) / 100
+            }
+            // Do NOT estimate HST — rate is province-specific (13% ON, 15% NS/NB)
+        } else {
+            // GST+PST: subtotal + gst + pst = total
+            if total == nil, let s = subtotal {
+                let taxSum = (gst ?? 0) + (pst ?? 0)
+                total = round((s + taxSum) * 100) / 100
+            }
+            // Back-calculate 5% GST when only a total is available
+            if let t = total, subtotal == nil, gst == nil, pst == nil {
+                let s = round(t / 1.05 * 100) / 100
+                let g = round((t - s) * 100) / 100
+                subtotal = s
+                gst      = g > 0 ? g : nil
+            }
         }
 
         let fmt: (Double?) -> String? = { d in
             guard let d else { return nil }
             return String(format: "%.2f", d)
         }
-        return (fmt(total), fmt(subtotal), fmt(gst), fmt(pst))
+        return (fmt(total), fmt(subtotal), fmt(gst), fmt(pst), fmt(hst), taxModel)
     }
 
     // MARK: - Date

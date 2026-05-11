@@ -14,17 +14,26 @@ struct ReceiptIntakeResponse: Decodable, Equatable {
     let parsed: ParsedReceipt?
     let suggestions: ReceiptSuggestions?
     let jobSuggestions: [JobSuggestion]?
+    /// Per-field accuracy map from Google Vision bounding-box confidences.
+    /// Keys match ParsedReceipt fields: "total", "gst", "pst", "date", "vendor", etc.
+    /// Values 0–100. Empty when Google Vision was not used (ios_vision-only path).
+    let fieldConfidences: [String: Int]
+    /// Result of server-side GST math check: subtotal + GST + PST = total.
+    /// nil when OCR was unavailable or totals were not parsed.
+    let gstValidation: GstValidation?
     let duplicateImage: DuplicateImageInfo?
 
     enum CodingKeys: String, CodingKey {
         case success
-        case mediaId        = "media_id"
-        case filePath       = "file_path"
-        case ocrAvailable   = "ocr_available"
-        case ocrSource      = "ocr_source"
+        case mediaId          = "media_id"
+        case filePath         = "file_path"
+        case ocrAvailable     = "ocr_available"
+        case ocrSource        = "ocr_source"
         case parsed, suggestions
-        case jobSuggestions = "job_suggestions"
-        case duplicateImage = "duplicate_image"
+        case jobSuggestions   = "job_suggestions"
+        case fieldConfidences = "field_confidences"
+        case gstValidation    = "gst_validation"
+        case duplicateImage   = "duplicate_image"
     }
 
     init(from decoder: Decoder) throws {
@@ -38,7 +47,10 @@ struct ReceiptIntakeResponse: Decodable, Equatable {
         parsed         = try c.decodeIfPresent(ParsedReceipt.self, forKey: .parsed)
         suggestions    = try c.decodeIfPresent(ReceiptSuggestions.self, forKey: .suggestions)
         jobSuggestions = try c.decodeIfPresent([JobSuggestion].self, forKey: .jobSuggestions)
-        duplicateImage = try c.decodeIfPresent(DuplicateImageInfo.self, forKey: .duplicateImage)
+        // Default empty dict — absent when Google Vision was not used
+        fieldConfidences = try c.decodeIfPresent([String: Int].self, forKey: .fieldConfidences) ?? [:]
+        gstValidation    = try c.decodeIfPresent(GstValidation.self, forKey: .gstValidation)
+        duplicateImage   = try c.decodeIfPresent(DuplicateImageInfo.self, forKey: .duplicateImage)
     }
 
     var receiptImageURL: URL? {
@@ -52,6 +64,12 @@ struct ParsedReceipt: Codable, Equatable {
     let gst: String?
     let subtotal: String?
     let pst: String?
+    /// Blended HST amount — only present when tax_model is "hst" (ON/NS/NB receipts).
+    /// Mutually exclusive with gst+pst: HST receipts have a single tax line.
+    let hst: String?
+    /// Tax model detected from OCR text: "gst_pst" (BC/SK/MB/QC) or "hst" (ON/NS/NB/NL/PEI).
+    /// Defaults to "gst_pst" when absent (older server versions).
+    let taxModel: String?
     let date: String?
     let vendorHint: String?
     let paymentMethod: String?
@@ -59,15 +77,19 @@ struct ParsedReceipt: Codable, Equatable {
     let lineItems: [ReceiptLineItem]?
 
     enum CodingKeys: String, CodingKey {
-        case total, gst, subtotal, pst, date
+        case total, gst, subtotal, pst, hst, date
+        case taxModel      = "tax_model"
         case vendorHint    = "vendor_hint"
         case paymentMethod = "payment_method"
         case gstEstimated  = "gst_estimated"
         case lineItems     = "line_items"
     }
 
-    var totalDouble: Double? { total.flatMap(Double.init) }
-    var gstDouble: Double?   { gst.flatMap(Double.init) }
+    var totalDouble: Double?    { total.flatMap(Double.init) }
+    var gstDouble: Double?      { gst.flatMap(Double.init) }
+    var hstDouble: Double?      { hst.flatMap(Double.init) }
+    /// True when this receipt uses the blended HST model (ON/NS/NB).
+    var isHSTProvince: Bool     { taxModel == "hst" }
 }
 
 struct ReceiptSuggestions: Decodable, Equatable {
@@ -105,6 +127,15 @@ struct JobSuggestion: Decodable, Identifiable, Equatable {
 struct DuplicateImageInfo: Decodable, Equatable {
     let existingMediaId: Int
     enum CodingKeys: String, CodingKey { case existingMediaId = "existing_media_id" }
+}
+
+/// Server-side GST math validation result.
+/// valid = true means subtotal + gst + pst ≈ total (within rounding tolerance).
+/// When valid = false, delta carries the discrepancy in dollars.
+struct GstValidation: Decodable, Equatable {
+    let valid: Bool
+    let delta: Double?
+    let message: String?
 }
 
 struct ExpenseMetaResponse: Decodable {

@@ -22,17 +22,28 @@ struct ReceiptReviewView: View {
     // Editable fields — initialised from visionPreFill, upgraded by server response
     @State private var vendorName:    String
     @State private var expenseDate:   Date
-    @State private var amount:        String
-    @State private var gst:           String
-    @State private var pst:           String
+    @State private var amount:        String   // subtotal
+    @State private var gst:           String   // GST (gst_pst model only)
+    @State private var pst:           String   // PST (gst_pst model only)
+    @State private var hst:           String   // HST (hst model only — replaces gst+pst)
     @State private var total:         String
     @State private var category:      String
     @State private var paymentMethod: String
     @State private var notes:         String
+    // Tax model sourced from server parse (or Vision pre-fill); drives which tax rows show.
+    // Defaults to "gst_pst" until known — ensures BC receipts show GST+PST immediately.
+    @State private var taxModel:      String
 
     // Track which fields the user has manually edited so server merge skips them
     @State private var editedFields: Set<String> = []
     @State private var serverMerged  = false
+
+    // Per-field confidence scores from Google Vision (0–100).
+    // Populated on server merge; empty until server responds or when Google Vision
+    // was not used (ios_vision-only path).
+    @State private var fieldConfidences: [String: Int] = [:]
+    // nil = not yet validated; true = math OK; false = mismatch flagged by server
+    @State private var gstMathValid: Bool? = nil
 
     // Receipt image (loaded via bearer-token auth once mediaId is available)
     @State private var receiptImage:   UIImage? = nil
@@ -40,7 +51,7 @@ struct ReceiptReviewView: View {
 
     // Focus management
     @FocusState private var focusedField: FormField?
-    private enum FormField: Hashable { case vendor, amount, gst, pst, total, notes }
+    private enum FormField: Hashable { case vendor, amount, gst, pst, hst, total, notes }
 
     // MARK: - Init
 
@@ -56,13 +67,17 @@ struct ReceiptReviewView: View {
 
         _vendorName    = State(initialValue: s?.vendorName    ?? v?.vendorHint    ?? p?.vendorHint    ?? "")
         _expenseDate   = State(initialValue: Self.parseDate(p?.date ?? v?.date))
-        _amount        = State(initialValue: p?.subtotal       ?? v?.subtotal       ?? "")
-        _gst           = State(initialValue: p?.gst            ?? v?.gst            ?? "")
-        _pst           = State(initialValue: p?.pst            ?? v?.pst            ?? "")
-        _total         = State(initialValue: p?.total          ?? v?.total          ?? "")
+        _amount        = State(initialValue: p?.subtotal      ?? v?.subtotal      ?? "")
+        _gst           = State(initialValue: p?.gst           ?? v?.gst           ?? "")
+        _pst           = State(initialValue: p?.pst           ?? v?.pst           ?? "")
+        _hst           = State(initialValue: p?.hst           ?? v?.hst           ?? "")
+        _total         = State(initialValue: p?.total         ?? v?.total         ?? "")
         _category      = State(initialValue: s?.accountingCategory ?? "")
-        _paymentMethod = State(initialValue: p?.paymentMethod  ?? v?.paymentMethod  ?? "credit_card")
+        _paymentMethod = State(initialValue: p?.paymentMethod ?? v?.paymentMethod ?? "credit_card")
         _notes         = State(initialValue: "")
+        // Resolve tax model: server parse wins over Vision pre-fill; default to gst_pst (BC-safe)
+        let resolvedModel = p?.taxModel ?? v?.taxModel ?? "gst_pst"
+        _taxModel = State(initialValue: resolvedModel)
         // If server data was already present when the sheet opened, the fields above
         // are already initialised with it — mark merged so .onChange never re-applies
         // and risks overwriting anything the user edits immediately after open.
@@ -225,9 +240,14 @@ struct ReceiptReviewView: View {
                     Circle().fill(Color.MW.green.opacity(0.35)).frame(width: 8, height: 8)
                 }
             }
-            DatePicker("Date", selection: $expenseDate, displayedComponents: .date)
-                .tint(Color.MW.green)
-                .onChange(of: expenseDate) { _, _ in editedFields.insert("expenseDate") }
+            HStack {
+                DatePicker("Date", selection: $expenseDate, displayedComponents: .date)
+                    .tint(Color.MW.green)
+                    .onChange(of: expenseDate) { _, _ in editedFields.insert("expenseDate") }
+                if let conf = fieldConfidences["date"] {
+                    confidenceDot(conf)
+                }
+            }
         }
     }
 
@@ -235,9 +255,16 @@ struct ReceiptReviewView: View {
 
     private var amountsSection: some View {
         Section("Amounts") {
-            amountRow(label: "Subtotal",  value: $amount, field: .amount)
-            amountRow(label: "GST (5%)",  value: $gst,    field: .gst)
-            amountRow(label: "PST (7%)",  value: $pst,    field: .pst)
+            amountRow(label: "Subtotal", value: $amount, field: .amount, confidenceKey: "subtotal")
+            // Tax rows switch based on detected province tax model:
+            //   gst_pst — BC / SK / MB / QC: separate GST (5%) + PST rows
+            //   hst     — ON / NS / NB / NL / PEI: single blended HST row
+            if taxModel == "hst" {
+                amountRow(label: "HST", value: $hst, field: .hst, confidenceKey: "hst")
+            } else {
+                amountRow(label: "GST (5%)", value: $gst, field: .gst, confidenceKey: "gst")
+                amountRow(label: "PST (7%)", value: $pst, field: .pst, confidenceKey: "pst")
+            }
             Divider()
             HStack {
                 Text("Total").font(.subheadline.weight(.semibold))
@@ -249,11 +276,32 @@ struct ReceiptReviewView: View {
                     .frame(width: 90)
                     .focused($focusedField, equals: .total)
                     .onChange(of: total) { _, _ in editedFields.insert("total") }
+                if let conf = fieldConfidences["total"] {
+                    confidenceDot(conf)
+                }
+            }
+            // GST math warning — shown when server flags a subtotal + GST + PST ≠ total mismatch
+            if gstMathValid == false {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(Color.MW.orange)
+                        .font(.caption)
+                    Text("Tax math mismatch — please review totals")
+                        .font(.caption)
+                        .foregroundStyle(Color.MW.orange)
+                }
+                .padding(.vertical, 2)
             }
         }
     }
 
-    private func amountRow(label: String, value: Binding<String>, field: FormField) -> some View {
+    /// A single amount row with an optional confidence dot sourced from server field_confidences.
+    private func amountRow(
+        label: String,
+        value: Binding<String>,
+        field: FormField,
+        confidenceKey: String? = nil
+    ) -> some View {
         HStack {
             Text(label).foregroundStyle(.secondary)
             Spacer()
@@ -263,6 +311,9 @@ struct ReceiptReviewView: View {
                 .frame(width: 90)
                 .focused($focusedField, equals: field)
                 .onChange(of: value.wrappedValue) { _, _ in editedFields.insert(label) }
+            if let key = confidenceKey, let conf = fieldConfidences[key] {
+                confidenceDot(conf)
+            }
         }
     }
 
@@ -345,8 +396,15 @@ struct ReceiptReviewView: View {
         if !editedFields.contains("PST (7%)"), let pt = p?.pst {
             pst = pt
         }
+        if !editedFields.contains("HST"), let h = p?.hst {
+            hst = h
+        }
         if !editedFields.contains("total"), let t = p?.total {
             total = t
+        }
+        // Tax model is authoritative from server — always update (not user-editable)
+        if let model = p?.taxModel {
+            taxModel = model
         }
         if !editedFields.contains("category"), let cat = s?.accountingCategory, !cat.isEmpty {
             category = cat
@@ -358,6 +416,14 @@ struct ReceiptReviewView: View {
         if let name = s?.vendorName,
            vendorName == (v?.vendorHint ?? "") || vendorName.isEmpty {
             vendorName = name
+        }
+
+        // Confidence + math validation (never clobber user edits; these are display-only)
+        if !intake.fieldConfidences.isEmpty {
+            fieldConfidences = intake.fieldConfidences
+        }
+        if let validation = intake.gstValidation {
+            gstMathValid = validation.valid
         }
     }
 
@@ -373,7 +439,9 @@ struct ReceiptReviewView: View {
             amount:        Double(amount) ?? 0,
             gst:           Double(gst)    ?? 0,
             pst:           Double(pst)    ?? 0,
+            hst:           Double(hst)    ?? 0,
             total:         Double(total)  ?? 0,
+            taxModel:      taxModel,
             category:      category,
             paymentMethod: paymentMethod,
             notes:         notes,
