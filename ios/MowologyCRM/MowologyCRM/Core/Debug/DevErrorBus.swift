@@ -18,8 +18,14 @@ final class DevErrorBus: ObservableObject {
 
     @Published var pendingError: String?
 
-    func post(_ error: Error) {
-        pendingError = error.localizedDescription
+    func post(_ error: Error, url: URL? = nil) {
+        if let url {
+            // Trim baseURLString prefix when possible so the alert stays readable.
+            let path = url.path.isEmpty ? url.absoluteString : url.path
+            pendingError = "\(path)\n\n\(error.localizedDescription)"
+        } else {
+            pendingError = error.localizedDescription
+        }
     }
 }
 #endif
