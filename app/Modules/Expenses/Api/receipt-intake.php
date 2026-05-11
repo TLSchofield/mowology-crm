@@ -452,7 +452,9 @@ try {
         'parsed'            => $parsed,
         'suggestions'       => $suggestions,
         'job_suggestions'   => $jobSuggestions,
-        'field_confidences' => $fieldConfidences ?? [],
+        'field_confidences' => $fieldConfidences
+            ? (object)array_map(static fn($v) => (int)round($v * 100), $fieldConfidences)
+            : new stdClass(),
         'gst_validation'    => $gstValidation ?? null,
         'duplicate_image'   => $duplicateImage,
     ]);
