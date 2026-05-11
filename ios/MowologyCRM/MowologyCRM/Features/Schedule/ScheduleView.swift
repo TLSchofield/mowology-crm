@@ -62,6 +62,11 @@ struct ScheduleView: View {
             // Initial load when the view appears.
             await viewModel.refresh()
         }
+        .fullScreenCover(isPresented: $viewModel.quizRequired) {
+            QuizView(authSession: authSession) {
+                Task { await viewModel.quizPassed() }
+            }
+        }
     }
 
     // MARK: - Computed

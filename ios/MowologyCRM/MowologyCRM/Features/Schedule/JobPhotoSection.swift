@@ -11,10 +11,32 @@
 //    - Each captured immediately on camera dismiss (no confirm step)
 //    - Upload runs in background; failures queue to JobPhotoQueue for retry
 //    - Shows thumbnail + retake button once a slot is filled
+//    - On appear: loads existing server photos so they survive navigation
 //
 
 import SwiftUI
 import UIKit
+
+// MARK: - Response model
+
+private struct VisitPhotosResponse: Decodable {
+    let success: Bool
+    let photos: [ServerPhoto]
+
+    struct ServerPhoto: Decodable {
+        let id: Int
+        let photoType: String
+        let photoUrl: String
+        let thumbUrl: String
+
+        enum CodingKeys: String, CodingKey {
+            case id
+            case photoType = "photo_type"
+            case photoUrl  = "photo_url"
+            case thumbUrl  = "thumb_url"
+        }
+    }
+}
 
 // MARK: - JobPhotoViewModel
 
@@ -23,10 +45,14 @@ final class JobPhotoViewModel: ObservableObject {
 
     // MARK: - Published State
 
-    @Published var beforeImage:  UIImage? = nil
-    @Published var afterImage:   UIImage? = nil
-    @Published var isUploading:  Bool     = false
-    @Published var errorMessage: String?  = nil
+    @Published var beforeImage:     UIImage? = nil
+    @Published var afterImage:      UIImage? = nil
+    @Published var isUploading:     Bool     = false
+    @Published var errorMessage:    String?  = nil
+
+    /// Server-side thumbnail URLs loaded on appear — survive navigation away and back.
+    @Published var serverBeforeURL: URL?     = nil
+    @Published var serverAfterURL:  URL?     = nil
 
     /// Active camera slot — drives the fullScreenCover in JobPhotoSection.
     @Published var captureSlot: JobPhotoType? = nil
@@ -45,9 +71,37 @@ final class JobPhotoViewModel: ObservableObject {
 
     // MARK: - Computed
 
-    var hasBeforePhoto: Bool { beforeImage != nil }
-    var hasAfterPhoto:  Bool { afterImage  != nil }
+    var hasBeforePhoto: Bool { beforeImage != nil || serverBeforeURL != nil }
+    var hasAfterPhoto:  Bool { afterImage  != nil || serverAfterURL  != nil }
     var isComplete:     Bool { hasBeforePhoto && hasAfterPhoto }
+
+    // MARK: - Load existing server photos
+
+    /// Called on appear. Fetches any photos already uploaded for this visit so
+    /// they display after navigating away and back (UIImage in-memory is lost).
+    func loadServerPhotos() async {
+        do {
+            let response: VisitPhotosResponse = try await apiClient.request(.visitPhotos(visitId: visitId))
+            guard response.success else { return }
+
+            for photo in response.photos {
+                let thumbStr = photo.thumbUrl.hasPrefix("/")
+                    ? "https://mowology.ca\(photo.thumbUrl)"
+                    : photo.thumbUrl
+                let url = URL(string: thumbStr)
+
+                switch photo.photoType {
+                case "before":
+                    if beforeImage == nil { serverBeforeURL = url }
+                case "after":
+                    if afterImage  == nil { serverAfterURL  = url }
+                default: break
+                }
+            }
+        } catch {
+            // Non-fatal — photos just won't show thumbnails from server
+        }
+    }
 
     // MARK: - Capture Handling
 
@@ -55,8 +109,12 @@ final class JobPhotoViewModel: ObservableObject {
         captureSlot = nil  // dismiss picker first
 
         switch slot {
-        case .before: beforeImage = image
-        case .after:  afterImage  = image
+        case .before:
+            beforeImage    = image
+            serverBeforeURL = nil  // local image takes precedence
+        case .after:
+            afterImage    = image
+            serverAfterURL = nil
         }
 
         Task { await upload(image: image, slot: slot) }
@@ -147,11 +205,19 @@ struct JobPhotoSection: View {
 
             // Photo slots
             HStack(spacing: 12) {
-                photoSlot(label: "Before", slot: .before, image: vm.beforeImage,
+                photoSlot(label: "Before", slot: .before,
+                          localImage: vm.beforeImage,
+                          serverURL:  vm.serverBeforeURL,
                           enabled: true)
-                photoSlot(label: "After", slot: .after, image: vm.afterImage,
+                photoSlot(label: "After", slot: .after,
+                          localImage: vm.afterImage,
+                          serverURL:  vm.serverAfterURL,
                           enabled: isActive || vm.hasBeforePhoto)
             }
+        }
+        .task {
+            // Load server photos on first appear — restores thumbnails after navigation
+            await vm.loadServerPhotos()
         }
         // Camera picker — presented when captureSlot is non-nil
         .fullScreenCover(item: $vm.captureSlot) { slot in
@@ -166,20 +232,44 @@ struct JobPhotoSection: View {
     // MARK: - Photo Slot
 
     private func photoSlot(label: String, slot: JobPhotoType,
-                           image: UIImage?, enabled: Bool) -> some View {
-        VStack(spacing: 6) {
+                           localImage: UIImage?, serverURL: URL?,
+                           enabled: Bool) -> some View {
+        let hasPhoto = localImage != nil || serverURL != nil
+        return VStack(spacing: 6) {
             Button {
                 guard enabled else { return }
                 vm.captureSlot = slot
             } label: {
                 ZStack {
-                    if let img = image {
+                    if let img = localImage {
+                        // Freshly captured — show local UIImage for zero-latency display
                         Image(uiImage: img)
                             .resizable()
                             .scaledToFill()
                             .frame(maxWidth: .infinity)
                             .frame(height: 110)
                             .clipped()
+                    } else if let url = serverURL {
+                        // Loaded from server — show AsyncImage thumbnail
+                        AsyncImage(url: url) { phase in
+                            switch phase {
+                            case .success(let image):
+                                image
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 110)
+                                    .clipped()
+                            case .failure:
+                                serverPhotoFallback
+                            case .empty:
+                                ProgressView()
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 110)
+                            default:
+                                serverPhotoFallback
+                            }
+                        }
                     } else {
                         Rectangle()
                             .fill(enabled
@@ -209,10 +299,10 @@ struct JobPhotoSection: View {
                 .overlay(
                     RoundedRectangle(cornerRadius: 10)
                         .stroke(
-                            image != nil
+                            hasPhoto
                                 ? Color.MW.green.opacity(0.5)
                                 : (enabled ? Color.MW.green.opacity(0.25) : Color(.systemGray5)),
-                            lineWidth: image != nil ? 2 : 1
+                            lineWidth: hasPhoto ? 2 : 1
                         )
                 )
             }
@@ -220,16 +310,16 @@ struct JobPhotoSection: View {
 
             // Slot label + retake link
             HStack(spacing: 4) {
-                if image != nil {
+                if hasPhoto {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.caption2)
                         .foregroundStyle(Color.MW.green)
                 }
                 Text(label)
                     .font(.caption2.weight(.medium))
-                    .foregroundStyle(image != nil ? Color.MW.green : .secondary)
+                    .foregroundStyle(hasPhoto ? Color.MW.green : .secondary)
                 Spacer()
-                if image != nil && enabled {
+                if hasPhoto && enabled {
                     Button {
                         vm.captureSlot = slot
                     } label: {
@@ -242,6 +332,18 @@ struct JobPhotoSection: View {
             }
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private var serverPhotoFallback: some View {
+        Rectangle()
+            .fill(Color.MW.green.opacity(0.08))
+            .frame(maxWidth: .infinity)
+            .frame(height: 110)
+            .overlay {
+                Image(systemName: "photo.badge.checkmark")
+                    .font(.title3)
+                    .foregroundStyle(Color.MW.green)
+            }
     }
 }
 

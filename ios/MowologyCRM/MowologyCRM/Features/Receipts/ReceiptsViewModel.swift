@@ -71,6 +71,9 @@ final class ReceiptsViewModel: ObservableObject {
 
     func loadNextPage() async {
         guard currentPage < totalPages, !isLoadingList else { return }
+        // Claim the loading slot synchronously before the first suspension point so that
+        // a second Task spawned by the same .onAppear fires sees isLoadingList==true and exits.
+        isLoadingList = true
         await loadExpenses(page: currentPage + 1)
     }
 
@@ -123,7 +126,8 @@ final class ReceiptsViewModel: ObservableObject {
 
     func saveExpense(
         vendorId: Int?, vendorName: String, date: String,
-        amount: Double, gst: Double, total: Double,
+        amount: Double, gst: Double, pst: Double, hst: Double = 0,
+        total: Double, taxModel: String = "gst_pst",
         category: String, paymentMethod: String,
         notes: String, mediaId: Int?,
         ocrParsed: ParsedReceipt?, lat: Double?, lng: Double?
@@ -136,7 +140,10 @@ final class ReceiptsViewModel: ObservableObject {
             "vendor_name_raw":      vendorName,
             "amount":               amount,
             "gst_amount":           gst,
+            "pst_amount":           pst,
+            "hst_amount":           hst,
             "total":                total,
+            "tax_model":            taxModel,
             "accounting_category":  category,
             "payment_method":       paymentMethod,
             "notes":                notes,

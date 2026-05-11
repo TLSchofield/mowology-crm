@@ -48,6 +48,7 @@ final class ScheduleViewModel: ObservableObject {
     @Published var isLoading: Bool = false
     @Published var errorMessage: String?
     @Published var lastFetched: Date?
+    @Published var quizRequired: Bool = false
 
     // MARK: - Private
 
@@ -65,7 +66,17 @@ final class ScheduleViewModel: ObservableObject {
     // MARK: - Public API
 
     /// Loads both the week strip summary and the day stops for the given date.
+    /// Also gates on the daily pre-shift quiz.
     func refresh() async {
+        quizRequired = !QuizViewModel.hasPassedToday()
+        guard !quizRequired else { return }
+        await loadWeek(for: selectedDate)
+        await loadDay(selectedDate)
+    }
+
+    /// Called by QuizView's onPass callback — dismisses the gate and loads schedule.
+    func quizPassed() async {
+        quizRequired = false
         await loadWeek(for: selectedDate)
         await loadDay(selectedDate)
     }

@@ -21,6 +21,9 @@ struct VisionPreFill {
     let total:         String?
     let subtotal:      String?
     let gst:           String?
+    let pst:           String?   // Provincial Sales Tax (BC PST 7%, QC TVQ, etc.)
+    let hst:           String?   // Blended HST — ON 13%, NS/NB 15% (mutually exclusive with gst+pst)
+    let taxModel:      String?   // "gst_pst" | "hst" — nil before on-device detection runs
     let date:          String?   // "yyyy-MM-dd" or nil
     let paymentMethod: String?   // API payment method key or nil
 }
@@ -33,9 +36,12 @@ enum VisionOCRService {
     /// Runs `VNRecognizeTextRequest` on `image` and returns extracted fields.
     /// Never throws — returns an empty VisionPreFill if Vision finds nothing.
     static func scan(_ image: UIImage) async -> VisionPreFill {
-        guard let cgImage = image.cgImage else {
-            return VisionPreFill(rawText: "", vendorHint: nil, total: nil,
-                                 subtotal: nil, gst: nil, date: nil, paymentMethod: nil)
+        // Normalize orientation before extracting cgImage — UIImage orientation
+        // metadata is not preserved when crossing the UIImage→CGImage boundary,
+        // so portrait photos would be scanned rotated without this step.
+        let oriented = normalizeOrientation(image)
+        guard let cgImage = oriented.cgImage else {
+            return emptyPreFill
         }
 
         return await withCheckedContinuation { continuation in
@@ -51,8 +57,29 @@ enum VisionOCRService {
             request.recognitionLanguages   = ["en-CA", "en-US", "fr-CA"]
 
             let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
-            try? handler.perform([request])
+            do {
+                try handler.perform([request])
+                // Continuation was resumed inside the request completion block above.
+            } catch {
+                // perform() threw before invoking the completion — resume so the caller never hangs.
+                continuation.resume(returning: Self.emptyPreFill)
+            }
         }
+    }
+
+    private static let emptyPreFill = VisionPreFill(
+        rawText: "", vendorHint: nil, total: nil,
+        subtotal: nil, gst: nil, pst: nil, hst: nil, taxModel: nil,
+        date: nil, paymentMethod: nil
+    )
+
+    /// Returns a copy of `image` drawn upright (imageOrientation == .up).
+    /// Portrait photos from UIImagePickerController carry a 90° rotation tag
+    /// that CGImage-based APIs (including Vision) do not honour.
+    private static func normalizeOrientation(_ image: UIImage) -> UIImage {
+        guard image.imageOrientation != .up else { return image }
+        let renderer = UIGraphicsImageRenderer(size: image.size)
+        return renderer.image { _ in image.draw(at: .zero) }
     }
 
     // MARK: - Field Parsing
@@ -64,12 +91,16 @@ enum VisionOCRService {
     }
 
     private static func parse(lines: [String], rawText: String) -> VisionPreFill {
-        VisionPreFill(
+        let amounts = extractAmounts(lines)
+        return VisionPreFill(
             rawText:       rawText,
             vendorHint:    extractVendor(lines),
-            total:         extractAmounts(lines).total,
-            subtotal:      extractAmounts(lines).subtotal,
-            gst:           extractAmounts(lines).gst,
+            total:         amounts.total,
+            subtotal:      amounts.subtotal,
+            gst:           amounts.gst,
+            pst:           amounts.pst,
+            hst:           amounts.hst,
+            taxModel:      amounts.taxModel,
             date:          extractDate(lines),
             paymentMethod: extractPaymentMethod(rawText)
         )
@@ -77,13 +108,23 @@ enum VisionOCRService {
 
     // MARK: - Vendor
 
-    /// The first "real" text line (≥3 chars, not all-digits, not mostly punctuation)
-    /// is usually the store name or chain.
+    // Common short words that appear on receipts but are NOT vendor names.
+    // Includes French terms (SANS = "without", MERCI = "thank you") common on BC/QC receipts.
+    private static let vendorBlocklist: Set<String> = [
+        "SANS", "MERCI", "THANK", "THANKS",
+        "VISA", "CASH", "DEBIT", "INTERAC", "CREDIT",
+        "TOTAL", "TAXES", "RECEIPT", "INVOICE",
+        "DATE", "TIME", "REF", "AUTH", "APPROVED",
+    ]
+
+    /// The first "real" text line (≥5 chars, not all-digits, not mostly punctuation,
+    /// not a known non-vendor keyword) is usually the store name or chain.
     private static func extractVendor(_ lines: [String]) -> String? {
         for line in lines.prefix(8) {
             let t = line.trimmingCharacters(in: .whitespaces)
-            guard t.count >= 3 else { continue }
-            // Skip lines that look like addresses or numbers
+            guard t.count >= 5 else { continue }
+            if vendorBlocklist.contains(t.uppercased()) { continue }
+            // Skip lines that look like numbers or phone numbers
             if Double(t.replacingOccurrences(of: " ", with: "")) != nil { continue }
             let alphanumericCount = t.unicodeScalars.filter {
                 CharacterSet.alphanumerics.contains($0)
@@ -109,45 +150,79 @@ enum VisionOCRService {
             .filter { $0 > 0 && $0 < 99_999 }
     }
 
-    private static func extractAmounts(_ lines: [String]) -> (total: String?, subtotal: String?, gst: String?) {
+    private static func extractAmounts(_ lines: [String])
+        -> (total: String?, subtotal: String?, gst: String?, pst: String?, hst: String?, taxModel: String?)
+    {
         var total:    Double?
         var subtotal: Double?
         var gst:      Double?
+        var pst:      Double?
+        var hst:      Double?
 
         for line in lines {
             let u    = line.uppercased()
             let nums = amounts(in: line)
             guard let first = nums.first else { continue }
 
-            if u.contains("GST") || u.contains("TPS") || u.contains("HST") ||
-               u.contains("TVQ") || (u.contains("TAX") && !u.contains("TOTAL")) {
+            // PST / TVQ — provincial tax (must check before generic TAX)
+            if u.contains("PST") || (u.contains("TVQ") && !u.contains("GST")) {
+                if pst == nil { pst = first }
+            // Standalone HST label (ON/NS/NB) — only when no GST prefix on the same line
+            } else if u.contains("HST") && !u.contains("GST") {
+                if hst == nil { hst = first }
+            // GST / TPS / GST+HST combined label (federal language, used in BC too)
+            } else if u.contains("GST") || u.contains("TPS") {
                 if gst == nil { gst = first }
+            // Generic "TAX" — conservative fallback, only when neither GST nor PST found yet
+            } else if u.contains("TAX") && !u.contains("TOTAL") && gst == nil && pst == nil && hst == nil {
+                gst = first
             } else if u.contains("SUBTOTAL") || u.contains("SUB TOTAL") || u.contains("SUB-TOTAL") {
                 if subtotal == nil { subtotal = first }
             } else if u.contains("TOTAL") || u.contains("AMOUNT DUE") ||
                       u.contains("BALANCE DUE") || u.contains("GRAND TOTAL") {
-                // Keep the largest TOTAL match (avoids picking up "SUBTOTAL" line's total)
+                // Keep the largest TOTAL match (avoids picking up SUBTOTAL's value)
                 if let curr = total { if first > curr { total = first } } else { total = first }
             }
         }
 
-        // Derive missing fields
-        if total == nil, let s = subtotal, let g = gst {
-            total = round((s + g) * 100) / 100
-        }
-        // Back-calculate 5% GST when only a total is available
-        if let t = total, subtotal == nil, gst == nil {
-            let s = round(t / 1.05 * 100) / 100
-            let g = round((t - s) * 100) / 100
-            subtotal = s
-            gst      = g > 0 ? g : nil
+        // ── Tax-model detection ──────────────────────────────────────────────
+        // HST province: HST amount found, no PST label on the receipt.
+        // Note: if both gst AND hst were seen (unlikely but possible with "GST/HST" on a BC
+        // receipt that also has a standalone HST line), treat as gst_pst to be safe.
+        let hasHST   = hst != nil
+        let hasPST   = pst != nil
+        let taxModel = (hasHST && !hasPST) ? "hst" : "gst_pst"
+
+        // ── Back-calculations ────────────────────────────────────────────────
+        if taxModel == "hst" {
+            // HST: subtotal + HST = total
+            if total == nil, let s = subtotal, let h = hst {
+                total = round((s + h) * 100) / 100
+            }
+            if subtotal == nil, let t = total, let h = hst {
+                subtotal = round((t - h) * 100) / 100
+            }
+            // Do NOT estimate HST — rate is province-specific (13% ON, 15% NS/NB)
+        } else {
+            // GST+PST: subtotal + gst + pst = total
+            if total == nil, let s = subtotal {
+                let taxSum = (gst ?? 0) + (pst ?? 0)
+                total = round((s + taxSum) * 100) / 100
+            }
+            // Back-calculate 5% GST when only a total is available
+            if let t = total, subtotal == nil, gst == nil, pst == nil {
+                let s = round(t / 1.05 * 100) / 100
+                let g = round((t - s) * 100) / 100
+                subtotal = s
+                gst      = g > 0 ? g : nil
+            }
         }
 
         let fmt: (Double?) -> String? = { d in
             guard let d else { return nil }
             return String(format: "%.2f", d)
         }
-        return (fmt(total), fmt(subtotal), fmt(gst))
+        return (fmt(total), fmt(subtotal), fmt(gst), fmt(pst), fmt(hst), taxModel)
     }
 
     // MARK: - Date

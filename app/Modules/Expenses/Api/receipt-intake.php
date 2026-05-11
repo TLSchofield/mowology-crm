@@ -288,34 +288,50 @@ try {
     ]);
     $mediaId = (int)$db->lastInsertId();
 
-    // ── Tesseract Pre-Screen ──────────────────────────────────────────
-    // Try a fast local Tesseract pass first. If it gets good text (score ≥ 70)
-    // we skip the Vision API entirely (saves cost). Poor quality → Vision.
-    // Not a receipt at all (score < 30) → skip all OCR, let user fill manually.
-    $preScreen = tesseractPreScreen($filePath);
+    // ── Two-layer OCR pipeline ────────────────────────────────────────
+    //
+    // Layer 1 (fast, free): Tesseract pre-screen.
+    //   score ≥ 70 → use Tesseract directly (phase1Text = Tesseract output)
+    //   score 30–69 → Tesseract text kept as fallback; Vision runs in Layer 2
+    //   score < 30  → likely not a receipt; skip all OCR
+    //
+    // Layer 2 (accurate, cloud): Google Cloud Vision DOCUMENT_TEXT_DETECTION.
+    //   Always runs when credentials are configured, regardless of Tesseract score.
+    //   Wins over Layer 1 when it succeeds (better accuracy on dense/angled receipts).
+    //
+    // ⚠ GOOGLE_VISION_CREDENTIALS must be defined in secrets.php (service account JSON).
+    //   If absent, Layer 1 result is used and Vision is silently skipped.
+    $preScreen         = tesseractPreScreen($filePath);
     $preScreenDecision = $preScreen['decision']; // use_tesseract | use_vision | skip
 
-    $ocrResult = ['success' => false, 'text' => '', 'raw_response' => null, 'error' => null];
-    $ocrSource  = 'none';  // 'tesseract' | 'vision' | 'none'
-
-    if ($preScreenDecision === 'use_tesseract') {
-        // Tesseract text is good enough — use it directly, skip Vision
-        $ocrResult = [
-            'success'      => true,
-            'text'         => $preScreen['text'],
-            'raw_response' => null,          // No bounding boxes from Tesseract
-            'error'        => null,
-        ];
-        $ocrSource = 'tesseract';
-    } elseif ($preScreenDecision === 'use_vision') {
-        // Tesseract wasn't confident enough — call Vision for better extraction
-        $ocrResult = extractTextFromImage($filePath);
-        $ocrSource = 'vision';
+    // — Layer 1: Tesseract —
+    $phase1Text   = null;
+    $phase1Source = 'none';
+    if ($preScreenDecision === 'use_tesseract' && !empty($preScreen['text'])) {
+        $phase1Text   = $preScreen['text'];
+        $phase1Source = 'tesseract';
     }
-    // 'skip' → leave $ocrResult with success:false, user fills manually
+
+    // — Layer 2: Google Cloud Vision (always runs when credentials available) —
+    $googleResult = null;
+    if ($preScreenDecision !== 'skip' &&
+        defined('GOOGLE_VISION_CREDENTIALS') && GOOGLE_VISION_CREDENTIALS) {
+        $googleResult = extractTextFromImage($filePath);
+    }
+
+    // — Merge: Google Vision wins; Tesseract fills gap —
+    $ocrResult = ['success' => false, 'text' => '', 'raw_response' => null, 'error' => null];
+    $ocrSource  = 'none';
+    if (!empty($googleResult['success'])) {
+        $ocrResult = $googleResult;
+        $ocrSource = $phase1Text ? 'tesseract+google' : 'google';
+    } elseif ($phase1Text !== null) {
+        $ocrResult = ['success' => true, 'text' => $phase1Text, 'raw_response' => null, 'error' => null];
+        $ocrSource = $phase1Source;
+    }
 
     $ocrAvailable = $ocrResult['success'];
-    $ocrText = $ocrResult['text'] ?? '';
+    $ocrText      = $ocrResult['text'] ?? '';
 
     // Parse extracted text (pass raw Vision response for position-aware line items)
     $parsed = [];

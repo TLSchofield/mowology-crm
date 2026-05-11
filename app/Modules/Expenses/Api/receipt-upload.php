@@ -313,40 +313,58 @@ try {
         $preScreenDecision = $preScreen['decision'];
     }
 
-    // ── iOS Vision fast-path ──────────────────────────────────────────────────
-    // The iOS app runs VisionOCRService.scan() on the Neural Engine (~200 ms)
-    // and sends the raw extracted text as vision_text in the multipart body.
-    // When present and substantive (>=10 chars), we use it directly and skip
-    // both Tesseract and the Google Vision API call.
+    // ── Two-layer OCR pipeline ────────────────────────────────────────────────
     //
-    // Why this is safe:
-    //   - Text is already extracted from the exact image being uploaded.
-    //   - The parseReceiptText() + suggestReceiptMeta() pipeline below is
-    //     source-agnostic — it works on any raw text string.
-    //   - ocr_source = 'ios_vision' is stored in the DB so quality can be
-    //     compared against 'tesseract' and 'vision' in analytics queries.
+    // Layer 1 (fast, on-device):
+    //   iOS app runs VisionOCRService.scan() on the Neural Engine (~200 ms) and
+    //   sends the extracted text as vision_text in the multipart body.
+    //   When present (>=10 chars), used directly — skips Tesseract.
+    //   Falls back to Tesseract when iOS Vision text is absent.
     //
-    // ⚠ Do NOT trust vision_text for security decisions — it is client-supplied
-    //   and could contain anything. It only flows into text parsing, never into
-    //   SQL directly (all DB queries use prepared statements with parsed output).
-    // ⚠ The 10-char minimum prevents empty strings or single-word noise from
-    //   bypassing the server OCR on images that returned almost nothing.
+    // Layer 2 (authoritative, cloud):
+    //   Google Cloud Vision DOCUMENT_TEXT_DETECTION runs on every upload when
+    //   credentials are configured. Its parse result is the primary OCR text
+    //   used by parseReceiptText() because it handles dense/angled receipts
+    //   and Canadian bilingual tax labels better than on-device Vision or Tesseract.
+    //   Layer 1 text fills in only when Google Vision is unavailable.
+    //
+    // ⚠ vision_text is client-supplied advisory data — never used for security
+    //   decisions; only flows into text parsing via prepared-statement queries.
+    // ⚠ Google Vision incurs a per-request API cost. Disable by leaving
+    //   GOOGLE_VISION_CREDENTIALS undefined in secrets.php when not needed.
+
     $iosVisionText = !empty($_POST['vision_text']) ? trim($_POST['vision_text']) : null;
 
+    // — Layer 1: resolve fast/local text —
+    $phase1Text   = null;
+    $phase1Source = 'none';
+    if ($iosVisionText !== null && strlen($iosVisionText) >= 10) {
+        $phase1Text   = $iosVisionText;
+        $phase1Source = 'ios_vision';
+    } elseif ($preScreenDecision === 'use_tesseract') {
+        $phase1Text   = $preScreen['text'];
+        $phase1Source = 'tesseract';
+    }
+
+    // — Layer 2: Google Cloud Vision (always runs when credentials are available) —
+    $googleResult = null;
+    if (defined('GOOGLE_VISION_CREDENTIALS') && GOOGLE_VISION_CREDENTIALS) {
+        $googleResult = extractTextFromImage($filePath);
+    }
+
+    // — Merge: Google Vision wins when it succeeds; Layer 1 fills the gap —
     $ocrResult = ['success' => false, 'text' => '', 'raw_response' => null, 'error' => null];
     $ocrSource  = 'none';
-    if ($iosVisionText !== null && strlen($iosVisionText) >= 10) {
-        $ocrResult = ['success' => true, 'text' => $iosVisionText, 'raw_response' => null, 'error' => null];
-        $ocrSource = 'ios_vision';
-    } elseif ($preScreenDecision === 'use_tesseract') {
-        $ocrResult = ['success' => true, 'text' => $preScreen['text'], 'raw_response' => null, 'error' => null];
-        $ocrSource = 'tesseract';
+    if (!empty($googleResult['success'])) {
+        $ocrResult = $googleResult;
+        $ocrSource = $phase1Text ? 'ios_vision+google' : 'google';
+    } elseif ($phase1Text !== null) {
+        $ocrResult = ['success' => true, 'text' => $phase1Text, 'raw_response' => null, 'error' => null];
+        $ocrSource = $phase1Source;
     } elseif ($preScreenDecision === 'use_vision') {
-        // Calls Google Vision API — incurs per-request cost.
-        // ⚠ Only reached when Tesseract confidence is between 30-$tessThreshold.
-        //   Blurry images below score 30 are left as ocr_source='none'.
-        $ocrResult = extractTextFromImage($filePath);
-        $ocrSource = 'vision';
+        // Tesseract pre-screen flagged the image as Vision-worthy but Layer 2 was
+        // unavailable (no credentials) — should not normally be reached.
+        $ocrResult = ['success' => false, 'text' => '', 'raw_response' => null, 'error' => 'google_vision_unavailable'];
     }
 
     $ocrAvailable = $ocrResult['success'];
@@ -377,7 +395,7 @@ try {
     //   empty JSON array ([]) instead of an object ({}).
     if ($ocrAvailable && !empty($ocrText)) {
         $parsed      = parseReceiptText($ocrText, $ocrResult['raw_response'] ?? null);
-        $suggestions = suggestReceiptMeta($ocrText, $lat, $lng, $jobId, $parsed);
+        $suggestions = suggestReceiptMeta($ocrText, $lat, $lng, $jobId);
 
         if (!empty($suggestions['vendor_id'])) {
             $parsed = applyLearnedPatterns((int)$suggestions['vendor_id'], $parsed, $ocrText);
@@ -451,6 +469,37 @@ try {
         }
     }
 
+    // ── Word-Level Confidence Extraction ─────────────────────────────────────
+    // Mirrors receipt-intake.php — maps Vision bounding-box word confidences onto
+    // parsed fields so iOS clients receive per-field accuracy signals (green/yellow/red).
+    // Only populated when Google Cloud Vision raw_response is available (raw_response is
+    // null on the ios_vision-only and tesseract-only paths).
+    $fieldConfidences = [];
+    $rawResponse = $ocrResult['raw_response'] ?? null;
+    if ($rawResponse) {
+        try {
+            $wordConfidences = extractWordConfidenceMap($rawResponse);
+            if (!empty($wordConfidences)) {
+                $fieldConfidences = calculateFieldConfidences($parsed, $wordConfidences);
+            }
+        } catch (Throwable $e) {
+            error_log('Confidence extraction failed: ' . $e->getMessage());
+        }
+    }
+
+    // ── GST Math Validation ───────────────────────────────────────────────────
+    // Verifies subtotal + GST + PST = total; flags mismatches for the review UI.
+    // Previously only ran on the web path (receipt-intake.php); now runs on the
+    // iOS path too so math errors are caught regardless of client.
+    $gstValidation = null;
+    if ($ocrAvailable) {
+        try {
+            $gstValidation = validateGstMath($parsed);
+        } catch (Throwable $e) {
+            error_log('GST math validation failed: ' . $e->getMessage());
+        }
+    }
+
     // ── Job suggestion ────────────────────────────────────────────────────────
     // Looks at the user's schedule for today and returns plans near $lat/$lng.
     // Displayed in the iOS review sheet as a pre-link dropdown.
@@ -481,6 +530,8 @@ try {
         'parsed'          => $parsed,
         'suggestions'     => $suggestions,
         'job_suggestions' => $jobSuggestions,
+        'field_confidences' => $fieldConfidences ?? [],
+        'gst_validation'    => $gstValidation    ?? null,
         'duplicate_image' => $duplicateImage,
     ]);
 

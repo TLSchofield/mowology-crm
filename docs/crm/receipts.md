@@ -1,6 +1,8 @@
-# Receipts — Async OCR Pipeline (server-side substrate)
+# Receipts — Async OCR Queue (server-side substrate)
 
-Last updated: 2026-05-09
+> **For the full cross-platform receipt flow** (iOS native + Capacitor/web, two-layer OCR pipeline, all services), see [`receipts-flow.md`](receipts-flow.md).
+
+Last updated: 2026-05-10
 
 ## Overview
 
@@ -26,10 +28,10 @@ when a follow-up converts an upload endpoint to enqueue.
 | Web client | [`public/crm/js/offline-receipts.js`](../../public/crm/js/offline-receipts.js) | IDB schema v2 + `pending-ocr` store + `pollOcrJob()` API — accepts both 200 and 202 responses |
 | Service worker | [`public/service-worker.js`](../../public/service-worker.js) | Cache `mw-v31`, captures `ocr_job_id` from 202 envelopes during background sync |
 
-**Not changed in this PR:** `receipt-upload.php` (iOS/JWT) keeps its
-inline OCR pipeline; `receipt-intake.php` (web/CSRF) keeps its inline
-OCR pipeline; iOS code is untouched (main's Vision pre-fill flow is
-already optimal for iOS UX).
+**Status (2026-05-10):** Both `receipt-upload.php` and `receipt-intake.php` now run the
+two-layer OCR pipeline (Layer 1 fast-path + Layer 2 Google Cloud Vision). The async queue
+in this doc is dormant infrastructure for future use — no endpoint inserts into
+`expense_ocr_jobs` yet.
 
 ## Wire format
 

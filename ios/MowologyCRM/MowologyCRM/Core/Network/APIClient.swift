@@ -145,7 +145,7 @@ final class APIClient: ObservableObject {
         if let lat   { body.appendField(name: "lat",    value: "\(lat)",    boundary: boundary) }
         if let lng   { body.appendField(name: "lng",    value: "\(lng)",    boundary: boundary) }
         if let jobId { body.appendField(name: "job_id", value: "\(jobId)", boundary: boundary) }
-        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        body.append("--\(boundary)--\r\n".data(using: .utf8) ?? Data())
         request.httpBody = body
 
         let data: Data
@@ -206,7 +206,7 @@ final class APIClient: ObservableObject {
                          mimeType: "image/jpeg", data: imageData, boundary: boundary)
         body.appendField(name: "visit_id",   value: "\(visitId)",         boundary: boundary)
         body.appendField(name: "photo_type", value: photoType.rawValue,   boundary: boundary)
-        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        body.append("--\(boundary)--\r\n".data(using: .utf8) ?? Data())
         request.httpBody = body
 
         let data: Data
@@ -296,17 +296,17 @@ final class APIClient: ObservableObject {
 
 private extension Data {
     mutating func appendField(name: String, filename: String, mimeType: String, data: Data, boundary: String) {
-        append("--\(boundary)\r\n".data(using: .utf8)!)
-        append("Content-Disposition: form-data; name=\"\(name)\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
-        append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
+        append("--\(boundary)\r\n".data(using: .utf8) ?? Data())
+        append("Content-Disposition: form-data; name=\"\(name)\"; filename=\"\(filename)\"\r\n".data(using: .utf8) ?? Data())
+        append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8) ?? Data())
         append(data)
-        append("\r\n".data(using: .utf8)!)
+        append("\r\n".data(using: .utf8) ?? Data())
     }
 
     mutating func appendField(name: String, value: String, boundary: String) {
-        append("--\(boundary)\r\n".data(using: .utf8)!)
-        append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8)!)
-        append(value.data(using: .utf8)!)
-        append("\r\n".data(using: .utf8)!)
+        append("--\(boundary)\r\n".data(using: .utf8) ?? Data())
+        append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8) ?? Data())
+        append(value.data(using: .utf8) ?? Data())
+        append("\r\n".data(using: .utf8) ?? Data())
     }
 }

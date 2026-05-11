@@ -189,9 +189,11 @@ struct VisitDetailView: View {
     }
 
     private func visitCard(_ visit: Visit) -> some View {
+        // Use liveStatuses (updated by start/stop) if available, otherwise fall back to schedule data.
+        let liveStatus = timerVM.liveStatuses[visit.visitId] ?? visit.visitStatus
         let isThisTimerActive = timerVM.activeVisitId == visit.visitId
         let canStart = !timerVM.isTimerRunning
-            && ["scheduled", "in_progress"].contains(visit.visitStatus.lowercased())
+            && ["scheduled", "in_progress"].contains(liveStatus.lowercased())
         let canStop  = isThisTimerActive
 
         return VStack(alignment: .leading, spacing: 10) {
@@ -204,12 +206,12 @@ struct VisitDetailView: View {
 
                 Spacer()
 
-                Text(visit.statusLabel)
+                Text(statusLabel(for: liveStatus))
                     .font(.caption.bold())
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
-                    .background(visit.statusColor.opacity(0.15))
-                    .foregroundStyle(visit.statusColor)
+                    .background(statusColor(for: liveStatus).opacity(0.15))
+                    .foregroundStyle(statusColor(for: liveStatus))
                     .clipShape(Capsule())
             }
 
@@ -356,7 +358,7 @@ struct VisitDetailView: View {
             // Shown for in_progress visits, and for scheduled visits so crew can
             // capture a "before" photo before pressing Start. The "after" slot
             // is locked until the job timer is running.
-            if ["scheduled", "in_progress"].contains(visit.visitStatus.lowercased()) {
+            if ["scheduled", "in_progress"].contains(liveStatus.lowercased()) {
                 Divider()
                 JobPhotoSection(
                     visitId:     visit.visitId,
@@ -491,6 +493,30 @@ struct VisitDetailView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+    }
+
+    // MARK: - Status helpers (accepts an override status, e.g. from liveStatuses)
+
+    private func statusLabel(for status: String) -> String {
+        switch status.lowercased() {
+        case "in_progress": return "In Progress"
+        case "completed":   return "Completed"
+        case "scheduled":   return "Scheduled"
+        case "cancelled":   return "Cancelled"
+        case "skipped":     return "Skipped"
+        default: return status.replacingOccurrences(of: "_", with: " ").capitalized
+        }
+    }
+
+    private func statusColor(for status: String) -> Color {
+        switch status.lowercased() {
+        case "completed":   return .green
+        case "in_progress": return Color.MW.green
+        case "scheduled":   return .blue
+        case "cancelled":   return .red
+        case "skipped":     return .orange
+        default:            return .gray
+        }
     }
 
     // MARK: - Actions
