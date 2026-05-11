@@ -1597,7 +1597,11 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         var statusEl   = document.getElementById('ocrStatusBadge');
         var rescanArea = document.getElementById('rvRescanArea');
         if (data.ocr_available && data.ocr_text) {
-            var srcLabel = data.ocr_source === 'tesseract' ? ' (local)' : data.ocr_source === 'vision' ? ' (AI)' : '';
+            var src = data.ocr_source || '';
+            var srcLabel = src.indexOf('google') !== -1 && src.indexOf('tesseract') !== -1 ? ' (local+AI)'
+                         : src.indexOf('google') !== -1 || src.indexOf('ios_vision') !== -1 ? ' (AI)'
+                         : src === 'tesseract' ? ' (local)'
+                         : '';
             statusEl.innerHTML = '<span class="badge bg-success">OCR extracted' + srcLabel + '</span>';
             if (rescanArea) rescanArea.style.display = 'block';
         } else if (data.ocr_available && !data.ocr_text) {
@@ -1612,9 +1616,12 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         var p = data.parsed || {};
         var s = data.suggestions || {};
 
+        // field_confidences from server; fall back to heuristic defaults when absent
+        var fc = data.field_confidences || {};
+
         // Date — safeDate() ensures YYYY-MM-DD format for <input type="date">
         document.getElementById('rvDate').value = safeDate(p.date);
-        setConfidence('confDate', p.date ? 70 : 0);
+        setConfidence('confDate', fc.date !== undefined ? fc.date : (p.date ? 70 : 0));
 
         // Vendor
         if (s.vendor_id) {
@@ -1629,11 +1636,11 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         // Total/Tax/Amount
         if (p.total) {
             document.getElementById('rvTotal').value = p.total;
-            setConfidence('confTotal', 70);
+            setConfidence('confTotal', fc.total !== undefined ? fc.total : 70);
         }
         if (p.gst) {
             document.getElementById('rvGst').value = p.gst;
-            setConfidence('confGst', 60);
+            setConfidence('confGst', fc.gst !== undefined ? fc.gst : 60);
         }
         if (p.subtotal) {
             document.getElementById('rvAmount').value = p.subtotal;
@@ -1669,7 +1676,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         // Payment
         if (p.payment_method) {
             document.getElementById('rvPayment').value = p.payment_method;
-            setConfidence('confPayment', 60);
+            setConfidence('confPayment', fc.payment_method !== undefined ? fc.payment_method : 60);
         }
 
         // Job
@@ -1753,7 +1760,8 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             setMobileVal('mobileRvDate', safeDate(p.date));
             setMobileVal('mobileRvTotal', p.total || '');
             setMobileVal('mobileRvGst', p.gst || '0');
-            setMobileVal('mobileRvAmount', p.subtotal || (p.total && p.gst ? (parseFloat(p.total) - parseFloat(p.gst)).toFixed(2) : ''));
+            setMobileVal('mobileRvPst', p.pst || '0');
+            setMobileVal('mobileRvAmount', p.subtotal || (p.total && p.gst ? (parseFloat(p.total) - parseFloat(p.gst) - parseFloat(p.pst || 0)).toFixed(2) : ''));
             setMobileVal('mobileRvCategory', s.accounting_category || '');
             setMobileVal('mobileRvPayment', p.payment_method || '');
 
@@ -4792,8 +4800,12 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             // Update OCR badge
             var statusEl = document.getElementById('ocrStatusBadge');
             if (d.ocr_available && d.ocr_text) {
-                var srcLabel = d.ocr_source === 'tesseract' ? ' (local)' : d.ocr_source === 'vision' ? ' (AI)' : '';
-                statusEl.innerHTML = '<span class="badge bg-success">OCR extracted' + srcLabel + '</span>';
+                var rSrc = d.ocr_source || '';
+                var rSrcLabel = rSrc.indexOf('google') !== -1 && rSrc.indexOf('tesseract') !== -1 ? ' (local+AI)'
+                              : rSrc.indexOf('google') !== -1 || rSrc.indexOf('ios_vision') !== -1 ? ' (AI)'
+                              : rSrc === 'tesseract' ? ' (local)'
+                              : '';
+                statusEl.innerHTML = '<span class="badge bg-success">OCR extracted' + rSrcLabel + '</span>';
             }
 
             // Re-fill form fields (only blank fields — don't clobber manual edits)
@@ -4802,7 +4814,11 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             if (p.date    && !document.getElementById('rvDate').value)   document.getElementById('rvDate').value   = safeDate(p.date);
             if (p.total   && !document.getElementById('rvTotal').value)  document.getElementById('rvTotal').value  = p.total;
             if (p.gst     && !document.getElementById('rvGst').value)    document.getElementById('rvGst').value    = p.gst;
+            if (p.pst     && !document.getElementById('rvPst').value)    document.getElementById('rvPst').value    = p.pst;
             if (p.subtotal && !document.getElementById('rvAmount').value) document.getElementById('rvAmount').value = p.subtotal;
+            // Dismiss any stale duplicate warning — rescan uses a new image processing pass
+            var dupWarnEl = document.getElementById('rvDuplicateWarning');
+            if (dupWarnEl) dupWarnEl.style.display = 'none';
             if (s.vendor_name && !document.getElementById('rvVendorSearch').value) {
                 document.getElementById('rvVendorSearch').value = s.vendor_name;
                 document.getElementById('rvVendorId').value    = s.vendor_id || '';
@@ -4868,6 +4884,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 if (p.date)    { var df = document.getElementById('expDate');   if(df && !df.value) df.value = p.date; }
                 if (p.total)   { var tf = document.getElementById('expTotal');  if(tf && !tf.value) tf.value = p.total; }
                 if (p.gst)     { var gf = document.getElementById('expGst');    if(gf && !gf.value) gf.value = p.gst; }
+                if (p.pst)     { var pf = document.getElementById('expPst');    if(pf && !pf.value) pf.value = p.pst; }
                 if (p.subtotal){ var sf = document.getElementById('expAmount'); if(sf && !sf.value) sf.value = p.subtotal; }
             }
             if (d.suggestions && d.suggestions.accounting_category) {
