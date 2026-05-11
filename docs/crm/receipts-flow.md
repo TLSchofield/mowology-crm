@@ -1,6 +1,6 @@
 # Receipt System — Cross-Platform Flow
 
-Last updated: 2026-05-11
+Last updated: 2026-05-11 (Capacitor audit pass)
 
 ## Overview
 
@@ -125,11 +125,13 @@ expenses_appstack.php (JS)
     — Vendor dropdown + hidden vendor_id
     — Date, Total, Subtotal, GST, PST
     — Confidence dots (green ≥70, yellow 40–70, gray <40)
+        Uses server field_confidences{} where available; heuristic fallback
+    — OCR source badge: (AI) for google/ios_vision, (local+AI) for combined, (local) for tesseract
     — Category pickers (Accounting + GBP)
     — Job suggestion pills (GPS-matched)
     — Line items table
     — Duplicate warning if SHA-256 match
-    — GST math validation banner
+    — GST math validation banner + Auto-fix button
 ```
 
 ### Offline behaviour
@@ -259,11 +261,23 @@ Must contain `client_email`, `private_key`, `token_uri`. The OAuth2 flow in `Rec
 
 ## Known gaps & follow-ups
 
+### Server / PHP
+
 | Item | File | Severity |
 |------|------|----------|
 | `validateGstMath()` not called in `receipt-upload.php` | receipt-upload.php | Medium — iOS receipts skip math validation |
-| `extractWordConfidenceMap()` not called in `receipt-upload.php` | receipt-upload.php | Medium — iOS receipts have no per-field confidence scores |
+| `extractWordConfidenceMap()` + `calculateFieldConfidences()` not called in `receipt-upload.php` | receipt-upload.php | Medium — iOS receipts have no per-field confidence scores in response |
 | Rate limit check off-by-one (upload.php allows 20, intake.php allows 21) | Both endpoints | Low |
 | `isTesseractAvailable()` exported but never called — callers assume Tesseract present | TesseractPreScreen.php | Low |
 | Async OCR queue infrastructure dormant | receipt-intake.php, process_ocr_queue.php | Design debt — wire 202 when Vision API latency becomes a UX problem |
 | `vendors.tesseract_threshold` column may not exist on production | migration needed | Low — `getVendorTesseractThreshold()` catches Throwable and returns default 70 |
+
+### Capacitor / web (expenses_appstack.php)
+
+| Item | File | Severity |
+|------|------|----------|
+| `pollOcrStatus()` fetch has no explicit timeout — hangs on unresponsive server for browser default (~300s) | expenses_appstack.php:1471 | Medium — user sees spinner for minutes with no feedback |
+| GST Auto-fix recalculates from `total - subtotal - pst`; if PST is blank the fix is wrong; no re-validation shown after fix | expenses_appstack.php:4974 | Medium — user clicks "Auto-fix" and gets worse math |
+| Mobile confidence dots only show vendor + total — date, GST, payment have no dots on mobile panel | expenses_appstack.php:1760-1770 | Low — inconsistent feedback vs desktop review panel |
+| `safeDate()` returns any date including far-future/far-past OCR garbage; no min/max sanity clamp | expenses_appstack.php:1616 | Low — corrupted OCR date binds unchecked |
+| `mobileRvPst` field may not exist in all mobile UI states (Quick Mode hides it) — no guard before `.value` read on save | expenses_appstack.php:4040 | Low — `?.value` optional chaining already present; `|| '0'` default handles missing element |
