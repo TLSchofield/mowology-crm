@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import SwiftUI
 import MapKit
 
 @MainActor
