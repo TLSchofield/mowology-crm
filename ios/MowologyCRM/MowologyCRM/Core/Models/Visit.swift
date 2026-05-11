@@ -18,21 +18,21 @@ struct Visit: Codable, Identifiable, Hashable {
     let pricePerVisit:     Double?
     let scheduledStart:    String?
     /// Non-nil when `job_visits.invoice_id` is set — visit has been invoiced.
-    let invoiceId:             Int?     = nil
+    var invoiceId:             Int?     = nil
     /// Mirrors `job_visits.is_invoiced`; defaults to `false` when absent from JSON.
-    let isInvoiced:            Bool     = false
+    var isInvoiced:            Bool     = false
     /// `job_plans.pricing_model`: per_visit | monthly_flat | seasonal | custom
-    let pricingModel:          String   = "per_visit"
+    var pricingModel:          String   = "per_visit"
     /// `job_plans.invoice_timing`: after_visit | end_of_month | upfront
-    let invoiceTiming:         String   = "after_visit"
+    var invoiceTiming:         String   = "after_visit"
     /// Whether the plan requires photos before crew can complete.
-    let photosBlockCompletion: Bool     = false
+    var photosBlockCompletion: Bool     = false
     /// Which photo types are required: e.g. ["before", "after"]
-    let photoTypesRequired:    [String] = []
+    var photoTypesRequired:    [String] = []
     /// Number of "before" photos already uploaded for this visit.
-    let beforePhotoCount:      Int      = 0
+    var beforePhotoCount:      Int      = 0
     /// Number of "after" photos already uploaded for this visit.
-    let afterPhotoCount:       Int      = 0
+    var afterPhotoCount:       Int      = 0
 
     var id: Int { visitId }
 
