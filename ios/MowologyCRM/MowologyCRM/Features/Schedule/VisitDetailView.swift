@@ -10,6 +10,7 @@ struct VisitDetailView: View {
 
     let stop: Stop
     let isAdmin: Bool
+    private let authSession: AuthSession
 
     @StateObject private var viewModel: VisitDetailViewModel
 
@@ -17,10 +18,11 @@ struct VisitDetailView: View {
     // MARK: - Init
 
     init(stop: Stop, isAdmin: Bool, authSession: AuthSession) {
-        self.stop    = stop
-        self.isAdmin = isAdmin
-        let client   = APIClient(authSession: authSession)
-        _viewModel   = StateObject(wrappedValue: VisitDetailViewModel(stop: stop, apiClient: client))
+        self.stop        = stop
+        self.isAdmin     = isAdmin
+        self.authSession = authSession
+        let client       = APIClient(authSession: authSession)
+        _viewModel       = StateObject(wrappedValue: VisitDetailViewModel(stop: stop, apiClient: client))
     }
 
     // MARK: - Body
@@ -274,17 +276,17 @@ struct VisitDetailView: View {
 
             // MARK: Before/After Photo Proof + Heart Endorsement
             if ["scheduled", "in_progress"].contains(visit.visitStatus.lowercased()) {
-                let isVisitFlagged  = timerVM.isFlagged(for: visit)
-                let isFlagLoading   = timerVM.flagLoadingIds.contains(visit.visitId)
+                let isVisitFlagged  = viewModel.isFlagged(for: visit)
+                let isFlagLoading   = viewModel.flagLoadingIds.contains(visit.visitId)
 
                 Divider()
                 JobPhotoSection(
-                    visitId:      visit.visitId,
-                    isActive:     isThisTimerActive,
-                    authSession:  authSession,
-                    isFlagged:    isVisitFlagged,
+                    visitId:       visit.visitId,
+                    isActive:      isActive,
+                    authSession:   authSession,
+                    isFlagged:     isVisitFlagged,
                     isFlagLoading: isFlagLoading,
-                    onFlagToggle: { await timerVM.toggleFlag(visit) }
+                    onFlagToggle:  { await viewModel.toggleFlag(visit) }
                 )
 
                 // Review earned strip — visible once the client has actually reviewed.

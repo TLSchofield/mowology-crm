@@ -164,6 +164,58 @@ final class VisitDetailViewModel: ObservableObject {
         isLoading = false
     }
 
+    // MARK: - Exponential Backoff
+
+    /// Retry up to 4 times with delays 2 s → 4 s → 8 s → 30 s (cap).
+    /// Only retries on network errors; server errors (4xx/5xx) surface immediately.
+    private func withExponentialBackoff<T>(
+        maxAttempts: Int = 4,
+        _ operation: () async throws -> T
+    ) async throws -> T {
+        var delay: TimeInterval = 2
+        var lastError: Error?
+
+        for attempt in 1...maxAttempts {
+            do {
+                return try await operation()
+            } catch let err as APIError {
+                if case .networkError = err {
+                    lastError = err
+                    if attempt < maxAttempts {
+                        try? await Task.sleep(for: .seconds(delay))
+                        delay = min(delay * 2, 30)
+                    }
+                } else {
+                    throw err   // don't retry auth/server errors
+                }
+            } catch {
+                throw error
+            }
+        }
+
+        throw lastError ?? APIError.networkError(URLError(.timedOut))
+    }
+
+    // MARK: - Pending Transition Drain (reconnect path)
+
+    /// Re-submit any job transitions that were persisted but never confirmed.
+    /// Called automatically when PingQueue posts `.mwPingQueueOnline`.
+    private func drainPendingTransitions() async {
+        guard !isLoading else { return }
+        for visit in stop.visits {
+            let vid    = visit.visitId
+            let status = visitStatuses[vid] ?? visit.visitStatus
+            if transitionQueue.hasPending(visitId: vid, action: "start"),
+               status.lowercased() == "scheduled" {
+                await startJob(visitId: vid)
+            }
+            if transitionQueue.hasPending(visitId: vid, action: "stop"),
+               status.lowercased() == "in_progress" {
+                await completeJob(visitId: vid)
+            }
+        }
+    }
+
     // MARK: - Flag Toggle
 
     /// Resolves the current flag state for a visit, preferring local override over server value.

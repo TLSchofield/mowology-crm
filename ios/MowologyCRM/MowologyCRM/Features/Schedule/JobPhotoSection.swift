@@ -16,6 +16,16 @@
 import SwiftUI
 import UIKit
 
+// MARK: - JobPhotoType
+
+/// Identifies which photo slot a capture belongs to.
+enum JobPhotoType: String, CaseIterable, Identifiable {
+    case before = "before"
+    case after  = "after"
+
+    var id: String { rawValue }
+}
+
 // MARK: - JobPhotoViewModel
 
 @MainActor
@@ -79,11 +89,9 @@ final class JobPhotoViewModel: ObservableObject {
                                                visitId:   visitId,
                                                photoType: slot)
         } catch {
-            // Network failure — persist to disk queue, drain when online
-            JobPhotoQueue.shared.enqueue(imageData: data,
-                                         visitId:   visitId,
-                                         photoType: slot)
-            errorMessage = "Saved offline — will sync when connection restores."
+            // Network failure — photo upload failed; user can retake to try again.
+            // TODO: add offline retry queue when JobPhotoQueue is available on this branch.
+            errorMessage = "Upload failed — retake the photo to try again."
         }
 
         isUploading = false
@@ -306,8 +314,3 @@ struct JobPhotoSection: View {
     }
 }
 
-// MARK: - JobPhotoType + Identifiable
-
-extension JobPhotoType: Identifiable {
-    var id: String { rawValue }
-}
