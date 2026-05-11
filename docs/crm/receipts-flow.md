@@ -1,6 +1,6 @@
 # Receipt System — Cross-Platform Flow
 
-Last updated: 2026-05-10
+Last updated: 2026-05-11
 
 ## Overview
 
@@ -24,10 +24,10 @@ ios/MowologyCRM/MowologyCRM/
 ├── Features/Receipts/
 │   ├── ReceiptsView.swift            Main screen + camera trigger + upload orchestration
 │   ├── ReceiptCaptureView.swift      UIImagePickerController wrapper (CameraPicker)
-│   ├── ReceiptReviewView.swift       Two-phase form: Vision pre-fill → server enrichment
-│   └── ReceiptQueue.swift            Disk-backed offline queue (NWPathMonitor drain)
+│   └── ReceiptReviewView.swift       Two-phase form: Vision pre-fill → server enrichment
 ├── Core/
 │   ├── Vision/VisionOCRService.swift On-device OCR via VNRecognizeTextRequest
+│   ├── Offline/ReceiptQueue.swift    Disk-backed offline queue (NWPathMonitor drain)
 │   ├── Models/ReceiptIntakeResponse.swift  Decodable models for server JSON
 │   └── Network/APIClient.swift       Multipart upload + Bearer auth
 ```
@@ -44,14 +44,17 @@ ReceiptCaptureView (UIImagePickerController)
 ReceiptsView.handleCapture()   ← runs Vision + compression in parallel
         │
         ├─ VisionOCRService.scan()    ~200ms on Neural Engine
+        │     normalizeOrientation()  — redraws UIImage upright before cgImage extraction
         │     VNRecognizeTextRequest (level: .accurate, lang correction: OFF)
-        │     extractVendor() — first non-blocked line ≥5 chars
-        │     extractAmounts() — separate GST/PST, back-calc if only total
+        │     extractVendor() — first non-blocked line ≥5 chars; blocklist: SANS, VISA,
+        │                        CASH, DEBIT, INTERAC, TOTAL, TAXES, RECEIPT, etc.
+        │     extractAmounts() — explicit PST/TVQ, GST/TPS/HST, generic TAX fallback;
+        │                        back-calculates subtotal + GST when only total present
         │     extractDate()    — 4 date format patterns, en_CA locale
         │     extractPaymentMethod() — VISA/DEBIT/INTERAC/etc
         │     → VisionPreFill { rawText, vendorHint, total, subtotal, gst, pst, date, paymentMethod }
         │
-        └─ resizeAndCompress()        1200px @ 0.75 JPEG quality
+        └─ resizeAndCompress()        1920px @ 0.78 JPEG quality (matches Capacitor web)
                   │
                   ▼
         viewModel.capturedImage set → showReview = true
@@ -74,7 +77,7 @@ ReceiptsView.handleCapture()   ← runs Vision + compression in parallel
 
 ### Offline behaviour
 
-`ReceiptQueue.swift` enqueues uploads that fail with `.networkError`. On reconnect, `NWPathMonitor` drains the queue automatically. Items persist to disk (temp directory + UserDefaults index) across app restarts.
+`ReceiptQueue.swift` enqueues uploads that fail with `.networkError`. On reconnect, `NWPathMonitor` drains the queue automatically. Items persist to **Application Support directory** (not temp — survives OS low-storage cleanup) + UserDefaults index across app restarts. The drain continues past individual upload failures so one bad item doesn't strand the rest of the queue.
 
 ---
 
