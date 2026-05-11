@@ -67,7 +67,49 @@ try {
     $db = getDB();
 
     // ── Load visit + plan + property + contact ──────────────────────────────
-    $stmt = $db->prepare("
+    // Try the extended query first (includes billing/timing/clock columns added
+    // in the May 2026 migration). Fall back to the base query if any of those
+    // columns don't yet exist on this database instance.
+    $baseSql = "
+        SELECT
+            jv.id              AS visit_id,
+            jv.visit_number,
+            jv.actual_amount,
+            jv.plan_id,
+            jv.scheduled_date,
+            jv.invoice_id      AS existing_invoice_id,
+            jv.extras_minutes,
+            jv.extras_amount,
+            jv.extras_note,
+            jv.completion_notes,
+            jp.plan_number,
+            jp.title           AS plan_title,
+            jp.price_per_visit,
+            jp.estimated_amount,
+            jp.property_id,
+            jp.company_id,
+            COALESCE(comp.company_name, '') AS company_name,
+            p.address,
+            p.city,
+            p.province,
+            p.postal_code,
+            p.site_contact_id,
+            COALESCE(con.first_name, '')    AS contact_first,
+            COALESCE(con.last_name, '')     AS contact_last,
+            COALESCE(con.full_name, '')     AS contact_full_name,
+            COALESCE(con.email, '')         AS contact_email,
+            COALESCE(con.mobile, '')        AS contact_mobile,
+            COALESCE(con.receive_sms, 0)   AS contact_receive_sms
+        FROM job_visits jv
+        JOIN  job_plans   jp   ON jv.plan_id    = jp.id
+        LEFT  JOIN companies  comp ON jp.company_id  = comp.id
+        LEFT  JOIN properties p    ON jp.property_id = p.id
+        LEFT  JOIN contacts   con  ON p.site_contact_id = con.id
+        WHERE jv.id = ?
+          AND jv.status = 'completed'
+    ";
+
+    $extendedSql = "
         SELECT
             jv.id              AS visit_id,
             jv.visit_number,
@@ -109,9 +151,20 @@ try {
         LEFT  JOIN contacts   con  ON p.site_contact_id = con.id
         WHERE jv.id = ?
           AND jv.status = 'completed'
-    ");
-    $stmt->execute([$visitId]);
-    $visit = $stmt->fetch(PDO::FETCH_ASSOC);
+    ";
+
+    $visit = null;
+    try {
+        $stmt = $db->prepare($extendedSql);
+        $stmt->execute([$visitId]);
+        $visit = $stmt->fetch(PDO::FETCH_ASSOC);
+    } catch (PDOException $colErr) {
+        // One or more billing/clock columns not yet on this DB — use base query
+        error_log('[invoice-prefill] extended query failed, using base: ' . $colErr->getMessage());
+        $stmt = $db->prepare($baseSql);
+        $stmt->execute([$visitId]);
+        $visit = $stmt->fetch(PDO::FETCH_ASSOC);
+    }
 
     if (!$visit) {
         http_response_code(404);
