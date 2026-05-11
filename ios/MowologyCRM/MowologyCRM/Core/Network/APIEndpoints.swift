@@ -29,6 +29,10 @@ enum APIEndpoint {
     /// POST /api/schedule/location — GPS ping for an active job visit.
     case scheduleLocation
 
+    /// GET /api/schedule/crew-trails?date=YYYY-MM-DD — GPS trail polylines + live
+    /// positions for crew. Self-only for crew, all crew for admin/manager.
+    case scheduleCrewTrails(date: String)
+
     /// POST /api/schedule/clock — clock in or clock out.
     case scheduleClock
 
@@ -89,6 +93,11 @@ enum APIEndpoint {
 
         case .scheduleLocation:
             return URL(string: "\(baseURLString)/schedule/location")
+
+        case .scheduleCrewTrails(let date):
+            var components = URLComponents(string: "\(baseURLString)/schedule/crew-trails")
+            components?.queryItems = [URLQueryItem(name: "date", value: date)]
+            return components?.url
 
         case .scheduleClock:
             return URL(string: "\(baseURLString)/schedule/clock")
@@ -152,6 +161,7 @@ enum APIEndpoint {
              .scheduleWeek,
              .scheduleTimer,
              .scheduleLocation,
+             .scheduleCrewTrails,
              .scheduleClock,
              .scheduleClockStatus,
              .visitFlag,
@@ -175,6 +185,7 @@ enum APIEndpoint {
         case .tokenAuth:    return "POST"
         case .scheduleDay,
              .scheduleWeek,
+             .scheduleCrewTrails,
              .scheduleClockStatus: return "GET"
 
         case .scheduleTimer,
