@@ -110,7 +110,7 @@ final class APIClient: ObservableObject {
         } catch {
             let err = APIError.networkError(error)
             #if DEBUG
-            DevErrorBus.shared.post(err)
+            DevErrorBus.shared.post(err, url: urlRequest.url)
             #endif
             throw err
         }
@@ -126,7 +126,7 @@ final class APIClient: ObservableObject {
                     ?? "Server returned status \(httpResponse.statusCode)."
                 let err = APIError.serverError(message)
                 #if DEBUG
-                DevErrorBus.shared.post(err)
+                DevErrorBus.shared.post(err, url: urlRequest.url)
                 #endif
                 throw err
             }
@@ -137,7 +137,11 @@ final class APIClient: ObservableObject {
         } catch {
             let err = APIError.decodingError(error)
             #if DEBUG
-            DevErrorBus.shared.post(err)
+            // Surface the failing endpoint AND the raw server response (truncated)
+            // so decode mismatches are diagnosable from the alert text alone.
+            let raw = String(data: data.prefix(400), encoding: .utf8) ?? "<\(data.count) bytes>"
+            print("❌ APIClient decode fail \(urlRequest.url?.path ?? "?") — \(error)\nbody: \(raw)")
+            DevErrorBus.shared.post(err, url: urlRequest.url)
             #endif
             throw err
         }
@@ -177,7 +181,7 @@ final class APIClient: ObservableObject {
         } catch {
             let err = APIError.networkError(error)
             #if DEBUG
-            DevErrorBus.shared.post(err)
+            DevErrorBus.shared.post(err, url: request.url)
             #endif
             throw err
         }
@@ -188,7 +192,7 @@ final class APIClient: ObservableObject {
                 let msg = extractErrorMessage(from: data) ?? "Upload failed (\(http.statusCode))"
                 let err = APIError.serverError(msg)
                 #if DEBUG
-                DevErrorBus.shared.post(err)
+                DevErrorBus.shared.post(err, url: request.url)
                 #endif
                 throw err
             }
@@ -199,7 +203,9 @@ final class APIClient: ObservableObject {
         } catch {
             let err = APIError.decodingError(error)
             #if DEBUG
-            DevErrorBus.shared.post(err)
+            let raw = String(data: data.prefix(400), encoding: .utf8) ?? "<\(data.count) bytes>"
+            print("❌ uploadReceipt decode fail — \(error)\nbody: \(raw)")
+            DevErrorBus.shared.post(err, url: request.url)
             #endif
             throw err
         }
@@ -238,7 +244,7 @@ final class APIClient: ObservableObject {
         } catch {
             let err = APIError.networkError(error)
             #if DEBUG
-            DevErrorBus.shared.post(err)
+            DevErrorBus.shared.post(err, url: request.url)
             #endif
             throw err
         }
@@ -249,7 +255,7 @@ final class APIClient: ObservableObject {
                 let msg = extractErrorMessage(from: data) ?? "Job photo upload failed (\(http.statusCode))"
                 let err = APIError.serverError(msg)
                 #if DEBUG
-                DevErrorBus.shared.post(err)
+                DevErrorBus.shared.post(err, url: request.url)
                 #endif
                 throw err
             }
@@ -285,7 +291,7 @@ final class APIClient: ObservableObject {
         } catch {
             let err = APIError.networkError(error)
             #if DEBUG
-            DevErrorBus.shared.post(err)
+            DevErrorBus.shared.post(err, url: urlRequest.url)
             #endif
             throw err
         }
@@ -295,7 +301,7 @@ final class APIClient: ObservableObject {
             if !(200..<300).contains(http.statusCode) {
                 let err = APIError.serverError("Image unavailable (\(http.statusCode))")
                 #if DEBUG
-                DevErrorBus.shared.post(err)
+                DevErrorBus.shared.post(err, url: urlRequest.url)
                 #endif
                 throw err
             }

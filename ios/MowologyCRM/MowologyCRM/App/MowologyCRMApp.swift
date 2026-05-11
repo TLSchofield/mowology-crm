@@ -37,7 +37,15 @@ struct MowologyCRMApp: App {
                     // automatically when connectivity is restored. Without this
                     // call the monitor is never started and the queue only drains
                     // on the next manual upload attempt.
-                    ReceiptQueue.shared.startMonitoring()
+                    let client = APIClient(authSession: authSession)
+                    ReceiptQueue.shared.startMonitoring { data, lat, lng, jobId in
+                        try await client.uploadReceipt(
+                            imageData: data,
+                            lat:       lat,
+                            lng:       lng,
+                            jobId:     jobId
+                        )
+                    }
                 }
                 .onReceive(
                     NotificationCenter.default.publisher(

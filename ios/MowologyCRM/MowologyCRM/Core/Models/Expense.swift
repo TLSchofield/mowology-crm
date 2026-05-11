@@ -7,22 +7,27 @@ import Foundation
 
 struct Expense: Decodable, Identifiable {
     let id: Int
-    let expenseDate: String
+    /// Optional: schema allows NULL on legacy rows; defensively decoded.
+    let expenseDate: String?
     let vendorName: String?
     let vendorNameRaw: String?
     let description: String?
     let amount: Double?
     let gstAmount: Double?
+    /// Decodes from the server's `total` field. Defaults to 0 if missing/null
+    /// to keep the whole list-decode resilient against a single bad row.
     let total: Double
     let accountingCategory: String?
     let paymentMethod: String?
-    let status: String
+    /// Optional: schema default is 'draft' but be defensive against legacy NULLs.
+    let status: String?
     let forwardedToAccounting: Int?
     let receiptMediaId: Int?
     let receiptUrl: String?
     let jobId: Int?
     let anomalyScore: Int?
-    let createdAt: String
+    /// Optional: created_at has a DB default but be defensive against legacy NULLs.
+    let createdAt: String?
 
     enum CodingKeys: String, CodingKey {
         case id, description, status
@@ -42,6 +47,27 @@ struct Expense: Decodable, Identifiable {
         case createdAt              = "created_at"
     }
 
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id                    = try c.decode(Int.self,    forKey: .id)
+        expenseDate           = try c.decodeIfPresent(String.self, forKey: .expenseDate)
+        vendorName            = try c.decodeIfPresent(String.self, forKey: .vendorName)
+        vendorNameRaw         = try c.decodeIfPresent(String.self, forKey: .vendorNameRaw)
+        description           = try c.decodeIfPresent(String.self, forKey: .description)
+        amount                = try c.decodeIfPresent(Double.self, forKey: .amount)
+        gstAmount             = try c.decodeIfPresent(Double.self, forKey: .gstAmount)
+        total                 = (try? c.decodeIfPresent(Double.self, forKey: .total)) ?? 0
+        accountingCategory    = try c.decodeIfPresent(String.self, forKey: .accountingCategory)
+        paymentMethod         = try c.decodeIfPresent(String.self, forKey: .paymentMethod)
+        status                = try c.decodeIfPresent(String.self, forKey: .status)
+        forwardedToAccounting = try c.decodeIfPresent(Int.self,    forKey: .forwardedToAccounting)
+        receiptMediaId        = try c.decodeIfPresent(Int.self,    forKey: .receiptMediaId)
+        receiptUrl            = try c.decodeIfPresent(String.self, forKey: .receiptUrl)
+        jobId                 = try c.decodeIfPresent(Int.self,    forKey: .jobId)
+        anomalyScore          = try c.decodeIfPresent(Int.self,    forKey: .anomalyScore)
+        createdAt             = try c.decodeIfPresent(String.self, forKey: .createdAt)
+    }
+
     var displayVendor: String {
         vendorName ?? vendorNameRaw ?? "Unknown vendor"
     }
@@ -49,7 +75,7 @@ struct Expense: Decodable, Identifiable {
     var isForwarded: Bool { (forwardedToAccounting ?? 0) != 0 }
 
     var statusColor: String {
-        switch status {
+        switch status ?? "draft" {
         case "approved":  return "green"
         case "forwarded": return "blue"
         case "rejected":  return "red"

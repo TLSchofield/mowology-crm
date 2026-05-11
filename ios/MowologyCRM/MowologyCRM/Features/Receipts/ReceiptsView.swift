@@ -312,7 +312,7 @@ private struct ExpenseRow: View {
     }
 
     private var statusBadge: some View {
-        let (label, color): (String, Color) = switch expense.status {
+        let (label, color): (String, Color) = switch expense.status ?? "draft" {
         case "forwarded": ("Sent", .blue)
         case "approved":  ("Approved", Color.MW.green)
         case "rejected":  ("Rejected", .red)
@@ -327,8 +327,9 @@ private struct ExpenseRow: View {
     }
 
     private var formattedDate: String {
+        guard let raw = expense.expenseDate, !raw.isEmpty else { return "—" }
         let iso = ISO8601DateFormatter(); iso.formatOptions = [.withFullDate]
-        guard let date = iso.date(from: expense.expenseDate) else { return expense.expenseDate }
+        guard let date = iso.date(from: raw) else { return raw }
         let f = DateFormatter(); f.dateStyle = .medium; f.timeStyle = .none
         return f.string(from: date)
     }
