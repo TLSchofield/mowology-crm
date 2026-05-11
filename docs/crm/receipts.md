@@ -2,7 +2,7 @@
 
 > **For the full cross-platform receipt flow** (iOS native + Capacitor/web, two-layer OCR pipeline, all services), see [`receipts-flow.md`](receipts-flow.md).
 
-Last updated: 2026-05-10
+Last updated: 2026-05-11
 
 ## Overview
 
@@ -123,6 +123,94 @@ When a queue row exists, the cron runs the same pipeline that
 
 All output is written to `parsed_*` columns and a structured `parsed_json`
 blob that the status endpoint hands back to clients.
+
+## Android black preview bug (fixed 2026-05-11, commit `ce6b51d`)
+
+### Symptom
+
+On Android (Capacitor WebView) the receipt review panel rendered a
+solid-black image where the receipt thumbnail should be. iOS and desktop
+Chrome were unaffected. The upload itself succeeded — the server-stored
+file was also black, confirming the corruption happened client-side
+before the POST.
+
+### Root cause
+
+`compressReceiptImage()` loaded the source image with
+`URL.createObjectURL(blob)` and drew it onto a canvas via
+`ctx.drawImage(img, …)`. On Android WebView the blob URL was
+occasionally garbage-collected between `img.onload` and the
+`drawImage()` call, so `drawImage()` silently rendered nothing —
+producing a fully-black canvas. The canvas was then encoded to JPEG
+and used as both the upload body **and** the preview source, so the
+review panel showed a solid-black receipt.
+
+The bug was invisible to the JS — no exception, no console warning;
+`drawImage()` just paints zeros when its source has been revoked.
+
+### Fix
+
+Three coordinated changes in `public/crm/expenses_appstack.php` and
+`public/crm/js/offline-receipts.js`:
+
+1. **`compressReceiptImage()` switched to `FileReader.readAsDataURL()`.**
+   The source image is now loaded from a base64 data URL instead of a
+   blob URL. Data URLs are inline strings — they cannot be GC'd while
+   the `<img>` is using them — so `drawImage()` always has a valid
+   source. This is the actual fix for the black-canvas race.
+
+2. **Preview threading via `previewDataUrl`.** `handleReceiptFile()`
+   reads the **original** captured file as a data URL once (before any
+   compression) and threads `previewDataUrl` through to
+   `showReviewPanel(previewDataUrl, …)` and `pollOcrStatus(…,
+   previewDataUrl)`. The review panel's `<img src>` is set from the
+   original file, never from the canvas-encoded blob. Even if a
+   downstream canvas step ever produced a black blob again, the user
+   would still see the real receipt.
+
+3. **IDB record shape gained `previewDataUrl`.**
+   `OfflineReceipts.queue(file, lat, lng, csrf, previewDataUrl?)` now
+   accepts an optional data URL and stores it on the
+   `pending-receipts` record. Future thumbnail rendering of queued
+   receipts (e.g., a "queued uploads" list after a page reload) can
+   read this stable string instead of trying to reconstruct a blob URL
+   that was revoked when the original page unloaded.
+
+The IDB record shape is now:
+
+```
+{ id, blob, lat, lng, csrf, timestamp, previewDataUrl? }
+```
+
+`previewDataUrl` is `null` when the caller didn't supply one (e.g.,
+older entries from before this fix); existing code paths still work
+without it.
+
+### Cache buster
+
+`offline-receipts.js` is loaded with `?v=20260511a` (see
+[`public/crm/expenses_appstack.php:22`](../../public/crm/expenses_appstack.php))
+so Android devices fetch the new code instead of serving the cached
+v1 IDB schema and the old `queue()` signature from the service worker
+cache. Bump this string any time the file's public API or IDB schema
+changes.
+
+### Known gotcha — never use `createObjectURL()` for previews on Android WebView
+
+For any image preview that needs to survive an async boundary
+(`onload` → `drawImage`, page reload, IDB write, navigation), use
+`FileReader.readAsDataURL()` **or** persist the data URL into IDB.
+Never use `URL.createObjectURL()` blob URLs:
+
+* On Android Capacitor WebView, blob URLs can be GC'd before the
+  consuming async callback runs, producing silently-black canvases or
+  broken `<img>` tags with no error.
+* Even on platforms that don't GC them aggressively, blob URLs are
+  revoked on page navigation/reload, so they can't be stored in IDB
+  for later use.
+
+Data URLs are slightly more memory-hungry (base64 inflation ~33%), but
+for receipt-sized images that's the right tradeoff — correctness wins.
 
 ## Follow-ups (out of scope here)
 
