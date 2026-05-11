@@ -7,9 +7,15 @@
  *
  * Database: mowology-receipts  (version 2)
  *   Store: pending-receipts  (keyPath: id, autoIncrement)
- *     Record shape: { id, blob, lat, lng, csrf, timestamp }
+ *     Record shape: { id, blob, lat, lng, csrf, timestamp, previewDataUrl? }
  *   Store: pending-ocr       (keyPath: ocr_job_id)   ← v2
  *     Record shape: { ocr_job_id, media_id, file_path, queued_at }
+ *
+ * `previewDataUrl` is a data:image/jpeg;base64,... string of the ORIGINAL
+ * captured file, used to render thumbnails for queued receipts on reload.
+ * Data URLs survive page reloads; blob URLs from `URL.createObjectURL` do
+ * not (they're revoked on navigation), and on Android WebView even live
+ * blob URLs sometimes render as solid black. Store the data URL instead.
  *
  * The pending-ocr store tracks server-side OCR jobs that are still
  * 'pending' or 'processing'. Endpoints can return either 200 (legacy
@@ -21,7 +27,7 @@
  *
  * Usage:
  *   OfflineReceipts.init()                        — open DB, set up listeners
- *   OfflineReceipts.queue(file, lat, lng, csrf)   — save to IDB + register sync
+ *   OfflineReceipts.queue(file, lat, lng, csrf, previewDataUrl?)  — save to IDB + register sync
  *   OfflineReceipts.getPendingCount()             — Promise<number> queued uploads
  *   OfflineReceipts.syncNow()                     — manually upload all pending
  *   OfflineReceipts.getPendingOcrJobs()           — Promise<Array> of jobs awaiting OCR
@@ -75,9 +81,11 @@
      * @param {number|null} lat — GPS latitude
      * @param {number|null} lng — GPS longitude
      * @param {string} csrf     — CSRF token
+     * @param {string} [previewDataUrl] — optional data: URL of the original
+     *        file for thumbnail rendering (survives reloads / WebView quirks)
      * @returns {Promise<number>} — the stored record ID
      */
-    function queue(file, lat, lng, csrf) {
+    function queue(file, lat, lng, csrf, previewDataUrl) {
         return openDB().then(function(database) {
             return new Promise(function(resolve, reject) {
                 var tx = database.transaction(STORE_NAME, 'readwrite');
@@ -88,7 +96,10 @@
                     lat: lat || null,
                     lng: lng || null,
                     csrf: csrf || '',
-                    timestamp: Date.now()
+                    timestamp: Date.now(),
+                    previewDataUrl: (typeof previewDataUrl === 'string' && previewDataUrl.indexOf('data:') === 0)
+                        ? previewDataUrl
+                        : null
                 };
 
                 var req = store.add(record);

@@ -19,7 +19,7 @@ $activePage = 'expenses';
 $csrfToken = generateCSRFToken();
 $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) . '">'
            . '<link href="/crm/css/mobile-cards.css?v=20260217" rel="stylesheet">'
-           . '<script src="/crm/js/offline-receipts.js?v=20260227b" defer></script>';
+           . '<script src="/crm/js/offline-receipts.js?v=20260511a" defer></script>';
 ?>
 <?php include 'includes/appstack_head.php'; ?>
 
@@ -1387,6 +1387,11 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     // before upload. Typical result: 8–12MB phone photo → 500–900KB.
     // Upload time over LTE: 6s → <1s. Runs entirely in-browser via Canvas.
     // Falls back to original file if Canvas is unsupported or file is small.
+    //
+    // Android WebView note: load the source image via a FileReader data URL
+    // rather than URL.createObjectURL(). Blob URLs can be garbage-collected
+    // before drawImage() runs, producing a silently-black canvas — which is
+    // why the receipt preview area was rendering as solid black.
     function compressReceiptImage(file, maxWidthPx, qualityPct) {
         maxWidthPx = maxWidthPx || 1920;
         qualityPct = qualityPct || 0.78;
@@ -1401,53 +1406,73 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         }
 
         return new Promise(function(resolve) {
-            var url = URL.createObjectURL(file);
-            var img = new Image();
-            img.onload = function() {
-                URL.revokeObjectURL(url);
-                try {
-                    var w = img.naturalWidth;
-                    var h = img.naturalHeight;
+            var reader = new FileReader();
+            reader.onload = function(readerEvent) {
+                var img = new Image();
+                img.onload = function() {
+                    try {
+                        var w = img.naturalWidth;
+                        var h = img.naturalHeight;
 
-                    // Scale down to maxWidthPx if wider, maintain aspect ratio
-                    if (w > maxWidthPx) {
-                        h = Math.round(h * maxWidthPx / w);
-                        w = maxWidthPx;
-                    }
+                        // Bail out if decode produced a zero-dimension image —
+                        // rare on Android WebView when memory is tight.
+                        if (!w || !h) { resolve(file); return; }
 
-                    var canvas = document.createElement('canvas');
-                    canvas.width = w;
-                    canvas.height = h;
-                    var ctx = canvas.getContext('2d');
-                    // White background before draw (handles PNG transparency → JPEG)
-                    ctx.fillStyle = '#ffffff';
-                    ctx.fillRect(0, 0, w, h);
-                    ctx.drawImage(img, 0, 0, w, h);
-
-                    canvas.toBlob(function(blob) {
-                        if (!blob || blob.size >= file.size) {
-                            // Compression made it larger (rare) — use original
-                            resolve(file);
-                            return;
+                        // Scale down to maxWidthPx if wider, maintain aspect ratio
+                        if (w > maxWidthPx) {
+                            h = Math.round(h * maxWidthPx / w);
+                            w = maxWidthPx;
                         }
-                        // Wrap in a File so it has a name property for FormData
-                        var compressed = new File(
-                            [blob],
-                            file.name.replace(/\.[^.]+$/, '.jpg'),
-                            { type: 'image/jpeg', lastModified: file.lastModified }
-                        );
-                        resolve(compressed);
-                    }, 'image/jpeg', qualityPct);
-                } catch (err) {
-                    // Canvas error — use original
-                    resolve(file);
-                }
+
+                        var canvas = document.createElement('canvas');
+                        canvas.width = w;
+                        canvas.height = h;
+                        var ctx = canvas.getContext('2d');
+                        // White background before draw (handles PNG transparency → JPEG)
+                        ctx.fillStyle = '#ffffff';
+                        ctx.fillRect(0, 0, w, h);
+                        ctx.drawImage(img, 0, 0, w, h);
+
+                        canvas.toBlob(function(blob) {
+                            if (!blob || blob.size >= file.size) {
+                                // Compression made it larger (rare) — use original
+                                resolve(file);
+                                return;
+                            }
+                            // Wrap in a File so it has a name property for FormData
+                            var compressed = new File(
+                                [blob],
+                                (file.name || 'receipt').replace(/\.[^.]+$/, '') + '.jpg',
+                                { type: 'image/jpeg', lastModified: file.lastModified || Date.now() }
+                            );
+                            resolve(compressed);
+                        }, 'image/jpeg', qualityPct);
+                    } catch (err) {
+                        // Canvas error — use original
+                        resolve(file);
+                    }
+                };
+                img.onerror = function() {
+                    resolve(file); // Decode failed — fallback to original
+                };
+                img.src = readerEvent.target.result;
             };
-            img.onerror = function() {
-                URL.revokeObjectURL(url);
-                resolve(file); // Fallback to original on error
+            reader.onerror = function() {
+                resolve(file); // FileReader failed — fallback to original
             };
-            img.src = url;
+            reader.readAsDataURL(file);
+        });
+    }
+
+    // Read a File/Blob as a data URL. Used to render the receipt preview from
+    // the ORIGINAL file before compression, so the preview never depends on
+    // the canvas-encoded output (which can be black on Android WebView).
+    function readAsDataUrl(file) {
+        return new Promise(function(resolve, reject) {
+            var reader = new FileReader();
+            reader.onload = function(e) { resolve(e.target.result); };
+            reader.onerror = function() { reject(new Error('FileReader failed')); };
+            reader.readAsDataURL(file);
         });
     }
 
@@ -1458,13 +1483,13 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     var OCR_POLL_INTERVAL_MS = 1500;
     var OCR_MAX_POLLS = 20; // Give up after 30 seconds
 
-    function pollOcrStatus(mediaId, originalFile, pollCount) {
+    function pollOcrStatus(mediaId, originalFile, pollCount, previewDataUrl) {
         pollCount = pollCount || 0;
         if (pollCount >= OCR_MAX_POLLS) {
             // Timed out — show review panel with whatever partial data we have
             showReviewPanel({ success: true, media_id: mediaId, ocr_available: false,
                 parsed: {}, suggestions: {}, field_confidences: {}, job_suggestions: [],
-                gst_validation: null, duplicate_image: null }, originalFile);
+                gst_validation: null, duplicate_image: null }, originalFile, previewDataUrl);
             return;
         }
 
@@ -1474,17 +1499,17 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 if (statusData.ocr_status === 'ready' || statusData.ocr_status === 'failed') {
                     // OCR complete — show review panel
                     if (typeof haptic === 'function') haptic('save');
-                    showReviewPanel(statusData, originalFile);
+                    showReviewPanel(statusData, originalFile, previewDataUrl);
                 } else {
                     // Still processing — update spinner label and poll again
                     var spinLabel = document.getElementById('analyzeSpinnerLabel');
                     if (spinLabel) spinLabel.textContent = 'Analyzing receipt' + (pollCount > 2 ? ' (' + Math.round(pollCount * OCR_POLL_INTERVAL_MS / 1000) + 's)' : '') + '…';
-                    setTimeout(function() { pollOcrStatus(mediaId, originalFile, pollCount + 1); }, OCR_POLL_INTERVAL_MS);
+                    setTimeout(function() { pollOcrStatus(mediaId, originalFile, pollCount + 1, previewDataUrl); }, OCR_POLL_INTERVAL_MS);
                 }
             })
             .catch(function() {
                 // Network error during poll — retry
-                setTimeout(function() { pollOcrStatus(mediaId, originalFile, pollCount + 1); }, OCR_POLL_INTERVAL_MS * 2);
+                setTimeout(function() { pollOcrStatus(mediaId, originalFile, pollCount + 1, previewDataUrl); }, OCR_POLL_INTERVAL_MS * 2);
             });
     }
 
@@ -1504,14 +1529,22 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         if (mobileCap) mobileCap.style.display = 'none';
         if (mobileSpin) mobileSpin.style.display = 'flex';
 
+        // Read the ORIGINAL file as a data URL up front for the preview.
+        // This is what gets rendered in the review panel — never the canvas-
+        // compressed blob, which can be silently black on Android WebView.
+        // Compression runs in parallel and only affects the upload artifact.
+        var previewPromise = readAsDataUrl(file).catch(function() { return ''; });
+
         // Phase 2.1: Compress before upload
-        compressReceiptImage(file).then(function(uploadFile) {
+        Promise.all([compressReceiptImage(file), previewPromise]).then(function(results) {
+            var uploadFile = results[0];
+            var previewDataUrl = results[1] || '';
             if (spinLabel) spinLabel.textContent = 'Uploading…';
 
             // Save to IDB before attempting upload — photo survives any network failure
             var idbId = null;
             var preQueue = window.OfflineReceipts
-                ? OfflineReceipts.queue(uploadFile, currentGpsLat, currentGpsLng, CSRF)
+                ? OfflineReceipts.queue(uploadFile, currentGpsLat, currentGpsLng, CSRF, previewDataUrl)
                     .then(function(id) { idbId = id; })
                     .catch(function() { /* IDB unavailable — proceed without local backup */ })
                 : Promise.resolve();
@@ -1544,11 +1577,11 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     if (data.ocr_status === 'processing') {
                         // File stored, OCR running in background — start polling
                         if (spinLabel) spinLabel.textContent = 'Analyzing receipt…';
-                        pollOcrStatus(data.media_id, uploadFile, 0);
+                        pollOcrStatus(data.media_id, uploadFile, 0, previewDataUrl);
                     } else {
                         // Synchronous response (OCR complete or not available) — show immediately
                         if (typeof haptic === 'function') haptic('save');
-                        showReviewPanel(data, uploadFile);
+                        showReviewPanel(data, uploadFile, previewDataUrl);
                     }
                 })
                 .catch(function(err) {
@@ -1576,17 +1609,23 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         });
     }
 
-    function showReviewPanel(data, file) {
+    function showReviewPanel(data, file, previewDataUrl) {
         // Hide capture card, show review panel
         document.getElementById('receiptCaptureCard').style.display = 'none';
         document.getElementById('receiptReviewPanel').style.display = 'block';
 
-        // Show receipt image preview
-        var reader = new FileReader();
-        reader.onload = function(e) {
-            document.getElementById('receiptPreviewImg').src = e.target.result;
-        };
-        reader.readAsDataURL(file);
+        // Show receipt image preview.
+        // Prefer a pre-computed data URL of the ORIGINAL file (passed in from
+        // handleReceiptFile) — on Android WebView the canvas-compressed `file`
+        // can encode as black, so we never use it for preview.
+        var previewImg = document.getElementById('receiptPreviewImg');
+        if (previewDataUrl) {
+            previewImg.src = previewDataUrl;
+        } else if (file) {
+            var reader = new FileReader();
+            reader.onload = function(e) { previewImg.src = e.target.result; };
+            reader.readAsDataURL(file);
+        }
 
         // Store media ID and OCR text
         document.getElementById('intakeMediaId').value = data.media_id;
@@ -1731,15 +1770,19 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             if (mobileCap) mobileCap.style.display = 'none';
             mobileReview.style.display = 'block';
 
-            // Show image preview in mobile panel
+            // Show image preview in mobile panel.
+            // Use the pre-computed data URL of the ORIGINAL file when available
+            // (see desktop preview comment for the Android WebView rationale).
             var imgWrap = document.getElementById('mobileReceiptWrap');
             if (imgWrap) imgWrap.style.display = 'block';
-            var mobileReader = new FileReader();
-            mobileReader.onload = function(ev) {
-                var mImg = document.getElementById('mobileReceiptImg');
-                if (mImg) mImg.src = ev.target.result;
-            };
-            mobileReader.readAsDataURL(file);
+            var mImg = document.getElementById('mobileReceiptImg');
+            if (mImg && previewDataUrl) {
+                mImg.src = previewDataUrl;
+            } else if (mImg && file) {
+                var mobileReader = new FileReader();
+                mobileReader.onload = function(ev) { mImg.src = ev.target.result; };
+                mobileReader.readAsDataURL(file);
+            }
 
             // OCR badge
             var ocrBadge = document.getElementById('mobileOcrBadge');
