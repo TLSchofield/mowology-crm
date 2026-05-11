@@ -485,6 +485,8 @@ struct ReceiptReviewView: View {
         subtotal:      "34.47",
         gst:           "1.72",
         pst:           nil,
+        hst:           nil,
+        taxModel:      "gst_pst",
         date:          "2025-05-28",
         paymentMethod: "credit_card"
     )
