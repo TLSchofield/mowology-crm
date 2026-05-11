@@ -51,7 +51,7 @@ struct ReportsView: View {
             }
         }
         .task { await viewModel.load() }
-        .onChange(of: viewModel.selectedReport) { _, _ in
+        .onChange(of: viewModel.selectedReport) {
             Task { await viewModel.load() }
         }
     }
