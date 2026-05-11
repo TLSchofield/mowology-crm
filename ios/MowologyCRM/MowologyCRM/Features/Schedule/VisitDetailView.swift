@@ -218,6 +218,34 @@ struct VisitDetailView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
+            // Billing context + photo requirement indicators
+            HStack(spacing: 6) {
+                Label(visit.billingLabel, systemImage: "creditcard")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if visit.invoiceTiming == "end_of_month" {
+                    Text("• month end")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                } else if visit.invoiceTiming == "upfront" {
+                    Text("• prepaid")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+
+                if !visit.photoTypesRequired.isEmpty {
+                    Spacer()
+                    ForEach(visit.photoTypesRequired, id: \.self) { type in
+                        let count = type == "before" ? visit.beforePhotoCount : visit.afterPhotoCount
+                        Label(type.capitalized,
+                              systemImage: count > 0 ? "camera.fill" : "camera")
+                            .font(.caption2)
+                            .foregroundStyle(count > 0 ? Color.MW.green : Color(.systemGray3))
+                    }
+                }
+            }
+
             HStack(spacing: 16) {
                 if let duration = visit.estimatedDuration {
                     Label("\(duration) min", systemImage: "clock")
@@ -286,28 +314,41 @@ struct VisitDetailView: View {
                 }
             }
 
-            // MARK: Create Invoice (completed, uninvoiced, admin/manager only)
-            if visit.visitStatus.lowercased() == "completed"
-                && visit.needsInvoice
-                && isAdmin {
-                Divider()
-                HStack {
-                    Spacer()
-                    Button {
-                        Task { await timerVM.fetchInvoicePrefill(visitId: visit.visitId) }
-                    } label: {
-                        Label(
-                            timerVM.isLoadingInvoice ? "Loading…" : "Create Invoice",
-                            systemImage: "doc.badge.plus"
-                        )
-                        .font(.subheadline.bold())
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(Color.MW.green.opacity(0.12))
-                        .foregroundStyle(Color.MW.green)
-                        .clipShape(Capsule())
+            // MARK: Create Invoice (completed, uninvoiced, after_visit billing, admin only)
+            if visit.visitStatus.lowercased() == "completed" && isAdmin {
+                if visit.needsInvoice && visit.autoInvoiceOnComplete {
+                    Divider()
+                    HStack {
+                        Spacer()
+                        Button {
+                            Task { await timerVM.fetchInvoicePrefill(visitId: visit.visitId) }
+                        } label: {
+                            Label(
+                                timerVM.isLoadingInvoice ? "Loading…" : "Create Invoice",
+                                systemImage: "doc.badge.plus"
+                            )
+                            .font(.subheadline.bold())
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(Color.MW.green.opacity(0.12))
+                            .foregroundStyle(Color.MW.green)
+                            .clipShape(Capsule())
+                        }
+                        .disabled(timerVM.isLoadingInvoice)
                     }
-                    .disabled(timerVM.isLoadingInvoice)
+                } else if !visit.autoInvoiceOnComplete {
+                    // Monthly/contract/upfront billing — no per-visit invoice
+                    Divider()
+                    HStack(spacing: 6) {
+                        Image(systemName: "calendar.badge.clock")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                        Text(visit.invoiceTiming == "end_of_month"
+                             ? "Billed at month end"
+                             : "Prepaid")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
                 }
             }
 

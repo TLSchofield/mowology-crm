@@ -287,8 +287,9 @@ try {
                     $missing  = array_values(array_diff($required, $uploaded));
                     if (!empty($missing)) {
                         if (!$isAdmin) {
-                            // Crew: hard block — cannot complete without required photos
-                            http_response_code(409);
+                            // Crew: hard block — cannot complete without required photos.
+                            // HTTP 200 so the iOS client can decode the structured body
+                            // (APIClient throws serverError for non-2xx; we need the fields).
                             echo json_encode([
                                 'success'             => false,
                                 'photo_gate'          => true,

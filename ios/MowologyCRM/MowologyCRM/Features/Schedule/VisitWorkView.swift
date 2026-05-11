@@ -40,6 +40,26 @@ struct VisitWorkView: View {
                 // ── Timer display ───────────────────────────────────────────
                 timerCard
 
+                // ── Billing context chip ────────────────────────────────────
+                if vm.visitStatus.lowercased() == "in_progress" {
+                    billingContextChip
+                }
+
+                // ── Photo-warning banner (admin only, non-blocking) ─────────
+                if !vm.photoWarnings.isEmpty {
+                    HStack(spacing: 8) {
+                        Image(systemName: "camera.badge.exclamationmark")
+                            .foregroundStyle(.orange)
+                        Text("Note: \(vm.photoWarnings.joined(separator: ", ")) photo missing")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                        Spacer()
+                    }
+                    .padding(10)
+                    .background(Color.orange.opacity(0.08))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+
                 // ── Action button ───────────────────────────────────────────
                 actionButton
 
@@ -77,6 +97,16 @@ struct VisitWorkView: View {
             )
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
+        }
+        // Photo-gate alert: crew is blocked until required photos are uploaded
+        .alert("Photos Required", isPresented: Binding(
+            get: { vm.blockedByPhotos != nil },
+            set: { if !$0 { vm.blockedByPhotos = nil } }
+        )) {
+            Button("OK", role: .cancel) { vm.blockedByPhotos = nil }
+        } message: {
+            let missing = vm.blockedByPhotos?.joined(separator: ", ") ?? ""
+            Text("Please upload the required \(missing) photo(s) before completing this visit.")
         }
     }
 
@@ -179,12 +209,13 @@ struct VisitWorkView: View {
 
         } else if status == "in_progress" {
             VStack(spacing: 12) {
-                // Admin-only: complete the visit AND immediately compose an invoice
                 if vm.isAdmin {
+                    // Primary: smart complete. Auto-opens invoice compose for
+                    // after_visit billing; silently completes for end_of_month/upfront.
                     Button {
-                        Task { await vm.completeAndInvoice() }
+                        Task { await vm.completeJob() }
                     } label: {
-                        Label("Complete & Invoice", systemImage: "checkmark.circle.fill")
+                        Label("Complete Job", systemImage: "checkmark.circle.fill")
                             .font(.headline)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 16)
@@ -200,31 +231,88 @@ struct VisitWorkView: View {
                             ProgressView().tint(.white)
                         }
                     }
-                }
 
-                // Crew (and admin fallback): end job without invoicing
-                Button(role: .destructive) {
-                    Task { await vm.endVisit() }
-                } label: {
-                    Label(vm.isAdmin ? "End Job (no invoice)" : "End Job",
-                          systemImage: "stop.fill")
-                        .font(vm.isAdmin ? .subheadline : .headline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, vm.isAdmin ? 12 : 16)
-                        .background(Color.red.opacity(0.9))
-                        .foregroundStyle(.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                }
-                .disabled(vm.isLoading)
-                .overlay {
-                    if vm.isLoading {
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.red.opacity(0.7))
-                        ProgressView().tint(.white)
+                    // Secondary escape hatch: always end without triggering invoice
+                    Button(role: .destructive) {
+                        Task { await vm.endVisit() }
+                    } label: {
+                        Label("End without invoice", systemImage: "stop.fill")
+                            .font(.subheadline)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(Color(.systemBackground))
+                            .foregroundStyle(.red)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(Color.red.opacity(0.4), lineWidth: 1)
+                            )
+                    }
+                    .disabled(vm.isLoading)
+
+                } else {
+                    // Crew: plain End Job
+                    Button(role: .destructive) {
+                        Task { await vm.endVisit() }
+                    } label: {
+                        Label("End Job", systemImage: "stop.fill")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(Color.red.opacity(0.9))
+                            .foregroundStyle(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                    .disabled(vm.isLoading)
+                    .overlay {
+                        if vm.isLoading {
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.red.opacity(0.7))
+                            ProgressView().tint(.white)
+                        }
                     }
                 }
             }
         }
+    }
+
+    // MARK: - Billing Context Chip
+
+    /// Shows billing type and photo requirement status during an active visit.
+    private var billingContextChip: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "creditcard")
+                .font(.caption2)
+                .foregroundStyle(Color.MW.green)
+
+            Text(visit.billingLabel)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(Color.MW.dark)
+
+            if visit.invoiceTiming == "end_of_month" {
+                Text("• Billed at month end")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            } else if visit.invoiceTiming == "upfront" {
+                Text("• Prepaid")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            if !visit.photoTypesRequired.isEmpty {
+                Spacer()
+                ForEach(visit.photoTypesRequired, id: \.self) { type in
+                    let count = type == "before" ? visit.beforePhotoCount : visit.afterPhotoCount
+                    Label(type.capitalized, systemImage: count > 0 ? "camera.fill" : "camera")
+                        .font(.caption2)
+                        .foregroundStyle(count > 0 ? Color.MW.green : Color(.systemGray3))
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.MW.green.opacity(0.06))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
     // MARK: - Notes Card
