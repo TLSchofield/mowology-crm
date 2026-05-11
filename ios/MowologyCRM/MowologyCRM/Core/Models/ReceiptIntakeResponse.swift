@@ -170,9 +170,21 @@ extension ReceiptLineItem: Codable {
         let c  = try decoder.container(keyedBy: CodingKeys.self)
         id        = UUID().uuidString
         name      = try c.decode(String.self, forKey: .name)
-        amount    = try c.decodeIfPresent(String.self, forKey: .amount)
-        quantity  = try c.decodeIfPresent(String.self, forKey: .quantity)
-        unitPrice = try c.decodeIfPresent(String.self, forKey: .unitPrice)
+        // Server may send numeric quantity/amount/unit_price (PHP int/float).
+        // Try String first; fall back to numeric → string so the decode never fails.
+        amount    = Self.decodeNumericAsString(c, key: .amount)
+        quantity  = Self.decodeNumericAsString(c, key: .quantity)
+        unitPrice = Self.decodeNumericAsString(c, key: .unitPrice)
+    }
+
+    private static func decodeNumericAsString(_ c: KeyedDecodingContainer<CodingKeys>, key: CodingKeys) -> String? {
+        if let s = try? c.decodeIfPresent(String.self, forKey: key) { return s }
+        if let n = try? c.decodeIfPresent(Double.self, forKey: key) {
+            return n.truncatingRemainder(dividingBy: 1) == 0
+                ? String(Int(n))
+                : String(n)
+        }
+        return nil
     }
 
     func encode(to encoder: Encoder) throws {
