@@ -31,7 +31,14 @@ struct MowologyCRMApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(authSession)
-                .task { await requestNotificationPermission() }
+                .task {
+                    await requestNotificationPermission()
+                    // Start NWPathMonitor so the receipt upload queue drains
+                    // automatically when connectivity is restored. Without this
+                    // call the monitor is never started and the queue only drains
+                    // on the next manual upload attempt.
+                    ReceiptQueue.shared.startMonitoring()
+                }
                 .onReceive(
                     NotificationCenter.default.publisher(
                         for: UIApplication.willResignActiveNotification

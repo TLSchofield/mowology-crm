@@ -49,8 +49,10 @@ final class APIClient: ObservableObject {
         self.authSession = authSession
 
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest  = 30
-        config.timeoutIntervalForResource = 60
+        // 60/120s — server queries (getCalendarStops, receipt GCV) can exceed
+        // the old 30s limit on slow connections or cold PHP starts.
+        config.timeoutIntervalForRequest  = 60
+        config.timeoutIntervalForResource = 120
         self.session = URLSession(configuration: config)
 
         self.decoder = JSONDecoder()
