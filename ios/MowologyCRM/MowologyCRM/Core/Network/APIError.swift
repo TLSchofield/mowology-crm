@@ -32,6 +32,22 @@ enum APIError: LocalizedError {
         case .unauthorized:
             return "Your session has expired. Please sign in again."
         case .networkError(let underlying):
+            let nsError = underlying as NSError
+            if nsError.domain == NSURLErrorDomain {
+                switch nsError.code {
+                case NSURLErrorNetworkConnectionLost,
+                     NSURLErrorTimedOut:
+                    return "Connection lost — please try again."
+                case NSURLErrorNotConnectedToInternet:
+                    return "No internet connection."
+                case NSURLErrorCannotFindHost,
+                     NSURLErrorCannotConnectToHost,
+                     NSURLErrorDNSLookupFailed:
+                    return "Can't reach the server. Please try again."
+                default:
+                    break
+                }
+            }
             return "Network error: \(underlying.localizedDescription)"
         case .decodingError(let underlying):
             return "Failed to read server response: \(underlying.localizedDescription)"

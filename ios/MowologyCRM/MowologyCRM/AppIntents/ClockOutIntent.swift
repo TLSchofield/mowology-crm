@@ -37,7 +37,7 @@ struct ClockOutIntent: AppIntent {
         }
 
         let body: [String: Any] = ["action": "clock_out"]
-        guard let response: ClockResp = try? await client.request(.scheduleClock, body: body),
+        guard let response: ClockResp = try? await client.request(.scheduleClock, body: body, retryable: true),
               response.success else {
             return .result(dialog: "Couldn't clock out. Open the app to try again.")
         }

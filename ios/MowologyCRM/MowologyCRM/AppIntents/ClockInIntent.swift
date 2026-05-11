@@ -39,7 +39,7 @@ struct ClockInIntent: AppIntent {
         }
 
         let body: [String: Any] = ["action": "clock_in"]
-        guard let response: ClockResp = try? await client.request(.scheduleClock, body: body),
+        guard let response: ClockResp = try? await client.request(.scheduleClock, body: body, retryable: true),
               response.success else {
             return .result(dialog: "Couldn't clock in. Open the app to try again.")
         }
