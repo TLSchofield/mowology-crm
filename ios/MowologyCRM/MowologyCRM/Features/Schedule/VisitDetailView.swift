@@ -65,6 +65,15 @@ struct VisitDetailView: View {
             let visitIds = stop.visits.map { $0.visitId }
             await timerVM.syncState(visitIds: visitIds)
         }
+        .sheet(item: $timerVM.invoicePrefill) { prefill in
+            InvoiceComposeView(
+                visitId:   prefill.visitId,
+                prefill:   prefill,
+                apiClient: timerVM.apiClient
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
     }
 
     // MARK: - Property Section
@@ -274,6 +283,31 @@ struct VisitDetailView: View {
                         }
                         .disabled(timerVM.isLoading)
                     }
+                }
+            }
+
+            // MARK: Create Invoice (completed, uninvoiced, admin/manager only)
+            if visit.visitStatus.lowercased() == "completed"
+                && visit.needsInvoice
+                && isAdmin {
+                Divider()
+                HStack {
+                    Spacer()
+                    Button {
+                        Task { await timerVM.fetchInvoicePrefill(visitId: visit.visitId) }
+                    } label: {
+                        Label(
+                            timerVM.isLoadingInvoice ? "Loading…" : "Create Invoice",
+                            systemImage: "doc.badge.plus"
+                        )
+                        .font(.subheadline.bold())
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(Color.MW.green.opacity(0.12))
+                        .foregroundStyle(Color.MW.green)
+                        .clipShape(Capsule())
+                    }
+                    .disabled(timerVM.isLoadingInvoice)
                 }
             }
 

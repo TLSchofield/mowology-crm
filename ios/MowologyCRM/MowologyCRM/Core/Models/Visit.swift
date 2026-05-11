@@ -8,15 +8,19 @@
 import SwiftUI
 
 struct Visit: Codable, Identifiable, Hashable {
-    let visitId: Int
-    let visitNumber: String?
-    let serviceType: String
-    let planTitle: String?
-    let planNumber: String?
-    let visitStatus: String
+    let visitId:           Int
+    let visitNumber:       String?
+    let serviceType:       String
+    let planTitle:         String?
+    let planNumber:        String?
+    let visitStatus:       String
     let estimatedDuration: Int?
-    let pricePerVisit: Double?
-    let scheduledStart: String?
+    let pricePerVisit:     Double?
+    let scheduledStart:    String?
+    /// Non-nil when `job_visits.invoice_id` is set — visit has been invoiced.
+    let invoiceId:         Int?  = nil
+    /// Mirrors `job_visits.is_invoiced`; defaults to `false` when absent from JSON.
+    let isInvoiced:        Bool  = false
 
     var id: Int { visitId }
 
@@ -30,7 +34,15 @@ struct Visit: Codable, Identifiable, Hashable {
         case estimatedDuration = "estimated_duration"
         case pricePerVisit     = "price_per_visit"
         case scheduledStart    = "scheduled_start"
+        case invoiceId         = "invoice_id"
+        case isInvoiced        = "is_invoiced"
     }
+
+
+    // MARK: - Computed: invoice state
+
+    /// True when this visit has not yet been invoiced.
+    var needsInvoice: Bool { invoiceId == nil && !isInvoiced }
 
     // MARK: - Computed UI Properties
 
@@ -84,5 +96,27 @@ struct Visit: Codable, Identifiable, Hashable {
                 .replacingOccurrences(of: "_", with: " ")
                 .capitalized
         }
+    }
+}
+
+// MARK: - Custom Decodable
+// Placed in an extension so the synthesised memberwise initialiser is preserved
+// (previews and tests can still construct Visit values directly).
+// `is_invoiced` and `invoice_id` default to false/nil when absent from JSON so
+// older API responses don't break.
+extension Visit {
+    init(from decoder: Decoder) throws {
+        let c              = try decoder.container(keyedBy: CodingKeys.self)
+        visitId            = try c.decode(Int.self,             forKey: .visitId)
+        visitNumber        = try c.decodeIfPresent(String.self, forKey: .visitNumber)
+        serviceType        = try c.decode(String.self,          forKey: .serviceType)
+        planTitle          = try c.decodeIfPresent(String.self, forKey: .planTitle)
+        planNumber         = try c.decodeIfPresent(String.self, forKey: .planNumber)
+        visitStatus        = try c.decode(String.self,          forKey: .visitStatus)
+        estimatedDuration  = try c.decodeIfPresent(Int.self,    forKey: .estimatedDuration)
+        pricePerVisit      = try c.decodeIfPresent(Double.self, forKey: .pricePerVisit)
+        scheduledStart     = try c.decodeIfPresent(String.self, forKey: .scheduledStart)
+        invoiceId          = try c.decodeIfPresent(Int.self,    forKey: .invoiceId)
+        isInvoiced         = try c.decodeIfPresent(Bool.self,   forKey: .isInvoiced) ?? false
     }
 }

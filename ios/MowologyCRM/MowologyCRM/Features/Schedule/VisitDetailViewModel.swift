@@ -29,15 +29,20 @@ final class VisitDetailViewModel: ObservableObject {
 
     // MARK: - Published
 
-    @Published private(set) var isTimerRunning:      Bool   = false
-    @Published private(set) var activeVisitId:       Int?   = nil
-    @Published private(set) var timerElapsedSeconds: Int    = 0
-    @Published private(set) var isLoading:           Bool   = false
+    @Published private(set) var isTimerRunning:      Bool    = false
+    @Published private(set) var activeVisitId:       Int?    = nil
+    @Published private(set) var timerElapsedSeconds: Int     = 0
+    @Published private(set) var isLoading:           Bool    = false
     @Published var             errorMessage:          String? = nil
+
+    // Invoice state — non-nil triggers the compose sheet in VisitDetailView.
+    @Published var invoicePrefill:    InvoicePrefill? = nil
+    @Published var isLoadingInvoice:  Bool            = false
 
     // MARK: - Private
 
-    private let apiClient: APIClient
+    // `internal` (not `private`) so VisitDetailView can pass it to InvoiceComposeView.
+    let apiClient: APIClient
     private var tickTimer: AnyCancellable?
 
     // MARK: - Init
@@ -145,6 +150,34 @@ final class VisitDetailViewModel: ObservableObject {
         }
 
         isLoading = false
+    }
+
+    // MARK: - Invoice Prefill
+
+    /// Fetch invoice prefill data for an already-completed visit.
+    /// On success, sets `invoicePrefill` which triggers the `.sheet(item:)` in VisitDetailView.
+    /// On 409 / already-invoiced: surfaces an error message instead.
+    func fetchInvoicePrefill(visitId: Int) async {
+        guard !isLoadingInvoice else { return }
+        isLoadingInvoice = true
+        errorMessage     = nil
+
+        do {
+            let resp: InvoicePrefillResponse = try await apiClient.request(
+                .scheduleInvoicePrefill(visitId: visitId)
+            )
+            if let data = resp.data {
+                invoicePrefill = data          // triggers .sheet(item:) in VisitDetailView
+            } else if let existingId = resp.existingInvoiceId {
+                errorMessage = "Invoice #\(existingId) already exists for this visit."
+            } else {
+                errorMessage = resp.message ?? "Could not load invoice data."
+            }
+        } catch {
+            errorMessage = "Could not load invoice. Please check your connection."
+        }
+
+        isLoadingInvoice = false
     }
 
     // MARK: - Private
