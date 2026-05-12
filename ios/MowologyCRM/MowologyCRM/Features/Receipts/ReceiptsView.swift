@@ -12,6 +12,7 @@ struct ReceiptsView: View {
 
     @EnvironmentObject private var authSession: AuthSession
     @StateObject private var viewModel: ReceiptsViewModel
+    @ObservedObject private var receiptQueue = ReceiptQueue.shared
 
     // Camera as fullScreenCover — must be on the root view, not inside a sheet.
     @State private var showCamera   = false
@@ -38,7 +39,10 @@ struct ReceiptsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
         }
-        .task { await viewModel.loadExpenses() }
+        .task {
+            viewModel.bootstrapQueueIfNeeded()
+            await viewModel.loadExpenses()
+        }
         // Camera opens as fullScreenCover directly on this view — no intermediate sheet.
         .fullScreenCover(isPresented: $showCamera) {
             CameraPicker(
@@ -50,7 +54,7 @@ struct ReceiptsView: View {
                             ReceiptsView.resizeAndCompress(image)
                         }.value
                         guard !compressed.isEmpty else { return }
-                        await handleCapture(compressed)
+                        handleCapture(compressed)
                     }
                 },
                 onCancel: { showCamera = false }
@@ -61,17 +65,15 @@ struct ReceiptsView: View {
         .sheet(isPresented: $showLibrary) {
             librarySheet
         }
-        // Review sheet shown after successful OCR upload
+        // Review sheet shown after successful OCR upload — driven by intakeResponse
+        // rather than the capture site so background uploads can also surface OCR.
         .sheet(isPresented: $showReview) {
             if let intake = viewModel.intakeResponse {
                 ReceiptReviewView(viewModel: viewModel, intake: intake, isPresented: $showReview)
             }
         }
-        // Upload spinner overlay
-        .overlay {
-            if viewModel.isUploading {
-                uploadOverlay
-            }
+        .onChange(of: viewModel.intakeResponse?.mediaId) { _, _ in
+            if viewModel.intakeResponse != nil { showReview = true }
         }
         .onChange(of: viewModel.uploadError) { _, err in
             if err != nil { showErrorAlert = true }
@@ -89,21 +91,20 @@ struct ReceiptsView: View {
                 let compressed: Data = await Task.detached(priority: .userInitiated) {
                     ReceiptsView.resizeAndCompress(UIImage(data: raw) ?? UIImage())
                 }.value
-                await handleCapture(compressed)
+                handleCapture(compressed)
             }
         }
     }
 
     // MARK: - Capture handler
 
-    private func handleCapture(_ compressed: Data) async {
+    private func handleCapture(_ compressed: Data) {
         let loc = locationManager.location
-        await viewModel.uploadImage(
+        viewModel.uploadImage(
             compressed,
             lat: loc?.coordinate.latitude,
             lng: loc?.coordinate.longitude
         )
-        if viewModel.intakeResponse != nil { showReview = true }
     }
 
     // MARK: - List
@@ -203,20 +204,6 @@ struct ReceiptsView: View {
         .presentationDetents([.height(160)])
     }
 
-    // MARK: - Upload overlay
-
-    private var uploadOverlay: some View {
-        ZStack {
-            Color.black.opacity(0.45).ignoresSafeArea()
-            VStack(spacing: 14) {
-                ProgressView().scaleEffect(1.5).tint(.white)
-                Text("Reading receipt…")
-                    .font(.headline)
-                    .foregroundStyle(.white)
-            }
-        }
-    }
-
     // MARK: - Toolbar
 
     @ToolbarContentBuilder
@@ -224,8 +211,8 @@ struct ReceiptsView: View {
         ToolbarItem(placement: .principal) {
             HStack(spacing: 6) {
                 Text("Receipts").font(.headline.weight(.semibold))
-                if ReceiptQueue.shared.pendingCount > 0 {
-                    Text("\(ReceiptQueue.shared.pendingCount) pending")
+                if receiptQueue.pendingCount > 0 {
+                    Text("\(receiptQueue.pendingCount) pending")
                         .font(.caption2.weight(.semibold))
                         .padding(.horizontal, 6).padding(.vertical, 2)
                         .background(Color.MW.orange.opacity(0.15))
