@@ -64,6 +64,15 @@ if ($quizEnabled) {
         );
         $doneStmt->execute([$user['id']]);
         $quizDone = (bool)$doneStmt->fetch();
+
+        if (!$quizDone) {
+            $exStmt = $db->prepare("SELECT quiz_exempt FROM users WHERE id = ?");
+            $exStmt->execute([$user['id']]);
+            $exRow = $exStmt->fetch(PDO::FETCH_ASSOC);
+            if (!empty($exRow['quiz_exempt'])) {
+                $quizDone = true;
+            }
+        }
     } catch (Throwable $e) {
         // quiz_preshift_log table may not exist yet — treat as not done
         error_log('[app-home] quiz status check failed: ' . $e->getMessage());

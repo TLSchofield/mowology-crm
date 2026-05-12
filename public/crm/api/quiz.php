@@ -1388,6 +1388,15 @@ switch ($action) {
             );
             $doneStmt->execute([$userId]);
             $done = (bool)$doneStmt->fetch();
+
+            if (!$done) {
+                $exStmt = $db->prepare("SELECT quiz_exempt FROM users WHERE id = ?");
+                $exStmt->execute([$userId]);
+                $exRow = $exStmt->fetch(PDO::FETCH_ASSOC);
+                if (!empty($exRow['quiz_exempt'])) {
+                    $done = true;
+                }
+            }
         }
         qOk(['enabled' => $enabled, 'done' => $done, 'session_length' => $sessionLen]);
 

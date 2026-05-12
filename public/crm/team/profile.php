@@ -920,6 +920,18 @@ if ($apiKey) {
                     </div>
                     <div class="d-flex align-items-center justify-content-between mb-3">
                         <div>
+                            <strong>Pre-Shift Quiz</strong>
+                            <div class="small text-muted">Require quiz questions before clocking in</div>
+                        </div>
+                        <label class="mw-toggle-switch mb-0">
+                            <input type="checkbox" id="acc-quiz-exempt"
+                                   <?php echo empty($emp['quiz_exempt']) ? 'checked' : ''; ?>
+                                   onchange="accUpdate('quiz_exempt', this.checked ? 0 : 1)">
+                            <span class="mw-toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="d-flex align-items-center justify-content-between mb-3">
+                        <div>
                             <strong>Location Tracking</strong>
                             <div class="small text-muted">GPS position sharing while clocked in</div>
                         </div>

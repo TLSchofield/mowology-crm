@@ -89,7 +89,8 @@ try {
                        location_tracking_enabled, last_login, created_at,
                        IFNULL(receive_weather_sms, 1)     AS receive_weather_sms,
                        IFNULL(device_type, 'personal')    AS device_type,
-                       IFNULL(location_ping_rate, 'high') AS location_ping_rate
+                       IFNULL(location_ping_rate, 'high') AS location_ping_rate,
+                       IFNULL(quiz_exempt, 0)             AS quiz_exempt
                 FROM users WHERE id = ?
             ");
             $stmt->execute([$id]);
@@ -256,6 +257,9 @@ try {
             }
             if (isset($input['receive_weather_sms'])) {
                 $updates[] = 'receive_weather_sms = ?'; $params[] = $input['receive_weather_sms'] ? 1 : 0;
+            }
+            if (isset($input['quiz_exempt'])) {
+                $updates[] = 'quiz_exempt = ?'; $params[] = $input['quiz_exempt'] ? 1 : 0;
             }
             if (isset($input['is_driver'])) {
                 $updates[] = 'is_driver = ?'; $params[] = $input['is_driver'] ? 1 : 0;
