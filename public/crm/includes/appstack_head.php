@@ -158,7 +158,7 @@ function _av(string $webPath): string {
        cleaned up by the new register script. -->
 
 </head>
-<body<?php echo $bodyClass ? ' class="' . htmlspecialchars($bodyClass) . '"' : ''; ?>>
+<body<?php echo $bodyClass ? ' class="' . htmlspecialchars($bodyClass) . '"' : ''; ?> data-active-page="<?php echo htmlspecialchars($activePage ?? ''); ?>">
   <?php include __DIR__ . '/mobile-nav.php'; ?>
   <div class="wrapper">
     <?php include __DIR__ . '/appstack_sidebar.php'; ?>

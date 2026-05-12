@@ -557,6 +557,14 @@
 
                     // Show the persistent active job panel
                     if (card) showActivePanel(visitId, card);
+
+                    // Phase 1 job sync — server is now the source of truth
+                    // for this visit's state. MwSchedule.refresh() is
+                    // debounced and skips while a drawer is open, so the
+                    // photo-prompt flow above survives this call.
+                    if (window.MwSchedule && typeof window.MwSchedule.refresh === 'function') {
+                        window.MwSchedule.refresh();
+                    }
                 } else {
                     showToast('Could not start timer: ' + (data.error || data.message || 'Unknown error'));
                     if (btn) {
@@ -633,6 +641,11 @@
                     // Show completion feedback
                     var duration = data.duration_formatted || (data.duration_minutes + 'm');
                     showToast(v.serviceLabel + ' completed (' + duration + ')');
+
+                    // Phase 1 job sync — defer reload so the toast is visible.
+                    if (window.MwSchedule && typeof window.MwSchedule.refresh === 'function') {
+                        setTimeout(function () { window.MwSchedule.refresh(); }, 1500);
+                    }
                 } else {
                     showToast('Could not stop timer: ' + (data.error || data.message || 'Unknown error'));
                 }
@@ -694,6 +707,11 @@
                     }
 
                     showToast('Timer stopped — visit reset.');
+
+                    // Phase 1 job sync — defer reload so the toast is visible.
+                    if (window.MwSchedule && typeof window.MwSchedule.refresh === 'function') {
+                        setTimeout(function () { window.MwSchedule.refresh(); }, 1500);
+                    }
                 } else {
                     showToast('Could not stop timer: ' + (data.error || 'Unknown error'));
                 }

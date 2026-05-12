@@ -591,6 +591,18 @@
         });
 
         App.addListener('resume', function () {
+            // Phase 1 job sync — refresh the schedule on foreground so the
+            // tablet picks up changes made on other devices (e.g. iOS crew
+            // starting/stopping jobs). MwSchedule.refresh has its own 10s
+            // debounce and drawer-open guard, so we can fire unconditionally.
+            try {
+                var activePage = document.body && document.body.getAttribute('data-active-page');
+                if (activePage === 'schedule' && window.MwSchedule && typeof window.MwSchedule.refresh === 'function') {
+                    console.log('[MwNative] App resume → MwSchedule.refresh()');
+                    window.MwSchedule.refresh();
+                }
+            } catch (e) { /* ignore */ }
+
             if (pausedFilter === null) return;
             console.log('[MwNative] App resume → restoring GPS filter', pausedFilter);
             // Caller should re-subscribe; for now, just log so the

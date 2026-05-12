@@ -3620,6 +3620,58 @@ function mwTogglePurchaseItem(checkbox) {
 <script src="../js/batch-camera.js?v=20260421a" defer></script>
 <script src="../js/schedule-pill-workflow.js?v=20260421a" defer></script>
 <script src="../js/schedule-drag-drop.js" defer></script>
+<script>
+// MwSchedule.refresh() — single entry point for re-syncing the schedule grid
+// with the server. The page is server-rendered, so refresh = location.reload()
+// (preserves ?view=…&date=… in the URL).
+//
+// Guards:
+//   - Debounced: minimum 10s between reloads, so rapid resume/timer events
+//     don't trigger reload storms.
+//   - Skips reload while an active drawer is open (photo capture flow needs
+//     the in-memory state to survive).
+//   - Skips reload while the page is hidden (Capacitor background); the
+//     bridge will fire it again on resume.
+(function () {
+    'use strict';
+    var MIN_INTERVAL_MS = 10 * 1000;
+    var pending = null;
+    var lastFiredMs = 0;
+
+    function hasOpenDrawer() {
+        return !!document.querySelector(
+            '.mw-mc-pill-drawer[style*="display: block"], ' +
+            '.mw-mc-pill-drawer[style*="display:block"], ' +
+            '.mw-ps-modal'
+        );
+    }
+
+    function doReload() {
+        pending = null;
+        lastFiredMs = Date.now();
+        // Use replace so back-button history stays clean across refreshes.
+        try { window.location.reload(); } catch (e) { /* ignore */ }
+    }
+
+    window.MwSchedule = {
+        refresh: function () {
+            if (document.hidden) return false;
+            if (hasOpenDrawer()) return false;
+            var now = Date.now();
+            var since = now - lastFiredMs;
+            if (since < MIN_INTERVAL_MS) {
+                // Coalesce: schedule one fire at the next window edge.
+                if (!pending) {
+                    pending = setTimeout(doReload, MIN_INTERVAL_MS - since);
+                }
+                return false;
+            }
+            doReload();
+            return true;
+        }
+    };
+})();
+</script>
 <?php if ($view === 'day'): ?>
 <script>
 var MW_DAY_VIEW_STOPS = <?php echo json_encode($dayViewMapStops); ?>;
