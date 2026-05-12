@@ -92,7 +92,7 @@ final class APIClient: ObservableObject {
         // Serialise the body dictionary, if provided.
         if let body = body {
             guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else {
-                throw APIError.serverError("Failed to encode request body.")
+                throw APIError.serverError(statusCode: nil, message: "Failed to encode request body.")
             }
             urlRequest.httpBody = bodyData
         }
@@ -118,7 +118,7 @@ final class APIClient: ObservableObject {
             if !(200..<300).contains(httpResponse.statusCode) {
                 let message = extractErrorMessage(from: data)
                     ?? "Server returned status \(httpResponse.statusCode)."
-                throw APIError.serverError(message)
+                throw APIError.serverError(statusCode: httpResponse.statusCode, message: message)
             }
         }
 
@@ -164,7 +164,7 @@ final class APIClient: ObservableObject {
             if http.statusCode == 401 { authSession?.logout(); throw APIError.unauthorized }
             if !(200..<300).contains(http.statusCode) {
                 let msg = extractErrorMessage(from: data) ?? "Upload failed (\(http.statusCode))"
-                throw APIError.serverError(msg)
+                throw APIError.serverError(statusCode: http.statusCode, message: msg)
             }
         }
 
@@ -173,7 +173,7 @@ final class APIClient: ObservableObject {
             // DEBUG: surface raw server response so we can diagnose decode failures
             let raw = String(data: data.prefix(600), encoding: .utf8) ?? "non-utf8 \(data.count)b"
             print("\u{1F4F8} UPLOAD DECODE FAIL — raw: \(raw) — error: \(error)")
-            throw APIError.serverError("Server response: \(raw)")
+            throw APIError.serverError(statusCode: nil, message: "Server response: \(raw)")
         }
     }
 
@@ -212,7 +212,7 @@ final class APIClient: ObservableObject {
             if http.statusCode == 401 { authSession?.logout(); throw APIError.unauthorized }
             if !(200..<300).contains(http.statusCode) {
                 let msg = extractErrorMessage(from: data) ?? "Photo upload failed (\(http.statusCode))"
-                throw APIError.serverError(msg)
+                throw APIError.serverError(statusCode: http.statusCode, message: msg)
             }
         }
 

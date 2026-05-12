@@ -17,12 +17,17 @@ struct VisitDetailView: View {
 
     // MARK: - Init
 
-    init(stop: Stop, isAdmin: Bool, authSession: AuthSession) {
+    init(stop: Stop, isAdmin: Bool, authSession: AuthSession,
+         onStatusChange: ((Int, String) -> Void)? = nil) {
         self.stop        = stop
         self.isAdmin     = isAdmin
         self.authSession = authSession
         let client       = APIClient(authSession: authSession)
-        _viewModel       = StateObject(wrappedValue: VisitDetailViewModel(stop: stop, apiClient: client))
+        _viewModel       = StateObject(wrappedValue: VisitDetailViewModel(
+            stop:           stop,
+            apiClient:      client,
+            onStatusChange: onStatusChange
+        ))
     }
 
     // MARK: - Body
@@ -274,15 +279,31 @@ struct VisitDetailView: View {
                 .clipShape(Capsule())
             }
 
+            // Pending-sync chip — shown when the local status is ahead of the server.
+            if viewModel.isPendingSync(visit) {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.caption)
+                        .foregroundStyle(Color.MW.orange)
+                    Text("Saved · pending sync")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(Color.MW.orange)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Color.MW.orange.opacity(0.10))
+                .clipShape(Capsule())
+            }
+
             // MARK: Before/After Photo Proof + Heart Endorsement
-            if ["scheduled", "in_progress"].contains(visit.visitStatus.lowercased()) {
+            if ["scheduled", "in_progress"].contains(currentStatus.lowercased()) {
                 let isVisitFlagged  = viewModel.isFlagged(for: visit)
                 let isFlagLoading   = viewModel.flagLoadingIds.contains(visit.visitId)
 
                 Divider()
                 JobPhotoSection(
                     visitId:       visit.visitId,
-                    isActive:      isActive,
+                    isActive:      isActive || currentStatus.lowercased() == "in_progress",
                     authSession:   authSession,
                     isFlagged:     isVisitFlagged,
                     isFlagLoading: isFlagLoading,
@@ -314,6 +335,9 @@ struct VisitDetailView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
             }
+
+            // MARK: Start / Complete buttons — drive the live state machine.
+            actionButtons(for: visit, currentStatus: currentStatus)
         }
         .padding(14)
         .background(Color(.systemBackground))

@@ -112,6 +112,24 @@ struct Visit: Codable, Identifiable, Hashable {
         }
     }
 
+    /// Returns a copy of this Visit with `visitStatus` replaced.
+    /// Used by ScheduleViewModel to overlay optimistic statuses on cached data.
+    func withStatus(_ newStatus: String) -> Visit {
+        Visit(
+            visitId:            visitId,
+            visitNumber:        visitNumber,
+            serviceType:        serviceType,
+            planTitle:          planTitle,
+            planNumber:         planNumber,
+            visitStatus:        newStatus,
+            estimatedDuration:  estimatedDuration,
+            pricePerVisit:      pricePerVisit,
+            scheduledStart:     scheduledStart,
+            isFlagged:          isFlagged,
+            contactHasReviewed: contactHasReviewed
+        )
+    }
+
     /// Human-readable visit status label.
     var statusLabel: String {
         switch visitStatus.lowercased() {

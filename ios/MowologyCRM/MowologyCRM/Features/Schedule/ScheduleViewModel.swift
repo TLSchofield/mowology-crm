@@ -59,6 +59,13 @@ final class ScheduleViewModel: ObservableObject {
     private let apiClient: APIClient
     private var stopCache: [String: [Stop]] = [:]
 
+    /// Optimistic status overrides applied locally before the server confirms.
+    /// Survives day-cache hits so a fresh VisitDetailView sees the latest intent.
+    /// Key = visit_id, value = "in_progress" / "completed" / "scheduled".
+    private var optimisticVisitStatus: [Int: String] = [:]
+
+    private let transitionQueue = TransitionQueue()
+
     // MARK: - Init
 
     init(apiClient: APIClient) {
@@ -70,7 +77,7 @@ final class ScheduleViewModel: ObservableObject {
     /// Loads both the week strip summary and the day stops for the given date.
     func refresh() async {
         await loadWeek(for: selectedDate)
-        await loadDay(selectedDate)
+        await loadDay(selectedDate, forceReload: true)
         await loadCrewTrails(for: selectedDate)
     }
 
@@ -114,12 +121,13 @@ final class ScheduleViewModel: ObservableObject {
     }
 
     /// Fetches stops for a specific date. Results are cached by ISO date string.
-    func loadDay(_ date: Date) async {
+    /// Pass `forceReload: true` to bypass the cache (used by refresh()).
+    func loadDay(_ date: Date, forceReload: Bool = false) async {
         let dateString = isoDateString(from: date)
 
-        // Serve from cache if available.
-        if let cached = stopCache[dateString] {
-            stops       = cached
+        // Serve from cache if available (and the caller didn't force a reload).
+        if !forceReload, let cached = stopCache[dateString] {
+            stops       = applyOverrides(to: cached)
             lastFetched = .now
             return
         }
@@ -131,7 +139,7 @@ final class ScheduleViewModel: ObservableObject {
             let response: DayResponse = try await apiClient.request(
                 .scheduleDay(date: dateString)
             )
-            let fetched = response.stops
+            let fetched = applyOverrides(to: response.stops)
             stopCache[dateString] = fetched
             stops       = fetched
             lastFetched = .now
@@ -173,6 +181,35 @@ final class ScheduleViewModel: ObservableObject {
     func advanceWeek(by weeks: Int) async {
         let newDate = calendar.date(byAdding: .weekOfYear, value: weeks, to: selectedDate) ?? selectedDate
         await selectDate(newDate)
+    }
+
+    // MARK: - Optimistic Status Propagation
+
+    /// Apply a locally-known visit status to the in-memory stops and cache.
+    /// Called from `VisitDetailViewModel` so optimistic state survives popping
+    /// back to the schedule and re-pushing the detail view.
+    func patchVisitStatus(visitId: Int, newStatus: String) {
+        optimisticVisitStatus[visitId] = newStatus
+        stops = applyOverrides(to: stops)
+        for (key, cached) in stopCache {
+            stopCache[key] = applyOverrides(to: cached)
+        }
+    }
+
+    /// Overlay optimistic statuses (from explicit patches AND any pending
+    /// transitions in the queue) onto a list of stops.
+    private func applyOverrides(to source: [Stop]) -> [Stop] {
+        source.map { stop in
+            let patchedVisits = stop.visits.map { visit -> Visit in
+                // Explicit patch wins; otherwise fall back to the transition
+                // queue's intended status. If neither, leave the visit alone.
+                let override = optimisticVisitStatus[visit.visitId]
+                    ?? transitionQueue.intendedStatus(forVisitId: visit.visitId)
+                guard let override, override != visit.visitStatus else { return visit }
+                return visit.withStatus(override)
+            }
+            return stop.withVisits(patchedVisits)
+        }
     }
 
     /// Week range label shown in the nav bar principal slot.

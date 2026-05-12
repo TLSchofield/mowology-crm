@@ -58,11 +58,45 @@ final class TransitionQueue {
         }
     }
 
+    /// Discard a pending record without confirming it. Used when the server
+    /// returned a permanent 4xx (the request will never succeed on retry).
+    func discard(visitId: Int, action: String) {
+        let ctx = ModelContext(container)
+        if let t = pendingTransition(visitId: visitId, action: action, ctx: ctx) {
+            ctx.delete(t)
+            try? ctx.save()
+        }
+    }
+
     /// Returns true if there is a pending (unconfirmed) transition for this visit + action.
     /// Used on reconnect to auto-retry transitions that failed while offline.
     func hasPending(visitId: Int, action: String) -> Bool {
         let ctx = ModelContext(container)
         return pendingTransition(visitId: visitId, action: action, ctx: ctx) != nil
+    }
+
+    /// All currently-pending transitions, oldest first. Used by drain logic to
+    /// retry queued actions in the order they were enqueued — start before stop.
+    func allPending() -> [PendingTransition] {
+        let ctx = ModelContext(container)
+        let desc = FetchDescriptor<PendingTransition>(
+            sortBy: [SortDescriptor(\.queuedAt)]
+        )
+        return (try? ctx.fetch(desc)) ?? []
+    }
+
+    /// The optimistic intended status for a visit, derived from any pending
+    /// transitions. Returns nil if nothing is queued.
+    ///
+    /// - "stop" pending → user intends "completed".
+    /// - "start" pending (and no stop) → user intends "in_progress".
+    func intendedStatus(forVisitId visitId: Int) -> String? {
+        let pending = allPending().filter { $0.visitId == visitId }
+        guard !pending.isEmpty else { return nil }
+        // Stop wins — if both queued, the latest user intent is to complete.
+        if pending.contains(where: { $0.action == "stop" }) { return "completed" }
+        if pending.contains(where: { $0.action == "start" }) { return "in_progress" }
+        return nil
     }
 
     // MARK: - Private

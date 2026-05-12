@@ -70,4 +70,29 @@ struct Stop: Codable, Identifiable, Hashable {
     var isInProgress: Bool {
         visits.contains { $0.visitStatus.lowercased() == "in_progress" }
     }
+
+    /// Returns a copy of this Stop with its `visits` array replaced. Used by
+    /// ScheduleViewModel to overlay optimistic visit statuses onto cached stops.
+    func withVisits(_ newVisits: [Visit]) -> Stop {
+        Stop(
+            stopId:           stopId,
+            stopDate:         stopDate,
+            stopStatus:       stopStatus,
+            routeOrder:       routeOrder,
+            estimatedArrival: estimatedArrival,
+            propertyId:       propertyId,
+            propertyAddress:  propertyAddress,
+            propertyCity:     propertyCity,
+            propertyName:     propertyName,
+            latitude:         latitude,
+            longitude:        longitude,
+            contactId:        contactId,
+            contactName:      contactName,
+            companyName:      companyName,
+            lawnSqft:         lawnSqft,
+            crewNames:        crewNames,
+            visitCount:       visitCount,
+            visits:           newVisits
+        )
+    }
 }

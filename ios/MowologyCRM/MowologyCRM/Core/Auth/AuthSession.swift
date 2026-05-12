@@ -63,7 +63,7 @@ final class AuthSession: ObservableObject {
         ]
 
         guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else {
-            throw APIError.serverError("Failed to encode request body.")
+            throw APIError.serverError(statusCode: nil, message: "Failed to encode request body.")
         }
 
         var request = URLRequest(url: url)
@@ -87,9 +87,9 @@ final class AuthSession: ObservableObject {
             if !(200..<300).contains(httpResponse.statusCode) {
                 // Try to extract a server-side error message.
                 if let serverMessage = extractErrorMessage(from: data) {
-                    throw APIError.serverError(serverMessage)
+                    throw APIError.serverError(statusCode: httpResponse.statusCode, message: serverMessage)
                 }
-                throw APIError.serverError("Server returned status \(httpResponse.statusCode).")
+                throw APIError.serverError(statusCode: httpResponse.statusCode, message: "Server returned status \(httpResponse.statusCode).")
             }
         }
 

@@ -88,7 +88,10 @@ struct ScheduleView: View {
                 VisitDetailView(
                     stop:        stop,
                     isAdmin:     authSession.user?.isAdmin ?? false,
-                    authSession: authSession
+                    authSession: authSession,
+                    onStatusChange: { vid, newStatus in
+                        viewModel.patchVisitStatus(visitId: vid, newStatus: newStatus)
+                    }
                 )
             }
             .navigationBarTitleDisplayMode(.inline)
