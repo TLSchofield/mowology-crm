@@ -77,13 +77,13 @@ $bodyClass  = $bodyClass  ?? '';
   <!-- Fonts (matches public website) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=Open+Sans:wght@400;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Open+Sans:wght@400;600&display=swap" rel="stylesheet">
 
   <!-- AppStack base (vendor — DO NOT MODIFY) -->
   <link href="/crm/css/classic.css" rel="stylesheet">
 
   <!-- Mowology brand override -->
-  <link href="/crm/css/mowology-brand.css?v=20260508a" rel="stylesheet">
+  <link href="/crm/css/mowology-brand.css?v=20260509a" rel="stylesheet">
 
   <!-- Global mobile navigation bars (top bar + bottom bar + slide-up menu) -->
   <link href="/crm/css/mobile-nav.css?v=20260303d" rel="stylesheet">

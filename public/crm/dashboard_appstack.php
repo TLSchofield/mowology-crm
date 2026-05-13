@@ -173,7 +173,7 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                           <span class="mw-daily-ops-stat-lbl">Revenue</span>
                       </span>
                       <span class="mw-daily-ops-stat">
-                          <span class="mw-daily-ops-stat-val">$<?php echo number_format($weekProfit, 0); ?></span>
+                          <span class="mw-daily-ops-stat-val<?php echo $weekProfit < 0 ? ' mw-profit-negative' : ''; ?>">$<?php echo number_format($weekProfit, 0); ?></span>
                           <span class="mw-daily-ops-stat-lbl">Profit</span>
                       </span>
                       <span class="mw-daily-ops-stat">
@@ -263,7 +263,11 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                                   <div class="mw-daily-ops-visits">0 visits</div>
                                   <div class="mw-daily-ops-cost">-$<?php echo number_format($totalCost, 0); ?> exp</div>
                               <?php else: ?>
-                                  <div class="mw-daily-ops-empty">&mdash;</div>
+                                  <?php if ($isFuture): ?>
+                                      <a href="/crm/schedule_appstack.php?date=<?php echo $opsDate->format('Y-m-d'); ?>" class="mw-daily-ops-schedule-link">+ Schedule</a>
+                                  <?php else: ?>
+                                      <div class="mw-daily-ops-empty">&mdash;</div>
+                                  <?php endif; ?>
                               <?php endif; ?>
                           </div>
                       </div>
@@ -405,10 +409,11 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                   <?php else: ?>
                     <div class="row">
                       <?php foreach ($quoteRequests as $qr):
-                        $qrName = trim(($qr['first_name'] ?? '') . ' ' . ($qr['last_name'] ?? ''));
+                        $qrName = ucwords(strtolower(trim(($qr['first_name'] ?? '') . ' ' . ($qr['last_name'] ?? ''))));
                         if (empty($qrName)) $qrName = 'Unknown Contact';
                         $qrServices = formatServiceTypes($qr['service_types']);
-                        $qrServicesStr = !empty($qrServices) ? implode(', ', $qrServices) : 'Not specified';
+                        $qrServicesEmpty = empty($qrServices);
+                        $qrServicesStr = !$qrServicesEmpty ? implode(', ', $qrServices) : 'Not specified';
                       ?>
                         <div class="col-xl-4 col-md-6 mb-3">
                           <a href="quote-workflow.php?request_id=<?php echo (int)$qr['id']; ?>" class="mw-qr-card mw-status-<?php echo h($qr['status']); ?>">
@@ -418,7 +423,7 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                                 <?php echo h(ucfirst($qr['urgency'] ?? 'inquiring')); ?>
                               </span>
                             </div>
-                            <div class="mw-qr-card-services"><?php echo h($qrServicesStr); ?></div>
+                            <div class="mw-qr-card-services<?php echo $qrServicesEmpty ? ' mw-qr-services-none' : ''; ?>"><?php echo h($qrServicesStr); ?></div>
                             <div class="mw-qr-card-meta">
                               <span><?php echo h(timeAgo($qr['created_at'])); ?></span>
                               <span class="mw-status-badge <?php echo h($qr['status']); ?>"><?php echo h(ucfirst($qr['status'])); ?></span>
@@ -534,14 +539,30 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                       <p class="mt-2 mb-0">No activity yet</p>
                     </div>
                   <?php else: ?>
-                    <div class="timeline">
-                      <?php foreach ($recentActivity as $activity): ?>
-                        <div class="timeline-item">
-                          <strong><?php echo htmlspecialchars($activity['full_name'] ?? 'System'); ?></strong>
-                          <span class="float-right text-muted text-sm">
-                            <?php echo formatDateTime($activity['created_at'], 'M j, g:i A'); ?>
-                          </span>
-                          <p><?php echo ucfirst($activity['type']); ?> created: <strong><?php echo htmlspecialchars($activity['name']); ?></strong></p>
+                    <div class="mw-activity-feed">
+                      <?php foreach ($recentActivity as $activity):
+                        $actIsQuote = ($activity['type'] === 'quote');
+                        $actIcon    = $actIsQuote ? 'file-text' : 'calendar';
+                        $actLabel   = $actIsQuote ? 'Quote' : 'Plan';
+                        $actHref    = $actIsQuote
+                            ? 'quotes/view.php?id=' . (int)$activity['id']
+                            : 'jobs/view.php?id=' . (int)$activity['id'];
+                      ?>
+                        <div class="mw-act-item mw-act-<?php echo $activity['type']; ?>">
+                          <div class="mw-act-icon">
+                            <i data-feather="<?php echo $actIcon; ?>"></i>
+                          </div>
+                          <div class="mw-act-body">
+                            <div class="mw-act-title">
+                              <span class="mw-act-type-badge"><?php echo $actLabel; ?></span>
+                              <a href="<?php echo $actHref; ?>" class="mw-act-name"><?php echo h($activity['name']); ?></a>
+                            </div>
+                            <div class="mw-act-meta">
+                              <span><?php echo h(ucwords(strtolower($activity['full_name'] ?? 'System'))); ?></span>
+                              <span class="mw-act-sep">·</span>
+                              <span><?php echo formatDateTime($activity['created_at'], 'M j, g:i A'); ?></span>
+                            </div>
+                          </div>
                         </div>
                       <?php endforeach; ?>
                     </div>

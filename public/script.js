@@ -157,29 +157,146 @@ function isInViewport(element) {
     );
 }
 
-// Add fade-in animation to elements as they scroll into view
+// Subtle scroll-reveal using IntersectionObserver (adds .is-visible class, no JS opacity override)
 document.addEventListener('DOMContentLoaded', function() {
-    const animateElements = document.querySelectorAll('.service-card, .feature, .testimonial-card, .portfolio-item, .value-card');
-    
-    function checkAnimation() {
-        animateElements.forEach(element => {
-            if (isInViewport(element)) {
-                element.style.opacity = '1';
-                element.style.transform = 'translateY(0)';
+    if (!window.IntersectionObserver) return;
+    const targets = document.querySelectorAll('.service-card, .feature, .area-card, .mw-stat');
+    const observer = new IntersectionObserver(function(entries) {
+        entries.forEach(function(entry) {
+            if (entry.isIntersecting) {
+                entry.target.classList.add('is-visible');
+                observer.unobserve(entry.target);
             }
         });
+    }, { threshold: 0.08, rootMargin: '0px 0px -40px 0px' });
+    targets.forEach(function(el) { observer.observe(el); });
+});
+
+// ── Hero Particles ───────────────────────────────────
+document.addEventListener('DOMContentLoaded', function() {
+    const container = document.getElementById('mwHeroParticles');
+    if (!container) return;
+    const count = 40;
+    for (let i = 0; i < count; i++) {
+        const p = document.createElement('div');
+        p.className = 'mw-hero__particle';
+        const height = 12 + Math.random() * 28;
+        const left = Math.random() * 100;
+        const duration = 2.5 + Math.random() * 3;
+        const delay = Math.random() * -4;
+        p.style.cssText = 'left:' + left + '%;height:' + height + 'px;animation-duration:' + duration + 's;animation-delay:' + delay + 's;opacity:' + (0.3 + Math.random() * 0.5);
+        container.appendChild(p);
     }
-    
-    // Set initial state
-    animateElements.forEach(element => {
-        element.style.opacity = '0';
-        element.style.transform = 'translateY(20px)';
-        element.style.transition = 'opacity 0.6s ease, transform 0.6s ease';
+});
+
+// ── Hero Parallax ────────────────────────────────────
+(function() {
+    const heroBg = document.querySelector('.mw-hero__bg');
+    if (!heroBg) return;
+    let ticking = false;
+    window.addEventListener('scroll', function() {
+        if (!ticking) {
+            requestAnimationFrame(function() {
+                const scrollY = window.pageYOffset;
+                const heroHeight = heroBg.parentElement ? heroBg.parentElement.offsetHeight : 600;
+                const maxShift = heroHeight * 0.08;
+                const shift = Math.min(scrollY * 0.12, maxShift);
+                heroBg.style.transform = 'translateY(' + shift + 'px)';
+                ticking = false;
+            });
+            ticking = true;
+        }
+    }, { passive: true });
+})();
+
+// ── Testimonials Carousel ────────────────────────────
+document.addEventListener('DOMContentLoaded', function() {
+    const wrap = document.getElementById('mwTestiWrap');
+    const track = document.getElementById('mwTestiTrack');
+    const dotsEl = document.getElementById('mwTestiDots');
+    const prevBtn = document.getElementById('mwTestiPrev');
+    const nextBtn = document.getElementById('mwTestiNext');
+    if (!wrap || !track || !dotsEl) return;
+
+    const cards = Array.from(track.querySelectorAll('.mw-testi-card'));
+    const cardCount = cards.length;
+    if (cardCount === 0) return;
+
+    let current = 0;
+    let isDragging = false;
+    let dragStartX = 0;
+    let dragOffsetX = 0;
+    let currentTranslate = 0;
+
+    // Build dots
+    cards.forEach(function(_, i) {
+        const dot = document.createElement('button');
+        dot.className = 'mw-testi-dot' + (i === 0 ? ' is-active' : '');
+        dot.setAttribute('aria-label', 'Go to testimonial ' + (i + 1));
+        dot.addEventListener('click', function() { goTo(i); });
+        dotsEl.appendChild(dot);
     });
-    
-    // Check on scroll and load
-    window.addEventListener('scroll', checkAnimation);
-    checkAnimation();
+
+    function getCardWidth() {
+        const card = cards[0];
+        if (!card) return 360;
+        return card.offsetWidth + parseInt(getComputedStyle(track).gap || '24', 10);
+    }
+
+    function getTrackOffset() {
+        const style = getComputedStyle(track);
+        return parseInt(style.paddingLeft || '24', 10);
+    }
+
+    function goTo(index) {
+        current = Math.max(0, Math.min(index, cardCount - 1));
+        const offset = getTrackOffset() + current * getCardWidth();
+        currentTranslate = -(current * getCardWidth());
+        track.style.transition = 'transform 0.5s cubic-bezier(0.22, 0.61, 0.36, 1)';
+        track.style.transform = 'translateX(' + currentTranslate + 'px)';
+        Array.from(dotsEl.querySelectorAll('.mw-testi-dot')).forEach(function(d, i) {
+            d.classList.toggle('is-active', i === current);
+        });
+    }
+
+    if (prevBtn) prevBtn.addEventListener('click', function() { goTo(current - 1); });
+    if (nextBtn) nextBtn.addEventListener('click', function() { goTo(current + 1); });
+
+    // Drag support
+    wrap.addEventListener('mousedown', function(e) {
+        isDragging = true;
+        dragStartX = e.clientX;
+        track.style.transition = 'none';
+    });
+    window.addEventListener('mousemove', function(e) {
+        if (!isDragging) return;
+        dragOffsetX = e.clientX - dragStartX;
+        track.style.transform = 'translateX(' + (currentTranslate + dragOffsetX) + 'px)';
+    });
+    window.addEventListener('mouseup', function() {
+        if (!isDragging) return;
+        isDragging = false;
+        if (dragOffsetX < -60) goTo(current + 1);
+        else if (dragOffsetX > 60) goTo(current - 1);
+        else goTo(current);
+        dragOffsetX = 0;
+    });
+
+    // Touch support
+    wrap.addEventListener('touchstart', function(e) {
+        dragStartX = e.touches[0].clientX;
+        track.style.transition = 'none';
+    }, { passive: true });
+    wrap.addEventListener('touchmove', function(e) {
+        dragOffsetX = e.touches[0].clientX - dragStartX;
+        track.style.transform = 'translateX(' + (currentTranslate + dragOffsetX) + 'px)';
+    }, { passive: true });
+    wrap.addEventListener('touchend', function() {
+        if (dragOffsetX < -60) goTo(current + 1);
+        else if (dragOffsetX > 60) goTo(current - 1);
+        else goTo(current);
+        dragOffsetX = 0;
+    });
 });
 
 // Add loading state to buttons

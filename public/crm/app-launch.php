@@ -47,7 +47,8 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
     <link rel="icon" href="/assets/favicon/favicon.ico">
     <link rel="apple-touch-icon" href="/assets/favicon/apple-touch-icon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
         :root {
             --al-forest: #0D3B2E;
@@ -65,7 +66,7 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
             background: var(--al-cream);
             color: var(--al-text);
             min-height: 100dvh;
@@ -97,44 +98,94 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
 
         /* ── Screen 1: Splash ────────────────────────────── */
         .al-splash {
-            background: var(--al-forest);
+            background: radial-gradient(ellipse 70% 65% at 50% 44%, #1f6347 0%, #0a2e22 100%);
             z-index: 30;
+            overflow: hidden;
+        }
+        /* Subtle noise texture for depth */
+        .al-splash::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+            opacity: 0.04;
+            pointer-events: none;
+        }
+        /* Subtle lime glow radiating from below logo */
+        .al-splash::after {
+            content: '';
+            position: absolute;
+            top: 38%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 320px;
+            height: 320px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(127,216,88,0.08) 0%, transparent 70%);
+            pointer-events: none;
         }
         .al-splash-logo {
             width: 140px;
             height: 140px;
             border-radius: 32px;
             object-fit: cover;
-            animation: al-breathe 2s ease-in-out infinite;
+            position: relative;
+            z-index: 1;
+            animation: al-breathe 2.4s ease-in-out infinite, al-logo-glow 3s ease-in-out infinite;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.45);
         }
         @keyframes al-breathe {
-            0%, 100% { transform: scale(1); opacity: 1; }
-            50% { transform: scale(1.04); opacity: 0.9; }
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        @keyframes al-logo-glow {
+            0%, 100% { box-shadow: 0 20px 60px rgba(0,0,0,0.45), 0 0 0 0 rgba(127,216,88,0); }
+            50% { box-shadow: 0 24px 70px rgba(0,0,0,0.40), 0 0 0 14px rgba(127,216,88,0.1); }
         }
         .al-splash-name {
-            margin-top: 20px;
-            font-size: 28px;
+            margin-top: 22px;
+            font-size: 30px;
             font-weight: 700;
             color: #fff;
             letter-spacing: -0.5px;
+            font-family: 'Outfit', sans-serif;
+            position: relative;
+            z-index: 1;
         }
+        .al-splash-tagline {
+            margin-top: 5px;
+            font-size: 11px;
+            font-weight: 500;
+            color: rgba(255,255,255,0.38);
+            letter-spacing: 2.5px;
+            text-transform: uppercase;
+            font-family: 'Outfit', sans-serif;
+            position: relative;
+            z-index: 1;
+        }
+        /* Waveform loading bars instead of dots */
         .al-splash-dots {
-            margin-top: 32px;
+            margin-top: 36px;
             display: flex;
-            gap: 8px;
+            align-items: center;
+            gap: 5px;
+            position: relative;
+            z-index: 1;
         }
         .al-splash-dots span {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: rgba(255,255,255,0.3);
-            animation: al-dot-pulse 1.4s ease-in-out infinite;
+            width: 3px;
+            height: 16px;
+            border-radius: 2px;
+            background: rgba(255,255,255,0.35);
+            animation: al-bar-wave 1.2s ease-in-out infinite;
+            transform-origin: center bottom;
         }
-        .al-splash-dots span:nth-child(2) { animation-delay: 0.2s; }
-        .al-splash-dots span:nth-child(3) { animation-delay: 0.4s; }
-        @keyframes al-dot-pulse {
-            0%, 80%, 100% { background: rgba(255,255,255,0.3); transform: scale(1); }
-            40% { background: rgba(255,255,255,0.8); transform: scale(1.3); }
+        .al-splash-dots span:nth-child(1) { animation-delay: -0.4s; height: 12px; }
+        .al-splash-dots span:nth-child(2) { animation-delay: -0.2s; height: 20px; }
+        .al-splash-dots span:nth-child(3) { animation-delay:  0.0s; height: 16px; }
+        @keyframes al-bar-wave {
+            0%, 100% { transform: scaleY(0.5); background: rgba(255,255,255,0.25); }
+            50%       { transform: scaleY(1.4); background: rgba(127,216,88,0.8); }
         }
 
         /* ── Screen 2: Quiz ──────────────────────────────── */
@@ -283,15 +334,18 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
             margin-bottom: 36px;
         }
         .al-home-greeting h1 {
-            font-size: 28px;
-            font-weight: 700;
+            font-size: 32px;
+            font-weight: 800;
             color: var(--al-forest);
-            letter-spacing: -0.5px;
+            letter-spacing: -0.8px;
+            font-family: 'Outfit', sans-serif;
         }
         .al-home-greeting p {
             font-size: 15px;
             color: var(--al-muted);
-            margin-top: 4px;
+            margin-top: 6px;
+            font-style: italic;
+            font-weight: 400;
         }
 
         .al-home-cards {
@@ -346,6 +400,7 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
             background: linear-gradient(90deg, var(--al-green), var(--al-lime));
             transition: width 1s ease;
             width: 0%;
+            box-shadow: 2px 0 8px rgba(127,216,88,0.5);
         }
         .al-revenue-meta {
             display: flex;
@@ -391,22 +446,24 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
             justify-content: center;
             gap: 10px;
             width: 100%;
-            padding: 18px;
+            padding: 20px;
             border: none;
             border-radius: var(--al-radius);
             font-size: 18px;
             font-weight: 700;
+            letter-spacing: -0.2px;
             color: #fff;
             cursor: pointer;
             transition: transform 0.15s, box-shadow 0.15s;
             margin-top: 8px;
+            font-family: 'Outfit', sans-serif;
         }
         .al-clock-btn:active {
             transform: scale(0.97);
         }
         .al-clock-btn.clock-in {
-            background: linear-gradient(135deg, var(--al-green), var(--al-dark));
-            box-shadow: 0 6px 24px rgba(45,134,89,0.35);
+            background: linear-gradient(135deg, var(--al-green) 0%, var(--al-dark) 100%);
+            box-shadow: 0 8px 28px rgba(45,134,89,0.45), 0 2px 6px rgba(45,134,89,0.2);
         }
         .al-clock-btn.clock-in:active {
             box-shadow: 0 2px 12px rgba(45,134,89,0.25);
@@ -480,6 +537,7 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
 <div class="al-screen al-splash" id="splashScreen">
     <img src="/assets/img/logo/mowology-logo.jpg" alt="Mowology" class="al-splash-logo">
     <div class="al-splash-name">Mowology</div>
+    <div class="al-splash-tagline">Field Operations</div>
     <div class="al-splash-dots">
         <span></span><span></span><span></span>
     </div>
