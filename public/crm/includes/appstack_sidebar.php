@@ -63,11 +63,12 @@ $navItems = [
 
     // ── Schedule ──────────────────────────────────────────────────────────────
     ['type' => 'header', 'label' => 'Schedule'],
-    ['key' => 'schedule',         'label' => 'Schedule',       'icon' => 'calendar',   'href' => '/crm/jobs/schedule.php',               'perm' => 'schedule.view'],
-    ['key' => 'timeclock',        'label' => 'Time Clock',     'icon' => 'clock',      'href' => '/crm/timeclock/my-schedule.php',       'perm' => 'schedule.view'],
-    ['key' => 'timesheets',       'label' => 'Timesheets',     'icon' => 'file-text',  'href' => '/crm/timeclock/timesheets.php',        'perm' => 'timer.override'],
-    ['key' => 'payroll-summary',  'label' => 'Payroll',        'icon' => 'dollar-sign','href' => '/crm/timeclock/payroll-summary.php',  'perm' => 'timer.override'],
-    ['key' => 'work-zones',       'label' => 'Work Zones',     'icon' => 'map-pin',    'href' => '/crm/zone-report_appstack.php',        'perm' => 'jobs.view'],
+    ['key' => 'schedule',         'label' => 'Schedule',        'icon' => 'calendar',      'href' => '/crm/jobs/schedule.php',              'perm' => 'schedule.view'],
+    ['key' => 'purchase-tasks',  'label' => 'Purchase Tasks',  'icon' => 'shopping-cart', 'href' => '/crm/jobs/purchase-tasks.php',        'perm' => 'schedule.view'],
+    ['key' => 'timeclock',       'label' => 'Time Clock',      'icon' => 'clock',         'href' => '/crm/timeclock/my-schedule.php',      'perm' => 'schedule.view'],
+    ['key' => 'timesheets',      'label' => 'Timesheets',      'icon' => 'file-text',     'href' => '/crm/timeclock/timesheets.php',       'perm' => 'timer.override'],
+    ['key' => 'payroll-summary', 'label' => 'Payroll',         'icon' => 'dollar-sign',   'href' => '/crm/timeclock/payroll-summary.php', 'perm' => 'timer.override'],
+    ['key' => 'work-zones',      'label' => 'Work Zones',      'icon' => 'map-pin',       'href' => '/crm/zone-report_appstack.php',       'perm' => 'jobs.view'],
 
     // ── Financials ────────────────────────────────────────────────────────────
     ['type' => 'header', 'label' => 'Financials'],

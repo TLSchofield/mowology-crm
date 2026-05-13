@@ -2284,21 +2284,30 @@ if ($apiKey) {
                   </div>
                   <?php endif; ?>
 
-                  <?php if (!empty($purchaseTaskData[$dayDate])): ?>
-                  <div class="mw-dv-section mw-dv-section-procurement">
+                  <div class="mw-dv-section mw-dv-section-procurement <?php echo empty($purchaseTaskData[$dayDate]) ? 'mw-dv-section-procurement-empty' : ''; ?>">
                       <div class="mw-dv-section-header">
                           <span class="mw-dv-section-title">
                               <i data-feather="shopping-cart" style="width:14px;height:14px;margin-right:4px;"></i>
                               Procurement
                           </span>
+                          <?php if (!empty($purchaseTaskData[$dayDate])): ?>
                           <span class="mw-dv-section-count"><?php echo count($purchaseTaskData[$dayDate]); ?> task<?php echo count($purchaseTaskData[$dayDate]) !== 1 ? 's' : ''; ?></span>
+                          <?php endif; ?>
+                          <?php if (in_array($user['role'] ?? '', ['admin', 'manager'])): ?>
+                          <a href="purchase-tasks.php?new=1&date=<?php echo htmlspecialchars($dayDate); ?>"
+                             class="mw-dv-section-add-btn" title="New purchase task">
+                              <i data-feather="plus" style="width:13px;height:13px;"></i>
+                          </a>
+                          <?php endif; ?>
                       </div>
-                      <?php foreach ($purchaseTaskData[$dayDate] as $task):
+                      <?php foreach (($purchaseTaskData[$dayDate] ?? []) as $task):
                           $mode = 'day';
                           include __DIR__ . '/partials/purchase-task-card.php';
                       endforeach; ?>
+                      <?php if (empty($purchaseTaskData[$dayDate])): ?>
+                      <div class="mw-dv-procurement-empty">No procurement tasks for this day.</div>
+                      <?php endif; ?>
                   </div>
-                  <?php endif; ?>
               </div>
 
               <!-- Right panel: embedded Google Map -->
