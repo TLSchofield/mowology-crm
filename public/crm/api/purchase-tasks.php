@@ -128,8 +128,6 @@ if ($action === 'toggle_item') {
        ->execute([$newVal, $itemId]);
 
     // Auto-complete task when all items checked
-    $remaining = (int)$db->prepare("SELECT COUNT(*) FROM purchase_task_items WHERE task_id = ? AND is_purchased = 0")
-                          ->execute([$item['task_id']]) ? $db->query("SELECT FOUND_ROWS()")->fetchColumn() : 1;
     $countStmt = $db->prepare("SELECT COUNT(*) FROM purchase_task_items WHERE task_id = ? AND is_purchased = 0");
     $countStmt->execute([$item['task_id']]);
     $remaining   = (int)$countStmt->fetchColumn();
@@ -197,6 +195,59 @@ if ($action === 'create') {
     }
 
     ptApiOk(['task_id' => $newId, 'task_number' => $taskNumber]);
+}
+
+// ── update ─────────────────────────────────────────────────────────────────────
+if ($action === 'update') {
+    if ($user['role'] !== 'admin' && $user['role'] !== 'manager') ptApiError('Admin or manager required', 403);
+
+    $taskId = (int)($body['task_id'] ?? 0);
+    if ($taskId <= 0) ptApiError('Missing task_id');
+    if (empty($body['task_date'])) ptApiError('Missing task_date');
+    if (empty($body['title']))     ptApiError('Missing title');
+
+    $taskDate  = $body['task_date'];
+    $title     = trim($body['title']);
+    $vendor    = trim($body['vendor_name'] ?? '') ?: null;
+    $location  = trim($body['location_address'] ?? '') ?: null;
+    $locationL = trim($body['location_label'] ?? '') ?: null;
+    $assignTo  = !empty($body['assigned_to_id']) ? (int)$body['assigned_to_id'] : null;
+    $mode      = $body['procurement_mode'] ?? 'vendor_run';
+    $priority  = $body['priority'] ?? 'normal';
+    $total     = isset($body['estimated_total']) && $body['estimated_total'] !== '' ? (float)$body['estimated_total'] : null;
+    $notes     = trim($body['notes'] ?? '') ?: null;
+
+    $db->prepare("
+        UPDATE purchase_tasks SET
+            title = ?, task_date = ?, vendor_name = ?, location_address = ?, location_label = ?,
+            procurement_mode = ?, priority = ?, estimated_total = ?, assigned_to_id = ?, notes = ?,
+            updated_at = NOW()
+        WHERE id = ?
+    ")->execute([$title, $taskDate, $vendor, $location, $locationL,
+                 $mode, $priority, $total, $assignTo, $notes, $taskId]);
+
+    // Replace items: delete existing, re-insert from payload
+    $db->prepare("DELETE FROM purchase_task_items WHERE task_id = ?")->execute([$taskId]);
+    $items = $body['items'] ?? [];
+    if (is_array($items)) {
+        $itemIns = $db->prepare("
+            INSERT INTO purchase_task_items (task_id, description, quantity, unit, unit_price, sort_order)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ");
+        foreach ($items as $idx => $item) {
+            if (empty($item['description'])) continue;
+            $itemIns->execute([
+                $taskId,
+                trim($item['description']),
+                (float)($item['quantity'] ?? 1),
+                $item['unit'] ?? null,
+                isset($item['unit_price']) && $item['unit_price'] !== '' ? (float)$item['unit_price'] : null,
+                (int)$idx,
+            ]);
+        }
+    }
+
+    ptApiOk(['task_id' => $taskId]);
 }
 
 ptApiError('Unknown action');

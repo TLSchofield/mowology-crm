@@ -62,7 +62,7 @@ $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
 
 // ── Page setup ─────────────────────────────────────────────────────────────────
 $pageTitle  = 'Purchase Tasks';
-$activePage = 'schedule';
+$activePage = 'purchase-tasks';
 if ($apiKey) {
     $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key='
         . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8')
