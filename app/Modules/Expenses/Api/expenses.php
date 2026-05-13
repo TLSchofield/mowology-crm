@@ -440,61 +440,73 @@ function handleCreate(PDO $db, ?array $input, array $user): void
         // Budget service non-critical
     }
 
-    $stmt = $db->prepare("
-        INSERT INTO expenses
-            (expense_date, vendor_id, vendor_name_raw, description, amount, gst_amount, pst_amount, total,
-             accounting_category, gbp_category, payment_method, receipt_media_id,
-             receipt_lat, receipt_lng, match_confidence, anomaly_flags, anomaly_score, raw_ocr_json,
-             job_id, property_id, contact_id, notes, status,
-             odometer_start, odometer_end, fuel_litres, fuel_price_per_litre,
-             created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ");
-    $stmt->execute([
-        $expenseDate,
-        !empty($input['vendor_id']) ? (int)$input['vendor_id'] : null,
-        $input['vendor_name_raw'] ?? null,
-        $input['description'] ?? null,
-        (float)($input['amount'] ?? 0),
-        (float)($input['gst_amount'] ?? 0),
-        (float)($input['pst_amount'] ?? 0),
-        $total,
-        $input['accounting_category'] ?? null,
-        $input['gbp_category'] ?? null,
-        $input['payment_method'] ?? null,
-        !empty($input['receipt_media_id']) ? (int)$input['receipt_media_id'] : null,
-        !empty($input['receipt_lat']) ? (float)$input['receipt_lat'] : null,
-        !empty($input['receipt_lng']) ? (float)$input['receipt_lng'] : null,
-        (int)($input['match_confidence'] ?? 0),
-        $anomalyFlags ?: null,
-        $anomalyScore,
-        $input['raw_ocr_json'] ?? null,
-        !empty($input['job_id']) ? (int)$input['job_id'] : null,
-        !empty($input['property_id']) ? (int)$input['property_id'] : null,
-        !empty($input['contact_id']) ? (int)$input['contact_id'] : null,
-        $input['notes'] ?? null,
-        $input['status'] ?? 'draft',
-        !empty($input['odometer_start']) ? (int)$input['odometer_start'] : null,
-        !empty($input['odometer_end']) ? (int)$input['odometer_end'] : null,
-        !empty($input['fuel_litres']) ? (float)$input['fuel_litres'] : null,
-        !empty($input['fuel_price_per_litre']) ? (float)$input['fuel_price_per_litre'] : null,
-        $user['id'],
-    ]);
+    // ── Transaction: expense + line items must succeed together ───
+    // Validation above runs OUTSIDE the transaction; non-critical
+    // post-write tasks (price intelligence, OCR learning, auto-send)
+    // run AFTER commit so a failure there does not roll back the save.
+    $db->beginTransaction();
+    try {
+        $stmt = $db->prepare("
+            INSERT INTO expenses
+                (expense_date, vendor_id, vendor_name_raw, description, amount, gst_amount, pst_amount, total,
+                 accounting_category, gbp_category, payment_method, receipt_media_id,
+                 receipt_lat, receipt_lng, match_confidence, anomaly_flags, anomaly_score, raw_ocr_json,
+                 job_id, property_id, contact_id, notes, status,
+                 odometer_start, odometer_end, fuel_litres, fuel_price_per_litre,
+                 created_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ");
+        $stmt->execute([
+            $expenseDate,
+            !empty($input['vendor_id']) ? (int)$input['vendor_id'] : null,
+            $input['vendor_name_raw'] ?? null,
+            $input['description'] ?? null,
+            (float)($input['amount'] ?? 0),
+            (float)($input['gst_amount'] ?? 0),
+            (float)($input['pst_amount'] ?? 0),
+            $total,
+            $input['accounting_category'] ?? null,
+            $input['gbp_category'] ?? null,
+            $input['payment_method'] ?? null,
+            !empty($input['receipt_media_id']) ? (int)$input['receipt_media_id'] : null,
+            !empty($input['receipt_lat']) ? (float)$input['receipt_lat'] : null,
+            !empty($input['receipt_lng']) ? (float)$input['receipt_lng'] : null,
+            (int)($input['match_confidence'] ?? 0),
+            $anomalyFlags ?: null,
+            $anomalyScore,
+            $input['raw_ocr_json'] ?? null,
+            !empty($input['job_id']) ? (int)$input['job_id'] : null,
+            !empty($input['property_id']) ? (int)$input['property_id'] : null,
+            !empty($input['contact_id']) ? (int)$input['contact_id'] : null,
+            $input['notes'] ?? null,
+            $input['status'] ?? 'draft',
+            !empty($input['odometer_start']) ? (int)$input['odometer_start'] : null,
+            !empty($input['odometer_end']) ? (int)$input['odometer_end'] : null,
+            !empty($input['fuel_litres']) ? (float)$input['fuel_litres'] : null,
+            !empty($input['fuel_price_per_litre']) ? (float)$input['fuel_price_per_litre'] : null,
+            $user['id'],
+        ]);
 
-    $expenseId = (int)$db->lastInsertId();
+        $expenseId = (int)$db->lastInsertId();
 
-    // Save line items if provided
-    if (!empty($input['line_items']) && is_array($input['line_items'])) {
-        saveLineItems($db, $expenseId, $input['line_items']);
+        if (!empty($input['line_items']) && is_array($input['line_items'])) {
+            saveLineItems($db, $expenseId, $input['line_items']);
+        }
 
-        // ── Record line item prices for intelligence ──────────────
-        if (!empty($input['vendor_id'])) {
-            try {
-                require_once APP_ROOT . '/Services/Receipts/PriceIntelligence.php';
-                recordLineItemPrices($expenseId, (int)$input['vendor_id'], $input['line_items'], $expenseDate);
-            } catch (Throwable $e) {
-                error_log('Price intelligence error: ' . $e->getMessage());
-            }
+        $db->commit();
+    } catch (\Throwable $e) {
+        if ($db->inTransaction()) $db->rollBack();
+        error_log('handleCreate (expense save) failed: ' . $e->getMessage());
+        throw $e;
+    }
+
+    // ── Post-commit: non-critical price intelligence ──────────────
+    if (!empty($input['line_items']) && is_array($input['line_items']) && !empty($input['vendor_id'])) {
+        try {
+            require_once APP_ROOT . '/Services/Receipts/PriceIntelligence.php';
+            recordLineItemPrices($expenseId, (int)$input['vendor_id'], $input['line_items'], $expenseDate);
+        } catch (Throwable $e) {
+            error_log('Price intelligence error: ' . $e->getMessage());
         }
     }
 

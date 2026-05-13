@@ -89,7 +89,9 @@ function sendReceiptToAccounting(array $opts): array
     // 4. Build email body
     $body = buildReceiptEmailBody($opts, $config);
 
-    // 5. Create log entry (queued status)
+    // 5. Create log entry (queued status) — single-row autocommit write,
+    //    intentionally NOT wrapped in a transaction so the SMTP call below
+    //    does not hold a long-lived DB transaction across network I/O.
     $logId = createEmailLog($db, [
         'expense_id' => $opts['expense_id'] ?? null,
         'media_id'   => $mediaId,
@@ -99,22 +101,33 @@ function sendReceiptToAccounting(array $opts): array
         'created_by' => $userId,
     ]);
 
-    // 6. Send the email with attachment
+    // 6. Send the email with attachment (outside any transaction)
     $fromName = $config['from_name'] ?: 'Mowology Receipts';
     $result = sendEmail($toEmail, $subject, $body, $filePath, $fromName);
 
-    // 7. Update log entry
+    // 7. Update log entry + expense status atomically on success
     if ($result['success']) {
-        updateEmailLog($db, $logId, 'sent');
+        // On success, the log row and the expense row must update together —
+        // the UI uses expense.status='forwarded' as the "this was sent"
+        // signal, and a partial write would leave them out of sync.
+        $db->beginTransaction();
+        try {
+            updateEmailLog($db, $logId, 'sent');
 
-        // Mark expense as forwarded
-        if (!empty($opts['expense_id'])) {
-            $stmt = $db->prepare("
-                UPDATE expenses
-                SET forwarded_to_accounting = 1, forwarded_at = NOW(), status = 'forwarded'
-                WHERE id = ?
-            ");
-            $stmt->execute([$opts['expense_id']]);
+            if (!empty($opts['expense_id'])) {
+                $stmt = $db->prepare("
+                    UPDATE expenses
+                    SET forwarded_to_accounting = 1, forwarded_at = NOW(), status = 'forwarded'
+                    WHERE id = ?
+                ");
+                $stmt->execute([$opts['expense_id']]);
+            }
+
+            $db->commit();
+        } catch (\Throwable $e) {
+            if ($db->inTransaction()) $db->rollBack();
+            error_log('sendReceiptToAccounting post-send commit failed: ' . $e->getMessage());
+            throw $e;
         }
 
         return [
@@ -123,6 +136,8 @@ function sendReceiptToAccounting(array $opts): array
             'log_id'  => $logId,
         ];
     } else {
+        // Single-row failure marker — no transaction needed.
+        // Expense status is intentionally left untouched.
         updateEmailLog($db, $logId, 'failed', $result['error'] ?? 'Unknown error');
 
         return [

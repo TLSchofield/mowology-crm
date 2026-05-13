@@ -80,65 +80,95 @@ class VisitCompletionService
                 $driveCost = round($driveRate * $driveMinutes, 2);
             }
 
-            // ── 6. Write snapshot columns onto job_visits ─────────────────────
-            $updateStmt = $db->prepare("
-                UPDATE job_visits
-                SET labor_rate_snapshot = ?,
-                    labor_cost_snapshot = ?,
-                    drive_cost_snapshot = ?
-                WHERE id = ?
-                  AND labor_cost_snapshot IS NULL
-            ");
-            $updateStmt->execute([$hourlyRate ?: null, $laborCost, $driveCost, $visitId]);
+            // ── 6–10. Snapshot writes — atomic ────────────────────────────────
+            // The labor-cost columns on job_visits and the visit_margin_snapshots
+            // upsert must succeed together. Otherwise a snapshot failure leaves
+            // the visit row showing labor cost without a corresponding margin
+            // snapshot (or vice versa) and the displayed margin is permanently
+            // wrong. The reads between the two writes are part of the same
+            // logical operation so they live inside the transaction.
+            $db->beginTransaction();
+            try {
+                // ── 6. Write snapshot columns onto job_visits ─────────────────
+                $updateStmt = $db->prepare("
+                    UPDATE job_visits
+                    SET labor_rate_snapshot = ?,
+                        labor_cost_snapshot = ?,
+                        drive_cost_snapshot = ?
+                    WHERE id = ?
+                      AND labor_cost_snapshot IS NULL
+                ");
+                $updateStmt->execute([$hourlyRate ?: null, $laborCost, $driveCost, $visitId]);
 
-            // ── 7. Get quoted revenue for this visit ──────────────────────────
-            // Try invoice line items first, then fall back to plan's quote total / visit count.
-            $quotedAmount = self::resolveQuotedAmount($db, $visitId, (int)$visit['plan_id']);
+                // ── 7. Get quoted revenue for this visit ──────────────────────
+                // Try invoice line items first, then fall back to plan's quote total / visit count.
+                $quotedAmount = null;
+                try {
+                    $quotedAmount = self::resolveQuotedAmount($db, $visitId, (int)$visit['plan_id']);
+                } catch (Throwable $qaErr) {
+                    // Fallback: use plan's price_per_visit directly
+                    $ppvStmt = $db->prepare("SELECT price_per_visit FROM job_plans WHERE id = ?");
+                    $ppvStmt->execute([(int)$visit['plan_id']]);
+                    $ppv = $ppvStmt->fetchColumn();
+                    $quotedAmount = $ppv ? (float)$ppv : null;
+                }
 
-            // ── 8. Get actual material cost ───────────────────────────────────
-            $materialCost = self::resolveMaterialCost($db, $visitId);
+                // ── 8. Get actual material cost ───────────────────────────────
+                $materialCost = null;
+                try {
+                    $materialCost = self::resolveMaterialCost($db, $visitId);
+                } catch (Throwable $matErr) {
+                    // expenses.visit_id or total_amount may not exist — graceful skip
+                }
 
-            // ── 9. Compute gross margin ───────────────────────────────────────
-            $grossMargin = null;
-            $marginPct   = null;
-            if ($quotedAmount !== null) {
-                $totalCost   = ($laborCost ?? 0) + ($materialCost ?? 0) + ($driveCost ?? 0);
-                $grossMargin = round($quotedAmount - $totalCost, 2);
-                $marginPct   = $quotedAmount > 0
-                    ? round($grossMargin / $quotedAmount * 100, 2)
-                    : null;
+                // ── 9. Compute gross margin ───────────────────────────────────
+                $grossMargin = null;
+                $marginPct   = null;
+                if ($quotedAmount !== null) {
+                    $totalCost   = ($laborCost ?? 0) + ($materialCost ?? 0) + ($driveCost ?? 0);
+                    $grossMargin = round($quotedAmount - $totalCost, 2);
+                    $marginPct   = $quotedAmount > 0
+                        ? round($grossMargin / $quotedAmount * 100, 2)
+                        : null;
+                }
+
+                // ── 10. Upsert margin snapshot ────────────────────────────────
+                $upsertStmt = $db->prepare("
+                    INSERT INTO visit_margin_snapshots
+                        (visit_id, plan_id, contact_id, property_id, visit_date,
+                         service_type, quoted_amount, labor_cost, material_cost,
+                         drive_cost, gross_margin, margin_pct)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON DUPLICATE KEY UPDATE
+                        quoted_amount  = VALUES(quoted_amount),
+                        labor_cost     = VALUES(labor_cost),
+                        material_cost  = VALUES(material_cost),
+                        drive_cost     = VALUES(drive_cost),
+                        gross_margin   = VALUES(gross_margin),
+                        margin_pct     = VALUES(margin_pct),
+                        computed_at    = NOW()
+                ");
+                $upsertStmt->execute([
+                    $visitId,
+                    $visit['plan_id'],
+                    $visit['contact_id'],
+                    $visit['property_id'],
+                    $visit['scheduled_date'],
+                    $visit['service_type'],
+                    $quotedAmount,
+                    $laborCost,
+                    $materialCost,
+                    $driveCost,
+                    $grossMargin,
+                    $marginPct,
+                ]);
+
+                $db->commit();
+            } catch (\Throwable $e) {
+                if ($db->inTransaction()) $db->rollBack();
+                error_log('VisitCompletionService::capture snapshot transaction failed for visit ' . $visitId . ': ' . $e->getMessage());
+                throw $e;
             }
-
-            // ── 10. Upsert margin snapshot ────────────────────────────────────
-            $upsertStmt = $db->prepare("
-                INSERT INTO visit_margin_snapshots
-                    (visit_id, plan_id, contact_id, property_id, visit_date,
-                     service_type, quoted_amount, labor_cost, material_cost,
-                     drive_cost, gross_margin, margin_pct)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON DUPLICATE KEY UPDATE
-                    quoted_amount  = VALUES(quoted_amount),
-                    labor_cost     = VALUES(labor_cost),
-                    material_cost  = VALUES(material_cost),
-                    drive_cost     = VALUES(drive_cost),
-                    gross_margin   = VALUES(gross_margin),
-                    margin_pct     = VALUES(margin_pct),
-                    computed_at    = NOW()
-            ");
-            $upsertStmt->execute([
-                $visitId,
-                $visit['plan_id'],
-                $visit['contact_id'],
-                $visit['property_id'],
-                $visit['scheduled_date'],
-                $visit['service_type'],
-                $quotedAmount,
-                $laborCost,
-                $materialCost,
-                $driveCost,
-                $grossMargin,
-                $marginPct,
-            ]);
 
             // ── 11. Log low-margin warning ────────────────────────────────────
             if ($marginPct !== null && $marginPct < 20) {
