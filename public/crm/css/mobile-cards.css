@@ -4435,3 +4435,435 @@
     cursor: not-allowed;
     transform: none;
 }
+
+
+/* ════════════════════════════════════════════════════════════════════
+   PURCHASE TASK CARDS — Procurement / Vendor Run workflow
+   Visible in week column, day view, and mobile mission control
+   ════════════════════════════════════════════════════════════════════ */
+
+/* ── Base card ──────────────────────────────────────────────────── */
+.mw-pt-card {
+    background: #fff;
+    border-radius: 10px;
+    border: 1.5px solid #e5e7eb;
+    padding: 8px 10px;
+    margin-top: 6px;
+    cursor: pointer;
+    transition: box-shadow 0.15s, border-color 0.15s;
+}
+
+.mw-pt-card:hover {
+    box-shadow: 0 3px 10px rgba(0,0,0,0.08);
+    border-color: #d1d5db;
+}
+
+.mw-pt-card--urgent {
+    border-left: 3px solid #ef4444;
+}
+
+/* ── Week mode: compact ─────────────────────────────────────────── */
+.mw-pt-card--week {
+    padding: 5px 8px;
+    font-size: 0.78rem;
+}
+
+.mw-pt-card--week .mw-pt-card-meta,
+.mw-pt-card--week .mw-pt-card-items,
+.mw-pt-card--week .mw-pt-card-footer {
+    display: none;
+}
+
+/* ── Day mode ────────────────────────────────────────────────────── */
+.mw-pt-card--day {
+    margin-bottom: 8px;
+}
+
+/* ── Mobile mode ─────────────────────────────────────────────────── */
+.mw-pt-card--mobile {
+    border-radius: 14px;
+    padding: 12px 14px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+
+/* ── Card header ────────────────────────────────────────────────── */
+.mw-pt-card-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.mw-pt-icon {
+    color: #6b7280;
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.mw-pt-icon svg { width: 13px; height: 13px; }
+
+.mw-pt-title {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #111827;
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.mw-pt-card--mobile .mw-pt-title {
+    font-size: 0.95rem;
+}
+
+.mw-pt-urgent-badge {
+    font-size: 0.65rem;
+    font-weight: 800;
+    color: #ef4444;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+/* ── Status badge ───────────────────────────────────────────────── */
+.mw-pt-status {
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 20px;
+    white-space: nowrap;
+    margin-left: auto;
+}
+
+.mw-pt-status--pending  { background: #fef3c7; color: #92400e; }
+.mw-pt-status--transit  { background: #dbeafe; color: #1d4ed8; }
+.mw-pt-status--done     { background: #d1fae5; color: #065f46; }
+.mw-pt-status--cancelled{ background: #f3f4f6; color: #6b7280; }
+
+/* ── Meta row ────────────────────────────────────────────────────── */
+.mw-pt-card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    margin-top: 4px;
+}
+
+.mw-pt-meta-item {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 0.75rem;
+    color: #6b7280;
+}
+
+.mw-pt-meta-item svg { width: 11px; height: 11px; }
+
+/* ── Item list ────────────────────────────────────────────────────── */
+.mw-pt-card-items {
+    margin-top: 6px;
+}
+
+.mw-pt-item-count {
+    font-size: 0.72rem;
+    color: #6b7280;
+    font-weight: 600;
+}
+
+.mw-pt-item-list {
+    list-style: none;
+    padding: 0;
+    margin: 4px 0 0 0;
+}
+
+.mw-pt-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.78rem;
+    color: #374151;
+    padding: 2px 0;
+}
+
+.mw-pt-item--done {
+    color: #9ca3af;
+    text-decoration: line-through;
+}
+
+.mw-pt-item svg { width: 12px; height: 12px; flex-shrink: 0; }
+
+.mw-pt-item-qty {
+    font-size: 0.7rem;
+    color: #9ca3af;
+    margin-left: 2px;
+}
+
+/* ── Footer ────────────────────────────────────────────────────────── */
+.mw-pt-card-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 8px;
+    padding-top: 6px;
+    border-top: 1px solid #f3f4f6;
+}
+
+.mw-pt-total {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #374151;
+}
+
+.mw-pt-btn-transit,
+.mw-pt-btn-done {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 20px;
+    border: none;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.mw-pt-btn-transit {
+    background: #dbeafe;
+    color: #1d4ed8;
+}
+.mw-pt-btn-transit:hover { background: #bfdbfe; }
+
+.mw-pt-btn-done {
+    background: #d1fae5;
+    color: #065f46;
+}
+.mw-pt-btn-done:hover { background: #a7f3d0; }
+
+/* ── Week column container ──────────────────────────────────────── */
+.mw-week-pt-list {
+    padding: 4px 4px 0;
+}
+
+/* ── Mobile procurement section label ──────────────────────────── */
+.mw-pt-section-label {
+    display: flex;
+    align-items: center;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #6b7280;
+    padding: 8px 0 4px;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════
+   DAY VIEW — Stop card footer (completion + invoice actions)
+   ════════════════════════════════════════════════════════════════════ */
+
+.mw-dv-card-footer {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px 10px;
+    border-top: 1px solid #f0f0f0;
+    flex-wrap: wrap;
+}
+
+.mw-dv-footer-done,
+.mw-dv-btn-complete {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 5px 12px;
+    border-radius: 20px;
+    background: var(--mw-green, #2D8659);
+    color: #fff;
+    text-decoration: none;
+    border: none;
+    cursor: pointer;
+    transition: background 0.15s;
+    white-space: nowrap;
+}
+
+.mw-dv-footer-done:hover,
+.mw-dv-btn-complete:hover {
+    background: var(--mw-dark, #1A5F4A);
+    color: #fff;
+    text-decoration: none;
+}
+
+.mw-dv-footer-pending {
+    display: inline-flex;
+    align-items: center;
+    font-size: 0.78rem;
+    font-weight: 500;
+    padding: 5px 10px;
+    border-radius: 20px;
+    background: #f3f4f6;
+    color: #6b7280;
+    border: none;
+    cursor: pointer;
+    transition: background 0.15s;
+    white-space: nowrap;
+}
+
+.mw-dv-footer-pending:hover { background: #e5e7eb; }
+
+.mw-dv-done-badge {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--mw-green, #2D8659);
+}
+
+.mw-dv-invoice-link {
+    font-size: 0.78rem;
+    color: var(--mw-green, #2D8659);
+    text-decoration: underline;
+    margin-left: 4px;
+}
+
+.mw-dv-btn-reopen {
+    font-size: 0.75rem;
+    padding: 4px 10px;
+    border-radius: 20px;
+    background: #fff;
+    border: 1.5px solid #d1d5db;
+    color: #6b7280;
+    cursor: pointer;
+}
+
+/* ── Day view map team toggle button ──────────────────────────── */
+.mw-dv-map-team-toggle {
+    background: none;
+    border: 1.5px solid #d1d5db;
+    border-radius: 8px;
+    padding: 4px 8px;
+    cursor: pointer;
+    color: #6b7280;
+    display: flex;
+    align-items: center;
+    transition: background 0.15s, border-color 0.15s;
+    margin-right: 6px;
+}
+
+.mw-dv-map-team-toggle:hover,
+.mw-dv-map-team-toggle.active {
+    background: #f0fdf4;
+    border-color: var(--mw-green, #2D8659);
+    color: var(--mw-green, #2D8659);
+}
+
+.mw-dv-map-team-toggle svg { width: 14px; height: 14px; }
+
+/* ── Day view procurement section ─────────────────────────────── */
+.mw-dv-section-procurement {
+    border-top: 1px solid #f0f0f0;
+    margin-top: 12px;
+    padding-top: 8px;
+}
+
+.mw-dv-section-procurement .mw-dv-section-header {
+    display: flex;
+    align-items: center;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════
+   PURCHASE TASK EXPAND MODAL
+   ════════════════════════════════════════════════════════════════════ */
+
+.mw-pt-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.45);
+    z-index: 9100;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+}
+
+@media (min-width: 768px) {
+    .mw-pt-modal-overlay {
+        align-items: center;
+    }
+}
+
+.mw-pt-modal-panel {
+    background: #fff;
+    border-radius: 20px 20px 0 0;
+    padding: 24px 20px 32px;
+    width: 100%;
+    max-width: 520px;
+    position: relative;
+    box-shadow: 0 -8px 40px rgba(0,0,0,0.14);
+    max-height: 85vh;
+    overflow-y: auto;
+}
+
+@media (min-width: 768px) {
+    .mw-pt-modal-panel {
+        border-radius: 16px;
+        max-height: 80vh;
+    }
+}
+
+.mw-pt-modal-close {
+    position: absolute;
+    top: 14px;
+    right: 16px;
+    background: #f3f4f6;
+    border: none;
+    border-radius: 50%;
+    width: 32px;
+    height: 32px;
+    font-size: 1.1rem;
+    cursor: pointer;
+    color: #6b7280;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mw-pt-modal-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+    padding-right: 40px;
+}
+
+.mw-pt-modal-title {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #111827;
+    flex: 1;
+}
+
+.mw-pt-modal-row {
+    font-size: 0.85rem;
+    color: #374151;
+    padding: 5px 0;
+    border-bottom: 1px solid #f9fafb;
+}
+
+.mw-pt-modal-items {
+    margin-top: 10px;
+}
+
+.mw-pt-modal-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 18px;
+}
+
+.mw-pt-modal-actions .mw-pt-btn-transit,
+.mw-pt-modal-actions .mw-pt-btn-done {
+    flex: 1;
+    justify-content: center;
+    padding: 10px 16px;
+    font-size: 0.9rem;
+    border-radius: 12px;
+}

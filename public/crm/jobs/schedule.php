@@ -18,6 +18,10 @@ requireLogin();
 $user = getCurrentUser();
 requirePermission('schedule.view');
 
+// Release session lock early — page is read-only after this point.
+// Prevents blocking Android WorkManager GPS sync requests sharing the session.
+session_write_close();
+
 $db = getDB();
 
 // ─── CSRF token for JS API calls ─────────────────────────────────
@@ -135,6 +139,15 @@ for ($i = 0; $i < 7; $i++) {
 
 // ─── Calendar stop data ─────────────────────────────────────────────
 $calendarData = getCalendarStops($startDate, $endDate, $crewFilter, $serviceFilter);
+
+// ─── Purchase tasks (vendor runs / supply pickups) ───────────────────
+$purchaseTaskData = getPurchaseTasksForSchedule($db, $startDate, $endDate, $crewFilter);
+
+// Check if Obsidian Root or_status column exists (for badge display in week view)
+$hasOrStatus = false;
+try {
+    $hasOrStatus = $db->query("SHOW COLUMNS FROM properties LIKE 'or_status'")->rowCount() > 0;
+} catch (Exception $e) { /* ignore */ }
 
 // ─── Profitability batch data for all plans this week ───────────────
 $allPlanIds = [];
@@ -717,6 +730,26 @@ if ($view === 'day') {
         }
     }
 
+    // Batch-load invoice status for all visits today (for footer buttons)
+    $dayInvoiceMap = []; // visit_id => ['is_invoiced', 'invoice_id']
+    $allDayVisitIds = [];
+    foreach (array_merge($assignedStops, $unassignedStops) as $_s) {
+        foreach (($_s['visits'] ?? []) as $_v) {
+            if (!empty($_v['visit_id'])) $allDayVisitIds[] = (int)$_v['visit_id'];
+        }
+    }
+    if (!empty($allDayVisitIds)) {
+        $dvph = implode(',', array_fill(0, count($allDayVisitIds), '?'));
+        $dvStmt = $db->prepare("SELECT id, is_invoiced, invoice_id FROM job_visits WHERE id IN ({$dvph})");
+        $dvStmt->execute($allDayVisitIds);
+        foreach ($dvStmt->fetchAll(PDO::FETCH_ASSOC) as $_dv) {
+            $dayInvoiceMap[(int)$_dv['id']] = [
+                'is_invoiced' => (int)$_dv['is_invoiced'],
+                'invoice_id'  => $_dv['invoice_id'] ? (int)$_dv['invoice_id'] : null,
+            ];
+        }
+    }
+
     // Build JS data for the day view map
     foreach (array_merge($assignedStops, $unassignedStops) as $stop) {
         $isAssigned = !empty($stop['crew_ids']) || !empty($stop['crew_id']);
@@ -1112,7 +1145,7 @@ $pageTitle = 'Schedule';
 $activePage = 'schedule';
 $bodyClass  = 'mw-page-schedule'; // Hides global mobile nav bars — schedule has its own
 $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
-$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260303n" rel="stylesheet">';
+$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260512a" rel="stylesheet">';
 $extraHead .= '<script src="/crm/js/offline-queue.js?v=20260303a" defer></script>';
 // Prefetch every day visible in the strip so any day tap is instant
 foreach ($stripDays as $_sd) {
@@ -1915,11 +1948,19 @@ if ($apiKey) {
                                       <?php endif; ?>
 
                                       <?php
-                                      // Obsidian Root™ enrollment badge
+                                      // Obsidian Root™ enrollment badge (always shown when column exists)
                                       $orStatus = $stop['or_status'] ?? 'none';
-                                      if ($orStatus !== 'none'):
-                                          $orVariant = ($orStatus === 'enrolled') ? 'full' : 'sell';
-                                          $orTitle   = ($orStatus === 'enrolled') ? 'Obsidian Root™ — Active Program' : 'Obsidian Root™ — Offer to client';
+                                      if ($hasOrStatus):
+                                          if ($orStatus === 'enrolled') {
+                                              $orVariant = 'full';
+                                              $orTitle   = 'Obsidian Root™ — Active Program';
+                                          } elseif ($orStatus !== 'none') {
+                                              $orVariant = 'sell';
+                                              $orTitle   = 'Obsidian Root™ — Offer to client';
+                                          } else {
+                                              $orVariant = 'grey';
+                                              $orTitle   = 'Obsidian Root™ — Not enrolled';
+                                          }
                                       ?>
                                       <div class="mw-stop-or-badge or-icon or-icon-<?php echo $orVariant; ?>" title="<?php echo $orTitle; ?>">
                                           <img src="/assets/images/programs/obsidian-root-logo.png"
@@ -1929,6 +1970,15 @@ if ($apiKey) {
                                       <?php endif; ?>
                                   </div>
                               <?php endforeach; ?>
+                          <?php endif; ?>
+
+                          <?php if (!empty($purchaseTaskData[$dateStr])): ?>
+                          <div class="mw-week-pt-list">
+                              <?php foreach ($purchaseTaskData[$dateStr] as $task):
+                                  $mode = 'week';
+                                  include dirname(__DIR__) . '/partials/purchase-task-card.php';
+                              endforeach; ?>
+                          </div>
                           <?php endif; ?>
                       </div>
                   <?php
@@ -1981,7 +2031,17 @@ if ($apiKey) {
                           $dvVisitsJson = [];
                           if (!empty($stop['visits'])) {
                               foreach ($stop['visits'] as $v) {
-                                  $dvVisitsJson[] = ['plan_id' => (int)($v['plan_id'] ?? 0), 'plan_number' => $v['plan_number'] ?? '', 'service_type' => $v['service_type'] ?? ''];
+                                  $vid = (int)($v['visit_id'] ?? 0);
+                                  $dvVisitsJson[] = [
+                                      'visit_id'     => $vid,
+                                      'plan_id'      => (int)($v['plan_id'] ?? 0),
+                                      'plan_number'  => $v['plan_number'] ?? '',
+                                      'service_type' => $v['service_type'] ?? '',
+                                      'visit_status' => $v['visit_status'] ?? 'scheduled',
+                                      'is_invoiced'  => (int)($dayInvoiceMap[$vid]['is_invoiced'] ?? $v['is_invoiced'] ?? 0),
+                                      'invoice_id'   => $dayInvoiceMap[$vid]['invoice_id'] ?? ($v['invoice_id'] ?? null),
+                                      'price'        => (float)($v['price_per_visit'] ?? 0),
+                                  ];
                               }
                           }
                       ?>
@@ -2079,6 +2139,40 @@ if ($apiKey) {
                               </a>
                               <?php endif; ?>
                           </div>
+                          <?php
+                          // Completion footer — shown when all visits on this stop are completed
+                          $dvAllDone     = !empty($stop['visits']);
+                          $dvAnyInvoiced = false;
+                          $dvInvoiceId   = null;
+                          foreach (($stop['visits'] ?? []) as $_sv) {
+                              if (($_sv['visit_status'] ?? 'scheduled') !== 'completed') $dvAllDone = false;
+                              $vid = (int)($_sv['visit_id'] ?? 0);
+                              $inv = $dayInvoiceMap[$vid] ?? [];
+                              if ((int)($inv['is_invoiced'] ?? $_sv['is_invoiced'] ?? 0)) {
+                                  $dvAnyInvoiced = true;
+                                  $dvInvoiceId   = $inv['invoice_id'] ?? $_sv['invoice_id'] ?? null;
+                              }
+                          }
+                          if ($dvAllDone): ?>
+                          <div class="mw-dv-card-footer">
+                              <?php if (!$dvAnyInvoiced): ?>
+                                  <a class="mw-dv-footer-done mw-dv-btn-complete"
+                                     href="/crm/invoices/create.php?stop_id=<?php echo (int)$stop['stop_id']; ?>">
+                                      <i data-feather="file-text"></i> Complete &amp; Invoice
+                                  </a>
+                                  <button class="mw-dv-footer-pending"
+                                          data-action="complete-noinvoice"
+                                          data-stop-id="<?php echo (int)$stop['stop_id']; ?>">
+                                      Done — No Invoice
+                                  </button>
+                              <?php else: ?>
+                                  <span class="mw-dv-done-badge">&#10003; Invoiced</span>
+                                  <?php if ($dvInvoiceId): ?>
+                                  <a class="mw-dv-invoice-link" href="/crm/invoices/view.php?id=<?php echo (int)$dvInvoiceId; ?>">View Invoice</a>
+                                  <?php endif; ?>
+                              <?php endif; ?>
+                          </div>
+                          <?php endif; ?>
                       </div>
                       <?php endforeach; ?>
                   </div>
@@ -2097,7 +2191,17 @@ if ($apiKey) {
                           $unVisitsJson = [];
                           if (!empty($stop['visits'])) {
                               foreach ($stop['visits'] as $v) {
-                                  $unVisitsJson[] = ['plan_id' => (int)($v['plan_id'] ?? 0), 'plan_number' => $v['plan_number'] ?? '', 'service_type' => $v['service_type'] ?? ''];
+                                  $vid = (int)($v['visit_id'] ?? 0);
+                                  $unVisitsJson[] = [
+                                      'visit_id'     => $vid,
+                                      'plan_id'      => (int)($v['plan_id'] ?? 0),
+                                      'plan_number'  => $v['plan_number'] ?? '',
+                                      'service_type' => $v['service_type'] ?? '',
+                                      'visit_status' => $v['visit_status'] ?? 'scheduled',
+                                      'is_invoiced'  => (int)($dayInvoiceMap[$vid]['is_invoiced'] ?? $v['is_invoiced'] ?? 0),
+                                      'invoice_id'   => $dayInvoiceMap[$vid]['invoice_id'] ?? ($v['invoice_id'] ?? null),
+                                      'price'        => (float)($v['price_per_visit'] ?? 0),
+                                  ];
                               }
                           }
                       ?>
@@ -2154,12 +2258,31 @@ if ($apiKey) {
                       <div class="mw-dv-empty-sub">for <?php echo date('l, M j', strtotime($dayDate)); ?></div>
                   </div>
                   <?php endif; ?>
+
+                  <?php if (!empty($purchaseTaskData[$dayDate])): ?>
+                  <div class="mw-dv-section mw-dv-section-procurement">
+                      <div class="mw-dv-section-header">
+                          <span class="mw-dv-section-title">
+                              <i data-feather="shopping-cart" style="width:14px;height:14px;margin-right:4px;"></i>
+                              Procurement
+                          </span>
+                          <span class="mw-dv-section-count"><?php echo count($purchaseTaskData[$dayDate]); ?> task<?php echo count($purchaseTaskData[$dayDate]) !== 1 ? 's' : ''; ?></span>
+                      </div>
+                      <?php foreach ($purchaseTaskData[$dayDate] as $task):
+                          $mode = 'day';
+                          include __DIR__ . '/partials/purchase-task-card.php';
+                      endforeach; ?>
+                  </div>
+                  <?php endif; ?>
               </div>
 
               <!-- Right panel: embedded Google Map -->
               <div class="mw-dv-map-panel">
                   <div class="mw-dv-map-topbar">
                       <span class="mw-dv-map-title" id="mwDvMapTitle">Route</span>
+                      <button type="button" class="mw-dv-map-team-toggle" id="mwDvMapTeamToggle" title="Toggle live team positions">
+                          <i data-feather="users"></i>
+                      </button>
                       <button type="button" class="mw-dv-map-external" id="mwDvMapExternal" title="Open in Google Maps">
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                       </button>
@@ -2531,6 +2654,19 @@ if ($apiKey) {
 
               <?php endif; // empty mobileStops ?>
               <?php endif; // isClockedIn gate ?>
+
+              <?php if (!empty($purchaseTaskData[$mobileDate])): ?>
+              <div class="mw-mc-section">
+                  <div class="mw-pt-section-label">
+                      <i data-feather="shopping-cart" style="width:13px;height:13px;margin-right:5px;"></i>
+                      Procurement
+                  </div>
+                  <?php foreach ($purchaseTaskData[$mobileDate] as $task):
+                      $mode = 'mobile';
+                      include dirname(__DIR__) . '/partials/purchase-task-card.php';
+                  endforeach; ?>
+              </div>
+              <?php endif; ?>
 
               </div><!-- /.mw-mc-scroll-area -->
 
@@ -3221,13 +3357,17 @@ function getServiceLabel(type) {
  * Mobile schedule state — embedded by PHP for JS state machine.
  * Used by schedule-pill-workflow.js to restore in-progress timers.
  */
+var MW_CSRF          = <?php echo json_encode($csrfToken); ?>;
+var MW_SCHEDULE_DATE = <?php echo json_encode($view === 'day' ? $dayDate : $startDate); ?>;
+
 var MW_SCHEDULE_STATE = {
     csrf: <?php echo json_encode($csrfToken); ?>,
     userId: <?php echo (int)$user['id']; ?>,
     activeTimer: <?php echo json_encode($activeTimerData); ?>,
     visitPhotos: <?php echo json_encode($visitPhotoMap, JSON_FORCE_OBJECT); ?>,
     autoArrivalEnabled: <?php echo json_encode((bool)(int)getTimeClockSetting('auto_arrival_enabled', '1')); ?>,
-    autoArrivalServiceTypes: <?php echo json_encode(array_filter(array_map('trim', explode(',', getTimeClockSetting('auto_arrival_service_types', ''))))); ?>
+    autoArrivalServiceTypes: <?php echo json_encode(array_filter(array_map('trim', explode(',', getTimeClockSetting('auto_arrival_service_types', ''))))); ?>,
+    purchaseTasks: <?php echo json_encode($purchaseTaskData, JSON_FORCE_OBJECT); ?>
 };
 
 /**
@@ -4648,5 +4788,93 @@ if (startBtn) {
 })();
 </script>
 <?php endif; ?>
+
+<script>
+/**
+ * Purchase Task Actions — status transitions and item toggles.
+ */
+function mwPurchaseTaskAction(taskId, newStatus) {
+    fetch('/crm/api/purchase-tasks.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            action: 'update_status',
+            task_id: taskId,
+            status: newStatus,
+            csrf_token: MW_CSRF
+        })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+        if (!d.success) { console.error('Purchase task update failed:', d.error); return; }
+        // Refresh the card status badge
+        var card = document.querySelector('.mw-pt-card[data-task-id="' + taskId + '"]');
+        if (!card) return;
+        var badge = card.querySelector('.mw-pt-status');
+        var statusMap = { pending: 'Pending', in_transit: 'En Route', purchased: 'Done', cancelled: 'Cancelled' };
+        if (badge) badge.textContent = statusMap[newStatus] || newStatus;
+        card.dataset.status = newStatus;
+        // Swap footer button
+        var footer = card.querySelector('.mw-pt-card-footer');
+        if (footer) {
+            if (newStatus === 'purchased') {
+                footer.innerHTML = '';
+            } else if (newStatus === 'in_transit') {
+                footer.innerHTML = '<button class="mw-pt-btn-done" onclick="event.stopPropagation();mwPurchaseTaskAction(' + taskId + ','+"'purchased'"+')" title="Mark Purchased"><i data-feather="check"></i> Done</button>';
+                if (window.feather) feather.replace();
+            }
+        }
+    })
+    .catch(function(e) { console.error('mwPurchaseTaskAction error:', e); });
+}
+
+function mwExpandPurchaseTask(taskId) {
+    var existingModal = document.getElementById('mwPtModal');
+    if (existingModal) existingModal.remove();
+
+    fetch('/crm/api/purchase-tasks.php?task_id=' + taskId, {
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+        if (!d.success || !d.task) return;
+        var t = d.task;
+        var statusMap = { pending: 'Pending', in_transit: 'En Route', purchased: 'Done', cancelled: 'Cancelled' };
+        var items = (t.items || []).map(function(i) {
+            return '<li class="mw-pt-item' + (i.is_purchased ? ' mw-pt-item--done' : '') + '">' +
+                '<span style="margin-right:6px">' + (i.is_purchased ? '&#10003;' : '&#9675;') + '</span>' +
+                '<span>' + (i.description || '') + '</span>' +
+                (i.quantity != 1 ? '<span class="mw-pt-item-qty"> × ' + i.quantity + (i.unit ? ' ' + i.unit : '') + '</span>' : '') +
+            '</li>';
+        }).join('');
+
+        var modal = document.createElement('div');
+        modal.id = 'mwPtModal';
+        modal.className = 'mw-pt-modal-overlay';
+        modal.innerHTML =
+            '<div class="mw-pt-modal-panel">' +
+                '<button class="mw-pt-modal-close" onclick="document.getElementById(\'mwPtModal\').remove()">&times;</button>' +
+                '<div class="mw-pt-modal-header">' +
+                    '<span class="mw-pt-modal-title">' + (t.title || 'Supply Run') + '</span>' +
+                    '<span class="mw-pt-status mw-pt-status--' + (t.purchase_status || 'pending') + '">' + (statusMap[t.purchase_status] || t.purchase_status) + '</span>' +
+                '</div>' +
+                (t.vendor_name ? '<div class="mw-pt-modal-row"><strong>Vendor:</strong> ' + t.vendor_name + '</div>' : '') +
+                (t.location_address ? '<div class="mw-pt-modal-row"><strong>Location:</strong> ' + t.location_address + '</div>' : '') +
+                (t.assigned_to_name ? '<div class="mw-pt-modal-row"><strong>Assigned to:</strong> ' + t.assigned_to_name + '</div>' : '') +
+                (t.estimated_total ? '<div class="mw-pt-modal-row"><strong>Est. Total:</strong> $' + parseFloat(t.estimated_total).toFixed(2) + '</div>' : '') +
+                (t.notes ? '<div class="mw-pt-modal-row"><strong>Notes:</strong> ' + t.notes + '</div>' : '') +
+                (items ? '<ul class="mw-pt-item-list mw-pt-modal-items">' + items + '</ul>' : '') +
+                '<div class="mw-pt-modal-actions">' +
+                    (t.purchase_status === 'pending' ? '<button class="mw-pt-btn-transit" onclick="mwPurchaseTaskAction(' + taskId + ',\'in_transit\');document.getElementById(\'mwPtModal\').remove()">Mark En Route</button>' : '') +
+                    (t.purchase_status === 'in_transit' ? '<button class="mw-pt-btn-done" onclick="mwPurchaseTaskAction(' + taskId + ',\'purchased\');document.getElementById(\'mwPtModal\').remove()">Mark Purchased</button>' : '') +
+                '</div>' +
+            '</div>';
+        modal.addEventListener('click', function(e) { if (e.target === modal) modal.remove(); });
+        document.body.appendChild(modal);
+        if (window.feather) feather.replace();
+    })
+    .catch(function(e) { console.error('mwExpandPurchaseTask error:', e); });
+}
+</script>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

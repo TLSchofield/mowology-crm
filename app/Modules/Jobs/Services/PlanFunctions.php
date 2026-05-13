@@ -1089,6 +1089,8 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
             jv.id AS visit_id,
             jv.visit_number,
             jv.status AS visit_status,
+            jv.invoice_id,
+            jv.is_invoiced,
             jv.scheduled_time_start,
             jv.scheduled_time_end,
             jv.assigned_crew_id,
@@ -1214,6 +1216,8 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
                 'visit_id'       => (int)$row['visit_id'],
                 'visit_number'   => $row['visit_number'],
                 'visit_status'   => $row['visit_status'],
+                'is_invoiced'    => (int)($row['is_invoiced'] ?? 0),
+                'invoice_id'     => $row['invoice_id'] ? (int)$row['invoice_id'] : null,
                 'plan_id'        => (int)$row['plan_id'],
                 'plan_title'     => $row['plan_title'],
                 'plan_number'    => $row['plan_number'],
@@ -1249,6 +1253,122 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
         }
     }
     unset($stops);
+
+    return $result;
+}
+
+
+/**
+ * Get purchase tasks for the schedule page date range.
+ *
+ * Returns tasks indexed by date, each containing task data + items.
+ * Tasks are filtered by date range and optionally by assigned crew member.
+ *
+ * @param PDO         $db
+ * @param string      $startDate  Y-m-d
+ * @param string      $endDate    Y-m-d
+ * @param int|null    $crewId     Filter to tasks assigned to this user (null = all)
+ * @return array      [ 'Y-m-d' => [ task_data, ... ], ... ]
+ */
+function getPurchaseTasksForSchedule(PDO $db, string $startDate, string $endDate, ?int $crewId = null): array
+{
+    // Return empty immediately if the table doesn't exist yet (pre-migration)
+    try {
+        $check = $db->query("SELECT 1 FROM purchase_tasks LIMIT 0");
+        if ($check === false) return [];
+    } catch (\Throwable $e) {
+        return [];
+    }
+
+    $sql = "
+        SELECT
+            pt.id,
+            pt.task_number,
+            pt.title,
+            pt.task_date,
+            pt.vendor_name,
+            pt.location_address,
+            pt.location_label,
+            pt.lat,
+            pt.lng,
+            pt.purchase_status,
+            pt.procurement_mode,
+            pt.priority,
+            pt.estimated_total,
+            pt.assigned_to_id,
+            pt.notes,
+            u.full_name AS assigned_to_name
+        FROM purchase_tasks pt
+        LEFT JOIN users u ON pt.assigned_to_id = u.id
+        WHERE pt.task_date BETWEEN ? AND ?
+          AND pt.purchase_status != 'cancelled'
+    ";
+    $params = [$startDate, $endDate];
+
+    if ($crewId !== null) {
+        $sql .= " AND pt.assigned_to_id = ?";
+        $params[] = $crewId;
+    }
+
+    $sql .= " ORDER BY pt.task_date, pt.priority = 'urgent' DESC, pt.id";
+
+    $stmt = $db->prepare($sql);
+    $stmt->execute($params);
+    $tasks = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    if (empty($tasks)) {
+        return [];
+    }
+
+    // Batch-load items for all tasks
+    $taskIds = array_column($tasks, 'id');
+    $placeholders = implode(',', array_fill(0, count($taskIds), '?'));
+    $itemStmt = $db->prepare("
+        SELECT task_id, id, description, quantity, unit, unit_price, is_purchased, sort_order
+        FROM purchase_task_items
+        WHERE task_id IN ({$placeholders})
+        ORDER BY task_id, sort_order, id
+    ");
+    $itemStmt->execute($taskIds);
+
+    $itemsByTask = [];
+    foreach ($itemStmt->fetchAll(PDO::FETCH_ASSOC) as $item) {
+        $itemsByTask[(int)$item['task_id']][] = [
+            'id'           => (int)$item['id'],
+            'description'  => $item['description'],
+            'quantity'     => (float)$item['quantity'],
+            'unit'         => $item['unit'],
+            'unit_price'   => $item['unit_price'] !== null ? (float)$item['unit_price'] : null,
+            'is_purchased' => (int)$item['is_purchased'],
+            'sort_order'   => (int)$item['sort_order'],
+        ];
+    }
+
+    // Group by date
+    $result = [];
+    foreach ($tasks as $task) {
+        $date = $task['task_date'];
+        $id   = (int)$task['id'];
+        $result[$date][] = [
+            'id'               => $id,
+            'task_number'      => $task['task_number'],
+            'title'            => $task['title'],
+            'task_date'        => $date,
+            'vendor_name'      => $task['vendor_name'],
+            'location_address' => $task['location_address'],
+            'location_label'   => $task['location_label'],
+            'lat'              => $task['lat'] !== null ? (float)$task['lat'] : null,
+            'lng'              => $task['lng'] !== null ? (float)$task['lng'] : null,
+            'purchase_status'  => $task['purchase_status'],
+            'procurement_mode' => $task['procurement_mode'],
+            'priority'         => $task['priority'],
+            'estimated_total'  => $task['estimated_total'] !== null ? (float)$task['estimated_total'] : null,
+            'assigned_to_id'   => $task['assigned_to_id'] ? (int)$task['assigned_to_id'] : null,
+            'assigned_to_name' => $task['assigned_to_name'],
+            'notes'            => $task['notes'],
+            'items'            => $itemsByTask[$id] ?? [],
+        ];
+    }
 
     return $result;
 }
