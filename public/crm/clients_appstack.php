@@ -748,6 +748,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 'consent_quote_followup' => (string)$consentQuoteFollowup,
                                 'has_reviewed' => (string)$hasReviewed, 'notes' => $notes,
                             ], $user['id']);
+
+                            // CASL: write to consent_log and update express timestamps on changes
+                            $clientIp = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '';
+                            if ((int)$oldContact['receive_marketing'] !== $receiveMarketing) {
+                                $db->prepare("INSERT INTO consent_log (contact_id, consent_type, consent_given, consent_source, ip_address, updated_by_user_id) VALUES (?, 'marketing_email', ?, 'admin_manual', ?, ?)")
+                                   ->execute([$contactId, $receiveMarketing, $clientIp, $user['id']]);
+                                $db->prepare("UPDATE contacts SET consent_email_express_at = " . ($receiveMarketing ? "NOW()" : "NULL") . " WHERE id = ?")
+                                   ->execute([$contactId]);
+                            }
+                            if ((int)$oldContact['receive_sms'] !== $receiveSms) {
+                                $db->prepare("INSERT INTO consent_log (contact_id, consent_type, consent_given, consent_source, ip_address, updated_by_user_id) VALUES (?, 'sms', ?, 'admin_manual', ?, ?)")
+                                   ->execute([$contactId, $receiveSms, $clientIp, $user['id']]);
+                                $db->prepare("UPDATE contacts SET consent_sms_express_at = " . ($receiveSms ? "NOW()" : "NULL") . " WHERE id = ?")
+                                   ->execute([$contactId]);
+                            }
                         }
 
                         $message = 'Contact updated successfully!';
@@ -2395,16 +2410,34 @@ $unconvertedRequests = $db->query("
                       <div class="col-sm-11"><?php echo ucfirst(h($viewContact['preferred_contact_method'] ?? 'phone')); ?></div>
                     </div>
 
-                    <!-- Communication Preferences -->
-                    <div class="row mb-2 align-items-center">
+                    <!-- Communication Preferences + CASL Consent Status -->
+                    <div class="row mb-2 align-items-start">
                       <div class="col-sm-1 text-muted" title="Preferences"><i data-feather="settings" style="width: 16px; height: 16px;"></i></div>
                       <div class="col-sm-11">
+                        <?php
+                        // CASL: determine consent status for display
+                        $mktExpressAt   = $viewContact['consent_email_express_at'] ?? null;
+                        $smsExpressAt   = $viewContact['consent_sms_express_at'] ?? null;
+                        $mktImpliedAt   = $viewContact['consent_email_implied_at'] ?? null;
+                        $mktImpliedExp  = $mktImpliedAt ? strtotime($mktImpliedAt . ' +2 years') : 0;
+                        $hasImplied     = $mktImpliedExp && time() < $mktImpliedExp;
+                        ?>
                         <span class="mw-contact-pref-badge <?php echo !empty($viewContact['receive_sms']) ? 'active' : 'inactive'; ?>">
                           <i data-feather="message-square" style="width: 12px; height: 12px;"></i> SMS
                         </span>
-                        <span class="mw-contact-pref-badge <?php echo !empty($viewContact['receive_marketing']) ? 'active' : 'inactive'; ?>">
+                        <?php if (!empty($viewContact['receive_sms']) && $smsExpressAt): ?>
+                          <small class="text-muted d-block ml-1 mb-1" style="font-size:11px;">Express since <?php echo date('M j, Y', strtotime($smsExpressAt)); ?></small>
+                        <?php endif; ?>
+                        <span class="mw-contact-pref-badge <?php echo !empty($viewContact['receive_marketing']) ? 'active' : ($hasImplied ? 'implied' : 'inactive'); ?>">
                           <i data-feather="mail" style="width: 12px; height: 12px;"></i> Marketing
                         </span>
+                        <?php if (!empty($viewContact['receive_marketing']) && $mktExpressAt): ?>
+                          <small class="text-muted d-block ml-1 mb-1" style="font-size:11px;">Express since <?php echo date('M j, Y', strtotime($mktExpressAt)); ?></small>
+                        <?php elseif ($hasImplied): ?>
+                          <small class="text-muted d-block ml-1 mb-1" style="font-size:11px; color:#e67e22 !important;">Implied — expires <?php echo date('M j, Y', $mktImpliedExp); ?></small>
+                        <?php else: ?>
+                          <small class="text-muted d-block ml-1 mb-1" style="font-size:11px;">No marketing consent</small>
+                        <?php endif; ?>
                         <span class="mw-contact-pref-badge <?php echo !empty($viewContact['consent_quote_followup']) ? 'active' : 'inactive'; ?>">
                           <i data-feather="check-circle" style="width: 12px; height: 12px;"></i> Follow-up
                         </span>

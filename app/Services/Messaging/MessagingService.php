@@ -238,6 +238,68 @@ function hasSmConsent(int $contactId): bool
 }
 
 /**
+ * Check if a contact has CASL consent to receive a marketing message.
+ *
+ * Consent is valid if ANY of the following are true:
+ *  1. Express consent: receive_marketing/receive_sms = 1 AND the express timestamp is set
+ *  2. Implied consent: last paid invoice within the past 2 years
+ *
+ * Also checks marketing_unsubscribes blocklist — if the email is on the blocklist,
+ * this always returns false regardless of other consent fields.
+ *
+ * @param array  $contact  Contact row (must include email, receive_marketing/receive_sms,
+ *                         consent_email_express_at/consent_sms_express_at, consent_email_implied_at)
+ * @param string $channel  'email' or 'sms'
+ * @return bool
+ */
+function canSendMarketing(array $contact, string $channel = 'email'): bool
+{
+    $email = strtolower(trim($contact['email'] ?? ''));
+    if (empty($email)) {
+        return false;
+    }
+
+    try {
+        $db = getDB();
+
+        // Hard block: email is on the unsubscribe list
+        $unsub = $db->prepare("SELECT 1 FROM marketing_unsubscribes WHERE email = ? LIMIT 1");
+        $unsub->execute([$email]);
+        if ($unsub->fetchColumn()) {
+            return false;
+        }
+
+        if ($channel === 'sms') {
+            $receiveField = 'receive_sms';
+            $expressField = 'consent_sms_express_at';
+        } else {
+            $receiveField = 'receive_marketing';
+            $expressField = 'consent_email_express_at';
+        }
+
+        // Express consent: opted in AND timestamp recorded
+        if (!empty($contact[$receiveField]) && !empty($contact[$expressField])) {
+            return true;
+        }
+
+        // Implied consent: last transaction within 2 years
+        // (email channel only — SMS requires express consent)
+        if ($channel === 'email' && !empty($contact['consent_email_implied_at'])) {
+            $expiry = strtotime($contact['consent_email_implied_at'] . ' +2 years');
+            if ($expiry && time() < $expiry) {
+                return true;
+            }
+        }
+
+        return false;
+
+    } catch (\Throwable $e) {
+        error_log("canSendMarketing error: " . $e->getMessage());
+        return false;
+    }
+}
+
+/**
  * Check if a company prefers PDF attachments on emails.
  *
  * @param int $companyId

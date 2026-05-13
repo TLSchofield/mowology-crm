@@ -271,7 +271,10 @@ function getContactsForTrigger(PDO $db, string $type, array $config, array $rule
             $tag = $db->quote($config['tag'] ?? '');
             $stmt = $db->query("$base
                 INNER JOIN contact_tags ct ON ct.contact_id = c.id
-                WHERE $mktFilter AND ct.tag = $tag
+                WHERE $mktFilter
+                  AND ct.tag = $tag
+                  AND c.receive_marketing = 1
+                  AND c.email NOT IN (SELECT email COLLATE utf8mb4_general_ci FROM marketing_unsubscribes)
             ");
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -446,6 +449,13 @@ function executeQueuedAction(PDO $db, string $type, array $data, int $contactId)
             $stmt->execute([$contactId]);
             $contact = $stmt->fetch(PDO::FETCH_ASSOC);
             if ($contact && !empty($contact['email'])) {
+                // Always honour the unsubscribe blocklist — even for transactional automations
+                $unsubCheck = $db->prepare("SELECT 1 FROM marketing_unsubscribes WHERE email = ? LIMIT 1");
+                $unsubCheck->execute([strtolower(trim($contact['email']))]);
+                if ($unsubCheck->fetchColumn()) {
+                    logMsg("  [SKIPPED] Contact #$contactId on unsubscribe list — no email sent");
+                    break;
+                }
                 // Build template vars — include quote data if this action came from a quote trigger
                 $quoteData   = $data['contact'] ?? [];
                 $quoteNumber = $quoteData['quote_number'] ?? '';
