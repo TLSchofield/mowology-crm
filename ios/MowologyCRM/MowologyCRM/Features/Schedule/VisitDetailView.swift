@@ -369,10 +369,12 @@ struct VisitDetailView: View {
             }
 
             // MARK: Before/After Photo Proof
-            // Shown for in_progress visits, and for scheduled visits so crew can
-            // capture a "before" photo before pressing Start. The "after" slot
-            // is locked until the job timer is running.
-            if ["scheduled", "in_progress"].contains(liveStatus.lowercased()) {
+            // Shown for scheduled, in_progress, AND completed visits.
+            // Hiding on completion was a bug: the section disappearing on Stop
+            // destroyed the @StateObject, losing the in-memory after photo before
+            // the upload could finish. The after slot stays enabled once a before
+            // photo exists, so crew can still add/retake after completion.
+            if ["scheduled", "in_progress", "completed"].contains(liveStatus.lowercased()) {
                 Divider()
                 photoAndHeartSection(visit: visit, isActive: isThisTimerActive)
             }
