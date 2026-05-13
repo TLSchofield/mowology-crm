@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import LocalAuthentication
 
 @MainActor
 final class LoginViewModel: ObservableObject {
@@ -88,24 +89,65 @@ final class LoginViewModel: ObservableObject {
     }
 
     /// Triggers the biometric prompt and unlocks the saved JWT on success.
+    ///
+    /// This is also auto-fired by `LoginView`'s `.task` modifier on appear, so any
+    /// flavor of "cancelled" — user-dismissed Face ID, system-cancelled LAContext
+    /// evaluation, Task cancellation when the view tears down, or a `URLError.cancelled`
+    /// from a network step — must NEVER surface as an error. The user didn't ask for
+    /// the prompt; they only get an error banner when they explicitly tap Sign In.
     func loginWithBiometric() async {
         isBiometricLoading = true
         errorMessage       = nil
 
         do {
             try await authSession.loginWithBiometric()
-        } catch let bioError as BiometricAuth.BiometricError {
-            // Suppress the cancel message — that's user intent, not an error.
-            if case .userCancelled = bioError {
-                errorMessage = nil
-            } else {
-                errorMessage = bioError.errorDescription
-            }
         } catch {
-            errorMessage = error.localizedDescription
+            if LoginViewModel.isSilentCancellation(error) {
+                // No-op — leave the form clean so the user can still tap Sign In.
+            } else if let bioError = error as? BiometricAuth.BiometricError {
+                errorMessage = bioError.errorDescription
+            } else if let apiError = error as? APIError {
+                errorMessage = apiError.errorDescription
+            } else {
+                errorMessage = error.localizedDescription
+            }
         }
 
         isBiometricLoading = false
+    }
+
+    /// True when the error represents the user / system / Task / network cancelling
+    /// the biometric flow. Centralised so the auto-prompt and any future biometric
+    /// retry paths share the same classifier.
+    static func isSilentCancellation(_ error: Error) -> Bool {
+        // BiometricAuth's own cancel case.
+        if let bio = error as? BiometricAuth.BiometricError {
+            if case .userCancelled = bio { return true }
+            // BiometricError.other(LAError) may wrap a raw LAError cancel code.
+            if case .other(let inner) = bio, isLACancellation(inner) { return true }
+        }
+
+        // Raw LAError surfacing past BiometricAuth.authenticate (defensive).
+        if isLACancellation(error) { return true }
+
+        // URLError.cancelled (-999) — raw, or wrapped in APIError.networkError.
+        if let urlError = error as? URLError, urlError.code == .cancelled { return true }
+        if let apiError = error as? APIError, apiError.isCancelled { return true }
+
+        // Swift concurrency Task cancellation.
+        if error is CancellationError { return true }
+
+        return false
+    }
+
+    private static func isLACancellation(_ error: Error) -> Bool {
+        guard let la = error as? LAError else { return false }
+        switch la.code {
+        case .userCancel, .systemCancel, .appCancel:
+            return true
+        default:
+            return false
+        }
     }
 
     /// Clears any displayed error when the user resumes typing.

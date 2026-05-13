@@ -41,4 +41,16 @@ enum APIError: LocalizedError {
             return "Invalid API endpoint URL."
         }
     }
+
+    // MARK: - Cancellation
+
+    /// True if the underlying transport error is `URLError.cancelled` — the request
+    /// was cancelled (e.g. parent Task torn down, biometric prompt dismissed).
+    /// Callers should treat this as "no-op" rather than surfacing an alert.
+    var isCancelled: Bool {
+        guard case .networkError(let underlying) = self,
+              let urlError = underlying as? URLError else { return false }
+        return urlError.code == .cancelled
+    }
+
 }
