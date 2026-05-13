@@ -43,6 +43,85 @@
     var OCR_STORE  = 'pending-ocr';
     var db = null;
 
+    // Compression bounds for queued receipts. An 8MP capture (~6–10MB) lands at
+    // ~250–400KB after this pass — small enough to survive rural BC connectivity
+    // without mid-stream drops. Server OCR downsamples to 1024×768 internally
+    // (app/Modules/Expenses/Api/receipt-upload.php) so 1600×1200 is lossless w.r.t. OCR.
+    var COMPRESS_MAX_W   = 1600;
+    var COMPRESS_MAX_H   = 1200;
+    var COMPRESS_QUALITY = 0.80;
+    var COMPRESS_MIN_BYTES = 200 * 1024; // skip re-encoding files already this small
+
+    /**
+     * Compress an image blob for upload. Aspect-ratio preserving fit inside a
+     * COMPRESS_MAX_W × COMPRESS_MAX_H box, JPEG at COMPRESS_QUALITY. Returns the
+     * original blob if the format is unsupported, the file is already small,
+     * compression yields a larger blob, or any error occurs.
+     *
+     * TODO: Extract to public/crm/js/image-compress.js and share with the visit-photo
+     * flow's compressForUpload() in media-uploader.js (different params: 1920px / 0.85).
+     * Duplicated here short-term to avoid touching the visit-photo flow.
+     */
+    function compressForUpload(blob) {
+        if (!blob || !blob.type || !/^image\/(jpeg|png|webp)$/.test(blob.type)) {
+            return Promise.resolve(blob);
+        }
+        if (blob.size && blob.size < COMPRESS_MIN_BYTES) {
+            return Promise.resolve(blob);
+        }
+
+        return new Promise(function(resolve) {
+            var url = URL.createObjectURL(blob);
+            var img = new Image();
+            img.onload = function() {
+                URL.revokeObjectURL(url);
+                try {
+                    var w = img.naturalWidth;
+                    var h = img.naturalHeight;
+                    var scale = Math.min(COMPRESS_MAX_W / w, COMPRESS_MAX_H / h, 1);
+                    w = Math.round(w * scale);
+                    h = Math.round(h * scale);
+
+                    var canvas = document.createElement('canvas');
+                    canvas.width  = w;
+                    canvas.height = h;
+                    var ctx = canvas.getContext('2d');
+                    // White background so PNG transparency flattens cleanly to JPEG
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillRect(0, 0, w, h);
+                    ctx.drawImage(img, 0, 0, w, h);
+
+                    canvas.toBlob(function(out) {
+                        if (!out || (blob.size && out.size >= blob.size)) {
+                            resolve(blob);
+                            return;
+                        }
+                        // Preserve filename if caller passed a File; otherwise leave the
+                        // raw Blob — the upload path supplies a default filename.
+                        if (blob.name) {
+                            var name = blob.name.replace(/\.[^.]+$/, '') + '.jpg';
+                            try {
+                                resolve(new File([out], name, {
+                                    type: 'image/jpeg',
+                                    lastModified: blob.lastModified || Date.now()
+                                }));
+                                return;
+                            } catch (e) { /* old browsers — fall through to Blob */ }
+                        }
+                        resolve(out);
+                    }, 'image/jpeg', COMPRESS_QUALITY);
+                } catch (err) {
+                    resolve(blob);
+                }
+            };
+            img.onerror = function() {
+                URL.revokeObjectURL(url);
+                resolve(blob);
+            };
+            img.src = url;
+        });
+    }
+
     /**
      * Open / create the IndexedDB database.
      * Returns a Promise<IDBDatabase>.
@@ -86,36 +165,40 @@
      * @returns {Promise<number>} — the stored record ID
      */
     function queue(file, lat, lng, csrf, previewDataUrl) {
-        return openDB().then(function(database) {
-            return new Promise(function(resolve, reject) {
-                var tx = database.transaction(STORE_NAME, 'readwrite');
-                var store = tx.objectStore(STORE_NAME);
+        // Compress before persisting so an 8MP raw capture doesn't sit in IDB
+        // as 6–10MB. The original is discarded once the compressed Blob resolves.
+        return compressForUpload(file).then(function(compressed) {
+            return openDB().then(function(database) {
+                return new Promise(function(resolve, reject) {
+                    var tx = database.transaction(STORE_NAME, 'readwrite');
+                    var store = tx.objectStore(STORE_NAME);
 
-                var record = {
-                    blob: file,
-                    lat: lat || null,
-                    lng: lng || null,
-                    csrf: csrf || '',
-                    timestamp: Date.now(),
-                    previewDataUrl: (typeof previewDataUrl === 'string' && previewDataUrl.indexOf('data:') === 0)
-                        ? previewDataUrl
-                        : null
-                };
+                    var record = {
+                        blob: compressed,
+                        lat: lat || null,
+                        lng: lng || null,
+                        csrf: csrf || '',
+                        timestamp: Date.now(),
+                        previewDataUrl: (typeof previewDataUrl === 'string' && previewDataUrl.indexOf('data:') === 0)
+                            ? previewDataUrl
+                            : null
+                    };
 
-                var req = store.add(record);
-                req.onsuccess = function() {
-                    resolve(req.result);
-                };
-                req.onerror = function() {
-                    reject(new Error('Failed to queue receipt'));
-                };
+                    var req = store.add(record);
+                    req.onsuccess = function() {
+                        resolve(req.result);
+                    };
+                    req.onerror = function() {
+                        reject(new Error('Failed to queue receipt'));
+                    };
 
-                tx.oncomplete = function() {
-                    // Register for background sync if supported
-                    registerSync();
-                    // Update the offline indicator
-                    updatePendingBadge();
-                };
+                    tx.oncomplete = function() {
+                        // Register for background sync if supported
+                        registerSync();
+                        // Update the offline indicator
+                        updatePendingBadge();
+                    };
+                });
             });
         });
     }
