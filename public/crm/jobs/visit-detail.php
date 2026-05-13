@@ -1725,7 +1725,7 @@ if (!empty($gpsPoints) && $apiKey) {
 
     // Open modal button
     var btnOpen = document.getElementById('btn-create-invoice');
-    if (btnOpen && typeof $ !== 'undefined') {
+    if (btnOpen) {
       btnOpen.addEventListener('click', function() {
         // Reset states
         document.getElementById('inv-state-edit').style.display    = '';
