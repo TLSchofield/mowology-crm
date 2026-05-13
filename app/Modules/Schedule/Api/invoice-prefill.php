@@ -67,7 +67,10 @@ try {
     $db = getDB();
 
     // ── Load visit + plan + property + contact ──────────────────────────────
-    $stmt = $db->prepare("
+    // Try the extended query first (includes billing/timing/clock columns added
+    // in the May 2026 migration). Fall back to the base query if any of those
+    // columns don't yet exist on this database instance.
+    $baseSql = "
         SELECT
             jv.id              AS visit_id,
             jv.visit_number,
@@ -104,9 +107,64 @@ try {
         LEFT  JOIN contacts   con  ON p.site_contact_id = con.id
         WHERE jv.id = ?
           AND jv.status = 'completed'
-    ");
-    $stmt->execute([$visitId]);
-    $visit = $stmt->fetch(PDO::FETCH_ASSOC);
+    ";
+
+    $extendedSql = "
+        SELECT
+            jv.id              AS visit_id,
+            jv.visit_number,
+            jv.actual_amount,
+            jv.plan_id,
+            jv.scheduled_date,
+            jv.invoice_id      AS existing_invoice_id,
+            jv.extras_minutes,
+            jv.extras_amount,
+            jv.extras_note,
+            jv.completion_notes,
+            jv.actual_duration_minutes,
+            jv.labor_rate_snapshot,
+            jp.plan_number,
+            jp.title           AS plan_title,
+            jp.price_per_visit,
+            jp.estimated_amount,
+            jp.estimated_duration_minutes,
+            jp.pricing_model,
+            jp.invoice_timing,
+            jp.property_id,
+            jp.company_id,
+            COALESCE(comp.company_name, '') AS company_name,
+            p.address,
+            p.city,
+            p.province,
+            p.postal_code,
+            p.site_contact_id,
+            COALESCE(con.first_name, '')    AS contact_first,
+            COALESCE(con.last_name, '')     AS contact_last,
+            COALESCE(con.full_name, '')     AS contact_full_name,
+            COALESCE(con.email, '')         AS contact_email,
+            COALESCE(con.mobile, '')        AS contact_mobile,
+            COALESCE(con.receive_sms, 0)   AS contact_receive_sms
+        FROM job_visits jv
+        JOIN  job_plans   jp   ON jv.plan_id    = jp.id
+        LEFT  JOIN companies  comp ON jp.company_id  = comp.id
+        LEFT  JOIN properties p    ON jp.property_id = p.id
+        LEFT  JOIN contacts   con  ON p.site_contact_id = con.id
+        WHERE jv.id = ?
+          AND jv.status = 'completed'
+    ";
+
+    $visit = null;
+    try {
+        $stmt = $db->prepare($extendedSql);
+        $stmt->execute([$visitId]);
+        $visit = $stmt->fetch(PDO::FETCH_ASSOC);
+    } catch (PDOException $colErr) {
+        // One or more billing/clock columns not yet on this DB — use base query
+        error_log('[invoice-prefill] extended query failed, using base: ' . $colErr->getMessage());
+        $stmt = $db->prepare($baseSql);
+        $stmt->execute([$visitId]);
+        $visit = $stmt->fetch(PDO::FETCH_ASSOC);
+    }
 
     if (!$visit) {
         http_response_code(404);
@@ -184,13 +242,39 @@ try {
             $extrasDesc = 'Additional charges';
         }
         $extrasLineItem = [
-            'description' => $extrasDesc,
-            'quantity'    => 1.0,
-            'unit_price'  => $extrasAmt,
-            'line_total'  => $extrasAmt,
-            'sort_order'  => 999,
-            'is_extras'   => true,
+            'description'    => $extrasDesc,
+            'quantity'       => 1.0,
+            'unit_price'     => $extrasAmt,
+            'line_total'     => $extrasAmt,
+            'sort_order'     => 999,
+            'is_extras'      => true,
+            'auto_calculated'=> false,
         ];
+    }
+
+    // ── Auto-extras from clock data (when no manual extras recorded) ─────────
+    // If actual time on site exceeded the estimated duration and no extras_amount
+    // was manually entered, auto-populate an extras line from the labor rate
+    // snapshot captured at completion. Shown as editable in the compose sheet.
+    if ($extrasLineItem === null) {
+        $actualMins    = (int)($visit['actual_duration_minutes'] ?? 0);
+        $estimatedMins = (int)($visit['estimated_duration_minutes'] ?? 0);
+        $laborRate     = (float)($visit['labor_rate_snapshot'] ?? 0);
+        if ($actualMins > 0 && $estimatedMins > 0 && $actualMins > $estimatedMins && $laborRate > 0) {
+            $overageMins = $actualMins - $estimatedMins;
+            $extrasCost  = round(($overageMins / 60) * $laborRate, 2);
+            if ($extrasCost > 0) {
+                $extrasLineItem = [
+                    'description'    => 'Additional time on site — ' . $overageMins . ' min (auto)',
+                    'quantity'       => 1.0,
+                    'unit_price'     => $extrasCost,
+                    'line_total'     => $extrasCost,
+                    'sort_order'     => 999,
+                    'is_extras'      => true,
+                    'auto_calculated'=> true,
+                ];
+            }
+        }
     }
 
     // ── Subtotal / tax / total ───────────────────────────────────────────────
@@ -263,6 +347,13 @@ try {
             'crew_notes'           => $crewNotes,
             'existing_invoice_id'  => null,
             'gst_number'           => $gstNum,
+            'billing_type_label'   => [
+                'per_visit'    => 'Per Visit',
+                'monthly_flat' => 'Monthly Flat',
+                'seasonal'     => 'Seasonal',
+                'custom'       => 'Custom',
+            ][$visit['pricing_model'] ?? 'per_visit'] ?? 'Per Visit',
+            'invoice_timing'       => $visit['invoice_timing'] ?? 'after_visit',
         ],
     ]);
 

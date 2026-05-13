@@ -15012,6 +15012,31 @@ body.mw-no-scroll {
 }
 .mw-pro-trigger svg { flex-shrink: 0; }
 
+/* ── Invoice Needed badge (admin, completed stops) ── */
+.mw-invoice-needed-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 5px;
+  padding: 2px 7px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: #ef4444;
+  background: rgba(239,68,68,0.08);
+  border: 1px solid #ef4444;
+  border-radius: 4px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.15s, color 0.15s;
+}
+.mw-invoice-needed-btn:hover {
+  background: #ef4444;
+  color: #fff;
+  text-decoration: none;
+}
+.mw-invoice-needed-btn svg { flex-shrink: 0; }
+
 /* ── Profit Risk Octagon Modal ────────────────────── */
 .mw-pro-modal-overlay {
   display: none;

@@ -21,11 +21,13 @@ struct CrewMapView: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             // Map
-            Map(coordinateRegion: $viewModel.region, annotationItems: viewModel.crew) { member in
-                MapAnnotation(coordinate: member.coordinate) {
-                    CrewPin(member: member) {
-                        viewModel.selectedMember = member
-                        showSheet = true
+            Map(position: $viewModel.position) {
+                ForEach(viewModel.crew) { member in
+                    Annotation(member.fullName, coordinate: member.coordinate) {
+                        CrewPin(member: member) {
+                            viewModel.selectedMember = member
+                            showSheet = true
+                        }
                     }
                 }
             }

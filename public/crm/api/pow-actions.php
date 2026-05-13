@@ -265,14 +265,16 @@ try {
                 } catch (Exception $e) { /* use 0 if setting unavailable */ }
             }
 
-            // ── Photo compliance check ────────────────────────────────────
+            // ── Photo compliance check + plan billing context ─────────────
             $planCompStmt = $db->prepare("
-                SELECT photo_types_required, photos_block_completion
+                SELECT photo_types_required, photos_block_completion,
+                       invoice_timing, id AS plan_id_check
                 FROM job_plans WHERE id = ?
             ");
             $planCompStmt->execute([$visit['plan_id']]);
             $planCompliance = $planCompStmt->fetch(PDO::FETCH_ASSOC);
 
+            $photoWarnings = [];
             if ($planCompliance && (int)$planCompliance['photos_block_completion'] === 1 && !empty($planCompliance['photo_types_required'])) {
                 $required = json_decode($planCompliance['photo_types_required'], true) ?: [];
                 if (!empty($required)) {
@@ -284,12 +286,20 @@ try {
                     $uploaded = array_column($uploadedStmt->fetchAll(PDO::FETCH_ASSOC), 'photo_type');
                     $missing  = array_values(array_diff($required, $uploaded));
                     if (!empty($missing)) {
-                        echo json_encode([
-                            'success'       => false,
-                            'error'         => 'Required photos missing before visit can be completed.',
-                            'missing_types' => $missing,
-                        ]);
-                        break;
+                        if (!$isAdmin) {
+                            // Crew: hard block — cannot complete without required photos.
+                            // HTTP 200 so the iOS client can decode the structured body
+                            // (APIClient throws serverError for non-2xx; we need the fields).
+                            echo json_encode([
+                                'success'             => false,
+                                'photo_gate'          => true,
+                                'missing_photo_types' => $missing,
+                                'message'             => 'Required photos missing: ' . implode(', ', $missing),
+                            ]);
+                            break;
+                        }
+                        // Admin/manager: allow through, flag warnings so the app can inform
+                        $photoWarnings = $missing;
                     }
                 }
             }
@@ -332,11 +342,20 @@ try {
                 ReferralRewardService::maybeAwardCompletion($visitId, $db, (int)$user['id']);
             }
 
+            // Determine whether the caller should auto-trigger invoice compose.
+            // Only meaningful for admin/manager; crew never invoices in the field.
+            $invoiceTiming = $planCompliance['invoice_timing'] ?? 'after_visit';
+            $alreadyInvoiced = !empty($visit['invoice_id']) || !empty($visit['is_invoiced']);
+            $autoInvoice = $isAdmin && ($invoiceTiming === 'after_visit') && !$alreadyInvoiced;
+
             echo json_encode([
-                'success'       => true,
-                'completed_at'  => date('c'),
-                'extras_minutes'=> $extrasMins,
-                'extras_amount' => $extrasAmount,
+                'success'        => true,
+                'completed_at'   => date('c'),
+                'extras_minutes' => $extrasMins,
+                'extras_amount'  => $extrasAmount,
+                'auto_invoice'   => $autoInvoice,
+                'invoice_timing' => $invoiceTiming,
+                'photo_warning'  => $photoWarnings,
             ]);
             break;
 

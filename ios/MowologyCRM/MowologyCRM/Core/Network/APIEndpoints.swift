@@ -26,6 +26,9 @@ enum APIEndpoint {
     /// POST /api/schedule/timer — start or stop a job timer.
     case scheduleTimer
 
+    /// POST /api/schedule/visit-flag — toggle crew endorsement heart on a visit.
+    case visitFlag
+
     /// POST /api/schedule/location — GPS ping for an active job visit.
     case scheduleLocation
 
@@ -106,7 +109,6 @@ enum APIEndpoint {
 
     /// GET /api/schedule/visit-photos?visit_id=N — list uploaded before/after photos for a visit.
     case visitPhotos(visitId: Int)
-
     // MARK: - URL
 
     /// Builds the full URL for the endpoint. Returns `nil` only if the base
@@ -128,6 +130,9 @@ enum APIEndpoint {
 
         case .scheduleTimer:
             return URL(string: "\(baseURLString)/schedule/timer")
+
+        case .visitFlag:
+            return URL(string: "\(baseURLString)/schedule/visit-flag")
 
         case .scheduleLocation:
             return URL(string: "\(baseURLString)/schedule/location")
@@ -265,6 +270,7 @@ enum APIEndpoint {
         case .scheduleDay,
              .scheduleWeek,
              .scheduleTimer,
+             .visitFlag,
              .scheduleLocation,
              .scheduleClock,
              .scheduleClockStatus,
@@ -315,6 +321,7 @@ enum APIEndpoint {
              .visitPhotos: return "GET"
 
         case .scheduleTimer,
+             .visitFlag,
              .scheduleLocation,
              .scheduleClock,
              .receiptUpload,

@@ -154,16 +154,27 @@ final class JobPhotoViewModel: ObservableObject {
 /// Pass `isActive` true when the visit timer is running to unlock the after-photo slot.
 struct JobPhotoSection: View {
 
-    let visitId:   Int
-    let isActive:  Bool
-    let authSession: AuthSession
+    let visitId:      Int
+    let isActive:     Bool
+    let authSession:  AuthSession
+
+    /// Crew endorsement heart — passed from owning ViewModel so Visit stays immutable.
+    let isFlagged:     Bool
+    let isFlagLoading: Bool
+    /// Nil = hide the heart slot (backward-compat for callers that don't support flagging).
+    let onFlagToggle:  (() async -> Void)?
 
     @StateObject private var vm: JobPhotoViewModel
 
-    init(visitId: Int, isActive: Bool, authSession: AuthSession) {
-        self.visitId     = visitId
-        self.isActive    = isActive
-        self.authSession = authSession
+    init(visitId: Int, isActive: Bool, authSession: AuthSession,
+         isFlagged: Bool = false, isFlagLoading: Bool = false,
+         onFlagToggle: (() async -> Void)? = nil) {
+        self.visitId       = visitId
+        self.isActive      = isActive
+        self.authSession   = authSession
+        self.isFlagged     = isFlagged
+        self.isFlagLoading = isFlagLoading
+        self.onFlagToggle  = onFlagToggle
         _vm = StateObject(wrappedValue: JobPhotoViewModel(visitId: visitId,
                                                           authSession: authSession))
     }
@@ -203,7 +214,7 @@ struct JobPhotoSection: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8))
             }
 
-            // Photo slots
+            // Photo slots + optional heart endorsement
             HStack(spacing: 12) {
                 photoSlot(label: "Before", slot: .before,
                           localImage: vm.beforeImage,
@@ -213,6 +224,9 @@ struct JobPhotoSection: View {
                           localImage: vm.afterImage,
                           serverURL:  vm.serverAfterURL,
                           enabled: isActive || vm.hasBeforePhoto)
+                if onFlagToggle != nil {
+                    heartSlot()
+                }
             }
         }
         .task {
@@ -344,6 +358,51 @@ struct JobPhotoSection: View {
                     .font(.title3)
                     .foregroundStyle(Color.MW.green)
             }
+    }
+
+    // MARK: - Heart Endorsement Slot
+
+    @ViewBuilder
+    private func heartSlot() -> some View {
+        VStack(spacing: 6) {
+            Button {
+                guard let toggle = onFlagToggle, !isFlagLoading else { return }
+                Task { await toggle() }
+            } label: {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(isFlagged
+                              ? Color.MW.orange.opacity(0.12)
+                              : Color(.systemGray6))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 110)
+                    if isFlagLoading {
+                        ProgressView()
+                            .scaleEffect(0.85)
+                            .tint(Color.MW.orange)
+                    } else {
+                        Image(systemName: isFlagged ? "heart.fill" : "heart")
+                            .font(.system(size: 32))
+                            .foregroundStyle(isFlagged ? Color.MW.orange : Color(.systemGray3))
+                    }
+                }
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(isFlagged
+                                ? Color.MW.orange.opacity(0.4)
+                                : Color(.systemGray5),
+                                lineWidth: isFlagged ? 2 : 1)
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(isFlagLoading)
+
+            Text(isFlagged ? "Endorsed" : "Endorse")
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(isFlagged ? Color.MW.orange : .secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity)
     }
 }
 

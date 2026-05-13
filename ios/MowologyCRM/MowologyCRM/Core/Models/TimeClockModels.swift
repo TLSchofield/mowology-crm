@@ -112,3 +112,15 @@ struct TimerStopResponse: Decodable {
         case message
     }
 }
+
+// MARK: - Visit Flag Response
+
+struct VisitFlagResponse: Decodable {
+    let success:   Bool
+    let isFlagged: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case success
+        case isFlagged = "is_flagged"
+    }
+}

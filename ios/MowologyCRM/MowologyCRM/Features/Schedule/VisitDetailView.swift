@@ -79,6 +79,15 @@ struct VisitDetailView: View {
         } message: {
             Text("You need to be clocked in before starting a job timer.")
         }
+        .sheet(item: $timerVM.invoicePrefill) { prefill in
+            InvoiceComposeView(
+                visitId:   prefill.visitId,
+                prefill:   prefill,
+                apiClient: timerVM.apiClient
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
     }
 
     // MARK: - Property Section
@@ -225,6 +234,34 @@ struct VisitDetailView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
+            // Billing context + photo requirement indicators
+            HStack(spacing: 6) {
+                Label(visit.billingLabel, systemImage: "creditcard")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if visit.invoiceTiming == "end_of_month" {
+                    Text("• month end")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                } else if visit.invoiceTiming == "upfront" {
+                    Text("• prepaid")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+
+                if !visit.photoTypesRequired.isEmpty {
+                    Spacer()
+                    ForEach(visit.photoTypesRequired, id: \.self) { type in
+                        let count = type == "before" ? visit.beforePhotoCount : visit.afterPhotoCount
+                        Label(type.capitalized,
+                              systemImage: count > 0 ? "camera.fill" : "camera")
+                            .font(.caption2)
+                            .foregroundStyle(count > 0 ? Color.MW.green : Color(.systemGray3))
+                    }
+                }
+            }
+
             HStack(spacing: 16) {
                 if let duration = visit.estimatedDuration {
                     Label("\(duration) min", systemImage: "clock")
@@ -293,17 +330,51 @@ struct VisitDetailView: View {
                 }
             }
 
+            // MARK: Create Invoice (completed, uninvoiced, after_visit billing, admin only)
+            if visit.visitStatus.lowercased() == "completed" && isAdmin {
+                if visit.needsInvoice && visit.autoInvoiceOnComplete {
+                    Divider()
+                    HStack {
+                        Spacer()
+                        Button {
+                            Task { await timerVM.fetchInvoicePrefill(visitId: visit.visitId) }
+                        } label: {
+                            Label(
+                                timerVM.isLoadingInvoice ? "Loading…" : "Create Invoice",
+                                systemImage: "doc.badge.plus"
+                            )
+                            .font(.subheadline.bold())
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(Color.MW.green.opacity(0.12))
+                            .foregroundStyle(Color.MW.green)
+                            .clipShape(Capsule())
+                        }
+                        .disabled(timerVM.isLoadingInvoice)
+                    }
+                } else if !visit.autoInvoiceOnComplete {
+                    // Monthly/contract/upfront billing — no per-visit invoice
+                    Divider()
+                    HStack(spacing: 6) {
+                        Image(systemName: "calendar.badge.clock")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                        Text(visit.invoiceTiming == "end_of_month"
+                             ? "Billed at month end"
+                             : "Prepaid")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+            }
+
             // MARK: Before/After Photo Proof
             // Shown for in_progress visits, and for scheduled visits so crew can
             // capture a "before" photo before pressing Start. The "after" slot
             // is locked until the job timer is running.
             if ["scheduled", "in_progress"].contains(liveStatus.lowercased()) {
                 Divider()
-                JobPhotoSection(
-                    visitId:     visit.visitId,
-                    isActive:    isThisTimerActive,
-                    authSession: authSession
-                )
+                photoAndHeartSection(visit: visit, isActive: isThisTimerActive)
             }
         }
         .padding(14)
@@ -474,6 +545,47 @@ struct VisitDetailView: View {
         mapItem.openInMaps(launchOptions: [
             MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving
         ])
+    }
+
+    // MARK: - Photo + Heart Section (extracted to avoid type-checker timeout)
+
+    @ViewBuilder
+    private func photoAndHeartSection(visit: Visit, isActive: Bool) -> some View {
+        VStack(spacing: 8) {
+            JobPhotoSection(
+                visitId:       visit.visitId,
+                isActive:      isActive,
+                authSession:   authSession,
+                isFlagged:     timerVM.isFlagged(for: visit),
+                isFlagLoading: timerVM.flagLoadingIds.contains(visit.visitId),
+                onFlagToggle:  { await timerVM.toggleFlag(visit) }
+            )
+
+            // Review earned strip — visible once the client has reviewed.
+            if timerVM.isFlagged(for: visit) && visit.contactHasReviewed {
+                HStack(spacing: 0) {
+                    Image(systemName: "heart.fill")
+                        .foregroundStyle(Color.MW.orange)
+                        .font(.caption)
+                        .padding(.trailing, 6)
+                    Text("You endorsed this visit · ")
+                        .font(.caption)
+                        .foregroundStyle(Color.MW.dark)
+                    Text("Review received ★★★★★")
+                        .font(.caption.bold())
+                        .foregroundStyle(Color.MW.dark)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(Color.MW.green.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.MW.green.opacity(0.25), lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+        }
     }
 }
 
