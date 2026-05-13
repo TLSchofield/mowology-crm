@@ -34,7 +34,25 @@ final class JobPhotoQueue: ObservableObject {
     private let monitor   = NWPathMonitor()
     private var drainTask: Task<Void, Never>?
 
-    private init() { updateCount() }
+    private init() {
+        updateCount()
+        ensureQueueDirectory()
+    }
+
+    // MARK: - Queue Directory (Documents — survives OS cache purges)
+
+    private var queueDirectory: URL {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("JobPhotoQueue", isDirectory: true)
+    }
+
+    private func ensureQueueDirectory() {
+        try? FileManager.default.createDirectory(
+            at: queueDirectory,
+            withIntermediateDirectories: true,
+            attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication]
+        )
+    }
 
     // MARK: - Pending Item
 
@@ -66,8 +84,15 @@ final class JobPhotoQueue: ObservableObject {
     func enqueue(imageData: Data, visitId: Int, photoType: JobPhotoType) {
         let id       = UUID().uuidString
         let filename = "jobphoto-\(id).jpg"
-        let url      = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
-        try? imageData.write(to: url)
+        let fileURL  = queueDirectory.appendingPathComponent(filename)
+
+        do {
+            try imageData.write(to: fileURL)
+        } catch {
+            NSLog("[JobPhotoQueue] enqueue disk write failed for visit \(visitId) (\(photoType.rawValue)): \(error)")
+            return  // Don't queue an entry that points to a missing file
+        }
+
         var current = items
         current.append(PendingItem(
             id:            id,
@@ -77,6 +102,7 @@ final class JobPhotoQueue: ObservableObject {
             queuedAt:      Date()
         ))
         items = current
+        NSLog("[JobPhotoQueue] queued \(photoType.rawValue) photo for visit \(visitId) — pending: \(current.count)")
     }
 
     // MARK: - Monitor & Drain
@@ -94,13 +120,14 @@ final class JobPhotoQueue: ObservableObject {
 
     func drain(uploadHandler: @escaping (Data, Int, JobPhotoType) async throws -> Void) async {
         guard drainTask == nil else { return }
+        let pending = items
+        guard !pending.isEmpty else { return }
+        NSLog("[JobPhotoQueue] drain starting — \(pending.count) item(s) pending")
         drainTask = Task {
-            let pending = items
             for item in pending {
-                let fileURL = FileManager.default.temporaryDirectory
-                    .appendingPathComponent(item.imageFilename)
+                let fileURL = queueDirectory.appendingPathComponent(item.imageFilename)
                 guard let data = try? Data(contentsOf: fileURL) else {
-                    // File missing — discard the stale entry
+                    NSLog("[JobPhotoQueue] drain: file missing for \(item.imageFilename) — discarding stale entry")
                     items = items.filter { $0.id != item.id }
                     continue
                 }
@@ -108,10 +135,13 @@ final class JobPhotoQueue: ObservableObject {
                     try await uploadHandler(data, item.visitId, item.photoType)
                     items = items.filter { $0.id != item.id }
                     try? FileManager.default.removeItem(at: fileURL)
+                    NSLog("[JobPhotoQueue] drain: uploaded \(item.photoType.rawValue) for visit \(item.visitId)")
                 } catch {
+                    NSLog("[JobPhotoQueue] drain: upload failed for visit \(item.visitId) — will retry on next network event: \(error)")
                     break  // Network still down — leave the rest queued
                 }
             }
+            NSLog("[JobPhotoQueue] drain complete — \(items.count) item(s) remaining")
             drainTask = nil
         }
         await drainTask?.value
