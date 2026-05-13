@@ -33,6 +33,10 @@ struct Visit: Codable, Identifiable, Hashable {
     var beforePhotoCount:      Int      = 0
     /// Number of "after" photos already uploaded for this visit.
     var afterPhotoCount:       Int      = 0
+    /// Crew has endorsed this visit with a heart — quality gate for review requests.
+    var isFlagged:             Bool     = false
+    /// Contact has already left a Google review — permanently stops future review requests.
+    var contactHasReviewed:    Bool     = false
 
     var id: Int { visitId }
 
@@ -54,6 +58,8 @@ struct Visit: Codable, Identifiable, Hashable {
         case photoTypesRequired    = "photo_types_required"
         case beforePhotoCount      = "before_photo_count"
         case afterPhotoCount       = "after_photo_count"
+        case isFlagged             = "is_flagged"
+        case contactHasReviewed    = "contact_has_reviewed"
     }
 
 

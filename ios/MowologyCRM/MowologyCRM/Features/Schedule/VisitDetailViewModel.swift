@@ -199,6 +199,39 @@ final class VisitDetailViewModel: ObservableObject {
         tickTimer?.cancel()
         tickTimer = nil
     }
+
+    // MARK: - Heart Endorsement
+
+    /// Local overrides win over the server value decoded in Visit.isFlagged.
+    @Published private(set) var flagOverrides:  [Int: Bool] = [:]
+    /// Visit IDs with an in-flight toggle — drives the heart loading spinner.
+    @Published private(set) var flagLoadingIds: Set<Int>    = []
+
+    /// Resolves current flag state for a visit, preferring local override.
+    func isFlagged(for visit: Visit) -> Bool {
+        flagOverrides[visit.visitId] ?? visit.isFlagged
+    }
+
+    func toggleFlag(_ visit: Visit) async {
+        let visitId = visit.visitId
+        guard !flagLoadingIds.contains(visitId) else { return }
+
+        flagLoadingIds.insert(visitId)
+
+        do {
+            let response: VisitFlagResponse = try await apiClient.request(
+                .visitFlag,
+                body: ["visit_id": visitId]
+            )
+            if response.success {
+                flagOverrides[visitId] = response.isFlagged
+            }
+        } catch {
+            // Non-fatal — heart reverts to previous state silently.
+        }
+
+        flagLoadingIds.remove(visitId)
+    }
 }
 
 // MARK: - Notification Names
