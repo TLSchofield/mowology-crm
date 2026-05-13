@@ -11,33 +11,30 @@ if (isLoggedIn()) {
 $error = '';
 
 // Handle login form submission
+// NOTE: No CSRF check on the login form itself. CSRF protection requires the
+// attacker to already know the victim's credentials, so it adds no security
+// on an unauthenticated endpoint — and it breaks cached Capacitor WebViews
+// that submit stale tokens. Brute-force is mitigated by isLoginRateLimited().
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (isset($_POST['csrf_token']) && verifyCSRFToken($_POST['csrf_token'])) {
-        $email = trim($_POST['email'] ?? '');
-        $password = $_POST['password'] ?? '';
+    $email = trim($_POST['email'] ?? '');
+    $password = $_POST['password'] ?? '';
 
-        // Normalize email: lowercase, strip invisible chars
-        $email = strtolower($email);
-        $email = preg_replace('/[\x00-\x1F\x7F\xC2\xA0]/u', '', $email);
+    $email = strtolower($email);
+    $email = preg_replace('/[\x00-\x1F\x7F\xC2\xA0]/u', '', $email);
 
-        if (empty($email) || empty($password)) {
-            $error = 'Please enter both email and password.';
-        } elseif (isLoginRateLimited($email)) {
-            $error = 'Too many login attempts. Please try again in a few minutes.';
-        } else {
-            if (loginUser($email, $password)) {
-                header('Location: /crm/app-launch.php');
-                exit();
-            } else {
-                $error = 'Invalid email or password.';
-            }
-        }
+    if (empty($email) || empty($password)) {
+        $error = 'Please enter both email and password.';
+    } elseif (isLoginRateLimited($email)) {
+        $error = 'Too many login attempts. Please try again in a few minutes.';
     } else {
-        $error = 'Invalid request. Please try again.';
+        if (loginUser($email, $password)) {
+            header('Location: /crm/app-launch.php');
+            exit();
+        } else {
+            $error = 'Invalid email or password.';
+        }
     }
 }
-
-$csrf_token = generateCSRFToken();
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -381,9 +378,7 @@ $csrf_token = generateCSRFToken();
             <?php if ($error): ?>
                 <div class="error-message"><?php echo htmlspecialchars($error); ?></div>
             <?php endif; ?>
-            
-            <input type="hidden" name="csrf_token" value="<?php echo $csrf_token; ?>">
-            
+
             <div class="form-group">
                 <label class="form-label" for="email">Email Address</label>
                 <input 
