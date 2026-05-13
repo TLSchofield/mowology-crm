@@ -48,7 +48,7 @@ struct ReceiptIntakeResponse: Decodable, Equatable {
         suggestions    = try c.decodeIfPresent(ReceiptSuggestions.self, forKey: .suggestions)
         jobSuggestions = try c.decodeIfPresent([JobSuggestion].self, forKey: .jobSuggestions)
         // Default empty dict — absent when Google Vision was not used
-        fieldConfidences = try c.decodeIfPresent([String: Int].self, forKey: .fieldConfidences) ?? [:]
+        fieldConfidences = (try? c.decodeIfPresent([String: Int].self, forKey: .fieldConfidences)) ?? [:]
         gstValidation    = try c.decodeIfPresent(GstValidation.self, forKey: .gstValidation)
         duplicateImage   = try c.decodeIfPresent(DuplicateImageInfo.self, forKey: .duplicateImage)
     }

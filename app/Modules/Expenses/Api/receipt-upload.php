@@ -512,6 +512,19 @@ try {
         error_log('Job suggestion error: ' . $e->getMessage());
     }
 
+    // ── Normalise line item numeric fields to strings ─────────────────────────
+    // iOS ReceiptLineItem decodes quantity/amount/unit_price as String?.
+    // ReceiptParser returns quantity as PHP int (e.g. 1) which json_encode
+    // serialises as a JSON number, causing Swift typeMismatch on decodeIfPresent.
+    if (is_array($parsed) && !empty($parsed['line_items'])) {
+        $parsed['line_items'] = array_map(static function ($item) {
+            if (isset($item['quantity']))   $item['quantity']   = (string)$item['quantity'];
+            if (isset($item['amount']))     $item['amount']     = (string)$item['amount'];
+            if (isset($item['unit_price'])) $item['unit_price'] = (string)$item['unit_price'];
+            return $item;
+        }, $parsed['line_items']);
+    }
+
     // ── Response ──────────────────────────────────────────────────────────────
     // Shape is decoded by iOS ReceiptIntakeResponse.swift (CodingKeys are snake_case).
     // ⚠ Do NOT rename, remove, or reorder these keys without updating the Swift model.
@@ -530,7 +543,9 @@ try {
         'parsed'          => $parsed,
         'suggestions'     => $suggestions,
         'job_suggestions' => $jobSuggestions,
-        'field_confidences' => $fieldConfidences ?? [],
+        'field_confidences' => $fieldConfidences
+            ? (object)array_map(static fn($v) => (int)round($v * 100), $fieldConfidences)
+            : new stdClass(),
         'gst_validation'    => $gstValidation    ?? null,
         'duplicate_image' => $duplicateImage,
     ]);

@@ -435,6 +435,16 @@ try {
         error_log('Job suggestion error: ' . $e->getMessage());
     }
 
+    // Normalise line item numeric fields to strings (see receipt-upload.php for rationale)
+    if (is_array($parsed) && !empty($parsed['line_items'])) {
+        $parsed['line_items'] = array_map(static function ($item) {
+            if (isset($item['quantity']))   $item['quantity']   = (string)$item['quantity'];
+            if (isset($item['amount']))     $item['amount']     = (string)$item['amount'];
+            if (isset($item['unit_price'])) $item['unit_price'] = (string)$item['unit_price'];
+            return $item;
+        }, $parsed['line_items']);
+    }
+
     // Return everything to the client
     echo json_encode([
         'success'           => true,
@@ -452,7 +462,9 @@ try {
         'parsed'            => $parsed,
         'suggestions'       => $suggestions,
         'job_suggestions'   => $jobSuggestions,
-        'field_confidences' => $fieldConfidences ?? [],
+        'field_confidences' => $fieldConfidences
+            ? (object)array_map(static fn($v) => (int)round($v * 100), $fieldConfidences)
+            : new stdClass(),
         'gst_validation'    => $gstValidation ?? null,
         'duplicate_image'   => $duplicateImage,
     ]);

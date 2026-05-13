@@ -127,7 +127,7 @@ try {
             $payload['ocr_text']          = $decoded['ocr_text']          ?? $row['parsed_raw_text'];
             $payload['ocr_available']     = $decoded['ocr_available']     ?? false;
             $payload['ocr_source']        = $decoded['ocr_source']        ?? 'none';
-            $payload['field_confidences'] = $decoded['field_confidences'] ?? [];
+            $payload['field_confidences'] = $decoded['field_confidences'] ?? new stdClass();
             $payload['gst_validation']    = $decoded['gst_validation']    ?? null;
             $payload['job_suggestions']   = $decoded['job_suggestions']   ?? [];
             $payload['file_path']         = $decoded['file_path']         ?? null;
