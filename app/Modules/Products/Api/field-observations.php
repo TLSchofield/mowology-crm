@@ -104,7 +104,11 @@ try {
         try {
             $db->query("SELECT 1 FROM observation_product_rules LIMIT 0");
             $hasRules = true;
-        } catch (Exception $e) {}
+        } catch (\Throwable $e) {
+            $hasRules = false;
+            error_log(sprintf('[%s] table existence check for observation_product_rules failed — %s in %s:%d',
+                basename(__FILE__), $e->getMessage(), $e->getFile(), $e->getLine()));
+        }
 
         if ($hasRules) {
             $ruleStmt = $db->prepare("
@@ -160,8 +164,10 @@ try {
                 $visitId,
                 "Logged {$obsType} observation" . ($obsValue ? ": {$obsValue}" : ''),
             ]);
-        } catch (Exception $e) {
-            // activity_log may have different columns — don't fail
+        } catch (\Throwable $e) {
+            // activity_log may have different columns — non-fatal, but log so schema drift is visible
+            error_log(sprintf('[%s] activity_log insert (field_observation, obs_id=%d) failed — %s in %s:%d',
+                basename(__FILE__), $obsId, $e->getMessage(), $e->getFile(), $e->getLine()));
         }
 
         // If auto_send and contact has marketing consent, send immediately
@@ -297,7 +303,11 @@ try {
                 ");
                 $tStmt->execute([$obs['observation_type']]);
                 $template = $tStmt->fetch(PDO::FETCH_ASSOC);
-            } catch (Exception $e) {}
+            } catch (\Throwable $e) {
+                $template = null;
+                error_log(sprintf('[%s] template lookup in observation_product_rules (obs_type=%s) failed — %s in %s:%d',
+                    basename(__FILE__), $obs['observation_type'], $e->getMessage(), $e->getFile(), $e->getLine()));
+            }
         }
 
         echo json_encode([
@@ -372,7 +382,10 @@ try {
                     if (!$subject) $subject = $tpl['email_subject'];
                     if (!$bodyTemplate) $bodyTemplate = $tpl['email_body_template'];
                 }
-            } catch (Exception $e) {}
+            } catch (\Throwable $e) {
+                error_log(sprintf('[%s] approve: template lookup in observation_product_rules (obs_id=%d, obs_type=%s) failed — %s in %s:%d',
+                    basename(__FILE__), $obsId, $obs['observation_type'], $e->getMessage(), $e->getFile(), $e->getLine()));
+            }
         }
 
         // Fallback default template
@@ -475,7 +488,10 @@ HTML;
                 "Sent recommendation email for " . ucwords(str_replace('_', ' ', $obs['observation_type']))
                     . ($obs['product_name'] ? ": {$obs['product_name']}" : ''),
             ]);
-        } catch (Exception $e) {}
+        } catch (\Throwable $e) {
+            error_log(sprintf('[%s] activity_log insert (recommendation_email, obs_id=%d) failed — %s in %s:%d',
+                basename(__FILE__), $obsId, $e->getMessage(), $e->getFile(), $e->getLine()));
+        }
 
         echo json_encode([
             'success' => $result['success'],
@@ -519,7 +535,11 @@ HTML;
         try {
             $db->query("SELECT 1 FROM observation_product_rules LIMIT 0");
             $hasRules = true;
-        } catch (Exception $e) {}
+        } catch (\Throwable $e) {
+            $hasRules = false;
+            error_log(sprintf('[%s] get-rules: table existence check for observation_product_rules failed — %s in %s:%d',
+                basename(__FILE__), $e->getMessage(), $e->getFile(), $e->getLine()));
+        }
 
         if (!$hasRules) {
             echo json_encode(['success' => true, 'rules' => []]);

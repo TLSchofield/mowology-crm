@@ -70,11 +70,17 @@ try {
     try {
         $check = $db->query("SHOW COLUMNS FROM media_assets LIKE 'caption'");
         if ($check && $check->rowCount() > 0) $cols[] = 'caption';
-    } catch (Exception $e) {}
+    } catch (\Throwable $e) {
+        error_log(sprintf('[%s] schema check for media_assets.caption failed — %s in %s:%d',
+            basename(__FILE__), $e->getMessage(), $e->getFile(), $e->getLine()));
+    }
     try {
         $check = $db->query("SHOW COLUMNS FROM media_assets LIKE 'description'");
         if ($check && $check->rowCount() > 0) $cols[] = 'description';
-    } catch (Exception $e) {}
+    } catch (\Throwable $e) {
+        error_log(sprintf('[%s] schema check for media_assets.description failed — %s in %s:%d',
+            basename(__FILE__), $e->getMessage(), $e->getFile(), $e->getLine()));
+    }
 
     // Build update
     $setParts = ['alt_text = ?', 'updated_at = NOW()'];
@@ -99,7 +105,21 @@ try {
         'message'  => 'Media updated successfully',
     ]);
 } catch (PDOException $e) {
+    error_log(sprintf('[%s] save-media DB error (media_id=%d) — %s in %s:%d',
+        basename(__FILE__), $mediaId, $e->getMessage(), $e->getFile(), $e->getLine()));
     http_response_code(500);
-    echo json_encode(['success' => false, 'error' => 'Database error']);
+    echo json_encode([
+        'success' => false,
+        'error'   => 'Failed to save media metadata. Please try again or contact support if the problem persists.',
+    ]);
+    exit;
+} catch (\Throwable $e) {
+    error_log(sprintf('[%s] save-media unexpected error (media_id=%d) — %s in %s:%d',
+        basename(__FILE__), $mediaId, $e->getMessage(), $e->getFile(), $e->getLine()));
+    http_response_code(500);
+    echo json_encode([
+        'success' => false,
+        'error'   => 'Failed to save media metadata. Please try again or contact support if the problem persists.',
+    ]);
     exit;
 }

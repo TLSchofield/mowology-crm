@@ -51,13 +51,21 @@ try {
     try {
         $db->query("SELECT 1 FROM marketing_campaigns LIMIT 0");
         $hasCampaigns = true;
-    } catch (\Exception $e) {}
+    } catch (\Throwable $e) {
+        $hasCampaigns = false;
+        error_log(sprintf('[%s] table existence check for marketing_campaigns failed — %s in %s:%d',
+            basename(__FILE__), $e->getMessage(), $e->getFile(), $e->getLine()));
+    }
 
     $hasTriggerMonth = false;
     try {
         $check = $db->query("SHOW COLUMNS FROM products LIKE 'trigger_month'");
         $hasTriggerMonth = ($check->rowCount() > 0);
-    } catch (\Exception $e) {}
+    } catch (\Throwable $e) {
+        $hasTriggerMonth = false;
+        error_log(sprintf('[%s] schema check for products.trigger_month failed — %s in %s:%d',
+            basename(__FILE__), $e->getMessage(), $e->getFile(), $e->getLine()));
+    }
 
     if (!$hasCampaigns) {
         $msg = 'marketing_campaigns table does not exist. Run migration 604 first.';
@@ -193,7 +201,11 @@ try {
             ")->execute([
                 "Auto-created seasonal campaign \"{$campaignName}\" with {$count} recipients",
             ]);
-        } catch (\Exception $e) {} // Non-fatal
+        } catch (\Throwable $e) {
+            // Non-fatal but log so schema drift is visible
+            error_log(sprintf('[%s] activity_log insert (seasonal_campaign, campaign_id=%d) failed — %s in %s:%d',
+                basename(__FILE__), $campaignId, $e->getMessage(), $e->getFile(), $e->getLine()));
+        }
     }
 
     // ── Result ───────────────────────────────────────────────────────
