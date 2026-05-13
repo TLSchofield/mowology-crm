@@ -2652,6 +2652,21 @@ if ($apiKey) {
                       endforeach; ?>
                   <?php endif; ?>
 
+                  <?php if (!empty($user['is_driver']) && $completedStops >= $totalStops && $totalStops > 0): ?>
+                  <div class="card mw-eod-card" id="mwEodCard" style="margin:12px 4px 4px;border-radius:12px;border:none;box-shadow:0 2px 8px rgba(0,0,0,.12);">
+                      <div class="card-body d-flex align-items-center justify-content-between py-3 px-3">
+                          <div>
+                              <div class="font-weight-bold" style="color:var(--mw-green);">All Done &mdash; Great work today!</div>
+                              <div class="small text-muted">Complete your post-trip check and clock out</div>
+                          </div>
+                          <a href="/crm/driver-portal.php" class="btn btn-sm"
+                             style="background:var(--mw-green);color:#fff;border-radius:20px;padding:6px 16px;white-space:nowrap;flex-shrink:0;margin-left:12px;">
+                              End of Day &rarr;
+                          </a>
+                      </div>
+                  </div>
+                  <?php endif; ?>
+
               <?php endif; // empty mobileStops ?>
               <?php endif; // isClockedIn gate ?>
 
