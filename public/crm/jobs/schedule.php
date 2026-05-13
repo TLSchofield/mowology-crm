@@ -17,6 +17,7 @@ require_once dirname(__DIR__) . '/modules/weather/weather-rules.php';
 requireLogin();
 $user = getCurrentUser();
 requirePermission('schedule.view');
+$isAdmin = in_array($user['role'] ?? '', ['admin', 'manager']);
 
 // Release session lock early — page is read-only after this point.
 // Prevents blocking Android WorkManager GPS sync requests sharing the session.
