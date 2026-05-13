@@ -1056,6 +1056,13 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
     } catch (Exception $e) { /* ignore */ }
     $orStatusSelect = $hasOrStatus ? ', p.or_status' : '';
 
+    // Check if GPS dwell columns exist (migration 902)
+    $hasGpsDwell = false;
+    try {
+        $hasGpsDwell = $db->query("SHOW COLUMNS FROM job_plans LIKE 'gps_visit_count'")->rowCount() > 0;
+    } catch (Exception $e) { /* ignore */ }
+    $gpsDwellSelect = $hasGpsDwell ? ', jp.gps_avg_dwell_minutes, jp.gps_visit_count' : '';
+
     // Single query: stops with their visits
     $sql = "
         SELECT
@@ -1111,6 +1118,7 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
             (SELECT COUNT(*) FROM visit_photos vp
              WHERE vp.visit_id = jv.id AND vp.photo_type = 'after'
                AND vp.deleted_at IS NULL) AS after_photo_count
+            {$gpsDwellSelect}
         FROM calendar_stops cs
         JOIN properties p ON cs.property_id = p.id
         LEFT JOIN company_properties cp ON p.id = cp.property_id
@@ -1221,18 +1229,20 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
                 'plan_number'    => $row['plan_number'],
                 'service_type'   => $row['service_type'],
                 'price_per_visit' => $row['price_per_visit'],
-                'estimated_duration' => $row['estimated_duration_minutes'],
-                'scheduled_time_start' => $row['scheduled_time_start'],
-                'scheduled_time_end'   => $row['scheduled_time_end'],
-                'sequence_index'      => (int)$row['sequence_index'],
-                'pricing_model'       => $row['pricing_model'] ?? 'per_visit',
-                'invoice_timing'      => $row['invoice_timing'] ?? 'after_visit',
+                'estimated_duration'    => $row['estimated_duration_minutes'],
+                'gps_avg_dwell_minutes' => isset($row['gps_avg_dwell_minutes']) ? (int)$row['gps_avg_dwell_minutes'] : null,
+                'gps_visit_count'       => isset($row['gps_visit_count']) ? (int)$row['gps_visit_count'] : 0,
+                'scheduled_time_start'  => $row['scheduled_time_start'],
+                'scheduled_time_end'    => $row['scheduled_time_end'],
+                'sequence_index'        => (int)$row['sequence_index'],
+                'pricing_model'         => $row['pricing_model'] ?? 'per_visit',
+                'invoice_timing'        => $row['invoice_timing'] ?? 'after_visit',
                 'photos_block_completion' => !empty($row['photos_block_completion']),
-                'photo_types_required'=> !empty($row['photo_types_required'])
+                'photo_types_required'  => !empty($row['photo_types_required'])
                                          ? (json_decode($row['photo_types_required'], true) ?: [])
                                          : [],
-                'before_photo_count'  => (int)($row['before_photo_count'] ?? 0),
-                'after_photo_count'   => (int)($row['after_photo_count'] ?? 0),
+                'before_photo_count'    => (int)($row['before_photo_count'] ?? 0),
+                'after_photo_count'     => (int)($row['after_photo_count'] ?? 0),
             ];
         }
     }
