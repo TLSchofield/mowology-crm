@@ -228,7 +228,8 @@ final class ReceiptQueue: ObservableObject {
              .dnsLookupFailed,
              .resourceUnavailable,
              .dataNotAllowed,
-             .internationalRoamingOff:
+             .internationalRoamingOff,
+             .cancelled:
             return true
         default:
             return false

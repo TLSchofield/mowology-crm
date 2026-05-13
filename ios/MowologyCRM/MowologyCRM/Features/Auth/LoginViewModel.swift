@@ -59,7 +59,14 @@ final class LoginViewModel: ObservableObject {
             // On success, authSession.isAuthenticated flips to true.
             // RootView handles the navigation — no action needed here.
         } catch let apiError as APIError {
-            errorMessage = apiError.errorDescription
+            // URLError.cancelled (-999) on the login screen means the user dismissed
+            // a biometric prompt or the view tore down a still-in-flight request.
+            // It's never an error worth surfacing — leave the form untouched.
+            if !apiError.isCancelled {
+                errorMessage = apiError.errorDescription
+            }
+        } catch is CancellationError {
+            // Task itself was cancelled — same treatment as URLError.cancelled.
         } catch {
             errorMessage = "An unexpected error occurred. Please try again."
         }
