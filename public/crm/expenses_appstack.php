@@ -104,8 +104,8 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 <input type="hidden" id="intakeOcrText">
                 <input type="hidden" id="intakeOcrParsed">
 
-                <div class="row g-2">
-                    <div class="col-6">
+                <div class="row g-2 mw-rv-grid">
+                    <div class="col-12 col-sm-6">
                         <label class="form-label small mb-0">Vendor
                             <span class="mw-confidence-dot" id="confVendor" title=""></span>
                         </label>
@@ -113,31 +113,35 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         <input type="hidden" id="rvVendorId">
                         <div class="dropdown-menu w-100" id="rvVendorDropdown" style="max-height:200px;overflow-y:auto;"></div>
                     </div>
-                    <div class="col-6">
+                    <div class="col-12 col-sm-6">
                         <label class="form-label small mb-0">Date
                             <span class="mw-confidence-dot" id="confDate" title=""></span>
                         </label>
                         <input type="date" class="form-control form-control-sm" id="rvDate">
                     </div>
-                    <div class="col-4">
+                    <div class="col-6">
                         <label class="form-label small mb-0">Amount</label>
                         <input type="number" class="form-control form-control-sm" id="rvAmount" step="0.01" min="0">
                     </div>
-                    <div class="col-3">
+                    <div class="col-6">
+                        <label class="form-label small mb-0">Total
+                            <span class="mw-confidence-dot" id="confTotal" title=""></span>
+                        </label>
+                        <input type="number" class="form-control form-control-sm" id="rvTotal" step="0.01" min="0">
+                    </div>
+                    <div class="col-4">
                         <label class="form-label small mb-0">GST
                             <span class="mw-confidence-dot" id="confGst" title=""></span>
                         </label>
                         <input type="number" class="form-control form-control-sm" id="rvGst" step="0.01" min="0" value="0">
                     </div>
-                    <div class="col-3">
+                    <div class="col-4">
                         <label class="form-label small mb-0">PST</label>
                         <input type="number" class="form-control form-control-sm" id="rvPst" step="0.01" min="0" value="0">
                     </div>
                     <div class="col-4">
-                        <label class="form-label small mb-0">Total
-                            <span class="mw-confidence-dot" id="confTotal" title=""></span>
-                        </label>
-                        <input type="number" class="form-control form-control-sm" id="rvTotal" step="0.01" min="0">
+                        <label class="form-label small mb-0">Recycling</label>
+                        <input type="number" class="form-control form-control-sm" id="rvRecyclingTax" step="0.01" min="0" value="0" placeholder="0.00">
                     </div>
                     <!-- GST Math Warning (hidden) -->
                     <div class="col-12" id="rvGstMathWarning" style="display:none;">

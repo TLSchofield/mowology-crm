@@ -27701,3 +27701,63 @@ body.mw-no-scroll {
   font-family: 'Montserrat', sans-serif;
   color: #7FD858;
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   RECEIPT REVIEW PANEL — Tablet & Wide-Screen Refinements
+   The desktop receipt review panel renders at >=992px (mobile-cards.css
+   hides it on phones). At landscape-tablet widths (~992-1399px) the
+   default Bootstrap col-md-5/col-md-7 split is too tight and the inner
+   numeric fields get cramped. These rules give the receipt image more
+   vertical real estate, keep it sticky while the user fills out fields,
+   and rebalance the columns so nothing wraps awkwardly.
+   ═══════════════════════════════════════════════════════════════════ */
+
+@media (min-width: 992px) {
+  /* Match the form column's height so the image preview can fill the
+     vertical space — without this the image is capped at 400px and the
+     right column extends much further down. */
+  #receiptReviewPanel > .card-body > .row {
+    align-items: stretch;
+  }
+
+  #receiptReviewPanel .mw-receipt-preview-container {
+    max-height: none;
+    min-height: 420px;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: sticky;
+    top: 1rem;
+    padding: 8px;
+  }
+
+  #receiptReviewPanel .mw-receipt-preview-img {
+    max-width: 100%;
+    max-height: calc(100vh - 220px);
+    width: auto;
+    height: auto;
+  }
+}
+
+/* Landscape-tablet range: rebalance the outer columns so the form on
+   the right gets more breathing room (~62%) and the image stays a
+   reasonable size (~38%). Above 1400px we let the default 5/7 split
+   stand — there's plenty of room. */
+@media (min-width: 992px) and (max-width: 1399.98px) {
+  #receiptReviewPanel > .card-body > .row > .col-md-5 {
+    flex: 0 0 38%;
+    max-width: 38%;
+  }
+  #receiptReviewPanel > .card-body > .row > .col-md-7 {
+    flex: 0 0 62%;
+    max-width: 62%;
+  }
+}
+
+/* Action buttons row (Save / Save & Send) — guarantee they sit on the
+   same line at tablet widths and don't wrap onto two lines. */
+#receiptReviewPanel .mw-rv-grid + .mw-line-items-section,
+#receiptReviewPanel .mw-rv-grid ~ .mt-3.d-flex {
+  flex-wrap: nowrap;
+}
