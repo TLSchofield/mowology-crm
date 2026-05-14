@@ -352,6 +352,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         }
     }
 
+    // Delete a plan (admin/manager only — soft-cancels scheduled visits, sets plan to cancelled)
+    if ($action === 'delete_plan') {
+        requirePermission('jobs.edit');
+        if (!in_array($user['role'] ?? '', ['admin', 'manager'])) {
+            $message = 'You do not have permission to delete plans.';
+            $messageType = 'error';
+        } else {
+            // Block if a visit is currently in progress (timer running)
+            $inProgStmt = $db->prepare("SELECT COUNT(*) FROM job_visits WHERE plan_id = ? AND status = 'in_progress'");
+            $inProgStmt->execute([$planId]);
+            if ($inProgStmt->fetchColumn() > 0) {
+                $message = 'Cannot delete this plan — a visit is currently in progress. Stop the timer first.';
+                $messageType = 'error';
+            } else {
+                // Fetch plan number for the flash message before we wipe it
+                $pnStmt = $db->prepare("SELECT plan_number FROM job_plans WHERE id = ?");
+                $pnStmt->execute([$planId]);
+                $deletedPlanNum = $pnStmt->fetchColumn() ?: "#{$planId}";
+
+                // Cancel all non-completed future visits
+                $db->prepare("
+                    UPDATE job_visits
+                    SET status = 'cancelled', updated_at = NOW()
+                    WHERE plan_id = ? AND status IN ('scheduled', 'skipped', 'weather')
+                ")->execute([$planId]);
+
+                // Soft-delete: mark plan cancelled
+                $db->prepare("
+                    UPDATE job_plans
+                    SET status = 'cancelled', updated_at = NOW()
+                    WHERE id = ?
+                ")->execute([$planId]);
+
+                $_SESSION['alert'] = [
+                    'type'    => 'success',
+                    'message' => "Plan {$deletedPlanNum} has been deleted."
+                ];
+                header("Location: index.php");
+                exit;
+            }
+        }
+    }
+
     // Move time entry to a different visit (on any plan at the same property)
     if ($action === 'move_time_entry') {
         requirePermission('jobs.edit');
@@ -522,6 +565,7 @@ $serviceTemplates = $stmtSt->fetchAll(PDO::FETCH_ASSOC);
 // ── Flash messages from redirects ────────────────────────────────────
 
 $csrfToken = generateCSRFToken();
+$isAdmin    = in_array($user['role'] ?? '', ['admin', 'manager']);
 
 if (isset($_GET['created'])) { $message = 'Plan created successfully!'; $messageType = 'success'; }
 if (isset($_GET['resumed'])) { $message = 'Plan resumed. Visits have been regenerated.'; $messageType = 'success'; }
@@ -687,6 +731,11 @@ if ($hasPropCoords) {
                         <a href="../quotes/view.php?id=<?php echo (int)$plan['quote_id']; ?>" class="btn btn-secondary">
                             View Quote <?php echo htmlspecialchars($plan['quote_number'] ?? ''); ?>
                         </a>
+                    <?php endif; ?>
+                    <?php if ($isAdmin && in_array($plan['status'], ['active', 'paused'])): ?>
+                        <button type="button" class="btn btn-outline-danger" onclick="showModal('deletePlanModal')">
+                            <i data-feather="trash-2" style="width:14px;height:14px;"></i> Delete Plan
+                        </button>
                     <?php endif; ?>
                 </div>
             </div>
@@ -1763,6 +1812,26 @@ if ($hasPropCoords) {
             </form>
         </div>
     </div>
+
+    <!-- Delete Plan Modal -->
+    <?php if ($isAdmin): ?>
+    <div class="mw-modal-overlay" id="deletePlanModal">
+        <div class="mw-modal" style="max-width:440px;">
+            <h3 class="mw-modal-title">Delete Plan?</h3>
+            <p>This will cancel <strong><?php echo htmlspecialchars($plan['plan_number']); ?></strong> and all of its scheduled visits.</p>
+            <p>Completed visits and time entries are preserved for your records.</p>
+            <p class="text-danger mb-0"><strong>This cannot be undone.</strong></p>
+            <form method="POST" style="margin-top:16px;">
+                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrfToken); ?>">
+                <input type="hidden" name="action" value="delete_plan">
+                <div class="mw-modal-actions">
+                    <button type="submit" class="btn btn-danger">Delete Plan</button>
+                    <button type="button" class="btn btn-secondary" onclick="hideModal('deletePlanModal')">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    <?php endif; ?>
 
     <!-- Complete Visit Modal -->
     <div class="mw-modal-overlay" id="completeModal">
