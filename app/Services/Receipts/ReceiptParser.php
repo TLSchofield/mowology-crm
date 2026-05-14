@@ -531,11 +531,20 @@ function extractLineItems(array $lines): array
             continue;
         }
 
+        // Pattern: Gas station quantity-prefixed item — "2 DIET COKE 500ML" (qty with no × separator)
+        // Only matches when: starts with 1-9, followed by space, then an uppercase-starting name, no price on line
+        if (preg_match('/^([1-9])\s+([A-Z][A-Z0-9 ]{2,})\s*$/', $line, $m)) {
+            $pendingItems[] = $m[2];
+            $pendingContext[] = ['sku_raw' => null, 'quantity' => (int)$m[1], 'unit_price' => null];
+            $inItemZone = true;
+            continue;
+        }
+
         // Pattern: DEPOSIT line
         if (preg_match('/^DEPOSIT/i', $line)) {
             if ($i + 1 < $lineCount) {
                 $nextLine = trim($lines[$i + 1]);
-                if (preg_match('/^(\d{1,6}\.\d{2})\s*[A-Z]?\s*$/', $nextLine, $pm)) {
+                if (preg_match('/^(\d{1,6}\.\d{2})\s*[A-Z]{0,2}\s*$/', $nextLine, $pm)) {
                     $items[] = ['name' => 'Deposit', 'amount' => $pm[1], 'quantity' => 1, 'unit_price' => null, 'sku_raw' => null];
                     $i++;
                 }
@@ -554,7 +563,8 @@ function extractLineItems(array $lines): array
         }
 
         // Pattern: Standalone price line — assign to next pending item
-        if (preg_match('/^-?\$?(\d{1,6}\.\d{2})\s*[A-Z]?\s*$/', $line, $pm)) {
+        // Allows 1-2 letter suffix codes like "P" (petroleum) or "PG" (petroleum grade)
+        if (preg_match('/^-?\$?(\d{1,6}\.\d{2})\s*[A-Z]{0,2}\s*$/', $line, $pm)) {
             $amount = $pm[1];
             if (strpos($line, '-') === 0) {
                 $items[] = ['name' => 'Discount', 'amount' => '-' . ltrim($amount, '-'), 'quantity' => 1, 'unit_price' => null, 'sku_raw' => null];
@@ -580,23 +590,53 @@ function extractLineItems(array $lines): array
             continue;
         }
 
-        // Pattern: Generic inline — "Item Name   $XX.XX"
-        if (preg_match('/^(.{3,}?)\s{2,}\$?(\d{1,6}\.\d{2})\s*$/', $line, $m)) {
+        // Pattern: CRF / Container Recycling Fee — "CRF 0.07  3  0.21" (name  unit_price  qty  total)
+        if (preg_match('/^(CRF|ECOFEE|ECO\s+FEE|ENV(?:IRONMENTAL)?\s*FEE)\s+(\d{1,6}\.\d{2})\s+(\d+)\s+(\d{1,6}\.\d{2})\s*[A-Z]{0,2}\s*$/i', $line, $m)) {
+            $items[] = ['name' => strtoupper(trim($m[1])), 'amount' => $m[4], 'quantity' => (int)$m[3], 'unit_price' => (float)$m[2], 'sku_raw' => null];
+            $inItemZone = true;
+            continue;
+        }
+
+        // Pattern: Generic inline — "Item Name   $XX.XX" (with optional 1-2 letter suffix like "PG")
+        if (preg_match('/^(.{3,}?)\s{2,}\$?(\d{1,6}\.\d{2})\s*[A-Z]{0,2}\s*$/', $line, $m)) {
             $name = trim($m[1]);
             $nameLower = strtolower($name);
             $isSummary = false;
-            foreach (['subtotal', 'total', 'gst', 'pst', 'hst', 'tax', 'deposit', 'change', 'tender'] as $kw) {
+            foreach (['subtotal', 'total', 'gst', 'pst', 'hst', 'tax', 'change', 'tender'] as $kw) {
                 if (strpos($nameLower, $kw) !== false) { $isSummary = true; break; }
             }
-            if (!$isSummary) {
+            // Gas station deposit annotation: "2 Deposit ($0.20)  2.32 PG" — the dollar amount is
+            // the price for the pending product (e.g. "2 DIET COKE 500ML"), not a deposit total
+            $isDepositAnnotation = strpos($nameLower, 'deposit') !== false && !empty($pendingItems);
+            if (!$isSummary && !$isDepositAnnotation) {
                 $items[] = ['name' => $name, 'amount' => $m[2], 'quantity' => 1, 'unit_price' => null, 'sku_raw' => null];
                 $inItemZone = true;
+                continue;
+            }
+            if ($isDepositAnnotation) {
+                // Assign the total to the pending item (beverage + deposit bundled)
+                $itemName = array_shift($pendingItems);
+                $ctx = array_shift($pendingContext);
+                while ($itemName === '__sku_context__' && !empty($pendingItems)) {
+                    $itemName = array_shift($pendingItems);
+                    $ctx = array_shift($pendingContext);
+                }
+                if ($itemName !== '__sku_context__') {
+                    $items[] = [
+                        'name' => $itemName,
+                        'amount' => $m[2],
+                        'quantity' => $ctx['quantity'] ?? 1,
+                        'unit_price' => $ctx['unit_price'] ?? null,
+                        'sku_raw' => $ctx['sku_raw'] ?? null,
+                    ];
+                    $inItemZone = true;
+                }
                 continue;
             }
         }
 
         // Pattern: Qty x Name  Price
-        if (preg_match('/^(\d+)\s*[xX\x{00D7}]\s*(.{3,}?)\s{2,}\$?(\d{1,6}\.\d{2})\s*$/u', $line, $m)) {
+        if (preg_match('/^(\d+)\s*[xX\x{00D7}]\s*(.{3,}?)\s{2,}\$?(\d{1,6}\.\d{2})\s*[A-Z]{0,2}\s*$/u', $line, $m)) {
             $qty = (int)$m[1];
             $name = trim($m[2]);
             $amount = $m[3];
@@ -737,11 +777,14 @@ function extractGST(string $text): ?string
     // Same-line patterns — use [^\S\n] (horizontal whitespace) to prevent cross-line matching
     // e.g., "GST 5.000%" on its own line must NOT match "5.00" as a dollar amount
     $gstPatterns = [
+        // Gas station / Chevron format: "GST 5.0000%  0.49" or "GST 5.0000 %  0.49"
+        // Must come FIRST — explicitly skips the rate token (digits+optional space+%) to reach the dollar amount
+        '/GST[^\S\n]*(?:\/HST)?[^\S\n]*[\d.]+\s*%[^\S\n]+\$?[^\S\n]*(\d{1,6}[.,]\d{2})/i',
         '/GST[^\S\n]*(?:\/HST)?[^\S\n]*(?:[\d.]+%)?[^\S\n]*:?[^\S\n]*\$[^\S\n]*(\d{1,6}[.,]\d{2})/i',
-        '/GST[^\S\n]*(?:\/HST)?[^\S\n]*:?[^\S\n]*\$?[^\S\n]*(\d{1,6}[.,]\d{2})(?!\d*%)/i',
+        '/GST[^\S\n]*(?:\/HST)?[^\S\n]*:?[^\S\n]*\$?[^\S\n]*(\d{1,6}[.,]\d{2})(?!\d*\s*%)/i',
         // Gas station / fuel receipts: "GST INCLUDED $ 0.95", "GST INCL $0.95", "HST INCLUDED $2.60"
         '/(?:GST|HST)[^\S\n]*(?:INCLUDED|INCL\.?)[^\S\n]*:?[^\S\n]*\$?[^\S\n]*(\d{1,6}[.,]\d{2})/i',
-        '/(?<!\w)TAX[^\S\n]*(?:[\d.]+%)?[^\S\n]*:?[^\S\n]*\$?[^\S\n]*(\d{1,6}[.,]\d{2})(?!\d*%)/i',
+        '/(?<!\w)TAX[^\S\n]*(?:[\d.]+%)?[^\S\n]*:?[^\S\n]*\$?[^\S\n]*(\d{1,6}[.,]\d{2})(?!\d*\s*%)/i',
     ];
 
     $totalGst = 0;
