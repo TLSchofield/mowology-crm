@@ -257,6 +257,7 @@ $csrfToken = generateCSRFToken();
 
 $pageTitle  = 'Invoices';
 $activePage = 'invoices';
+$extraHead  = '<link rel="stylesheet" href="/crm/css/invoice-insights.css?v=20260513a">';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
