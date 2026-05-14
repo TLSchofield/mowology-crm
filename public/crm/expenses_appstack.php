@@ -2803,6 +2803,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             });
             var d = await r.json();
             if (!d.success) throw new Error(d.error);
+            btn.disabled = false;
+            btn.innerHTML = '<i data-feather="git-merge" style="width:14px;height:14px;"></i> Merge Expenses';
+            if (window.feather) feather.replace();
             $('#expenseMergeModal').modal('hide');
             loadExpenses(currentPage);
             loadStats();
