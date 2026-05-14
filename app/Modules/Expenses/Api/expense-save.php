@@ -49,6 +49,22 @@ try {
     $total       = (float)($input['total'] ?? 0);
     $expenseDate = $input['expense_date'] ?? date('Y-m-d');
 
+    // Validate/clamp expense_date — OCR can emit "2090-..." from a "10/90"
+    // on the shoulder of a receipt. Reject any year outside [2020, current+1]
+    // and fall back to today so a bad row can't be saved.
+    if (preg_match('/^(\d{4})-/', $expenseDate, $m)) {
+        $y       = (int)$m[1];
+        $minYear = 2020;
+        $maxYear = (int)date('Y') + 1;
+        if ($y < $minYear || $y > $maxYear) {
+            error_log("expense-save: clamped impossible expense_date {$expenseDate} -> today (user {$userId})");
+            $expenseDate = date('Y-m-d');
+        }
+    } else {
+        // Not YYYY-MM-DD shape — fall back to today.
+        $expenseDate = date('Y-m-d');
+    }
+
     if ($total <= 0) {
         http_response_code(400);
         echo json_encode(['success' => false, 'error' => 'Total amount is required']);

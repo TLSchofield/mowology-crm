@@ -24,6 +24,11 @@ if (!defined('APP_ROOT')) {
 
 header('Content-Type: application/json');
 
+// Production has serialize_precision set high, so (float)"39.90" emits as
+// "39.89999999999999857..." (50+ digits). Force the shortest round-trippable
+// representation so JSON numbers stay clean: 39.9 instead of 39.8999...
+ini_set('serialize_precision', '-1');
+
 try {
     require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
@@ -73,6 +78,12 @@ try {
     $stmt->execute($params);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+    // Clamp absurd expense_date years (OCR sometimes emits "2090-..." from
+    // a "10/90" on the shoulder of a receipt). Use the date portion of
+    // created_at as the fallback so the row stays sortable.
+    $thisYear = (int)date('Y');
+    $minYear  = 2020;
+    $maxYear  = $thisYear + 1;
     foreach ($rows as &$row) {
         $row['id']                      = (int)$row['id'];
         $row['amount']                  = $row['amount'] !== null ? (float)$row['amount'] : null;
@@ -83,16 +94,31 @@ try {
         $row['anomaly_score']           = $row['anomaly_score'] !== null ? (int)$row['anomaly_score'] : null;
         $row['job_id']                  = $row['job_id'] !== null ? (int)$row['job_id'] : null;
         $row['receipt_url']             = null; // iOS fetches images via receipt-image endpoint
+
+        // Clamp impossible expense_date years (no DB mutation — read-side guard).
+        $d = (string)($row['expense_date'] ?? '');
+        if (preg_match('/^(\d{4})-/', $d, $m)) {
+            $y = (int)$m[1];
+            if ($y < $minYear || $y > $maxYear) {
+                $fallback = substr((string)($row['created_at'] ?? ''), 0, 10);
+                if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $fallback)) {
+                    $row['expense_date'] = $fallback;
+                }
+            }
+        }
     }
     unset($row);
 
+    // JSON_INVALID_UTF8_SUBSTITUTE prevents json_encode from returning false
+    // when a vendor name or description contains stray bytes from OCR — that
+    // would emit an empty body and surface as "data couldn't be read" on iOS.
     echo json_encode([
         'success'  => true,
         'expenses' => $rows,
         'total'    => $total,
         'page'     => $page,
         'pages'    => (int)ceil($total / $perPage),
-    ]);
+    ], JSON_INVALID_UTF8_SUBSTITUTE);
 
 } catch (Throwable $e) {
     http_response_code(500);

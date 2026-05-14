@@ -467,7 +467,7 @@ try {
             : new stdClass(),
         'gst_validation'    => $gstValidation ?? null,
         'duplicate_image'   => $duplicateImage,
-    ]);
+    ], JSON_INVALID_UTF8_SUBSTITUTE);
 
 } catch (\Throwable $e) {
     http_response_code(500);
