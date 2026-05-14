@@ -1181,6 +1181,292 @@ a:hover {
 .mw-stat-card.ar           { border-left: 4px solid #F59E0B; }
 .mw-stat-card.ar.has-overdue { border-left: 4px solid #DC2626; }
 
+/* ── Invoice Insight Cards ─────────────────────────────────────────────── */
+
+.mw-inv-insights {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.mw-inv-card {
+  background: #fff;
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mw-inv-card-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #6c757d;
+}
+
+.mw-inv-card-value {
+  font-size: 26px;
+  font-weight: 700;
+  color: #212529;
+  line-height: 1.1;
+}
+
+.mw-inv-card-value--muted { color: #adb5bd; }
+
+.mw-inv-card-unit {
+  font-size: 14px;
+  font-weight: 400;
+  color: #6c757d;
+}
+
+.mw-inv-card-sub {
+  font-size: 12px;
+  color: #6c757d;
+  line-height: 1.4;
+}
+
+.mw-inv-card-trend {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.mw-inv-card-trend.up      { color: var(--mw-green); }
+.mw-inv-card-trend.down    { color: #DC2626; }
+.mw-inv-card-trend.neutral { color: #6c757d; }
+
+/* Aging bar */
+.mw-inv-aging-bar {
+  display: flex;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #f1f3f5;
+  margin: 4px 0 2px;
+}
+.mw-inv-aging-seg-blue  { background: #3B82F6; flex-shrink: 0; }
+.mw-inv-aging-seg-amber { background: #F59E0B; flex-shrink: 0; }
+.mw-inv-aging-seg-red   { background: #DC2626; flex-shrink: 0; }
+
+.mw-inv-aging-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.2;
+}
+.mw-inv-aging-labels .blue  { color: #3B82F6; }
+.mw-inv-aging-labels .amber { color: #d97706; }
+.mw-inv-aging-labels .red   { color: #DC2626; }
+
+/* Sparkline */
+.mw-inv-sparkline {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 44px;
+  margin-top: 6px;
+}
+
+.mw-inv-spark-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  flex: 1;
+  cursor: default;
+}
+
+.mw-inv-spark-bar {
+  width: 100%;
+  background: #D1D5DB;
+  border-radius: 2px 2px 0 0;
+  min-height: 4px;
+}
+.mw-inv-spark-bar.current { background: var(--mw-green); }
+
+.mw-inv-spark-label {
+  font-size: 9px;
+  color: #9ca3af;
+  text-transform: uppercase;
+}
+
+/* Attention banner */
+.mw-inv-attention-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-left: 4px solid #F59E0B;
+  border-radius: 6px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  font-size: 14px;
+}
+
+.mw-inv-attn-icon {
+  width: 18px;
+  height: 18px;
+  color: #d97706;
+  flex-shrink: 0;
+  stroke-width: 2;
+}
+
+.mw-inv-attn-text {
+  flex: 1;
+  color: #444;
+}
+
+.mw-inv-attn-link {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--mw-green);
+  white-space: nowrap;
+  text-decoration: none;
+}
+.mw-inv-attn-link:hover { color: var(--mw-dark); text-decoration: none; }
+
+/* Sales Mix Card */
+.mw-inv-mix-card {
+  background: #fff;
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  padding: 18px 20px;
+  margin-bottom: 24px;
+}
+
+.mw-inv-mix-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.mw-inv-mix-subtitle {
+  font-size: 12px;
+  color: #6c757d;
+  margin-top: 3px;
+}
+
+.mw-inv-mix-shift {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.mw-inv-mix-shift.warning  { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
+.mw-inv-mix-shift.positive { background: #f0fdf4; color: #14532d; border: 1px solid #bbf7d0; }
+
+.mw-inv-mix-body {
+  display: flex;
+  align-items: flex-end;
+  gap: 20px;
+}
+
+.mw-inv-mix-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.mw-inv-mix-bar {
+  width: 64px;
+  height: 80px;
+  display: flex;
+  flex-direction: column;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.mw-inv-mix-seg-recurring {
+  background: var(--mw-green);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.95);
+  overflow: hidden;
+}
+
+.mw-inv-mix-seg-onetime {
+  background: #3B82F6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.95);
+  overflow: hidden;
+}
+
+.mw-inv-mix-year-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #495057;
+}
+
+.mw-inv-mix-total {
+  font-size: 11px;
+  color: #6c757d;
+}
+
+.mw-inv-mix-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-left: 8px;
+  align-self: center;
+}
+
+.mw-inv-mix-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: #495057;
+}
+
+.mw-inv-mix-legend-item .dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.mw-inv-mix-legend-item.recurring .dot { background: var(--mw-green); }
+.mw-inv-mix-legend-item.onetime .dot   { background: #3B82F6; }
+
+.mw-inv-mix-firstyear {
+  font-size: 12px;
+  color: #6c757d;
+  margin-top: 12px;
+  font-style: italic;
+}
+
+/* Responsive */
+@media (max-width: 992px) {
+  .mw-inv-insights { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 576px) {
+  .mw-inv-insights { grid-template-columns: 1fr; }
+  .mw-inv-attention-banner { flex-wrap: wrap; }
+  .mw-inv-mix-header { flex-direction: column; }
+}
+
+/* ── /Invoice Insight Cards ─────────────────────────────────────────────── */
+
 .mw-stat-sub {
   font-size: 12px;
   color: #6c757d;

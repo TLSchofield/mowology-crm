@@ -102,6 +102,143 @@ while ($row = $countStmt->fetch()) {
 }
 $totalCount = array_sum($statusCounts);
 
+// ── Invoice Insight Queries ──────────────────────────────────────────────
+
+// Aging buckets (outstanding balance by age)
+$aging = $db->query("
+    SELECT
+      COALESCE(SUM(CASE WHEN status NOT IN ('paid','cancelled','draft') AND due_date >= CURDATE() THEN balance_due ELSE 0 END), 0) as on_time,
+      COALESCE(SUM(CASE WHEN status NOT IN ('paid','cancelled') AND due_date < CURDATE() AND DATEDIFF(CURDATE(), due_date) <= 30 THEN balance_due ELSE 0 END), 0) as late_30,
+      COALESCE(SUM(CASE WHEN status NOT IN ('paid','cancelled') AND due_date < CURDATE() AND DATEDIFF(CURDATE(), due_date) > 30 THEN balance_due ELSE 0 END), 0) as late_31
+    FROM invoices
+")->fetch(PDO::FETCH_ASSOC);
+
+$agingOnTime = (float)$aging['on_time'];
+$agingLate30 = (float)$aging['late_30'];
+$agingLate31 = (float)$aging['late_31'];
+$agingTotal  = $agingOnTime + $agingLate30 + $agingLate31;
+$w1 = $agingTotal > 0 ? round(($agingOnTime / $agingTotal) * 100) : 100;
+$w2 = $agingTotal > 0 ? round(($agingLate30 / $agingTotal) * 100) : 0;
+$w3 = $agingTotal > 0 ? max(0, 100 - $w1 - $w2) : 0;
+
+// Payment velocity: avg days from sent → paid
+$velocity = $db->query("
+    SELECT
+      ROUND(AVG(DATEDIFF(paid_at, sent_at))) as avg_overall,
+      ROUND(AVG(CASE WHEN paid_at >= DATE_FORMAT(CURDATE(),'%Y-%m-01') THEN DATEDIFF(paid_at, sent_at) END)) as avg_this_month,
+      ROUND(AVG(CASE WHEN paid_at >= DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 MONTH),'%Y-%m-01')
+                      AND paid_at <  DATE_FORMAT(CURDATE(),'%Y-%m-01')
+                     THEN DATEDIFF(paid_at, sent_at) END)) as avg_last_month,
+      COUNT(*) as paid_count
+    FROM invoices
+    WHERE status = 'paid' AND paid_at IS NOT NULL AND sent_at IS NOT NULL
+      AND DATEDIFF(paid_at, sent_at) BETWEEN 0 AND 365
+")->fetch(PDO::FETCH_ASSOC);
+
+$avgDays            = ($velocity['avg_overall'] !== null) ? (int)$velocity['avg_overall'] : null;
+$avgThisMonth       = ($velocity['avg_this_month'] !== null) ? (int)$velocity['avg_this_month'] : null;
+$avgLastMonth       = ($velocity['avg_last_month'] !== null) ? (int)$velocity['avg_last_month'] : null;
+$velocityDelta      = ($avgThisMonth !== null && $avgLastMonth !== null) ? ($avgLastMonth - $avgThisMonth) : null; // positive = faster = good
+$hasPaidHistory     = (int)($velocity['paid_count'] ?? 0) >= 3;
+
+// Invoices sent but customer never viewed the portal
+$unopenedCount = (int)$db->query("
+    SELECT COUNT(*) FROM invoices
+    WHERE status IN ('sent','overdue')
+      AND viewed_at IS NULL AND sent_at IS NOT NULL
+")->fetchColumn();
+
+// Revenue: this month vs last month
+$revenue = $db->query("
+    SELECT
+      COALESCE(SUM(CASE WHEN DATE_FORMAT(issue_date,'%Y-%m') = DATE_FORMAT(CURDATE(),'%Y-%m') THEN total ELSE 0 END), 0) as this_month,
+      COALESCE(SUM(CASE WHEN DATE_FORMAT(issue_date,'%Y-%m') = DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 MONTH),'%Y-%m') THEN total ELSE 0 END), 0) as last_month
+    FROM invoices
+    WHERE status NOT IN ('draft','cancelled')
+      AND issue_date >= DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 MONTH),'%Y-%m-01')
+")->fetch(PDO::FETCH_ASSOC);
+
+$thisMonthRev  = (float)$revenue['this_month'];
+$lastMonthRev  = (float)$revenue['last_month'];
+$revTrendPct   = $lastMonthRev > 0 ? round((($thisMonthRev - $lastMonthRev) / $lastMonthRev) * 100) : null;
+$lastMonthName = date('M', strtotime('first day of last month'));
+
+// 6-month sparkline data
+$sparkRows = $db->query("
+    SELECT DATE_FORMAT(issue_date,'%Y-%m') as mk,
+           DATE_FORMAT(issue_date,'%b') as label,
+           COALESCE(SUM(total),0) as total
+    FROM invoices
+    WHERE status NOT IN ('draft','cancelled')
+      AND issue_date >= DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 5 MONTH),'%Y-%m-01')
+    GROUP BY DATE_FORMAT(issue_date,'%Y-%m'), DATE_FORMAT(issue_date,'%b')
+    ORDER BY mk ASC
+    LIMIT 6
+")->fetchAll(PDO::FETCH_ASSOC);
+
+$sparkMax = 1;
+foreach ($sparkRows as $r) $sparkMax = max($sparkMax, (float)$r['total']);
+$currentMonthKey = date('Y-m');
+
+// Cash forecast: bucket outstanding invoices by expected arrival
+$avgDaysForecast = $avgDays ?? 30;
+$outstandingForForecast = $db->query("
+    SELECT balance_due, DATEDIFF(CURDATE(), sent_at) as days_sent
+    FROM invoices
+    WHERE status IN ('sent','viewed','partial','overdue')
+      AND sent_at IS NOT NULL
+")->fetchAll(PDO::FETCH_ASSOC);
+
+$forecastWeek  = 0.0;
+$forecastMonth = 0.0;
+foreach ($outstandingForForecast as $oi) {
+    $remaining = max(0, $avgDaysForecast - (int)$oi['days_sent']);
+    if ($remaining <= 7)      $forecastWeek  += (float)$oi['balance_due'];
+    elseif ($remaining <= 30) $forecastMonth += (float)$oi['balance_due'];
+}
+$forecastMonth += $forecastWeek;
+$hasForecastData = $avgDays !== null && count($outstandingForForecast) > 0;
+
+// Needs attention: sent 14+ days ago, not paid
+$attention = $db->query("
+    SELECT COUNT(*) as cnt, COALESCE(SUM(balance_due),0) as total
+    FROM invoices
+    WHERE status IN ('sent','viewed','overdue')
+      AND sent_at IS NOT NULL
+      AND DATEDIFF(CURDATE(), sent_at) >= 14
+")->fetch(PDO::FETCH_ASSOC);
+
+// Sales mix: recurring (plan_id IS NOT NULL) vs one-off, YTD vs same period last year
+$mixRows = $db->query("
+    SELECT
+      YEAR(issue_date) as yr,
+      COALESCE(SUM(CASE WHEN plan_id IS NOT NULL THEN total ELSE 0 END), 0) as recurring_total,
+      COALESCE(SUM(CASE WHEN plan_id IS NULL     THEN total ELSE 0 END), 0) as onetime_total,
+      COALESCE(SUM(total), 0) as grand_total
+    FROM invoices
+    WHERE status NOT IN ('draft','cancelled')
+      AND (
+        (YEAR(issue_date) = YEAR(CURDATE())
+         AND issue_date <= CURDATE())
+        OR
+        (YEAR(issue_date) = YEAR(CURDATE()) - 1
+         AND DATE_FORMAT(issue_date,'%m-%d') <= DATE_FORMAT(CURDATE(),'%m-%d'))
+      )
+    GROUP BY YEAR(issue_date)
+    ORDER BY yr ASC
+")->fetchAll(PDO::FETCH_ASSOC);
+
+$mixByYear = [];
+foreach ($mixRows as $r) $mixByYear[(int)$r['yr']] = $r;
+$thisYear     = (int)date('Y');
+$lastYear     = $thisYear - 1;
+$mixThis      = $mixByYear[$thisYear] ?? null;
+$mixLast      = $mixByYear[$lastYear] ?? null;
+$recurPctThis = ($mixThis && $mixThis['grand_total'] > 0) ? (int)round(($mixThis['recurring_total'] / $mixThis['grand_total']) * 100) : null;
+$recurPctLast = ($mixLast && $mixLast['grand_total'] > 0) ? (int)round(($mixLast['recurring_total'] / $mixLast['grand_total']) * 100) : null;
+$mixShift     = ($recurPctThis !== null && $recurPctLast !== null) ? ($recurPctThis - $recurPctLast) : null;
+$showMixCard  = ($mixThis && $mixThis['grand_total'] > 0) || ($mixLast && $mixLast['grand_total'] > 0);
+
 // Helper functions for sort/pagination URLs
 function invSortUrl($col, $curSort, $curDir) {
     $p = $_GET; $p['sort'] = $col;
@@ -137,25 +274,155 @@ $activePage = 'invoices';
                 </div>
             </div>
 
-            <!-- Stats -->
-            <div class="mw-stats-row">
-                <div class="mw-stat-card outstanding">
-                    <h4>Outstanding</h4>
-                    <div class="value currency"><?php echo formatCurrency($totalOutstanding); ?></div>
+            <!-- Invoice Insight Cards -->
+            <div class="mw-inv-insights">
+
+                <!-- Card 1: Aging Pipeline -->
+                <div class="mw-inv-card">
+                    <div class="mw-inv-card-label">Outstanding</div>
+                    <div class="mw-inv-card-value"><?php echo formatCurrency($totalOutstanding); ?></div>
+                    <?php if ($agingTotal > 0): ?>
+                    <div class="mw-inv-aging-bar" title="<?php echo htmlspecialchars(formatCurrency($agingOnTime) . ' on time · ' . formatCurrency($agingLate30) . ' 1–30d · ' . formatCurrency($agingLate31) . ' 31d+'); ?>">
+                        <?php if ($w1 > 0): ?><div class="mw-inv-aging-seg-blue"  style="width:<?php echo $w1; ?>%"></div><?php endif; ?>
+                        <?php if ($w2 > 0): ?><div class="mw-inv-aging-seg-amber" style="width:<?php echo $w2; ?>%"></div><?php endif; ?>
+                        <?php if ($w3 > 0): ?><div class="mw-inv-aging-seg-red"   style="width:<?php echo $w3; ?>%"></div><?php endif; ?>
+                    </div>
+                    <div class="mw-inv-aging-labels">
+                        <?php if ($agingOnTime > 0): ?><span class="blue"><?php echo htmlspecialchars(formatCurrency($agingOnTime)); ?> on time</span><?php endif; ?>
+                        <?php if ($agingLate30 > 0): ?><span class="amber"><?php echo htmlspecialchars(formatCurrency($agingLate30)); ?> 1–30d</span><?php endif; ?>
+                        <?php if ($agingLate31 > 0): ?><span class="red"><?php echo htmlspecialchars(formatCurrency($agingLate31)); ?> 31d+</span><?php endif; ?>
+                    </div>
+                    <?php else: ?>
+                    <div class="mw-inv-card-sub">No outstanding invoices</div>
+                    <?php endif; ?>
                 </div>
-                <div class="mw-stat-card sent">
-                    <h4>Sent</h4>
-                    <div class="value"><?php echo ($statusCounts['sent'] ?? 0) + ($statusCounts['viewed'] ?? 0); ?></div>
+
+                <!-- Card 2: Cash Forecast -->
+                <div class="mw-inv-card">
+                    <div class="mw-inv-card-label">Expected This Week</div>
+                    <?php if ($hasForecastData): ?>
+                    <div class="mw-inv-card-value">~<?php echo formatCurrency($forecastWeek); ?></div>
+                    <div class="mw-inv-card-sub">
+                        ~<?php echo formatCurrency($forecastMonth); ?> in 30 days
+                        &middot; your avg cycle is <?php echo $avgDaysForecast; ?> days
+                    </div>
+                    <?php else: ?>
+                    <div class="mw-inv-card-value mw-inv-card-value--muted">—</div>
+                    <div class="mw-inv-card-sub">Record payments to build your forecast</div>
+                    <?php endif; ?>
                 </div>
-                <div class="mw-stat-card paid">
-                    <h4>Paid</h4>
-                    <div class="value"><?php echo $statusCounts['paid'] ?? 0; ?></div>
+
+                <!-- Card 3: Payment Speed -->
+                <div class="mw-inv-card">
+                    <div class="mw-inv-card-label">Avg Days to Pay</div>
+                    <?php if ($hasPaidHistory && $avgDays !== null): ?>
+                    <div class="mw-inv-card-value"><?php echo $avgDays; ?> <span class="mw-inv-card-unit">days</span></div>
+                    <?php if ($velocityDelta !== null): ?>
+                    <div class="mw-inv-card-trend <?php echo $velocityDelta > 0 ? 'up' : ($velocityDelta < 0 ? 'down' : 'neutral'); ?>">
+                        <?php if ($velocityDelta > 0): ?>
+                            ↓ <?php echo abs($velocityDelta); ?>d faster than last month
+                        <?php elseif ($velocityDelta < 0): ?>
+                            ↑ <?php echo abs($velocityDelta); ?>d slower than last month
+                        <?php else: ?>
+                            Same pace as last month
+                        <?php endif; ?>
+                    </div>
+                    <?php endif; ?>
+                    <?php if ($unopenedCount > 0): ?>
+                    <div class="mw-inv-card-sub"><?php echo $unopenedCount; ?> sent but never opened</div>
+                    <?php endif; ?>
+                    <?php else: ?>
+                    <div class="mw-inv-card-value mw-inv-card-value--muted">—</div>
+                    <div class="mw-inv-card-sub">Not enough data yet</div>
+                    <?php endif; ?>
                 </div>
-                <div class="mw-stat-card overdue">
-                    <h4>Overdue</h4>
-                    <div class="value"><?php echo $statusCounts['overdue'] ?? 0; ?></div>
+
+                <!-- Card 4: Revenue Pulse -->
+                <div class="mw-inv-card">
+                    <div class="mw-inv-card-label">Invoiced This Month</div>
+                    <div class="mw-inv-card-value"><?php echo formatCurrency($thisMonthRev); ?></div>
+                    <?php if ($revTrendPct !== null): ?>
+                    <div class="mw-inv-card-trend <?php echo $revTrendPct > 0 ? 'up' : ($revTrendPct < 0 ? 'down' : 'neutral'); ?>">
+                        <?php if ($revTrendPct > 0): ?>↑ +<?php echo $revTrendPct; ?>%<?php elseif ($revTrendPct < 0): ?>↓ <?php echo $revTrendPct; ?>%<?php else: ?>—<?php endif; ?> vs <?php echo $lastMonthName; ?>
+                    </div>
+                    <?php endif; ?>
+                    <?php if (!empty($sparkRows)): ?>
+                    <div class="mw-inv-sparkline">
+                        <?php foreach ($sparkRows as $sr):
+                            $barH = $sparkMax > 0 ? max(4, (int)round(((float)$sr['total'] / $sparkMax) * 36)) : 4;
+                        ?>
+                        <div class="mw-inv-spark-wrap" title="<?php echo htmlspecialchars($sr['label'] . ': ' . formatCurrency($sr['total'])); ?>">
+                            <div class="mw-inv-spark-bar <?php echo $sr['mk'] === $currentMonthKey ? 'current' : ''; ?>" style="height:<?php echo $barH; ?>px"></div>
+                            <div class="mw-inv-spark-label"><?php echo htmlspecialchars(substr($sr['label'], 0, 1)); ?></div>
+                        </div>
+                        <?php endforeach; ?>
+                    </div>
+                    <?php endif; ?>
                 </div>
+
             </div>
+
+            <?php if ((int)$attention['cnt'] > 0): ?>
+            <div class="mw-inv-attention-banner">
+                <i data-feather="alert-triangle" class="mw-inv-attn-icon"></i>
+                <div class="mw-inv-attn-text">
+                    <strong><?php echo (int)$attention['cnt']; ?> invoice<?php echo (int)$attention['cnt'] !== 1 ? 's' : ''; ?></strong>
+                    sent 14+ days ago <?php echo (int)$attention['cnt'] !== 1 ? 'are' : 'is'; ?> unpaid —
+                    <?php echo htmlspecialchars(formatCurrency($attention['total'])); ?> at risk
+                </div>
+                <a href="?" class="mw-inv-attn-link">View all <i data-feather="arrow-right" style="width:14px;height:14px;vertical-align:middle;"></i></a>
+            </div>
+            <?php endif; ?>
+
+            <?php if ($showMixCard): ?>
+            <div class="mw-inv-mix-card">
+                <div class="mw-inv-mix-header">
+                    <div>
+                        <div class="mw-inv-card-label">Sales Mix — Recurring vs One-off</div>
+                        <div class="mw-inv-mix-subtitle">YTD comparison (Jan 1 → today vs same period last year)</div>
+                    </div>
+                    <?php if ($mixShift !== null && abs($mixShift) > 10): ?>
+                    <div class="mw-inv-mix-shift <?php echo $mixShift < 0 ? 'warning' : 'positive'; ?>">
+                        <?php if ($mixShift < 0): ?>
+                            Recurring share down <?php echo abs($mixShift); ?> pts vs last year — worth reviewing client retention
+                        <?php else: ?>
+                            Recurring share up <?php echo abs($mixShift); ?> pts vs last year — strong loyalty
+                        <?php endif; ?>
+                    </div>
+                    <?php endif; ?>
+                </div>
+                <div class="mw-inv-mix-body">
+                    <?php
+                    $mixYearsToShow = [];
+                    if ($mixLast && $mixLast['grand_total'] > 0) $mixYearsToShow[] = ['year' => $lastYear, 'data' => $mixLast, 'rpct' => $recurPctLast ?? 0];
+                    if ($mixThis && $mixThis['grand_total'] > 0)  $mixYearsToShow[] = ['year' => $thisYear, 'data' => $mixThis, 'rpct' => $recurPctThis ?? 0];
+                    foreach ($mixYearsToShow as $mx):
+                        $rPct = $mx['rpct'];
+                        $oPct = 100 - $rPct;
+                    ?>
+                    <div class="mw-inv-mix-col">
+                        <div class="mw-inv-mix-bar">
+                            <div class="mw-inv-mix-seg-recurring" style="height:<?php echo $rPct; ?>%" title="Recurring: <?php echo htmlspecialchars(formatCurrency($mx['data']['recurring_total'])); ?>">
+                                <?php if ($rPct >= 15): ?><span><?php echo $rPct; ?>%</span><?php endif; ?>
+                            </div>
+                            <div class="mw-inv-mix-seg-onetime" style="height:<?php echo $oPct; ?>%" title="One-off: <?php echo htmlspecialchars(formatCurrency($mx['data']['onetime_total'])); ?>">
+                                <?php if ($oPct >= 15): ?><span><?php echo $oPct; ?>%</span><?php endif; ?>
+                            </div>
+                        </div>
+                        <div class="mw-inv-mix-year-label"><?php echo $mx['year']; ?></div>
+                        <div class="mw-inv-mix-total"><?php echo htmlspecialchars(formatCurrency($mx['data']['grand_total'])); ?></div>
+                    </div>
+                    <?php endforeach; ?>
+                    <div class="mw-inv-mix-legend">
+                        <span class="mw-inv-mix-legend-item recurring"><span class="dot"></span> Recurring plans</span>
+                        <span class="mw-inv-mix-legend-item onetime"><span class="dot"></span> One-off jobs</span>
+                    </div>
+                </div>
+                <?php if (count($mixYearsToShow) === 1 && $mixYearsToShow[0]['year'] === $thisYear): ?>
+                <div class="mw-inv-mix-firstyear">First year — mix tracking begins. Check back next year for YoY comparison.</div>
+                <?php endif; ?>
+            </div>
+            <?php endif; ?>
 
             <!-- Filters + search -->
             <div class="d-flex flex-wrap align-items-center mb-3" style="gap: 16px;">
