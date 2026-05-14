@@ -35,15 +35,29 @@ try {
     $canEdit = userHasPermission('expenses.edit');
     $canSend = userHasPermission('expenses.send');
 
-    $db = getDB();
-
-    // Determine action
+    // Determine action and decode input
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         $action = $_GET['action'] ?? '';
+        $input  = null;
     } else {
-        $input = json_decode(file_get_contents('php://input'), true);
+        $input  = json_decode(file_get_contents('php://input'), true);
         $action = $input['action'] ?? '';
     }
+
+    // Verify CSRF for write actions while session is still open
+    $writeActions = ['create', 'update', 'delete', 'merge', 'merge_receipt', 'link_product',
+                     'approve', 'reject', 'batch_forward', 'reassign_job', 'rescan',
+                     'add_line_item', 'delete_line_item', 'qb_retry'];
+    if ($input !== null && in_array($action, $writeActions, true)) {
+        if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
+            throw new Exception('Invalid security token');
+        }
+    }
+
+    // Release session lock before DB work so concurrent requests don't queue
+    session_write_close();
+
+    $db = getDB();
 
     switch ($action) {
         case 'list':
@@ -403,10 +417,6 @@ function handleCreate(PDO $db, ?array $input, array $user): void
 {
     if (!$input) throw new Exception('No data provided');
 
-    if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
-        throw new Exception('Invalid security token');
-    }
-
     $expenseDate = $input['expense_date'] ?? date('Y-m-d');
     $total       = (float)($input['total'] ?? 0);
 
@@ -560,7 +570,6 @@ function handleCreate(PDO $db, ?array $input, array $user): void
 function handleReassignJob(PDO $db, ?array $input): void
 {
     if (!$input) throw new Exception('No data provided');
-    if (!verifyCSRFToken($input['csrf_token'] ?? '')) throw new Exception('Invalid security token');
 
     $id = (int)($input['id'] ?? 0);
     if (!$id) throw new Exception('Expense ID required');
@@ -578,10 +587,6 @@ function handleReassignJob(PDO $db, ?array $input): void
 function handleUpdate(PDO $db, ?array $input, array $user): void
 {
     if (!$input) throw new Exception('No data provided');
-
-    if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
-        throw new Exception('Invalid security token');
-    }
 
     $id = (int)($input['id'] ?? 0);
     if (!$id) throw new Exception('Expense ID required');
@@ -717,9 +722,6 @@ function handleUpdate(PDO $db, ?array $input, array $user): void
 
 function handleDelete(PDO $db, ?array $input): void
 {
-    if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
-        throw new Exception('Invalid security token');
-    }
 
     $id = (int)($input['id'] ?? 0);
     if (!$id) throw new Exception('Expense ID required');
@@ -870,7 +872,6 @@ function handleCheckDuplicates(PDO $db): void
 function handleMergeExpenses(PDO $db, ?array $input): void
 {
     if (!$input) throw new Exception('No data provided');
-    if (!verifyCSRFToken($input['csrf_token'] ?? '')) throw new Exception('Invalid security token');
 
     $keepId    = (int)($input['keep_id']    ?? 0);
     $discardId = (int)($input['discard_id'] ?? 0);
@@ -952,10 +953,6 @@ function handleMergeReceipt(PDO $db, ?array $input): void
 {
     if (!$input) throw new Exception('No data provided');
 
-    if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
-        throw new Exception('Invalid security token');
-    }
-
     $targetId = (int)($input['target_id'] ?? 0);
     if (!$targetId) throw new Exception('Target expense ID required');
 
@@ -988,10 +985,6 @@ function handleMergeReceipt(PDO $db, ?array $input): void
 function handleLinkProduct(PDO $db, ?array $input): void
 {
     if (!$input) throw new Exception('No data provided');
-
-    if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
-        throw new Exception('Invalid security token');
-    }
 
     $lineItemId = (int)($input['line_item_id'] ?? 0);
     if (!$lineItemId) throw new Exception('Line item ID required');
@@ -1255,9 +1248,6 @@ function handlePriceTrend(PDO $db): void
 function handleApprove(PDO $db, ?array $input, array $user): void
 {
     if (!$input) throw new Exception('No data provided');
-    if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
-        throw new Exception('Invalid security token');
-    }
 
     $id = (int)($input['id'] ?? 0);
     if (!$id) throw new Exception('Expense ID required');
@@ -1293,9 +1283,6 @@ function handleApprove(PDO $db, ?array $input, array $user): void
 function handleReject(PDO $db, ?array $input, array $user): void
 {
     if (!$input) throw new Exception('No data provided');
-    if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
-        throw new Exception('Invalid security token');
-    }
 
     $id = (int)($input['id'] ?? 0);
     if (!$id) throw new Exception('Expense ID required');
@@ -1488,9 +1475,6 @@ function handleSearchJobs(PDO $db): void
 function handleRescan(PDO $db, ?array $input, array $user): void
 {
     if (!$input) throw new Exception('No data provided');
-    if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
-        throw new Exception('Invalid security token');
-    }
 
     $expenseId = (int)($input['expense_id'] ?? 0);
     if (!$expenseId) throw new Exception('Expense ID required');
@@ -1612,9 +1596,6 @@ function handleRescan(PDO $db, ?array $input, array $user): void
 function handleAddLineItem(PDO $db, ?array $input): void
 {
     if (!$input) throw new Exception('No data provided');
-    if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
-        throw new Exception('Invalid security token');
-    }
 
     $expenseId = (int)($input['expense_id'] ?? 0);
     if (!$expenseId) throw new Exception('Expense ID required');
@@ -1671,9 +1652,6 @@ function handleAddLineItem(PDO $db, ?array $input): void
 function handleDeleteLineItem(PDO $db, ?array $input): void
 {
     if (!$input) throw new Exception('No data provided');
-    if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
-        throw new Exception('Invalid security token');
-    }
 
     $lineItemId = (int)($input['line_item_id'] ?? 0);
     if (!$lineItemId) throw new Exception('Line item ID required');
