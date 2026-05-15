@@ -19074,6 +19074,18 @@ body.mw-no-scroll {
 }
 
 
+/* ── Geofence draw vertex (draggable node style) ─────────────────────────── */
+/* Overrides Leaflet's .leaflet-div-icon defaults (white bg, grey border)    */
+.gm-draw-vertex {
+    background:    #7FD858;
+    border:        2px solid #0D3B2E;
+    border-radius: 50%;
+    box-sizing:    border-box;
+    cursor:        grab;
+}
+.gm-draw-vertex:active { cursor: grabbing; }
+
+
 /* ══════════════════════════════════════════════════════════════════════════════
    CONTRACT VIEW — Property Border Setup Card & Confirmed State
    /crm/contracts/view.php

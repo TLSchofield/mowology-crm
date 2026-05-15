@@ -705,6 +705,7 @@ if ($hasPropCoords && !$hasBorder) {
     var ctrRing       = null;
     var ctrIsSaving   = false;
     var ctrVertices   = 0;
+    var ctrPropMarker = null;
 
     document.addEventListener('DOMContentLoaded', function() {
         $('#ctrBorderModal').on('shown.bs.modal', function() {
@@ -743,7 +744,7 @@ if ($hasPropCoords && !$hasBorder) {
 
         // Property location marker — shows exactly which lot to trace
         if (ctrMgr._map) {
-            var propMarker = L.circleMarker([CTR_PROP_LAT, CTR_PROP_LNG], {
+            ctrPropMarker = L.circleMarker([CTR_PROP_LAT, CTR_PROP_LNG], {
                 radius:      16,
                 color:       '#e85d04',
                 weight:      3,
@@ -783,6 +784,7 @@ if ($hasPropCoords && !$hasBorder) {
         if (!ctrMgr) return;
         ctrRing     = null;
         ctrVertices = 0;
+        if (ctrPropMarker) ctrPropMarker.closeTooltip();
         ctrMgr.startDraw();
         document.getElementById('ctr-draw-btn').style.display   = 'none';
         document.getElementById('ctr-cancel-btn').style.display  = 'inline-flex';

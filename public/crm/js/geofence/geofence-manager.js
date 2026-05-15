@@ -249,28 +249,39 @@ class GeofenceManager {
         const { lat, lng } = e.latlng;
 
         this._drawLatLngs.push([lat, lng]);
+        const idx = this._drawLatLngs.length - 1;
 
-        // Marker for each vertex
-        const marker = L.circleMarker([lat, lng], {
-            radius:      5,
-            color:       '#0D3B2E',
-            fillColor:   '#7FD858',
-            fillOpacity: 1,
-            weight:      2,
+        // Draggable vertex marker
+        const marker = L.marker([lat, lng], {
+            draggable: true,
+            icon: L.divIcon({
+                className:  'gm-draw-vertex',
+                iconSize:   [12, 12],
+                iconAnchor: [6, 6],
+            }),
         }).addTo(this._map);
-        this._drawMarkers.push(marker);
 
-        // Update preview polyline
+        marker.on('drag', (ev) => {
+            const ll = ev.target.getLatLng();
+            this._drawLatLngs[idx] = [ll.lat, ll.lng];
+            this._redrawPreviewLine();
+        });
+
+        this._drawMarkers.push(marker);
+        this._redrawPreviewLine();
+
+        // Double-click is handled via map.on('dblclick') — nothing to do here
+    }
+
+    _redrawPreviewLine() {
         if (this._drawLine) this._map.removeLayer(this._drawLine);
         if (this._drawLatLngs.length > 1) {
             this._drawLine = L.polyline(this._drawLatLngs, {
-                color: this._opts.strokeColor,
-                weight: 2,
+                color:     this._opts.strokeColor,
+                weight:    2,
                 dashArray: '5 5',
             }).addTo(this._map);
         }
-
-        // Double-click is handled via map.on('dblclick') — nothing to do here
     }
 
     _finishDraw() {
