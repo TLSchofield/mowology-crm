@@ -493,6 +493,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
         }
         exit;
 
+    } elseif ($requestAction === 'relink_property') {
+        if (!verifyCSRFToken($jsonData['csrf_token'] ?? '')) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+            exit;
+        }
+        $rlPropId     = intval($jsonData['property_id'] ?? 0);
+        $rlContactId  = intval($jsonData['contact_id'] ?? 0);
+        if (!$rlPropId || !$rlContactId) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'property_id and contact_id required']);
+            exit;
+        }
+        try {
+            $db->prepare("UPDATE properties SET site_contact_id = ?, status = 'active' WHERE id = ?")
+               ->execute([$rlContactId, $rlPropId]);
+            echo json_encode(['success' => true, 'rows' => $db->query("SELECT ROW_COUNT()")->fetchColumn()]);
+        } catch (PDOException $e) {
+            http_response_code(500);
+            echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+        }
+        exit;
+
     } elseif ($requestAction === 'merge_property') {
         if (!verifyCSRFToken($jsonData['csrf_token'] ?? '')) {
             http_response_code(400);
@@ -510,6 +533,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
         }
 
         try {
+            // Fetch contact links before starting transaction (DDL-safe)
+            $dropRow = $db->prepare("SELECT site_contact_id FROM properties WHERE id = ? LIMIT 1");
+            $dropRow->execute([$dropId]);
+            $dropRow = $dropRow->fetch(PDO::FETCH_ASSOC);
+
+            $keepRow = $db->prepare("SELECT site_contact_id FROM properties WHERE id = ? LIMIT 1");
+            $keepRow->execute([$keepId]);
+            $keepRow = $keepRow->fetch(PDO::FETCH_ASSOC);
+
             $db->beginTransaction();
             foreach (['quotes', 'job_plans', 'contracts', 'invoices'] as $tbl) {
                 try {
@@ -521,6 +553,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
                 $db->prepare("UPDATE company_properties SET property_id = ? WHERE property_id = ?")
                    ->execute([$keepId, $dropId]);
             } catch (PDOException $e) { /* ignore */ }
+            // Inherit the contact link if the kept property has none, and ensure it's active
+            $inheritContactId = !empty($dropRow['site_contact_id']) && empty($keepRow['site_contact_id'])
+                ? $dropRow['site_contact_id'] : null;
+            if ($inheritContactId) {
+                $db->prepare("UPDATE properties SET site_contact_id = ?, status = 'active' WHERE id = ?")
+                   ->execute([$inheritContactId, $keepId]);
+            } else {
+                $db->prepare("UPDATE properties SET status = 'active' WHERE id = ?")
+                   ->execute([$keepId]);
+            }
             $db->prepare("UPDATE properties SET status = 'inactive', site_contact_id = NULL WHERE id = ?")
                ->execute([$dropId]);
             $db->commit();
