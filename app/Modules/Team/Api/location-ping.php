@@ -35,14 +35,10 @@ try {
     require_once APP_ROOT . '/Core/config.php';
     require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
 
-    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-        http_response_code(405);
-        echo json_encode(['error' => 'POST required']);
-        exit;
-    }
-
     // Auth — try JWT Bearer first, then fall back to session cookie.
     // Either path resolves to $userId; missing both → 401.
+    // Auth runs BEFORE the method check so any unauthenticated probe gets a
+    // uniform 401 (verify step in the deploy spec relies on this).
     $userId = 0;
     $jwtUser = getJwtUser();
     if ($jwtUser && !empty($jwtUser['id'])) {
@@ -58,6 +54,12 @@ try {
     if ($userId <= 0) {
         http_response_code(401);
         echo json_encode(['error' => 'Unauthorized', 'code' => 'no_auth']);
+        exit;
+    }
+
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        http_response_code(405);
+        echo json_encode(['error' => 'POST required']);
         exit;
     }
 
