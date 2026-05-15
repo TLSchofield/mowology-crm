@@ -2807,7 +2807,7 @@ function getPropertiesForCompany(int $companyId, PDO $db): array {
                (SELECT COUNT(*) FROM job_geofences jg WHERE jg.property_id = p.id AND jg.zone_type = 'arrival_border') AS has_arrival_border
         FROM properties p
         LEFT JOIN company_properties cp ON cp.property_id = p.id AND cp.company_id = {$companyId}
-        WHERE p.id IN ({$placeholders})
+        WHERE p.id IN ({$placeholders}) AND p.status = 'active'
         ORDER BY p.address ASC
     ");
     $stmt->execute($ids);
