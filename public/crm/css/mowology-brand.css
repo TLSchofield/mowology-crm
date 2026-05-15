@@ -28171,3 +28171,9 @@ body.mw-no-scroll {
   border-radius: 4px;
   font-size: .875rem;
 }
+
+/* Selected property card highlight (company view) */
+.mw-contact-property-item.mw-prop-selected {
+  background: var(--mw-light);
+  border-left: 3px solid var(--mw-green);
+}

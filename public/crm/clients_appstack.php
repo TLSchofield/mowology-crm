@@ -1771,27 +1771,25 @@ if ($action === 'view_company' && $clientId) {
             }
         }
 
-        // ── Route Intelligence — nearby clients for company properties ────────
-        $compNearbyClients = [];
+        // ── Route Intelligence — per-property nearby clients ─────────────────
+        // Fetch one broad pool covering all geocoded properties, then slice per property.
+        $compRouteIntelByProp = [];  // [propId => {within2km, within5km, avgDist, density, clients[]}]
+        $compHasRouteIntel = false;
         try {
-            $cLat = 0; $cLng = 0; $cGeo = 0;
-            foreach ($companyProperties as $cp) {
-                $lat = floatval($cp['latitude'] ?? 0);
-                $lng = floatval($cp['longitude'] ?? 0);
-                if ($lat != 0 && $lng != 0) { $cLat += $lat; $cLng += $lng; $cGeo++; }
-            }
-            if ($cGeo > 0) {
-                $cLat /= $cGeo; $cLng /= $cGeo;
-                $latD = 0.09; $lngD = 0.09 / cos(deg2rad($cLat));
+            $geocodedProps = array_filter($companyProperties, function($cp) {
+                return floatval($cp['latitude'] ?? 0) != 0 && floatval($cp['longitude'] ?? 0) != 0;
+            });
+            if (!empty($geocodedProps)) {
+                // Bounding box: min/max across all properties + 0.12° padding (~13km)
+                $allLats = array_map(function($p) { return floatval($p['latitude']); }, $geocodedProps);
+                $allLngs = array_map(function($p) { return floatval($p['longitude']); }, $geocodedProps);
+                $pad = 0.12;
                 $riStmt = $db->prepare("
                     SELECT p.id AS property_id, p.address, p.city, p.latitude, p.longitude,
                            c.id AS contact_id, c.first_name, c.last_name,
                            GROUP_CONCAT(DISTINCT jp.service_type SEPARATOR ', ') AS service_types,
                            COUNT(DISTINCT jp.id) AS active_plan_count,
-                           SUM(jp.price_per_visit) AS total_per_visit,
-                           (SELECT COUNT(*) FROM job_visits jv2 WHERE jv2.plan_id IN (
-                               SELECT jp2.id FROM job_plans jp2 WHERE jp2.property_id = p.id AND jp2.status = 'active'
-                           ) AND jv2.status = 'completed') AS completed_visits
+                           SUM(jp.price_per_visit) AS total_per_visit
                     FROM properties p
                     JOIN contacts c ON p.site_contact_id = c.id
                     JOIN job_plans jp ON jp.property_id = p.id AND jp.status = 'active'
@@ -1799,22 +1797,39 @@ if ($action === 'view_company' && $clientId) {
                       AND p.longitude BETWEEN ? AND ?
                       AND p.latitude != 0 AND p.longitude != 0
                     GROUP BY p.id
-                    ORDER BY p.latitude ASC
-                    LIMIT 50
+                    LIMIT 100
                 ");
-                $riStmt->execute([$cLat - $latD, $cLat + $latD, $cLng - $lngD, $cLng + $lngD]);
-                $riRaw = $riStmt->fetchAll(PDO::FETCH_ASSOC);
-                foreach ($riRaw as &$nb) {
-                    $dLat = deg2rad(floatval($nb['latitude']) - $cLat);
-                    $dLng = deg2rad(floatval($nb['longitude']) - $cLng);
-                    $a = sin($dLat/2)**2 + cos(deg2rad($cLat)) * cos(deg2rad(floatval($nb['latitude']))) * sin($dLng/2)**2;
-                    $nb['distance_km'] = round(6371.0 * 2 * atan2(sqrt($a), sqrt(1-$a)), 2);
+                $riStmt->execute([min($allLats) - $pad, max($allLats) + $pad, min($allLngs) - $pad, max($allLngs) + $pad]);
+                $riPool = $riStmt->fetchAll(PDO::FETCH_ASSOC);
+
+                foreach ($geocodedProps as $gp) {
+                    $pLat = floatval($gp['latitude']); $pLng = floatval($gp['longitude']);
+                    $nearby = [];
+                    foreach ($riPool as $nb) {
+                        $dLat = deg2rad(floatval($nb['latitude']) - $pLat);
+                        $dLng = deg2rad(floatval($nb['longitude']) - $pLng);
+                        $a = sin($dLat/2)**2 + cos(deg2rad($pLat)) * cos(deg2rad(floatval($nb['latitude']))) * sin($dLng/2)**2;
+                        $dist = round(6371.0 * 2 * atan2(sqrt($a), sqrt(1-$a)), 2);
+                        if ($dist <= 10) {
+                            $row = $nb;
+                            $row['distance_km'] = $dist;
+                            $nearby[] = $row;
+                        }
+                    }
+                    usort($nearby, function($a, $b) { return $a['distance_km'] <=> $b['distance_km']; });
+                    $nearby = array_slice($nearby, 0, 15);
+                    $w2 = count(array_filter($nearby, function($n) { return $n['distance_km'] <= 2; }));
+                    $w5 = count(array_filter($nearby, function($n) { return $n['distance_km'] <= 5; }));
+                    $avg = count($nearby) ? round(array_sum(array_column($nearby, 'distance_km')) / count($nearby), 1) : 0;
+                    $compRouteIntelByProp[(int)$gp['id']] = [
+                        'within2km' => $w2, 'within5km' => $w5, 'avgDist' => $avg,
+                        'density'   => $w2 >= 5 ? 'High' : ($w2 >= 2 ? 'Medium' : 'Low'),
+                        'clients'   => $nearby,
+                    ];
+                    if (!empty($nearby)) $compHasRouteIntel = true;
                 }
-                unset($nb);
-                usort($riRaw, function($a, $b) { return $a['distance_km'] <=> $b['distance_km']; });
-                $compNearbyClients = array_slice($riRaw, 0, 15);
             }
-        } catch (Exception $e) { $compNearbyClients = []; }
+        } catch (Exception $e) { $compRouteIntelByProp = []; }
 
         // Duplicate detection for company properties (same address normalization as contact view)
         $compNormAddressMap = [];
@@ -5204,53 +5219,16 @@ $unconvertedRequests = $db->query("
                   </div>
                 </div>
 
-                <!-- Route Intelligence Card -->
-                <?php if (!empty($compNearbyClients)): ?>
-                <?php
-                  $compWithin2km  = count(array_filter($compNearbyClients, function($n) { return $n['distance_km'] <= 2; }));
-                  $compWithin5km  = count(array_filter($compNearbyClients, function($n) { return $n['distance_km'] <= 5; }));
-                  $compAvgDist    = count($compNearbyClients) ? round(array_sum(array_column($compNearbyClients, 'distance_km')) / count($compNearbyClients), 1) : 0;
-                  $compDensity    = $compWithin2km >= 5 ? 'High' : ($compWithin2km >= 2 ? 'Medium' : 'Low');
-                  $compDensityClr = $compWithin2km >= 5 ? 'var(--mw-green)' : ($compWithin2km >= 2 ? '#F59E0B' : '#DC2626');
-                ?>
-                <div class="card mb-3">
-                  <div class="card-header">
+                <!-- Route Intelligence Card — JS-driven, updates on property selection -->
+                <?php if ($compHasRouteIntel): ?>
+                <div class="card mb-3" id="compRouteIntelCard">
+                  <div class="card-header d-flex align-items-center justify-content-between">
                     <h5 class="card-title mb-0"><i data-feather="navigation"></i> Route Intelligence</h5>
+                    <small class="text-muted" id="compRouteIntelLabel"></small>
                   </div>
                   <div class="card-body p-0">
-                    <div class="mw-route-intel-stats">
-                      <div class="mw-route-intel-stat">
-                        <span class="mw-route-intel-stat-value"><?php echo $compWithin2km; ?></span>
-                        <span class="mw-route-intel-stat-label">Within 2 km</span>
-                      </div>
-                      <div class="mw-route-intel-stat">
-                        <span class="mw-route-intel-stat-value"><?php echo $compWithin5km; ?></span>
-                        <span class="mw-route-intel-stat-label">Within 5 km</span>
-                      </div>
-                      <div class="mw-route-intel-stat">
-                        <span class="mw-route-intel-stat-value"><?php echo $compAvgDist; ?><small>km</small></span>
-                        <span class="mw-route-intel-stat-label">Avg Distance</span>
-                      </div>
-                      <div class="mw-route-intel-stat">
-                        <span class="mw-route-intel-stat-value" style="color:<?php echo $compDensityClr; ?>"><?php echo $compDensity; ?></span>
-                        <span class="mw-route-intel-stat-label">Route Density</span>
-                      </div>
-                    </div>
-                    <div class="mw-route-intel-clients">
-                      <?php foreach (array_slice($compNearbyClients, 0, 8) as $nc): ?>
-                        <?php $planIcons = []; if (!empty($nc['service_types'])) { foreach (explode(', ', $nc['service_types']) as $st) { $planIcons[] = ucwords(str_replace('_', ' ', trim($st))); } } ?>
-                        <a href="clients_appstack.php?action=view_contact&id=<?php echo (int)$nc['contact_id']; ?>" class="mw-route-intel-client">
-                          <span class="mw-route-intel-dist"><?php echo $nc['distance_km']; ?>km</span>
-                          <span class="mw-route-intel-name">
-                            <?php echo h(trim($nc['first_name'] . ' ' . $nc['last_name'])); ?>
-                            <?php if (!empty($planIcons)): ?><small class="text-muted ml-1"><?php echo h(implode(' · ', array_slice($planIcons, 0, 2))); ?></small><?php endif; ?>
-                          </span>
-                          <?php if ($nc['active_plan_count'] > 0): ?>
-                            <span class="mw-route-intel-plan"><?php echo (int)$nc['active_plan_count']; ?> plan<?php echo $nc['active_plan_count'] > 1 ? 's' : ''; ?></span>
-                          <?php endif; ?>
-                        </a>
-                      <?php endforeach; ?>
-                    </div>
+                    <div class="mw-route-intel-stats" id="compRouteIntelStats"></div>
+                    <div class="mw-route-intel-clients" id="compRouteIntelClients"></div>
                   </div>
                 </div>
                 <?php endif; ?>
@@ -5780,13 +5758,76 @@ $unconvertedRequests = $db->query("
                 }
               }
 
+              // Per-property route intelligence data
+              var compRouteIntelData = <?php echo json_encode($compRouteIntelByProp); ?>;
+
+              function renderCompRouteIntel(propertyId) {
+                var card = document.getElementById('compRouteIntelCard');
+                if (!card) return;
+                var data = compRouteIntelData[propertyId];
+                if (!data || !data.clients || !data.clients.length) {
+                  card.style.display = 'none';
+                  return;
+                }
+                card.style.display = '';
+                // Find property address for the label
+                var prop = companyPropertiesData.find(function(p) { return p.id == propertyId; });
+                var label = document.getElementById('compRouteIntelLabel');
+                if (label && prop) label.textContent = prop.address;
+
+                var densityColor = data.density === 'High' ? 'var(--mw-green)' : (data.density === 'Medium' ? '#F59E0B' : '#DC2626');
+                document.getElementById('compRouteIntelStats').innerHTML =
+                  '<div class="mw-route-intel-stat"><span class="mw-route-intel-stat-value">' + data.within2km + '</span><span class="mw-route-intel-stat-label">Within 2 km</span></div>' +
+                  '<div class="mw-route-intel-stat"><span class="mw-route-intel-stat-value">' + data.within5km + '</span><span class="mw-route-intel-stat-label">Within 5 km</span></div>' +
+                  '<div class="mw-route-intel-stat"><span class="mw-route-intel-stat-value">' + data.avgDist + '<small>km</small></span><span class="mw-route-intel-stat-label">Avg Distance</span></div>' +
+                  '<div class="mw-route-intel-stat"><span class="mw-route-intel-stat-value" style="color:' + densityColor + '">' + data.density + '</span><span class="mw-route-intel-stat-label">Route Density</span></div>';
+
+                document.getElementById('compRouteIntelClients').innerHTML = data.clients.slice(0, 8).map(function(nc) {
+                  var name = (nc.first_name + ' ' + nc.last_name).trim();
+                  var plans = nc.active_plan_count > 0 ? '<span class="mw-route-intel-plan">' + nc.active_plan_count + ' plan' + (nc.active_plan_count > 1 ? 's' : '') + '</span>' : '';
+                  var svc = nc.service_types ? '<small class="text-muted ml-1">' + nc.service_types.split(', ').slice(0,2).map(function(s){ return s.replace(/_/g,' '); }).join(' · ') + '</small>' : '';
+                  return '<a href="clients_appstack.php?action=view_contact&id=' + nc.contact_id + '" class="mw-route-intel-client">' +
+                    '<span class="mw-route-intel-dist">' + nc.distance_km + 'km</span>' +
+                    '<span class="mw-route-intel-name">' + name + svc + '</span>' +
+                    plans + '</a>';
+                }).join('');
+              }
+
               window.focusCompanyProperty = function(propertyId) {
-                if (!compGmap || !compMarkers[propertyId]) return;
-                var marker = compMarkers[propertyId];
-                compGmap.panTo(marker.getPosition());
-                compGmap.setZoom(16);
-                google.maps.event.trigger(marker, 'click');
+                // Highlight the selected property card
+                document.querySelectorAll('.mw-contact-property-item').forEach(function(el) {
+                  el.classList.remove('mw-prop-selected');
+                });
+                var clickedCard = document.querySelector('[onclick="focusCompanyProperty(' + propertyId + ')"]');
+                if (clickedCard) clickedCard.classList.add('mw-prop-selected');
+
+                // Pan map
+                if (compGmap && compMarkers[propertyId]) {
+                  var marker = compMarkers[propertyId];
+                  compGmap.panTo(marker.getPosition());
+                  compGmap.setZoom(16);
+                  google.maps.event.trigger(marker, 'click');
+                }
+
+                // Update route intelligence
+                renderCompRouteIntel(propertyId);
               };
+
+              // Render route intel for first geocoded property on load
+              <?php
+                $firstGeoPropId = 0;
+                foreach ($companyProperties as $cp) {
+                  if (floatval($cp['latitude'] ?? 0) != 0 && isset($compRouteIntelByProp[(int)$cp['id']])) {
+                    $firstGeoPropId = (int)$cp['id'];
+                    break;
+                  }
+                }
+              ?>
+              if (<?php echo $firstGeoPropId; ?> > 0) {
+                document.addEventListener('DOMContentLoaded', function() {
+                  renderCompRouteIntel(<?php echo $firstGeoPropId; ?>);
+                });
+              }
 
               // Init map on DOMContentLoaded
               document.addEventListener('DOMContentLoaded', function() {
