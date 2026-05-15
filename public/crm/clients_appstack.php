@@ -1796,9 +1796,14 @@ if ($action === 'view_company' && $clientId) {
                     WHERE p.latitude BETWEEN ? AND ?
                       AND p.longitude BETWEEN ? AND ?
                       AND p.latitude != 0 AND p.longitude != 0
+                      AND p.id NOT IN (__EXCL__)
                     GROUP BY p.id
                     LIMIT 100
                 ");
+                $riExcludeIds = array_map('intval', array_column($companyProperties, 'id'));
+                $riExclStr = $riExcludeIds ? implode(',', $riExcludeIds) : '0';
+                $riSql = str_replace('__EXCL__', $riExclStr, $riStmt->queryString);
+                $riStmt = $db->prepare($riSql);
                 $riStmt->execute([min($allLats) - $pad, max($allLats) + $pad, min($allLngs) - $pad, max($allLngs) + $pad]);
                 $riPool = $riStmt->fetchAll(PDO::FETCH_ASSOC);
 
