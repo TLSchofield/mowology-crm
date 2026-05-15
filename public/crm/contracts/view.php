@@ -741,6 +741,29 @@ if ($hasPropCoords && !$hasBorder) {
         });
         ctrMgr.init();
 
+        // Property location marker — shows exactly which lot to trace
+        if (ctrMgr._map) {
+            var propMarker = L.circleMarker([CTR_PROP_LAT, CTR_PROP_LNG], {
+                radius:      10,
+                color:       '#e85d04',
+                weight:      3,
+                fillColor:   '#e85d04',
+                fillOpacity: 0.25,
+            }).addTo(ctrMgr._map);
+            propMarker.bindTooltip(
+                '<strong>Property location</strong><br>Draw the border around this property',
+                { permanent: false, direction: 'top', offset: [0, -10] }
+            );
+            // Outer pulse ring
+            L.circleMarker([CTR_PROP_LAT, CTR_PROP_LNG], {
+                radius:      18,
+                color:       '#e85d04',
+                weight:      1.5,
+                fillOpacity: 0,
+                opacity:     0.4,
+            }).addTo(ctrMgr._map);
+        }
+
         // Track vertices so we can enable Finish button after 3+
         if (ctrMgr._map) {
             ctrMgr._map.on('click', function() {
