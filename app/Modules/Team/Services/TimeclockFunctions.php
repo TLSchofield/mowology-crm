@@ -504,32 +504,37 @@ function recalculateTimesheetTotals($userId, $weekStart) {
     $shiftMinutes = (int)$stmt->fetch(PDO::FETCH_ASSOC)['total'];
 
     // Total job minutes — capped per day by that day's shift minutes.
-    // Prevents runaway auto-started timers from inflating weekly job totals.
+    // Uses JOIN instead of correlated subquery to avoid MySQL GROUP BY / COALESCE edge cases.
+    // If a day has no shift clock entry, job time passes through uncapped (no clock = advisory only).
+    // If shift > 0 and job > shift, cap at shift. If shift = 0, pass through uncapped.
     $stmt = $db->prepare("
         SELECT COALESCE(SUM(
             CASE
-                WHEN daily.day_job_total <= COALESCE(daily.day_shift_total, 0) THEN daily.day_job_total
-                ELSE COALESCE(daily.day_shift_total, daily.day_job_total)
+                WHEN ds.day_shift_total IS NULL OR ds.day_shift_total <= 0 THEN dj.day_job_total
+                WHEN dj.day_job_total <= ds.day_shift_total              THEN dj.day_job_total
+                ELSE ds.day_shift_total
             END
         ), 0) AS capped_job_minutes
         FROM (
             SELECT DATE(jte.start_time) AS work_date,
-                   SUM(jte.duration_minutes) AS day_job_total,
-                   (
-                       SELECT SUM(tce2.total_minutes)
-                       FROM time_clock_entries tce2
-                       WHERE tce2.user_id = jte.user_id
-                         AND DATE(tce2.clock_in) = DATE(jte.start_time)
-                         AND tce2.status IN ('completed', 'edited')
-                   ) AS day_shift_total
+                   SUM(jte.duration_minutes) AS day_job_total
             FROM job_time_entries jte
             WHERE jte.user_id = ?
               AND DATE(jte.start_time) BETWEEN ? AND ?
               AND jte.status IN ('completed', 'edited')
             GROUP BY DATE(jte.start_time)
-        ) AS daily
+        ) AS dj
+        LEFT JOIN (
+            SELECT DATE(tce.clock_in) AS work_date,
+                   SUM(tce.total_minutes) AS day_shift_total
+            FROM time_clock_entries tce
+            WHERE tce.user_id = ?
+              AND DATE(tce.clock_in) BETWEEN ? AND ?
+              AND tce.status IN ('completed', 'edited')
+            GROUP BY DATE(tce.clock_in)
+        ) AS ds ON dj.work_date = ds.work_date
     ");
-    $stmt->execute([$userId, $weekStart, $weekEnd]);
+    $stmt->execute([$userId, $weekStart, $weekEnd, $userId, $weekStart, $weekEnd]);
     $jobMinutes = (int)$stmt->fetch(PDO::FETCH_ASSOC)['capped_job_minutes'];
 
     // Travel = shift time minus job time (rough approximation of non-job time)
