@@ -22,6 +22,11 @@ enum APIError: LocalizedError {
     /// The server returned an error payload with an explanatory message.
     case serverError(String)
 
+    /// The server returned 429 — a business-rule rate limit was hit.
+    /// Carries the server's `error` message (or nil to use the default text).
+    /// This is NOT a developer bug, so APIClient does NOT post it to DevErrorBus.
+    case rateLimited(String?)
+
     /// A URL could not be constructed from the endpoint definition.
     case invalidURL
 
@@ -53,6 +58,8 @@ enum APIError: LocalizedError {
             return "Failed to read server response: \(underlying.localizedDescription)"
         case .serverError(let message):
             return message
+        case .rateLimited(let message):
+            return message ?? "Upload limit reached — please wait a few minutes and try again."
         case .invalidURL:
             return "Invalid API endpoint URL."
         }

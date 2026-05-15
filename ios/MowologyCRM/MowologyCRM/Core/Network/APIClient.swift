@@ -121,6 +121,12 @@ final class APIClient: ObservableObject {
                 throw APIError.unauthorized
             }
 
+            // 429 is a business-rule rejection (rate limit), not a dev bug.
+            // Throw .rateLimited so the alert is friendly and DevErrorBus is skipped.
+            if httpResponse.statusCode == 429 {
+                throw APIError.rateLimited(extractErrorMessage(from: data))
+            }
+
             if !(200..<300).contains(httpResponse.statusCode) {
                 let message = extractErrorMessage(from: data)
                     ?? "Server returned status \(httpResponse.statusCode)."
@@ -188,6 +194,9 @@ final class APIClient: ObservableObject {
 
         if let http = response as? HTTPURLResponse {
             if http.statusCode == 401 { authSession?.logout(); throw APIError.unauthorized }
+            if http.statusCode == 429 {
+                throw APIError.rateLimited(extractErrorMessage(from: data))
+            }
             if !(200..<300).contains(http.statusCode) {
                 let msg = extractErrorMessage(from: data) ?? "Upload failed (\(http.statusCode))"
                 let err = APIError.serverError(msg)
@@ -251,6 +260,9 @@ final class APIClient: ObservableObject {
 
         if let http = response as? HTTPURLResponse {
             if http.statusCode == 401 { authSession?.logout(); throw APIError.unauthorized }
+            if http.statusCode == 429 {
+                throw APIError.rateLimited(extractErrorMessage(from: data))
+            }
             if !(200..<300).contains(http.statusCode) {
                 let msg = extractErrorMessage(from: data) ?? "Job photo upload failed (\(http.statusCode))"
                 let err = APIError.serverError(msg)
@@ -298,6 +310,9 @@ final class APIClient: ObservableObject {
 
         if let http = response as? HTTPURLResponse {
             if http.statusCode == 401 { authSession?.logout(); throw APIError.unauthorized }
+            if http.statusCode == 429 {
+                throw APIError.rateLimited(extractErrorMessage(from: data))
+            }
             if !(200..<300).contains(http.statusCode) {
                 let err = APIError.serverError("Image unavailable (\(http.statusCode))")
                 #if DEBUG
