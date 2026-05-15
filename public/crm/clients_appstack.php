@@ -1791,7 +1791,8 @@ if ($action === 'view_company' && $clientId) {
                            c.id AS contact_id, c.first_name, c.last_name,
                            GROUP_CONCAT(DISTINCT jp.service_type SEPARATOR ', ') AS service_types,
                            COUNT(DISTINCT jp.id) AS active_plan_count,
-                           SUM(jp.price_per_visit) AS total_per_visit
+                           SUM(jp.price_per_visit) AS total_per_visit,
+                           GROUP_CONCAT(jp.recurrence_day_of_week SEPARATOR ',') AS all_dow
                     FROM properties p
                     JOIN contacts c ON p.site_contact_id = c.id
                     JOIN job_plans jp ON jp.property_id = p.id AND jp.status = 'active'
@@ -1825,10 +1826,29 @@ if ($action === 'view_company' && $clientId) {
                     $w2 = count(array_filter($nearby, function($n) { return $n['distance_km'] <= 2; }));
                     $w5 = count(array_filter($nearby, function($n) { return $n['distance_km'] <= 5; }));
                     $avg = count($nearby) ? round(array_sum(array_column($nearby, 'distance_km')) / count($nearby), 1) : 0;
+                    // Best day: tally recurrence_day_of_week across nearby active plans (0=Sun…6=Sat)
+                    $dowTally = [];
+                    foreach ($nearby as $nb) {
+                        if (empty($nb['all_dow'])) continue;
+                        foreach (explode(',', $nb['all_dow']) as $d) {
+                            $d = trim($d);
+                            if ($d === '' || $d === null) continue;
+                            $di = intval($d);
+                            $dowTally[$di] = ($dowTally[$di] ?? 0) + 1;
+                        }
+                    }
+                    $bestDay = null; $bestDayCount = 0;
+                    if (!empty($dowTally)) {
+                        arsort($dowTally);
+                        $bestDay = array_key_first($dowTally);
+                        $bestDayCount = $dowTally[$bestDay];
+                    }
                     $compRouteIntelByProp[(int)$gp['id']] = [
-                        'within2km' => $w2, 'within5km' => $w5, 'avgDist' => $avg,
-                        'density'   => $w2 >= 5 ? 'High' : ($w2 >= 2 ? 'Medium' : 'Low'),
-                        'clients'   => $nearby,
+                        'within2km'    => $w2, 'within5km' => $w5, 'avgDist' => $avg,
+                        'density'      => $w2 >= 5 ? 'High' : ($w2 >= 2 ? 'Medium' : 'Low'),
+                        'bestDay'      => $bestDay,
+                        'bestDayCount' => $bestDayCount,
+                        'clients'      => $nearby,
                     ];
                     if (!empty($nearby)) $compHasRouteIntel = true;
                 }
@@ -5780,11 +5800,16 @@ $unconvertedRequests = $db->query("
                 if (label && prop) label.textContent = prop.address;
 
                 var densityColor = data.density === 'High' ? 'var(--mw-green)' : (data.density === 'Medium' ? '#F59E0B' : '#DC2626');
+                var dowNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+                var bestDayHtml = (data.bestDay !== null && data.bestDay !== undefined)
+                  ? '<div class="mw-route-intel-stat mw-route-intel-stat--best-day"><span class="mw-route-intel-stat-value" style="color:var(--mw-green)">' + dowNames[data.bestDay] + '</span><span class="mw-route-intel-stat-label">Best Day <small>(' + data.bestDayCount + ' plan' + (data.bestDayCount !== 1 ? 's' : '') + ')</small></span></div>'
+                  : '';
                 document.getElementById('compRouteIntelStats').innerHTML =
                   '<div class="mw-route-intel-stat"><span class="mw-route-intel-stat-value">' + data.within2km + '</span><span class="mw-route-intel-stat-label">Within 2 km</span></div>' +
                   '<div class="mw-route-intel-stat"><span class="mw-route-intel-stat-value">' + data.within5km + '</span><span class="mw-route-intel-stat-label">Within 5 km</span></div>' +
                   '<div class="mw-route-intel-stat"><span class="mw-route-intel-stat-value">' + data.avgDist + '<small>km</small></span><span class="mw-route-intel-stat-label">Avg Distance</span></div>' +
-                  '<div class="mw-route-intel-stat"><span class="mw-route-intel-stat-value" style="color:' + densityColor + '">' + data.density + '</span><span class="mw-route-intel-stat-label">Route Density</span></div>';
+                  '<div class="mw-route-intel-stat"><span class="mw-route-intel-stat-value" style="color:' + densityColor + '">' + data.density + '</span><span class="mw-route-intel-stat-label">Route Density</span></div>' +
+                  bestDayHtml;
 
                 document.getElementById('compRouteIntelClients').innerHTML = data.clients.slice(0, 8).map(function(nc) {
                   var name = (nc.first_name + ' ' + nc.last_name).trim();
