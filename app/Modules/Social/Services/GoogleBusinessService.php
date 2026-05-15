@@ -156,6 +156,12 @@ class GoogleBusinessService
     public static function listAccounts(string $accessToken): array
     {
         $data = self::httpGet(self::ACCOUNTS_URL, $accessToken);
+
+        if (isset($data['error'])) {
+            $msg = $data['error']['message'] ?? json_encode($data['error']);
+            throw new RuntimeException('GBP API error: ' . $msg);
+        }
+
         $accounts = $data['accounts'] ?? [];
 
         return array_map(function ($a) {
