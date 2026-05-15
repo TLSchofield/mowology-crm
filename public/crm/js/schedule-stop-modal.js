@@ -348,6 +348,11 @@
                 var stopIdField = document.getElementById('crewAssignStopId');
                 if (stopIdField) stopIdField.value = sid;
                 if (window.$ && $('#crewAssignModal').length) {
+                    hideModal(); // close stop detail first — avoids z-index conflict
+                    // Re-show stop detail on cancel (save path reloads the page so this never fires then)
+                    $('#crewAssignModal').one('hidden.bs.modal', function () {
+                        showModal();
+                    });
                     $('#crewAssignModal').modal('show');
                 }
             });

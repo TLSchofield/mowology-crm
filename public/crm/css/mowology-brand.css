@@ -8093,6 +8093,9 @@ textarea.font-monospace {
 }
 
 /* ── Stop Detail / Crew Assignment Modal (CAM) ───────── */
+#crewAssignModal {
+  z-index: 1070; /* must exceed #mw-stop-modal (1060) */
+}
 .mw-cam-content {
   border: none;
   border-radius: 12px;
