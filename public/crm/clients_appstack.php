@@ -1826,28 +1826,47 @@ if ($action === 'view_company' && $clientId) {
                     $w2 = count(array_filter($nearby, function($n) { return $n['distance_km'] <= 2; }));
                     $w5 = count(array_filter($nearby, function($n) { return $n['distance_km'] <= 5; }));
                     $avg = count($nearby) ? round(array_sum(array_column($nearby, 'distance_km')) / count($nearby), 1) : 0;
-                    // Best day: tally recurrence_day_of_week across nearby active plans (0=Sun…6=Sat)
-                    $dowTally = [];
+                    // Day-of-week stats (matching create-from-quote.php Scheduling Intelligence)
+                    $dayStats = [];
+                    for ($d = 0; $d <= 6; $d++) {
+                        $dayStats[$d] = ['count' => 0, 'totalDist' => 0.0, 'avgDist' => 0.0];
+                    }
                     foreach ($nearby as $nb) {
                         if (empty($nb['all_dow'])) continue;
-                        foreach (explode(',', $nb['all_dow']) as $d) {
-                            $d = trim($d);
-                            if ($d === '' || $d === null) continue;
-                            $di = intval($d);
-                            $dowTally[$di] = ($dowTally[$di] ?? 0) + 1;
+                        $seenDays = [];
+                        foreach (explode(',', $nb['all_dow']) as $dv) {
+                            $dv = trim($dv);
+                            if ($dv === '') continue;
+                            $di = intval($dv);
+                            if (isset($seenDays[$di])) continue; // count each property once per day
+                            $seenDays[$di] = true;
+                            $dayStats[$di]['count']++;
+                            $dayStats[$di]['totalDist'] += floatval($nb['distance_km']);
                         }
                     }
+                    $maxDayCount = 1;
                     $bestDay = null; $bestDayCount = 0;
-                    if (!empty($dowTally)) {
-                        arsort($dowTally);
-                        $bestDay = array_key_first($dowTally);
-                        $bestDayCount = $dowTally[$bestDay];
+                    for ($d = 1; $d <= 6; $d++) {
+                        $dayStats[$d]['avgDist'] = $dayStats[$d]['count'] > 0
+                            ? round($dayStats[$d]['totalDist'] / $dayStats[$d]['count'], 1) : 0;
+                        if ($dayStats[$d]['count'] > $maxDayCount) $maxDayCount = $dayStats[$d]['count'];
+                        if ($dayStats[$d]['count'] > $bestDayCount) {
+                            $bestDayCount = $dayStats[$d]['count'];
+                            $bestDay = $d;
+                        }
                     }
+                    // Compute bar heights
+                    foreach ($dayStats as $d => &$ds) {
+                        $ds['barPct'] = $ds['count'] > 0 ? max(4, (int)round($ds['count'] / $maxDayCount * 100)) : 0;
+                        unset($ds['totalDist']);
+                    }
+                    unset($ds);
                     $compRouteIntelByProp[(int)$gp['id']] = [
                         'within2km'    => $w2, 'within5km' => $w5, 'avgDist' => $avg,
                         'density'      => $w2 >= 5 ? 'High' : ($w2 >= 2 ? 'Medium' : 'Low'),
                         'bestDay'      => $bestDay,
                         'bestDayCount' => $bestDayCount,
+                        'dayStats'     => $dayStats,
                         'clients'      => $nearby,
                     ];
                     if (!empty($nearby)) $compHasRouteIntel = true;
@@ -5243,16 +5262,18 @@ $unconvertedRequests = $db->query("
                   </div>
                 </div>
 
-                <!-- Route Intelligence Card — JS-driven, updates on property selection -->
+                <!-- Scheduling Intelligence Card — JS-driven, updates on property selection -->
                 <?php if ($compHasRouteIntel): ?>
-                <div class="card mb-3" id="compRouteIntelCard">
+                <div class="card mb-3 mw-sched-intel" id="compRouteIntelCard">
                   <div class="card-header d-flex align-items-center justify-content-between">
-                    <h5 class="card-title mb-0"><i data-feather="navigation"></i> Route Intelligence</h5>
+                    <h5 class="card-title mb-0" style="display:flex;align-items:center;gap:6px;font-size:0.95rem;">
+                      <i data-feather="map-pin" style="width:16px;height:16px;"></i> Scheduling Intelligence
+                    </h5>
                     <small class="text-muted" id="compRouteIntelLabel"></small>
                   </div>
                   <div class="card-body p-0">
-                    <div class="mw-ri-stats" id="compRouteIntelStats"></div>
-                    <div class="mw-ri-clients" id="compRouteIntelClients"></div>
+                    <div class="mw-si-day-grid" id="compRouteIntelStats"></div>
+                    <div id="compRouteIntelClients"></div>
                   </div>
                 </div>
                 <?php endif; ?>
@@ -5785,6 +5806,8 @@ $unconvertedRequests = $db->query("
               // Per-property route intelligence data
               var compRouteIntelData = <?php echo json_encode($compRouteIntelByProp); ?>;
 
+              var dowNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
               function renderCompRouteIntel(propertyId) {
                 var card = document.getElementById('compRouteIntelCard');
                 if (!card) return;
@@ -5798,49 +5821,43 @@ $unconvertedRequests = $db->query("
                 var label = document.getElementById('compRouteIntelLabel');
                 if (label && prop) label.textContent = prop.address;
 
-                var densityColor = data.density === 'High' ? 'var(--mw-green)' : (data.density === 'Medium' ? '#D97706' : '#DC2626');
-                var densityBg   = data.density === 'High' ? 'var(--mw-light)' : (data.density === 'Medium' ? '#FFFBEB' : '#FEF2F2');
-
-                // ── Stats grid (4 metrics) ─────────────────────────────────────
-                document.getElementById('compRouteIntelStats').innerHTML =
-                  '<div class="mw-ri-stat"><span class="mw-ri-val">' + data.within2km + '</span><span class="mw-ri-lbl">Within 2 km</span></div>' +
-                  '<div class="mw-ri-stat"><span class="mw-ri-val">' + data.within5km + '</span><span class="mw-ri-lbl">Within 5 km</span></div>' +
-                  '<div class="mw-ri-stat"><span class="mw-ri-val">' + data.avgDist + '<em>km</em></span><span class="mw-ri-lbl">Avg Distance</span></div>' +
-                  '<div class="mw-ri-stat"><span class="mw-ri-val" style="color:' + densityColor + ';background:' + densityBg + ';border-radius:4px;padding:0 6px;">' + data.density + '</span><span class="mw-ri-lbl">Density</span></div>';
-
-                // ── Best Day recommendation ────────────────────────────────────
-                var dowFull = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-                var bestDayBlock = '';
-                if (data.bestDay !== null && data.bestDay !== undefined) {
-                  bestDayBlock = '<div class="mw-ri-best-day">' +
-                    '<svg class="mw-ri-best-day-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>' +
-                    '<div class="mw-ri-best-day-body">' +
-                      '<span class="mw-ri-best-day-label">Best day to route</span>' +
-                      '<span class="mw-ri-best-day-value">' + dowFull[data.bestDay] + '</span>' +
-                    '</div>' +
-                    '<span class="mw-ri-best-day-count">' + data.bestDayCount + ' nearby plan' + (data.bestDayCount !== 1 ? 's' : '') + '</span>' +
+                // ── Day-of-week bar chart (Mon–Sat) ───────────────────────────
+                var dayHtml = '';
+                for (var d = 1; d <= 6; d++) {
+                  var ds = data.dayStats && data.dayStats[d] ? data.dayStats[d] : {count:0, avgDist:0, barPct:0};
+                  var isBest = (data.bestDay === d);
+                  dayHtml += '<div class="mw-si-day-col' + (isBest ? ' mw-si-best' : '') + '" data-dow="' + d + '">' +
+                    '<div class="mw-si-day-name">' + dowNames[d] + '</div>' +
+                    '<div class="mw-si-day-bar-wrap"><div class="mw-si-day-bar" style="height:' + (ds.barPct || 4) + '%"></div></div>' +
+                    '<div class="mw-si-day-count">' + ds.count + '</div>' +
+                    (ds.count > 0 ? '<div class="mw-si-day-dist">' + ds.avgDist + 'km</div>' : '') +
+                    (isBest ? '<div class="mw-si-best-badge">Best</div>' : '') +
                   '</div>';
                 }
+                document.getElementById('compRouteIntelStats').innerHTML = dayHtml;
 
-                // ── Client rows ────────────────────────────────────────────────
-                var clientRows = data.clients.slice(0, 8).map(function(nc) {
+                // ── Nearby client list ─────────────────────────────────────────
+                var clientCount = data.clients.length;
+                var listHeader = '<div class="mw-si-list-header"><small class="text-muted">' +
+                  clientCount + ' nearby recurring client' + (clientCount !== 1 ? 's' : '') + ' within 10km</small></div>';
+
+                var clientRows = data.clients.slice(0, 10).map(function(nc) {
                   var name = (nc.first_name + ' ' + nc.last_name).trim();
-                  var d = parseFloat(nc.distance_km);
-                  var distColor = d <= 1 ? 'var(--mw-green)' : (d <= 3 ? '#16A34A' : (d <= 5 ? '#D97706' : '#9CA3AF'));
-                  var distBg    = d <= 1 ? 'var(--mw-light)' : (d <= 3 ? '#F0FDF4' : (d <= 5 ? '#FFFBEB' : '#F9FAFB'));
-                  var plans = nc.active_plan_count > 0
-                    ? '<span class="mw-ri-client-plans">' + nc.active_plan_count + ' plan' + (nc.active_plan_count > 1 ? 's' : '') + '</span>'
-                    : '';
-                  var svc = nc.service_types
-                    ? '<span class="mw-ri-client-svc">' + nc.service_types.split(', ').slice(0,2).map(function(s){ return s.replace(/_/g,' '); }).join(' · ') + '</span>'
-                    : '';
-                  return '<a href="clients_appstack.php?action=view_contact&id=' + nc.contact_id + '" class="mw-ri-client-row">' +
-                    '<span class="mw-ri-client-dist" style="color:' + distColor + ';background:' + distBg + '">' + d.toFixed(2) + '<em>km</em></span>' +
-                    '<span class="mw-ri-client-info"><span class="mw-ri-client-name">' + name + '</span>' + svc + '</span>' +
-                    plans + '</a>';
+                  var svc = nc.service_types ? nc.service_types.split(', ').slice(0,2).map(function(s){ return s.replace(/_/g,' '); }).join(' · ') : '';
+                  var dist = parseFloat(nc.distance_km).toFixed(1);
+                  var ncDow = nc.all_dow ? parseInt(nc.all_dow.split(',')[0]) : null;
+                  var dayLabel = (ncDow !== null && !isNaN(ncDow)) ? dowNames[ncDow] : '?';
+                  return '<div class="mw-si-nearby-item">' +
+                    '<div class="mw-si-nearby-main">' +
+                      '<div class="mw-si-nearby-address">' + name + '</div>' +
+                      '<div class="mw-si-nearby-meta">' + (svc || '—') + ' &middot; ' + dist + 'km</div>' +
+                    '</div>' +
+                    '<div class="mw-si-nearby-day">' + dayLabel + '</div>' +
+                  '</div>';
                 }).join('');
 
-                document.getElementById('compRouteIntelClients').innerHTML = bestDayBlock + clientRows;
+                document.getElementById('compRouteIntelClients').innerHTML =
+                  '<div class="mw-si-nearby-list">' + listHeader + clientRows + '</div>';
               }
 
               window.focusCompanyProperty = function(propertyId) {
