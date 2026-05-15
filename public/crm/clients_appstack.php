@@ -953,7 +953,7 @@ if ($action === 'view_contact' && $clientId) {
         $action = null;
     } else {
         // Fetch properties linked to this contact
-        $contactProperties = getPropertiesForContact($clientId, $db);
+        $contactProperties = getPropertiesForContact($clientId, $db, true);
 
         // Fetch tags for all properties (property_access + property_warning groups)
         $propertyTagMap = [];
