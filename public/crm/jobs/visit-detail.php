@@ -243,7 +243,8 @@ $activePage = 'jobs';
 $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
 $extraHead = '<link rel="preconnect" href="https://fonts.googleapis.com">'
     . '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
-    . '<link href="https://fonts.googleapis.com/css2?family=Space+Mono&family=Fraunces:ital,opsz,wght@1,9..144,600&display=swap" rel="stylesheet">';
+    . '<link href="https://fonts.googleapis.com/css2?family=Space+Mono&family=Fraunces:ital,opsz,wght@1,9..144,600&display=swap" rel="stylesheet">'
+    . '<link href="/crm/css/visit-detail.css?v=20260515a" rel="stylesheet">';
 if (!empty($gpsPoints) && $apiKey) {
     $extraHead .= '<script src="https://maps.googleapis.com/maps/api/js?key='
         . htmlspecialchars($apiKey, ENT_QUOTES)
