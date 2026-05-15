@@ -5251,8 +5251,8 @@ $unconvertedRequests = $db->query("
                     <small class="text-muted" id="compRouteIntelLabel"></small>
                   </div>
                   <div class="card-body p-0">
-                    <div class="mw-route-intel-stats" id="compRouteIntelStats"></div>
-                    <div class="mw-route-intel-clients" id="compRouteIntelClients"></div>
+                    <div class="mw-ri-stats" id="compRouteIntelStats"></div>
+                    <div class="mw-ri-clients" id="compRouteIntelClients"></div>
                   </div>
                 </div>
                 <?php endif; ?>
@@ -5794,32 +5794,53 @@ $unconvertedRequests = $db->query("
                   return;
                 }
                 card.style.display = '';
-                // Find property address for the label
                 var prop = companyPropertiesData.find(function(p) { return p.id == propertyId; });
                 var label = document.getElementById('compRouteIntelLabel');
                 if (label && prop) label.textContent = prop.address;
 
-                var densityColor = data.density === 'High' ? 'var(--mw-green)' : (data.density === 'Medium' ? '#F59E0B' : '#DC2626');
-                var dowNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-                var bestDayHtml = (data.bestDay !== null && data.bestDay !== undefined)
-                  ? '<div class="mw-route-intel-stat mw-route-intel-stat--best-day"><span class="mw-route-intel-stat-value" style="color:var(--mw-green)">' + dowNames[data.bestDay] + '</span><span class="mw-route-intel-stat-label">Best Day <small>(' + data.bestDayCount + ' plan' + (data.bestDayCount !== 1 ? 's' : '') + ')</small></span></div>'
-                  : '';
-                document.getElementById('compRouteIntelStats').innerHTML =
-                  '<div class="mw-route-intel-stat"><span class="mw-route-intel-stat-value">' + data.within2km + '</span><span class="mw-route-intel-stat-label">Within 2 km</span></div>' +
-                  '<div class="mw-route-intel-stat"><span class="mw-route-intel-stat-value">' + data.within5km + '</span><span class="mw-route-intel-stat-label">Within 5 km</span></div>' +
-                  '<div class="mw-route-intel-stat"><span class="mw-route-intel-stat-value">' + data.avgDist + '<small>km</small></span><span class="mw-route-intel-stat-label">Avg Distance</span></div>' +
-                  '<div class="mw-route-intel-stat"><span class="mw-route-intel-stat-value" style="color:' + densityColor + '">' + data.density + '</span><span class="mw-route-intel-stat-label">Route Density</span></div>' +
-                  bestDayHtml;
+                var densityColor = data.density === 'High' ? 'var(--mw-green)' : (data.density === 'Medium' ? '#D97706' : '#DC2626');
+                var densityBg   = data.density === 'High' ? 'var(--mw-light)' : (data.density === 'Medium' ? '#FFFBEB' : '#FEF2F2');
 
-                document.getElementById('compRouteIntelClients').innerHTML = data.clients.slice(0, 8).map(function(nc) {
+                // ── Stats grid (4 metrics) ─────────────────────────────────────
+                document.getElementById('compRouteIntelStats').innerHTML =
+                  '<div class="mw-ri-stat"><span class="mw-ri-val">' + data.within2km + '</span><span class="mw-ri-lbl">Within 2 km</span></div>' +
+                  '<div class="mw-ri-stat"><span class="mw-ri-val">' + data.within5km + '</span><span class="mw-ri-lbl">Within 5 km</span></div>' +
+                  '<div class="mw-ri-stat"><span class="mw-ri-val">' + data.avgDist + '<em>km</em></span><span class="mw-ri-lbl">Avg Distance</span></div>' +
+                  '<div class="mw-ri-stat"><span class="mw-ri-val" style="color:' + densityColor + ';background:' + densityBg + ';border-radius:4px;padding:0 6px;">' + data.density + '</span><span class="mw-ri-lbl">Density</span></div>';
+
+                // ── Best Day recommendation ────────────────────────────────────
+                var dowFull = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+                var bestDayBlock = '';
+                if (data.bestDay !== null && data.bestDay !== undefined) {
+                  bestDayBlock = '<div class="mw-ri-best-day">' +
+                    '<svg class="mw-ri-best-day-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>' +
+                    '<div class="mw-ri-best-day-body">' +
+                      '<span class="mw-ri-best-day-label">Best day to route</span>' +
+                      '<span class="mw-ri-best-day-value">' + dowFull[data.bestDay] + '</span>' +
+                    '</div>' +
+                    '<span class="mw-ri-best-day-count">' + data.bestDayCount + ' nearby plan' + (data.bestDayCount !== 1 ? 's' : '') + '</span>' +
+                  '</div>';
+                }
+
+                // ── Client rows ────────────────────────────────────────────────
+                var clientRows = data.clients.slice(0, 8).map(function(nc) {
                   var name = (nc.first_name + ' ' + nc.last_name).trim();
-                  var plans = nc.active_plan_count > 0 ? '<span class="mw-route-intel-plan">' + nc.active_plan_count + ' plan' + (nc.active_plan_count > 1 ? 's' : '') + '</span>' : '';
-                  var svc = nc.service_types ? '<small class="text-muted ml-1">' + nc.service_types.split(', ').slice(0,2).map(function(s){ return s.replace(/_/g,' '); }).join(' · ') + '</small>' : '';
-                  return '<a href="clients_appstack.php?action=view_contact&id=' + nc.contact_id + '" class="mw-route-intel-client">' +
-                    '<span class="mw-route-intel-dist">' + nc.distance_km + 'km</span>' +
-                    '<span class="mw-route-intel-name">' + name + svc + '</span>' +
+                  var d = parseFloat(nc.distance_km);
+                  var distColor = d <= 1 ? 'var(--mw-green)' : (d <= 3 ? '#16A34A' : (d <= 5 ? '#D97706' : '#9CA3AF'));
+                  var distBg    = d <= 1 ? 'var(--mw-light)' : (d <= 3 ? '#F0FDF4' : (d <= 5 ? '#FFFBEB' : '#F9FAFB'));
+                  var plans = nc.active_plan_count > 0
+                    ? '<span class="mw-ri-client-plans">' + nc.active_plan_count + ' plan' + (nc.active_plan_count > 1 ? 's' : '') + '</span>'
+                    : '';
+                  var svc = nc.service_types
+                    ? '<span class="mw-ri-client-svc">' + nc.service_types.split(', ').slice(0,2).map(function(s){ return s.replace(/_/g,' '); }).join(' · ') + '</span>'
+                    : '';
+                  return '<a href="clients_appstack.php?action=view_contact&id=' + nc.contact_id + '" class="mw-ri-client-row">' +
+                    '<span class="mw-ri-client-dist" style="color:' + distColor + ';background:' + distBg + '">' + d.toFixed(2) + '<em>km</em></span>' +
+                    '<span class="mw-ri-client-info"><span class="mw-ri-client-name">' + name + '</span>' + svc + '</span>' +
                     plans + '</a>';
                 }).join('');
+
+                document.getElementById('compRouteIntelClients').innerHTML = bestDayBlock + clientRows;
               }
 
               window.focusCompanyProperty = function(propertyId) {
