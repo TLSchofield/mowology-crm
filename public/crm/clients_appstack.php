@@ -4818,7 +4818,12 @@ $unconvertedRequests = $db->query("
                 <div class="card mb-3">
                   <div class="card-header">
                     <h5 class="card-title mb-0">
-                      <i data-feather="users"></i> Property Managers
+                      <?php
+                        $coContactsLabel = ($viewCompany['company_type'] ?? '') === 'strata'
+                            ? 'Representatives'
+                            : (($viewCompany['company_type'] ?? '') === 'property_manager' ? 'Property Managers' : 'Contacts');
+                      ?>
+                      <i data-feather="users"></i> <?php echo $coContactsLabel; ?>
                       <span class="badge badge-primary ml-1"><?php echo count($companyContacts); ?></span>
                     </h5>
                   </div>
