@@ -184,28 +184,48 @@ try {
                 ? date('Y-m-d H:i:s', time() + (int)$pendingToken['expires_in'])
                 : null;
 
-            $db->prepare("
-                INSERT INTO social_accounts
-                    (platform, account_name, account_id_external, location_id_external,
-                     location_name_display, access_token_enc, refresh_token_enc,
-                     token_expires_at, token_scope, is_active, is_verified,
-                     connected_by, connected_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, NOW())
-            ")->execute([
-                $platform,
-                $accountName,
-                $accountId ?: null,
-                $locationName ?: null,
-                $locationDisplay ?: $accountName,
-                SocialEncryption::encrypt($pendingToken['access_token']),
-                isset($pendingToken['refresh_token'])
-                    ? SocialEncryption::encrypt($pendingToken['refresh_token'])
-                    : null,
-                $expiry,
-                $pendingToken['scope'] ?? null,
-                $user['id'],
-            ]);
-            $newId = (int)$db->lastInsertId();
+            $existingRow = $db->prepare("SELECT id FROM social_accounts WHERE platform = ? LIMIT 1");
+            $existingRow->execute([$platform]);
+            $existingId = (int)($existingRow->fetchColumn() ?: 0);
+
+            if ($existingId) {
+                $db->prepare("
+                    UPDATE social_accounts
+                    SET account_name = ?, account_id_external = ?, location_id_external = ?,
+                        location_name_display = ?, access_token_enc = ?, refresh_token_enc = ?,
+                        token_expires_at = ?, token_scope = ?, is_active = 1, is_verified = 1,
+                        connected_by = ?, connected_at = NOW(), updated_at = NOW()
+                    WHERE id = ?
+                ")->execute([
+                    $accountName, $accountId ?: null, $locationName ?: null,
+                    $locationDisplay ?: $accountName,
+                    SocialEncryption::encrypt($pendingToken['access_token']),
+                    isset($pendingToken['refresh_token'])
+                        ? SocialEncryption::encrypt($pendingToken['refresh_token'])
+                        : null,
+                    $expiry, $pendingToken['scope'] ?? null,
+                    $user['id'], $existingId,
+                ]);
+                $newId = $existingId;
+            } else {
+                $db->prepare("
+                    INSERT INTO social_accounts
+                        (platform, account_name, account_id_external, location_id_external,
+                         location_name_display, access_token_enc, refresh_token_enc,
+                         token_expires_at, token_scope, is_active, is_verified,
+                         connected_by, connected_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, NOW())
+                ")->execute([
+                    $platform, $accountName, $accountId ?: null, $locationName ?: null,
+                    $locationDisplay ?: $accountName,
+                    SocialEncryption::encrypt($pendingToken['access_token']),
+                    isset($pendingToken['refresh_token'])
+                        ? SocialEncryption::encrypt($pendingToken['refresh_token'])
+                        : null,
+                    $expiry, $pendingToken['scope'] ?? null, $user['id'],
+                ]);
+                $newId = (int)$db->lastInsertId();
+            }
 
             GoogleBusinessService::auditLog($user['id'], 'account_connected', 'account', $newId,
                 "Connected $platform account: $accountName");

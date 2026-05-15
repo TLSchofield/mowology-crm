@@ -83,6 +83,11 @@ $connJson   = json_encode($connectedMap);
                                               <span class="mw-sw-plat-badge connected">Verified</span>
                                           <?php else: ?>
                                               <span class="mw-sw-plat-badge not-connected">Unverified</span>
+                                              <?php if (userHasPermission('marketing.approve')): ?>
+                                              <a href="/crm/api/social/accounts.php?action=oauth-init&platform=<?php echo urlencode($plat); ?>"
+                                                 class="btn btn-sm btn-warning"
+                                                 title="Connect via OAuth to verify this account">Reconnect</a>
+                                              <?php endif; ?>
                                           <?php endif; ?>
                                           <button class="btn btn-sm btn-outline-danger"
                                               onclick="disconnectAccount(<?php echo $acct['id']; ?>, '<?php echo $name; ?>')">
