@@ -100,6 +100,17 @@ foreach ($jobEntries as $je) {
     }
 }
 
+// Flag days where job time exceeds shift time — indicates a runaway timer.
+foreach ($days as $date => &$day) {
+    $day['has_anomaly']      = false;
+    $day['anomaly_excess_min'] = 0;
+    if ($day['total_job_min'] > $day['total_shift_min'] && $day['total_shift_min'] > 0) {
+        $day['has_anomaly']      = true;
+        $day['anomaly_excess_min'] = $day['total_job_min'] - $day['total_shift_min'];
+    }
+}
+unset($day);
+
 // Compute pay via OvertimeCalculator
 $dailyMinutes = array_map(fn($d) => $d['total_shift_min'], $days);
 $hourlyRate   = (float)($ts['hourly_rate'] ?? 0);
@@ -233,6 +244,17 @@ $activePage = 'timeclock';
         </span>
     </div>
 
+    <?php if (!empty($day['has_anomaly'])): ?>
+    <div class="mw-anomaly-alert" role="alert">
+        <i data-feather="alert-triangle" style="width:14px;height:14px;margin-right:5px;"></i>
+        <strong>Data anomaly:</strong> Job time
+        (<?php echo formatMinutesAsHours($day['total_job_min']); ?>) exceeds shift time
+        (<?php echo formatMinutesAsHours($day['total_shift_min']); ?>) by
+        <?php echo formatMinutesAsHours($day['anomaly_excess_min']); ?>.
+        A timer likely ran overnight. Review job entries below — void or correct before approving.
+    </div>
+    <?php endif; ?>
+
     <?php if (!empty($day['clock_entries'])): ?>
         <?php foreach ($day['clock_entries'] as $ce):
             $isVoided = ($ce['status'] ?? '') === 'void';
@@ -273,21 +295,49 @@ $activePage = 'timeclock';
     <?php endif; ?>
 
     <?php if (!empty($day['job_entries'])): ?>
-        <?php foreach ($day['job_entries'] as $je): ?>
-        <div class="mw-ts-entry">
+        <?php foreach ($day['job_entries'] as $je):
+            $jeIsAnomaly  = !empty($je['flagged_anomaly']);
+            $jeStartDay   = date('Y-m-d', strtotime($je['start_time']));
+            $jeEndDay     = $je['end_time'] ? date('Y-m-d', strtotime($je['end_time'])) : null;
+            $jeSpansDay   = $jeEndDay && $jeStartDay !== $jeEndDay;
+        ?>
+        <div class="mw-ts-entry<?php echo $jeIsAnomaly ? ' mw-entry-anomaly' : ''; ?>"
+             data-job-entry-id="<?php echo (int)$je['id']; ?>">
             <span class="mw-ts-entry-time">
                 <i data-feather="briefcase" style="width:12px;height:12px;color:var(--mw-orange);"></i>
                 <?php echo date('g:i A', strtotime($je['start_time'])); ?>
                 &rarr;
-                <?php echo $je['end_time'] ? date('g:i A', strtotime($je['end_time'])) : '<em>active</em>'; ?>
+                <?php if ($je['end_time']): ?>
+                    <?php echo date('g:i A', strtotime($je['end_time'])); ?>
+                    <?php if ($jeSpansDay): ?>
+                        <span class="badge badge-warning ml-1"
+                              title="Timer ended on a different day: <?php echo date('M j', strtotime($je['end_time'])); ?>">
+                            <?php echo date('M j', strtotime($je['end_time'])); ?>
+                        </span>
+                    <?php endif; ?>
+                <?php else: ?>
+                    <em>active</em>
+                <?php endif; ?>
             </span>
             <span class="mw-ts-entry-job">
                 <?php echo htmlspecialchars($je['job_number'] . ' — ' . ($je['job_title'] ?? '')); ?>
+                <?php if ($jeIsAnomaly): ?>
+                    <span class="badge badge-warning ml-1" title="Timer was auto-capped or flagged as anomalous">capped</span>
+                <?php endif; ?>
                 <br><small class="text-muted"><?php echo htmlspecialchars($je['property_address'] ?? ''); ?></small>
             </span>
             <span class="mw-ts-entry-duration">
                 <?php echo formatMinutesAsHours((int)($je['duration_minutes'] ?? 0)); ?>
             </span>
+            <?php if ($canEdit): ?>
+            <span class="mw-entry-actions">
+                <button type="button" class="btn btn-sm btn-outline-danger js-void-job-entry"
+                        data-id="<?php echo (int)$je['id']; ?>"
+                        title="Void this job timer entry">
+                    <i data-feather="trash-2" style="width:11px;height:11px;"></i>
+                </button>
+            </span>
+            <?php endif; ?>
         </div>
         <?php endforeach; ?>
     <?php endif; ?>
@@ -327,25 +377,145 @@ $activePage = 'timeclock';
 
 <!-- Approve/Reject Actions (admin/manager only) -->
 <?php if ($canApprove && in_array($ts['status'], ['pending', 'submitted'])): ?>
+
+<?php
+// Check for any days with data anomalies across the week
+$weekHasAnomalies = !empty(array_filter($days, fn($d) => !empty($d['has_anomaly'])));
+?>
+<?php if ($weekHasAnomalies): ?>
+<div class="alert alert-warning d-flex align-items-center mb-2" role="alert"
+     style="border-left:4px solid var(--mw-orange);background:#fff8f0;font-size:0.85rem;">
+    <i data-feather="alert-triangle" style="width:16px;height:16px;margin-right:8px;flex-shrink:0;"></i>
+    <span>
+        <strong>Anomalies detected.</strong>
+        One or more days show job time exceeding shift time. Review and correct timer entries before approving.
+    </span>
+</div>
+<?php endif; ?>
+
 <div class="mw-ts-action-bar">
-    <form method="post" action="/crm/api/timesheets.php" style="display:flex; gap:10px; flex-wrap:wrap; align-items:end; width:100%;">
+    <form id="tsApproveForm" method="post" action="/crm/api/timesheets.php"
+          style="display:flex; gap:10px; flex-wrap:wrap; align-items:end; width:100%;">
         <input type="hidden" name="timesheet_id" value="<?php echo (int)$ts['id']; ?>">
-        <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(generateCSRFToken()); ?>">
+        <input type="hidden" name="csrf_token"   value="<?php echo htmlspecialchars(generateCSRFToken()); ?>">
+        <input type="hidden" name="action"        id="tsFormAction" value="approve">
 
         <div style="flex:1; min-width:200px;">
             <label class="small text-muted">Notes (optional)</label>
-            <textarea name="notes" class="form-control form-control-sm" rows="2"
+            <textarea name="notes" id="tsReviewerNotes" class="form-control form-control-sm" rows="2"
                       placeholder="Optional reviewer notes..."></textarea>
         </div>
 
-        <button type="submit" name="action" value="approve" class="mw-ts-approve-btn">
+        <!-- Approve: intercepted by JS to run route reconciliation check first -->
+        <button type="button" id="tsApproveBtn" class="mw-ts-approve-btn">
             <i data-feather="check" style="width:14px;height:14px;"></i> Approve
         </button>
-        <button type="submit" name="action" value="reject" class="mw-ts-reject-btn">
+        <button type="submit" name="action" value="reject" class="mw-ts-reject-btn"
+                onclick="document.getElementById('tsFormAction').value='reject';">
             <i data-feather="x" style="width:14px;height:14px;"></i> Reject
         </button>
     </form>
 </div>
+
+<!-- Route Reconciliation Check Modal -->
+<div class="modal fade" id="reconModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-dialog-centered modal-lg" role="document">
+        <div class="modal-content" style="border-radius:12px; border:none;">
+            <div class="modal-header" style="background:var(--mw-green);color:#fff;border-radius:12px 12px 0 0;">
+                <h5 class="modal-title">
+                    <i data-feather="map" style="width:16px;height:16px;margin-right:6px;"></i>
+                    Route Reconciliation Check
+                </h5>
+                <button type="button" class="close" data-dismiss="modal" style="color:#fff;opacity:0.8;">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body" id="reconModalBody">
+                <div class="text-center py-3">
+                    <div class="spinner-border text-success" role="status" style="width:2rem;height:2rem;"></div>
+                    <p class="mt-2 text-muted small">Checking GPS route data for this week&hellip;</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">Cancel</button>
+                <button type="button" id="reconProceedBtn" class="btn btn-sm"
+                        style="background:var(--mw-green);color:#fff;" disabled>
+                    <i data-feather="check" style="width:13px;height:13px;"></i>
+                    Approve Anyway
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    var weekStart = <?php echo json_encode($ts['week_start']); ?>;
+    var weekEnd   = <?php echo json_encode($ts['week_end']); ?>;
+
+    document.getElementById('tsApproveBtn').addEventListener('click', function () {
+        document.getElementById('reconModalBody').innerHTML =
+            '<div class="text-center py-3">' +
+            '<div class="spinner-border text-success" role="status" style="width:2rem;height:2rem;"></div>' +
+            '<p class="mt-2 text-muted small">Checking GPS route data for this week&hellip;</p>' +
+            '</div>';
+        document.getElementById('reconProceedBtn').disabled = true;
+        $('#reconModal').modal('show');
+
+        fetch('/crm/api/route-reconciliation.php?start=' + weekStart + '&end=' + weekEnd)
+            .then(function(r){ return r.json(); })
+            .then(function(data) {
+                var conflicts = data.conflicts || [];
+                var html = '';
+
+                if (conflicts.length === 0) {
+                    html = '<div class="alert alert-success mb-0">' +
+                           '<i data-feather="check-circle" style="width:15px;height:15px;margin-right:6px;"></i>' +
+                           '<strong>No route conflicts detected.</strong> GPS data matches scheduled visits.' +
+                           '</div>';
+                    document.getElementById('reconProceedBtn').textContent = 'Approve';
+                } else {
+                    html = '<p class="text-muted small mb-2">' + conflicts.length +
+                           ' conflict(s) detected. Review before approving.</p>';
+                    html += '<div class="list-group">';
+                    conflicts.forEach(function(c) {
+                        var badgeClass = c.severity === 'warning' ? 'badge-warning' : 'badge-info';
+                        var icon = c.type === 'truck_at_site_no_clockin' ? 'alert-triangle' : 'info';
+                        html += '<div class="list-group-item list-group-item-action py-2 px-3" style="font-size:0.83rem;">' +
+                                '<div class="d-flex justify-content-between align-items-start">' +
+                                '<strong>' + (c.visit_number || '') + '</strong>' +
+                                '<span class="badge ' + badgeClass + ' ml-2">' + c.type.replace(/_/g,' ') + '</span>' +
+                                '</div>' +
+                                '<div class="text-muted">' + (c.property_address || '') + (c.property_city ? ', ' + c.property_city : '') + '</div>' +
+                                '<div>' + (c.message || '') + '</div>' +
+                                '</div>';
+                    });
+                    html += '</div>';
+                    document.getElementById('reconProceedBtn').textContent = 'Approve Anyway';
+                }
+
+                document.getElementById('reconModalBody').innerHTML = html;
+                document.getElementById('reconProceedBtn').disabled = false;
+
+                // Re-init feather icons in modal
+                if (window.feather) feather.replace();
+            })
+            .catch(function() {
+                document.getElementById('reconModalBody').innerHTML =
+                    '<div class="alert alert-warning mb-0">Could not load route data. You may approve without reconciliation check.</div>';
+                document.getElementById('reconProceedBtn').textContent = 'Approve Anyway';
+                document.getElementById('reconProceedBtn').disabled = false;
+            });
+    });
+
+    document.getElementById('reconProceedBtn').addEventListener('click', function () {
+        $('#reconModal').modal('hide');
+        document.getElementById('tsFormAction').value = 'approve';
+        document.getElementById('tsApproveForm').submit();
+    });
+})();
+</script>
+
 <?php endif; ?>
 
 <?php if ($canEdit): ?>
@@ -445,13 +615,12 @@ $activePage = 'timeclock';
         });
     });
 
-    // Void buttons
+    // Void clock entry buttons
     document.querySelectorAll('.js-void-entry').forEach(function(btn) {
         btn.addEventListener('click', function() {
             if (!confirm('Void this clock entry? This cannot be undone.')) return;
             apiCall({action: 'void', entry_id: parseInt(btn.dataset.id, 10), csrf_token: CSRF},
                 function(data) {
-                    // Mark entry as voided in DOM
                     var row = document.querySelector('.mw-ts-entry[data-entry-id="' + btn.dataset.id + '"]');
                     if (row) {
                         row.classList.add('mw-entry-voided');
@@ -464,6 +633,28 @@ $activePage = 'timeclock';
                     }
                 }
             );
+        });
+    });
+
+    // Void job timer entry buttons
+    document.querySelectorAll('.js-void-job-entry').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            if (!confirm('Void this job timer entry? The timesheet will be recalculated. This cannot be undone.')) return;
+            fetch('/crm/api/job-time-entry-edit.php', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({action: 'void', entry_id: parseInt(btn.dataset.id, 10), csrf_token: CSRF}),
+            })
+            .then(function(r){ return r.json(); })
+            .then(function(data) {
+                if (!data.success) {
+                    alert(data.error || 'Could not void entry.');
+                    return;
+                }
+                // Reload so recalculated totals + anomaly warnings refresh
+                window.location.reload();
+            })
+            .catch(function() { alert('Network error. Please try again.'); });
         });
     });
 

@@ -27353,6 +27353,26 @@ body.mw-no-scroll {
   background: linear-gradient(90deg, #fff9ee 0%, #fff 100%);
 }
 
+/* Anomaly warning bar — appears inside a day row when job time > shift time */
+.mw-anomaly-alert {
+  display: flex;
+  align-items: center;
+  padding: 7px 14px;
+  font-size: 0.82rem;
+  background: #fff8f0;
+  border-left: 4px solid var(--mw-orange);
+  color: #7c3209;
+  gap: 0;
+}
+.mw-anomaly-alert strong { margin-right: 4px; }
+
+/* Job timer entry that was auto-capped or flagged as an anomaly */
+.mw-entry-anomaly {
+  background: #fff8f0 !important;
+  border-left: 3px solid var(--mw-orange) !important;
+}
+.mw-entry-anomaly .mw-ts-entry-duration { color: var(--mw-orange); font-weight: 700; }
+
 /* Entry edit modal */
 .mw-entry-modal .modal-header {
   background: var(--mw-green);

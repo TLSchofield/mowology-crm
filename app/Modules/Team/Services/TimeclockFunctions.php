@@ -355,11 +355,37 @@ function stopJobTimer($jobId, $userId, $lat = null, $lng = null, $notes = null, 
     ");
     $stmt->execute([$lat, $lng, $notes, $entry['id']]);
 
-    // Get duration
-    $result = $db->prepare("SELECT duration_minutes FROM job_time_entries WHERE id = ?");
+    // Get duration + start date (needed for shift lookup)
+    $result = $db->prepare("SELECT duration_minutes, DATE(start_time) AS start_date FROM job_time_entries WHERE id = ?");
     $result->execute([$entry['id']]);
     $row = $result->fetch(PDO::FETCH_ASSOC);
-    $duration = (int)$row['duration_minutes'];
+    $duration  = (int)$row['duration_minutes'];
+    $startDate = $row['start_date'];
+
+    // Shift-bound: job duration cannot exceed the crew's shift for the day the timer started.
+    // Guards against GPS auto-start timers that run overnight or across day boundaries.
+    $shiftStmt = $db->prepare("
+        SELECT COALESCE(total_minutes, TIMESTAMPDIFF(MINUTE, clock_in, NOW())) AS shift_max
+        FROM time_clock_entries
+        WHERE user_id = ?
+          AND DATE(clock_in) = ?
+          AND status IN ('active','completed','edited')
+        ORDER BY clock_in DESC LIMIT 1
+    ");
+    $shiftStmt->execute([$userId, $startDate]);
+    $shiftRow = $shiftStmt->fetch(PDO::FETCH_ASSOC);
+
+    if ($shiftRow && $shiftRow['shift_max'] > 0 && $duration > (int)$shiftRow['shift_max']) {
+        $duration = (int)$shiftRow['shift_max'];
+        $cappedNote = trim(($notes ?? '') . ' [auto-capped: timer exceeded shift duration]');
+        $db->prepare("
+            UPDATE job_time_entries
+            SET duration_minutes = ?,
+                notes = ?,
+                flagged_anomaly = 1
+            WHERE id = ?
+        ")->execute([$duration, $cappedNote, $entry['id']]);
+    }
 
     // Complete the visit if requested
     if ($completeJob) {
@@ -456,13 +482,17 @@ function ensureTimesheetExists($userId, $date) {
 }
 
 /**
- * Recalculate timesheet totals from raw clock + job entries
+ * Recalculate timesheet totals from raw clock + job entries.
+ *
+ * Job minutes are capped per day by that day's shift time so a single
+ * runaway timer entry (e.g. GPS auto-start left running overnight) can
+ * never inflate the weekly job total beyond what was actually worked.
  */
 function recalculateTimesheetTotals($userId, $weekStart) {
     $db = getDB();
     $weekEnd = date('Y-m-d', strtotime($weekStart . ' +6 days'));
 
-    // Total shift minutes from clock entries
+    // Total shift minutes from clock entries (source of truth for pay ceiling)
     $stmt = $db->prepare("
         SELECT COALESCE(SUM(total_minutes), 0) as total
         FROM time_clock_entries
@@ -473,18 +503,36 @@ function recalculateTimesheetTotals($userId, $weekStart) {
     $stmt->execute([$userId, $weekStart, $weekEnd]);
     $shiftMinutes = (int)$stmt->fetch(PDO::FETCH_ASSOC)['total'];
 
-    // Total job minutes from job time entries
+    // Total job minutes — capped per day by that day's shift minutes.
+    // Prevents runaway auto-started timers from inflating weekly job totals.
     $stmt = $db->prepare("
-        SELECT COALESCE(SUM(duration_minutes), 0) as total
-        FROM job_time_entries
-        WHERE user_id = ?
-          AND DATE(start_time) BETWEEN ? AND ?
-          AND status IN ('completed', 'edited')
+        SELECT COALESCE(SUM(
+            CASE
+                WHEN daily.day_job_total <= COALESCE(daily.day_shift_total, 0) THEN daily.day_job_total
+                ELSE COALESCE(daily.day_shift_total, daily.day_job_total)
+            END
+        ), 0) AS capped_job_minutes
+        FROM (
+            SELECT DATE(jte.start_time) AS work_date,
+                   SUM(jte.duration_minutes) AS day_job_total,
+                   (
+                       SELECT SUM(tce2.total_minutes)
+                       FROM time_clock_entries tce2
+                       WHERE tce2.user_id = jte.user_id
+                         AND DATE(tce2.clock_in) = DATE(jte.start_time)
+                         AND tce2.status IN ('completed', 'edited')
+                   ) AS day_shift_total
+            FROM job_time_entries jte
+            WHERE jte.user_id = ?
+              AND DATE(jte.start_time) BETWEEN ? AND ?
+              AND jte.status IN ('completed', 'edited')
+            GROUP BY DATE(jte.start_time)
+        ) AS daily
     ");
     $stmt->execute([$userId, $weekStart, $weekEnd]);
-    $jobMinutes = (int)$stmt->fetch(PDO::FETCH_ASSOC)['total'];
+    $jobMinutes = (int)$stmt->fetch(PDO::FETCH_ASSOC)['capped_job_minutes'];
 
-    // Travel = shift time minus job time (rough approximation)
+    // Travel = shift time minus job time (rough approximation of non-job time)
     $travelMinutes = max(0, $shiftMinutes - $jobMinutes);
 
     $stmt = $db->prepare("
