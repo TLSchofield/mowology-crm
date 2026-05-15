@@ -1799,7 +1799,8 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                         mapTypeControl: false,
                         streetViewControl: false,
                         fullscreenControl: true,
-                        zoomControl: true
+                        zoomControl: true,
+                        gestureHandling: 'greedy'
                     });
                     propertyMarker = new google.maps.Marker({
                         position: pos,

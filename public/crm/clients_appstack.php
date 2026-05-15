@@ -3803,6 +3803,7 @@ $unconvertedRequests = $db->query("
                   mapTypeId: google.maps.MapTypeId.ROADMAP,
                   mapTypeControl: false,
                   streetViewControl: false,
+                  gestureHandling: 'greedy',
                   styles: [
                     { featureType: 'poi', stylers: [{ visibility: 'off' }] },
                     { featureType: 'transit', stylers: [{ visibility: 'simplified' }] }
@@ -5110,7 +5111,8 @@ $unconvertedRequests = $db->query("
                   center: { lat: 49.2827, lng: -123.1207 },
                   mapTypeId: google.maps.MapTypeId.ROADMAP,
                   mapTypeControl: false,
-                  streetViewControl: false
+                  streetViewControl: false,
+                  gestureHandling: 'greedy'
                 });
 
                 companyPropertiesData.forEach(function(prop) {
