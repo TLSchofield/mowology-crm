@@ -77,8 +77,8 @@ struct InvoiceComposeView: View {
                 // ── Line items ───────────────────────────────────────────────
                 lineItemsCard
 
-                // ── Nominal request charge ───────────────────────────────────
-                nominalRequestCard
+                // ── Extra charge quick-entry ─────────────────────────────────
+                extraChargeCard
 
                 // ── Totals ───────────────────────────────────────────────────
                 totalsCard(prefill: prefill)
@@ -159,25 +159,44 @@ struct InvoiceComposeView: View {
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
-    // MARK: - Nominal request card
+    // MARK: - Extra charge card
 
-    private var nominalRequestCard: some View {
-        Toggle(isOn: $vm.nominalRequestEnabled) {
+    private var extraChargeCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Extra Charge", systemImage: "plus.circle.fill")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
+                .tracking(0.5)
+
+            TextField("What was the extra for? (optional)", text: $vm.extraChargeDescription)
+                .font(.subheadline)
+
             HStack(spacing: 10) {
-                Image(systemName: "plus.circle.fill")
-                    .foregroundStyle(vm.nominalRequestEnabled ? Color.MW.green : .secondary)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Nominal client request")
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(Color.MW.dark)
-                    Text("Add $10.00 for small on-site requests")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                Text("$")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.secondary)
+
+                TextField("Amount", text: $vm.extraChargeAmount)
+                    .keyboardType(.decimalPad)
+                    .font(.subheadline.weight(.medium))
+                    .frame(maxWidth: 120)
+
+                Spacer()
+
+                Button("Add Extra") {
+                    vm.addExtraCharge()
                 }
+                .font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(vm.extraChargeAmountDouble != nil
+                    ? Color.MW.green.opacity(0.12) : Color.clear)
+                .foregroundStyle(vm.extraChargeAmountDouble != nil ? Color.MW.green : .secondary)
+                .clipShape(Capsule())
+                .disabled(vm.extraChargeAmountDouble == nil)
             }
         }
-        .toggleStyle(.switch)
-        .tint(Color.MW.green)
         .padding(16)
         .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 12))
@@ -397,11 +416,22 @@ private struct LineItemRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            TextField("Description", text: $item.description)
-                .font(.subheadline)
-                .onChange(of: item.description) { _, new in
-                    vm.lineItemDescriptionChanged(id: item.id, description: new)
+            HStack(spacing: 6) {
+                TextField("Description", text: $item.description)
+                    .font(.subheadline)
+                    .onChange(of: item.description) { _, new in
+                        vm.lineItemDescriptionChanged(id: item.id, description: new)
+                    }
+                if item.isExtras {
+                    Text("Extra")
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.MW.green.opacity(0.12))
+                        .foregroundStyle(Color.MW.green)
+                        .clipShape(Capsule())
                 }
+            }
 
             HStack(spacing: 16) {
                 // Quantity stepper

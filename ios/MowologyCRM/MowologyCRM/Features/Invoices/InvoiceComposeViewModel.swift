@@ -64,32 +64,33 @@ final class InvoiceComposeViewModel: ObservableObject {
         self.state = .editing(prefill)
     }
 
-    // MARK: - Nominal request charge ($10 quick-add)
+    // MARK: - Extra charge quick-entry (free-form description + any amount)
 
-    private var nominalItemId: UUID? = nil
-    private let nominalAmount = 10.0
-    private let nominalDescription = "Nominal client request"
+    @Published var extraChargeDescription: String = ""
+    @Published var extraChargeAmount: String = ""
 
-    @Published var nominalRequestEnabled: Bool = false {
-        didSet {
-            if nominalRequestEnabled {
-                let item = PrefillLineItem(
-                    description: nominalDescription,
-                    quantity: 1.0,
-                    unitPrice: nominalAmount,
-                    lineTotal: nominalAmount,
-                    sortOrder: 998
-                )
-                nominalItemId = item.id
-                editableLineItems.append(item)
-            } else {
-                if let id = nominalItemId {
-                    editableLineItems.removeAll { $0.id == id }
-                    nominalItemId = nil
-                }
-            }
-            recomputeTotals()
-        }
+    var extraChargeAmountDouble: Double? {
+        let cleaned = extraChargeAmount.replacingOccurrences(of: ",", with: ".")
+        guard let v = Double(cleaned), v > 0 else { return nil }
+        return (v * 100).rounded() / 100
+    }
+
+    func addExtraCharge() {
+        guard let amount = extraChargeAmountDouble else { return }
+        let desc = extraChargeDescription.trimmingCharacters(in: .whitespaces)
+        let nextOrder = (editableLineItems.map(\.sortOrder).max() ?? 0) + 1
+        let item = PrefillLineItem(
+            description: desc.isEmpty ? "Extra charge" : desc,
+            quantity: 1.0,
+            unitPrice: amount,
+            lineTotal: amount,
+            sortOrder: nextOrder,
+            isExtras: true
+        )
+        editableLineItems.append(item)
+        extraChargeDescription = ""
+        extraChargeAmount = ""
+        recomputeTotals()
     }
 
     // MARK: - Line item editing

@@ -301,7 +301,12 @@ struct VisitDetailView: View {
 
                     if canStop {
                         Button {
-                            Task { await timerVM.stopTimer(visitId: visit.visitId) }
+                            Task {
+                                await timerVM.stopTimer(visitId: visit.visitId)
+                                if isAdmin && visit.autoInvoiceOnComplete && visit.needsInvoice {
+                                    await timerVM.fetchInvoicePrefill(visitId: visit.visitId)
+                                }
+                            }
                         } label: {
                             Label("Stop Job", systemImage: "stop.circle.fill")
                                 .font(.subheadline.bold())
@@ -331,7 +336,7 @@ struct VisitDetailView: View {
             }
 
             // MARK: Create Invoice (completed, uninvoiced, after_visit billing, admin only)
-            if visit.visitStatus.lowercased() == "completed" && isAdmin {
+            if liveStatus.lowercased() == "completed" && isAdmin {
                 if visit.needsInvoice && visit.autoInvoiceOnComplete {
                     Divider()
                     HStack {
