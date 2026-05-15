@@ -3451,7 +3451,7 @@ var MW_ROUTE_STOPS = <?php
 <script src="../js/schedule-route-map.js?v=20260503a"></script>
 <script src="../js/schedule-pill-workflow.js?v=20260503a"></script>
 <script src="../js/schedule-drag-drop.js?v=20260507a"></script>
-<script src="../js/schedule-stop-modal.js?v=20260505a"></script>
+<script src="../js/schedule-stop-modal.js?v=20260515a"></script>
 <?php if ($view === 'day'): ?>
 <script>
 var MW_DAY_VIEW_STOPS = <?php echo json_encode($dayViewMapStops); ?>;
