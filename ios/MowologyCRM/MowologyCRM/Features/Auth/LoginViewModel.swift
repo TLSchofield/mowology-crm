@@ -33,16 +33,11 @@ final class LoginViewModel: ObservableObject {
     /// On success, `authSession.isAuthenticated` becomes true and RootView
     /// transitions automatically. On failure, `errorMessage` is set.
     func login() async {
-        let trimmedEmail    = email.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedPassword = password.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedIdentifier = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedPassword   = password.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        guard !trimmedEmail.isEmpty else {
-            errorMessage = "Please enter your email address."
-            return
-        }
-
-        guard isValidEmail(trimmedEmail) else {
-            errorMessage = "Please enter a valid email address."
+        guard !trimmedIdentifier.isEmpty else {
+            errorMessage = "Please enter your email or username."
             return
         }
 
@@ -55,7 +50,7 @@ final class LoginViewModel: ObservableObject {
         errorMessage = nil
 
         do {
-            try await authSession.login(email: trimmedEmail, password: trimmedPassword)
+            try await authSession.login(email: trimmedIdentifier, password: trimmedPassword)
             // On success, authSession.isAuthenticated flips to true.
             // RootView handles the navigation — no action needed here.
         } catch let apiError as APIError {
@@ -70,13 +65,5 @@ final class LoginViewModel: ObservableObject {
     /// Clears any displayed error when the user resumes typing.
     func clearError() {
         errorMessage = nil
-    }
-
-    // MARK: - Validation
-
-    private func isValidEmail(_ value: String) -> Bool {
-        // RFC 5322-lite pattern sufficient for UX validation.
-        let pattern = #"^[A-Z0-9a-z._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$"#
-        return value.range(of: pattern, options: .regularExpression) != nil
     }
 }
