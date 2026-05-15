@@ -631,7 +631,12 @@ $extraHead = $isPayable
                               <tbody>
                                   <?php foreach ($lineItems as $item): ?>
                                       <tr>
-                                          <td><?php echo htmlspecialchars($item['description'] ?: 'Services rendered'); ?></td>
+                                          <td>
+                                              <?php echo htmlspecialchars($item['description'] ?: 'Services rendered'); ?>
+                                              <?php if (!empty($item['service_date'])): ?>
+                                                  <br><span class="mw-service-date">Service date: <?php echo date('M j, Y', strtotime($item['service_date'])); ?></span>
+                                              <?php endif; ?>
+                                          </td>
                                           <td><?php echo $item['quantity']; ?></td>
                                           <td class="text-right mw-amount"><?php echo formatCurrency($item['unit_price']); ?></td>
                                           <td class="text-right mw-amount"><?php echo formatCurrency($item['line_total']); ?></td>

@@ -120,6 +120,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $extrasMinutes = max(0, intval($_POST['extras_minutes'] ?? 0));
         $extrasAmount  = round(max(0.0, floatval($_POST['extras_amount'] ?? 0)), 2);
 
+        $serviceDate = null;
+        if (!empty($_POST['service_date'])) {
+            $sd = $_POST['service_date'];
+            $serviceDate = preg_match('/^\d{4}-\d{2}-\d{2}$/', $sd) ? $sd : null;
+        }
+
         $serviceAddress    = trim($_POST['service_address'] ?? '');
         $serviceCity       = trim($_POST['service_city'] ?? '');
         $serviceProvince   = trim($_POST['service_province'] ?? '');
@@ -227,8 +233,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                         $liStmt = $db->prepare("
                             INSERT INTO invoice_line_items
-                                (invoice_id, description, quantity, unit_price, line_total, visit_id, sort_order)
-                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                                (invoice_id, description, quantity, unit_price, line_total, visit_id, service_date, sort_order)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                         ");
                         foreach ($planLineItems as $i => $pli) {
                             $liStmt->execute([
@@ -238,6 +244,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 $pli['unit_price'],
                                 $pli['line_total'],
                                 $linkedVisitId ?: null,
+                                $serviceDate,
                                 (int)($pli['sort_order'] ?? $i),
                             ]);
                         }
@@ -249,14 +256,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 if (!$usePlanLineItems) {
                     $db->prepare("
-                        INSERT INTO invoice_line_items (invoice_id, description, quantity, unit_price, line_total, visit_id)
-                        VALUES (?, ?, 1, ?, ?, ?)
+                        INSERT INTO invoice_line_items (invoice_id, description, quantity, unit_price, line_total, visit_id, service_date)
+                        VALUES (?, ?, 1, ?, ?, ?, ?)
                     ")->execute([
                         $invoiceId,
                         $description ?: 'Services rendered',
                         $subtotal,
                         $subtotal,
                         $linkedVisitId ?: null,
+                        $serviceDate,
                     ]);
                 }
 
@@ -264,14 +272,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($extrasAmount > 0 && $extrasMinutes > 0 && $linkedVisitId) {
                     $db->prepare("
                         INSERT INTO invoice_line_items
-                            (invoice_id, description, quantity, unit_price, line_total, visit_id, sort_order)
-                        VALUES (?, ?, 1, ?, ?, ?, 999)
+                            (invoice_id, description, quantity, unit_price, line_total, visit_id, service_date, sort_order)
+                        VALUES (?, ?, 1, ?, ?, ?, ?, 999)
                     ")->execute([
                         $invoiceId,
                         'Additional services (' . $extrasMinutes . ' min)',
                         $extrasAmount,
                         $extrasAmount,
                         $linkedVisitId,
+                        $serviceDate,
                     ]);
 
                     // Recalculate invoice totals to include extras
@@ -396,6 +405,7 @@ if ($apiKey) {
                 <input type="hidden" name="selected_recipients" id="selectedRecipientsInput" value="[]">
                 <input type="hidden" name="extras_minutes" value="<?php echo (int)($prefill['extras_minutes'] ?? 0); ?>">
                 <input type="hidden" name="extras_amount"  value="<?php echo htmlspecialchars((string)($prefill['extras_amount'] ?? '0')); ?>">
+                <input type="hidden" name="service_date"   value="<?php echo htmlspecialchars($prefill['scheduled_date'] ?? ''); ?>">
 
                 <div class="card">
                     <div class="card-body">
@@ -625,6 +635,12 @@ if ($apiKey) {
                                    step="0.01" min="0" required
                                    value="<?php echo htmlspecialchars($prefill['amount'] ?? ''); ?>"
                                    oninput="calculateTotals()">
+                        </div>
+
+                        <div class="mw-form-group" style="max-width:260px;">
+                            <label class="form-label">Service Date <span class="text-muted">(optional)</span></label>
+                            <input type="date" name="service_date" class="form-control"
+                                   value="<?php echo htmlspecialchars(date('Y-m-d')); ?>">
                         </div>
 
                         <div class="mw-totals-box">
