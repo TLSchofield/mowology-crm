@@ -100,7 +100,10 @@ try {
             foreach ($accounts as &$a) {
                 $exp = $a['token_expires_at'] ? strtotime($a['token_expires_at']) : null;
                 if (!$exp) {
-                    $a['token_health'] = 'unknown';
+                    // Meta page tokens never expire — NULL expiry means permanent, not unknown
+                    $a['token_health'] = in_array($a['platform'], ['facebook', 'instagram'], true)
+                        ? 'good'
+                        : 'unknown';
                 } elseif ($exp < time()) {
                     $a['token_health'] = 'expired';
                 } elseif ($exp < time() + 86400 * 7) {
@@ -149,6 +152,24 @@ try {
             break;
         }
 
+        // ── List Facebook Pages (uses pending token in session) ──────
+        case 'pages': {
+            requirePermission('marketing.approve');
+            // Reload session to read pending OAuth data
+            session_start();
+            $pendingToken    = $_SESSION['social_pending_token'] ?? null;
+            $pendingPlatform = $_SESSION['social_oauth_platform'] ?? '';
+            session_write_close();
+
+            if (!$pendingToken || !in_array($pendingPlatform, ['facebook', 'instagram'], true)) {
+                throw new RuntimeException('No pending Meta OAuth token. Start the OAuth flow first.');
+            }
+
+            $pages = MetaService::listPages($pendingToken['access_token']);
+            echo json_encode(['success' => true, 'pages' => $pages]);
+            break;
+        }
+
         // ── Save/connect account ─────────────────────────────────────
         case 'connect': {
             requirePermission('marketing.approve');
@@ -180,6 +201,50 @@ try {
                 throw new RuntimeException('No pending OAuth token. Authenticate first.');
             }
 
+            // ── Meta (Facebook / Instagram) ──────────────────────────
+            // For Meta: the page token comes from the frontend (returned by listPages),
+            // NOT from the user token stored in the session. Page tokens never expire.
+            if (in_array($platform, ['facebook', 'instagram'], true)) {
+                $pageToken = trim($input['page_token'] ?? '');
+                $pageId    = trim($input['page_id'] ?? '');
+                $igUserId  = trim($input['ig_user_id'] ?? '') ?: null;
+
+                if (!$pageToken || !$pageId) {
+                    throw new InvalidArgumentException('page_token and page_id are required for Meta accounts');
+                }
+
+                $metaJson = json_encode([
+                    'page_id'    => $pageId,
+                    'page_name'  => $accountName,
+                    'ig_user_id' => $igUserId,
+                ]);
+
+                $db->prepare("
+                    INSERT INTO social_accounts
+                        (platform, account_name, account_id_external,
+                         access_token_enc, refresh_token_enc, token_expires_at, token_scope,
+                         meta_json, is_active, is_verified, connected_by, connected_at)
+                    VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, 1, 1, ?, NOW())
+                ")->execute([
+                    $platform,
+                    $accountName,
+                    $pageId,
+                    SocialEncryption::encrypt($pageToken),
+                    $pendingToken['scope'] ?? null,
+                    $metaJson,
+                    $user['id'],
+                ]);
+
+                $newId = (int)$db->lastInsertId();
+                GoogleBusinessService::auditLog($user['id'], 'account_connected', 'account', $newId,
+                    "Connected {$platform} account: {$accountName} (Page ID: {$pageId})");
+
+                echo json_encode(['success' => true, 'id' => $newId,
+                    'message' => "{$accountName} connected successfully!"]);
+                break;
+            }
+
+            // ── Google Business Profile (and other future platforms) ──
             $expiry = $pendingToken['expires_in']
                 ? date('Y-m-d H:i:s', time() + (int)$pendingToken['expires_in'])
                 : null;
