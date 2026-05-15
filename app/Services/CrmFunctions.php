@@ -2768,22 +2768,34 @@ function getPropertiesForCompany(int $companyId, PDO $db): array {
         (int)($company['primary_contact_id'] ?? 0),
         (int)($company['billing_contact_id']  ?? 0),
     ])));
-    if (empty($contactIds)) return [];
 
-    $ph = implode(',', array_fill(0, count($contactIds), '?'));
-    // Collect all matching property IDs from both sources, deduplicated
-    $stmt = $db->prepare("
-        SELECT DISTINCT p.id
-        FROM properties p
-        WHERE p.site_contact_id IN ({$ph})
-        UNION
-        SELECT DISTINCT p.id
-        FROM properties p
-        JOIN property_contacts pc ON pc.property_id = p.id
-        WHERE pc.contact_id IN ({$ph})
-    ");
-    $stmt->execute(array_merge($contactIds, $contactIds));
-    $ids = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    // Collect property IDs from: site_contact_id path, property_contacts path, AND company_properties
+    $ids = [];
+
+    if (!empty($contactIds)) {
+        $ph = implode(',', array_fill(0, count($contactIds), '?'));
+        $cStmt = $db->prepare("
+            SELECT DISTINCT p.id
+            FROM properties p
+            WHERE p.site_contact_id IN ({$ph})
+            UNION
+            SELECT DISTINCT p.id
+            FROM properties p
+            JOIN property_contacts pc ON pc.property_id = p.id
+            WHERE pc.contact_id IN ({$ph})
+        ");
+        $cStmt->execute(array_merge($contactIds, $contactIds));
+        $ids = $cStmt->fetchAll(PDO::FETCH_COLUMN);
+    }
+
+    // Also include properties directly linked via company_properties
+    try {
+        $cpStmt = $db->prepare("SELECT DISTINCT property_id FROM company_properties WHERE company_id = ?");
+        $cpStmt->execute([$companyId]);
+        $cpIds = $cpStmt->fetchAll(PDO::FETCH_COLUMN);
+        $ids = array_values(array_unique(array_merge($ids, $cpIds)));
+    } catch (PDOException $e) { /* table may not exist */ }
+
     if (empty($ids)) return [];
 
     $placeholders = implode(',', array_fill(0, count($ids), '?'));
@@ -2791,8 +2803,10 @@ function getPropertiesForCompany(int $companyId, PDO $db): array {
         SELECT p.id, p.property_name, p.address, p.city, p.province,
                p.postal_code, p.latitude, p.longitude, p.property_type,
                p.lot_size_sqft, p.status, p.site_contact_id,
+               cp.relationship_type AS company_relationship_type,
                (SELECT COUNT(*) FROM job_geofences jg WHERE jg.property_id = p.id AND jg.zone_type = 'arrival_border') AS has_arrival_border
         FROM properties p
+        LEFT JOIN company_properties cp ON cp.property_id = p.id AND cp.company_id = {$companyId}
         WHERE p.id IN ({$placeholders})
         ORDER BY p.address ASC
     ");

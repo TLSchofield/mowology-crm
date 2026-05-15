@@ -452,6 +452,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         $messageType = 'error';
     }
 
+    // Link plan to a contract
+    if ($action === 'link_contract') {
+        requirePermission('jobs.edit');
+        $contractId = intval($_POST['contract_id'] ?? 0);
+        if ($contractId) {
+            $chk = $db->prepare("SELECT id FROM contracts WHERE id = ? AND property_id = (SELECT property_id FROM job_plans WHERE id = ?)");
+            $chk->execute([$contractId, $planId]);
+            if ($chk->fetch()) {
+                $db->prepare("UPDATE job_plans SET contract_id = ? WHERE id = ?")->execute([$contractId, $planId]);
+                header("Location: view.php?id={$planId}&linked=1");
+                exit;
+            }
+        }
+        $message = 'Could not link contract — it may not belong to the same property.';
+        $messageType = 'error';
+    }
+
     // Edit visit
     if ($action === 'edit_visit') {
         $visitId = intval($_POST['edit_visit_id'] ?? 0);
@@ -497,6 +514,21 @@ $plan = getPlanDetails($planId);
 if (!$plan) {
     header('Location: index.php');
     exit;
+}
+
+// ── Available contracts for "Link to contract" dropdown ─────────────
+$availableContracts = [];
+if (empty($plan['contract_id']) && !empty($plan['property_id'])) {
+    try {
+        $cStmt = $db->prepare("
+            SELECT id, contract_number, title, status, billing_amount, billing_cycle
+            FROM contracts
+            WHERE property_id = ? AND status IN ('active','paused')
+            ORDER BY contract_number DESC
+        ");
+        $cStmt->execute([(int)$plan['property_id']]);
+        $availableContracts = $cStmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Exception $e) { /* contracts table may not exist */ }
 }
 
 // ── Contract value for the rate calculator ───────────────────────────
@@ -671,6 +703,10 @@ if ($hasPropCoords) {
                 <a href="../contracts/view.php?id=<?php echo (int)$plan['contract_id']; ?>" class="mw-back-link mb-2">
                     &larr; Contract <?php echo htmlspecialchars($plan['contract_number']); ?>
                 </a>
+            <?php elseif (!empty($availableContracts)): ?>
+                <button type="button" class="btn btn-sm btn-outline-secondary mb-2" data-toggle="modal" data-target="#linkContractModal">
+                    <i data-feather="link" style="width:12px;height:12px;"></i> Link to Contract
+                </button>
             <?php endif; ?>
 
             <div class="mw-page-header">
@@ -3509,6 +3545,46 @@ if ($hasPropCoords) {
     </script>
 
 <?php if ($hasPropCoords): ?>
+<?php if (!empty($availableContracts)): ?>
+<!-- Link to Contract Modal -->
+<div class="modal fade" id="linkContractModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-sm" role="document">
+        <div class="modal-content">
+            <div class="modal-header" style="background: var(--mw-green); color: #fff;">
+                <h5 class="modal-title"><i data-feather="link" style="width:16px;height:16px;"></i> Link to Contract</h5>
+                <button type="button" class="close text-white" data-dismiss="modal"><span>&times;</span></button>
+            </div>
+            <form method="POST">
+                <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(generateCSRFToken()); ?>">
+                <input type="hidden" name="action" value="link_contract">
+                <div class="modal-body">
+                    <p class="small text-muted mb-3">Select the contract this plan belongs to. It will appear as a back-link at the top of the plan, and the contract will list this plan.</p>
+                    <div class="form-group mb-0">
+                        <label>Contract</label>
+                        <select class="form-control" name="contract_id" required>
+                            <option value="">— choose —</option>
+                            <?php foreach ($availableContracts as $ac): ?>
+                                <option value="<?php echo (int)$ac['id']; ?>">
+                                    <?php echo htmlspecialchars($ac['contract_number']); ?>
+                                    <?php if ($ac['title']): ?> — <?php echo htmlspecialchars($ac['title']); ?><?php endif; ?>
+                                    (<?php echo htmlspecialchars(ucfirst($ac['billing_cycle'] ?? '')); ?>)
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">
+                        <i data-feather="link" style="width:14px;height:14px;"></i> Link
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
+
 <!-- ══════════════════════════════════════════════════════
      WORK ZONE MODAL — Multi-zone geofence management
      ══════════════════════════════════════════════════════ -->

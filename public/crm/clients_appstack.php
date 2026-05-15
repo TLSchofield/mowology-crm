@@ -493,6 +493,78 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
         }
         exit;
 
+    } elseif ($requestAction === 'merge_property') {
+        if (!verifyCSRFToken($jsonData['csrf_token'] ?? '')) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+            exit;
+        }
+
+        $keepId  = intval($jsonData['keep_property_id'] ?? 0);
+        $dropId  = intval($jsonData['drop_property_id'] ?? 0);
+
+        if (!$keepId || !$dropId || $keepId === $dropId) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Invalid property IDs']);
+            exit;
+        }
+
+        try {
+            $db->beginTransaction();
+            foreach (['quotes', 'job_plans', 'contracts', 'invoices'] as $tbl) {
+                try {
+                    $db->prepare("UPDATE {$tbl} SET property_id = ? WHERE property_id = ?")
+                       ->execute([$keepId, $dropId]);
+                } catch (PDOException $e) { /* table may not have property_id */ }
+            }
+            try {
+                $db->prepare("UPDATE company_properties SET property_id = ? WHERE property_id = ?")
+                   ->execute([$keepId, $dropId]);
+            } catch (PDOException $e) { /* ignore */ }
+            $db->prepare("UPDATE properties SET status = 'inactive', site_contact_id = NULL WHERE id = ?")
+               ->execute([$dropId]);
+            $db->commit();
+            echo json_encode(['success' => true]);
+        } catch (Exception $e) {
+            $db->rollBack();
+            http_response_code(500);
+            echo json_encode(['success' => false, 'error' => 'Merge failed: ' . $e->getMessage()]);
+        }
+        exit;
+
+    } elseif ($requestAction === 'save_company_property') {
+        if (!verifyCSRFToken($jsonData['csrf_token'] ?? '')) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+            exit;
+        }
+
+        $cpCompanyId  = intval($jsonData['company_id'] ?? 0);
+        $cpPropertyId = intval($jsonData['property_id'] ?? 0);
+        $cpRelType    = trim($jsonData['relationship_type'] ?? 'owner');
+        $cpIsPrimary  = !empty($jsonData['is_primary']) ? 1 : 0;
+        $validRelTypes = ['owner', 'manager', 'tenant', 'billing'];
+
+        if (!$cpCompanyId || !$cpPropertyId || !in_array($cpRelType, $validRelTypes, true)) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Invalid parameters']);
+            exit;
+        }
+
+        try {
+            $db->prepare("
+                INSERT INTO company_properties (company_id, property_id, relationship_type, is_primary)
+                VALUES (?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE relationship_type = VALUES(relationship_type),
+                                        is_primary = VALUES(is_primary)
+            ")->execute([$cpCompanyId, $cpPropertyId, $cpRelType, $cpIsPrimary]);
+            echo json_encode(['success' => true]);
+        } catch (Exception $e) {
+            http_response_code(500);
+            echo json_encode(['success' => false, 'error' => 'Failed to save relationship']);
+        }
+        exit;
+
     } elseif ($requestAction === 'add_client_note') {
         if (!verifyCSRFToken($jsonData['csrf_token'] ?? '')) {
             http_response_code(400);
@@ -941,6 +1013,44 @@ if ($action === 'view_contact' && $clientId) {
             }
         }
 
+        // Detect duplicate property addresses for this contact
+        $duplicatePropIds = [];
+        if (!empty($contactProperties)) {
+            $normAddressMap = [];
+            foreach ($contactProperties as $p) {
+                $normAddr = strtolower(trim($p['address']));
+                $normAddressMap[$normAddr][] = (int)$p['id'];
+            }
+            foreach ($normAddressMap as $ids) {
+                if (count($ids) > 1) {
+                    foreach ($ids as $did) {
+                        $duplicatePropIds[$did] = true;
+                    }
+                }
+            }
+        }
+
+        // Fetch companies linked to each of this contact's properties (via company_properties)
+        $propertyCompanyMap = [];
+        if (!empty($contactProperties)) {
+            $propIds = array_column($contactProperties, 'id');
+            $tPlaceholders = implode(',', array_fill(0, count($propIds), '?'));
+            try {
+                $cpStmt = $db->prepare("
+                    SELECT cp.property_id, cp.relationship_type, cp.is_primary,
+                           co.id AS company_id, co.company_name, co.company_type
+                    FROM company_properties cp
+                    JOIN companies co ON cp.company_id = co.id
+                    WHERE cp.property_id IN ({$tPlaceholders})
+                    ORDER BY cp.is_primary DESC, co.company_name ASC
+                ");
+                $cpStmt->execute(array_values($propIds));
+                foreach ($cpStmt->fetchAll(PDO::FETCH_ASSOC) as $cpRow) {
+                    $propertyCompanyMap[(int)$cpRow['property_id']][] = $cpRow;
+                }
+            } catch (Exception $e) { /* company_properties may not exist */ }
+        }
+
         // Check if contact is linked to a company (as primary or billing contact)
         try {
             $stmt = $db->prepare("
@@ -1008,6 +1118,8 @@ if ($action === 'view_contact' && $clientId) {
             $serviceLifecycle[$propId] = [
                 'property'         => $prop,
                 'tags'             => $propertyTagMap[$propId] ?? [],
+                'companies'        => $propertyCompanyMap[$propId] ?? [],
+                'is_duplicate'     => isset($duplicatePropIds[$propId]),
                 'quotes'           => [],
                 'plans_with_quote' => [],
                 'plans_no_quote'   => [],
@@ -2530,6 +2642,8 @@ $unconvertedRequests = $db->query("
                       <?php foreach ($serviceLifecycle as $propId => $lc):
                         $prop = $lc['property'];
                         $propTags = $lc['tags'];
+                        $propCompanies = $lc['companies'];
+                        $propIsDuplicate = $lc['is_duplicate'];
                         $propQuotes = $lc['quotes'];
                         $plansWithQuote = $lc['plans_with_quote'];
                         $plansNoQuote = $lc['plans_no_quote'];
@@ -2543,6 +2657,9 @@ $unconvertedRequests = $db->query("
                               <i data-feather="chevron-down" style="width:14px;height:14px;" class="mw-lifecycle-chevron"></i>
                               <i data-feather="home" style="width:14px;height:14px;"></i>
                               <span><?php echo h($prop['address']); ?></span>
+                              <?php if ($propIsDuplicate): ?>
+                                <span class="mw-property-dup-badge" title="Another property with this address also exists for this contact">Duplicate</span>
+                              <?php endif; ?>
                               <span class="mw-lifecycle-counts">
                                 <?php if ($qCount > 0): ?><span class="mw-lifecycle-count-badge"><?php echo $qCount; ?> quote<?php echo $qCount !== 1 ? 's' : ''; ?></span><?php endif; ?>
                                 <?php if ($pCount > 0): ?><span class="mw-lifecycle-count-badge"><?php echo $pCount; ?> plan<?php echo $pCount !== 1 ? 's' : ''; ?></span><?php endif; ?>
@@ -2556,6 +2673,11 @@ $unconvertedRequests = $db->query("
                               <?php else: ?>
                                 <span class="text-success mr-1" title="Geocoded"><i data-feather="check-circle" style="width:14px;height:14px;"></i></span>
                               <?php endif; ?>
+                              <?php if ($propIsDuplicate): ?>
+                                <button type="button" class="mw-property-merge-btn mr-1" onclick="showMergePropertyModal(<?php echo $propId; ?>, '<?php echo addslashes(h($prop['address'])); ?>', <?php echo json_encode(array_values(array_filter(array_map(fn($lc2) => $lc2['property']['address'] === $prop['address'] && (int)$lc2['property']['id'] !== $propId ? ['id' => (int)$lc2['property']['id'], 'addr' => $lc2['property']['address']] : null, $serviceLifecycle)))); ?>)" title="Merge duplicate into another property">
+                                  <i data-feather="git-merge" style="width:14px;height:14px;"></i>
+                                </button>
+                              <?php endif; ?>
                               <button type="button" class="mw-property-unlink-btn" onclick="showUnlinkProperty(<?php echo $propId; ?>, '<?php echo addslashes(h($prop['address'])); ?>')" title="Remove or reassign">
                                 <i data-feather="x-circle" style="width:14px;height:14px;"></i>
                               </button>
@@ -2567,6 +2689,19 @@ $unconvertedRequests = $db->query("
                               <div class="mw-contact-property-meta mb-1">
                                 <?php echo h($prop['city'] ?? ''); ?><?php echo !empty($prop['province']) ? ', ' . h($prop['province']) : ''; ?> <?php echo h($prop['postal_code'] ?? ''); ?>
                               </div>
+                              <?php if (!empty($propCompanies)): ?>
+                              <div class="mw-property-company-rels" onclick="event.stopPropagation();">
+                                <?php
+                                  $relLabels = ['owner' => 'Owner', 'manager' => 'Managed by', 'tenant' => 'Tenant', 'billing' => 'Billing'];
+                                ?>
+                                <?php foreach ($propCompanies as $cr): ?>
+                                  <span class="mw-property-rel-chip">
+                                    <span class="mw-property-rel-type"><?php echo h($relLabels[$cr['relationship_type']] ?? ucfirst($cr['relationship_type'])); ?>:</span>
+                                    <a href="?action=view_company&id=<?php echo (int)$cr['company_id']; ?>" onclick="event.stopPropagation();"><?php echo h($cr['company_name']); ?></a>
+                                  </span>
+                                <?php endforeach; ?>
+                              </div>
+                              <?php endif; ?>
                               <div class="mw-property-tags-row" id="propTags_<?php echo $propId; ?>" onclick="event.stopPropagation();">
                                 <?php foreach ($propTags as $pTag): ?>
                                   <span class="mw-property-tag" style="--tag-color: <?php echo h($pTag['tag_color']); ?>">
@@ -4018,6 +4153,66 @@ $unconvertedRequests = $db->query("
                 });
               };
 
+              // ── Merge Duplicate Properties ────────────────────────
+              var _mergePropKeepId = 0;
+              var _mergePropDropId = 0;
+
+              window.showMergePropertyModal = function(dropId, dropAddr, otherProps) {
+                _mergePropDropId = dropId;
+                _mergePropKeepId = 0;
+                var html = '<p class="mb-2"><strong>Duplicate to remove:</strong> ' + dropAddr + ' <small class="text-muted">(ID ' + dropId + ')</small></p>';
+                html += '<p class="mb-2"><strong>Merge all its data into:</strong></p>';
+                if (!otherProps || !otherProps.length) {
+                  html += '<p class="text-muted">No other duplicate found — refresh the page.</p>';
+                } else {
+                  html += '<select class="form-control" id="mergePropKeepSelect"><option value="">— choose —</option>';
+                  otherProps.forEach(function(p) {
+                    html += '<option value="' + p.id + '">' + p.addr + ' (ID ' + p.id + ')</option>';
+                  });
+                  html += '</select>';
+                }
+                document.getElementById('mergePropBody').innerHTML = html;
+                $('#mergePropModal').modal('show');
+              };
+
+              window.executeMergeProperty = function() {
+                var keepId = parseInt((document.getElementById('mergePropKeepSelect') || {}).value || '0');
+                if (!keepId) { alert('Please select the canonical property to keep.'); return; }
+                _mergePropKeepId = keepId;
+
+                var btn = document.getElementById('mergePropConfirmBtn');
+                btn.disabled = true;
+                btn.textContent = 'Merging...';
+
+                fetch('clients_appstack.php?action=merge_property', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    keep_property_id: _mergePropKeepId,
+                    drop_property_id: _mergePropDropId,
+                    csrf_token: CSRF_TOKEN
+                  })
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                  if (data.success) {
+                    $('#mergePropModal').modal('hide');
+                    location.reload();
+                  } else {
+                    alert('Error: ' + (data.error || 'Unknown error'));
+                    btn.disabled = false;
+                    btn.innerHTML = '<i data-feather="git-merge" style="width:14px;height:14px;"></i> Merge &amp; Deactivate Duplicate';
+                    feather.replace();
+                  }
+                })
+                .catch(function() {
+                  alert('Network error. Please try again.');
+                  btn.disabled = false;
+                  btn.innerHTML = '<i data-feather="git-merge" style="width:14px;height:14px;"></i> Merge &amp; Deactivate Duplicate';
+                  feather.replace();
+                });
+              };
+
               // ── Add Property ────────────────────────────────────
               window.addPropertyToContact = function(event) {
                 event.preventDefault();
@@ -4610,11 +4805,16 @@ $unconvertedRequests = $db->query("
                       <i data-feather="map-pin"></i> Properties
                       <span class="badge badge-primary ml-1"><?php echo count($companyProperties); ?></span>
                     </h5>
-                    <?php if (!empty($companyContacts)): ?>
-                      <button type="button" class="btn btn-sm btn-success" data-toggle="modal" data-target="#addCompanyPropertyModal">
-                        <i data-feather="plus"></i> Add Property
+                    <div class="d-flex" style="gap:6px;">
+                      <button type="button" class="btn btn-sm btn-outline-secondary" data-toggle="modal" data-target="#attachExistingPropertyModal" title="Link an existing property to this company">
+                        <i data-feather="link" style="width:12px;height:12px;"></i> Attach Property
                       </button>
-                    <?php endif; ?>
+                      <?php if (!empty($companyContacts)): ?>
+                        <button type="button" class="btn btn-sm btn-success" data-toggle="modal" data-target="#addCompanyPropertyModal">
+                          <i data-feather="plus"></i> Add New
+                        </button>
+                      <?php endif; ?>
+                    </div>
                   </div>
                   <div class="card-body">
                     <?php if (empty($companyProperties)): ?>
@@ -4631,6 +4831,7 @@ $unconvertedRequests = $db->query("
                       <?php foreach ($companyProperties as $prop):
                           $compPropTags = $companyPropertyTagMap[(int)$prop['id']] ?? [];
                           $ownerName = $companyContactNameMap[(int)($prop['site_contact_id'] ?? 0)] ?? '';
+                          $propRelType = $prop['company_relationship_type'] ?? null;
                           $mData = $compMeasurementMap[(int)$prop['id']] ?? [];
                           $mCount = (int)($mData['measurement_count'] ?? 0);
                           $lawnSqft = floatval($mData['total_lawn_sqft'] ?? 0);
@@ -4651,6 +4852,26 @@ $unconvertedRequests = $db->query("
                                 &middot; <i data-feather="user" style="width: 11px; height: 11px;"></i> <?php echo h($ownerName); ?>
                               <?php endif; ?>
                             </div>
+                            <?php if ($propRelType): ?>
+                              <?php
+                                $relLabelsComp = ['owner' => 'Owner', 'manager' => 'Managed by this company', 'tenant' => 'Tenant', 'billing' => 'Billing'];
+                                $relColors = ['owner' => '#2D8659', 'manager' => '#0284c7', 'tenant' => '#9333ea', 'billing' => '#d97706'];
+                              ?>
+                              <div class="mw-property-company-rels" onclick="event.stopPropagation();">
+                                <span class="mw-property-rel-chip" style="--rel-color: <?php echo $relColors[$propRelType] ?? '#6b7280'; ?>">
+                                  <span class="mw-property-rel-type"><?php echo h($relLabelsComp[$propRelType] ?? ucfirst($propRelType)); ?></span>
+                                  <button type="button" class="mw-property-rel-edit" onclick="showEditRelModal(<?php echo (int)$viewCompany['id']; ?>, <?php echo (int)$prop['id']; ?>, '<?php echo h($prop['address']); ?>', '<?php echo $propRelType; ?>')" title="Edit relationship">
+                                    <i data-feather="edit-2" style="width:10px;height:10px;"></i>
+                                  </button>
+                                </span>
+                              </div>
+                            <?php else: ?>
+                              <div class="mw-property-company-rels" onclick="event.stopPropagation();">
+                                <button type="button" class="mw-property-rel-add-btn" onclick="showEditRelModal(<?php echo (int)$viewCompany['id']; ?>, <?php echo (int)$prop['id']; ?>, '<?php echo h($prop['address']); ?>', '')" title="Set relationship type">
+                                  <i data-feather="tag" style="width:10px;height:10px;"></i> Set role
+                                </button>
+                              </div>
+                            <?php endif; ?>
                             <!-- Property Tags -->
                             <div class="mw-property-tags-row" id="compPropTags_<?php echo (int)$prop['id']; ?>" onclick="event.stopPropagation();">
                               <?php foreach ($compPropTags as $pTag): ?>
@@ -4985,6 +5206,73 @@ $unconvertedRequests = $db->query("
               </div>
             </div>
 
+            <!-- Attach Existing Property Modal -->
+            <div class="modal fade" id="attachExistingPropertyModal" tabindex="-1" role="dialog">
+              <div class="modal-dialog" role="document">
+                <div class="modal-content">
+                  <div class="modal-header" style="background: var(--mw-green); color: #fff;">
+                    <h5 class="modal-title"><i data-feather="link" style="width: 18px; height: 18px;"></i> Attach Property to Company</h5>
+                    <button type="button" class="close text-white" data-dismiss="modal"><span>&times;</span></button>
+                  </div>
+                  <div class="modal-body">
+                    <p class="small text-muted mb-3">Link an existing property to this company with a relationship (owner, property manager, etc.). The property does not need to have this company's contact as its site contact.</p>
+                    <div class="form-group">
+                      <label>Property ID <small class="text-muted">— find the ID on the property's contact page</small></label>
+                      <input type="number" class="form-control" id="attachPropId" placeholder="e.g. 12" min="1">
+                    </div>
+                    <div class="form-group">
+                      <label>Relationship</label>
+                      <select class="form-control" id="attachPropRelType">
+                        <option value="owner">Owner (strata corp owns this property)</option>
+                        <option value="manager" selected>Manager (property management company)</option>
+                        <option value="tenant">Tenant</option>
+                        <option value="billing">Billing contact for property</option>
+                      </select>
+                    </div>
+                    <div class="form-check">
+                      <input type="checkbox" class="form-check-input" id="attachPropIsPrimary">
+                      <label class="form-check-label" for="attachPropIsPrimary">Primary property for this company</label>
+                    </div>
+                  </div>
+                  <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-success" onclick="attachExistingProperty()">
+                      <i data-feather="link"></i> Attach Property
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Edit Company-Property Relationship Modal -->
+            <div class="modal fade" id="editRelModal" tabindex="-1" role="dialog">
+              <div class="modal-dialog modal-sm" role="document">
+                <div class="modal-content">
+                  <div class="modal-header" style="background: var(--mw-green); color: #fff;">
+                    <h5 class="modal-title"><i data-feather="tag" style="width: 16px; height: 16px;"></i> Set Relationship</h5>
+                    <button type="button" class="close text-white" data-dismiss="modal"><span>&times;</span></button>
+                  </div>
+                  <div class="modal-body">
+                    <p id="editRelPropName" class="small text-muted mb-3"></p>
+                    <div class="form-group mb-0">
+                      <label>Relationship</label>
+                      <select class="form-control" id="editRelType">
+                        <option value="owner">Owner</option>
+                        <option value="manager">Manager</option>
+                        <option value="tenant">Tenant</option>
+                        <option value="billing">Billing</option>
+                      </select>
+                    </div>
+                    <input type="hidden" id="editRelPropertyId">
+                  </div>
+                  <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="saveEditRel()">Save</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <!-- Unlink/Reassign Property Modal (Company View) -->
             <div class="modal fade" id="unlinkCompanyPropertyModal" tabindex="-1" role="dialog">
               <div class="modal-dialog" role="document">
@@ -5094,6 +5382,63 @@ $unconvertedRequests = $db->query("
                   btn.innerHTML = '<i data-feather="plus"></i> Add Property';
                   feather.replace();
                 });
+              };
+
+              // ── Attach Existing Property + Edit Relationship ────────
+              window.attachExistingProperty = function() {
+                var propId = parseInt(document.getElementById('attachPropId').value || '0');
+                var relType = document.getElementById('attachPropRelType').value;
+                var isPrimary = document.getElementById('attachPropIsPrimary').checked ? 1 : 0;
+                if (!propId) { alert('Please enter a property ID.'); return; }
+
+                fetch('clients_appstack.php?action=save_company_property', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    company_id: COMPANY_ID,
+                    property_id: propId,
+                    relationship_type: relType,
+                    is_primary: isPrimary,
+                    csrf_token: CSRF_TOKEN_CO
+                  })
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                  if (data.success) { $('#attachExistingPropertyModal').modal('hide'); location.reload(); }
+                  else { alert('Error: ' + (data.error || 'Unknown error')); }
+                })
+                .catch(function() { alert('Network error. Please try again.'); });
+              };
+
+              window.showEditRelModal = function(companyId, propertyId, addr, currentRel) {
+                document.getElementById('editRelPropertyId').value = propertyId;
+                document.getElementById('editRelPropName').textContent = addr;
+                document.getElementById('editRelType').value = currentRel || 'manager';
+                $('#editRelModal').modal('show');
+              };
+
+              window.saveEditRel = function() {
+                var propId = parseInt(document.getElementById('editRelPropertyId').value || '0');
+                var relType = document.getElementById('editRelType').value;
+                if (!propId) return;
+
+                fetch('clients_appstack.php?action=save_company_property', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    company_id: COMPANY_ID,
+                    property_id: propId,
+                    relationship_type: relType,
+                    is_primary: 0,
+                    csrf_token: CSRF_TOKEN_CO
+                  })
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                  if (data.success) { $('#editRelModal').modal('hide'); location.reload(); }
+                  else { alert('Error: ' + (data.error || 'Unknown error')); }
+                })
+                .catch(function() { alert('Network error. Please try again.'); });
               };
 
               // ── Map ─────────────────────────────────────────────────
@@ -6030,6 +6375,28 @@ $unconvertedRequests = $db->query("
           </div>
 
           <!-- Merge Contact Modal -->
+          <!-- Merge Duplicate Properties Modal -->
+          <div class="modal fade" id="mergePropModal" tabindex="-1" role="dialog">
+            <div class="modal-dialog" role="document">
+              <div class="modal-content">
+                <div class="modal-header" style="background: #d97706; color: #fff;">
+                  <h5 class="modal-title"><i data-feather="git-merge" style="width: 18px; height: 18px;"></i> Merge Duplicate Properties</h5>
+                  <button type="button" class="close text-white" data-dismiss="modal"><span>&times;</span></button>
+                </div>
+                <div class="modal-body">
+                  <p class="small text-muted mb-3">All quotes, plans, contracts, and invoices linked to the <strong>dropped</strong> property will be reassigned to the <strong>kept</strong> property. The duplicate will be set to inactive.</p>
+                  <div id="mergePropBody"></div>
+                </div>
+                <div class="modal-footer">
+                  <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                  <button type="button" class="btn btn-warning" id="mergePropConfirmBtn" onclick="executeMergeProperty()">
+                    <i data-feather="git-merge" style="width: 14px; height: 14px;"></i> Merge &amp; Deactivate Duplicate
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div class="modal fade" id="mergeContactModal" tabindex="-1" role="dialog">
             <div class="modal-dialog modal-xl" role="document">
               <div class="modal-content">

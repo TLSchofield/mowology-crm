@@ -28047,3 +28047,89 @@ body.mw-no-scroll {
 #receiptReviewPanel .mw-rv-grid ~ .mt-3.d-flex {
   flex-wrap: nowrap;
 }
+
+/* ── Property Duplicate Badge ────────────────────────────────────────── */
+.mw-property-dup-badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+  vertical-align: middle;
+  margin-left: 6px;
+}
+
+/* ── Property Merge Button ───────────────────────────────────────────── */
+.mw-property-merge-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: #fef3c7;
+  color: #92400e;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background .15s;
+  padding: 0;
+}
+.mw-property-merge-btn:hover {
+  background: #fde68a;
+}
+
+/* ── Company ↔ Property Relationship Chips ───────────────────────────── */
+.mw-property-company-rels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+  margin-bottom: 2px;
+}
+.mw-property-rel-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  background: var(--mw-light);
+  border: 1px solid rgba(var(--mw-green-rgb, 45, 134, 89), .3);
+  color: var(--mw-dark);
+}
+.mw-property-rel-type {
+  font-weight: 600;
+  margin-right: 2px;
+}
+.mw-property-rel-edit {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--mw-dark);
+  cursor: pointer;
+  line-height: 1;
+  opacity: .6;
+}
+.mw-property-rel-edit:hover { opacity: 1; }
+
+.mw-property-rel-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  background: none;
+  border: 1px dashed #adb5bd;
+  color: #6c757d;
+  cursor: pointer;
+  transition: border-color .15s, color .15s;
+}
+.mw-property-rel-add-btn:hover {
+  border-color: var(--mw-green);
+  color: var(--mw-green);
+}
