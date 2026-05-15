@@ -1792,7 +1792,10 @@ if ($action === 'view_company' && $clientId) {
                            GROUP_CONCAT(DISTINCT jp.service_type SEPARATOR ', ') AS service_types,
                            COUNT(DISTINCT jp.id) AS active_plan_count,
                            SUM(jp.price_per_visit) AS total_per_visit,
-                           GROUP_CONCAT(jp.recurrence_day_of_week SEPARATOR ',') AS all_dow
+                           GROUP_CONCAT(jp.recurrence_day_of_week SEPARATOR ',') AS all_dow,
+                           (SELECT COUNT(*) FROM job_visits jv2 WHERE jv2.plan_id IN (
+                               SELECT jp2.id FROM job_plans jp2 WHERE jp2.property_id = p.id AND jp2.status = 'active'
+                           ) AND jv2.status = 'completed') AS completed_visits
                     FROM properties p
                     JOIN contacts c ON p.site_contact_id = c.id
                     JOIN job_plans jp ON jp.property_id = p.id AND jp.status = 'active'
@@ -1826,47 +1829,90 @@ if ($action === 'view_company' && $clientId) {
                     $w2 = count(array_filter($nearby, function($n) { return $n['distance_km'] <= 2; }));
                     $w5 = count(array_filter($nearby, function($n) { return $n['distance_km'] <= 5; }));
                     $avg = count($nearby) ? round(array_sum(array_column($nearby, 'distance_km')) / count($nearby), 1) : 0;
-                    // Day-of-week stats (matching create-from-quote.php Scheduling Intelligence)
-                    $dayStats = [];
-                    for ($d = 0; $d <= 6; $d++) {
-                        $dayStats[$d] = ['count' => 0, 'totalDist' => 0.0, 'avgDist' => 0.0];
+                    // Smartest day — same logic as view_contact (scored by visits + recurrence)
+                    $riSmartestDay = null;
+                    $riDayBreakdown = [];
+                    $riNearbyIds = array_values(array_unique(array_column($nearby, 'property_id')));
+                    if (!empty($riNearbyIds)) {
+                        try {
+                            $riPh = implode(',', array_fill(0, count($riNearbyIds), '?'));
+                            // Scheduled visits next 6 weeks
+                            $riVisitStmt = $db->prepare("
+                                SELECT DAYOFWEEK(jv.scheduled_date) AS dow,
+                                       DAYNAME(jv.scheduled_date) AS day_name,
+                                       COUNT(DISTINCT jv.id) AS visit_count,
+                                       COUNT(DISTINCT jp.property_id) AS property_count,
+                                       GROUP_CONCAT(DISTINCT jv.scheduled_date ORDER BY jv.scheduled_date SEPARATOR ',') AS upcoming_dates
+                                FROM job_visits jv
+                                JOIN job_plans jp ON jv.plan_id = jp.id
+                                WHERE jp.property_id IN ({$riPh})
+                                  AND jv.scheduled_date >= CURDATE()
+                                  AND jv.scheduled_date < DATE_ADD(CURDATE(), INTERVAL 42 DAY)
+                                  AND jp.status = 'active'
+                                  AND jv.status NOT IN ('cancelled','skipped','completed')
+                                GROUP BY DAYOFWEEK(jv.scheduled_date)
+                                ORDER BY visit_count DESC
+                            ");
+                            $riVisitStmt->execute($riNearbyIds);
+                            $riVisits = $riVisitStmt->fetchAll(PDO::FETCH_ASSOC);
+                            // Recurring plans
+                            $riRecurStmt = $db->prepare("
+                                SELECT jp.recurrence_day_of_week, COUNT(*) AS plan_count
+                                FROM job_plans jp
+                                WHERE jp.property_id IN ({$riPh})
+                                  AND jp.status = 'active' AND jp.is_recurring = 1
+                                  AND jp.recurrence_day_of_week IS NOT NULL
+                                GROUP BY jp.recurrence_day_of_week
+                            ");
+                            $riRecurStmt->execute($riNearbyIds);
+                            $riRecur = $riRecurStmt->fetchAll(PDO::FETCH_ASSOC);
+                            // Merge + score (same formula as contact view)
+                            $riDayNames = [1=>'Sunday',2=>'Monday',3=>'Tuesday',4=>'Wednesday',5=>'Thursday',6=>'Friday',7=>'Saturday'];
+                            $riScores = [];
+                            foreach ($riVisits as $rv) {
+                                $riScores[(int)$rv['dow']] = [
+                                    'day_name' => $rv['day_name'], 'visit_count' => (int)$rv['visit_count'],
+                                    'property_count' => (int)$rv['property_count'], 'recur_plans' => 0,
+                                    'upcoming_dates' => $rv['upcoming_dates'] ?? '',
+                                ];
+                            }
+                            foreach ($riRecur as $rr) {
+                                foreach (array_map('intval', explode(',', $rr['recurrence_day_of_week'])) as $rdDay) {
+                                    $dow = ($rdDay + 1 > 7) ? 1 : $rdDay + 1;
+                                    if (!isset($riScores[$dow])) {
+                                        $riScores[$dow] = ['day_name' => $riDayNames[$dow] ?? 'Unknown', 'visit_count' => 0, 'property_count' => 0, 'recur_plans' => 0, 'upcoming_dates' => ''];
+                                    }
+                                    $riScores[$dow]['recur_plans'] += (int)$rr['plan_count'];
+                                }
+                            }
+                            foreach ($riScores as $rdow => &$rds) {
+                                $rds['score'] = $rds['visit_count'] * 2 + $rds['recur_plans'] * 3 + $rds['property_count'];
+                                $rds['dow'] = $rdow;
+                            }
+                            unset($rds);
+                            usort($riScores, function($a, $b) { return $b['score'] <=> $a['score']; });
+                            $riDayBreakdown = $riScores;
+                            if (!empty($riDayBreakdown)) {
+                                $riBest = $riDayBreakdown[0];
+                                $riTodayDow = (int)date('w') + 1;
+                                $riBestDow  = $riBest['dow'];
+                                $riDaysUntil = ($riBestDow - $riTodayDow + 7) % 7;
+                                if ($riDaysUntil === 0) $riDaysUntil = 7;
+                                $riSmartestDay = [
+                                    'day_name'       => $riBest['day_name'],
+                                    'next_date'      => date('M j', strtotime("+{$riDaysUntil} days")),
+                                    'visit_count'    => $riBest['visit_count'],
+                                    'property_count' => $riBest['property_count'],
+                                    'recur_plans'    => $riBest['recur_plans'],
+                                ];
+                            }
+                        } catch (Exception $e) { $riSmartestDay = null; $riDayBreakdown = []; }
                     }
-                    foreach ($nearby as $nb) {
-                        if (empty($nb['all_dow'])) continue;
-                        $seenDays = [];
-                        foreach (explode(',', $nb['all_dow']) as $dv) {
-                            $dv = trim($dv);
-                            if ($dv === '') continue;
-                            $di = intval($dv);
-                            if (isset($seenDays[$di])) continue; // count each property once per day
-                            $seenDays[$di] = true;
-                            $dayStats[$di]['count']++;
-                            $dayStats[$di]['totalDist'] += floatval($nb['distance_km']);
-                        }
-                    }
-                    $maxDayCount = 1;
-                    $bestDay = null; $bestDayCount = 0;
-                    for ($d = 1; $d <= 6; $d++) {
-                        $dayStats[$d]['avgDist'] = $dayStats[$d]['count'] > 0
-                            ? round($dayStats[$d]['totalDist'] / $dayStats[$d]['count'], 1) : 0;
-                        if ($dayStats[$d]['count'] > $maxDayCount) $maxDayCount = $dayStats[$d]['count'];
-                        if ($dayStats[$d]['count'] > $bestDayCount) {
-                            $bestDayCount = $dayStats[$d]['count'];
-                            $bestDay = $d;
-                        }
-                    }
-                    // Compute bar heights
-                    foreach ($dayStats as $d => &$ds) {
-                        $ds['barPct'] = $ds['count'] > 0 ? max(4, (int)round($ds['count'] / $maxDayCount * 100)) : 0;
-                        unset($ds['totalDist']);
-                    }
-                    unset($ds);
                     $compRouteIntelByProp[(int)$gp['id']] = [
                         'within2km'    => $w2, 'within5km' => $w5, 'avgDist' => $avg,
                         'density'      => $w2 >= 5 ? 'High' : ($w2 >= 2 ? 'Medium' : 'Low'),
-                        'bestDay'      => $bestDay,
-                        'bestDayCount' => $bestDayCount,
-                        'dayStats'     => $dayStats,
+                        'smartestDay'  => $riSmartestDay,
+                        'dayBreakdown' => $riDayBreakdown,
                         'clients'      => $nearby,
                     ];
                     if (!empty($nearby)) $compHasRouteIntel = true;
@@ -5262,19 +5308,14 @@ $unconvertedRequests = $db->query("
                   </div>
                 </div>
 
-                <!-- Scheduling Intelligence Card — JS-driven, updates on property selection -->
+                <!-- Route Intelligence Card — JS-driven, updates on property selection -->
                 <?php if ($compHasRouteIntel): ?>
-                <div class="card mb-3 mw-sched-intel" id="compRouteIntelCard">
+                <div class="card mb-3" id="compRouteIntelCard">
                   <div class="card-header d-flex align-items-center justify-content-between">
-                    <h5 class="card-title mb-0" style="display:flex;align-items:center;gap:6px;font-size:0.95rem;">
-                      <i data-feather="map-pin" style="width:16px;height:16px;"></i> Scheduling Intelligence
-                    </h5>
+                    <h5 class="card-title mb-0"><i data-feather="navigation"></i> Route Intelligence</h5>
                     <small class="text-muted" id="compRouteIntelLabel"></small>
                   </div>
-                  <div class="card-body p-0">
-                    <div class="mw-si-day-grid" id="compRouteIntelStats"></div>
-                    <div id="compRouteIntelClients"></div>
-                  </div>
+                  <div class="card-body p-0" id="compRouteIntelBody"></div>
                 </div>
                 <?php endif; ?>
 
@@ -5806,7 +5847,11 @@ $unconvertedRequests = $db->query("
               // Per-property route intelligence data
               var compRouteIntelData = <?php echo json_encode($compRouteIntelByProp); ?>;
 
-              var dowNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+              var svcIconMap = {
+                'lawn_care': 'scissors', 'hedge_trimming': 'git-branch', 'garden_care': 'sun',
+                'snow_removal': 'cloud-snow', 'pressure_washing': 'droplet', 'landscaping': 'tool',
+                'maintenance': 'tool', 'aeration': 'activity'
+              };
 
               function renderCompRouteIntel(propertyId) {
                 var card = document.getElementById('compRouteIntelCard');
@@ -5821,43 +5866,87 @@ $unconvertedRequests = $db->query("
                 var label = document.getElementById('compRouteIntelLabel');
                 if (label && prop) label.textContent = prop.address;
 
-                // ── Day-of-week bar chart (Mon–Sat) ───────────────────────────
-                var dayHtml = '';
-                for (var d = 1; d <= 6; d++) {
-                  var ds = data.dayStats && data.dayStats[d] ? data.dayStats[d] : {count:0, avgDist:0, barPct:0};
-                  var isBest = (data.bestDay === d);
-                  dayHtml += '<div class="mw-si-day-col' + (isBest ? ' mw-si-best' : '') + '" data-dow="' + d + '">' +
-                    '<div class="mw-si-day-name">' + dowNames[d] + '</div>' +
-                    '<div class="mw-si-day-bar-wrap"><div class="mw-si-day-bar" style="height:' + (ds.barPct || 4) + '%"></div></div>' +
-                    '<div class="mw-si-day-count">' + ds.count + '</div>' +
-                    (ds.count > 0 ? '<div class="mw-si-day-dist">' + ds.avgDist + 'km</div>' : '') +
-                    (isBest ? '<div class="mw-si-best-badge">Best</div>' : '') +
+                var html = '';
+
+                // ── Smartest Day block (mirrors mw-smartest-day PHP) ───────────
+                if (data.smartestDay) {
+                  var sd = data.smartestDay;
+                  html += '<div class="mw-smartest-day">' +
+                    '<div class="mw-smartest-day-icon"><i data-feather="calendar"></i></div>' +
+                    '<div class="mw-smartest-day-info">' +
+                      '<div class="mw-smartest-day-label">Best day to service</div>' +
+                      '<div class="mw-smartest-day-value">' + sd.day_name + '</div>' +
+                      '<div class="mw-smartest-day-detail">Next: ' + sd.next_date +
+                        (sd.visit_count > 0 ? ' &middot; ' + sd.visit_count + ' nearby visit' + (sd.visit_count !== 1 ? 's' : '') + ' scheduled' : '') +
+                        (sd.recur_plans > 0 ? ' &middot; ' + sd.recur_plans + ' recurring plan' + (sd.recur_plans !== 1 ? 's' : '') : '') +
+                      '</div>' +
+                    '</div>' +
                   '</div>';
                 }
-                document.getElementById('compRouteIntelStats').innerHTML = dayHtml;
 
-                // ── Nearby client list ─────────────────────────────────────────
-                var clientCount = data.clients.length;
-                var listHeader = '<div class="mw-si-list-header"><small class="text-muted">' +
-                  clientCount + ' nearby recurring client' + (clientCount !== 1 ? 's' : '') + ' within 10km</small></div>';
+                // ── Day breakdown horizontal bars ──────────────────────────────
+                if (data.dayBreakdown && data.dayBreakdown.length > 1) {
+                  var topScore = data.dayBreakdown[0].score || 1;
+                  html += '<div class="mw-day-breakdown">';
+                  var topDays = data.dayBreakdown.slice(0, 5);
+                  for (var di = 0; di < topDays.length; di++) {
+                    var day = topDays[di];
+                    var barW = topScore > 0 ? Math.round((day.score / topScore) * 100) : 0;
+                    var isTop = (di === 0);
+                    html += '<div class="mw-day-breakdown-row' + (isTop ? ' mw-day-top' : '') + '">' +
+                      '<span class="mw-day-breakdown-name">' + day.day_name.substring(0,3) + '</span>' +
+                      '<div class="mw-day-breakdown-bar-bg"><div class="mw-day-breakdown-bar" style="width:' + barW + '%' + (isTop ? ';background:var(--mw-green)' : '') + '"></div></div>' +
+                      '<span class="mw-day-breakdown-count">' + day.visit_count + ' visit' + (day.visit_count !== 1 ? 's' : '') + '</span>' +
+                    '</div>';
+                  }
+                  html += '</div>';
+                }
 
-                var clientRows = data.clients.slice(0, 10).map(function(nc) {
+                // ── Stats row ──────────────────────────────────────────────────
+                var densityColor = data.density === 'High' ? 'var(--mw-green)' : (data.density === 'Medium' ? '#F59E0B' : '#DC2626');
+                html += '<div class="mw-route-intel-summary"><div class="mw-route-intel-stats">' +
+                  '<div class="mw-route-intel-stat"><span class="mw-route-intel-stat-value">' + data.within2km + '</span><span class="mw-route-intel-stat-label">Within 2 km</span></div>' +
+                  '<div class="mw-route-intel-stat"><span class="mw-route-intel-stat-value">' + data.within5km + '</span><span class="mw-route-intel-stat-label">Within 5 km</span></div>' +
+                  '<div class="mw-route-intel-stat"><span class="mw-route-intel-stat-value">' + data.avgDist + '<small>km</small></span><span class="mw-route-intel-stat-label">Avg distance</span></div>' +
+                  '<div class="mw-route-intel-stat"><span class="mw-route-intel-stat-value" style="color:' + densityColor + '">' + data.density + '</span><span class="mw-route-intel-stat-label">Route density</span></div>' +
+                '</div></div>';
+
+                // ── Client list ────────────────────────────────────────────────
+                html += '<div class="mw-route-intel-list">';
+                data.clients.slice(0, 12).forEach(function(nc) {
                   var name = (nc.first_name + ' ' + nc.last_name).trim();
-                  var svc = nc.service_types ? nc.service_types.split(', ').slice(0,2).map(function(s){ return s.replace(/_/g,' '); }).join(' · ') : '';
-                  var dist = parseFloat(nc.distance_km).toFixed(1);
-                  var ncDow = nc.all_dow ? parseInt(nc.all_dow.split(',')[0]) : null;
-                  var dayLabel = (ncDow !== null && !isNaN(ncDow)) ? dowNames[ncDow] : '?';
-                  return '<div class="mw-si-nearby-item">' +
-                    '<div class="mw-si-nearby-main">' +
-                      '<div class="mw-si-nearby-address">' + name + '</div>' +
-                      '<div class="mw-si-nearby-meta">' + (svc || '—') + ' &middot; ' + dist + 'km</div>' +
-                    '</div>' +
-                    '<div class="mw-si-nearby-day">' + dayLabel + '</div>' +
-                  '</div>';
-                }).join('');
+                  var dist = parseFloat(nc.distance_km);
+                  var distColor = dist <= 1 ? 'var(--mw-green)' : (dist <= 3 ? '#F59E0B' : '#9CA3AF');
+                  var plans = parseInt(nc.active_plan_count) || 0;
+                  var completed = parseInt(nc.completed_visits) || 0;
+                  var revenue = parseFloat(nc.total_per_visit) || 0;
+                  // Service icons
+                  var svcHtml = '';
+                  if (nc.service_types) {
+                    nc.service_types.split(', ').forEach(function(svc) {
+                      svc = svc.trim();
+                      var icon = svcIconMap[svc] || 'tool';
+                      svcHtml += '<span class="mw-route-intel-svc" title="' + svc.replace(/_/g,' ') + '"><i data-feather="' + icon + '"></i></span>';
+                    });
+                  }
+                  if (completed > 0) svcHtml += '<span class="mw-route-intel-visits">' + completed + ' visits done</span>';
 
-                document.getElementById('compRouteIntelClients').innerHTML =
-                  '<div class="mw-si-nearby-list">' + listHeader + clientRows + '</div>';
+                  html += '<a href="clients_appstack.php?action=view_contact&id=' + nc.contact_id + '" class="mw-route-intel-item">' +
+                    '<div class="mw-route-intel-distance" style="color:' + distColor + '">' + dist.toFixed(2) + '<small>km</small></div>' +
+                    '<div class="mw-route-intel-info">' +
+                      '<div class="mw-route-intel-name">' + name +
+                        '<span class="mw-route-intel-plans">' + plans + ' plan' + (plans !== 1 ? 's' : '') + '</span>' +
+                      '</div>' +
+                      '<div class="mw-route-intel-address">' + nc.address + (nc.city ? ', ' + nc.city : '') + '</div>' +
+                      (svcHtml ? '<div class="mw-route-intel-services">' + svcHtml + '</div>' : '') +
+                    '</div>' +
+                    (revenue > 0 ? '<div class="mw-route-intel-revenue">$' + revenue.toFixed(2) + '<small>/visit</small></div>' : '') +
+                  '</a>';
+                });
+                html += '</div>';
+
+                document.getElementById('compRouteIntelBody').innerHTML = html;
+                if (typeof feather !== 'undefined') feather.replace();
               }
 
               window.focusCompanyProperty = function(propertyId) {
