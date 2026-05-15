@@ -61,10 +61,16 @@ $visitStmt = $db->prepare("
         p.city AS property_city,
         p.latitude AS prop_lat,
         p.longitude AS prop_lng,
+        p.property_name,
+        CONCAT(ct.first_name, ' ', ct.last_name) AS contact_name,
+        co.company_name,
         u.full_name AS crew_name
     FROM job_visits jv
     JOIN job_plans jp ON jv.plan_id = jp.id
     LEFT JOIN properties p ON jp.property_id = p.id
+    LEFT JOIN contacts ct ON p.site_contact_id = ct.id
+    LEFT JOIN company_properties cp ON p.id = cp.property_id
+    LEFT JOIN companies co ON cp.company_id = co.id
     LEFT JOIN users u ON jv.assigned_crew_id = u.id
     WHERE jv.id = ?
 ");
@@ -349,10 +355,19 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
                 <span class="badge badge-info ml-2" style="font-size:0.5em; vertical-align:middle;">No Truck GPS</span>
             <?php endif; ?>
         </h1>
-        <p class="text-muted mb-0">
-            <?= htmlspecialchars($visit['visit_number']) ?> &middot;
-            <?= htmlspecialchars($visit['property_address'] ?? '') ?>, <?= htmlspecialchars($visit['property_city'] ?? '') ?>
-            &middot; <?= date('D M j, Y', strtotime($date)) ?>
+        <p class="mb-0">
+            <?php
+            $clientLabel = trim($visit['company_name'] ?? '')
+                        ?: trim($visit['property_name'] ?? '')
+                        ?: trim($visit['contact_name'] ?? '');
+            if ($clientLabel): ?>
+            <strong class="text-dark"><?= htmlspecialchars($clientLabel) ?></strong> &middot;
+            <?php endif; ?>
+            <span class="text-muted">
+                <?= htmlspecialchars($visit['property_address'] ?? '') ?>, <?= htmlspecialchars($visit['property_city'] ?? '') ?>
+                &middot; <?= date('D M j, Y', strtotime($date)) ?>
+                &middot; <?= htmlspecialchars($visit['visit_number']) ?>
+            </span>
         </p>
     </div>
     <?php if ($existingResolution): ?>
