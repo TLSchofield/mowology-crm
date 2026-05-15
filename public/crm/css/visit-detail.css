@@ -126,6 +126,32 @@
     margin-top: 5px;
 }
 
+/* ── Trio section — thumbnail display ── */
+.mw-visit-trio {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.mw-visit-trio-slot {
+    flex: 0 0 auto;
+}
+
+.mw-visit-trio-slot img.mw-trio-photo-link {
+    width: 120px;
+    height: 120px;
+    object-fit: cover;
+    border-radius: 8px;
+    display: block;
+    cursor: pointer;
+}
+
+.mw-trio-add-btn {
+    width: 120px;
+    height: 120px;
+}
+
 /* ── Mobile: 2-col timeline ── */
 @media (max-width: 576px) {
     .mw-vd-timeline {
