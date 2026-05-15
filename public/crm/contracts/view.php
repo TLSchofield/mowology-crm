@@ -726,7 +726,7 @@ if ($hasPropCoords && !$hasBorder) {
             planId:       null,
             mode:         'edit',
             center:       [CTR_PROP_LAT, CTR_PROP_LNG],
-            zoom:         18,
+            zoom:         19,
             strokeColor:  '#e85d04',
             fillColor:    '#e85d04',
             onDraw: function(ring) {
@@ -744,23 +744,23 @@ if ($hasPropCoords && !$hasBorder) {
         // Property location marker — shows exactly which lot to trace
         if (ctrMgr._map) {
             var propMarker = L.circleMarker([CTR_PROP_LAT, CTR_PROP_LNG], {
-                radius:      10,
+                radius:      16,
                 color:       '#e85d04',
                 weight:      3,
                 fillColor:   '#e85d04',
-                fillOpacity: 0.25,
+                fillOpacity: 0.45,
             }).addTo(ctrMgr._map);
             propMarker.bindTooltip(
-                '<strong>Property location</strong><br>Draw the border around this property',
-                { permanent: false, direction: 'top', offset: [0, -10] }
-            );
+                '<strong style="color:#e85d04;">&#9678; Property location</strong><br>Draw the border around this property',
+                { permanent: true, direction: 'top', offset: [0, -18], opacity: 0.95 }
+            ).openTooltip();
             // Outer pulse ring
             L.circleMarker([CTR_PROP_LAT, CTR_PROP_LNG], {
-                radius:      18,
+                radius:      28,
                 color:       '#e85d04',
-                weight:      1.5,
+                weight:      2,
                 fillOpacity: 0,
-                opacity:     0.4,
+                opacity:     0.5,
             }).addTo(ctrMgr._map);
         }
 
