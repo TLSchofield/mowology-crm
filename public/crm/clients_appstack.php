@@ -1111,6 +1111,25 @@ if ($action === 'view_contact' && $clientId) {
             $contactPlans = $stmt->fetchAll(PDO::FETCH_ASSOC);
         } catch (Exception $e) { $contactPlans = []; }
 
+        // Pre-compute duplicate siblings per property (propId → [{id, addr}, ...] of others with same address)
+        $propDupSiblings = [];
+        foreach ($normAddressMap ?? [] as $normAddr => $ids) {
+            if (count($ids) < 2) continue;
+            foreach ($ids as $thisId) {
+                $siblings = [];
+                foreach ($ids as $otherId) {
+                    if ($otherId === $thisId) continue;
+                    foreach ($contactProperties as $cp) {
+                        if ((int)$cp['id'] === $otherId) {
+                            $siblings[] = ['id' => $otherId, 'addr' => $cp['address']];
+                            break;
+                        }
+                    }
+                }
+                $propDupSiblings[$thisId] = $siblings;
+            }
+        }
+
         // ── Build unified service lifecycle data (property → quotes → plans) ──
         $serviceLifecycle = [];
         foreach ($contactProperties as $prop) {
@@ -1120,6 +1139,7 @@ if ($action === 'view_contact' && $clientId) {
                 'tags'             => $propertyTagMap[$propId] ?? [],
                 'companies'        => $propertyCompanyMap[$propId] ?? [],
                 'is_duplicate'     => isset($duplicatePropIds[$propId]),
+                'dup_siblings'     => $propDupSiblings[$propId] ?? [],
                 'quotes'           => [],
                 'plans_with_quote' => [],
                 'plans_no_quote'   => [],
@@ -2674,7 +2694,13 @@ $unconvertedRequests = $db->query("
                                 <span class="text-success mr-1" title="Geocoded"><i data-feather="check-circle" style="width:14px;height:14px;"></i></span>
                               <?php endif; ?>
                               <?php if ($propIsDuplicate): ?>
-                                <button type="button" class="mw-property-merge-btn mr-1" onclick="showMergePropertyModal(<?php echo $propId; ?>, '<?php echo addslashes(h($prop['address'])); ?>', <?php echo json_encode(array_values(array_filter(array_map(fn($lc2) => $lc2['property']['address'] === $prop['address'] && (int)$lc2['property']['id'] !== $propId ? ['id' => (int)$lc2['property']['id'], 'addr' => $lc2['property']['address']] : null, $serviceLifecycle)))); ?>)" title="Merge duplicate into another property">
+                                <?php $dupSiblingsJson = htmlspecialchars(json_encode($lc['dup_siblings'] ?? []), ENT_QUOTES, 'UTF-8'); ?>
+                                <button type="button" class="mw-property-merge-btn mr-1"
+                                  data-drop-id="<?php echo $propId; ?>"
+                                  data-drop-addr="<?php echo h($prop['address']); ?>"
+                                  data-dup-siblings="<?php echo $dupSiblingsJson; ?>"
+                                  onclick="showMergePropertyModal(parseInt(this.dataset.dropId), this.dataset.dropAddr, JSON.parse(this.dataset.dupSiblings))"
+                                  title="Merge duplicate into another property">
                                   <i data-feather="git-merge" style="width:14px;height:14px;"></i>
                                 </button>
                               <?php endif; ?>
