@@ -139,8 +139,9 @@ if ($hasPropCoords && !$hasBorder) {
           <!-- ── Property Border Setup Card ──────────────────────────────────────── -->
           <div class="mw-bsetup-card mb-4">
               <div class="mw-bsetup-visual" aria-hidden="true">
-                  <div class="mw-bsetup-scan-ring">
+                  <div class="mw-bsetup-scan-ring" style="position:relative;width:72px;height:72px;flex-shrink:0;">
                       <svg class="mw-bsetup-svg" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"
+                           width="72" height="72" style="width:72px;height:72px;display:block;"
                            fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
                           <circle cx="32" cy="32" r="28" stroke-width="1.5" stroke-dasharray="5 3" opacity="0.45"/>
                           <circle cx="32" cy="32" r="19" stroke-width="1.5" opacity="0.6"/>
