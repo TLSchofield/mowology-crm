@@ -1784,7 +1784,9 @@ if ($action === 'view_company' && $clientId) {
                 $allLats = array_map(function($p) { return floatval($p['latitude']); }, $geocodedProps);
                 $allLngs = array_map(function($p) { return floatval($p['longitude']); }, $geocodedProps);
                 $pad = 0.12;
-                $riStmt = $db->prepare("
+                $riExcludeIds = array_map('intval', array_column($companyProperties, 'id'));
+                $riExclStr = $riExcludeIds ? implode(',', $riExcludeIds) : '0';
+                $riSql = "
                     SELECT p.id AS property_id, p.address, p.city, p.latitude, p.longitude,
                            c.id AS contact_id, c.first_name, c.last_name,
                            GROUP_CONCAT(DISTINCT jp.service_type SEPARATOR ', ') AS service_types,
@@ -1796,13 +1798,10 @@ if ($action === 'view_company' && $clientId) {
                     WHERE p.latitude BETWEEN ? AND ?
                       AND p.longitude BETWEEN ? AND ?
                       AND p.latitude != 0 AND p.longitude != 0
-                      AND p.id NOT IN (__EXCL__)
+                      AND p.id NOT IN ({$riExclStr})
                     GROUP BY p.id
                     LIMIT 100
-                ");
-                $riExcludeIds = array_map('intval', array_column($companyProperties, 'id'));
-                $riExclStr = $riExcludeIds ? implode(',', $riExcludeIds) : '0';
-                $riSql = str_replace('__EXCL__', $riExclStr, $riStmt->queryString);
+                ";
                 $riStmt = $db->prepare($riSql);
                 $riStmt->execute([min($allLats) - $pad, max($allLats) + $pad, min($allLngs) - $pad, max($allLngs) + $pad]);
                 $riPool = $riStmt->fetchAll(PDO::FETCH_ASSOC);
