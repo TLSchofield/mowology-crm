@@ -77,8 +77,8 @@ try {
             ct.email AS contact_email,
             co.company_name,
             (SELECT MAX(cs2.stop_date) FROM calendar_stops cs2
+             INNER JOIN job_visits jv2 ON jv2.stop_id = cs2.id AND jv2.status = 'completed'
              WHERE cs2.property_id = p.id
-               AND cs2.status = 'completed'
                AND cs2.stop_date < cs.stop_date) AS last_completed_date
         FROM calendar_stops cs
         JOIN properties p ON cs.property_id = p.id
