@@ -28047,3 +28047,146 @@ body.mw-no-scroll {
 #receiptReviewPanel .mw-rv-grid ~ .mt-3.d-flex {
   flex-wrap: nowrap;
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   Visit Detail — Field Document Redesign
+   Space Mono = numeric data  |  Fraunces italic = section headings
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Page header h1 ── */
+.mw-page-header h1 {
+    font-family: 'Fraunces', Georgia, serif;
+    font-style: italic;
+}
+
+/* ── Timeline strip ── */
+.mw-vd-timeline-card {
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.mw-vd-timeline {
+    background: var(--mw-forest);
+    border-radius: 10px;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    overflow: hidden;
+}
+
+.mw-vd-timeline-block {
+    padding: 22px 16px;
+    text-align: center;
+    border-right: 1px solid rgba(127, 216, 88, 0.1);
+}
+
+.mw-vd-timeline-block:last-child {
+    border-right: none;
+}
+
+.mw-vd-timeline-label {
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: rgba(255, 255, 255, 0.35);
+    margin-bottom: 8px;
+}
+
+.mw-vd-timeline-value {
+    font-family: 'Space Mono', 'Courier New', monospace;
+    font-size: 0.95rem;
+    color: var(--mw-lime);
+    line-height: 1.4;
+    word-break: break-word;
+}
+
+/* ── GPS stats tile grid ── */
+.mw-vd-gps-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    background: #e8e8e8;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.mw-vd-gps-stat {
+    background: #fff;
+    padding: 16px 12px;
+    text-align: center;
+}
+
+.mw-vd-gps-value {
+    font-family: 'Space Mono', 'Courier New', monospace;
+    font-size: 1.2rem;
+    color: var(--mw-green);
+    line-height: 1.1;
+}
+
+.mw-vd-gps-label {
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: #bbb;
+    margin-top: 4px;
+}
+
+/* ── Right panel card headers ── */
+.mw-vd-right-card > .card-header {
+    background: #fff;
+    border-bottom: 1px solid #f2f2f2;
+    padding: 12px 16px;
+}
+
+.mw-vd-right-card > .card-header .card-title {
+    font-family: 'Fraunces', Georgia, serif;
+    font-style: italic;
+    font-weight: 600;
+    font-size: 0.88rem;
+    color: var(--mw-dark);
+}
+
+.mw-vd-right-card > .card-header .card-title [data-feather] {
+    color: var(--mw-green);
+    opacity: 0.75;
+}
+
+/* ── Checklist progress bar ── */
+.mw-vd-right-card .progress {
+    height: 3px;
+    background: var(--mw-light);
+    border-radius: 2px;
+}
+
+.mw-vd-right-card .progress .progress-bar {
+    background: linear-gradient(90deg, var(--mw-green), var(--mw-lime));
+    border-radius: 2px;
+}
+
+/* ── Notes ── */
+.mw-vd-note {
+    padding: 10px 12px;
+    border-left: 2px solid var(--mw-lime);
+    background: #f8fcfa;
+    border-radius: 0 6px 6px 0;
+}
+
+.mw-vd-note-meta {
+    font-size: 0.68rem;
+    color: #aaa;
+    margin-top: 5px;
+}
+
+/* ── Mobile: 2-col timeline ── */
+@media (max-width: 576px) {
+    .mw-vd-timeline {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    .mw-vd-timeline-block:nth-child(2) {
+        border-right: none;
+    }
+    .mw-vd-timeline-block:nth-child(1),
+    .mw-vd-timeline-block:nth-child(2) {
+        border-bottom: 1px solid rgba(127, 216, 88, 0.1);
+    }
+}

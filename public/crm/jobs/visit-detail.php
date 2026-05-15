@@ -241,8 +241,11 @@ $pageTitle  = 'Visit ' . ($visit['visit_number'] ?? $visitId);
 $activePage = 'jobs';
 
 $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
+$extraHead = '<link rel="preconnect" href="https://fonts.googleapis.com">'
+    . '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
+    . '<link href="https://fonts.googleapis.com/css2?family=Space+Mono&family=Fraunces:ital,opsz,wght@1,9..144,600&display=swap" rel="stylesheet">';
 if (!empty($gpsPoints) && $apiKey) {
-    $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key='
+    $extraHead .= '<script src="https://maps.googleapis.com/maps/api/js?key='
         . htmlspecialchars($apiKey, ENT_QUOTES)
         . '&libraries=geometry&callback=initGpsRouteMap" async defer></script>';
 }
@@ -308,36 +311,35 @@ if (!empty($gpsPoints) && $apiKey) {
   <div class="col-lg-8">
 
     <!-- ── Timeline Card ──────────────────────────────────────────────── -->
-    <div class="card mw-card mb-4">
-      <div class="card-header"><h5 class="card-title mb-0"><i data-feather="clock" class="mr-2"></i>Visit Timeline</h5></div>
-      <div class="card-body py-3">
-        <div class="row text-center">
-          <div class="col-3">
-            <div class="text-muted small text-uppercase">Scheduled</div>
-            <div class="font-weight-600"><?= htmlspecialchars($visit['scheduled_date'] ?? '—') ?></div>
+    <div class="mw-vd-timeline-card mb-4">
+      <div class="mw-vd-timeline">
+        <div class="mw-vd-timeline-block">
+          <div class="mw-vd-timeline-label">Scheduled</div>
+          <div class="mw-vd-timeline-value">
+            <?= htmlspecialchars($visit['scheduled_date'] ?? '—') ?>
           </div>
-          <div class="col-3">
-            <div class="text-muted small text-uppercase">Started</div>
-            <div class="font-weight-600">
-              <?= $visit['started_at'] ? date('g:i A', strtotime($visit['started_at'])) : '—' ?>
-            </div>
+        </div>
+        <div class="mw-vd-timeline-block">
+          <div class="mw-vd-timeline-label">Started</div>
+          <div class="mw-vd-timeline-value">
+            <?= $visit['started_at'] ? date('g:i A', strtotime($visit['started_at'])) : '—' ?>
           </div>
-          <div class="col-3">
-            <div class="text-muted small text-uppercase">Finished</div>
-            <div class="font-weight-600">
-              <?= $visit['completed_at'] ? date('g:i A', strtotime($visit['completed_at'])) : '—' ?>
-            </div>
+        </div>
+        <div class="mw-vd-timeline-block">
+          <div class="mw-vd-timeline-label">Finished</div>
+          <div class="mw-vd-timeline-value">
+            <?= $visit['completed_at'] ? date('g:i A', strtotime($visit['completed_at'])) : '—' ?>
           </div>
-          <div class="col-3">
-            <div class="text-muted small text-uppercase">Duration</div>
-            <div class="font-weight-600">
-              <?php
-              if ($visit['started_at'] && $visit['completed_at']) {
-                  $mins = (int)round((strtotime($visit['completed_at']) - strtotime($visit['started_at'])) / 60);
-                  echo ($mins >= 60 ? floor($mins/60).'h ' : '') . ($mins % 60) . 'm';
-              } else { echo '—'; }
-              ?>
-            </div>
+        </div>
+        <div class="mw-vd-timeline-block">
+          <div class="mw-vd-timeline-label">Duration</div>
+          <div class="mw-vd-timeline-value">
+            <?php
+            if ($visit['started_at'] && $visit['completed_at']) {
+                $mins = (int)round((strtotime($visit['completed_at']) - strtotime($visit['started_at'])) / 60);
+                echo ($mins >= 60 ? floor($mins/60).'h ' : '') . ($mins % 60) . 'm';
+            } else { echo '—'; }
+            ?>
           </div>
         </div>
       </div>
@@ -369,22 +371,24 @@ if (!empty($gpsPoints) && $apiKey) {
           <?php endif; ?>
         </div>
         <?php endif; ?>
-        <div class="row text-center mt-2">
-          <div class="col-4">
-            <div class="text-muted small">Distance</div>
-            <div class="font-weight-600">
+        <div class="mw-vd-gps-stats mt-3">
+          <div class="mw-vd-gps-stat">
+            <div class="mw-vd-gps-value">
               <?= $visit['distance_m'] ? number_format($visit['distance_m'] / 1000, 2) . ' km' : '—' ?>
             </div>
+            <div class="mw-vd-gps-label">Distance</div>
           </div>
-          <div class="col-4">
-            <div class="text-muted small">GPS Points</div>
-            <div class="font-weight-600"><?= (int)($visit['gps_points_count'] ?? $gpsSummary['pt_count']) ?></div>
+          <div class="mw-vd-gps-stat">
+            <div class="mw-vd-gps-value">
+              <?= (int)($visit['gps_points_count'] ?? $gpsSummary['pt_count']) ?>
+            </div>
+            <div class="mw-vd-gps-label">GPS Points</div>
           </div>
-          <div class="col-4">
-            <div class="text-muted small">Best Accuracy</div>
-            <div class="font-weight-600">
+          <div class="mw-vd-gps-stat">
+            <div class="mw-vd-gps-value">
               <?= $gpsSummary['best_accuracy'] ? round((float)$gpsSummary['best_accuracy'], 1) . ' m' : '—' ?>
             </div>
+            <div class="mw-vd-gps-label">Best Accuracy</div>
           </div>
         </div>
       </div>
@@ -660,7 +664,7 @@ if (!empty($gpsPoints) && $apiKey) {
   <div class="col-lg-4">
 
     <!-- ── Client Info ─────────────────────────────────────────────────── -->
-    <div class="card mw-card mb-4">
+    <div class="card mw-card mw-vd-right-card mb-4">
       <div class="card-header"><h5 class="card-title mb-0"><i data-feather="user" class="mr-2"></i>Client</h5></div>
       <div class="card-body py-3">
         <div class="font-weight-600"><?= htmlspecialchars(trim(($visit['contact_first']??'').' '.($visit['contact_last']??'')) ?: 'Unknown') ?></div>
@@ -724,7 +728,7 @@ if (!empty($gpsPoints) && $apiKey) {
 
 
     <!-- ── Service Details ────────────────────────────────────────────── -->
-    <div class="card mw-card mb-4">
+    <div class="card mw-card mw-vd-right-card mb-4">
       <div class="card-header"><h5 class="card-title mb-0"><i data-feather="tool" class="mr-2"></i><?= htmlspecialchars($serviceTypeLabel) ?></h5></div>
       <div class="card-body py-3" id="service-data-view">
         <?php if (empty($svcData)): ?>
@@ -740,7 +744,7 @@ if (!empty($gpsPoints) && $apiKey) {
     </div>
 
     <!-- ── Materials ──────────────────────────────────────────────────── -->
-    <div class="card mw-card mb-4">
+    <div class="card mw-card mw-vd-right-card mb-4">
       <div class="card-header"><h5 class="card-title mb-0"><i data-feather="package" class="mr-2"></i>Materials Used</h5></div>
       <div class="card-body py-3">
         <?php if (empty($materials)): ?>
@@ -763,7 +767,7 @@ if (!empty($gpsPoints) && $apiKey) {
     </div>
 
     <!-- ── Checklist ──────────────────────────────────────────────────── -->
-    <div class="card mw-card mb-4">
+    <div class="card mw-card mw-vd-right-card mb-4">
       <div class="card-header"><h5 class="card-title mb-0"><i data-feather="check-square" class="mr-2"></i>Checklist</h5></div>
       <div class="card-body py-2">
         <?php if (empty($checklist) && empty($checklistTemplate)): ?>
@@ -799,16 +803,16 @@ if (!empty($gpsPoints) && $apiKey) {
     </div>
 
     <!-- ── Notes ──────────────────────────────────────────────────────── -->
-    <div class="card mw-card mb-4">
+    <div class="card mw-card mw-vd-right-card mb-4">
       <div class="card-header"><h5 class="card-title mb-0"><i data-feather="message-square" class="mr-2"></i>Notes</h5></div>
       <div class="card-body">
         <div id="notes-list">
           <?php if (empty($notes)): ?>
           <p class="text-muted small mb-2">No notes added.</p>
           <?php else: foreach ($notes as $n): ?>
-          <div class="pow-note-item mb-2 p-2 rounded" style="background:#f5faf7;border-left:3px solid var(--mw-lime);">
+          <div class="mw-vd-note mb-2">
             <div class="small"><?= nl2br(htmlspecialchars($n['content'])) ?></div>
-            <div class="text-muted" style="font-size:10px;margin-top:4px;">
+            <div class="mw-vd-note-meta">
               <?= htmlspecialchars($n['author'] ?? 'Crew') ?> ·
               <?= htmlspecialchars(date('M j, g:i A', strtotime($n['created_at']))) ?>
               <?php if ($n['is_visible_to_customer']): ?>
