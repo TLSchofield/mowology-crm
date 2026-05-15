@@ -1751,6 +1751,32 @@ if ($action === 'view_company' && $clientId) {
             }
         }
 
+        // Duplicate detection for company properties (same address normalization as contact view)
+        $compNormAddressMap = [];
+        foreach ($companyProperties as $cp) {
+            $norm = strtolower(trim(preg_replace('/,?\s*(vancouver|bc|canada)\b.*/i', '', $cp['address'])));
+            $compNormAddressMap[$norm][] = (int)$cp['id'];
+        }
+        $compDuplicatePropIds = [];
+        $compPropDupSiblings  = [];
+        foreach ($compNormAddressMap as $norm => $ids) {
+            if (count($ids) < 2) continue;
+            foreach ($ids as $thisId) {
+                $compDuplicatePropIds[$thisId] = true;
+                $siblings = [];
+                foreach ($ids as $otherId) {
+                    if ($otherId === $thisId) continue;
+                    foreach ($companyProperties as $cp2) {
+                        if ((int)$cp2['id'] === $otherId) {
+                            $siblings[] = ['id' => $otherId, 'addr' => $cp2['address']];
+                            break;
+                        }
+                    }
+                }
+                $compPropDupSiblings[$thisId] = $siblings;
+            }
+        }
+
         // Fetch all active contacts for unlink/reassign modal
         $companyOtherContacts = [];
         try {
@@ -4905,6 +4931,8 @@ $unconvertedRequests = $db->query("
                           $compPropTags = $companyPropertyTagMap[(int)$prop['id']] ?? [];
                           $ownerName = $companyContactNameMap[(int)($prop['site_contact_id'] ?? 0)] ?? '';
                           $propRelType = $prop['company_relationship_type'] ?? null;
+                          $compPropIsDup = isset($compDuplicatePropIds[(int)$prop['id']]);
+                          $compPropSiblings = $compPropDupSiblings[(int)$prop['id']] ?? [];
                           $mData = $compMeasurementMap[(int)$prop['id']] ?? [];
                           $mCount = (int)($mData['measurement_count'] ?? 0);
                           $lawnSqft = floatval($mData['total_lawn_sqft'] ?? 0);
@@ -4999,6 +5027,18 @@ $unconvertedRequests = $db->query("
                             </div>
                           </div>
                           <div class="d-flex align-items-center" onclick="event.stopPropagation();">
+                            <?php if ($compPropIsDup): ?>
+                              <span class="mw-property-dup-badge mr-1">Duplicate</span>
+                              <?php $compSiblingsJson = htmlspecialchars(json_encode($compPropSiblings), ENT_QUOTES, 'UTF-8'); ?>
+                              <button type="button" class="mw-property-merge-btn mr-1"
+                                data-drop-id="<?php echo (int)$prop['id']; ?>"
+                                data-drop-addr="<?php echo h($prop['address']); ?>"
+                                data-dup-siblings="<?php echo $compSiblingsJson; ?>"
+                                onclick="showMergePropertyModal(parseInt(this.dataset.dropId), this.dataset.dropAddr, JSON.parse(this.dataset.dupSiblings))"
+                                title="Merge duplicate into another property">
+                                <i data-feather="git-merge" style="width:14px;height:14px;"></i>
+                              </button>
+                            <?php endif; ?>
                             <?php if (floatval($prop['latitude'] ?? 0) == 0 || floatval($prop['longitude'] ?? 0) == 0): ?>
                               <button type="button" class="btn btn-sm btn-outline-secondary mr-1" onclick="geocodeCompanyProperty(<?php echo (int)$prop['id']; ?>, this)" title="Geocode this address">
                                 <i data-feather="crosshair" style="width: 12px; height: 12px;"></i>
