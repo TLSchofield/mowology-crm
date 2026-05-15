@@ -116,7 +116,7 @@
   <script src="/crm/js/mw-layout-manager.js?v=20260306" defer></script>
   <script src="/crm/js/mw-toast.js?v=20260306c"></script>
   <script src="/crm/js/time-clock-widget.min.js?v=20260430a"></script>
-  <script src="/crm/js/capacitor-bridge.js?v=20260309a"></script>
+  <script src="/crm/js/capacitor-bridge.js?v=20260515a"></script>
   <!-- Photo Queue: durable storage + background upload engine (must load before media-uploader.js) -->
   <script src="/crm/js/photo-queue.js?v=20260401a"></script>
 

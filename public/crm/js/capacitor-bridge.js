@@ -865,6 +865,167 @@
         }
     })();
 
+    // ── Location Heartbeat ──────────────────────────────────────────────────
+    // Live-crew-position pump for the Crew Map. While the user is clocked in,
+    // post a coarse GPS fix every 5 minutes so dispatch can see where each
+    // crew member is without waiting for a job start/stop.
+    //
+    // Endpoint: POST /crm/api/location-ping.php
+    // Body:     { lat, lng, accuracy, device_label }
+    // Auth:     JWT Bearer if available, else MOWOSESS session cookie
+    //
+    // Lifecycle:
+    //   • Auto-starts when MwTimeClock reports the user is clocked in (poll
+    //     every 15 s — bridge can't import the widget IIFE, so this is the
+    //     simplest cross-module hook). Fires an immediate ping on transition.
+    //   • Auto-stops on clock-out.
+    //   • Pauses while the app is backgrounded; first tick on resume.
+    //   • Skips its own tick if another module reported a ping within the
+    //     last 60 s (job start/stop, etc.) — call recordExternalPing() to
+    //     suppress the next heartbeat.
+    window.MwNative.locationHeartbeat = (function() {
+        var HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+        var EXTERNAL_DEBOUNCE_MS  = 60 * 1000;     // skip if any ping <60s ago
+        var POSITION_TIMEOUT_MS   = 10 * 1000;
+        var ENDPOINT              = '/crm/api/location-ping.php';
+
+        var intervalId   = null;
+        var started      = false;
+        var paused       = false;
+        var inFlight     = false;
+        var lastPingMs   = 0;
+        var deviceLabel  = (window.MwNativeAndroid && typeof window.MwNativeAndroid.getDeviceLabel === 'function')
+            ? window.MwNativeAndroid.getDeviceLabel()
+            : 'capacitor-android';
+
+        function clearTimer() {
+            if (intervalId !== null) {
+                clearInterval(intervalId);
+                intervalId = null;
+            }
+        }
+
+        function scheduleTimer() {
+            clearTimer();
+            intervalId = setInterval(tick, HEARTBEAT_INTERVAL_MS);
+        }
+
+        function tick() {
+            if (!started || paused) return;
+            if (inFlight) return;
+            if (Date.now() - lastPingMs < EXTERNAL_DEBOUNCE_MS) {
+                console.log('[MwLocationHeartbeat] tick skipped — recent ping within 60s');
+                return;
+            }
+            sendPing();
+        }
+
+        function sendPing() {
+            if (!Geolocation) {
+                console.warn('[MwLocationHeartbeat] Geolocation plugin missing — skipping');
+                return;
+            }
+            inFlight = true;
+            Geolocation.getCurrentPosition({
+                timeout: POSITION_TIMEOUT_MS,
+                enableHighAccuracy: false   // coarse fix — saves battery
+            }).then(function(pos) {
+                var body = {
+                    lat: pos.coords.latitude,
+                    lng: pos.coords.longitude,
+                    accuracy: pos.coords.accuracy || null,
+                    device_label: deviceLabel
+                };
+                return fetch(ENDPOINT, {
+                    method: 'POST',
+                    credentials: 'same-origin',  // sends MOWOSESS cookie inside WebView
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+            }).then(function(r) {
+                if (r && r.ok) {
+                    lastPingMs = Date.now();
+                } else if (r) {
+                    console.warn('[MwLocationHeartbeat] ping HTTP ' + r.status);
+                }
+            }).catch(function(err) {
+                console.warn('[MwLocationHeartbeat] ping failed:', err && err.message ? err.message : err);
+            }).then(function() {
+                inFlight = false;
+            });
+        }
+
+        function start() {
+            if (started) return;
+            started = true;
+            paused = false;
+            console.log('[MwLocationHeartbeat] start — interval 5m');
+            sendPing();        // immediate first ping
+            scheduleTimer();
+        }
+
+        function stop() {
+            if (!started) return;
+            started = false;
+            paused = false;
+            clearTimer();
+            console.log('[MwLocationHeartbeat] stop');
+        }
+
+        // ── Pause/resume on app background ────────────────────
+        if (App && App.addListener) {
+            App.addListener('appStateChange', function(state) {
+                var isActive = !!(state && state.isActive);
+                if (!started) return;
+                if (!isActive && !paused) {
+                    paused = true;
+                    clearTimer();
+                    console.log('[MwLocationHeartbeat] paused (app backgrounded)');
+                } else if (isActive && paused) {
+                    paused = false;
+                    console.log('[MwLocationHeartbeat] resumed (app foregrounded)');
+                    sendPing();         // catch up immediately on resume
+                    scheduleTimer();
+                }
+            });
+        }
+
+        // ── Clock-in/out watcher ──────────────────────────────
+        // time-clock-widget.js owns the clock state and exposes
+        // MwTimeClock.isActive(). The widget loads on every CRM page and
+        // its fetchStatus() runs at page load, so we just poll every 15 s
+        // and toggle the heartbeat on state transitions. Starts the watcher
+        // after a short delay so the widget has time to initialise.
+        var lastKnownActive = null;
+        function watchClockState() {
+            try {
+                if (!window.MwTimeClock || typeof window.MwTimeClock.isActive !== 'function') return;
+                var active = !!window.MwTimeClock.isActive();
+                if (active === lastKnownActive) return;
+                lastKnownActive = active;
+                if (active) {
+                    start();
+                } else {
+                    stop();
+                }
+            } catch (e) {
+                console.warn('[MwLocationHeartbeat] clock-state watch error:', e);
+            }
+        }
+        setTimeout(function() {
+            watchClockState();
+            setInterval(watchClockState, 15000);
+        }, 5000);
+
+        return {
+            start: start,
+            stop: stop,
+            pingNow: function() { lastPingMs = 0; sendPing(); },
+            recordExternalPing: function() { lastPingMs = Date.now(); },
+            isRunning: function() { return started && !paused; }
+        };
+    })();
+
     // ── Force Update Check ──────────────────────────────────────────────────
     // Compare the installed build against the server's minimum required version.
     // If the installed version is too old (or force_update=true on the server),
