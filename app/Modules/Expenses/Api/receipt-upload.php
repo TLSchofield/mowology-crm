@@ -79,12 +79,13 @@ try {
     }
 
     // ── Rate limiting ─────────────────────────────────────────────────────────
-    // 20 uploads per user per clock-hour, counter shared with the web intake form.
+    // 100 uploads per user per clock-hour, counter shared with the web intake form.
+    // Owner does batch receipt catchups regularly; 20 was too tight.
     // Uses upload_rate_limits table: (user_id, window_start, upload_count).
     // Wrapped in try/catch so a missing table or DB hiccup does NOT block uploads —
     // rate limiting is protective, not a hard dependency.
-    // ⚠ Raising the limit (20) or removing this block disables the only abuse guard.
-    //   A single rogue device could flood disk/OCR in minutes.
+    // ⚠ Removing this block disables the only abuse guard — a single rogue device
+    //   could flood disk/OCR in minutes. Adjust the threshold; do not delete the check.
     // ⚠ The ON DUPLICATE KEY UPDATE is intentional — avoids a race-condition gap
     //   between SELECT and INSERT when two uploads arrive simultaneously.
     try {
@@ -93,9 +94,9 @@ try {
         $rlStmt   = $rlDb->prepare("SELECT upload_count FROM upload_rate_limits WHERE user_id = ? AND window_start = ?");
         $rlStmt->execute([$userId, $rlWindow]);
         $rlCount = (int)($rlStmt->fetchColumn() ?: 0);
-        if ($rlCount >= 20) {
+        if ($rlCount >= 100) {
             http_response_code(429);
-            echo json_encode(['success' => false, 'error' => 'Too many uploads — limit: 20/hour']);
+            echo json_encode(['success' => false, 'error' => 'Too many uploads — limit: 100/hour']);
             exit;
         }
         $rlDb->prepare("INSERT INTO upload_rate_limits (user_id, window_start, upload_count) VALUES (?, ?, 1) ON DUPLICATE KEY UPDATE upload_count = upload_count + 1")->execute([$userId, $rlWindow]);

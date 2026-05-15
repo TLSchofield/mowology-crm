@@ -61,7 +61,7 @@ try {
         exit;
     }
 
-    // --- Rate Limiting: max 20 receipt uploads per user per hour ---
+    // --- Rate Limiting: max 100 receipt uploads per user per hour ---
     // Stored as a simple DB row to survive PHP session expiry on mobile.
     try {
         $rlDb = getDB();
@@ -83,9 +83,9 @@ try {
         $rlStmt->execute([$rlUserId, $rlWindow]);
         $rlCount = (int)($rlStmt->fetchColumn() ?: 0);
 
-        if ($rlCount > 20) {
+        if ($rlCount > 100) {
             http_response_code(429);
-            echo json_encode(['success' => false, 'error' => 'Too many uploads — please wait before uploading more receipts (limit: 20/hour)']);
+            echo json_encode(['success' => false, 'error' => 'Too many uploads — please wait before uploading more receipts (limit: 100/hour)']);
             exit;
         }
     } catch (Throwable $rlEx) {
