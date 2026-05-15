@@ -1,23 +1,13 @@
 <?php
 /**
  * Companies - View Company Profile
+ * Redirects to the full AppStack company view which has all relationship management features.
  */
-require_once dirname(__DIR__) . '/../loginAuth/auth.php';
-require_once dirname(__DIR__) . '/includes/functions.php';
-
-requireLogin();
-$user = getCurrentUser();
-requirePermission('clients.view');
-
-$db = getDB();
-
 $companyId = (int)($_GET['id'] ?? 0);
-if (!$companyId) {
-    header('Location: index.php');
-    exit;
-}
-
-$company = getCompanyById($companyId);
+$tab = $_GET['tab'] ?? '';
+$dest = '/crm/clients_appstack.php?action=view_company' . ($companyId ? '&id=' . $companyId : '');
+header('Location: ' . $dest, true, 301);
+exit;
 if (!$company) {
     header('Location: index.php');
     exit;
