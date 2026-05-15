@@ -24,7 +24,11 @@ try {
     require_once CRM_INCLUDES . '/functions.php';
     require_once CRM_INCLUDES . '/timeclock-functions.php';
 
-    requireLogin();
+    if (!isLoggedIn()) {
+        http_response_code(401);
+        echo json_encode(['error' => 'unauthenticated', 'code' => 401]);
+        exit();
+    }
     $user = getCurrentUser();
     $db = getDB();
 

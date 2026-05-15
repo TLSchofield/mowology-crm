@@ -567,8 +567,12 @@
                 heading: latestPosition.heading
             })
         })
-        .then(function(r) { return r.json(); })
+        .then(function(r) {
+            if (r.status === 401) { handleAuthExpiry(); return null; }
+            return r.json();
+        })
         .then(function(data) {
+            if (!data) return;
             if (data.success && !data.skipped) {
                 console.log('[MwTracking] Position sent OK');
             }
@@ -584,6 +588,29 @@
             console.warn('[MwTracking] Send failed, queueing:', err);
             queuePosition(latestPosition);
         });
+    }
+
+    function handleAuthExpiry() {
+        // Stop the tracking interval — queued pings can't be flushed without a valid session.
+        clearInterval(trackingInterval);
+        trackingInterval = null;
+
+        // Clear the offline queue — these pings reference an expired session and will never flush.
+        try { localStorage.removeItem(GPS_QUEUE_KEY); } catch(e) {}
+
+        console.warn('[MwTracking] Session expired — tracking stopped');
+
+        // Show a persistent, tap-to-login banner so the crew knows tracking has stopped.
+        var existing = document.getElementById('mw-session-expired-banner');
+        if (existing) return;
+        var banner = document.createElement('div');
+        banner.id = 'mw-session-expired-banner';
+        banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;' +
+            'background:#e85d04;color:#fff;text-align:center;padding:14px 16px;' +
+            'font-size:15px;font-weight:600;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.3);';
+        banner.textContent = 'Session expired — tap here to log in again';
+        banner.onclick = function() { window.location.href = '/loginAuth/login.php'; };
+        document.body.prepend(banner);
     }
 
     function queuePosition(pos) {
@@ -622,8 +649,10 @@
                     credentials: 'same-origin',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(pos)
+                }).then(function(r) {
+                    if (r.status === 401) { handleAuthExpiry(); } // Don't re-queue; session is dead
                 }).catch(function() {
-                    queuePosition(pos); // Re-queue on failure
+                    queuePosition(pos); // Re-queue on network failure only
                 });
             }, i * 200); // 200ms between each to avoid rate limiting
         });
@@ -1092,6 +1121,19 @@
     } else {
         window.addEventListener('online', function() { flushQueue(); });
     }
+
+    // ── Session Keepalive ───────────────────────────────────────────────────
+    // Touches the session every 10 minutes so PHP's GC timer resets, preventing
+    // silent logout when GPS pings stop (parked/indoors = no latestPosition =
+    // no ping = no session touch). 10 min is well under the 24-min floor that
+    // cPanel's gc_maxlifetime has historically been set to.
+    setInterval(function() {
+        fetch('/crm/api/keepalive.php', { credentials: 'same-origin' })
+            .then(function(r) {
+                if (r.status === 401) { handleAuthExpiry(); }
+            })
+            .catch(function() {}); // Silent on network failure; next ping will catch it
+    }, 10 * 60 * 1000); // 10 minutes
 
     // ── Adaptive ping interval (Android/Capacitor) ─────────────────────────
     // Android equivalent of iOS ActivityMonitor.swift (T2-7).

@@ -203,7 +203,13 @@ function loginUser(string $email, string $password): bool {
         }
 
         if ($user && isset($user['password_hash']) && password_verify($password, (string)$user['password_hash'])) {
-            session_regenerate_id(true);
+            // false = keep old session file until GC rather than deleting immediately.
+            // Capacitor WebView on cellular can follow the post-login redirect before
+            // its cookie jar has processed the Set-Cookie from the POST response; if the
+            // old file is already deleted, the GET arrives with a stale/missing ID and
+            // isLoggedIn() returns false, causing a login loop. false is safe here
+            // because the CRM has no unauthenticated sessions that could be fixated.
+            session_regenerate_id(false);
 
             $_SESSION['user_id'] = (int)$user['id'];
             $_SESSION['user_email'] = (string)$user['email'];
