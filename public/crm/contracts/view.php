@@ -136,35 +136,79 @@ if ($hasPropCoords && !$hasBorder) {
           <?php endif; ?>
 
           <?php if ($hasPropCoords && !$hasBorder): ?>
-          <!-- ── Property Border Prompt ──────────────────────────────────────── -->
-          <div class="mw-border-prompt mb-4">
-              <div class="mw-border-prompt-icon">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24"
-                       fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/>
-                      <line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-                  </svg>
-              </div>
-              <div class="mw-border-prompt-body">
-                  <div class="mw-border-prompt-title">No property border drawn</div>
-                  <div class="mw-border-prompt-text">
-                      Crew cannot auto clock-in without a property boundary. Draw it once — it activates GPS tracking for every plan at this property.
+          <!-- ── Property Border Setup Card ──────────────────────────────────────── -->
+          <div class="mw-bsetup-card mb-4">
+              <div class="mw-bsetup-visual" aria-hidden="true">
+                  <div class="mw-bsetup-scan-ring">
+                      <svg class="mw-bsetup-svg" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"
+                           fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+                          <circle cx="32" cy="32" r="28" stroke-width="1.5" stroke-dasharray="5 3" opacity="0.45"/>
+                          <circle cx="32" cy="32" r="19" stroke-width="1.5" opacity="0.6"/>
+                          <path d="M32 14 C26 14 20 19.4 20 26.2 C20 34.5 32 50 32 50 C32 50 44 34.5 44 26.2 C44 19.4 38 14 32 14Z"
+                                stroke-width="2" fill="rgba(232,93,4,0.12)"/>
+                          <circle cx="32" cy="26" r="4" stroke-width="2" fill="rgba(232,93,4,0.25)"/>
+                          <line x1="32" y1="4"  x2="32" y2="12" stroke-width="1.5" opacity="0.5"/>
+                          <line x1="32" y1="52" x2="32" y2="60" stroke-width="1.5" opacity="0.5"/>
+                          <line x1="4"  y1="32" x2="12" y2="32" stroke-width="1.5" opacity="0.5"/>
+                          <line x1="52" y1="32" x2="60" y2="32" stroke-width="1.5" opacity="0.5"/>
+                      </svg>
+                      <div class="mw-bsetup-scan-line" aria-hidden="true"></div>
                   </div>
               </div>
-              <button type="button" class="mw-border-prompt-btn" data-toggle="modal" data-target="#ctrBorderModal">
-                  Draw Border Now
-              </button>
+              <div class="mw-bsetup-body">
+                  <div class="mw-bsetup-eyebrow">GPS Boundary Required</div>
+                  <h6 class="mw-bsetup-title">No property border drawn</h6>
+                  <p class="mw-bsetup-text">
+                      Crew cannot auto clock-in without a property boundary.
+                      Draw it once &mdash; GPS tracking activates for every plan at this property.
+                  </p>
+                  <div class="mw-bsetup-actions">
+                      <button type="button" class="mw-bsetup-btn" data-toggle="modal" data-target="#ctrBorderModal">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                               stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                              <polygon points="3 11 22 2 13 21 11 13 3 11"/>
+                          </svg>
+                          Draw Border Now
+                      </button>
+                      <span class="mw-bsetup-badge-inactive">
+                          <span class="mw-bsetup-dot" aria-hidden="true"></span>
+                          Auto clock-in inactive
+                      </span>
+                  </div>
+              </div>
           </div>
+
           <?php elseif ($hasPropCoords && $hasBorder): ?>
-          <div class="mw-border-ok mb-3">
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-                   fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                  <polyline points="20 6 9 17 4 12"/>
-              </svg>
-              Property border drawn — crew auto clock-in is active
-              <?php if ($firstPlanId): ?>
-                  <a href="../jobs/view.php?id=<?php echo $firstPlanId; ?>" class="mw-border-ok-link">Manage zones →</a>
-              <?php endif; ?>
+          <!-- ── Property Border Confirmed ───────────────────────────────────────── -->
+          <div class="mw-bconfirmed mb-3">
+              <div class="mw-bconfirmed-icon" aria-hidden="true">
+                  <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg"
+                       stroke-linecap="round" stroke-linejoin="round">
+                      <polygon points="16,4 27,10 27,22 16,28 5,22 5,10"
+                               fill="rgba(45,134,89,0.12)" stroke="var(--mw-green)" stroke-width="1.5"
+                               stroke-dasharray="3 2"/>
+                      <polyline points="10,16 14,20 22,12" stroke="var(--mw-green)" stroke-width="2.5"/>
+                  </svg>
+              </div>
+              <div class="mw-bconfirmed-body">
+                  <div class="mw-bconfirmed-title">Property border active</div>
+                  <div class="mw-bconfirmed-sub">Crew auto clock-in is live for all plans at this property</div>
+              </div>
+              <div class="mw-bconfirmed-meta">
+                  <span class="mw-bconfirmed-live">
+                      <span class="mw-bconfirmed-live-dot" aria-hidden="true"></span>
+                      GPS active
+                  </span>
+                  <?php if ($firstPlanId): ?>
+                      <a href="../jobs/view.php?id=<?php echo $firstPlanId; ?>" class="mw-bconfirmed-link">
+                          Manage zones
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                               stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                              <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
+                          </svg>
+                      </a>
+                  <?php endif; ?>
+              </div>
           </div>
           <?php endif; ?>
 

@@ -19074,67 +19074,270 @@ body.mw-no-scroll {
 }
 
 
-/* ── Contract View — Property Border Prompt ──────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════════════════════
+   CONTRACT VIEW — Property Border Setup Card & Confirmed State
+   /crm/contracts/view.php
+   ══════════════════════════════════════════════════════════════════════════════ */
 
-.mw-border-prompt {
+/* ── "No Border" Setup Card ──────────────────────────────────────────────── */
+
+.mw-bsetup-card {
+    position:      relative;
     display:       flex;
     align-items:   center;
-    gap:           14px;
-    background:    #fff5ee;
-    border:        1px solid #f5c6a0;
-    border-left:   4px solid var(--mw-orange);
-    border-radius: 8px;
-    padding:       14px 16px;
+    gap:           20px;
+    background:    #fff;
+    border:        1px solid #f0d8c8;
+    border-radius: 10px;
+    padding:       20px 24px 20px 20px;
+    overflow:      hidden;
+    box-shadow:    0 1px 4px rgba(232, 93, 4, 0.07);
 }
-.mw-border-prompt-icon {
+
+/* Geo-grid dot pattern */
+.mw-bsetup-card::before {
+    content:         '';
+    position:        absolute;
+    inset:           0;
+    background:      radial-gradient(circle, rgba(232,93,4,0.09) 1px, transparent 1px);
+    background-size: 18px 18px;
+    pointer-events:  none;
+    z-index:         0;
+}
+
+/* Fade dot grid toward right so text remains readable */
+.mw-bsetup-card::after {
+    content:        '';
+    position:       absolute;
+    inset:          0;
+    background:     linear-gradient(90deg, rgba(255,255,255,0) 30%, rgba(255,255,255,0.96) 72%);
+    pointer-events: none;
+    z-index:        1;
+}
+
+.mw-bsetup-visual,
+.mw-bsetup-body { position: relative; z-index: 2; }
+
+.mw-bsetup-visual { flex-shrink: 0; }
+
+.mw-bsetup-scan-ring {
+    position:    relative;
+    width:       72px;
+    height:      72px;
     color:       var(--mw-orange);
     flex-shrink: 0;
-    opacity:     0.9;
 }
-.mw-border-prompt-body {
-    flex:      1;
-    min-width: 0;
+
+.mw-bsetup-svg {
+    width:     72px;
+    height:    72px;
+    color:     var(--mw-orange);
+    animation: mw-bsetup-rotate 18s linear infinite;
 }
-.mw-border-prompt-title {
-    font-weight:   600;
-    font-size:     14px;
-    color:         #7a3b0a;
-    margin-bottom: 3px;
+
+.mw-bsetup-scan-line {
+    position:       absolute;
+    left:           0;
+    top:            0;
+    width:          100%;
+    height:         2px;
+    background:     linear-gradient(90deg, transparent, rgba(232,93,4,0.55) 50%, transparent);
+    animation:      mw-bsetup-scan 2.4s ease-in-out infinite;
+    pointer-events: none;
 }
-.mw-border-prompt-text {
+
+@keyframes mw-bsetup-rotate {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+}
+
+@keyframes mw-bsetup-scan {
+    0%   { transform: translateY(0);   opacity: 0; }
+    15%  { opacity: 1; }
+    85%  { opacity: 1; }
+    100% { transform: translateY(72px); opacity: 0; }
+}
+
+.mw-bsetup-body { flex: 1; min-width: 0; }
+
+.mw-bsetup-eyebrow {
+    font-size:      10px;
+    font-weight:    700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color:          var(--mw-orange);
+    margin-bottom:  4px;
+}
+
+.mw-bsetup-title {
+    font-size:   15px;
+    font-weight: 700;
+    color:       #3d1f0a;
+    margin:      0 0 6px 0;
+    line-height: 1.3;
+}
+
+.mw-bsetup-text {
     font-size:   13px;
     color:       #6c4c32;
-    line-height: 1.45;
+    line-height: 1.5;
+    margin:      0 0 14px 0;
 }
-.mw-border-prompt-btn {
-    flex-shrink:   0;
-    background:    var(--mw-orange);
-    color:         #fff;
-    border:        none;
-    border-radius: 6px;
-    padding:       8px 16px;
-    font-size:     13px;
-    font-weight:   600;
-    cursor:        pointer;
-    white-space:   nowrap;
-    transition:    background .15s;
-}
-.mw-border-prompt-btn:hover { background: #c94f00; color: #fff; }
 
-.mw-border-ok {
-    display:       inline-flex;
-    align-items:   center;
-    gap:           7px;
-    font-size:     13px;
-    color:         #155724;
-    background:    #d4edda;
-    border:        1px solid #c3e6cb;
-    border-radius: 6px;
-    padding:       6px 12px;
+.mw-bsetup-actions {
+    display:     flex;
+    align-items: center;
+    gap:         12px;
+    flex-wrap:   wrap;
 }
-.mw-border-ok svg    { color: #28a745; flex-shrink: 0; }
-.mw-border-ok-link   { color: var(--mw-green); font-weight: 600; margin-left: 8px; }
-.mw-border-ok-link:hover { color: var(--mw-dark); }
+
+.mw-bsetup-btn {
+    display:        inline-flex;
+    align-items:    center;
+    gap:            7px;
+    background:     var(--mw-orange);
+    color:          #fff;
+    border:         none;
+    border-radius:  6px;
+    padding:        9px 18px;
+    font-size:      13px;
+    font-weight:    700;
+    cursor:         pointer;
+    white-space:    nowrap;
+    transition:     background 0.15s, box-shadow 0.15s;
+    box-shadow:     0 2px 6px rgba(232, 93, 4, 0.30);
+    letter-spacing: 0.01em;
+}
+
+.mw-bsetup-btn:hover {
+    background: #c94f00;
+    box-shadow: 0 3px 10px rgba(232, 93, 4, 0.40);
+    color:      #fff;
+}
+
+.mw-bsetup-btn:focus {
+    outline:        3px solid rgba(232, 93, 4, 0.35);
+    outline-offset: 2px;
+}
+
+.mw-bsetup-badge-inactive {
+    display:     inline-flex;
+    align-items: center;
+    gap:         5px;
+    font-size:   12px;
+    font-weight: 600;
+    color:       #a06030;
+}
+
+.mw-bsetup-dot {
+    width:         8px;
+    height:        8px;
+    border-radius: 50%;
+    background:    #f59e0b;
+    animation:     mw-bsetup-dot-pulse 1.5s ease-in-out infinite;
+    flex-shrink:   0;
+}
+
+@keyframes mw-bsetup-dot-pulse {
+    0%, 100% { opacity: 1;   transform: scale(1); }
+    50%      { opacity: 0.4; transform: scale(0.85); }
+}
+
+@media (max-width: 575px) {
+    .mw-bsetup-card   { flex-direction: column; align-items: flex-start; gap: 14px; padding: 16px; }
+    .mw-bsetup-visual { display: flex; justify-content: center; width: 100%; }
+    .mw-bsetup-btn    { width: 100%; justify-content: center; }
+}
+
+
+/* ── "Border Confirmed" Row ───────────────────────────────────────────────── */
+
+.mw-bconfirmed {
+    display:       flex;
+    align-items:   center;
+    gap:           12px;
+    background:    linear-gradient(135deg, #f0faf5 0%, #e8f5ee 100%);
+    border:        1px solid #b8ddc8;
+    border-left:   3px solid var(--mw-green);
+    border-radius: 8px;
+    padding:       10px 16px 10px 14px;
+    flex-wrap:     wrap;
+}
+
+.mw-bconfirmed-icon        { flex-shrink: 0; width: 32px; height: 32px; color: var(--mw-green); }
+.mw-bconfirmed-icon svg    { width: 32px; height: 32px; }
+.mw-bconfirmed-body        { flex: 1; min-width: 0; }
+
+.mw-bconfirmed-title {
+    font-size:   13px;
+    font-weight: 700;
+    color:       var(--mw-dark);
+    line-height: 1.2;
+}
+
+.mw-bconfirmed-sub {
+    font-size:   12px;
+    color:       #4a7a5f;
+    margin-top:  2px;
+    line-height: 1.35;
+}
+
+.mw-bconfirmed-meta {
+    display:     flex;
+    align-items: center;
+    gap:         14px;
+    flex-shrink: 0;
+    flex-wrap:   wrap;
+}
+
+.mw-bconfirmed-live {
+    display:     inline-flex;
+    align-items: center;
+    gap:         5px;
+    font-size:   12px;
+    font-weight: 600;
+    color:       var(--mw-green);
+}
+
+.mw-bconfirmed-live-dot {
+    width:         8px;
+    height:        8px;
+    border-radius: 50%;
+    background:    var(--mw-lime);
+    animation:     mw-bconfirmed-live-pulse 2.2s ease-in-out infinite;
+    flex-shrink:   0;
+}
+
+@keyframes mw-bconfirmed-live-pulse {
+    0%, 100% { opacity: 1;   box-shadow: 0 0 0 0   rgba(127, 216, 88, 0.5); }
+    50%      { opacity: 0.8; box-shadow: 0 0 0 4px rgba(127, 216, 88, 0.0); }
+}
+
+.mw-bconfirmed-link {
+    display:         inline-flex;
+    align-items:     center;
+    gap:             4px;
+    font-size:       12px;
+    font-weight:     700;
+    color:           var(--mw-dark);
+    text-decoration: none;
+    border:          1px solid var(--mw-green);
+    border-radius:   5px;
+    padding:         4px 10px;
+    transition:      background 0.15s, color 0.15s;
+    white-space:     nowrap;
+}
+
+.mw-bconfirmed-link:hover {
+    background:      var(--mw-green);
+    color:           #fff;
+    text-decoration: none;
+}
+
+@media (max-width: 575px) {
+    .mw-bconfirmed      { gap: 10px; padding: 10px 12px; }
+    .mw-bconfirmed-meta { width: 100%; justify-content: flex-start; }
+}
 
 
 /* ══════════════════════════════════════════════════════════════════════════════
