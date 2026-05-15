@@ -102,7 +102,7 @@ $extraHead  = '
         <!-- Arrival Border -->
         <div class="card mw-zone-card mb-3">
             <div class="card-header d-flex align-items-center gap-2">
-                <span class="mw-zone-dot" style="background:#FFD700;"></span>
+                <span class="mw-zone-dot" style="background:var(--mw-orange);"></span>
                 <strong>Arrival Border</strong>
             </div>
             <div class="card-body">
@@ -110,8 +110,9 @@ $extraHead  = '
                     One large polygon surrounding the entire property (including all addresses).
                     Crew entering this border auto-clocks in for the shift.
                 </p>
-                <button id="btn-draw-border" class="btn btn-sm mw-zone-btn-border w-100" onclick="startDrawArrivalBorder()">
-                    <i data-feather="edit-3" class="me-1"></i> Draw Arrival Border
+                <button id="btn-draw-border" class="mw-bsetup-btn w-100" style="font-size:13px;padding:8px 14px;justify-content:center;" onclick="startDrawArrivalBorder()">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+                    Draw Arrival Border
                 </button>
             </div>
         </div>

@@ -6478,15 +6478,15 @@ tr[data-href] { cursor: pointer; }
 }
 
 .mw-prop-action-border-missing {
-  border-color: #e8a838;
-  color: #b45309;
-  background: #fff8ee;
+  border-color: var(--mw-orange);
+  color: var(--mw-orange);
+  background: #fff5ee;
 }
 
 .mw-prop-action-border-missing:hover {
-  border-color: #b45309;
-  color: #92400e;
-  background: #fed7aa;
+  border-color: #c94f00;
+  color: #fff;
+  background: var(--mw-orange);
   text-decoration: none;
 }
 
@@ -19074,6 +19074,12 @@ body.mw-no-scroll {
 }
 
 
+/* ── Arrival Border prompt modal header (clients_appstack.php) ───────────── */
+.mw-border-modal-hdr              { background: var(--mw-orange); color: #fff; }
+.mw-border-modal-close            { color: #fff; opacity: 0.85; }
+.mw-border-modal-close:hover      { color: #fff; opacity: 1; }
+
+
 /* ── Geofence draw vertex (draggable node style) ─────────────────────────── */
 /* Overrides Leaflet's .leaflet-div-icon defaults (white bg, grey border)    */
 .gm-draw-vertex {
@@ -23042,8 +23048,8 @@ body.mw-no-scroll {
 .mw-zone-dot    { display: inline-block; width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
 .mw-zone-dot-sm { display: inline-block; width: 8px;  height: 8px;  border-radius: 50%; flex-shrink: 0; }
 
-.mw-zone-btn-border { background: #FFD700; color: #1a1a1a; border: none; font-weight: 600; }
-.mw-zone-btn-border:hover { background: #e6c200; color: #1a1a1a; }
+.mw-zone-btn-border { background: var(--mw-orange); color: #fff; border: none; font-weight: 700; box-shadow: 0 2px 6px rgba(232,93,4,0.28); }
+.mw-zone-btn-border:hover { background: #c94f00; color: #fff; }
 
 .mw-zone-list-item { font-size: 0.85rem; }
 .mw-zone-list-item .btn-xs { padding: 2px 6px; font-size: 11px; }

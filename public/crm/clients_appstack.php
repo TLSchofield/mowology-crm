@@ -3717,17 +3717,23 @@ $unconvertedRequests = $db->query("
             <div class="modal fade" id="arrivalBorderPromptModal" tabindex="-1" role="dialog">
               <div class="modal-dialog modal-sm" role="document">
                 <div class="modal-content">
-                  <div class="modal-header" style="background: #f59e0b; color: #fff;">
-                    <h5 class="modal-title"><i data-feather="shield" style="width: 18px; height: 18px;"></i> Draw Arrival Border?</h5>
-                    <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+                  <div class="modal-header mw-border-modal-hdr">
+                    <h5 class="modal-title">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:6px;" aria-hidden="true"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                        GPS Boundary Required
+                    </h5>
+                    <button type="button" class="close mw-border-modal-close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
                   </div>
                   <div class="modal-body">
-                    <p class="mb-2">Property added and geocoded successfully.</p>
-                    <p class="mb-0 small text-muted">Drawing an arrival border prevents wrong auto-clock-ins on dense routes. You can always draw one later from the property card.</p>
+                    <p class="mb-2">Property geocoded successfully.</p>
+                    <p class="mb-0 small text-muted">Drawing an arrival border activates GPS auto clock-in for every plan at this property. You can always do it later from the property card.</p>
                   </div>
                   <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary btn-sm" onclick="skipArrivalBorder()">Skip for Now</button>
-                    <a href="#" id="drawBorderNowBtn" class="btn btn-warning btn-sm"><i data-feather="edit-3" style="width:14px;height:14px;"></i> Draw Border Now</a>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="skipArrivalBorder()">Skip for Now</button>
+                    <a href="#" id="drawBorderNowBtn" class="mw-bsetup-btn" style="font-size:13px;padding:7px 16px;text-decoration:none;">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+                        Draw Border Now
+                    </a>
                   </div>
                 </div>
               </div>
