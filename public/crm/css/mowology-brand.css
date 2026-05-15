@@ -28133,3 +28133,41 @@ body.mw-no-scroll {
   border-color: var(--mw-green);
   color: var(--mw-green);
 }
+
+/* ── Property Search Typeahead (attach property modal) ── */
+.mw-prop-search-results {
+  position: absolute;
+  z-index: 1060;
+  background: #fff;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0,0,0,.12);
+  max-height: 220px;
+  overflow-y: auto;
+  width: calc(100% - 2px);
+}
+.mw-prop-search-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: .875rem;
+  line-height: 1.4;
+}
+.mw-prop-search-item:last-child { border-bottom: none; }
+.mw-prop-search-item:hover { background: var(--mw-light); }
+.mw-prop-search-none {
+  padding: 10px 12px;
+  color: #6c757d;
+  font-size: .875rem;
+}
+.mw-prop-search-selected { margin-top: 6px; }
+.mw-prop-search-chosen {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--mw-light);
+  border: 1px solid var(--mw-green);
+  border-radius: 4px;
+  font-size: .875rem;
+}

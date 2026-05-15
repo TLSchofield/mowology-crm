@@ -493,6 +493,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
         }
         exit;
 
+    } elseif ($requestAction === 'search_properties') {
+        $q = trim($jsonData['q'] ?? '');
+        if (strlen($q) < 2) { echo json_encode(['results' => []]); exit; }
+        $like = '%' . $q . '%';
+        $stmt = $db->prepare("
+            SELECT p.id, p.address, p.city, p.province, p.postal_code,
+                   CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,'')) AS contact_name
+            FROM properties p
+            LEFT JOIN contacts c ON c.id = p.site_contact_id
+            WHERE p.status = 'active'
+              AND (p.address LIKE ? OR p.city LIKE ? OR p.postal_code LIKE ?
+                   OR c.first_name LIKE ? OR c.last_name LIKE ?
+                   OR CONCAT(c.first_name, ' ', c.last_name) LIKE ?)
+            ORDER BY p.address ASC
+            LIMIT 12
+        ");
+        $stmt->execute([$like, $like, $like, $like, $like, $like]);
+        echo json_encode(['results' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
+        exit;
+
     } elseif ($requestAction === 'relink_property') {
         if (!verifyCSRFToken($jsonData['csrf_token'] ?? '')) {
             http_response_code(400);
@@ -5328,16 +5348,18 @@ $unconvertedRequests = $db->query("
                     <button type="button" class="close text-white" data-dismiss="modal"><span>&times;</span></button>
                   </div>
                   <div class="modal-body">
-                    <p class="small text-muted mb-3">Link an existing property to this company with a relationship (owner, property manager, etc.). The property does not need to have this company's contact as its site contact.</p>
-                    <div class="form-group">
-                      <label>Property ID <small class="text-muted">— find the ID on the property's contact page</small></label>
-                      <input type="number" class="form-control" id="attachPropId" placeholder="e.g. 12" min="1">
+                    <input type="hidden" id="attachPropId">
+                    <div class="form-group mb-2" style="position:relative;">
+                      <label>Search by address or contact name</label>
+                      <input type="text" class="form-control" id="attachPropSearch" placeholder="e.g. 2515 Woodland or Kristy" autocomplete="off">
+                      <div id="attachPropResults" class="mw-prop-search-results" style="display:none;"></div>
+                      <div id="attachPropSelected" class="mw-prop-search-selected" style="display:none;"></div>
                     </div>
                     <div class="form-group">
                       <label>Relationship</label>
                       <select class="form-control" id="attachPropRelType">
-                        <option value="owner">Owner (strata corp owns this property)</option>
-                        <option value="manager" selected>Manager (property management company)</option>
+                        <option value="owner">Owner (strata / numbered company)</option>
+                        <option value="manager">Manager (property management company)</option>
                         <option value="tenant">Tenant</option>
                         <option value="billing">Billing contact for property</option>
                       </select>
@@ -5497,12 +5519,69 @@ $unconvertedRequests = $db->query("
                 });
               };
 
-              // ── Attach Existing Property + Edit Relationship ────────
+              // ── Attach Existing Property — live search ──────────────
+              (function() {
+                var searchTimer = null;
+
+                // Pre-select relationship type based on company type when modal opens
+                document.querySelector('[data-target="#attachExistingPropertyModal"]') &&
+                  document.querySelector('[data-target="#attachExistingPropertyModal"]').addEventListener('click', function() {
+                    var relSel = document.getElementById('attachPropRelType');
+                    var compType = '<?php echo h($viewCompany['company_type'] ?? ''); ?>';
+                    if (compType === 'strata') relSel.value = 'owner';
+                    else if (compType === 'property_manager') relSel.value = 'manager';
+                    // Reset search state
+                    document.getElementById('attachPropId').value = '';
+                    document.getElementById('attachPropSearch').value = '';
+                    document.getElementById('attachPropResults').style.display = 'none';
+                    document.getElementById('attachPropSelected').style.display = 'none';
+                  });
+
+                document.getElementById('attachPropSearch').addEventListener('input', function() {
+                  clearTimeout(searchTimer);
+                  var q = this.value.trim();
+                  var results = document.getElementById('attachPropResults');
+                  if (q.length < 2) { results.style.display = 'none'; return; }
+                  searchTimer = setTimeout(function() {
+                    fetch('clients_appstack.php?action=search_properties', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ q: q, csrf_token: CSRF_TOKEN_CO })
+                    }).then(function(r) { return r.json(); }).then(function(data) {
+                      if (!data.results || !data.results.length) {
+                        results.innerHTML = '<div class="mw-prop-search-none">No properties found</div>';
+                      } else {
+                        results.innerHTML = data.results.map(function(p) {
+                          var contact = (p.contact_name || '').trim();
+                          return '<div class="mw-prop-search-item" data-id="' + p.id + '" data-addr="' + p.address.replace(/"/g,'&quot;') + '">' +
+                            '<strong>' + p.address + '</strong>' +
+                            '<span class="text-muted ml-2">' + (p.city || '') + (p.postal_code ? ' · ' + p.postal_code : '') + '</span>' +
+                            (contact ? '<br><small class="text-muted">' + contact + '</small>' : '') +
+                            '</div>';
+                        }).join('');
+                        results.querySelectorAll('.mw-prop-search-item').forEach(function(el) {
+                          el.addEventListener('click', function() {
+                            document.getElementById('attachPropId').value = this.dataset.id;
+                            document.getElementById('attachPropSearch').value = '';
+                            results.style.display = 'none';
+                            var sel = document.getElementById('attachPropSelected');
+                            sel.innerHTML = '<div class="mw-prop-search-chosen"><i data-feather="check-circle" style="width:14px;height:14px;color:var(--mw-green)"></i> <strong>' + this.dataset.addr + '</strong> <button type="button" class="btn btn-link btn-sm p-0 ml-2 text-muted" onclick="document.getElementById(\'attachPropId\').value=\'\';this.closest(\'.mw-prop-search-chosen\').parentElement.style.display=\'none\'">change</button></div>';
+                            sel.style.display = 'block';
+                            feather.replace();
+                          });
+                        });
+                      }
+                      results.style.display = 'block';
+                    });
+                  }, 250);
+                });
+              })();
+
               window.attachExistingProperty = function() {
                 var propId = parseInt(document.getElementById('attachPropId').value || '0');
                 var relType = document.getElementById('attachPropRelType').value;
                 var isPrimary = document.getElementById('attachPropIsPrimary').checked ? 1 : 0;
-                if (!propId) { alert('Please enter a property ID.'); return; }
+                if (!propId) { alert('Search for and select a property first.'); return; }
 
                 fetch('clients_appstack.php?action=save_company_property', {
                   method: 'POST',
