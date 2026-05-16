@@ -150,6 +150,11 @@
   color: #1a202c;
   transition: border-color .15s, box-shadow .15s;
 }
+.mw-exp-form-col .form-select {
+  padding: .375rem .75rem;
+  height: calc(1.5em + .75rem + 2px);
+  line-height: 1.5;
+}
 .mw-exp-form-col .form-control:focus,
 .mw-exp-form-col .form-select:focus {
   border-color: var(--mw-green);
