@@ -187,18 +187,27 @@ try {
                 throw new InvalidArgumentException('platform and account_name required');
             }
 
-            // Reload session for pending token
+            // Reload session for pending token.
+            // Meta: read but do NOT delete — user may connect Facebook then Instagram in the
+            //   same session; page_token comes from the request body, not the session.
+            // GBP: consume (delete) the token — it is single-use.
+            $isMeta = in_array($platform, ['facebook', 'instagram'], true);
+
             session_start();
             $pendingToken = $_SESSION['social_pending_token'] ?? null;
-            unset(
-                $_SESSION['social_pending_token'],
-                $_SESSION['social_oauth_state'],
-                $_SESSION['social_oauth_platform'],
-                $_SESSION['social_oauth_user_id']
-            );
+            if (!$isMeta) {
+                unset(
+                    $_SESSION['social_pending_token'],
+                    $_SESSION['social_oauth_state'],
+                    $_SESSION['social_oauth_platform'],
+                    $_SESSION['social_oauth_user_id']
+                );
+            }
             session_write_close();
 
-            if (!$pendingToken) {
+            // GBP (and future non-Meta platforms) require the session token.
+            // Meta uses the page_token from the request body — session token absence is fine.
+            if (!$isMeta && !$pendingToken) {
                 throw new RuntimeException('No pending OAuth token. Authenticate first.');
             }
 
@@ -247,7 +256,7 @@ try {
                     $accountName,
                     $pageId,
                     SocialEncryption::encrypt($pageToken),
-                    $pendingToken['scope'] ?? null,
+                    $pendingToken['scope'] ?? null, // null is fine — page tokens carry no OAuth scope
                     $metaJson,
                     $user['id'],
                 ]);
