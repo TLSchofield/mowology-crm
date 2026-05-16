@@ -892,7 +892,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         <i data-feather="refresh-cw" style="width:13px;height:13px;margin-right:4px;"></i> Rescan
                     </button>
                     <?php endif; ?>
-                    <button type="button" class="btn-close" data-dismiss="modal"></button>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
                 </div>
             </div>
             <div class="modal-body pt-3">
@@ -913,11 +915,11 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         <div class="mw-expense-form-section mw-exp-section">
                             <h6 class="mw-expense-form-section-title mw-exp-section-title"><i data-feather="shopping-bag"></i> Purchase Details</h6>
                             <div class="row g-3">
-                                <div class="col-md-4">
+                                <div class="col-md-3">
                                     <label class="form-label">Date <span class="text-danger">*</span></label>
                                     <input type="date" class="form-control" id="expDate" required>
                                 </div>
-                                <div class="col-md-4">
+                                <div class="col-md-5">
                                     <label class="form-label">Vendor</label>
                                     <input type="text" class="form-control" id="expVendorSearch" placeholder="Search vendors..." autocomplete="off">
                                     <input type="hidden" id="expVendorId">
@@ -993,15 +995,22 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         <div class="mw-expense-form-section mw-exp-section">
                             <h6 class="mw-expense-form-section-title mw-exp-section-title"><i data-feather="tag"></i> Classification</h6>
                             <div class="row g-3">
-                                <div class="col-md-6">
+                                <div class="col-md-5">
                                     <label class="form-label">Accounting Category</label>
                                     <select class="form-select" id="expAcctCategory"></select>
                                 </div>
-                                <div class="col-md-6">
+                                <div class="col-md-4">
                                     <label class="form-label">GBP Category</label>
                                     <select class="form-select" id="expGbpCategory"></select>
                                 </div>
-                                <div class="col-md-4" style="position:relative;">
+                                <div class="col-md-3">
+                                    <label class="form-label">Status</label>
+                                    <select class="form-select" id="expStatus">
+                                        <option value="draft">Draft</option>
+                                        <option value="approved">Approved</option>
+                                    </select>
+                                </div>
+                                <div class="col-12" style="position:relative;">
                                     <label class="form-label">Link to Job</label>
                                     <input type="text" class="form-control" id="expJobSearch" placeholder="Search by #, service, or address…" autocomplete="off">
                                     <input type="hidden" id="expJobId">
@@ -1010,13 +1019,6 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                                         <span class="badge bg-success" id="expJobLinkedBadge"></span>
                                         <button type="button" class="btn btn-link btn-sm p-0 ms-1 text-danger" onclick="clearJobLink()" title="Remove job link" style="line-height:1;">×</button>
                                     </div>
-                                </div>
-                                <div class="col-md-4">
-                                    <label class="form-label">Status</label>
-                                    <select class="form-select" id="expStatus">
-                                        <option value="draft">Draft</option>
-                                        <option value="approved">Approved</option>
-                                    </select>
                                 </div>
                             </div>
                         </div>
