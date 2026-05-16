@@ -109,8 +109,9 @@ class MetaService
      */
     public static function listPages(string $userToken): array
     {
+        // Step 1: get pages + their page tokens using the user token
         $url = self::PAGES_URL . '?' . http_build_query([
-            'fields'       => 'id,name,access_token,instagram_business_account',
+            'fields'       => 'id,name,access_token',
             'access_token' => $userToken,
         ]);
 
@@ -122,12 +123,32 @@ class MetaService
 
         $pages = $data['data'] ?? [];
 
+        // Step 2: for each page, look up instagram_business_account using the
+        // PAGE token (not user token) — page tokens have broader access and
+        // don't require Instagram OAuth scopes to read this field.
         return array_map(static function (array $p): array {
+            $pageToken = $p['access_token'] ?? '';
+            $igUserId  = null;
+
+            if ($pageToken) {
+                try {
+                    $igUrl  = self::GRAPH_URL . $p['id'] . '?' . http_build_query([
+                        'fields'       => 'instagram_business_account',
+                        'access_token' => $pageToken,
+                    ]);
+                    $igData = self::httpGet($igUrl);
+                    $igUserId = $igData['instagram_business_account']['id'] ?? null;
+                } catch (\Throwable $e) {
+                    // Non-fatal — page may not have Instagram linked
+                    error_log('listPages: could not fetch IG for page ' . $p['id'] . ': ' . $e->getMessage());
+                }
+            }
+
             return [
                 'page_id'    => $p['id'],
                 'page_name'  => $p['name'],
-                'page_token' => $p['access_token'] ?? '',
-                'ig_user_id' => $p['instagram_business_account']['id'] ?? null,
+                'page_token' => $pageToken,
+                'ig_user_id' => $igUserId,
             ];
         }, $pages);
     }
