@@ -260,6 +260,12 @@ $errorMsg = htmlspecialchars($_GET['error']    ?? '');
                           <div id="selIgInfo" class="form-group" style="display:none">
                               <label>Instagram Account</label>
                               <input type="text" class="form-control" id="selIgDisplay" readonly>
+                              <div id="selIgManual" style="display:none" class="mt-2">
+                                  <label class="small text-muted mb-1">Instagram Business Account ID <span class="text-danger">*</span><br>
+                                      <span class="font-weight-normal">Find it in Meta Business Suite → Accounts → Instagram accounts</span>
+                                  </label>
+                                  <input type="text" class="form-control form-control-sm" id="selIgUserIdManual" placeholder="e.g. 17841400000000000">
+                              </div>
                           </div>
                           <p class="text-muted small mb-0">The page access token is stored encrypted. It does not expire.</p>
                       </div>
@@ -389,13 +395,17 @@ $errorMsg = htmlspecialchars($_GET['error']    ?? '');
                       : document.querySelector('#pageModal .modal-footer .btn[style*="1877f2"]');
                   if (btn) { btn.disabled = true; btn.textContent = 'Connecting...'; }
 
+                  // Use manual IG ID if entered (fallback when API can't auto-detect)
+                  var igUserIdAuto   = document.getElementById('selIgUserId').value || null;
+                  var igUserIdManual = (document.getElementById('selIgUserIdManual') || {}).value || null;
+
                   var body = {
                       csrf_token:   csrf,
                       platform:     platform,
                       account_name: document.getElementById('selPageDisplay').value,
                       page_id:      document.getElementById('selPageId').value,
                       page_token:   document.getElementById('selPageToken').value,
-                      ig_user_id:   document.getElementById('selIgUserId').value || null,
+                      ig_user_id:   igUserIdAuto || igUserIdManual || null,
                   };
 
                   fetch('/crm/api/social/accounts.php?action=connect', {
@@ -407,6 +417,11 @@ $errorMsg = htmlspecialchars($_GET['error']    ?? '');
                           $('#pageModal').modal('hide');
                           window.location.href = '/crm/marketing/social-accounts.php?msg=' + encodeURIComponent(data.message || 'Connected!');
                       } else {
+                          // Show manual ID input on failure so user can enter it directly
+                          if (platform === 'instagram') {
+                              var manualDiv = document.getElementById('selIgManual');
+                              if (manualDiv) { manualDiv.style.display = ''; }
+                          }
                           alert('Error: ' + (data.error || 'Unknown error'));
                           if (btn) { btn.disabled = false; btn.textContent = platform === 'instagram' ? '+ Also Connect Instagram Business' : 'Connect Facebook Page'; }
                       }

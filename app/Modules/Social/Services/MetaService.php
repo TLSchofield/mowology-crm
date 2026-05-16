@@ -166,8 +166,8 @@ class MetaService
      */
     public static function fetchInstagramUserId(string $pageId, string $pageToken): ?string
     {
+        // Method 1: field on the page object
         $fields = ['instagram_business_account', 'connected_instagram_account'];
-
         foreach ($fields as $field) {
             try {
                 $url  = self::GRAPH_URL . $pageId . '?' . http_build_query([
@@ -183,6 +183,21 @@ class MetaService
             } catch (\Throwable $e) {
                 error_log('fetchInstagramUserId: ' . $field . ' failed: ' . $e->getMessage());
             }
+        }
+
+        // Method 2: instagram_accounts edge on the page
+        try {
+            $url  = self::GRAPH_URL . $pageId . '/instagram_accounts?' . http_build_query([
+                'access_token' => $pageToken,
+            ]);
+            $data = self::httpGet($url);
+            error_log('fetchInstagramUserId instagram_accounts edge response=' . json_encode($data));
+            $igId = $data['data'][0]['id'] ?? null;
+            if ($igId) {
+                return (string)$igId;
+            }
+        } catch (\Throwable $e) {
+            error_log('fetchInstagramUserId: instagram_accounts edge failed: ' . $e->getMessage());
         }
 
         return null;
