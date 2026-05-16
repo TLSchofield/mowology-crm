@@ -38,8 +38,8 @@ if (!defined('APP_ROOT')) {
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
     require_once CRM_INCLUDES . '/functions.php';
-    require_once APP_ROOT . '/Services/Social/SocialHashtagEngine.php';
-    require_once APP_ROOT . '/Services/Social/SocialCardGenerator.php';
+    require_once APP_ROOT . '/Modules/Social/Services/SocialHashtagEngine.php';
+    require_once APP_ROOT . '/Modules/Social/Services/SocialCardGenerator.php';
 
     requireLogin();
     $user    = getCurrentUser();
