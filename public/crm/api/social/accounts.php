@@ -92,6 +92,7 @@ try {
                        sa.connected_at, u.full_name AS connected_by_name
                 FROM social_accounts sa
                 LEFT JOIN users u ON u.id = sa.connected_by
+                WHERE sa.is_active >= 0
                 ORDER BY sa.platform ASC, sa.account_name ASC
             ");
             $accounts = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -294,8 +295,9 @@ try {
             $account = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$account) { throw new RuntimeException('Account not found'); }
 
-            // Soft-delete (keep for audit history on published posts)
-            $db->prepare("UPDATE social_accounts SET is_active = 0, updated_at = NOW() WHERE id = ?")
+            // Mark as removed (is_active = -1) — hidden from list but kept for
+            // audit history and published post references.
+            $db->prepare("UPDATE social_accounts SET is_active = -1, updated_at = NOW() WHERE id = ?")
                ->execute([$id]);
 
             GoogleBusinessService::auditLog($user['id'], 'account_disconnected', 'account', $id,
