@@ -83,8 +83,12 @@ final class LoginViewModel: ObservableObject {
             try await authSession.login(email: trimmedEmail, password: trimmedPassword)
             // On success, authSession.isAuthenticated flips to true.
             // RootView handles the navigation — no action needed here.
+        } catch let apiError as APIError where Self.isCancellation(apiError) {
+            errorMessage = nil  // request superseded/dismissed — not a real error
         } catch let apiError as APIError {
             errorMessage = apiError.errorDescription
+        } catch let urlError as URLError where urlError.code == .cancelled {
+            errorMessage = nil
         } catch {
             errorMessage = "An unexpected error occurred. Please try again."
         }
@@ -119,14 +123,40 @@ final class LoginViewModel: ObservableObject {
             )
             // Biometric passed — authenticate with server using stored credentials.
             try await authSession.login(email: storedEmail, password: storedPassword)
+        } catch let laError as LAError {
+            switch laError.code {
+            case .userCancel, .systemCancel, .appCancel, .userFallback:
+                // User dismissed Face ID / Touch ID — this is not an error.
+                errorMessage = nil
+            default:
+                errorMessage = "Biometric sign-in failed. Please use your password."
+            }
+        } catch let apiError as APIError where Self.isCancellation(apiError) {
+            errorMessage = nil  // request superseded/dismissed — not a real error
         } catch let apiError as APIError {
             errorMessage = apiError.errorDescription
+        } catch let urlError as URLError where urlError.code == .cancelled {
+            errorMessage = nil
         } catch {
-            // LAError — user cancelled, failed too many times, etc.
-            errorMessage = nil  // silently cancel — don't show "authentication failed" for a cancel
+            errorMessage = "An unexpected error occurred. Please try again."
         }
 
         isLoading = false
+    }
+
+    /// True when the error is a benign request cancellation (`URLError.cancelled`,
+    /// -999), including when wrapped in `APIError.networkError`.
+    private static func isCancellation(_ error: Error) -> Bool {
+        if let urlError = error as? URLError, urlError.code == .cancelled {
+            return true
+        }
+        if let apiError = error as? APIError,
+           case .networkError(let underlying) = apiError,
+           let urlError = underlying as? URLError,
+           urlError.code == .cancelled {
+            return true
+        }
+        return false
     }
 
     /// Clears any displayed error when the user resumes typing.
