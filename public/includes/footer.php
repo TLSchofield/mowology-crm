@@ -48,7 +48,7 @@
       </div>
 
       <div class="footer-bottom">
-        <p>&copy; <?= h(SITE_YEAR) ?> <?= h(SITE_NAME) ?>. All rights reserved.</p>
+        <p>&copy; <?= h(SITE_YEAR) ?> <?= h(SITE_NAME) ?>. All rights reserved. &nbsp;|&nbsp; <a href="/privacy">Privacy Policy</a></p>
       </div>
     </div>
   </footer>

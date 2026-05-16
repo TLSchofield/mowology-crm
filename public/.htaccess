@@ -88,6 +88,9 @@ RewriteEngine On
 # /quote → /quote.php (pass query string through)
 RewriteRule ^quote/?$ /quote.php [L,QSA]
 
+# /privacy → /privacy.php
+RewriteRule ^privacy/?$ /privacy.php [L,QSA]
+
 # /forgot-password and /reset-password — iOS app password reset flow
 RewriteRule ^forgot-password/?$ /forgot-password.php [L,QSA]
 RewriteRule ^reset-password/?$ /reset-password.php [L,QSA]
