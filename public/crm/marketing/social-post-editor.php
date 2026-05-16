@@ -191,9 +191,20 @@ $canApprove = userHasPermission('marketing.approve');
                   <div class="card mb-3">
                       <div class="card-header d-flex justify-content-between align-items-center">
                           <h5 class="mb-0">Attach Photos</h5>
-                          <span class="text-muted small" id="mediaSelectedCount">0 selected</span>
+                          <div class="d-flex align-items-center gap-2">
+                              <span class="text-muted small" id="mediaSelectedCount">0 selected</span>
+                              <button class="btn btn-sm btn-outline-primary" onclick="document.getElementById('mediaUploadInput').click()" title="Upload image">
+                                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                                  Upload
+                              </button>
+                              <input type="file" id="mediaUploadInput" accept="image/*" multiple style="display:none" onchange="uploadMediaFiles(this)">
+                          </div>
                       </div>
                       <div class="card-body">
+                          <div id="mediaUploadProgress" style="display:none" class="mb-2">
+                              <div class="progress" style="height:4px"><div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width:100%"></div></div>
+                              <div class="text-muted small mt-1">Uploading...</div>
+                          </div>
                           <input type="text" class="form-control form-control-sm mb-2" id="mediaSearch"
                               placeholder="Search photos..." oninput="searchMedia(this.value)">
                           <div class="mw-soc-media-grid" id="mediaGrid">
@@ -430,7 +441,7 @@ $canApprove = userHasPermission('marketing.approve');
                   fetch(url).then(function(r) { return r.json(); }).then(function(data) {
                       var grid = document.getElementById('mediaGrid');
                       if (!data.success || !data.media.length) {
-                          grid.innerHTML = '<div class="text-muted text-center p-3 small">No photos found. Upload images from job visits first.</div>';
+                          grid.innerHTML = '<div class="text-muted text-center p-3 small">No photos found. Click <strong>Upload</strong> to add images.</div>';
                           return;
                       }
                       var html = '';
@@ -448,6 +459,46 @@ $canApprove = userHasPermission('marketing.approve');
               window.searchMedia = function(q) {
                   clearTimeout(window._mediaTimer);
                   window._mediaTimer = setTimeout(function() { loadMedia(q); }, 300);
+              };
+
+              window.uploadMediaFiles = function(input) {
+                  if (!input.files || !input.files.length) return;
+                  var progress = document.getElementById('mediaUploadProgress');
+                  if (progress) progress.style.display = '';
+
+                  var fd = new FormData();
+                  fd.append('csrf_token', csrf);
+                  fd.append('context_type', 'marketing_general');
+                  fd.append('context_id', '0');
+                  fd.append('visibility', 'marketing_eligible');
+                  for (var i = 0; i < input.files.length; i++) {
+                      fd.append('files[]', input.files[i]);
+                  }
+
+                  fetch('/crm/api/media-upload.php', { method: 'POST', body: fd })
+                      .then(function(r) { return r.json(); })
+                      .then(function(data) {
+                          if (progress) progress.style.display = 'none';
+                          input.value = ''; // reset so same file can be re-uploaded
+                          if (!data.success && !data.results) {
+                              alert('Upload failed: ' + (data.error || 'Unknown error'));
+                              return;
+                          }
+                          // Auto-select newly uploaded images
+                          var results = data.results || [];
+                          results.forEach(function(r) {
+                              if (r.success && r.media_id && selectedMedia.indexOf(r.media_id) === -1) {
+                                  if (selectedMedia.length < 10) selectedMedia.push(r.media_id);
+                              }
+                          });
+                          // Refresh the grid (search cleared so new uploads appear)
+                          document.getElementById('mediaSearch').value = '';
+                          loadMedia('');
+                      })
+                      .catch(function(e) {
+                          if (progress) progress.style.display = 'none';
+                          alert('Upload error: ' + e.message);
+                      });
               };
 
               window.toggleMedia = function(id, url) {
