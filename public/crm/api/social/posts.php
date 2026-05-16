@@ -277,37 +277,155 @@ try {
 
         // ── Media picker (for post editor) ───────────────────────────
         case 'media-pick': {
-            requirePermission('photos.upload');
+            requirePermission('marketing.view');
             $search = trim($_GET['q'] ?? '');
             $limit  = min(40, (int)($_GET['limit'] ?? 24));
 
-            $where  = "ma.mime_type LIKE 'image/%'";
-            $params = [];
+            $rows = [];
 
-            if ($search) {
-                $where .= ' AND (ma.alt_text LIKE ? OR ma.usage_context LIKE ?)';
-                $params[] = '%' . $search . '%';
-                $params[] = '%' . $search . '%';
+            // ── Source 1: media_assets (uploaded via Upload button) ──
+            try {
+                $maWhere  = "ma.mime_type LIKE 'image/%'";
+                $maParams = [];
+                if ($search) {
+                    $maWhere .= ' AND (ma.alt_text LIKE ? OR ma.original_filename LIKE ?)';
+                    $maParams[] = '%' . $search . '%';
+                    $maParams[] = '%' . $search . '%';
+                }
+                $maStmt = $db->prepare("
+                    SELECT ma.id, ma.file_path AS url_path, ma.alt_text AS caption,
+                           ma.image_width, ma.image_height,
+                           COALESCE(ma.upload_date, ma.created_at) AS taken_at,
+                           'media_asset' AS source, ma.id AS source_id
+                    FROM media_assets ma
+                    WHERE $maWhere
+                    ORDER BY COALESCE(ma.upload_date, ma.created_at) DESC
+                    LIMIT ?
+                ");
+                $maParams[] = $limit;
+                $maStmt->execute($maParams);
+                foreach ($maStmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                    $rows[] = $r;
+                }
+            } catch (\Throwable $e) {
+                error_log('media-pick media_assets: ' . $e->getMessage());
             }
 
-            $stmt = $db->prepare("
-                SELECT ma.id, ma.file_path, ma.alt_text, ma.image_width, ma.image_height,
-                       ma.upload_date, ma.usage_context
-                FROM media_assets ma
-                WHERE $where
-                ORDER BY ma.upload_date DESC
-                LIMIT ?
+            // ── Source 2: visit_photos (job site photos) ─────────────
+            try {
+                $vpWhere  = "vp.deleted_at IS NULL AND vp.filename IS NOT NULL";
+                $vpParams = [];
+                if ($search) {
+                    $vpWhere .= ' AND (vp.caption LIKE ? OR vp.tags LIKE ? OR vp.photo_type LIKE ?)';
+                    $vpParams[] = '%' . $search . '%';
+                    $vpParams[] = '%' . $search . '%';
+                    $vpParams[] = '%' . $search . '%';
+                }
+                $vpStmt = $db->prepare("
+                    SELECT vp.id, vp.filename, vp.thumb_path, vp.caption,
+                           vp.uploaded_at AS taken_at, vp.photo_type,
+                           'visit_photo' AS source, vp.id AS source_id
+                    FROM visit_photos vp
+                    WHERE $vpWhere
+                    ORDER BY vp.uploaded_at DESC
+                    LIMIT ?
+                ");
+                $vpParams[] = $limit;
+                $vpStmt->execute($vpParams);
+                foreach ($vpStmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                    $rows[] = $r;
+                }
+            } catch (\Throwable $e) {
+                error_log('media-pick visit_photos: ' . $e->getMessage());
+            }
+
+            // ── Normalise and sort by date ────────────────────────────
+            $media = [];
+            foreach ($rows as $r) {
+                if ($r['source'] === 'media_asset') {
+                    $media[] = [
+                        'id'        => (int)$r['id'],
+                        'url'       => '/' . ltrim($r['url_path'], '/'),
+                        'thumb_url' => '/' . ltrim($r['url_path'], '/'),
+                        'alt_text'  => $r['caption'] ?? '',
+                        'taken_at'  => $r['taken_at'],
+                        'source'    => 'media_asset',
+                        'source_id' => (int)$r['source_id'],
+                    ];
+                } else {
+                    $origUrl  = '/uploads/photos/' . $r['filename'];
+                    $thumbUrl = $r['thumb_path'] ? '/' . ltrim($r['thumb_path'], '/') : $origUrl;
+                    $media[]  = [
+                        'id'        => null, // resolved on selection
+                        'url'       => $origUrl,
+                        'thumb_url' => $thumbUrl,
+                        'alt_text'  => $r['caption'] ?? $r['photo_type'] ?? '',
+                        'taken_at'  => $r['taken_at'],
+                        'source'    => 'visit_photo',
+                        'source_id' => (int)$r['source_id'],
+                    ];
+                }
+            }
+
+            // Sort newest first
+            usort($media, function($a, $b) {
+                return strcmp($b['taken_at'] ?? '', $a['taken_at'] ?? '');
+            });
+
+            echo json_encode(['success' => true, 'media' => array_slice($media, 0, $limit)]);
+            break;
+        }
+
+        // ── Import visit_photo into media_assets, return media_assets.id ─
+        case 'import-visit-photo': {
+            requirePermission('marketing.view');
+            $vpId = (int)($_GET['vp_id'] ?? 0);
+            if (!$vpId) throw new InvalidArgumentException('Missing vp_id');
+
+            // Check if already imported
+            $existing = $db->prepare("
+                SELECT id FROM media_assets
+                WHERE original_filename = ? AND file_type = 'image'
+                LIMIT 1
             ");
-            $params[] = $limit;
-            $stmt->execute($params);
-            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            foreach ($rows as &$m) {
-                $m['url'] = '/' . ltrim($m['file_path'], '/');
+            $vp = $db->prepare("SELECT id, filename, thumb_path, caption, photo_type FROM visit_photos WHERE id = ? AND deleted_at IS NULL");
+            $vp->execute([$vpId]);
+            $vpRow = $vp->fetch(PDO::FETCH_ASSOC);
+            if (!$vpRow) throw new RuntimeException('Visit photo not found');
+
+            // Look for existing import by file_path
+            $existStmt = $db->prepare("SELECT id FROM media_assets WHERE file_path = ? LIMIT 1");
+            $existStmt->execute(['uploads/photos/' . $vpRow['filename']]);
+            $existRow = $existStmt->fetch(PDO::FETCH_ASSOC);
+            if ($existRow) {
+                echo json_encode(['success' => true, 'media_id' => (int)$existRow['id']]);
+                break;
             }
-            unset($m);
 
-            echo json_encode(['success' => true, 'media' => $rows]);
+            // Create media_assets record pointing to existing visit photo file
+            $filePath = 'uploads/photos/' . $vpRow['filename'];
+            $ext      = strtolower(pathinfo($vpRow['filename'], PATHINFO_EXTENSION));
+            $mimeMap  = ['jpg'=>'image/jpeg','jpeg'=>'image/jpeg','png'=>'image/png','gif'=>'image/gif','webp'=>'image/webp','heic'=>'image/heic'];
+            $mime     = $mimeMap[$ext] ?? 'image/jpeg';
+
+            $ins = $db->prepare("
+                INSERT INTO media_assets
+                    (original_filename, stored_filename, file_path, file_type, mime_type,
+                     alt_text, created_by, upload_date)
+                VALUES (?, ?, ?, 'image', ?, ?, ?, NOW())
+            ");
+            $ins->execute([
+                $vpRow['filename'],
+                $vpRow['filename'],
+                $filePath,
+                $mime,
+                $vpRow['caption'] ?: ($vpRow['photo_type'] . ' photo'),
+                $user['id'],
+            ]);
+            $newId = (int)$db->lastInsertId();
+
+            echo json_encode(['success' => true, 'media_id' => $newId]);
             break;
         }
 

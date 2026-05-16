@@ -446,9 +446,18 @@ $canApprove = userHasPermission('marketing.approve');
                       }
                       var html = '';
                       data.media.forEach(function(m) {
-                          var sel = selectedMedia.indexOf(m.id) !== -1;
-                          html += '<div class="mw-soc-media-item' + (sel ? ' selected' : '') + '" data-id="' + m.id + '" onclick="toggleMedia(' + m.id + ',\'' + esc(m.url) + '\')">';
-                          html += '  <img src="' + esc(m.url) + '" alt="' + esc(m.alt_text || '') + '" loading="lazy">';
+                          var resolvedId = m.id; // null for visit_photos until imported
+                          var sel = resolvedId !== null && selectedMedia.indexOf(resolvedId) !== -1;
+                          var clickAttr = m.source === 'visit_photo'
+                              ? 'onclick="importAndToggle(' + m.source_id + ',\'' + esc(m.url) + '\',this)"'
+                              : 'onclick="toggleMedia(' + m.id + ',\'' + esc(m.url) + '\')"';
+                          html += '<div class="mw-soc-media-item' + (sel ? ' selected' : '') + '"'
+                              + (resolvedId !== null ? ' data-id="' + resolvedId + '"' : ' data-vp="' + m.source_id + '"')
+                              + ' ' + clickAttr + '>';
+                          html += '  <img src="' + esc(m.thumb_url || m.url) + '" alt="' + esc(m.alt_text || '') + '" loading="lazy">';
+                          if (m.source === 'visit_photo') {
+                              html += '  <div style="position:absolute;top:3px;left:3px;background:rgba(0,0,0,.5);border-radius:3px;padding:1px 4px;font-size:10px;color:#fff">Job</div>';
+                          }
                           html += '  <div class="mw-soc-media-check"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>';
                           html += '</div>';
                       });
@@ -514,6 +523,24 @@ $canApprove = userHasPermission('marketing.approve');
                   }
                   updateMediaSelection();
                   updatePreview();
+              };
+
+              // Import a visit_photo into media_assets then toggle it
+              window.importAndToggle = function(vpId, url, el) {
+                  if (el) el.style.opacity = '0.5';
+                  fetch('/crm/api/social/posts.php?action=import-visit-photo&vp_id=' + vpId)
+                      .then(function(r) { return r.json(); })
+                      .then(function(data) {
+                          if (el) { el.style.opacity = ''; el.dataset.id = data.media_id; }
+                          if (!data.success) { alert('Could not import photo: ' + (data.error || 'Unknown')); return; }
+                          // Replace data-vp with data-id so updateMediaSelection can find it
+                          if (el) { el.removeAttribute('data-vp'); el.setAttribute('data-id', data.media_id); el.onclick = function() { window.toggleMedia(data.media_id, url); }; }
+                          window.toggleMedia(data.media_id, url);
+                      })
+                      .catch(function(e) {
+                          if (el) el.style.opacity = '';
+                          alert('Import error: ' + e.message);
+                      });
               };
 
               function updateMediaSelection() {
