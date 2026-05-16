@@ -6,7 +6,7 @@
  * handles retries with exponential backoff.
  *
  * Run every 5 minutes:
- *   */5 * * * * /usr/local/bin/php /home/mowology/public_html/app/Modules/Social/Cron/social_publisher.php
+ *   * /5 * * * * /usr/local/bin/php /home/mowology/public_html/app/Modules/Social/Cron/social_publisher.php
  *
  * Also callable via web POST (admin only):
  *   POST /crm/cron/social_publisher.php
