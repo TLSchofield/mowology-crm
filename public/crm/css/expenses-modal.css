@@ -157,6 +157,7 @@
   background: #fff;
 }
 .mw-exp-form-col .form-label {
+  display: block;
   font-family: 'DM Sans', var(--bs-font-sans-serif);
   font-size: .68rem;
   font-weight: 500;
