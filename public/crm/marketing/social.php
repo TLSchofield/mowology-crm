@@ -98,7 +98,15 @@ $canApprove = userHasPermission('marketing.approve');
                               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                               Upcoming Posts
                           </h5>
-                          <a href="/crm/marketing/social-calendar.php" class="btn btn-sm btn-outline-secondary">Full Calendar</a>
+                          <div class="d-flex gap-2 align-items-center">
+                              <?php if (userHasPermission('marketing.approve')): ?>
+                              <button class="btn btn-sm btn-outline-primary" id="btnRunPublisher" onclick="runPublisher()">
+                                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="mr-1"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                                  Publish Now
+                              </button>
+                              <?php endif; ?>
+                              <a href="/crm/marketing/social-calendar.php" class="btn btn-sm btn-outline-secondary">Full Calendar</a>
+                          </div>
                       </div>
                       <div class="card-body p-0" id="upcomingList">
                           <div class="mw-soc-loading">Loading...</div>
@@ -396,6 +404,25 @@ $canApprove = userHasPermission('marketing.approve');
                       } else {
                           alert('Error: ' + (data.error || 'Unknown'));
                       }
+                  });
+              };
+
+              window.runPublisher = function() {
+                  var btn = document.getElementById('btnRunPublisher');
+                  if (btn) { btn.disabled = true; btn.textContent = 'Publishing…'; }
+                  fetch('/crm/cron/social_publisher.php', {
+                      method: 'POST',
+                      headers: {'Content-Type': 'application/json'},
+                      body: JSON.stringify({csrf_token: csrf})
+                  }).then(function(r) { return r.json(); }).then(function(data) {
+                      if (btn) { btn.disabled = false; btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="mr-1"><polygon points="5 3 19 12 5 21 5 3"/></svg> Publish Now'; }
+                      loadStats();
+                      loadUpcoming();
+                      loadFailed();
+                      if (data.message) alert(data.message);
+                  }).catch(function(e) {
+                      if (btn) { btn.disabled = false; btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="mr-1"><polygon points="5 3 19 12 5 21 5 3"/></svg> Publish Now'; }
+                      alert('Publisher error: ' + e.message);
                   });
               };
 

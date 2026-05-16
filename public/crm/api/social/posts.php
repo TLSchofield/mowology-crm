@@ -194,7 +194,6 @@ try {
                 FROM social_posts sp
                 LEFT JOIN users u ON u.id = sp.created_by
                 WHERE sp.status IN ('scheduled','approved','pending_approval')
-                  AND (sp.scheduled_at IS NULL OR sp.scheduled_at >= NOW())
                 ORDER BY sp.scheduled_at IS NULL DESC, sp.scheduled_at ASC
                 LIMIT ?
             ");
