@@ -81,6 +81,24 @@ try {
           AND locked_at  < DATE_SUB(NOW(), INTERVAL 5 MINUTE)
     ")->execute();
 
+    // ── Auto-enqueue approved/scheduled posts missing queue entries ──
+    // Catches posts saved before the enqueue fix, or approved via admin.
+    $db->prepare("
+        INSERT INTO social_queue (post_id, account_id, platform, scheduled_at, status)
+        SELECT spp.post_id, spp.account_id, spp.platform,
+               COALESCE(sp.scheduled_at, NOW()), 'pending'
+        FROM social_post_platforms spp
+        JOIN social_posts sp ON sp.id = spp.post_id
+        WHERE sp.status IN ('approved', 'scheduled')
+          AND spp.status = 'pending'
+          AND NOT EXISTS (
+              SELECT 1 FROM social_queue sq
+              WHERE sq.post_id = spp.post_id
+                AND sq.platform = spp.platform
+                AND sq.status IN ('pending', 'processing', 'completed')
+          )
+    ")->execute();
+
     // ── Fetch due items ─────────────────────────────────────────────
     // Items due now, not locked, pending status
     $stmt = $db->prepare("
