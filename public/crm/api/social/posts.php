@@ -190,10 +190,13 @@ try {
                         FROM social_post_platforms WHERE post_id = sp.id) AS platforms,
                        (SELECT ma.file_path FROM social_post_media spm
                         JOIN media_assets ma ON ma.id = spm.media_id
-                        WHERE spm.post_id = sp.id ORDER BY spm.sort_order LIMIT 1) AS thumb_path
+                        WHERE spm.post_id = sp.id ORDER BY spm.sort_order LIMIT 1) AS thumb_path,
+                       (SELECT GROUP_CONCAT(fail_reason ORDER BY platform SEPARATOR ' | ')
+                        FROM social_post_platforms
+                        WHERE post_id = sp.id AND fail_reason IS NOT NULL) AS fail_reason
                 FROM social_posts sp
                 LEFT JOIN users u ON u.id = sp.created_by
-                WHERE sp.status IN ('scheduled','approved','pending_approval')
+                WHERE sp.status IN ('scheduled','approved','pending_approval','publishing')
                 ORDER BY sp.scheduled_at IS NULL DESC, sp.scheduled_at ASC
                 LIMIT ?
             ");
@@ -212,6 +215,7 @@ try {
         }
 
         // ── Failed posts ─────────────────────────────────────────────
+
         case 'failed': {
             $stmt = $db->prepare("
                 SELECT sp.id, sp.title, sp.caption, sp.last_fail_reason,
@@ -701,18 +705,19 @@ try {
             $id = (int)($input['id'] ?? 0);
             if (!$id) { throw new InvalidArgumentException('Missing id'); }
 
-            $stmt = $db->prepare("SELECT * FROM social_posts WHERE id = ? AND status = 'failed'");
+            $stmt = $db->prepare("SELECT * FROM social_posts WHERE id = ? AND status IN ('failed','publishing')");
             $stmt->execute([$id]);
             $post = $stmt->fetch(PDO::FETCH_ASSOC);
-            if (!$post) { throw new RuntimeException('Post not found or not in failed status'); }
+            if (!$post) { throw new RuntimeException('Post not found or not in a retryable status'); }
 
             // Reset post and platform rows
             $db->prepare("UPDATE social_posts SET status = 'scheduled', fail_count = 0, last_fail_reason = NULL WHERE id = ?")
                ->execute([$id]);
             $db->prepare("UPDATE social_post_platforms SET status = 'pending', fail_reason = NULL, retry_count = 0 WHERE post_id = ?")
                ->execute([$id]);
+            // Reset any failed queue entries and also unlock stale processing ones
             $db->prepare("UPDATE social_queue SET status = 'pending', attempts = 0, locked_at = NULL, locked_by = NULL,
-                          scheduled_at = NOW() WHERE post_id = ? AND status = 'failed'")
+                          scheduled_at = NOW() WHERE post_id = ? AND status IN ('failed','processing','pending')")
                ->execute([$id]);
 
             GoogleBusinessService::auditLog($user['id'], 'post_retry', 'post', $id, 'Manually retried');

@@ -301,9 +301,15 @@ $canApprove = userHasPermission('marketing.approve');
                               html += '<div class="mw-soc-upcoming-body">';
                               html += '  <div class="mw-soc-upcoming-meta">' + statusBadge(p.status) + platforms + '</div>';
                               html += '  <div class="mw-soc-upcoming-caption">' + esc(truncate(p.caption, 80)) + '</div>';
+                              if (p.fail_reason) {
+                                  html += '  <div class="text-danger small mt-1" style="font-size:0.8rem"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-1"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>' + esc(p.fail_reason) + '</div>';
+                              }
                               html += '  <div class="mw-soc-upcoming-time">' + timeStr + '</div>';
                               html += '</div>';
                               html += '<div class="mw-soc-upcoming-actions">';
+                              if (p.status === 'publishing' && <?php echo json_encode($canApprove); ?>) {
+                                  html += '  <button class="btn btn-sm btn-outline-danger mr-1" onclick="retryPost(' + p.id + ')">Retry</button>';
+                              }
                               html += '  <a href="/crm/marketing/social-post-editor.php?id=' + p.id + '" class="btn btn-sm btn-outline-secondary">Edit</a>';
                               html += '</div>';
                               html += '</div>';
