@@ -20,7 +20,7 @@ $csrfToken = generateCSRFToken();
 $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) . '">'
            . '<link href="/crm/css/mobile-cards.css?v=20260217" rel="stylesheet">'
            . '<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">'
-           . '<link href="/crm/css/expenses-modal.css?v=20260516e" rel="stylesheet">'
+           . '<link href="/crm/css/expenses-modal.css?v=20260516f" rel="stylesheet">'
            . '<script src="/crm/js/offline-receipts.js?v=20260511a" defer></script>';
 ?>
 <?php include 'includes/appstack_head.php'; ?>
@@ -4728,8 +4728,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             var up    = item.unit_price ? parseFloat(item.unit_price) : null;
             var totalClass = total < 0 ? 'text-danger' : '';
             var liId  = item.id || '';
+            var itemJson = liId ? JSON.stringify({id:liId, name:item.name, qty:qty, unit_price:up, total:total}).replace(/"/g,'&quot;') : '';
 
-            var row = '<tr data-li-id="' + liId + '">';
+            var row = '<tr data-li-id="' + liId + '" data-item="' + itemJson + '">';
             row += '<td>' + esc(item.name);
             if (item.sku_raw) row += ' <small class="text-muted">(' + esc(item.sku_raw) + ')</small>';
             row += '</td>';
@@ -4749,9 +4750,12 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             }
             row += '</td>';
 
-            // Delete column — only for stored items
-            row += '<td class="text-center">';
-            if (liId) row += '<button type="button" class="btn btn-link btn-sm p-0 text-danger" onclick="deleteLineItem(' + liId + ')" title="Remove"><i data-feather="trash-2" style="width:12px;height:12px;"></i></button>';
+            // Edit + Delete column — only for stored items
+            row += '<td class="text-center" style="white-space:nowrap;">';
+            if (liId) {
+                row += '<button type="button" class="btn btn-link btn-sm p-0 text-secondary me-1" onclick="editLineItem(this)" title="Edit item"><i data-feather="edit-2" style="width:12px;height:12px;"></i></button>';
+                row += '<button type="button" class="btn btn-link btn-sm p-0 text-danger" onclick="deleteLineItem(' + liId + ')" title="Remove"><i data-feather="trash-2" style="width:12px;height:12px;"></i></button>';
+            }
             row += '</td>';
 
             row += '</tr>';
@@ -4760,6 +4764,67 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
         return header + rows;
     }
+
+    // ── Line Item Inline Editing ─────────────────────────────────
+    window.editLineItem = function(btn) {
+        var tr = btn.closest('tr');
+        var item = JSON.parse(tr.dataset.item || '{}');
+        if (!item.id) return;
+        tr.dataset.savedHtml = tr.innerHTML;
+        var colCount = tr.querySelectorAll('td').length;
+        tr.innerHTML =
+            '<td colspan="' + (colCount - 1) + '">' +
+              '<div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap;">' +
+                '<input type="text" class="form-control form-control-sm" id="liEditName" value="' + esc(item.name).replace(/"/g,'&quot;') + '" style="flex:2;min-width:120px;" placeholder="Item name">' +
+                '<input type="number" class="form-control form-control-sm" id="liEditQty" value="' + (item.qty||1) + '" min="0.01" step="any" style="width:55px;" placeholder="Qty">' +
+                '<input type="number" class="form-control form-control-sm" id="liEditTotal" value="' + (item.total||0).toFixed(2) + '" min="0" step="0.01" style="width:80px;" placeholder="Total $">' +
+              '</div>' +
+            '</td>' +
+            '<td class="text-center" style="white-space:nowrap;vertical-align:middle;">' +
+              '<button type="button" class="btn btn-sm btn-success me-1" onclick="saveLineItemEdit(' + item.id + ', this)" title="Save"><i data-feather="check" style="width:12px;height:12px;"></i></button>' +
+              '<button type="button" class="btn btn-sm btn-outline-secondary" onclick="cancelLineItemEdit(this)" title="Cancel"><i data-feather="x" style="width:12px;height:12px;"></i></button>' +
+            '</td>';
+        if (window.feather) feather.replace();
+        var nameInput = tr.querySelector('#liEditName');
+        if (nameInput) { nameInput.focus(); nameInput.select(); }
+    };
+
+    window.cancelLineItemEdit = function(btn) {
+        var tr = btn.closest('tr');
+        if (tr.dataset.savedHtml) { tr.innerHTML = tr.dataset.savedHtml; if (window.feather) feather.replace(); }
+    };
+
+    window.saveLineItemEdit = async function(liId, btn) {
+        var tr = btn.closest('tr');
+        var name  = tr.querySelector('#liEditName')?.value?.trim();
+        var qty   = parseFloat(tr.querySelector('#liEditQty')?.value) || 1;
+        var total = parseFloat(tr.querySelector('#liEditTotal')?.value) || 0;
+        if (!name) { alert('Item name is required'); return; }
+        btn.disabled = true;
+        try {
+            var csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+            var res = await fetch('/crm/api/expenses.php?action=update_line_item', {
+                method: 'POST',
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({ line_item_id: liId, name: name, quantity: qty, line_total: total, csrf_token: csrf })
+            });
+            var d = await res.json();
+            if (!d.success) throw new Error(d.error || 'Save failed');
+            // Refresh the full line items table
+            var expId = parseInt(document.getElementById('expenseId')?.value);
+            if (expId) {
+                var r2 = await fetch('/crm/api/expenses.php?action=get&id=' + expId);
+                var d2 = await r2.json();
+                if (d2.success && d2.expense) {
+                    var tableEl = document.getElementById('expLineItemsTable');
+                    var items2 = d2.expense.line_items || [];
+                    if (tableEl) tableEl.innerHTML = renderLineItemsTable(items2, true);
+                    document.getElementById('expLineItemsCount').textContent = items2.length;
+                    if (window.feather) feather.replace();
+                }
+            }
+        } catch(e) { alert('Could not save: ' + e.message); btn.disabled = false; }
+    };
 
     // ── Product Linking ──────────────────────────────────────────
     var activePopover = null;

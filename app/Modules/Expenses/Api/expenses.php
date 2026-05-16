@@ -47,7 +47,7 @@ try {
     // Verify CSRF for write actions while session is still open
     $writeActions = ['create', 'update', 'delete', 'merge', 'merge_receipt', 'link_product',
                      'approve', 'reject', 'batch_forward', 'reassign_job', 'rescan',
-                     'add_line_item', 'delete_line_item', 'qb_retry'];
+                     'add_line_item', 'update_line_item', 'delete_line_item', 'qb_retry'];
     if ($input !== null && in_array($action, $writeActions, true)) {
         if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
             throw new Exception('Invalid security token');
@@ -181,6 +181,11 @@ try {
         case 'add_line_item':
             if (!$canEdit) throw new Exception('Permission denied: expenses.edit required');
             handleAddLineItem($db, $input);
+            break;
+
+        case 'update_line_item':
+            if (!$canEdit) throw new Exception('Permission denied: expenses.edit required');
+            handleUpdateLineItem($db, $input);
             break;
 
         case 'delete_line_item':
@@ -1646,6 +1651,40 @@ function handleAddLineItem(PDO $db, ?array $input): void
     $item = $result->fetch(PDO::FETCH_ASSOC);
 
     echo json_encode(['success' => true, 'line_item' => $item]);
+}
+
+
+/**
+ * Update name, quantity, unit_price, and/or line_total of a stored line item.
+ */
+function handleUpdateLineItem(PDO $db, ?array $input): void
+{
+    if (!$input) throw new Exception('No data provided');
+    $lineItemId = (int)($input['line_item_id'] ?? 0);
+    if (!$lineItemId) throw new Exception('Line item ID required');
+
+    $name      = trim($input['name'] ?? '');
+    if (!$name) throw new Exception('Item name required');
+
+    $qty       = (float)($input['quantity'] ?? 1);
+    if ($qty <= 0) $qty = 1;
+    $unitPrice = isset($input['unit_price']) && $input['unit_price'] !== '' ? (float)$input['unit_price'] : null;
+    $lineTotal = isset($input['line_total']) && $input['line_total'] !== ''
+               ? (float)$input['line_total']
+               : ($unitPrice !== null ? $unitPrice * $qty : 0.0);
+
+    $db->prepare("
+        UPDATE expense_line_items SET name = ?, quantity = ?, unit_price = ?, line_total = ? WHERE id = ?
+    ")->execute([$name, $qty, $unitPrice, $lineTotal, $lineItemId]);
+
+    $result = $db->prepare("
+        SELECT eli.*, p.name AS product_name
+        FROM expense_line_items eli
+        LEFT JOIN products p ON p.id = eli.product_id
+        WHERE eli.id = ?
+    ");
+    $result->execute([$lineItemId]);
+    echo json_encode(['success' => true, 'line_item' => $result->fetch(PDO::FETCH_ASSOC)]);
 }
 
 
