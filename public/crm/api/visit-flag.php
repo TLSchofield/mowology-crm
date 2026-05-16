@@ -61,7 +61,7 @@ try {
     $db = getDB();
 
     // Load visit
-    $stmt = $db->prepare("SELECT id, assigned_crew_id, status, is_flagged FROM job_visits WHERE id = ?");
+    $stmt = $db->prepare("SELECT id, assigned_crew_id, status, is_flagged, social_draft_id FROM job_visits WHERE id = ?");
     $stmt->execute([$visitId]);
     $visit = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -92,7 +92,27 @@ try {
     $db->prepare("UPDATE job_visits SET is_flagged = ? WHERE id = ?")
        ->execute([$newFlag, $visitId]);
 
-    echo json_encode(['success' => true, 'is_flagged' => (bool)$newFlag]);
+    $responseExtra = [];
+
+    // When crew flags a completed visit, auto-generate a social draft
+    if ($newFlag === 1 && strtolower((string)($visit['status'] ?? '')) === 'completed') {
+        require_once APP_ROOT . '/Services/Social/SocialHashtagEngine.php';
+        require_once APP_ROOT . '/Services/Social/SocialCardGenerator.php';
+        require_once APP_ROOT . '/Services/Social/SocialDraftPipeline.php';
+        try {
+            $postId = SocialDraftPipeline::triggerFromVisit($visitId, $db);
+            // flagged_at + social_draft_id are set inside triggerFromVisit
+            $responseExtra['social_draft_id'] = $postId;
+        } catch (\Throwable $e) {
+            // Non-fatal — flag toggle still succeeds, pipeline failure logged
+            error_log("SocialDraftPipeline failed for visit $visitId: " . $e->getMessage());
+        }
+    }
+
+    echo json_encode(array_merge(
+        ['success' => true, 'is_flagged' => (bool)$newFlag],
+        $responseExtra
+    ));
 
 } catch (Throwable $e) {
     error_log("visit-flag.php error: " . $e->getMessage());

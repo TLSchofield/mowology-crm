@@ -15,6 +15,42 @@ $pageTitle  = 'Social Marketing';
 $activePage = 'social';
 $canEdit    = userHasPermission('marketing.edit');
 $canApprove = userHasPermission('marketing.approve');
+
+// ── Flagged visits awaiting social draft (Phase 3) ──────────────────────
+$flaggedVisitsPendingDraft = [];
+$autoDraftCount = 0;
+try {
+    $db = getDB();
+    // Visits flagged by crew but no social draft created yet
+    // Only query if columns exist (after migration 609 runs)
+    $colCheck = $db->query("SHOW COLUMNS FROM job_visits LIKE 'social_draft_id'")->fetch();
+    if ($colCheck) {
+        $flaggedStmt = $db->query("
+            SELECT jv.id AS visit_id, jv.visit_number, jv.flagged_at,
+                   jp.service_type,
+                   p.address AS property_address
+            FROM job_visits jv
+            JOIN job_plans jp ON jp.id = jv.plan_id
+            JOIN properties p ON p.id  = jp.property_id
+            WHERE jv.is_flagged = 1
+              AND jv.social_draft_id IS NULL
+              AND jv.status = 'completed'
+            ORDER BY jv.flagged_at DESC
+            LIMIT 20
+        ");
+        $flaggedVisitsPendingDraft = $flaggedStmt ? $flaggedStmt->fetchAll(PDO::FETCH_ASSOC) : [];
+
+        // Count auto-generated drafts awaiting review
+        $autoColCheck = $db->query("SHOW COLUMNS FROM social_posts LIKE 'auto_generated'")->fetch();
+        if ($autoColCheck) {
+            $autoDraftCount = (int)$db->query(
+                "SELECT COUNT(*) FROM social_posts WHERE status = 'draft' AND auto_generated = 1"
+            )->fetchColumn();
+        }
+    }
+} catch (Throwable $e) {
+    // Non-fatal — widget simply doesn't show
+}
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
@@ -33,6 +69,9 @@ $canApprove = userHasPermission('marketing.approve');
                   <a href="/crm/marketing/social-post-wizard.php" class="btn btn-success mw-soc-btn-new">
                       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                       New Post
+                      <?php if ($autoDraftCount > 0): ?>
+                      <span class="badge badge-pill ml-1" style="background:var(--mw-lime);color:#1a3a2a;font-size:11px"><?php echo $autoDraftCount; ?> AI</span>
+                      <?php endif; ?>
                   </a>
                   <?php endif; ?>
                   <a href="/crm/marketing/social-calendar.php" class="btn btn-outline-secondary">
@@ -135,6 +174,45 @@ $canApprove = userHasPermission('marketing.approve');
                           </h5>
                       </div>
                       <div class="card-body p-0" id="approvalList"></div>
+                  </div>
+                  <?php endif; ?>
+
+                  <!-- Flagged Visits Awaiting Social Draft (Phase 3) -->
+                  <?php if (!empty($flaggedVisitsPendingDraft) && $canEdit): ?>
+                  <div class="card mb-4">
+                      <div class="card-header d-flex justify-content-between align-items-center"
+                           style="cursor:pointer" data-toggle="collapse" data-target="#flaggedVisitsBody" aria-expanded="false">
+                          <h5 class="mb-0" style="color:var(--mw-orange)">
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>
+                              Flagged Visits — Awaiting Social Draft
+                          </h5>
+                          <span class="badge badge-warning"><?php echo count($flaggedVisitsPendingDraft); ?></span>
+                      </div>
+                      <div class="collapse" id="flaggedVisitsBody">
+                          <div class="card-body p-0">
+                              <div class="list-group list-group-flush">
+                                  <?php foreach ($flaggedVisitsPendingDraft as $fv): ?>
+                                  <div class="list-group-item d-flex justify-content-between align-items-center py-2">
+                                      <div>
+                                          <div class="font-weight-medium small"><?php echo htmlspecialchars($fv['property_address'] ?? ''); ?></div>
+                                          <div class="text-muted x-small">
+                                              <?php echo htmlspecialchars(ucwords(str_replace('_', ' ', $fv['service_type'] ?? ''))); ?>
+                                              <?php if (!empty($fv['flagged_at'])): ?>
+                                              &mdash; flagged <?php echo date('M j', strtotime($fv['flagged_at'])); ?>
+                                              <?php endif; ?>
+                                          </div>
+                                      </div>
+                                      <button class="btn btn-sm btn-outline-success"
+                                              onclick="generateDraftForVisit(<?php echo (int)$fv['visit_id']; ?>, this)"
+                                              style="white-space:nowrap">
+                                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="mr-1"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                                          Generate Draft
+                                      </button>
+                                  </div>
+                                  <?php endforeach; ?>
+                              </div>
+                          </div>
+                      </div>
                   </div>
                   <?php endif; ?>
 
@@ -462,6 +540,37 @@ $canApprove = userHasPermission('marketing.approve');
                   return d.toLocaleDateString('en-CA', {month: 'short', day: 'numeric'})
                       + ' at ' + d.toLocaleTimeString('en-CA', {hour: 'numeric', minute: '2-digit', hour12: true});
               }
+
+              // ── Generate draft from flagged visit ─────────────────
+              window.generateDraftForVisit = function(visitId, btn) {
+                  if (btn) { btn.disabled = true; btn.textContent = 'Generating…'; }
+                  var csrf = document.querySelector('meta[name="csrf-token"]');
+                  var csrfVal = csrf ? csrf.content : '';
+
+                  var fd = new FormData();
+                  fd.append('visit_id', visitId);
+                  fd.append('csrf_token', csrfVal);
+                  fd.append('is_flagged', '1'); // force-flag if not already
+
+                  // POST to visit-flag.php which triggers SocialDraftPipeline
+                  fetch('/crm/api/visit-flag.php', { method: 'POST', body: fd })
+                      .then(function(r) { return r.json(); })
+                      .then(function(data) {
+                          if (data.social_draft_id) {
+                              window.location.href = '/crm/marketing/social-post-editor.php?id=' + data.social_draft_id;
+                          } else if (data.success) {
+                              alert('Draft generation triggered — check Social Posts for the new draft.');
+                              window.location.reload();
+                          } else {
+                              alert('Error: ' + (data.error || 'Unknown error'));
+                              if (btn) { btn.disabled = false; btn.innerHTML = 'Generate Draft'; }
+                          }
+                      })
+                      .catch(function(e) {
+                          alert('Request failed: ' + e.message);
+                          if (btn) { btn.disabled = false; btn.innerHTML = 'Generate Draft'; }
+                      });
+              };
 
               // ── Init ──────────────────────────────────────────────
               loadStats();

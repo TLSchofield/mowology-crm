@@ -176,6 +176,10 @@ $canApprove = userHasPermission('marketing.approve');
                                       <button class="btn btn-sm btn-outline-secondary" onclick="setPreset(9,0)">9am Today</button>
                                       <button class="btn btn-sm btn-outline-secondary" onclick="setPreset(9,1)">9am Tomorrow</button>
                                       <button class="btn btn-sm btn-outline-secondary" onclick="setPreset(12,0)">Noon Today</button>
+                                      <button class="btn btn-sm" id="btnSuggestedTime" style="display:none;background:var(--mw-lime);color:#1a3a2a;border:none" onclick="applySuggestedTime()" title="AI-suggested optimal posting time based on service type and day">
+                                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="mr-1"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                          <span id="suggestedTimeLabel">Suggested</span>
+                                      </button>
                                   </div>
                               </div>
                           </div>
@@ -210,6 +214,45 @@ $canApprove = userHasPermission('marketing.approve');
                   </div>
 
                   <?php include dirname(__DIR__) . '/cms/block-forms/media-picker-modal.php'; ?>
+
+                  <!-- Posting Card -->
+                  <div class="card mb-3" id="cardSection" style="display:none">
+                      <div class="card-header d-flex justify-content-between align-items-center">
+                          <h5 class="mb-0">Posting Card</h5>
+                          <span class="badge badge-pill" style="background:var(--mw-lime);color:#1a3a2a" id="cardTypeBadge"></span>
+                      </div>
+                      <div class="card-body p-0">
+                          <!-- Card preview image -->
+                          <div id="cardPreviewWrap" style="background:#0D3B2E;min-height:200px;display:flex;align-items:center;justify-content:center;position:relative">
+                              <img id="cardPreviewImg" src="" alt="Posting card preview"
+                                   style="display:none;width:100%;height:auto;max-height:400px;object-fit:contain">
+                              <div id="cardPreviewPlaceholder" style="color:#7FD858;text-align:center;padding:40px 20px">
+                                  <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="opacity:.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                                  <p class="mt-2 mb-0 small">No card yet</p>
+                              </div>
+                              <div id="cardLoadingOverlay" style="display:none;position:absolute;inset:0;background:rgba(13,59,46,.8);display:none;align-items:center;justify-content:center">
+                                  <div class="spinner-border text-light" role="status"></div>
+                              </div>
+                          </div>
+                          <!-- Card type selector -->
+                          <div class="p-3">
+                              <div class="btn-group btn-group-sm w-100 mb-2" id="cardTypeButtons">
+                                  <button class="btn btn-outline-secondary" onclick="setCardTemplate('before_after')" data-type="before_after" title="Best when you have both before + after photos">Before / After</button>
+                                  <button class="btn btn-outline-secondary" onclick="setCardTemplate('hero_after')" data-type="hero_after" title="Full-bleed single photo">Hero After</button>
+                              </div>
+                              <div class="d-flex gap-2">
+                                  <button class="btn btn-sm btn-outline-primary flex-grow-1" onclick="regenerateCard()">
+                                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-1"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                                      Regenerate Card
+                                  </button>
+                                  <a id="cardDownloadLink" href="#" download class="btn btn-sm btn-outline-secondary" style="display:none">
+                                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-1"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                                      Download
+                                  </a>
+                              </div>
+                          </div>
+                      </div>
+                  </div>
 
                   <!-- Post Preview -->
                   <div class="card mb-3">
@@ -332,8 +375,164 @@ $canApprove = userHasPermission('marketing.approve');
 
                           updateCharCount();
                           updatePreview();
+
+                          // Show card section if post has a card or is auto-generated
+                          if (p.card_derivative_id || p.auto_generated) {
+                              loadCardPreview(id, p.card_template_type || 'hero_after');
+                          }
+
+                          // Show suggested time button
+                          if (p.best_time_suggestion) {
+                              var btn = document.getElementById('btnSuggestedTime');
+                              var lbl = document.getElementById('suggestedTimeLabel');
+                              if (btn && lbl) {
+                                  lbl.textContent = p.best_time_suggestion;
+                                  btn.style.display = '';
+                                  btn.dataset.suggestion = p.best_time_suggestion;
+                              }
+                          }
                       });
               }
+
+              // ── Card preview functions ─────────────────────────────
+
+              var currentCardPostId = null;
+
+              function loadCardPreview(postId, templateType) {
+                  currentCardPostId = postId;
+                  var section = document.getElementById('cardSection');
+                  if (section) section.style.display = '';
+
+                  // Update type badge
+                  var badge = document.getElementById('cardTypeBadge');
+                  var typeLabels = { before_after: 'Before / After', hero_after: 'Hero After', multi_grid: 'Multi Grid' };
+                  if (badge) badge.textContent = typeLabels[templateType] || templateType;
+
+                  // Highlight active button
+                  document.querySelectorAll('#cardTypeButtons button').forEach(function(btn) {
+                      btn.classList.toggle('active', btn.dataset.type === templateType);
+                      btn.classList.toggle('btn-primary', btn.dataset.type === templateType);
+                      btn.classList.toggle('btn-outline-secondary', btn.dataset.type !== templateType);
+                  });
+
+                  var img     = document.getElementById('cardPreviewImg');
+                  var wrap    = document.getElementById('cardPreviewWrap');
+                  var overlay = document.getElementById('cardLoadingOverlay');
+                  var placeholder = document.getElementById('cardPreviewPlaceholder');
+                  if (overlay) { overlay.style.display = 'flex'; }
+
+                  fetch('/crm/api/social/card.php?action=preview&post_id=' + postId)
+                      .then(function(r) { return r.json(); })
+                      .then(function(data) {
+                          if (overlay) overlay.style.display = 'none';
+                          if (data.success && data.file_path) {
+                              if (img) {
+                                  img.src = data.file_path + '?t=' + Date.now(); // cache bust
+                                  img.style.display = '';
+                              }
+                              if (placeholder) placeholder.style.display = 'none';
+                              var dlLink = document.getElementById('cardDownloadLink');
+                              if (dlLink) { dlLink.href = data.file_path; dlLink.style.display = ''; }
+                          } else {
+                              if (placeholder) placeholder.style.display = '';
+                          }
+                      })
+                      .catch(function() {
+                          if (overlay) overlay.style.display = 'none';
+                      });
+              }
+
+              window.regenerateCard = function() {
+                  if (!currentCardPostId) return;
+                  var activeBtn = document.querySelector('#cardTypeButtons button.active');
+                  var templateType = activeBtn ? activeBtn.dataset.type : 'hero_after';
+                  var overlay = document.getElementById('cardLoadingOverlay');
+                  if (overlay) overlay.style.display = 'flex';
+
+                  fetch('/crm/api/social/card.php', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ action: 'generate', post_id: currentCardPostId, template_type: templateType, csrf_token: csrf })
+                  })
+                  .then(function(r) { return r.json(); })
+                  .then(function(data) {
+                      if (overlay) overlay.style.display = 'none';
+                      if (data.success) {
+                          loadCardPreview(currentCardPostId, templateType);
+                      } else {
+                          alert('Card generation failed: ' + (data.error || 'Unknown error'));
+                      }
+                  })
+                  .catch(function(e) {
+                      if (overlay) overlay.style.display = 'none';
+                      alert('Card generation request failed.');
+                  });
+              };
+
+              window.setCardTemplate = function(templateType) {
+                  if (!currentCardPostId) {
+                      // No post loaded yet — just update button state
+                      document.querySelectorAll('#cardTypeButtons button').forEach(function(btn) {
+                          btn.classList.toggle('active', btn.dataset.type === templateType);
+                          btn.classList.toggle('btn-primary', btn.dataset.type === templateType);
+                          btn.classList.toggle('btn-outline-secondary', btn.dataset.type !== templateType);
+                      });
+                      return;
+                  }
+                  var overlay = document.getElementById('cardLoadingOverlay');
+                  if (overlay) overlay.style.display = 'flex';
+
+                  fetch('/crm/api/social/card.php', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ action: 'set-template', post_id: currentCardPostId, template_type: templateType, csrf_token: csrf })
+                  })
+                  .then(function(r) { return r.json(); })
+                  .then(function(data) {
+                      if (overlay) overlay.style.display = 'none';
+                      if (data.success) {
+                          loadCardPreview(currentCardPostId, templateType);
+                      } else {
+                          alert('Failed to change template: ' + (data.error || 'Unknown error'));
+                      }
+                  })
+                  .catch(function() {
+                      if (overlay) overlay.style.display = 'none';
+                  });
+              };
+
+              window.applySuggestedTime = function() {
+                  var btn = document.getElementById('btnSuggestedTime');
+                  if (!btn || !btn.dataset.suggestion) return;
+                  // Parse "Tue 10:00 AM" → next occurrence of that day+time
+                  var dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+                  var suggestion = btn.dataset.suggestion; // e.g. "Tue 10:00 AM"
+                  var parts = suggestion.split(' ');
+                  if (parts.length < 3) return;
+                  var targetDay = dayNames.indexOf(parts[0]);
+                  var timeParts = parts[1].split(':');
+                  var ampm = parts[2];
+                  var hours = parseInt(timeParts[0], 10);
+                  if (ampm === 'PM' && hours < 12) hours += 12;
+                  if (ampm === 'AM' && hours === 12) hours = 0;
+                  var minutes = parseInt(timeParts[1] || '0', 10);
+
+                  var now = new Date();
+                  var d = new Date(now);
+                  d.setHours(hours, minutes, 0, 0);
+                  // Advance to next target day
+                  var daysUntil = (targetDay - d.getDay() + 7) % 7;
+                  if (daysUntil === 0 && d <= now) daysUntil = 7; // same day but past time
+                  d.setDate(d.getDate() + daysUntil);
+
+                  // Format as datetime-local value (YYYY-MM-DDTHH:MM)
+                  var yyyy = d.getFullYear();
+                  var mm   = String(d.getMonth() + 1).padStart(2, '0');
+                  var dd   = String(d.getDate()).padStart(2, '0');
+                  var hh   = String(d.getHours()).padStart(2, '0');
+                  var mi   = String(d.getMinutes()).padStart(2, '0');
+                  document.getElementById('postSchedule').value = yyyy + '-' + mm + '-' + dd + 'T' + hh + ':' + mi;
+              };
 
               // ── Load template options ──────────────────────────────
               function loadTemplateOptions() {
