@@ -191,28 +191,25 @@ $canApprove = userHasPermission('marketing.approve');
                   <div class="card mb-3">
                       <div class="card-header d-flex justify-content-between align-items-center">
                           <h5 class="mb-0">Attach Photos</h5>
-                          <div class="d-flex align-items-center gap-2">
-                              <span class="text-muted small" id="mediaSelectedCount">0 selected</span>
-                              <button class="btn btn-sm btn-outline-primary" onclick="document.getElementById('mediaUploadInput').click()" title="Upload image">
-                                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                                  Upload
-                              </button>
-                              <input type="file" id="mediaUploadInput" accept="image/*" multiple style="display:none" onchange="uploadMediaFiles(this)">
-                          </div>
+                          <span class="text-muted small" id="mediaSelectedCount">0 of 10 selected</span>
                       </div>
                       <div class="card-body">
-                          <div id="mediaUploadProgress" style="display:none" class="mb-2">
-                              <div class="progress" style="height:4px"><div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width:100%"></div></div>
-                              <div class="text-muted small mt-1">Uploading...</div>
+                          <!-- Selected thumbnails strip -->
+                          <div id="selectedThumbStrip" class="d-flex flex-wrap gap-2 mb-3" style="min-height:0"></div>
+                          <!-- Action buttons -->
+                          <div class="d-flex gap-2">
+                              <button type="button" class="btn btn-outline-primary btn-sm flex-grow-1"
+                                      onclick="openMediaPicker(function(item){ addMediaItem(item); })">
+                                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="mr-1"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                                  Browse Media Library
+                              </button>
                           </div>
-                          <input type="text" class="form-control form-control-sm mb-2" id="mediaSearch"
-                              placeholder="Search photos..." oninput="searchMedia(this.value)">
-                          <div class="mw-soc-media-grid" id="mediaGrid">
-                              <div class="mw-soc-loading">Loading photos...</div>
-                          </div>
+                          <p class="text-muted x-small mt-2 mb-0">Select up to 10 photos. Use the library to upload new images too.</p>
                           <div id="selectedMediaIds" style="display:none;"></div>
                       </div>
                   </div>
+
+                  <?php include dirname(__DIR__) . '/cms/block-forms/media-picker-modal.php'; ?>
 
                   <!-- Post Preview -->
                   <div class="card mb-3">
@@ -276,10 +273,12 @@ $canApprove = userHasPermission('marketing.approve');
               var previewPlatform = 'gbp';
               var charLimits = { gbp: 1500, instagram: 2200, facebook: 63206 };
 
+              // Required by media-picker-modal.php
+              window.csrfToken = csrf;
+
               // ── Init ──────────────────────────────────────────────
               loadTemplateOptions();
               loadAccounts();
-              loadMedia('');
 
               if (editId) {
                   loadPost(editId);
@@ -306,8 +305,13 @@ $canApprove = userHasPermission('marketing.approve');
                               document.getElementById('postSchedule').value = p.scheduled_at.replace(' ', 'T').substring(0, 16);
                           }
 
-                          // Pre-select media
-                          selectedMedia = (p.media || []).map(function(m) { return m.media_id; });
+                          // Pre-select media — populate both ID list and meta for thumbnails
+                          selectedMedia = [];
+                          selectedMediaMeta = [];
+                          (p.media || []).forEach(function(m) {
+                              selectedMedia.push(m.media_id);
+                              selectedMediaMeta.push({ id: m.media_id, url: m.url || m.file_path || '', alt: m.alt_text || '' });
+                          });
                           updateMediaSelection();
 
                           // Pre-select platforms
@@ -433,122 +437,45 @@ $canApprove = userHasPermission('marketing.approve');
                   });
               };
 
-              // ── Load media ─────────────────────────────────────────
-              function loadMedia(query) {
-                  var url = '/crm/api/social/posts.php?action=media-pick&limit=24';
-                  if (query) url += '&q=' + encodeURIComponent(query);
+              // ── Media library selection ────────────────────────────
+              // selectedMediaMeta stores {id, url, alt} for thumbnail display
+              var selectedMediaMeta = [];
 
-                  fetch(url).then(function(r) { return r.json(); }).then(function(data) {
-                      var grid = document.getElementById('mediaGrid');
-                      if (!data.success || !data.media.length) {
-                          grid.innerHTML = '<div class="text-muted text-center p-3 small">No photos found. Click <strong>Upload</strong> to add images.</div>';
-                          return;
-                      }
-                      var html = '';
-                      data.media.forEach(function(m) {
-                          var resolvedId = m.id; // null for visit_photos until imported
-                          var sel = resolvedId !== null && selectedMedia.indexOf(resolvedId) !== -1;
-                          var clickAttr = m.source === 'visit_photo'
-                              ? 'onclick="importAndToggle(' + m.source_id + ',\'' + esc(m.url) + '\',this)"'
-                              : 'onclick="toggleMedia(' + m.id + ',\'' + esc(m.url) + '\')"';
-                          html += '<div class="mw-soc-media-item' + (sel ? ' selected' : '') + '"'
-                              + (resolvedId !== null ? ' data-id="' + resolvedId + '"' : ' data-vp="' + m.source_id + '"')
-                              + ' ' + clickAttr + '>';
-                          html += '  <img src="' + esc(m.thumb_url || m.url) + '" alt="' + esc(m.alt_text || '') + '" loading="lazy">';
-                          if (m.source === 'visit_photo') {
-                              html += '  <div style="position:absolute;top:3px;left:3px;background:rgba(0,0,0,.5);border-radius:3px;padding:1px 4px;font-size:10px;color:#fff">Job</div>';
-                          }
-                          html += '  <div class="mw-soc-media-check"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>';
-                          html += '</div>';
-                      });
-                      grid.innerHTML = html;
-                  });
-              }
-
-              window.searchMedia = function(q) {
-                  clearTimeout(window._mediaTimer);
-                  window._mediaTimer = setTimeout(function() { loadMedia(q); }, 300);
-              };
-
-              window.uploadMediaFiles = function(input) {
-                  if (!input.files || !input.files.length) return;
-                  var progress = document.getElementById('mediaUploadProgress');
-                  if (progress) progress.style.display = '';
-
-                  var fd = new FormData();
-                  fd.append('csrf_token', csrf);
-                  fd.append('context_type', 'marketing_general');
-                  fd.append('context_id', '0');
-                  fd.append('visibility', 'marketing_eligible');
-                  for (var i = 0; i < input.files.length; i++) {
-                      fd.append('files[]', input.files[i]);
-                  }
-
-                  fetch('/crm/api/media-upload.php', { method: 'POST', body: fd })
-                      .then(function(r) { return r.json(); })
-                      .then(function(data) {
-                          if (progress) progress.style.display = 'none';
-                          input.value = ''; // reset so same file can be re-uploaded
-                          if (!data.success && !data.results) {
-                              alert('Upload failed: ' + (data.error || 'Unknown error'));
-                              return;
-                          }
-                          // Auto-select newly uploaded images
-                          var results = data.results || [];
-                          results.forEach(function(r) {
-                              if (r.success && r.media_id && selectedMedia.indexOf(r.media_id) === -1) {
-                                  if (selectedMedia.length < 10) selectedMedia.push(r.media_id);
-                              }
-                          });
-                          // Refresh the grid (search cleared so new uploads appear)
-                          document.getElementById('mediaSearch').value = '';
-                          loadMedia('');
-                      })
-                      .catch(function(e) {
-                          if (progress) progress.style.display = 'none';
-                          alert('Upload error: ' + e.message);
-                      });
-              };
-
-              window.toggleMedia = function(id, url) {
-                  var idx = selectedMedia.indexOf(id);
-                  if (idx === -1) {
-                      if (selectedMedia.length >= 10) {
-                          alert('Maximum 10 photos per post');
-                          return;
-                      }
-                      selectedMedia.push(id);
-                  } else {
-                      selectedMedia.splice(idx, 1);
-                  }
+              window.addMediaItem = function(item) {
+                  var id = parseInt(item.id);
+                  if (!id) return;
+                  if (selectedMedia.indexOf(id) !== -1) return; // already selected
+                  if (selectedMedia.length >= 10) { alert('Maximum 10 photos per post'); return; }
+                  selectedMedia.push(id);
+                  selectedMediaMeta.push({ id: id, url: item.file_path, alt: item.alt_text || '' });
                   updateMediaSelection();
                   updatePreview();
               };
 
-              // Import a visit_photo into media_assets then toggle it
-              window.importAndToggle = function(vpId, url, el) {
-                  if (el) el.style.opacity = '0.5';
-                  fetch('/crm/api/social/posts.php?action=import-visit-photo&vp_id=' + vpId)
-                      .then(function(r) { return r.json(); })
-                      .then(function(data) {
-                          if (el) { el.style.opacity = ''; el.dataset.id = data.media_id; }
-                          if (!data.success) { alert('Could not import photo: ' + (data.error || 'Unknown')); return; }
-                          // Replace data-vp with data-id so updateMediaSelection can find it
-                          if (el) { el.removeAttribute('data-vp'); el.setAttribute('data-id', data.media_id); el.onclick = function() { window.toggleMedia(data.media_id, url); }; }
-                          window.toggleMedia(data.media_id, url);
-                      })
-                      .catch(function(e) {
-                          if (el) el.style.opacity = '';
-                          alert('Import error: ' + e.message);
-                      });
+              window.removeMediaItem = function(id) {
+                  var idx = selectedMedia.indexOf(id);
+                  if (idx !== -1) selectedMedia.splice(idx, 1);
+                  selectedMediaMeta = selectedMediaMeta.filter(function(m) { return m.id !== id; });
+                  updateMediaSelection();
+                  updatePreview();
               };
 
               function updateMediaSelection() {
-                  document.getElementById('mediaSelectedCount').textContent = selectedMedia.length + ' selected';
-                  document.querySelectorAll('.mw-soc-media-item').forEach(function(el) {
-                      var id = parseInt(el.dataset.id);
-                      el.classList.toggle('selected', selectedMedia.indexOf(id) !== -1);
-                  });
+                  document.getElementById('mediaSelectedCount').textContent = selectedMedia.length + ' of 10 selected';
+                  // Render thumbnail strip
+                  var strip = document.getElementById('selectedThumbStrip');
+                  if (!strip) return;
+                  if (!selectedMediaMeta.length) {
+                      strip.innerHTML = '';
+                      return;
+                  }
+                  strip.innerHTML = selectedMediaMeta.map(function(m) {
+                      return '<div style="position:relative;width:60px;height:60px;flex-shrink:0">'
+                          + '<img src="' + esc(m.url) + '" alt="' + esc(m.alt) + '" style="width:60px;height:60px;object-fit:cover;border-radius:6px;border:2px solid var(--mw-green)">'
+                          + '<button type="button" onclick="removeMediaItem(' + m.id + ')" title="Remove" '
+                          + 'style="position:absolute;top:-6px;right:-6px;background:#dc3545;color:#fff;border:none;border-radius:50%;width:18px;height:18px;font-size:12px;line-height:1;cursor:pointer;padding:0">&times;</button>'
+                          + '</div>';
+                  }).join('');
               }
 
               // ── Preview ────────────────────────────────────────────
