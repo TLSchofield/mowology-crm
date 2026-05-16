@@ -307,7 +307,8 @@ $canApprove = userHasPermission('marketing.approve');
                               html += '  <div class="mw-soc-upcoming-time">' + timeStr + '</div>';
                               html += '</div>';
                               html += '<div class="mw-soc-upcoming-actions">';
-                              if (p.status === 'publishing' && <?php echo json_encode($canApprove); ?>) {
+                              var isRetryable = (p.status === 'publishing' || (p.status === 'published' && p.fail_reason));
+                              if (isRetryable && <?php echo json_encode($canApprove); ?>) {
                                   html += '  <button class="btn btn-sm btn-outline-danger mr-1" onclick="retryPost(' + p.id + ')">Retry</button>';
                               }
                               html += '  <a href="/crm/marketing/social-post-editor.php?id=' + p.id + '" class="btn btn-sm btn-outline-secondary">Edit</a>';

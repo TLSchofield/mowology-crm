@@ -196,7 +196,17 @@ try {
                         WHERE post_id = sp.id AND fail_reason IS NOT NULL) AS fail_reason
                 FROM social_posts sp
                 LEFT JOIN users u ON u.id = sp.created_by
-                WHERE sp.status IN ('scheduled','approved','pending_approval','publishing')
+                WHERE (
+                    sp.status IN ('scheduled','approved','pending_approval','publishing')
+                    OR (
+                        -- Partial publish: post is 'published' but some platforms still failed
+                        sp.status = 'published'
+                        AND EXISTS (
+                            SELECT 1 FROM social_post_platforms
+                            WHERE post_id = sp.id AND status NOT IN ('published')
+                        )
+                    )
+                )
                 ORDER BY sp.scheduled_at IS NULL DESC, sp.scheduled_at ASC
                 LIMIT ?
             ");
@@ -705,23 +715,49 @@ try {
             $id = (int)($input['id'] ?? 0);
             if (!$id) { throw new InvalidArgumentException('Missing id'); }
 
-            $stmt = $db->prepare("SELECT * FROM social_posts WHERE id = ? AND status IN ('failed','publishing')");
+            // Allow retry whenever the post exists AND has at least one
+            // non-published platform row (failed, pending, or stuck in processing).
+            // Don't restrict by social_posts.status — partial success (FB published,
+            // IG failed) leaves the post as 'published' which is still retryable.
+            $stmt = $db->prepare("SELECT sp.* FROM social_posts sp WHERE sp.id = ?");
             $stmt->execute([$id]);
             $post = $stmt->fetch(PDO::FETCH_ASSOC);
-            if (!$post) { throw new RuntimeException('Post not found or not in a retryable status'); }
+            if (!$post) { throw new RuntimeException('Post not found'); }
 
-            // Reset post and platform rows
-            $db->prepare("UPDATE social_posts SET status = 'scheduled', fail_count = 0, last_fail_reason = NULL WHERE id = ?")
-               ->execute([$id]);
-            $db->prepare("UPDATE social_post_platforms SET status = 'pending', fail_reason = NULL, retry_count = 0 WHERE post_id = ?")
-               ->execute([$id]);
-            // Reset any failed queue entries and also unlock stale processing ones
-            $db->prepare("UPDATE social_queue SET status = 'pending', attempts = 0, locked_at = NULL, locked_by = NULL,
-                          scheduled_at = NOW() WHERE post_id = ? AND status IN ('failed','processing','pending')")
-               ->execute([$id]);
+            // Count platforms that still need publishing
+            $sppStmt = $db->prepare("
+                SELECT COUNT(*) FROM social_post_platforms
+                WHERE post_id = ? AND status NOT IN ('published')
+            ");
+            $sppStmt->execute([$id]);
+            $retryableCount = (int)$sppStmt->fetchColumn();
 
-            GoogleBusinessService::auditLog($user['id'], 'post_retry', 'post', $id, 'Manually retried');
-            echo json_encode(['success' => true, 'message' => 'Post queued for retry']);
+            if ($retryableCount === 0) {
+                throw new RuntimeException('All platforms have already published successfully.');
+            }
+
+            // Only reset NON-published platforms — don't re-publish what already succeeded
+            $db->prepare("
+                UPDATE social_post_platforms
+                SET status = 'pending', fail_reason = NULL, retry_count = 0
+                WHERE post_id = ? AND status != 'published'
+            ")->execute([$id]);
+
+            // Reset queue entries for non-completed platforms
+            $db->prepare("
+                UPDATE social_queue SET status = 'pending', attempts = 0,
+                    locked_at = NULL, locked_by = NULL, scheduled_at = NOW()
+                WHERE post_id = ? AND status IN ('failed','processing','pending')
+            ")->execute([$id]);
+
+            // Mark post as scheduled so the publisher and auto-enqueue can pick it up
+            $db->prepare("
+                UPDATE social_posts SET status = 'scheduled', fail_count = 0, last_fail_reason = NULL
+                WHERE id = ?
+            ")->execute([$id]);
+
+            GoogleBusinessService::auditLog($user['id'], 'post_retry', 'post', $id, 'Manually retried failed platforms');
+            echo json_encode(['success' => true, 'message' => 'Failed platforms queued for retry']);
             break;
         }
 
