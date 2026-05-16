@@ -333,7 +333,7 @@ $errorMsg = htmlspecialchars($_GET['error']    ?? '');
 
                               html += '<tr>';
                               html += '<td>'
-                                  + '<span class="mw-soc-platform-pill" style="' + iconStyle + ';display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:20px;font-size:0.82rem;font-weight:500;white-space:nowrap">'
+                                  + '<span style="' + iconStyle + ';display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:20px;font-size:0.82rem;font-weight:500;white-space:nowrap;width:auto;height:auto">'
                                   + iconHtml + esc(platformNames[a.platform] || a.platform)
                                   + '</span></td>';
                               html += '<td>' + esc(a.location_name_display || a.account_name) + '</td>';
