@@ -293,6 +293,20 @@ $errorMsg = htmlspecialchars($_GET['error']    ?? '');
               var step       = '<?php echo $step; ?>';
               var platform   = '<?php echo $platform; ?>';
 
+              // Platform icon SVGs — keyed by platform slug
+              var platformIcons = {
+                  gbp: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>',
+                  facebook: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 2h-3a5 5 0 00-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 011-1h3z"/></svg>',
+                  instagram: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M16 11.37A4 4 0 1112.63 8 4 4 0 0116 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>',
+                  linkedin: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 8a6 6 0 016 6v7h-4v-7a2 2 0 00-2-2 2 2 0 00-2 2v7h-4v-7a6 6 0 016-6z"/><rect x="2" y="9" width="4" height="12"/><circle cx="4" cy="4" r="2"/></svg>',
+              };
+              var platformStyles = {
+                  gbp:       'background:#34a853;color:#fff',
+                  facebook:  'background:#1877f2;color:#fff',
+                  instagram: 'background:linear-gradient(45deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888);color:#fff',
+                  linkedin:  'background:#0a66c2;color:#fff',
+              };
+
               // ── Load existing accounts ─────────────────────────────
               function loadAccounts() {
                   fetch('/crm/api/social/accounts.php?action=list')
@@ -314,9 +328,14 @@ $errorMsg = htmlspecialchars($_GET['error']    ?? '');
                               var healthLabels = {good:'Active', expiring:'Expiring soon', expired:'Token expired', unknown:'Unknown'};
                               var healthClasses = {good:'success', expiring:'warning', expired:'danger', unknown:'secondary'};
                               var h = a.token_health;
+                              var iconHtml = platformIcons[a.platform] || '';
+                              var iconStyle = platformStyles[a.platform] || 'background:#6c757d;color:#fff';
 
                               html += '<tr>';
-                              html += '<td><span class="mw-soc-platform-pill mw-soc-pl-' + esc(a.platform) + '">' + esc(platformNames[a.platform] || a.platform) + '</span></td>';
+                              html += '<td>'
+                                  + '<span class="mw-soc-platform-pill" style="' + iconStyle + ';display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:20px;font-size:0.82rem;font-weight:500;white-space:nowrap">'
+                                  + iconHtml + esc(platformNames[a.platform] || a.platform)
+                                  + '</span></td>';
                               html += '<td>' + esc(a.location_name_display || a.account_name) + '</td>';
                               html += '<td><span class="badge badge-' + (healthClasses[h] || 'secondary') + '">' + esc(healthLabels[h] || h) + '</span></td>';
                               html += '<td class="text-muted small">' + (a.last_sync_at ? formatDt(a.last_sync_at) : '—') + '</td>';
