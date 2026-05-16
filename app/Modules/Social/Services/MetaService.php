@@ -34,7 +34,8 @@ class MetaService
     private const GRAPH_URL = 'https://graph.facebook.com/v19.0/';
 
     // Permissions needed for full posting capability
-    private const FB_SCOPES = 'pages_show_list,pages_read_engagement,pages_manage_posts,instagram_basic,instagram_content_publish';
+    // Note: instagram_basic is deprecated and removed from new Meta apps (Dec 2024+)
+    private const FB_SCOPES = 'pages_show_list,pages_read_engagement,pages_manage_posts,instagram_content_publish';
 
     // ── OAuth ────────────────────────────────────────────────────────
 
