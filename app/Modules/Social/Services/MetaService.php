@@ -33,10 +33,12 @@ class MetaService
     private const PAGES_URL = 'https://graph.facebook.com/v19.0/me/accounts';
     private const GRAPH_URL = 'https://graph.facebook.com/v19.0/';
 
-    // OAuth scopes for page management. Instagram publishing uses the page token
-    // (not the user token) so instagram_content_publish is not needed here —
-    // Instagram access flows through the linked Instagram Business account on the Page.
-    private const FB_SCOPES = 'pages_show_list,pages_read_engagement,pages_manage_posts';
+    // OAuth scopes for page + Instagram management.
+    // instagram_content_publish is required to create media containers and publish
+    // to an Instagram Business account linked to a Facebook Page.
+    // The page access token inherits these scopes from the user token used to generate it,
+    // so all required scopes must be requested during the initial OAuth flow.
+    private const FB_SCOPES = 'pages_show_list,pages_read_engagement,pages_manage_posts,instagram_content_publish,instagram_basic';
 
     // ── OAuth ────────────────────────────────────────────────────────
 
