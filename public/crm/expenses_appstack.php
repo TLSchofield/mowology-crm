@@ -3120,11 +3120,11 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             if (e.receipt_path) {
                 document.getElementById('expReceiptImg').src = e.receipt_path;
                 receiptCol.style.display = 'block';
-                formCol.className = 'col-lg-7';
+                formCol.className = 'col-lg-7 mw-exp-form-col';
                 if (rescanBtn) rescanBtn.style.display = '';
             } else {
                 receiptCol.style.display = 'none';
-                formCol.className = 'col-12';
+                formCol.className = 'col-12 mw-exp-form-col';
                 if (rescanBtn) rescanBtn.style.display = 'none';
             }
 
@@ -3246,7 +3246,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 var rescanBtn = document.getElementById('expRescanBtn');
                 img.src = d.file_path;
                 receiptCol.style.display = 'block';
-                formCol.className = 'col-lg-7';
+                formCol.className = 'col-lg-7 mw-exp-form-col';
                 if (rescanBtn) rescanBtn.style.display = '';
                 if (window.feather) feather.replace();
             } catch(e) { alert('Receipt upload failed: ' + e.message); }
