@@ -409,19 +409,28 @@ $canApprove = userHasPermission('marketing.approve');
 
               window.runPublisher = function() {
                   var btn = document.getElementById('btnRunPublisher');
-                  if (btn) { btn.disabled = true; btn.textContent = 'Publishing…'; }
+                  var icon = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="mr-1"><polygon points="5 3 19 12 5 21 5 3"/></svg> ';
+                  if (btn) { btn.disabled = true; btn.innerHTML = icon + 'Publishing…'; }
                   fetch('/crm/cron/social_publisher.php', {
                       method: 'POST',
                       headers: {'Content-Type': 'application/json'},
                       body: JSON.stringify({csrf_token: csrf})
                   }).then(function(r) { return r.json(); }).then(function(data) {
-                      if (btn) { btn.disabled = false; btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="mr-1"><polygon points="5 3 19 12 5 21 5 3"/></svg> Publish Now'; }
+                      if (btn) { btn.disabled = false; btn.innerHTML = icon + 'Publish Now'; }
                       loadStats();
                       loadUpcoming();
                       loadFailed();
-                      if (data.message) alert(data.message);
+                      // Build a detailed result message
+                      var msg = data.message || (data.error ? 'Error: ' + data.error : 'Done');
+                      if (data.results && data.results.length) {
+                          msg += '\n\nDetails:';
+                          data.results.forEach(function(r) {
+                              msg += '\n' + (r.success ? '✓' : '✗') + ' [' + r.platform + '] ' + r.message;
+                          });
+                      }
+                      alert(msg);
                   }).catch(function(e) {
-                      if (btn) { btn.disabled = false; btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="mr-1"><polygon points="5 3 19 12 5 21 5 3"/></svg> Publish Now'; }
+                      if (btn) { btn.disabled = false; btn.innerHTML = icon + 'Publish Now'; }
                       alert('Publisher error: ' + e.message);
                   });
               };
