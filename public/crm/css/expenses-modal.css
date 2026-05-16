@@ -1,0 +1,248 @@
+/*
+ * Expenses — Edit Expense Modal: Document Theatre Redesign
+ * Loaded via $extraHead on expenses_appstack.php only.
+ * Fonts: Syne (headers), DM Sans (body), JetBrains Mono (numbers)
+ */
+
+/* ── Shell ─────────────────────────────────────────────────── */
+.mw-exp-modal {
+  --exp-panel-bg: #0a2419;
+  --exp-panel-border: rgba(127,216,88,.15);
+  --exp-field-bg: #f8fafc;
+  --exp-divider: #e8ecf0;
+  --exp-hero-bg: #f0faf5;
+  font-family: 'DM Sans', var(--bs-font-sans-serif);
+  border-radius: 20px;
+  overflow: hidden;
+  border: 0;
+  box-shadow: 0 32px 100px rgba(0,0,0,.28);
+}
+
+/* ── Modal header — dark forest band ─────────────────────── */
+.mw-exp-modal .modal-header {
+  background: var(--mw-forest);
+  padding: 20px 28px 16px;
+  border-bottom: 1px solid rgba(127,216,88,.2);
+}
+.mw-exp-modal .modal-title {
+  font-family: 'Syne', var(--bs-font-sans-serif);
+  font-weight: 800;
+  font-size: 1.1rem;
+  letter-spacing: .025em;
+  color: #fff;
+}
+.mw-exp-modal .modal-header small {
+  color: rgba(255,255,255,.55);
+  font-size: .75rem;
+}
+.mw-exp-modal .modal-header .btn-close {
+  filter: invert(1) opacity(.65);
+}
+.mw-exp-modal .modal-header .btn {
+  border-color: rgba(255,255,255,.25);
+  color: rgba(255,255,255,.75);
+  font-size: .75rem;
+  border-radius: 8px;
+}
+.mw-exp-modal .modal-header .btn:hover {
+  background: rgba(255,255,255,.1);
+  border-color: rgba(255,255,255,.4);
+  color: #fff;
+}
+
+/* ── Receipt theatre panel (left col) ───────────────────── */
+.mw-exp-theatre-col {
+  background: var(--exp-panel-bg);
+  padding: 20px 20px 16px;
+  display: flex;
+  flex-direction: column;
+  min-height: 480px;
+}
+.mw-exp-theatre-col .mw-modal-receipt-preview {
+  flex: 1;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1.5px solid var(--exp-panel-border);
+  box-shadow: 0 6px 28px rgba(0,0,0,.5), inset 0 0 0 1px rgba(127,216,88,.05);
+  cursor: zoom-in;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+.mw-exp-theatre-col .mw-modal-receipt-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  border-radius: 0;
+}
+.mw-exp-theatre-col .mw-modal-receipt-preview:hover img {
+  opacity: .92;
+}
+.mw-exp-theatre-status {
+  margin-top: 12px;
+  min-height: 22px;
+  text-align: center;
+  font-size: .72rem;
+}
+.mw-exp-theatre-status .badge,
+.mw-exp-theatre-status .alert {
+  font-size: .7rem;
+  border-radius: 100px;
+}
+
+/* ── Form panel (right col) ─────────────────────────────── */
+.mw-exp-form-col {
+  padding: 24px 28px 20px;
+  background: #fff;
+  overflow-y: auto;
+  max-height: 76vh;
+}
+.mw-exp-form-col::-webkit-scrollbar { width: 4px; }
+.mw-exp-form-col::-webkit-scrollbar-track { background: transparent; }
+.mw-exp-form-col::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 2px; }
+
+/* ── Section grouping ───────────────────────────────────── */
+.mw-exp-section { margin-bottom: 22px; }
+
+/* ── Section titles — small-caps editorial dividers ──────── */
+.mw-exp-section-title {
+  font-family: 'Syne', var(--bs-font-sans-serif) !important;
+  font-weight: 700 !important;
+  font-size: .68rem !important;
+  letter-spacing: .14em !important;
+  text-transform: uppercase !important;
+  color: var(--mw-green) !important;
+  border-bottom: 1.5px solid var(--exp-divider) !important;
+  padding-bottom: 8px !important;
+  margin-bottom: 14px !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 7px !important;
+  background: none !important;
+}
+.mw-exp-section-title [data-feather],
+.mw-exp-section-title svg {
+  width: 13px !important;
+  height: 13px !important;
+  opacity: .7;
+  flex-shrink: 0;
+}
+
+/* ── Form controls inside the form panel ─────────────────── */
+.mw-exp-form-col .form-control,
+.mw-exp-form-col .form-select {
+  background: var(--exp-field-bg);
+  border-color: #dde1e7;
+  border-radius: 8px;
+  font-family: 'DM Sans', var(--bs-font-sans-serif);
+  font-size: .875rem;
+  color: #1a202c;
+  transition: border-color .15s, box-shadow .15s;
+}
+.mw-exp-form-col .form-control:focus,
+.mw-exp-form-col .form-select:focus {
+  border-color: var(--mw-green);
+  box-shadow: 0 0 0 3px rgba(45,134,89,.12);
+  background: #fff;
+}
+.mw-exp-form-col .form-label {
+  font-family: 'DM Sans', var(--bs-font-sans-serif);
+  font-size: .68rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: #6b7280;
+  margin-bottom: 5px;
+}
+/* Monospace treatment for all number and date inputs */
+.mw-exp-form-col input[type="number"],
+.mw-exp-form-col input[type="date"] {
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  font-size: .85rem;
+  letter-spacing: .01em;
+}
+.mw-exp-form-col .input-group-text {
+  background: #f3f4f6;
+  border-color: #dde1e7;
+  color: #6b7280;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600;
+  font-size: .85rem;
+}
+
+/* ── Total hero block ────────────────────────────────────── */
+.mw-exp-total-hero {
+  background: var(--exp-hero-bg);
+  border: 1.5px solid rgba(45,134,89,.22);
+  border-radius: 10px;
+  padding: 11px 13px 10px;
+}
+.mw-exp-total-hero .form-label {
+  color: var(--mw-green) !important;
+  font-weight: 600 !important;
+}
+.mw-exp-total-hero .input-group-text {
+  background: rgba(45,134,89,.08) !important;
+  border-color: rgba(45,134,89,.25) !important;
+  color: var(--mw-green) !important;
+  font-weight: 700 !important;
+}
+.mw-exp-total-hero .form-control {
+  font-size: 1.3rem !important;
+  font-weight: 600 !important;
+  color: var(--mw-forest) !important;
+  background: transparent !important;
+  border-color: rgba(45,134,89,.25) !important;
+}
+.mw-exp-total-hero .form-control:focus {
+  background: rgba(255,255,255,.7) !important;
+  border-color: var(--mw-green) !important;
+}
+
+/* ── Modal footer ────────────────────────────────────────── */
+.mw-exp-modal-footer {
+  background: #f8fafc;
+  border-top: 1px solid var(--exp-divider) !important;
+  padding: 14px 24px !important;
+  gap: 10px;
+}
+.mw-exp-modal-footer .btn-outline-secondary {
+  border-radius: 9px;
+  font-family: 'DM Sans', var(--bs-font-sans-serif);
+  font-size: .875rem;
+}
+
+/* ── Save Expense button ─────────────────────────────────── */
+.mw-exp-save-btn {
+  font-family: 'Syne', var(--bs-font-sans-serif) !important;
+  font-weight: 700 !important;
+  letter-spacing: .05em;
+  padding: 10px 30px !important;
+  border-radius: 10px !important;
+  background: var(--mw-green) !important;
+  border-color: var(--mw-green) !important;
+  color: #fff !important;
+  transition: background .15s, transform .1s;
+}
+.mw-exp-save-btn:hover {
+  background: var(--mw-dark) !important;
+  border-color: var(--mw-dark) !important;
+  transform: translateY(-1px);
+}
+.mw-exp-save-btn:active {
+  transform: translateY(0);
+}
+
+/* ── Responsive: stack panels vertically on mobile ─────── */
+@media (max-width: 991px) {
+  .mw-exp-theatre-col {
+    min-height: 280px;
+  }
+  .mw-exp-form-col {
+    padding: 18px 20px;
+    max-height: none;
+  }
+}

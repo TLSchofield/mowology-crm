@@ -19,6 +19,8 @@ $activePage = 'expenses';
 $csrfToken = generateCSRFToken();
 $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) . '">'
            . '<link href="/crm/css/mobile-cards.css?v=20260217" rel="stylesheet">'
+           . '<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">'
+           . '<link href="/crm/css/expenses-modal.css?v=20260516a" rel="stylesheet">'
            . '<script src="/crm/js/offline-receipts.js?v=20260511a" defer></script>';
 ?>
 <?php include 'includes/appstack_head.php'; ?>
@@ -878,7 +880,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 <!-- ═══════ EDIT EXPENSE MODAL (for editing existing) ═══════════════ -->
 <div class="modal fade" id="expenseModal" tabindex="-1">
     <div class="modal-dialog modal-xl">
-        <div class="modal-content mw-expense-modal">
+        <div class="modal-content mw-expense-modal mw-exp-modal">
             <div class="modal-header border-0 pb-0">
                 <div>
                     <h5 class="modal-title fw-bold mb-0" id="expenseModalTitle">Edit Expense</h5>
@@ -899,16 +901,17 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 <input type="file" id="expReceiptUploadInput" accept="image/*" style="display:none">
                 <div class="row">
                     <!-- Left: Receipt Image (shown only when image exists) -->
-                    <div class="col-lg-5" id="expReceiptCol" style="display:none;">
-                        <div class="mw-modal-receipt-preview" onclick="openLightbox(this.querySelector('img')?.src)">
+                    <div class="col-lg-5 mw-exp-theatre-col" id="expReceiptCol" style="display:none;">
+                        <div class="mw-modal-receipt-preview mw-exp-receipt-frame" onclick="openLightbox(this.querySelector('img')?.src)">
                             <img id="expReceiptImg" src="" alt="Receipt">
                         </div>
+                        <div class="mw-exp-theatre-status" id="expTheatreStatus"></div>
                     </div>
                     <!-- Right: Form Fields -->
-                    <div class="col-lg-7" id="expFormCol">
+                    <div class="col-lg-7 mw-exp-form-col" id="expFormCol">
                         <!-- Section: Purchase Details -->
-                        <div class="mw-expense-form-section">
-                            <h6 class="mw-expense-form-section-title"><i data-feather="shopping-bag"></i> Purchase Details</h6>
+                        <div class="mw-expense-form-section mw-exp-section">
+                            <h6 class="mw-expense-form-section-title mw-exp-section-title"><i data-feather="shopping-bag"></i> Purchase Details</h6>
                             <div class="row g-3">
                                 <div class="col-md-4">
                                     <label class="form-label">Date <span class="text-danger">*</span></label>
@@ -936,8 +939,8 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         </div>
 
                         <!-- Section: Amounts -->
-                        <div class="mw-expense-form-section">
-                            <h6 class="mw-expense-form-section-title"><i data-feather="dollar-sign"></i> Amounts</h6>
+                        <div class="mw-expense-form-section mw-exp-section">
+                            <h6 class="mw-expense-form-section-title mw-exp-section-title"><i data-feather="dollar-sign"></i> Amounts</h6>
                             <div class="row g-3">
                                 <div class="col-md-4">
                                     <label class="form-label">Subtotal</label>
@@ -961,10 +964,12 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                                     </div>
                                 </div>
                                 <div class="col-md-3">
-                                    <label class="form-label fw-bold">Total <span class="text-danger">*</span></label>
-                                    <div class="input-group">
-                                        <span class="input-group-text">$</span>
-                                        <input type="number" class="form-control fw-bold" id="expTotal" step="0.01" min="0" required placeholder="0.00">
+                                    <div class="mw-exp-total-hero">
+                                        <label class="form-label fw-bold">Total <span class="text-danger">*</span></label>
+                                        <div class="input-group">
+                                            <span class="input-group-text">$</span>
+                                            <input type="number" class="form-control fw-bold" id="expTotal" step="0.01" min="0" required placeholder="0.00">
+                                        </div>
                                     </div>
                                 </div>
                                 <!-- GST Math Warning -->
@@ -978,8 +983,8 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         </div>
 
                         <!-- Section: Classification -->
-                        <div class="mw-expense-form-section">
-                            <h6 class="mw-expense-form-section-title"><i data-feather="tag"></i> Classification</h6>
+                        <div class="mw-expense-form-section mw-exp-section">
+                            <h6 class="mw-expense-form-section-title mw-exp-section-title"><i data-feather="tag"></i> Classification</h6>
                             <div class="row g-3">
                                 <div class="col-md-6">
                                     <label class="form-label">Accounting Category</label>
@@ -1011,7 +1016,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
                         <!-- Section: Notes -->
                         <div class="mw-expense-form-section mb-0">
-                            <h6 class="mw-expense-form-section-title"><i data-feather="file-text"></i> Notes</h6>
+                            <h6 class="mw-expense-form-section-title mw-exp-section-title"><i data-feather="file-text"></i> Notes</h6>
                             <div class="row g-3">
                                 <div class="col-md-6">
                                     <label class="form-label">Description</label>
@@ -1025,8 +1030,8 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         </div>
 
                         <!-- Fuel/Mileage Fields (shown when category = Fuel) -->
-                        <div class="mw-expense-form-section" id="expFuelSection" style="display:none;">
-                            <h6 class="mw-expense-form-section-title"><i data-feather="truck"></i> Fuel & Mileage</h6>
+                        <div class="mw-expense-form-section mw-exp-section" id="expFuelSection" style="display:none;">
+                            <h6 class="mw-expense-form-section-title mw-exp-section-title"><i data-feather="truck"></i> Fuel & Mileage</h6>
                             <div class="row g-3">
                                 <div class="col-md-3">
                                     <label class="form-label">Odometer Start</label>
@@ -1060,14 +1065,14 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         </div>
 
                         <!-- Anomaly Detection / Risk Analysis -->
-                        <div class="mw-expense-form-section" id="expAnomalySection" style="display:none;">
-                            <h6 class="mw-expense-form-section-title"><i data-feather="shield"></i> Risk Analysis</h6>
+                        <div class="mw-expense-form-section mw-exp-section" id="expAnomalySection" style="display:none;">
+                            <h6 class="mw-expense-form-section-title mw-exp-section-title"><i data-feather="shield"></i> Risk Analysis</h6>
                             <div id="expAnomalyContent"></div>
                         </div>
 
                         <!-- Job Profitability Impact -->
-                        <div class="mw-expense-form-section" id="expMarginSection" style="display:none;">
-                            <h6 class="mw-expense-form-section-title"><i data-feather="trending-up"></i> Job Profitability Impact</h6>
+                        <div class="mw-expense-form-section mw-exp-section" id="expMarginSection" style="display:none;">
+                            <h6 class="mw-expense-form-section-title mw-exp-section-title"><i data-feather="trending-up"></i> Job Profitability Impact</h6>
                             <div id="expMarginContent"></div>
                         </div>
 
@@ -1109,13 +1114,13 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     </div>
                 </div>
             </div>
-            <div class="modal-footer border-0 pt-0">
+            <div class="modal-footer border-0 pt-0 mw-exp-modal-footer">
                 <button type="button" class="btn btn-outline-secondary" data-dismiss="modal">Cancel</button>
                 <?php if ($canEdit): ?>
                 <button type="button" class="btn btn-outline-secondary" id="expAttachReceiptBtn" onclick="document.getElementById('expReceiptUploadInput').click()" title="Upload a receipt image for this expense">
                     <i data-feather="upload" style="width:16px;height:16px;margin-right:4px;"></i> Attach Receipt
                 </button>
-                <button type="button" class="btn btn-primary px-4" onclick="saveExpense()">
+                <button type="button" class="btn btn-primary px-4 mw-exp-save-btn" onclick="saveExpense()">
                     <i data-feather="save" style="width:16px;height:16px;margin-right:4px;"></i> Save Expense
                 </button>
                 <?php endif; ?>
