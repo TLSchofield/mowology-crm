@@ -218,7 +218,8 @@ class SocialDraftPipeline
             ? (string)$template['hashtag_preset']
             : $hashtagData['hashtags'];
 
-        $bestTime = SocialHashtagEngine::bestPostTime((int)date('N'));
+        // Pass $db so bestPostTime can use real engagement data from social_metrics_daily
+        $bestTime = SocialHashtagEngine::bestPostTime((int)date('N'), $db);
 
         // CTA URL: template preset overrides auto-generated (with variable substitution)
         if (!empty($template['cta_url_preset'])) {

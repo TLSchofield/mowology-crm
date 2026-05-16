@@ -134,15 +134,94 @@ class SocialHashtagEngine
     }
 
     /**
-     * Return the best posting time string for a given day of week.
+     * Return the best posting time string, driven by real engagement data
+     * from social_metrics_daily when enough posts exist.
      *
-     * @param int $dayOfWeek PHP date('N') value: 1=Mon … 7=Sun
+     * Queries the last 90 days of published posts, groups by day-of-week + hour,
+     * ranks by avg engagement (likes + comments + shares + saves).
+     * Falls back to static benchmark if fewer than MIN_POSTS_FOR_DATA posts have metrics.
+     *
+     * @param int       $dayOfWeek PHP date('N') value: 1=Mon … 7=Sun (used for fallback only)
+     * @param PDO|null  $db        If provided, real data is queried. Pass null for static fallback.
      * @return string e.g. "Tue 10:00 AM"
      */
-    public static function bestPostTime(int $dayOfWeek): string
+    public static function bestPostTime(int $dayOfWeek, $db = null): string
     {
+        if ($db !== null) {
+            try {
+                $result = self::bestPostTimeFromData($db);
+                if ($result !== null) {
+                    return $result;
+                }
+            } catch (\Exception $e) {
+                error_log('SocialHashtagEngine::bestPostTime data query failed: ' . $e->getMessage());
+            }
+        }
+
+        // Static fallback
         return isset(self::$bestPostTimes[$dayOfWeek])
             ? self::$bestPostTimes[$dayOfWeek]
             : 'Tue 10:00 AM';
+    }
+
+    /**
+     * Minimum published posts with metrics required before we trust the data.
+     * Below this threshold, industry benchmarks are more reliable.
+     */
+    const MIN_POSTS_FOR_DATA = 8;
+
+    /**
+     * Query social_metrics_daily to find the day+hour with best avg engagement.
+     * Returns null if insufficient data.
+     *
+     * @param PDO $db
+     * @return string|null e.g. "Tue 10:00 AM" or null
+     */
+    public static function bestPostTimeFromData($db): ?string
+    {
+        // Engagement = likes + comments + shares + saves (all the signals Meta returns)
+        $stmt = $db->prepare("
+            SELECT
+                DAYOFWEEK(spp.published_at)  AS dow,
+                HOUR(spp.published_at)       AS hour_of_day,
+                COUNT(*)                     AS post_count,
+                AVG(smd.likes + smd.comments_count + smd.shares + smd.saves) AS avg_engagement,
+                AVG(smd.reach)               AS avg_reach
+            FROM social_metrics_daily smd
+            JOIN social_post_platforms spp ON spp.id = smd.post_platform_id
+            WHERE spp.published_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)
+              AND smd.reach > 0
+            GROUP BY DAYOFWEEK(spp.published_at), HOUR(spp.published_at)
+            HAVING post_count >= 1
+            ORDER BY avg_engagement DESC, avg_reach DESC
+            LIMIT 1
+        ");
+        $stmt->execute();
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        // Need enough total posts across all slots
+        $totalStmt = $db->prepare("
+            SELECT COUNT(DISTINCT spp.id)
+            FROM social_metrics_daily smd
+            JOIN social_post_platforms spp ON spp.id = smd.post_platform_id
+            WHERE spp.published_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)
+              AND smd.reach > 0
+        ");
+        $totalStmt->execute();
+        $totalPosts = (int)$totalStmt->fetchColumn();
+
+        if (!$row || $totalPosts < self::MIN_POSTS_FOR_DATA) {
+            return null;
+        }
+
+        // DAYOFWEEK: 1=Sun, 2=Mon … 7=Sat
+        $dayNames = [1=>'Sun', 2=>'Mon', 3=>'Tue', 4=>'Wed', 5=>'Thu', 6=>'Fri', 7=>'Sat'];
+        $day  = $dayNames[(int)$row['dow']] ?? 'Tue';
+        $hour = (int)$row['hour_of_day'];
+        $ampm = $hour >= 12 ? 'PM' : 'AM';
+        $h12  = $hour % 12;
+        if ($h12 === 0) $h12 = 12;
+
+        return $day . ' ' . $h12 . ':00 ' . $ampm;
     }
 }
