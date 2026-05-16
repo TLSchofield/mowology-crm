@@ -458,13 +458,13 @@ function handleCreate(PDO $db, ?array $input, array $user): void
     try {
         $stmt = $db->prepare("
             INSERT INTO expenses
-                (expense_date, vendor_id, vendor_name_raw, description, amount, gst_amount, pst_amount, total,
+                (expense_date, vendor_id, vendor_name_raw, description, amount, gst_amount, pst_amount, recycling_tax, total,
                  accounting_category, gbp_category, payment_method, receipt_media_id,
                  receipt_lat, receipt_lng, match_confidence, anomaly_flags, anomaly_score, raw_ocr_json,
                  job_id, property_id, contact_id, notes, status,
                  odometer_start, odometer_end, fuel_litres, fuel_price_per_litre,
                  created_by)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
         $stmt->execute([
             $expenseDate,
@@ -474,6 +474,7 @@ function handleCreate(PDO $db, ?array $input, array $user): void
             (float)($input['amount'] ?? 0),
             (float)($input['gst_amount'] ?? 0),
             (float)($input['pst_amount'] ?? 0),
+            (float)($input['recycling_tax'] ?? 0),
             $total,
             $input['accounting_category'] ?? null,
             $input['gbp_category'] ?? null,
@@ -627,6 +628,7 @@ function handleUpdate(PDO $db, ?array $input, array $user): void
             amount = ?,
             gst_amount = ?,
             pst_amount = ?,
+            recycling_tax = ?,
             total = ?,
             accounting_category = ?,
             gbp_category = ?,
@@ -654,6 +656,7 @@ function handleUpdate(PDO $db, ?array $input, array $user): void
         (float)($input['amount'] ?? 0),
         (float)($input['gst_amount'] ?? 0),
         (float)($input['pst_amount'] ?? 0),
+        (float)($input['recycling_tax'] ?? 0),
         $total,
         $input['accounting_category'] ?? null,
         $input['gbp_category'] ?? null,

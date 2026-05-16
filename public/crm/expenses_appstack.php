@@ -942,14 +942,14 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         <div class="mw-expense-form-section mw-exp-section">
                             <h6 class="mw-expense-form-section-title mw-exp-section-title"><i data-feather="dollar-sign"></i> Amounts</h6>
                             <div class="row g-3">
-                                <div class="col-md-4">
+                                <div class="col-md-3">
                                     <label class="form-label">Subtotal</label>
                                     <div class="input-group">
                                         <span class="input-group-text">$</span>
                                         <input type="number" class="form-control" id="expAmount" step="0.01" min="0" placeholder="0.00">
                                     </div>
                                 </div>
-                                <div class="col-md-3">
+                                <div class="col-md-2">
                                     <label class="form-label">GST (5%)</label>
                                     <div class="input-group">
                                         <span class="input-group-text">$</span>
@@ -961,6 +961,13 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                                     <div class="input-group">
                                         <span class="input-group-text">$</span>
                                         <input type="number" class="form-control" id="expPst" step="0.01" min="0" value="0" placeholder="0.00">
+                                    </div>
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">Recycling</label>
+                                    <div class="input-group">
+                                        <span class="input-group-text">$</span>
+                                        <input type="number" class="form-control" id="expRecyclingTax" step="0.01" min="0" value="0" placeholder="0.00">
                                     </div>
                                 </div>
                                 <div class="col-md-3">
@@ -2239,6 +2246,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 amount: document.getElementById('rvAmount').value,
                 gst_amount: document.getElementById('rvGst').value,
                 pst_amount: document.getElementById('rvPst')?.value || '0',
+                recycling_tax: document.getElementById('rvRecyclingTax')?.value || '0',
                 total: document.getElementById('rvTotal').value,
                 accounting_category: document.getElementById('rvAcctCategory').value,
                 gbp_category: document.getElementById('rvGbpCategory').value,
@@ -3090,9 +3098,11 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             document.getElementById('expDescription').value = e.description || '';
             document.getElementById('expNotes').value = e.notes || '';
 
-            // PST
+            // PST + Recycling Tax
             var pstEl = document.getElementById('expPst');
             if (pstEl) pstEl.value = e.pst_amount || '0';
+            var recyclingEl = document.getElementById('expRecyclingTax');
+            if (recyclingEl) recyclingEl.value = e.recycling_tax || '0';
 
             // Fuel/mileage fields
             toggleFuelSection('exp', e.accounting_category || '');
@@ -3177,6 +3187,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 amount: document.getElementById('expAmount').value,
                 gst_amount: document.getElementById('expGst').value,
                 pst_amount: document.getElementById('expPst')?.value || '0',
+                recycling_tax: document.getElementById('expRecyclingTax')?.value || '0',
                 total: document.getElementById('expTotal').value,
                 accounting_category: document.getElementById('expAcctCategory').value,
                 gbp_category: document.getElementById('expGbpCategory').value,
