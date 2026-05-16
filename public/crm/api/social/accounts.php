@@ -214,6 +214,22 @@ try {
                     throw new InvalidArgumentException('page_token and page_id are required for Meta accounts');
                 }
 
+                // If connecting as Instagram and no ig_user_id provided, look it up
+                // server-side using the page token (avoids OAuth scope requirement).
+                if ($platform === 'instagram' && !$igUserId) {
+                    try {
+                        $igLookup = MetaService::fetchInstagramUserId($pageId, $pageToken);
+                        $igUserId = $igLookup ?: null;
+                    } catch (\Throwable $e) {
+                        error_log('connect: ig_user_id lookup failed for page ' . $pageId . ': ' . $e->getMessage());
+                    }
+                    if (!$igUserId) {
+                        echo json_encode(['success' => false,
+                            'error' => 'No Instagram Business account found linked to this Facebook Page. Link Instagram in Facebook Page Settings first.']);
+                        exit;
+                    }
+                }
+
                 $metaJson = json_encode([
                     'page_id'    => $pageId,
                     'page_name'  => $accountName,

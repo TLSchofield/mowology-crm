@@ -132,12 +132,18 @@ class MetaService
 
             if ($pageToken) {
                 try {
+                    // Try both field names — Meta renamed the field in newer API versions.
+                    // instagram_business_account = classic Graph API field
+                    // connected_instagram_account = newer alias, accessible without Instagram OAuth scopes
                     $igUrl  = self::GRAPH_URL . $p['id'] . '?' . http_build_query([
-                        'fields'       => 'instagram_business_account',
+                        'fields'       => 'instagram_business_account,connected_instagram_account',
                         'access_token' => $pageToken,
                     ]);
-                    $igData = self::httpGet($igUrl);
-                    $igUserId = $igData['instagram_business_account']['id'] ?? null;
+                    $igData   = self::httpGet($igUrl);
+                    $igUserId = $igData['instagram_business_account']['id']
+                             ?? $igData['connected_instagram_account']['id']
+                             ?? null;
+                    error_log('listPages IG lookup page=' . $p['id'] . ' result=' . json_encode($igData));
                 } catch (\Throwable $e) {
                     // Non-fatal — page may not have Instagram linked
                     error_log('listPages: could not fetch IG for page ' . $p['id'] . ': ' . $e->getMessage());
@@ -151,6 +157,35 @@ class MetaService
                 'ig_user_id' => $igUserId,
             ];
         }, $pages);
+    }
+
+    /**
+     * Look up the Instagram Business Account ID linked to a Facebook Page.
+     * Uses the page token directly — no Instagram OAuth scope required.
+     * Returns the ig_user_id string, or null if no Instagram account is linked.
+     */
+    public static function fetchInstagramUserId(string $pageId, string $pageToken): ?string
+    {
+        $fields = ['instagram_business_account', 'connected_instagram_account'];
+
+        foreach ($fields as $field) {
+            try {
+                $url  = self::GRAPH_URL . $pageId . '?' . http_build_query([
+                    'fields'       => $field,
+                    'access_token' => $pageToken,
+                ]);
+                $data = self::httpGet($url);
+                error_log('fetchInstagramUserId field=' . $field . ' response=' . json_encode($data));
+                $igId = $data[$field]['id'] ?? null;
+                if ($igId) {
+                    return (string)$igId;
+                }
+            } catch (\Throwable $e) {
+                error_log('fetchInstagramUserId: ' . $field . ' failed: ' . $e->getMessage());
+            }
+        }
+
+        return null;
     }
 
     // ── Token management ─────────────────────────────────────────────

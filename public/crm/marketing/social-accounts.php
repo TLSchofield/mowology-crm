@@ -371,14 +371,15 @@ $errorMsg = htmlspecialchars($_GET['error']    ?? '');
 
                   var igInfo = document.getElementById('selIgInfo');
                   var btnIg  = document.getElementById('btnConnectInstagram');
+                  // Always show the Instagram button — ig_user_id is looked up
+                  // server-side at connect time using the page token.
                   if (igUserId) {
                       document.getElementById('selIgDisplay').value = 'Instagram Business account linked (ID: ' + igUserId + ')';
-                      igInfo.style.display = '';
-                      btnIg.style.display  = '';
                   } else {
-                      igInfo.style.display = 'none';
-                      btnIg.style.display  = 'none';
+                      document.getElementById('selIgDisplay').value = 'Will be looked up via page token at connect time';
                   }
+                  igInfo.style.display = '';
+                  btnIg.style.display  = '';
                   $('#pageModal').modal('show');
               };
 
