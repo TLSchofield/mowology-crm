@@ -20,7 +20,7 @@ $csrfToken = generateCSRFToken();
 $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) . '">'
            . '<link href="/crm/css/mobile-cards.css?v=20260217" rel="stylesheet">'
            . '<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">'
-           . '<link href="/crm/css/expenses-modal.css?v=20260516a" rel="stylesheet">'
+           . '<link href="/crm/css/expenses-modal.css?v=20260516b" rel="stylesheet">'
            . '<script src="/crm/js/offline-receipts.js?v=20260511a" defer></script>';
 ?>
 <?php include 'includes/appstack_head.php'; ?>
