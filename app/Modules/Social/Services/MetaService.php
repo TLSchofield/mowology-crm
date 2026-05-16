@@ -33,9 +33,10 @@ class MetaService
     private const PAGES_URL = 'https://graph.facebook.com/v19.0/me/accounts';
     private const GRAPH_URL = 'https://graph.facebook.com/v19.0/';
 
-    // Permissions needed for full posting capability
-    // Note: instagram_basic is deprecated and removed from new Meta apps (Dec 2024+)
-    private const FB_SCOPES = 'pages_show_list,pages_read_engagement,pages_manage_posts,instagram_content_publish';
+    // OAuth scopes for page management. Instagram publishing uses the page token
+    // (not the user token) so instagram_content_publish is not needed here —
+    // Instagram access flows through the linked Instagram Business account on the Page.
+    private const FB_SCOPES = 'pages_show_list,pages_read_engagement,pages_manage_posts';
 
     // ── OAuth ────────────────────────────────────────────────────────
 
