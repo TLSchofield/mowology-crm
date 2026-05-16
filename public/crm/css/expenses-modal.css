@@ -250,6 +250,39 @@
   transform: translateY(0);
 }
 
+/* ── Branded date picker trigger (form field appearance) ── */
+.mw-exp-date-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: calc(1.5em + .5rem + 2px);
+  padding: .25rem .5rem;
+  background: var(--exp-field-bg);
+  border: 1px solid #dde1e7;
+  border-radius: 8px;
+  font-family: 'DM Sans', var(--bs-font-sans-serif);
+  font-size: .875rem;
+  color: #1a202c;
+  cursor: pointer;
+  transition: border-color .15s, box-shadow .15s;
+  text-align: left;
+  line-height: 1.5;
+}
+.mw-exp-date-trigger:hover,
+.mw-exp-date-trigger[aria-expanded="true"] {
+  border-color: var(--mw-green);
+  box-shadow: 0 0 0 3px rgba(45,134,89,.12);
+  background: #fff;
+}
+.mw-exp-date-wrap .mw-datepicker-popup {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 1100;
+  min-width: 260px;
+}
+
 /* ── Responsive: stack panels vertically on mobile ─────── */
 @media (max-width: 991px) {
   .mw-exp-theatre-col {

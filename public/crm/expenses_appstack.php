@@ -20,7 +20,7 @@ $csrfToken = generateCSRFToken();
 $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) . '">'
            . '<link href="/crm/css/mobile-cards.css?v=20260217" rel="stylesheet">'
            . '<link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">'
-           . '<link href="/crm/css/expenses-modal.css?v=20260516d" rel="stylesheet">'
+           . '<link href="/crm/css/expenses-modal.css?v=20260516e" rel="stylesheet">'
            . '<script src="/crm/js/offline-receipts.js?v=20260511a" defer></script>';
 ?>
 <?php include 'includes/appstack_head.php'; ?>
@@ -917,7 +917,30 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                             <div class="row g-3">
                                 <div class="col-md-3">
                                     <label class="form-label">Date <span class="text-danger">*</span></label>
-                                    <input type="date" class="form-control" id="expDate" required>
+                                    <div class="mw-exp-date-wrap" style="position:relative;">
+                                        <button type="button" class="mw-exp-date-trigger" id="expDateTrigger" aria-haspopup="true" aria-expanded="false">
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--mw-green);flex-shrink:0;"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                            <span id="expDateDisplay" style="flex:1;text-align:left;font-family:'JetBrains Mono',monospace;font-size:.8rem;">Select date…</span>
+                                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color:#9ca3af;transition:transform .15s;" id="expDateChevron"><polyline points="6 9 12 15 18 9"/></svg>
+                                        </button>
+                                        <div class="mw-datepicker-popup" id="expDatePopup" role="dialog" aria-label="Date picker" hidden>
+                                            <div class="mw-dp-header">
+                                                <button type="button" class="mw-dp-nav-btn" id="expDpPrev" aria-label="Previous month">
+                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+                                                </button>
+                                                <span class="mw-dp-month-label" id="expDpMonthLabel"></span>
+                                                <button type="button" class="mw-dp-nav-btn" id="expDpNext" aria-label="Next month">
+                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                                                </button>
+                                            </div>
+                                            <div class="mw-dp-weekdays"><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span><span>Su</span></div>
+                                            <div class="mw-dp-grid" id="expDpGrid"></div>
+                                            <div class="mw-dp-footer">
+                                                <button type="button" class="mw-dp-today-link" id="expDpToday">Today</button>
+                                            </div>
+                                        </div>
+                                        <input type="date" id="expDate" required style="position:absolute;opacity:0;width:1px;height:1px;pointer-events:none;">
+                                    </div>
                                 </div>
                                 <div class="col-md-5">
                                     <label class="form-label">Vendor</label>
@@ -3085,6 +3108,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             document.getElementById('expenseId').value = e.id;
             document.getElementById('expReceiptMediaId').value = e.receipt_media_id || '';
             document.getElementById('expDate').value = e.expense_date;
+            if (window.expDatePickerSync) expDatePickerSync(e.expense_date);
             document.getElementById('expVendorSearch').value = e.vendor_name || e.vendor_name_raw || '';
             document.getElementById('expVendorId').value = e.vendor_id || '';
             document.getElementById('expPayment').value = e.payment_method || '';
@@ -4949,7 +4973,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             // Apply parsed suggestions to the form
             if (d.parsed) {
                 var p = d.parsed;
-                if (p.date)    { var df = document.getElementById('expDate');   if(df && !df.value) df.value = p.date; }
+                if (p.date)    { var df = document.getElementById('expDate');   if(df && !df.value) { df.value = p.date; if (window.expDatePickerSync) expDatePickerSync(p.date); } }
                 if (p.total)   { var tf = document.getElementById('expTotal');  if(tf && !tf.value) tf.value = p.total; }
                 if (p.gst)     { var gf = document.getElementById('expGst');    if(gf && !gf.value) gf.value = p.gst; }
                 if (p.pst)     { var pf = document.getElementById('expPst');    if(pf && !pf.value) pf.value = p.pst; }
@@ -5601,6 +5625,103 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     } else {
         init();
     }
+})();
+
+// ── Edit Expense — Branded Date Picker ───────────────────────────────
+(function () {
+    var trigger  = document.getElementById('expDateTrigger');
+    var popup    = document.getElementById('expDatePopup');
+    var grid     = document.getElementById('expDpGrid');
+    var monthLbl = document.getElementById('expDpMonthLabel');
+    var prevBtn  = document.getElementById('expDpPrev');
+    var nextBtn  = document.getElementById('expDpNext');
+    var todayBtn = document.getElementById('expDpToday');
+    var hidden   = document.getElementById('expDate');
+    var display  = document.getElementById('expDateDisplay');
+    var chevron  = document.getElementById('expDateChevron');
+    if (!trigger || !popup) return;
+
+    var MONTHS = ['January','February','March','April','May','June',
+                  'July','August','September','October','November','December'];
+    var viewYear, viewMonth, selectedISO = null;
+
+    function pad(n) { return n < 10 ? '0'+n : ''+n; }
+    function toISO(d) { return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
+    function parseISO(s) { var p=s.split('-'); return new Date(+p[0],+p[1]-1,+p[2]); }
+    function fmtDisplay(s) {
+        var d = parseISO(s);
+        return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()] + ', ' +
+               MONTHS[d.getMonth()].slice(0,3) + ' ' + d.getDate() + ', ' + d.getFullYear();
+    }
+
+    function render() {
+        monthLbl.textContent = MONTHS[viewMonth] + ' ' + viewYear;
+        var first = new Date(viewYear, viewMonth, 1);
+        var startOffset = (first.getDay() + 6) % 7;
+        var daysInMonth = new Date(viewYear, viewMonth+1, 0).getDate();
+        var prevDays = new Date(viewYear, viewMonth, 0).getDate();
+        var todayISO = toISO(new Date());
+        var html = '';
+        var total = Math.ceil((startOffset + daysInMonth) / 7) * 7;
+        for (var i = 0; i < total; i++) {
+            var day, mo = viewMonth, yr = viewYear, cls = 'mw-dp-cell';
+            if (i < startOffset) {
+                day = prevDays - startOffset + i + 1; mo--; if (mo<0){mo=11;yr--;}
+                cls += ' mw-dp-cell-other';
+            } else if (i >= startOffset + daysInMonth) {
+                day = i - startOffset - daysInMonth + 1; mo++; if (mo>11){mo=0;yr++;}
+                cls += ' mw-dp-cell-other';
+            } else {
+                day = i - startOffset + 1;
+            }
+            var iso = yr+'-'+pad(mo+1)+'-'+pad(day);
+            if (iso === todayISO) cls += ' mw-dp-cell-today';
+            if (iso === selectedISO) cls += ' mw-dp-cell-selected';
+            html += '<button type="button" class="'+cls+'" data-iso="'+iso+'">'+day+'</button>';
+        }
+        grid.innerHTML = html;
+    }
+
+    function open() {
+        var base = selectedISO ? parseISO(selectedISO) : new Date();
+        viewYear = base.getFullYear(); viewMonth = base.getMonth();
+        render();
+        popup.hidden = false;
+        trigger.setAttribute('aria-expanded','true');
+        chevron.style.transform = 'rotate(180deg)';
+    }
+    function close() {
+        popup.hidden = true;
+        trigger.setAttribute('aria-expanded','false');
+        chevron.style.transform = '';
+    }
+
+    trigger.addEventListener('click', function(e) { e.stopPropagation(); popup.hidden ? open() : close(); });
+    prevBtn.addEventListener('click', function() { viewMonth--; if(viewMonth<0){viewMonth=11;viewYear--;} render(); });
+    nextBtn.addEventListener('click', function() { viewMonth++; if(viewMonth>11){viewMonth=0;viewYear++;} render(); });
+    todayBtn.addEventListener('click', function() {
+        var iso = toISO(new Date());
+        selectedISO = iso; hidden.value = iso; display.textContent = fmtDisplay(iso);
+        close();
+    });
+    grid.addEventListener('click', function(e) {
+        var btn = e.target.closest('.mw-dp-cell');
+        if (!btn) return;
+        selectedISO = btn.dataset.iso;
+        hidden.value = selectedISO;
+        display.textContent = fmtDisplay(selectedISO);
+        close();
+        hidden.dispatchEvent(new Event('change'));
+    });
+    document.addEventListener('click', function(e) {
+        if (!popup.hidden && !popup.contains(e.target) && !trigger.contains(e.target)) close();
+    });
+
+    window.expDatePickerSync = function(iso) {
+        selectedISO = iso || null;
+        display.textContent = iso ? fmtDisplay(iso) : 'Select date…';
+        if (iso) hidden.value = iso;
+    };
 })();
 </script>
 
