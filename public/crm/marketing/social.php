@@ -168,10 +168,17 @@ try {
                   <div class="card mb-4">
                       <div class="card-header" style="flex-wrap:wrap;gap:8px;">
                           <div class="d-flex justify-content-between align-items-center w-100">
-                              <h5 class="mb-0">
-                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                                  Upcoming Posts
-                              </h5>
+                              <div class="d-flex align-items-center gap-2">
+                                  <h5 class="mb-0 mr-3">
+                                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                      Posts
+                                  </h5>
+                                  <div class="mw-soc-post-tabs" id="postTabs">
+                                      <button class="mw-soc-post-tab active" data-tab="scheduled" onclick="switchPostTab('scheduled',this)">Scheduled</button>
+                                      <button class="mw-soc-post-tab" data-tab="draft" onclick="switchPostTab('draft',this)">Drafts<?php if ($autoDraftCount > 0): ?> <span class="mw-soc-tab-badge"><?php echo $autoDraftCount; ?></span><?php endif; ?></button>
+                                      <button class="mw-soc-post-tab" data-tab="published" onclick="switchPostTab('published',this)">Published</button>
+                                  </div>
+                              </div>
                               <div class="d-flex gap-2 align-items-center">
                                   <?php if (userHasPermission('marketing.approve')): ?>
                                   <button class="btn btn-sm btn-outline-primary" id="btnRunPublisher" onclick="runPublisher()">
@@ -179,7 +186,7 @@ try {
                                       Publish Now
                                   </button>
                                   <?php endif; ?>
-                                  <a href="/crm/marketing/social-calendar.php" class="btn btn-sm btn-outline-secondary">Full Calendar</a>
+                                  <a href="/crm/marketing/social-calendar.php" class="btn btn-sm btn-outline-secondary">Calendar</a>
                               </div>
                           </div>
                           <!-- 7-day Activity Pulse -->
@@ -534,19 +541,35 @@ try {
                   loadMiniCalendar(miniCalYear, miniCalMonth);
               };
 
-              // ── Load upcoming posts ────────────────────────────────
+              // ── Post tab switcher ──────────────────────────────────
+              var currentPostTab = 'scheduled';
+              window.switchPostTab = function(tab, el) {
+                  currentPostTab = tab;
+                  document.querySelectorAll('.mw-soc-post-tab').forEach(function(b) { b.classList.remove('active'); });
+                  el.classList.add('active');
+                  loadUpcoming();
+              };
+
+              // ── Load upcoming / draft / published posts ────────────
               function loadUpcoming() {
-                  fetch('/crm/api/social/posts.php?action=upcoming&limit=8')
+                  var url = currentPostTab === 'scheduled'
+                      ? '/crm/api/social/posts.php?action=upcoming&limit=20'
+                      : '/crm/api/social/posts.php?action=list&status=' + currentPostTab + '&page=1';
+                  fetch(url)
                       .then(function(r) { return r.json(); })
                       .then(function(data) {
                           var el = document.getElementById('upcomingList');
-                          if (!data.success || !data.posts.length) {
-                              el.innerHTML = '<div class="mw-soc-empty-state"><p>No upcoming posts scheduled.</p>'
+                          var posts = data.posts || [];
+                          var emptyMsg = currentPostTab === 'draft' ? 'No drafts.'
+                                       : currentPostTab === 'published' ? 'No published posts yet.'
+                                       : 'No upcoming posts scheduled.';
+                          if (!data.success || !posts.length) {
+                              el.innerHTML = '<div class="mw-soc-empty-state"><p>' + emptyMsg + '</p>'
                                   + (<?php echo json_encode($canEdit); ?> ? '<a href="/crm/marketing/social-post-editor.php" class="btn btn-sm btn-success mt-2">Create a Post</a>' : '') + '</div>';
                               return;
                           }
                           var html = '';
-                          data.posts.forEach(function(p) {
+                          posts.forEach(function(p) {
                               var platforms = (p.platforms || []).map(function(pl) {
                                   return '<span class="mw-soc-platform-pill mw-soc-pl-' + esc(pl) + '" title="' + esc(pl) + '">' + (platformIcons[pl] || pl) + '</span>';
                               }).join('');

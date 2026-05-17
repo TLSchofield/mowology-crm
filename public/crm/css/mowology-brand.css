@@ -21112,6 +21112,13 @@ body.mw-no-scroll {
 .mw-soc-pulse-dot-empty     { background: #e9ecef; border: 1px solid #dee2e6; }
 .mw-soc-pulse-today .mw-soc-pulse-dot { box-shadow: 0 0 0 2px #fff, 0 0 0 3px #adb5bd; }
 
+/* ── Post filter tabs (Scheduled / Drafts / Published) ──────────────── */
+.mw-soc-post-tabs  { display: flex; gap: 2px; background: #f1f3f5; border-radius: 6px; padding: 3px; }
+.mw-soc-post-tab   { background: none; border: none; padding: 4px 12px; border-radius: 4px; font-size: .8rem; font-weight: 500; color: #6c757d; cursor: pointer; white-space: nowrap; transition: background .15s, color .15s; }
+.mw-soc-post-tab:hover  { background: #fff; color: #212529; }
+.mw-soc-post-tab.active { background: #fff; color: #212529; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+.mw-soc-tab-badge  { display: inline-block; background: var(--mw-lime); color: #1a3a2a; font-size: .65rem; font-weight: 700; padding: 1px 5px; border-radius: 8px; margin-left: 3px; vertical-align: middle; }
+
 /* ── Mini Calendar sidebar overrides ────────────────────────────────── */
 .mw-soc-mini-cal .mw-soc-cal-cell    { min-height: 52px; padding: 3px 4px; cursor: pointer; }
 .mw-soc-mini-cal .mw-soc-cal-day-num { font-size: .75rem; }
