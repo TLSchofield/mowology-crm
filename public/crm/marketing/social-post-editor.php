@@ -587,14 +587,26 @@ $extraHead = '
                   loadTemplateById(templateId);
               }
 
-              // Wire schedule input → busy-day strip
+              // Wire schedule input → busy-day strip + past-time warning
               var schedInput = document.getElementById('postSchedule');
+              function checkScheduleTime(val) {
+                  if (!schedInput) return;
+                  if (val && new Date(val).getTime() <= Date.now()) {
+                      schedInput.style.borderColor = '#dc3545';
+                      schedInput.title = 'This time is in the past — pick a future time to schedule.';
+                  } else {
+                      schedInput.style.borderColor = '';
+                      schedInput.title = '';
+                  }
+              }
               if (schedInput) {
                   schedInput.addEventListener('change', function() {
                       loadScheduleBusyStrip(this.value);
+                      checkScheduleTime(this.value);
                   });
                   // Always show on load — defaults to current week if no date selected
                   loadScheduleBusyStrip(schedInput.value || '');
+                  checkScheduleTime(schedInput.value || '');
               }
 
               // ── Load existing post ─────────────────────────────────
