@@ -176,6 +176,9 @@ $canApprove = userHasPermission('marketing.approve');
                                       <input type="datetime-local" class="form-control" id="postSchedule"
                                           value="<?php echo $preSchedule; ?>">
                                       <small class="text-muted">Leave blank to save as draft without scheduling.</small>
+                                      <!-- Schedule busy-day strip: 7-day week view centered on selected date -->
+                                      <div class="mw-soc-pulse-strip mt-2" id="schedBusyStrip" style="display:none;"></div>
+                                      <div style="font-size:.68rem;color:#6c757d;margin-top:2px;" id="schedBusyHint"></div>
                                   </div>
                               </div>
                               <div class="col-md-6">
@@ -324,6 +327,64 @@ $canApprove = userHasPermission('marketing.approve');
               var previewPlatform = 'gbp';
               var charLimits = { gbp: 1500, instagram: 2200, facebook: 63206 };
 
+              // Schedule busy-day strip
+              var calCache = {};
+              function pad(n) { return n < 10 ? '0' + n : '' + n; }
+
+              function loadScheduleBusyStrip(dateStr) {
+                  var stripEl = document.getElementById('schedBusyStrip');
+                  if (!stripEl) return;
+                  if (!dateStr) { stripEl.style.display = 'none'; return; }
+
+                  var d     = new Date(dateStr);
+                  var year  = d.getFullYear();
+                  var month = d.getMonth() + 1;
+                  var key   = year + '-' + pad(month);
+
+                  function renderStrip(cal) {
+                      var dayOfWeek = d.getDay();
+                      var weekDays  = [];
+                      for (var i = 0; i < 7; i++) {
+                          var wd = new Date(d);
+                          wd.setDate(d.getDate() - dayOfWeek + i);
+                          weekDays.push(wd);
+                      }
+                      var letters = ['S','M','T','W','T','F','S'];
+                      var html = '';
+                      weekDays.forEach(function(wd) {
+                          var ds    = wd.getFullYear() + '-' + pad(wd.getMonth() + 1) + '-' + pad(wd.getDate());
+                          var posts = (cal[ds] || []).filter(function(p) { return p.id !== editId; });
+                          var pub   = posts.filter(function(p) { return p.status === 'published'; }).length;
+                          var sch   = posts.filter(function(p) { return p.status === 'scheduled' || p.status === 'approved'; }).length;
+                          var cls   = pub > 0 ? 'mw-soc-pulse-dot-published'
+                                    : sch > 0 ? 'mw-soc-pulse-dot-scheduled'
+                                    : 'mw-soc-pulse-dot-empty';
+                          var isSelected = (ds === dateStr.substring(0, 10));
+                          var count = pub + sch;
+                          html += '<div class="mw-soc-pulse-day" style="' + (isSelected ? 'opacity:1' : 'opacity:.6') + '">'
+                               +  '<span class="mw-soc-pulse-lbl">' + letters[wd.getDay()] + '</span>'
+                               +  '<span class="mw-soc-pulse-dot ' + cls + '" title="' + ds + (count ? ' — ' + count + ' post' + (count > 1 ? 's' : '') : '') + '"></span>'
+                               +  '<span style="font-size:.65rem;color:#6c757d;">' + (count > 0 ? count : '') + '</span>'
+                               + '</div>';
+                      });
+                      stripEl.innerHTML = html;
+                      stripEl.style.display = '';
+                  }
+
+                  if (calCache[key]) {
+                      renderStrip(calCache[key]);
+                  } else {
+                      fetch('/crm/api/social/posts.php?action=calendar&year=' + year + '&month=' + month)
+                          .then(function(r) { return r.json(); })
+                          .then(function(data) {
+                              if (data.success) {
+                                  calCache[key] = data.calendar || {};
+                                  renderStrip(calCache[key]);
+                              }
+                          });
+                  }
+              }
+
               // Required by media-picker-modal.php
               window.csrfToken = csrf;
 
@@ -335,6 +396,15 @@ $canApprove = userHasPermission('marketing.approve');
                   loadPost(editId);
               } else if (templateId) {
                   loadTemplateById(templateId);
+              }
+
+              // Wire schedule input → busy-day strip
+              var schedInput = document.getElementById('postSchedule');
+              if (schedInput) {
+                  schedInput.addEventListener('change', function() {
+                      loadScheduleBusyStrip(this.value);
+                  });
+                  if (schedInput.value) { loadScheduleBusyStrip(schedInput.value); }
               }
 
               // ── Load existing post ─────────────────────────────────
@@ -356,6 +426,7 @@ $canApprove = userHasPermission('marketing.approve');
                           document.getElementById('postCtaUrl').value      = p.cta_url || '';
                           if (p.scheduled_at) {
                               document.getElementById('postSchedule').value = p.scheduled_at.replace(' ', 'T').substring(0, 16);
+                              loadScheduleBusyStrip(document.getElementById('postSchedule').value);
                           }
 
                           // Pre-select media — populate both ID list and meta for thumbnails
@@ -541,7 +612,9 @@ $canApprove = userHasPermission('marketing.approve');
                   var dd   = String(d.getDate()).padStart(2, '0');
                   var hh   = String(d.getHours()).padStart(2, '0');
                   var mi   = String(d.getMinutes()).padStart(2, '0');
-                  document.getElementById('postSchedule').value = yyyy + '-' + mm + '-' + dd + 'T' + hh + ':' + mi;
+                  var suggestedVal = yyyy + '-' + mm + '-' + dd + 'T' + hh + ':' + mi;
+                  document.getElementById('postSchedule').value = suggestedVal;
+                  loadScheduleBusyStrip(suggestedVal);
               };
 
               // ── Load template options ──────────────────────────────
@@ -787,6 +860,7 @@ $canApprove = userHasPermission('marketing.approve');
                   var val = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
                           + 'T' + pad(hour) + ':00';
                   document.getElementById('postSchedule').value = val;
+                  loadScheduleBusyStrip(val);
               };
 
               // ── Insert variable ────────────────────────────────────

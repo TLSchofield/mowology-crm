@@ -74,10 +74,11 @@ try {
             // Total engagement this month (from metrics table)
             $stmt = $db->prepare("
                 SELECT
-                    COALESCE(SUM(smd.impressions), 0) AS total_impressions,
-                    COALESCE(SUM(smd.clicks), 0)      AS total_clicks,
-                    COALESCE(SUM(smd.likes), 0)       AS total_likes,
-                    COALESCE(SUM(smd.comments_count), 0) AS total_comments
+                    COALESCE(SUM(smd.impressions), 0)    AS total_impressions,
+                    COALESCE(SUM(smd.clicks), 0)         AS total_clicks,
+                    COALESCE(SUM(smd.likes), 0)          AS total_likes,
+                    COALESCE(SUM(smd.comments_count), 0) AS total_comments,
+                    COALESCE(SUM(smd.reach), 0)          AS total_reach
                 FROM social_metrics_daily smd
                 WHERE smd.metric_date BETWEEN DATE(?) AND DATE(?)
             ");
@@ -104,6 +105,68 @@ try {
             $stmt = $db->query("SELECT COUNT(*) FROM social_accounts WHERE is_active = 1");
             $connectedAccounts = (int)$stmt->fetchColumn();
 
+            // ── Previous month comparisons ───────────────────────────
+            $prevMonthStart = date('Y-m-01 00:00:00', strtotime('first day of last month'));
+            $prevMonthEnd   = date('Y-m-t 23:59:59',  strtotime('last day of last month'));
+
+            $stmt = $db->prepare("
+                SELECT COUNT(*) FROM social_posts
+                WHERE published_at BETWEEN ? AND ? AND status = 'published'
+            ");
+            $stmt->execute([$prevMonthStart, $prevMonthEnd]);
+            $prevPublished = (int)$stmt->fetchColumn();
+
+            $stmt = $db->prepare("
+                SELECT
+                    COALESCE(SUM(smd.impressions), 0) AS prev_impressions,
+                    COALESCE(SUM(smd.reach),       0) AS prev_reach,
+                    COALESCE(SUM(smd.likes),       0) AS prev_likes
+                FROM social_metrics_daily smd
+                WHERE smd.metric_date BETWEEN DATE(?) AND DATE(?)
+            ");
+            $stmt->execute([$prevMonthStart, $prevMonthEnd]);
+            $prevEng = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            // ── Activity pulse: last 7 days ──────────────────────────
+            $pulseRows = [];
+            for ($i = 6; $i >= 0; $i--) {
+                $pulseRows[] = date('Y-m-d', strtotime("-{$i} days"));
+            }
+            $pulsePlaceholders = implode(',', array_fill(0, 7, '?'));
+
+            $pubStmt = $db->prepare("
+                SELECT DATE(published_at) AS dy, COUNT(*) AS cnt
+                FROM social_posts
+                WHERE DATE(published_at) IN ({$pulsePlaceholders}) AND status = 'published'
+                GROUP BY DATE(published_at)
+            ");
+            $pubStmt->execute($pulseRows);
+            $pubByDate = [];
+            foreach ($pubStmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                $pubByDate[$r['dy']] = (int)$r['cnt'];
+            }
+
+            $schStmt = $db->prepare("
+                SELECT DATE(scheduled_at) AS dy, COUNT(*) AS cnt
+                FROM social_posts
+                WHERE DATE(scheduled_at) IN ({$pulsePlaceholders}) AND status IN ('scheduled','approved')
+                GROUP BY DATE(scheduled_at)
+            ");
+            $schStmt->execute($pulseRows);
+            $schByDate = [];
+            foreach ($schStmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                $schByDate[$r['dy']] = (int)$r['cnt'];
+            }
+
+            $activityPulse = [];
+            foreach ($pulseRows as $d) {
+                $activityPulse[] = [
+                    'date'      => $d,
+                    'published' => isset($pubByDate[$d]) ? $pubByDate[$d] : 0,
+                    'scheduled' => isset($schByDate[$d]) ? $schByDate[$d] : 0,
+                ];
+            }
+
             echo json_encode([
                 'success' => true,
                 'stats' => [
@@ -115,9 +178,15 @@ try {
                     'upcoming_scheduled'  => $upcomingScheduled,
                     'connected_accounts'  => $connectedAccounts,
                     'total_impressions'   => (int)($engagement['total_impressions'] ?? 0),
-                    'total_clicks'        => (int)($engagement['total_clicks'] ?? 0),
-                    'total_likes'         => (int)($engagement['total_likes'] ?? 0),
+                    'total_clicks'        => (int)($engagement['total_clicks']      ?? 0),
+                    'total_likes'         => (int)($engagement['total_likes']       ?? 0),
+                    'total_reach'         => (int)($engagement['total_reach']       ?? 0),
+                    'prev_published'      => $prevPublished,
+                    'prev_impressions'    => (int)($prevEng['prev_impressions'] ?? 0),
+                    'prev_reach'          => (int)($prevEng['prev_reach']       ?? 0),
+                    'prev_likes'          => (int)($prevEng['prev_likes']       ?? 0),
                 ],
+                'activity_pulse' => $activityPulse,
             ]);
             break;
         }
@@ -133,7 +202,9 @@ try {
                        COALESCE(SUM(smd.likes), 0)           AS total_likes,
                        COALESCE(SUM(smd.comments_count), 0)  AS total_comments,
                        (COALESCE(SUM(smd.likes), 0) + COALESCE(SUM(smd.comments_count), 0)
-                        + COALESCE(SUM(smd.clicks), 0))      AS total_engagement
+                        + COALESCE(SUM(smd.clicks), 0))      AS total_engagement,
+                       (SELECT GROUP_CONCAT(platform ORDER BY platform SEPARATOR ',')
+                        FROM social_post_platforms WHERE post_id = sp.id) AS platforms_csv
                 FROM social_posts sp
                 LEFT JOIN social_post_platforms spp ON spp.post_id = sp.id
                 LEFT JOIN social_metrics_daily smd   ON smd.post_platform_id = spp.id
@@ -144,6 +215,11 @@ try {
             ");
             $stmt->execute([$limit]);
             $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($posts as &$p) {
+                $p['platforms'] = !empty($p['platforms_csv']) ? explode(',', $p['platforms_csv']) : [];
+                unset($p['platforms_csv']);
+            }
+            unset($p);
 
             echo json_encode(['success' => true, 'posts' => $posts]);
             break;

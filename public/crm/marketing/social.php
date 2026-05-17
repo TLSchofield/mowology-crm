@@ -85,7 +85,7 @@ try {
               </div>
           </div>
 
-          <!-- KPI Stats -->
+          <!-- KPI Stats — 6 tiles -->
           <div class="mw-soc-stats-row mb-4" id="socStats">
               <div class="mw-soc-stat-card">
                   <div class="mw-soc-stat-icon mw-soc-icon-green">
@@ -94,15 +94,27 @@ try {
                   <div>
                       <div class="mw-soc-stat-num" id="statPublished">—</div>
                       <div class="mw-soc-stat-lbl">Published This Month</div>
+                      <div id="trendPublished"></div>
                   </div>
               </div>
               <div class="mw-soc-stat-card">
                   <div class="mw-soc-stat-icon mw-soc-icon-blue">
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                   </div>
                   <div>
-                      <div class="mw-soc-stat-num" id="statEngagement">—</div>
-                      <div class="mw-soc-stat-lbl">Avg Engagement / Post</div>
+                      <div class="mw-soc-stat-num" id="statImpressions">—</div>
+                      <div class="mw-soc-stat-lbl">Impressions</div>
+                      <div id="trendImpressions"></div>
+                  </div>
+              </div>
+              <div class="mw-soc-stat-card">
+                  <div class="mw-soc-stat-icon mw-soc-icon-purple">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                  </div>
+                  <div>
+                      <div class="mw-soc-stat-num" id="statReach">—</div>
+                      <div class="mw-soc-stat-lbl">Total Reach</div>
+                      <div id="trendReach"></div>
                   </div>
               </div>
               <div class="mw-soc-stat-card">
@@ -116,13 +128,35 @@ try {
               </div>
               <div class="mw-soc-stat-card">
                   <div class="mw-soc-stat-icon mw-soc-icon-red">
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
                   </div>
                   <div>
-                      <div class="mw-soc-stat-num" id="statFailed">—</div>
-                      <div class="mw-soc-stat-lbl">Failed Posts</div>
+                      <div class="mw-soc-stat-num" id="statLikes">—</div>
+                      <div class="mw-soc-stat-lbl">Likes</div>
+                      <div id="trendLikes"></div>
                   </div>
               </div>
+              <div class="mw-soc-stat-card">
+                  <div class="mw-soc-stat-icon mw-soc-icon-blue">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                  </div>
+                  <div>
+                      <div class="mw-soc-stat-num" id="statScheduled">—</div>
+                      <div class="mw-soc-stat-lbl">Scheduled</div>
+                  </div>
+              </div>
+          </div>
+
+          <!-- Top Post Spotlight (populated by JS when data exists) -->
+          <div class="mw-soc-top-post-strip" id="topPostStrip" style="display:none;">
+              <div style="font-size:1.4rem;flex-shrink:0;line-height:1;">&#9733;</div>
+              <div style="flex:1;min-width:0;">
+                  <div class="mw-soc-top-post-label">Top Post This Month</div>
+                  <div class="mw-soc-top-post-caption" id="topPostCaption"></div>
+                  <div id="topPostPlatforms" class="mt-1" style="display:flex;gap:4px;"></div>
+              </div>
+              <div class="mw-soc-top-post-metrics" id="topPostMetrics"></div>
+              <a class="btn btn-sm btn-outline-success ml-2" id="topPostLink" href="#" style="flex-shrink:0;">View</a>
           </div>
 
           <!-- Main Content Grid -->
@@ -132,20 +166,24 @@ try {
 
                   <!-- Upcoming Scheduled -->
                   <div class="card mb-4">
-                      <div class="card-header d-flex justify-content-between align-items-center">
-                          <h5 class="mb-0">
-                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                              Upcoming Posts
-                          </h5>
-                          <div class="d-flex gap-2 align-items-center">
-                              <?php if (userHasPermission('marketing.approve')): ?>
-                              <button class="btn btn-sm btn-outline-primary" id="btnRunPublisher" onclick="runPublisher()">
-                                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="mr-1"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                                  Publish Now
-                              </button>
-                              <?php endif; ?>
-                              <a href="/crm/marketing/social-calendar.php" class="btn btn-sm btn-outline-secondary">Full Calendar</a>
+                      <div class="card-header" style="flex-wrap:wrap;gap:8px;">
+                          <div class="d-flex justify-content-between align-items-center w-100">
+                              <h5 class="mb-0">
+                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                  Upcoming Posts
+                              </h5>
+                              <div class="d-flex gap-2 align-items-center">
+                                  <?php if (userHasPermission('marketing.approve')): ?>
+                                  <button class="btn btn-sm btn-outline-primary" id="btnRunPublisher" onclick="runPublisher()">
+                                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="mr-1"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                                      Publish Now
+                                  </button>
+                                  <?php endif; ?>
+                                  <a href="/crm/marketing/social-calendar.php" class="btn btn-sm btn-outline-secondary">Full Calendar</a>
+                              </div>
                           </div>
+                          <!-- 7-day Activity Pulse -->
+                          <div class="mw-soc-pulse-strip w-100" id="pulseStrip"></div>
                       </div>
                       <div class="card-body p-0" id="upcomingList">
                           <div class="mw-soc-loading">Loading...</div>
@@ -263,26 +301,20 @@ try {
                       </div>
                   </div>
 
-                  <!-- This Month Summary -->
+                  <!-- Mini Calendar -->
                   <div class="card mb-4">
-                      <div class="card-header"><h5 class="mb-0">This Month</h5></div>
-                      <div class="card-body">
-                          <div class="mw-soc-month-stat">
-                              <span class="mw-soc-month-num" id="monthImpressions">—</span>
-                              <span class="mw-soc-month-lbl">Total Impressions</span>
+                      <div class="card-header d-flex justify-content-between align-items-center">
+                          <h5 class="mb-0" id="miniCalTitle">Loading…</h5>
+                          <div style="display:flex;gap:4px;">
+                              <button class="btn btn-sm btn-outline-secondary" onclick="miniCalNav(-1)" title="Previous month">&lsaquo;</button>
+                              <button class="btn btn-sm btn-outline-secondary" onclick="miniCalNav(1)"  title="Next month">&rsaquo;</button>
                           </div>
-                          <div class="mw-soc-month-stat">
-                              <span class="mw-soc-month-num" id="monthClicks">—</span>
-                              <span class="mw-soc-month-lbl">Link Clicks</span>
-                          </div>
-                          <div class="mw-soc-month-stat">
-                              <span class="mw-soc-month-num" id="monthLikes">—</span>
-                              <span class="mw-soc-month-lbl">Likes & Reactions</span>
-                          </div>
-                          <div class="mw-soc-month-stat">
-                              <span class="mw-soc-month-num" id="monthScheduled">—</span>
-                              <span class="mw-soc-month-lbl">Posts Scheduled</span>
-                          </div>
+                      </div>
+                      <div class="card-body p-0 mw-soc-mini-cal" id="miniCalBody">
+                          <div class="mw-soc-loading">Loading…</div>
+                      </div>
+                      <div class="card-footer text-center" style="background:none;border-top:1px solid #f1f3f5;padding:8px;">
+                          <a href="/crm/marketing/social-calendar.php" class="small text-muted">Open full calendar →</a>
                       </div>
                   </div>
 
@@ -293,8 +325,16 @@ try {
           (function() {
               'use strict';
 
-              var csrf = '<?php echo generateCSRFToken(); ?>';
+              var csrf       = '<?php echo generateCSRFToken(); ?>';
               var canApprove = <?php echo json_encode($canApprove); ?>;
+
+              // Mini-calendar state
+              var miniCalYear  = new Date().getFullYear();
+              var miniCalMonth = new Date().getMonth() + 1;
+              var monthNames   = ['January','February','March','April','May','June',
+                                  'July','August','September','October','November','December'];
+
+              function pad(n) { return n < 10 ? '0' + n : '' + n; }
 
               // ── Platform icon SVGs ─────────────────────────────────
               var platformIcons = {
@@ -327,16 +367,27 @@ try {
                       .then(function(data) {
                           if (!data.success) return;
                           var s = data.stats;
-                          document.getElementById('statPublished').textContent   = s.published_month   || 0;
-                          document.getElementById('statEngagement').textContent  = s.avg_engagement    || 0;
-                          document.getElementById('statPending').textContent     = s.pending_approval  || 0;
-                          document.getElementById('statFailed').textContent      = s.failed_posts      || 0;
-                          document.getElementById('monthImpressions').textContent = fmt(s.total_impressions || 0);
-                          document.getElementById('monthClicks').textContent     = fmt(s.total_clicks   || 0);
-                          document.getElementById('monthLikes').textContent      = fmt(s.total_likes    || 0);
-                          document.getElementById('monthScheduled').textContent  = s.upcoming_scheduled || 0;
 
-                          // Highlight failed card
+                          // 6 stat tiles
+                          document.getElementById('statPublished').textContent   = s.published_month    || 0;
+                          document.getElementById('statImpressions').textContent = fmt(s.total_impressions || 0);
+                          document.getElementById('statReach').textContent       = fmt(s.total_reach      || 0);
+                          document.getElementById('statPending').textContent     = s.pending_approval   || 0;
+                          document.getElementById('statLikes').textContent       = fmt(s.total_likes     || 0);
+                          document.getElementById('statScheduled').textContent   = s.upcoming_scheduled || 0;
+
+                          // Trend arrows
+                          renderTrend('trendPublished',   s.published_month,    s.prev_published);
+                          renderTrend('trendImpressions', s.total_impressions,  s.prev_impressions);
+                          renderTrend('trendReach',       s.total_reach,        s.prev_reach);
+                          renderTrend('trendLikes',       s.total_likes,        s.prev_likes);
+
+                          // Activity pulse
+                          if (data.activity_pulse && data.activity_pulse.length) {
+                              renderPulse(data.activity_pulse);
+                          }
+
+                          // Show failed / approval cards
                           if (s.failed_posts > 0) {
                               document.getElementById('failedCard').style.display = '';
                               document.getElementById('failedBadge').textContent = s.failed_posts;
@@ -348,6 +399,128 @@ try {
                           }
                       });
               }
+
+              // ── Trend arrow renderer ───────────────────────────────
+              function renderTrend(elId, current, prev) {
+                  var el = document.getElementById(elId);
+                  if (!el) return;
+                  current = current || 0;
+                  prev    = prev    || 0;
+                  if (prev === 0 && current === 0) { el.innerHTML = ''; return; }
+                  var diff  = current - prev;
+                  var pct   = prev > 0 ? Math.round(Math.abs(diff) / prev * 100) : 0;
+                  var cls   = diff > 0 ? 'mw-soc-trend-up' : (diff < 0 ? 'mw-soc-trend-down' : 'mw-soc-trend-flat');
+                  var arrow = diff > 0 ? '&#9650;' : (diff < 0 ? '&#9660;' : '&#8213;');
+                  var lbl   = diff !== 0 ? (pct + '% vs last mo') : 'same as last mo';
+                  el.innerHTML = '<span class="mw-soc-trend ' + cls + '">' + arrow + ' ' + lbl + '</span>';
+              }
+
+              // ── Activity Pulse renderer ────────────────────────────
+              function renderPulse(days) {
+                  var el = document.getElementById('pulseStrip');
+                  if (!el) return;
+                  var letters = ['S','M','T','W','T','F','S'];
+                  var html = '';
+                  days.forEach(function(d) {
+                      var dt  = new Date(d.date + 'T12:00:00');
+                      var ltr = letters[dt.getDay()];
+                      var cls = parseInt(d.published, 10) > 0 ? 'mw-soc-pulse-dot-published'
+                              : parseInt(d.scheduled, 10) > 0 ? 'mw-soc-pulse-dot-scheduled'
+                              : 'mw-soc-pulse-dot-empty';
+                      var title = d.date + (parseInt(d.published, 10) > 0 ? ' — ' + d.published + ' published' : (parseInt(d.scheduled, 10) > 0 ? ' — ' + d.scheduled + ' scheduled' : ''));
+                      html += '<div class="mw-soc-pulse-day">'
+                           +  '<span class="mw-soc-pulse-lbl">' + esc(ltr) + '</span>'
+                           +  '<span class="mw-soc-pulse-dot ' + cls + '" title="' + esc(title) + '"></span>'
+                           + '</div>';
+                  });
+                  el.innerHTML = html;
+              }
+
+              // ── Top Post Spotlight ─────────────────────────────────
+              function loadTopPost() {
+                  fetch('/crm/api/social/metrics.php?action=top-posts&limit=1')
+                      .then(function(r) { return r.json(); })
+                      .then(function(data) {
+                          if (!data.success || !data.posts || !data.posts.length) return;
+                          var p   = data.posts[0];
+                          var imp = parseInt(p.total_impressions, 10) || 0;
+                          var lk  = parseInt(p.total_likes,       10) || 0;
+                          var cm  = parseInt(p.total_comments,    10) || 0;
+                          var er  = imp > 0 ? ((lk + cm) / imp * 100).toFixed(1) + '%' : '—';
+                          document.getElementById('topPostCaption').textContent = truncate(p.caption || '', 100);
+                          var pills = (p.platforms || []).map(function(pl) {
+                              return '<span class="mw-soc-platform-pill mw-soc-pl-' + esc(pl) + '" title="' + esc(pl) + '">'
+                                   + (platformIcons[pl] || pl) + '</span>';
+                          }).join('');
+                          document.getElementById('topPostPlatforms').innerHTML = pills;
+                          document.getElementById('topPostMetrics').innerHTML =
+                              '<span class="mw-soc-top-post-metric">&#128065; ' + fmt(imp) + '</span>' +
+                              '<span class="mw-soc-top-post-metric">&#10084; ' + fmt(lk)  + '</span>' +
+                              '<span class="mw-soc-top-post-metric">&#128200; ' + er + '</span>';
+                          document.getElementById('topPostLink').href = '/crm/marketing/social-post-editor.php?id=' + p.id;
+                          document.getElementById('topPostStrip').style.display = '';
+                      });
+              }
+
+              // ── Mini Calendar ──────────────────────────────────────
+              function loadMiniCalendar(year, month) {
+                  var el = document.getElementById('miniCalBody');
+                  var ti = document.getElementById('miniCalTitle');
+                  if (!el) return;
+                  el.innerHTML = '<div class="mw-soc-loading">Loading…</div>';
+                  if (ti) { ti.textContent = monthNames[month - 1] + ' ' + year; }
+
+                  fetch('/crm/api/social/posts.php?action=calendar&year=' + year + '&month=' + month)
+                      .then(function(r) { return r.json(); })
+                      .then(function(data) {
+                          if (!data.success) { el.innerHTML = '<div class="p-3 text-muted small">Could not load.</div>'; return; }
+                          var cal      = data.calendar || {};
+                          var today    = new Date();
+                          var todayStr = today.getFullYear() + '-' + pad(today.getMonth() + 1) + '-' + pad(today.getDate());
+                          var firstDow = new Date(year, month - 1, 1).getDay();
+                          var daysInM  = new Date(year, month, 0).getDate();
+
+                          var dow = '<div class="mw-soc-cal-dow">';
+                          ['S','M','T','W','T','F','S'].forEach(function(d) { dow += '<div>' + d + '</div>'; });
+                          dow += '</div>';
+
+                          var grid = '<div class="mw-soc-cal-grid">';
+                          for (var e = 0; e < firstDow; e++) {
+                              grid += '<div class="mw-soc-cal-cell mw-soc-cal-empty"></div>';
+                          }
+                          for (var day = 1; day <= daysInM; day++) {
+                              var ds    = year + '-' + pad(month) + '-' + pad(day);
+                              var posts = cal[ds] || [];
+                              var cls   = 'mw-soc-cal-cell' + (ds === todayStr ? ' mw-soc-cal-today' : '');
+                              var dots  = '';
+                              if (posts.length) {
+                                  dots = '<div class="mw-soc-cal-dots">';
+                                  posts.slice(0, 4).forEach(function(p) {
+                                      var dc = p.status === 'published' ? 'mw-soc-dot-published'
+                                             : (p.status === 'scheduled' || p.status === 'approved') ? 'mw-soc-dot-scheduled'
+                                             : 'mw-soc-dot-draft';
+                                      dots += '<span class="mw-soc-cal-dot ' + dc + '" title="' + esc(p.status) + '"></span>';
+                                  });
+                                  if (posts.length > 4) {
+                                      dots += '<span class="mw-soc-cal-dot" style="background:#ced4da;" title="' + (posts.length - 4) + ' more"></span>';
+                                  }
+                                  dots += '</div>';
+                              }
+                              grid += '<div class="' + cls + '" onclick="window.location.href=\'/crm/marketing/social-calendar.php?date=' + ds + '\'">'
+                                    + '<div class="mw-soc-cal-day-num">' + day + '</div>'
+                                    + dots + '</div>';
+                          }
+                          grid += '</div>';
+                          el.innerHTML = dow + grid;
+                      });
+              }
+
+              window.miniCalNav = function(dir) {
+                  miniCalMonth += dir;
+                  if (miniCalMonth > 12) { miniCalMonth = 1; miniCalYear++; }
+                  if (miniCalMonth < 1)  { miniCalMonth = 12; miniCalYear--; }
+                  loadMiniCalendar(miniCalYear, miniCalMonth);
+              };
 
               // ── Load upcoming posts ────────────────────────────────
               function loadUpcoming() {
@@ -576,6 +749,8 @@ try {
               loadStats();
               loadUpcoming();
               loadPlatforms();
+              loadTopPost();
+              loadMiniCalendar(miniCalYear, miniCalMonth);
           })();
           </script>
 
