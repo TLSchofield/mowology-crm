@@ -314,8 +314,13 @@ $errorMsg = htmlspecialchars($_GET['error']    ?? '');
                       .then(function(data) {
                           var container = document.getElementById('accountsTable');
                           if (!data.success || !data.accounts.length) {
-                              container.innerHTML = '<div class="text-center text-muted py-4">'
-                                  + '<p class="mb-0">No accounts connected yet. Use the cards above to connect a platform.</p></div>';
+                              container.innerHTML = '<div class="text-center py-4">'
+                                  + '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#adb5bd" stroke-width="1.5" class="mb-3"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>'
+                                  + '<p class="text-muted mb-3">No platforms connected yet.</p>'
+                                  + '<a href="/crm/marketing/social-setup-wizard.php" class="btn btn-success">'
+                                  + '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="mr-1"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>'
+                                  + 'Run Setup Wizard</a>'
+                                  + '</div>';
                               return;
                           }
 
