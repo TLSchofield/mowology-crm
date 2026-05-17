@@ -186,12 +186,18 @@ try {
                 echo json_encode(['success' => false, 'error' => 'Token required']); break;
             }
 
+            // Primary: tokens are stored hashed at rest (sha256 of the raw
+            // token from the email link).
             $stmt = $db->prepare("SELECT * FROM marketing_optin_tokens WHERE token = ? AND status = 'pending'");
-            $stmt->execute([hash('sha256', $token)]); // compare stored hash
+            $stmt->execute([hash('sha256', $token)]);
             $record = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$record) {
-                // Try exact token match (v1 format)
+                // Transition fallback: links issued BEFORE hash-at-rest
+                // stored the raw token. These all carry a 30-day expiry,
+                // so this branch is dead once the last pre-change token
+                // expires (~30 days after deploy) and should then be
+                // removed. See feedback memory / Phase 2 #6.
                 $stmt = $db->prepare("SELECT * FROM marketing_optin_tokens WHERE token = ? AND status = 'pending'");
                 $stmt->execute([$token]);
                 $record = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -333,17 +339,20 @@ function sendOptInEmail(PDO $db, int $contactId): array
     $existing->execute([$contactId]);
     $existingToken = $existing->fetch(PDO::FETCH_ASSOC);
 
-    // Generate a secure token
-    $rawToken  = bin2hex(random_bytes(32));
-    $expiresAt = date('Y-m-d H:i:s', strtotime('+30 days'));
+    // Generate a secure token. Stored HASHED at rest (sha256); only the
+    // raw token in the email link can confirm. The confirm action hashes
+    // the submitted token and matches on that.
+    $rawToken   = bin2hex(random_bytes(32));
+    $storedHash = hash('sha256', $rawToken);
+    $expiresAt  = date('Y-m-d H:i:s', strtotime('+30 days'));
 
     if ($existingToken) {
         // Resend: update token and increment count
         $db->prepare("UPDATE marketing_optin_tokens SET token=?, expires_at=?, resent_count=resent_count+1, last_resent_at=NOW() WHERE id=?")
-           ->execute([$rawToken, $expiresAt, $existingToken['id']]);
+           ->execute([$storedHash, $expiresAt, $existingToken['id']]);
     } else {
         $db->prepare("INSERT INTO marketing_optin_tokens (contact_id, email, token, status, sent_at, expires_at) VALUES (?,?,?,'pending',NOW(),?)")
-           ->execute([$contactId, $contact['email'], $rawToken, $expiresAt]);
+           ->execute([$contactId, $contact['email'], $storedHash, $expiresAt]);
     }
 
     $baseUrl   = defined('SITE_URL') ? SITE_URL : 'https://mowology.ca';
@@ -382,7 +391,7 @@ function sendOptInEmail(PDO $db, int $contactId): array
         return ['success' => false, 'error' => 'Failed to send email'];
     }
 
-    $db->prepare("UPDATE marketing_optin_tokens SET sent_at=NOW() WHERE token=?")->execute([$rawToken]);
+    $db->prepare("UPDATE marketing_optin_tokens SET sent_at=NOW() WHERE token=?")->execute([$storedHash]);
 
     return ['success' => true, 'contact_id' => $contactId];
 }

@@ -433,7 +433,7 @@ function executeQueuedAction(PDO $db, string $type, array $data, int $contactId)
                 $exists = $db->prepare("SELECT id FROM campaign_sends WHERE campaign_id=? AND contact_id=? AND status IN ('pending','sent')");
                 $exists->execute([$campaignId, $contactId]);
                 if (!$exists->fetchColumn()) {
-                    $db->prepare("INSERT INTO campaign_sends (campaign_id, contact_id, status, created_at) SELECT ?, ?, 'pending', NOW() FROM contacts WHERE id=? AND email IS NOT NULL LIMIT 1")
+                    $db->prepare("INSERT IGNORE INTO campaign_sends (campaign_id, contact_id, status, created_at) SELECT ?, ?, 'pending', NOW() FROM contacts WHERE id=? AND email IS NOT NULL LIMIT 1")
                        ->execute([$campaignId, $contactId, $contactId]);
                     $db->prepare("UPDATE marketing_campaigns SET status='sending', recipient_count=recipient_count+1 WHERE id=? AND status IN ('draft','scheduled','queued','paused')")->execute([$campaignId]);
                 }

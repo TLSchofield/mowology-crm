@@ -172,7 +172,7 @@ try {
         $recipients->execute([$product['id']]);
 
         $insertSend = $db->prepare("
-            INSERT INTO campaign_sends (campaign_id, contact_id, email, status, created_at)
+            INSERT IGNORE INTO campaign_sends (campaign_id, contact_id, email, status, created_at)
             VALUES (?, ?, ?, 'pending', NOW())
         ");
 

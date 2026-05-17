@@ -291,9 +291,9 @@ try {
             // Clear any existing sends (in case of re-queue)
             $db->prepare("DELETE FROM campaign_sends WHERE campaign_id = ? AND status = 'pending'")->execute([$id]);
 
-            // Insert sends
+            // Insert sends (INSERT IGNORE — idempotent under uq_campaign_contact)
             $insertStmt = $db->prepare("
-                INSERT INTO campaign_sends (campaign_id, contact_id, email, status, created_at)
+                INSERT IGNORE INTO campaign_sends (campaign_id, contact_id, email, status, created_at)
                 VALUES (?, ?, ?, 'pending', NOW())
             ");
             $queued = 0;
@@ -344,7 +344,7 @@ try {
                 $db->prepare("DELETE FROM campaign_sends WHERE campaign_id = ? AND status = 'pending'")->execute([$id]);
 
                 $insertStmt = $db->prepare("
-                    INSERT INTO campaign_sends (campaign_id, contact_id, email, status, created_at)
+                    INSERT IGNORE INTO campaign_sends (campaign_id, contact_id, email, status, created_at)
                     VALUES (?, ?, ?, 'pending', NOW())
                 ");
                 foreach ($recipients as $r) {

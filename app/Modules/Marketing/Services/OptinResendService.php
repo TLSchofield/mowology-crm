@@ -161,7 +161,7 @@ class OptinResendService
         $campaignId = (int)$this->db->lastInsertId();
 
         $sendIns = $this->db->prepare(
-            "INSERT INTO campaign_sends (campaign_id, contact_id, email, status, created_at)
+            "INSERT IGNORE INTO campaign_sends (campaign_id, contact_id, email, status, created_at)
              VALUES (?, ?, ?, 'pending', NOW())"
         );
         $queued = 0;
@@ -200,16 +200,18 @@ class OptinResendService
 
     /**
      * Mint a fresh opt-in token for a contact and upsert it into
-     * marketing_optin_tokens. Mirrors optin.php sendOptInEmail() exactly:
-     * raw token stored (the confirm handler accepts the raw token), 30-day
-     * expiry, resent_count incremented on an existing pending row.
+     * marketing_optin_tokens. The token is stored HASHED at rest
+     * (sha256) — only the raw token (embedded in the email link) can
+     * confirm; a DB leak no longer exposes usable opt-in links. The
+     * confirm handler hashes the submitted token and matches on that.
      *
      * @return string The raw token to embed in the confirm URL.
      */
     public function issueFreshToken(int $contactId, string $email): string
     {
-        $rawToken  = bin2hex(random_bytes(32));
-        $expiresAt = date('Y-m-d H:i:s', strtotime('+30 days'));
+        $rawToken   = bin2hex(random_bytes(32));
+        $storedHash = hash('sha256', $rawToken);
+        $expiresAt  = date('Y-m-d H:i:s', strtotime('+30 days'));
 
         $existing = $this->db->prepare(
             "SELECT id FROM marketing_optin_tokens
@@ -225,13 +227,13 @@ class OptinResendService
                  SET token = ?, email = ?, status = 'pending', expires_at = ?,
                      sent_at = NOW(), resent_count = resent_count + 1, last_resent_at = NOW()
                  WHERE id = ?"
-            )->execute([$rawToken, $email, $expiresAt, (int)$existingId]);
+            )->execute([$storedHash, $email, $expiresAt, (int)$existingId]);
         } else {
             $this->db->prepare(
                 "INSERT INTO marketing_optin_tokens
                     (contact_id, email, token, status, sent_at, expires_at, created_at)
                  VALUES (?, ?, ?, 'pending', NOW(), ?, NOW())"
-            )->execute([$contactId, $email, $rawToken, $expiresAt]);
+            )->execute([$contactId, $email, $storedHash, $expiresAt]);
         }
 
         return $rawToken;

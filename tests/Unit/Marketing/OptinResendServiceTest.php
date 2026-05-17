@@ -86,8 +86,11 @@ class OptinResendServiceTest extends TestCase
         $select->method('execute')->willReturn(true);
         $select->method('fetchColumn')->willReturn(false); // no existing pending row
 
+        $boundParams = null;
         $insert = $this->createMock(PDOStatement::class);
-        $insert->expects($this->once())->method('execute')->willReturn(true);
+        $insert->method('execute')->willReturnCallback(
+            function (array $p) use (&$boundParams): bool { $boundParams = $p; return true; }
+        );
 
         $db = $this->createMock(PDO::class);
         $db->method('prepare')->willReturnCallback(
@@ -97,8 +100,12 @@ class OptinResendServiceTest extends TestCase
         );
 
         $token = $this->svc($db)->issueFreshToken(42, 'a@b.com');
-        $this->assertSame(64, strlen($token), 'token is 32 random bytes hex-encoded');
+        $this->assertSame(64, strlen($token), 'returned token is the RAW 32-byte hex token');
         $this->assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $token);
+        // Stored value must be the sha256 HASH of the raw token, never the raw.
+        $this->assertNotNull($boundParams);
+        $this->assertSame(hash('sha256', $token), $boundParams[2], 'token column stores sha256(raw)');
+        $this->assertNotSame($token, $boundParams[2], 'raw token must NOT be stored at rest');
     }
 
     public function testIssueFreshTokenUpdatesExistingPendingRow(): void
@@ -107,8 +114,11 @@ class OptinResendServiceTest extends TestCase
         $select->method('execute')->willReturn(true);
         $select->method('fetchColumn')->willReturn('777'); // existing pending row id
 
+        $boundParams = null;
         $update = $this->createMock(PDOStatement::class);
-        $update->expects($this->once())->method('execute')->willReturn(true);
+        $update->method('execute')->willReturnCallback(
+            function (array $p) use (&$boundParams): bool { $boundParams = $p; return true; }
+        );
 
         $db = $this->createMock(PDO::class);
         $db->method('prepare')->willReturnCallback(
@@ -119,6 +129,10 @@ class OptinResendServiceTest extends TestCase
 
         $token = $this->svc($db)->issueFreshToken(42, 'a@b.com');
         $this->assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $token);
+        // UPDATE branch must also persist the hash, not the raw token.
+        $this->assertNotNull($boundParams);
+        $this->assertSame(hash('sha256', $token), $boundParams[0], 'token column stores sha256(raw)');
+        $this->assertNotSame($token, $boundParams[0], 'raw token must NOT be stored at rest');
     }
 
     // ── RFC 8058 one-click unsubscribe headers ────────────────────────────
