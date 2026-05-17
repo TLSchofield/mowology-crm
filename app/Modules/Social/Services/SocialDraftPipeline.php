@@ -154,16 +154,20 @@ class SocialDraftPipeline
             WHERE (service_type = ? OR service_type IS NULL)
               AND category = 'proof_of_work'
               AND is_active = 1
+              AND (active_months IS NULL OR FIND_IN_SET(MONTH(NOW()), active_months))
             ORDER BY usage_count ASC, RAND()
             LIMIT 1
         ");
         $tmplStmt->execute([$serviceType]);
         $template = $tmplStmt->fetch(PDO::FETCH_ASSOC);
 
-        // Fallback: any active template
+        // Fallback: any active template valid for current month
         if (!$template) {
             $tmplStmt2 = $db->prepare("
-                SELECT * FROM social_templates WHERE is_active = 1 ORDER BY RAND() LIMIT 1
+                SELECT * FROM social_templates
+                WHERE is_active = 1
+                  AND (active_months IS NULL OR FIND_IN_SET(MONTH(NOW()), active_months))
+                ORDER BY RAND() LIMIT 1
             ");
             $tmplStmt2->execute();
             $template = $tmplStmt2->fetch(PDO::FETCH_ASSOC);
