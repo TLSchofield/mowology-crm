@@ -593,8 +593,33 @@ $extraHead = '
                           selectedMedia = [];
                           selectedMediaMeta = [];
                           (p.media || []).forEach(function(m) {
+                              var url  = m.url || m.file_path || '';
+                              var meta = {
+                                  id:     m.media_id,
+                                  url:    url,
+                                  alt:    m.alt_text || '',
+                                  width:  parseInt(m.image_width  || 0, 10),
+                                  height: parseInt(m.image_height || 0, 10),
+                              };
                               selectedMedia.push(m.media_id);
-                              selectedMediaMeta.push({ id: m.media_id, url: m.url || m.file_path || '', alt: m.alt_text || '' });
+                              selectedMediaMeta.push(meta);
+
+                              // If DB didn't have dimensions, detect from the image
+                              if (!meta.width || !meta.height) {
+                                  (function(mt) {
+                                      var img = new Image();
+                                      img.onload = function() {
+                                          mt.width  = this.naturalWidth;
+                                          mt.height = this.naturalHeight;
+                                          updateMediaSelection();
+                                      };
+                                      img.src = mt.url;
+                                      if (img.complete && img.naturalWidth > 0) {
+                                          mt.width  = img.naturalWidth;
+                                          mt.height = img.naturalHeight;
+                                      }
+                                  }(meta));
+                              }
                           });
                           updateMediaSelection();
 
@@ -1091,7 +1116,7 @@ $extraHead = '
                   updateMediaSelection();
                   updatePreview();
 
-                  // Detect natural dimensions async
+                  // Detect natural dimensions — handle both cached and uncached images
                   var img = new Image();
                   img.onload = function() {
                       meta.width  = this.naturalWidth;
@@ -1099,6 +1124,12 @@ $extraHead = '
                       updateMediaSelection();
                   };
                   img.src = item.file_path;
+                  // If already cached, onload won't fire — read dimensions immediately
+                  if (img.complete && img.naturalWidth > 0) {
+                      meta.width  = img.naturalWidth;
+                      meta.height = img.naturalHeight;
+                      updateMediaSelection();
+                  }
               };
 
               window.removeMediaItem = function(id) {
