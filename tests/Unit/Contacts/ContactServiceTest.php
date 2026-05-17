@@ -312,12 +312,16 @@ class ContactServiceTest extends TestCase
     /** @test */
     public function deleteContact_blocks_when_invoices_or_jobs_exist(): void
     {
-        $pdo   = $this->mockPdo();
-        $guard = $this->createMock(PDOStatement::class);
-        $guard->method('execute')->willReturn(true);
-        $guard->method('fetchColumn')->willReturn(2); // 2 linked invoices/jobs
+        $pdo = $this->mockPdo();
 
-        $pdo->method('prepare')->willReturn($guard);
+        // Every prepared statement reports the financial table exists (1)
+        // and has 1 linked record — enough to trip the guard.
+        $pdo->method('prepare')->willReturnCallback(function () {
+            $s = $this->createMock(PDOStatement::class);
+            $s->method('execute')->willReturn(true);
+            $s->method('fetchColumn')->willReturn(1);
+            return $s;
+        });
         $pdo->expects($this->never())->method('beginTransaction');
 
         $svc = new ContactService($pdo);
@@ -330,16 +334,17 @@ class ContactServiceTest extends TestCase
     {
         $pdo = $this->mockPdo();
 
-        $guard = $this->createMock(PDOStatement::class);
-        $guard->method('execute')->willReturn(true);
-        $guard->method('fetchColumn')->willReturn(0); // no invoices/jobs
-
-        $delStmt = $this->createMock(PDOStatement::class);
-        $delStmt->method('execute')->willReturn(true);
-        $delStmt->method('rowCount')->willReturn(1);
-
-        // prepare() is called for the guard first, then the final contacts DELETE.
-        $pdo->method('prepare')->willReturnOnConsecutiveCalls($guard, $delStmt);
+        // Guard probes report the contact_id column is absent (0) on every
+        // financial table, so nothing blocks; final contacts DELETE removes 1.
+        $pdo->method('prepare')->willReturnCallback(function (string $sql) {
+            $s = $this->createMock(PDOStatement::class);
+            $s->method('execute')->willReturn(true);
+            $s->method('fetchColumn')->willReturn(0);
+            $s->method('rowCount')->willReturn(
+                strpos($sql, 'DELETE FROM contacts') !== false ? 1 : 0
+            );
+            return $s;
+        });
 
         // INFORMATION_SCHEMA discovery returns no referencing columns.
         $schemaStmt = $this->createMock(PDOStatement::class);

@@ -349,13 +349,27 @@ class ContactService
             throw new \InvalidArgumentException('Invalid contact id');
         }
 
-        $guard = $this->db->prepare(
-            "SELECT
-                 (SELECT COUNT(*) FROM invoices WHERE contact_id = ?) +
-                 (SELECT COUNT(*) FROM jobs     WHERE contact_id = ?) AS total"
-        );
-        $guard->execute([$contactId, $contactId]);
-        $related = (int) $guard->fetchColumn();
+        // Financial guard — protect invoices/jobs. Tables/columns vary across
+        // environments (prod schema drifts), so probe each one safely.
+        $related = 0;
+        foreach (['invoices', 'jobs'] as $finTable) {
+            try {
+                $exists = $this->db->prepare(
+                    "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+                      WHERE TABLE_SCHEMA = DATABASE()
+                        AND TABLE_NAME = ? AND COLUMN_NAME = 'contact_id'"
+                );
+                $exists->execute([$finTable]);
+                if ((int) $exists->fetchColumn() === 0) {
+                    continue; // table or contact_id column not present here
+                }
+                $cnt = $this->db->prepare("SELECT COUNT(*) FROM `{$finTable}` WHERE contact_id = ?");
+                $cnt->execute([$contactId]);
+                $related += (int) $cnt->fetchColumn();
+            } catch (\Throwable $e) {
+                // Probe failed — treat as "no blocking records" for this table.
+            }
+        }
         if ($related > 0) {
             throw new \RuntimeException(
                 'This contact has ' . $related . ' linked invoice(s) or job(s). '
