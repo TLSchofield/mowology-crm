@@ -59,8 +59,9 @@ try {
     $extMap = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
     $ext = $extMap[$mime] ?? 'jpg';
 
-    // Storage directory — same as regular uploads
-    $uploadDir = dirname(dirname(dirname(dirname(__DIR__)))) . '/uploads/cms/';
+    // Storage directory — same as regular media uploads
+    // __DIR__ = …/crm/api/social  → 3x dirname = public_html root
+    $uploadDir = dirname(dirname(dirname(__DIR__))) . '/uploads/cms/';
     if (!is_dir($uploadDir) && !mkdir($uploadDir, 0755, true)) {
         echo json_encode(['success' => false, 'error' => 'Upload directory not writable']);
         exit;
