@@ -20,6 +20,11 @@ $preSchedule = htmlspecialchars($_GET['scheduled'] ?? '');
 $pageTitle  = $editId ? 'Edit Post' : 'New Post';
 $activePage = 'social';
 $canApprove = userHasPermission('marketing.approve');
+
+$extraHead = '
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.css" crossorigin="anonymous">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js" crossorigin="anonymous"></script>
+';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
@@ -404,6 +409,55 @@ $canApprove = userHasPermission('marketing.approve');
                 <button type="button" class="btn btn-success" id="btnConfirmCampaign" onclick="confirmCampaign()" disabled>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-1"><polyline points="20 6 9 17 4 12"/></svg>
                     <span id="btnConfirmCampaignLabel">Create Campaign</span>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Crop Modal ─────────────────────────────────────────────────── -->
+<div class="modal fade" id="cropModal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header" style="border-bottom:1px solid #e9ecef;padding:14px 20px;">
+                <div>
+                    <h5 class="modal-title mb-0">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-1" style="vertical-align:-2px"><polyline points="6 2 3 2 3 22 21 22 21 19"/><rect x="6" y="6" width="12" height="12"/></svg>
+                        Crop Photo
+                    </h5>
+                    <p class="text-muted mb-0" style="font-size:.75rem;margin-top:2px;">Drag the crop box to choose what to keep. Use preset ratios for platform compatibility.</p>
+                </div>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span>&times;</span></button>
+            </div>
+            <div class="modal-body" style="padding:16px 20px;">
+                <!-- Cropper image container -->
+                <div class="mw-crop-image-wrap">
+                    <img id="cropImg" src="" alt="Crop source">
+                </div>
+                <!-- Aspect ratio controls -->
+                <div class="mw-crop-ratio-btns" id="cropRatioBtns">
+                    <button class="mw-crop-ratio-btn" data-ratio="NaN"   onclick="setCropRatio(NaN,   this)">Free</button>
+                    <button class="mw-crop-ratio-btn active" data-ratio="1"     onclick="setCropRatio(1,     this)">1:1 Square</button>
+                    <button class="mw-crop-ratio-btn" data-ratio="0.8"   onclick="setCropRatio(0.8,   this)">4:5 Portrait</button>
+                    <button class="mw-crop-ratio-btn" data-ratio="1.778" onclick="setCropRatio(1.778, this)">16:9 Wide</button>
+                    <button class="mw-crop-ratio-btn" data-ratio="1.91"  onclick="setCropRatio(1.91,  this)">1.91:1</button>
+                </div>
+                <!-- Live ratio status -->
+                <div class="mw-crop-ratio-status mw-crop-ratio-info" id="cropRatioStatus">
+                    Select a ratio or drag the crop box
+                </div>
+                <!-- Platform hint -->
+                <div style="font-size:.72rem;color:#6c757d;margin-top:8px;">
+                    <strong>Instagram</strong> requires 0.8:1–1.91:1 &nbsp;·&nbsp;
+                    <strong>Facebook &amp; GBP</strong> accept any ratio &nbsp;·&nbsp;
+                    <strong>1:1</strong> is universally safe
+                </div>
+            </div>
+            <div class="modal-footer" style="border-top:1px solid #e9ecef;padding:10px 20px;">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" id="btnSaveCrop" onclick="saveCrop()">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-1"><polyline points="20 6 9 17 4 12"/></svg>
+                    Save Crop
                 </button>
             </div>
         </div>
@@ -1004,21 +1058,47 @@ $canApprove = userHasPermission('marketing.approve');
                           countBadge.style.display = 'none';
                       }
                   }
+                  // Refresh thumbnails — Instagram warning badge may need to appear/disappear
+                  updateMediaSelection();
               };
 
               // ── Media library selection ────────────────────────────
-              // selectedMediaMeta stores {id, url, alt} for thumbnail display
+              // selectedMediaMeta stores {id, url, alt, width, height} for thumbnail display
               var selectedMediaMeta = [];
+
+              // Instagram aspect ratio bounds
+              var IG_RATIO_MIN = 0.8;
+              var IG_RATIO_MAX = 1.91;
+
+              function isInstagramSelected() {
+                  return selectedAccounts.some(function(a) { return a.platform === 'instagram'; });
+              }
+
+              function ratioOkForInstagram(w, h) {
+                  if (!w || !h) return true; // unknown — don't warn
+                  var r = w / h;
+                  return r >= IG_RATIO_MIN && r <= IG_RATIO_MAX;
+              }
 
               window.addMediaItem = function(item) {
                   var id = parseInt(item.id);
                   if (!id) return;
                   if (selectedMedia.indexOf(id) !== -1) return; // already selected
                   if (selectedMedia.length >= 10) { alert('Maximum 10 photos per post'); return; }
+                  var meta = { id: id, url: item.file_path, alt: item.alt_text || '', width: 0, height: 0 };
                   selectedMedia.push(id);
-                  selectedMediaMeta.push({ id: id, url: item.file_path, alt: item.alt_text || '' });
+                  selectedMediaMeta.push(meta);
                   updateMediaSelection();
                   updatePreview();
+
+                  // Detect natural dimensions async
+                  var img = new Image();
+                  img.onload = function() {
+                      meta.width  = this.naturalWidth;
+                      meta.height = this.naturalHeight;
+                      updateMediaSelection();
+                  };
+                  img.src = item.file_path;
               };
 
               window.removeMediaItem = function(id) {
@@ -1031,21 +1111,151 @@ $canApprove = userHasPermission('marketing.approve');
 
               function updateMediaSelection() {
                   document.getElementById('mediaSelectedCount').textContent = selectedMedia.length + ' of 10 selected';
-                  // Render thumbnail strip
                   var strip = document.getElementById('selectedThumbStrip');
                   if (!strip) return;
-                  if (!selectedMediaMeta.length) {
-                      strip.innerHTML = '';
-                      return;
-                  }
+                  if (!selectedMediaMeta.length) { strip.innerHTML = ''; return; }
+
+                  var igSelected = isInstagramSelected();
                   strip.innerHTML = selectedMediaMeta.map(function(m) {
-                      return '<div style="position:relative;width:60px;height:60px;flex-shrink:0">'
-                          + '<img src="' + esc(m.url) + '" alt="' + esc(m.alt) + '" style="width:60px;height:60px;object-fit:cover;border-radius:6px;border:2px solid var(--mw-green)">'
-                          + '<button type="button" onclick="removeMediaItem(' + m.id + ')" title="Remove" '
-                          + 'style="position:absolute;top:-6px;right:-6px;background:#dc3545;color:#fff;border:none;border-radius:50%;width:18px;height:18px;font-size:12px;line-height:1;cursor:pointer;padding:0">&times;</button>'
+                      var needsWarn = igSelected && !ratioOkForInstagram(m.width, m.height);
+                      var ratioTip  = (m.width && m.height) ? (m.width + '×' + m.height + ' — ratio ' + (m.width / m.height).toFixed(2) + ':1') : 'Loading dimensions…';
+                      var warn = needsWarn
+                          ? '<span class="mw-soc-thumb-warn" title="Aspect ratio (' + esc(ratioTip) + ') is outside Instagram\'s 0.8:1–1.91:1 range. Click ✂ to crop.">!</span>'
+                          : '';
+                      return '<div class="mw-soc-thumb-wrap">'
+                          + '<img src="' + esc(m.url) + '" alt="' + esc(m.alt) + '" class="mw-soc-thumb-img">'
+                          + warn
+                          + '<button type="button" class="mw-soc-thumb-remove" onclick="removeMediaItem(' + m.id + ')" title="Remove">×</button>'
+                          + '<button type="button" class="mw-soc-thumb-crop" onclick="openCropModal(' + m.id + ')" title="' + esc(ratioTip) + '">✂ Crop</button>'
                           + '</div>';
                   }).join('');
               }
+
+              // ── Crop tool ─────────────────────────────────────────
+              var cropperInstance = null;
+              var cropSourceMediaId = null; // the original media_id we're cropping from
+
+              window.openCropModal = function(mediaId) {
+                  var meta = selectedMediaMeta.find(function(m) { return m.id === mediaId; });
+                  if (!meta) return;
+                  cropSourceMediaId = mediaId;
+
+                  var imgEl = document.getElementById('cropImg');
+                  imgEl.src = '';
+                  imgEl.src = meta.url + (meta.url.indexOf('?') === -1 ? '?' : '&') + '_c=' + Date.now();
+
+                  // Destroy previous instance
+                  if (cropperInstance) { cropperInstance.destroy(); cropperInstance = null; }
+
+                  // Update ratio status to loading
+                  document.getElementById('cropRatioStatus').className = 'mw-crop-ratio-status mw-crop-ratio-info';
+                  document.getElementById('cropRatioStatus').textContent = 'Loading image…';
+
+                  $('#cropModal').modal('show');
+
+                  // Init Cropper after image loads
+                  imgEl.onload = function() {
+                      if (cropperInstance) { cropperInstance.destroy(); }
+                      cropperInstance = new Cropper(imgEl, {
+                          aspectRatio: 1, // start with 1:1
+                          viewMode: 1,
+                          dragMode: 'move',
+                          autoCropArea: 0.85,
+                          responsive: true,
+                          guides: true,
+                          center: true,
+                          background: false,
+                          crop: function(e) {
+                              updateCropStatus(e.detail.width, e.detail.height);
+                          },
+                      });
+                      // Set 1:1 as active preset
+                      document.querySelectorAll('.mw-crop-ratio-btn').forEach(function(b) {
+                          b.classList.toggle('active', parseFloat(b.dataset.ratio) === 1);
+                      });
+                  };
+              };
+
+              function updateCropStatus(w, h) {
+                  var el = document.getElementById('cropRatioStatus');
+                  if (!w || !h) { el.className = 'mw-crop-ratio-status mw-crop-ratio-info'; el.textContent = 'Adjust the crop box'; return; }
+                  var ratio = w / h;
+                  var igOk  = ratio >= IG_RATIO_MIN && ratio <= IG_RATIO_MAX;
+                  var rStr  = ratio.toFixed(2) + ':1';
+                  if (igOk) {
+                      el.className = 'mw-crop-ratio-status mw-crop-ratio-ok';
+                      el.innerHTML = '&#10003; ' + rStr + ' — safe for all platforms including Instagram';
+                  } else {
+                      el.className = 'mw-crop-ratio-status mw-crop-ratio-warn';
+                      el.innerHTML = '&#10007; ' + rStr + ' — outside Instagram\'s 0.8:1–1.91:1 range';
+                  }
+              }
+
+              window.setCropRatio = function(ratio, btn) {
+                  if (!cropperInstance) return;
+                  document.querySelectorAll('.mw-crop-ratio-btn').forEach(function(b) { b.classList.remove('active'); });
+                  if (btn) btn.classList.add('active');
+                  cropperInstance.setAspectRatio(isNaN(ratio) ? NaN : ratio);
+              };
+
+              window.saveCrop = function() {
+                  if (!cropperInstance) return;
+                  var btn = document.getElementById('btnSaveCrop');
+                  var origHtml = btn.innerHTML;
+                  btn.disabled = true;
+                  btn.innerHTML = '<span class="spinner-border spinner-border-sm mr-1"></span>Saving…';
+
+                  // Get cropped canvas — max 2000px on either side to keep filesize reasonable
+                  var canvas = cropperInstance.getCroppedCanvas({ maxWidth: 2000, maxHeight: 2000, imageSmoothingQuality: 'high' });
+                  canvas.toBlob(function(blob) {
+                      if (!blob) {
+                          btn.disabled = false; btn.innerHTML = origHtml;
+                          alert('Could not generate crop — try a different browser.');
+                          return;
+                      }
+
+                      var fd = new FormData();
+                      fd.append('crop_image', blob, 'crop.jpg');
+                      fd.append('original_media_id', cropSourceMediaId || '');
+                      fd.append('csrf_token', csrf);
+
+                      fetch('/crm/api/social/crop.php', { method: 'POST', body: fd })
+                          .then(function(r) { return r.json(); })
+                          .then(function(data) {
+                              btn.disabled = false; btn.innerHTML = origHtml;
+                              if (!data.success) { alert('Crop save failed: ' + (data.error || 'Unknown error')); return; }
+
+                              // Replace the original in selectedMedia + selectedMediaMeta
+                              var origIdx = selectedMedia.indexOf(cropSourceMediaId);
+                              if (origIdx !== -1) {
+                                  selectedMedia[origIdx] = data.media_id;
+                              }
+                              var metaIdx = selectedMediaMeta.findIndex(function(m) { return m.id === cropSourceMediaId; });
+                              if (metaIdx !== -1) {
+                                  selectedMediaMeta[metaIdx] = {
+                                      id:     data.media_id,
+                                      url:    data.url,
+                                      alt:    selectedMediaMeta[metaIdx].alt || '',
+                                      width:  data.width,
+                                      height: data.height,
+                                  };
+                              }
+
+                              updateMediaSelection();
+                              updatePreview();
+                              $('#cropModal').modal('hide');
+                          })
+                          .catch(function() {
+                              btn.disabled = false; btn.innerHTML = origHtml;
+                              alert('Network error — crop could not be saved.');
+                          });
+                  }, 'image/jpeg', 0.92);
+              };
+
+              // Destroy Cropper when modal closes to free memory
+              $('#cropModal').on('hidden.bs.modal', function() {
+                  if (cropperInstance) { cropperInstance.destroy(); cropperInstance = null; }
+              });
 
               // ── Preview ────────────────────────────────────────────
               var platformIcons = {

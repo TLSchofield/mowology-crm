@@ -21779,6 +21779,123 @@ body.mw-no-scroll {
 .mw-soc-time-presets { display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-end; }
 .mw-soc-action-card  { position: sticky; top: 20px; }
 
+/* ── Media thumbnail strip — crop + warning overlays ───────────────── */
+.mw-soc-thumb-wrap {
+    position: relative;
+    width: 72px;
+    height: 72px;
+    flex-shrink: 0;
+}
+.mw-soc-thumb-img {
+    width: 72px;
+    height: 72px;
+    object-fit: cover;
+    border-radius: 7px;
+    border: 2px solid var(--mw-green);
+    display: block;
+}
+.mw-soc-thumb-remove {
+    position: absolute;
+    top: -7px;
+    right: -7px;
+    background: #dc3545;
+    color: #fff;
+    border: none;
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2;
+}
+.mw-soc-thumb-crop {
+    position: absolute;
+    bottom: -7px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #212529;
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    padding: 1px 7px;
+    font-size: 11px;
+    cursor: pointer;
+    z-index: 2;
+    white-space: nowrap;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+.mw-soc-thumb-wrap:hover .mw-soc-thumb-crop { opacity: 1; }
+.mw-soc-thumb-warn {
+    position: absolute;
+    top: -7px;
+    left: -7px;
+    background: #ffc107;
+    color: #212529;
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    font-size: 11px;
+    line-height: 20px;
+    text-align: center;
+    z-index: 2;
+    cursor: default;
+    font-weight: 700;
+}
+
+/* ── Crop Modal ─────────────────────────────────────────────────────── */
+.mw-crop-image-wrap {
+    background: #1a1a1a;
+    border-radius: 6px;
+    overflow: hidden;
+    max-height: 420px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.mw-crop-image-wrap img {
+    max-width: 100%;
+    max-height: 420px;
+    display: block;
+}
+.mw-crop-ratio-btns {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+}
+.mw-crop-ratio-btn {
+    padding: 4px 14px;
+    border: 2px solid #dee2e6;
+    border-radius: 20px;
+    background: #fff;
+    color: #495057;
+    font-size: .78rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+.mw-crop-ratio-btn:hover  { border-color: var(--mw-green); color: var(--mw-green); }
+.mw-crop-ratio-btn.active { border-color: var(--mw-green); background: var(--mw-green); color: #fff; }
+.mw-crop-ratio-status {
+    margin-top: 10px;
+    padding: 7px 12px;
+    border-radius: 6px;
+    font-size: .78rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.mw-crop-ratio-ok   { background: #d4edda; color: #155724; }
+.mw-crop-ratio-warn { background: #f8d7da; color: #721c24; }
+.mw-crop-ratio-info { background: #e2e8f0; color: #334155; }
+
 /* ── Action card current status ─────────────────────────────────────── */
 .mw-soc-status-row {
     display: flex;
