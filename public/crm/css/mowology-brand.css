@@ -21236,8 +21236,8 @@ body.mw-no-scroll {
 .mw-soc-top-post-metric  { font-size: .8rem; background: rgba(45,134,89,.1); color: var(--mw-forest); padding: 3px 8px; border-radius: 12px; font-weight: 600; white-space: nowrap; }
 
 /* ── 7-day Activity Pulse strip ─────────────────────────────────────── */
-.mw-soc-pulse-strip { display: flex; gap: 6px; align-items: flex-end; padding: 6px 0 0; }
-.mw-soc-pulse-day   { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1; }
+.mw-soc-pulse-strip { display: flex; gap: 4px; align-items: flex-end; padding: 6px 0 0; width: 100%; }
+.mw-soc-pulse-day   { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1; min-width: 0; }
 .mw-soc-pulse-lbl   { font-size: .65rem; font-weight: 600; color: #adb5bd; text-transform: uppercase; }
 .mw-soc-pulse-dot   { width: 10px; height: 10px; border-radius: 50%; }
 .mw-soc-pulse-dot-published { background: var(--mw-green); }

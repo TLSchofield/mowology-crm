@@ -172,7 +172,7 @@ $extraHead = '
                       <div class="card-body">
                           <!-- Partial-publish warning (shown when status = published/publishing with failures) -->
                           <div id="partialBanner" style="display:none"></div>
-                          <div id="platformToggles">
+                          <div id="platformToggles" style="min-height:80px;">
                               <div class="mw-soc-loading">Loading connected accounts...</div>
                           </div>
                       </div>
@@ -313,6 +313,8 @@ $extraHead = '
                   <div class="card mw-soc-action-card">
                       <div class="card-body">
                           <div class="mw-soc-status-row mb-3" id="currentStatusRow"></div>
+                          <!-- Inline error display — sits above buttons so it's always visible -->
+                          <div id="actionError" style="display:none;background:#f8d7da;border:1px solid #f5c6cb;border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:.82rem;color:#721c24;"></div>
                           <!-- Normal edit actions (hidden for published/publishing posts) -->
                           <div id="normalActions">
                               <div class="d-grid gap-2">
@@ -335,8 +337,6 @@ $extraHead = '
                                   <?php endif; ?>
                               </div>
                           </div>
-                          <!-- Inline error display (replaces alert() calls) -->
-                          <div id="actionError" style="display:none;background:#f8d7da;border:1px solid #f5c6cb;border-radius:6px;padding:10px 14px;margin-bottom:10px;font-size:.82rem;color:#721c24;"></div>
 
                           <!-- Retry actions (shown for published/publishing posts with failures) -->
                           <div id="retryActions" style="display:none;">
@@ -479,7 +479,21 @@ $extraHead = '
               var selectedAccounts = []; // [{platform, account_id}]
               var previewPlatform = 'gbp';
               var inFlight = false; // double-submit guard
+              var inFlightTimer = null;
               var charLimits = { gbp: 1500, instagram: 2200, facebook: 63206 };
+
+              function setInFlight(val) {
+                  inFlight = val;
+                  if (inFlightTimer) { clearTimeout(inFlightTimer); inFlightTimer = null; }
+                  if (val) {
+                      // Safety: auto-reset after 12 seconds so a silent failure never locks the UI
+                      inFlightTimer = setTimeout(function() {
+                          inFlight = false;
+                          setActionButtons(false);
+                          showActionError('Request timed out — please try again.');
+                      }, 12000);
+                  }
+              }
 
               // ── Inline error display ──────────────────────────────────
               function showActionError(msg) {
@@ -1491,9 +1505,10 @@ $extraHead = '
                   clearActionError();
                   var payload = buildPayload(status);
                   if (!payload.caption.trim()) { showActionError('Caption is required'); return; }
-                  if (!selectedAccounts.length) { showActionError('Select at least one platform to publish to'); return; }
+                  // Drafts don't need a destination — only submissions/scheduled posts do
+                  if (status !== 'draft' && !selectedAccounts.length) { showActionError('Select at least one platform to publish to'); return; }
 
-                  inFlight = true;
+                  setInFlight(true);
                   setActionButtons(true, 'Saving…');
 
                   fetch('/crm/api/social/posts.php?action=save', {
@@ -1505,12 +1520,12 @@ $extraHead = '
                           var msg = status === 'pending_approval' ? 'Submitted for approval!' : 'Draft saved!';
                           window.location.href = '/crm/marketing/social.php?msg=' + encodeURIComponent(msg);
                       } else {
-                          inFlight = false;
+                          setInFlight(false);
                           setActionButtons(false);
                           showActionError('Save error: ' + (data.error || 'Unknown error'));
                       }
                   }).catch(function() {
-                      inFlight = false;
+                      setInFlight(false);
                       setActionButtons(false);
                       showActionError('Network error — please try again.');
                   });
@@ -1522,11 +1537,17 @@ $extraHead = '
                   var scheduledAt = document.getElementById('postSchedule').value;
                   if (!scheduledAt) { showActionError('Set a date and time first'); return; }
 
+                  // Client-side future check — catch stale times before the round-trip
+                  if (new Date(scheduledAt).getTime() <= Date.now() + 60000) {
+                      showActionError('Scheduled time must be at least 1 minute in the future. Pick a later time.');
+                      return;
+                  }
+
                   var payload = buildPayload('approved');
                   if (!payload.caption.trim()) { showActionError('Caption is required'); return; }
                   if (!selectedAccounts.length) { showActionError('Select at least one platform'); return; }
 
-                  inFlight = true;
+                  setInFlight(true);
                   setActionButtons(true, 'Scheduling…');
 
                   // First save, then schedule
@@ -1536,7 +1557,7 @@ $extraHead = '
                       body: JSON.stringify(payload)
                   }).then(function(r) { return r.json(); }).then(function(data) {
                       if (!data.success) {
-                          inFlight = false;
+                          setInFlight(false);
                           setActionButtons(false);
                           showActionError('Save error: ' + (data.error || 'Unknown error'));
                           return;
@@ -1551,13 +1572,13 @@ $extraHead = '
                           if (sData.success) {
                               window.location.href = '/crm/marketing/social.php?msg=' + encodeURIComponent('Post scheduled!');
                           } else {
-                              inFlight = false;
+                              setInFlight(false);
                               setActionButtons(false);
                               showActionError('Schedule error: ' + (sData.error || 'Unknown error'));
                           }
                       });
                   }).catch(function() {
-                      inFlight = false;
+                      setInFlight(false);
                       setActionButtons(false);
                       showActionError('Network error — please try again.');
                   });
@@ -1579,7 +1600,7 @@ $extraHead = '
                   var btn = document.getElementById('btnRetry');
                   if (!btn) return;
 
-                  inFlight = true;
+                  setInFlight(true);
                   var origHtml = btn.innerHTML;
                   btn.disabled = true;
                   btn.innerHTML = '<span class="spinner-border spinner-border-sm mr-1"></span>Queueing retry…';
@@ -1589,7 +1610,7 @@ $extraHead = '
                       headers: {'Content-Type': 'application/json'},
                       body: JSON.stringify({id: editId, csrf_token: csrf})
                   }).then(function(r) { return r.json(); }).then(function(data) {
-                      inFlight = false;
+                      setInFlight(false);
                       if (data.success) {
                           window.location.href = '/crm/marketing/social.php?msg='
                               + encodeURIComponent('Retry queued — failed platforms will publish within a few minutes.');
@@ -1599,7 +1620,7 @@ $extraHead = '
                           showActionError('Retry failed: ' + (data.error || 'Unknown error'));
                       }
                   }).catch(function() {
-                      inFlight = false;
+                      setInFlight(false);
                       btn.disabled = false;
                       btn.innerHTML = origHtml;
                       showActionError('Network error — please try again.');
