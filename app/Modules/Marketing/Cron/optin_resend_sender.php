@@ -150,10 +150,11 @@ try {
     $emit([
         'success'   => true,
         'mode'      => 'send',
-        'message'   => "Opt-in resend: {$result['sent']} sent, {$result['failed']} failed, {$result['remaining']} remaining" . ($result['completed'] ? ' — CAMPAIGN COMPLETE.' : '.'),
+        'message'   => "Opt-in resend: {$result['sent']} sent, {$result['failed']} failed, {$result['suppressed']} suppressed, {$result['remaining']} remaining" . ($result['completed'] ? ' — CAMPAIGN COMPLETE.' : '.'),
         'campaign_id' => $campaignId,
         'sent'      => $result['sent'],
         'failed'    => $result['failed'],
+        'suppressed' => $result['suppressed'],
         'remaining' => $result['remaining'],
         'completed' => $result['completed'],
     ]);

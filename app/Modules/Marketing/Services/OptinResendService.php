@@ -284,8 +284,14 @@ seasonal services, special offers, and landscaping tips, just confirm below:</p>
      * $sender, record outcome, log activity. When no pending sends
      * remain, the campaign is marked 'completed'.
      *
+     * Suppression is re-checked HERE, per batch, immediately before send —
+     * not just when the campaign was built. The resend runs in batches
+     * over multiple days, so someone who clicks unsubscribe in batch 1
+     * must not be emailed in a later batch. Suppressed rows are marked
+     * 'unsubscribed' (terminal) so the campaign can still complete.
+     *
      * @param callable $sender fn(string $to, string $subject, string $html): array{success:bool,error?:string}
-     * @return array{sent:int,failed:int,remaining:int,completed:bool}
+     * @return array{sent:int,failed:int,suppressed:int,remaining:int,completed:bool}
      */
     public function processBatch(int $campaignId, int $batchSize, callable $sender): array
     {
@@ -302,11 +308,18 @@ seasonal services, special offers, and landscaping tips, just confirm below:</p>
 
         if (empty($pending)) {
             $this->markCompleted($campaignId);
-            return ['sent' => 0, 'failed' => 0, 'remaining' => 0, 'completed' => true];
+            return ['sent' => 0, 'failed' => 0, 'suppressed' => 0, 'remaining' => 0, 'completed' => true];
         }
+
+        $emails     = [];
+        foreach ($pending as $row) {
+            $emails[] = strtolower(trim((string)$row['email']));
+        }
+        $suppressed = $this->suppressedSet($emails);
 
         $sent = 0;
         $failed = 0;
+        $suppressedCount = 0;
 
         foreach ($pending as $row) {
             $sendId    = (int)$row['id'];
@@ -319,6 +332,15 @@ seasonal services, special offers, and landscaping tips, just confirm below:</p>
                     "UPDATE campaign_sends SET status='failed', error_message='Invalid email' WHERE id=?"
                 )->execute([$sendId]);
                 $failed++;
+                continue;
+            }
+
+            // CASL: do-not-contact wins, even mid-campaign.
+            if (isset($suppressed[$email])) {
+                $this->db->prepare(
+                    "UPDATE campaign_sends SET status='unsubscribed', error_message='Suppressed: on do-not-contact list at send time' WHERE id=?"
+                )->execute([$sendId]);
+                $suppressedCount++;
                 continue;
             }
 
@@ -387,7 +409,51 @@ seasonal services, special offers, and landscaping tips, just confirm below:</p>
             $completed = true;
         }
 
-        return ['sent' => $sent, 'failed' => $failed, 'remaining' => $remaining, 'completed' => $completed];
+        return [
+            'sent'       => $sent,
+            'failed'     => $failed,
+            'suppressed' => $suppressedCount,
+            'remaining'  => $remaining,
+            'completed'  => $completed,
+        ];
+    }
+
+    /**
+     * Given a list of emails, return those that are on the do-not-contact
+     * list (marketing_unsubscribes — written by both unsubscribe paths, so
+     * it is the authoritative suppression source). Keyed by lowercased
+     * email for O(1) lookup.
+     *
+     * Note: receive_marketing is deliberately NOT checked here — opt-in
+     * confirmation recipients have receive_marketing=0 by definition (it
+     * is set to 1 only on confirm), so filtering on it would suppress
+     * everyone. An explicit unsubscribe is the only valid suppressor for
+     * a consent-confirmation email.
+     *
+     * @param string[] $emails
+     * @return array<string,true>
+     */
+    private function suppressedSet(array $emails): array
+    {
+        $emails = array_values(array_unique(array_filter(array_map(
+            static function ($e) { return strtolower(trim((string)$e)); },
+            $emails
+        ))));
+        if (empty($emails)) {
+            return [];
+        }
+
+        $ph = implode(',', array_fill(0, count($emails), '?'));
+        $stmt = $this->db->prepare(
+            "SELECT LOWER(email) AS email FROM marketing_unsubscribes WHERE email IN ($ph)"
+        );
+        $stmt->execute($emails);
+
+        $set = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $e) {
+            $set[(string)$e] = true;
+        }
+        return $set;
     }
 
     private function markCompleted(int $campaignId): void

@@ -120,4 +120,49 @@ class OptinResendServiceTest extends TestCase
         $token = $this->svc($db)->issueFreshToken(42, 'a@b.com');
         $this->assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $token);
     }
+
+    // ── Mid-campaign suppression (CASL-critical) ──────────────────────────
+
+    public function testProcessBatchSuppressesUnsubscribedRecipientAndDoesNotSend(): void
+    {
+        $pendingSel = $this->createMock(PDOStatement::class);
+        $pendingSel->method('execute')->willReturn(true);
+        $pendingSel->method('fetchAll')->willReturn([
+            ['id' => 1, 'contact_id' => 5, 'email' => 'gone@x.com', 'first_name' => 'A'],
+        ]);
+
+        $supSel = $this->createMock(PDOStatement::class);
+        $supSel->method('execute')->willReturn(true);
+        $supSel->method('fetchAll')->willReturn(['gone@x.com']); // on do-not-contact list
+
+        $unsubUpd = $this->createMock(PDOStatement::class);
+        $unsubUpd->expects($this->once())->method('execute')->willReturn(true);
+
+        $generic = $this->createMock(PDOStatement::class);
+        $generic->method('execute')->willReturn(true);
+        $generic->method('fetchColumn')->willReturn(0);
+
+        $db = $this->createMock(PDO::class);
+        $db->method('prepare')->willReturnCallback(
+            function (string $sql) use ($pendingSel, $supSel, $unsubUpd, $generic): PDOStatement {
+                if (stripos($sql, "FROM campaign_sends cs") !== false)            return $pendingSel;
+                if (stripos($sql, "FROM marketing_unsubscribes") !== false)        return $supSel;
+                if (stripos($sql, "status='unsubscribed'") !== false)              return $unsubUpd;
+                return $generic;
+            }
+        );
+        $countStmt = $this->createMock(PDOStatement::class);
+        $countStmt->method('fetchColumn')->willReturn(0);
+        $db->method('query')->willReturn($countStmt);
+
+        $sent = 0;
+        $result = $this->svc($db)->processBatch(99, 25, function () use (&$sent): array {
+            $sent++; // must never be called for a suppressed recipient
+            return ['success' => true];
+        });
+
+        $this->assertSame(0, $sent, 'sender must NOT be invoked for a suppressed recipient');
+        $this->assertSame(1, $result['suppressed']);
+        $this->assertSame(0, $result['sent']);
+    }
 }

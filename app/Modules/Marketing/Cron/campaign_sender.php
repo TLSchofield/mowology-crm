@@ -78,6 +78,7 @@ try {
 
     $totalSent = 0;
     $totalFailed = 0;
+    $totalSuppressed = 0;
     $campaignsProcessed = 0;
 
     foreach ($campaigns as $campaign) {
@@ -95,6 +96,7 @@ try {
         $remaining = $batchSize - $totalSent;
         $sends = $db->prepare("
             SELECT cs.*, c.first_name, c.last_name, c.email AS contact_email,
+                   c.receive_marketing,
                    p.address, p.city,
                    prod.name AS product_name, prod.base_price AS product_price,
                    prod.description AS product_description
@@ -124,12 +126,43 @@ try {
             continue;
         }
 
+        // CASL: re-check the do-not-contact list immediately before send.
+        // Campaigns send in batches over time; an unsubscribe between
+        // queueing and this batch must be honoured. Suppressed rows are
+        // marked 'unsubscribed' (terminal) so the campaign still completes.
+        $batchEmails = [];
+        foreach ($pendingSends as $ps) {
+            $e = strtolower(trim((string)($ps['contact_email'] ?? $ps['email'] ?? '')));
+            if ($e !== '') { $batchEmails[] = $e; }
+        }
+        $suppressedSet = [];
+        if (!empty($batchEmails)) {
+            $batchEmails = array_values(array_unique($batchEmails));
+            $ph = implode(',', array_fill(0, count($batchEmails), '?'));
+            $supStmt = $db->prepare("SELECT LOWER(email) FROM marketing_unsubscribes WHERE email IN ($ph)");
+            $supStmt->execute($batchEmails);
+            foreach ($supStmt->fetchAll(PDO::FETCH_COLUMN) as $se) {
+                $suppressedSet[(string)$se] = true;
+            }
+        }
+
         foreach ($pendingSends as $send) {
             $email = $send['contact_email'] ?? $send['email'];
             if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
                 $db->prepare("UPDATE campaign_sends SET status = 'failed', error_message = 'Invalid email' WHERE id = ?")
                    ->execute([$send['id']]);
                 $totalFailed++;
+                continue;
+            }
+
+            // Suppress if on do-not-contact list OR marketing consent revoked.
+            $emailLc = strtolower(trim((string)$email));
+            $marketingOff = isset($send['receive_marketing']) && $send['receive_marketing'] !== null
+                            && (int)$send['receive_marketing'] === 0;
+            if (isset($suppressedSet[$emailLc]) || $marketingOff) {
+                $db->prepare("UPDATE campaign_sends SET status = 'unsubscribed', error_message = 'Suppressed: do-not-contact / marketing consent off at send time' WHERE id = ?")
+                   ->execute([$send['id']]);
+                $totalSuppressed++;
                 continue;
             }
 
@@ -236,9 +269,10 @@ try {
     // ── Result ───────────────────────────────────────────────────────
     $result = [
         'success'             => true,
-        'message'             => "Campaign sender: {$totalSent} sent, {$totalFailed} failed, {$campaignsProcessed} campaigns processed",
+        'message'             => "Campaign sender: {$totalSent} sent, {$totalFailed} failed, {$totalSuppressed} suppressed, {$campaignsProcessed} campaigns processed",
         'sent'                => $totalSent,
         'failed'              => $totalFailed,
+        'suppressed'          => $totalSuppressed,
         'campaigns_processed' => $campaignsProcessed,
     ];
 
