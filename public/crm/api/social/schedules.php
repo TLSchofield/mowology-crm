@@ -45,7 +45,7 @@ if ($method === 'POST') {
     $input = json_decode($raw, true) ?: [];
 }
 
-// ── Seasonal cadence: posts per month (Vancouver landscaping) ─────────────
+// ── Generic seasonal cadence fallback (Vancouver landscaping) ────────────
 function seasonalPostsPerMonth(int $month): int {
     $cadence = [
         1 => 1,  // Jan — quiet
@@ -62,6 +62,33 @@ function seasonalPostsPerMonth(int $month): int {
         12 => 1, // Dec — quiet
     ];
     return $cadence[$month] ?? 2;
+}
+
+// ── Load service cadence from products catalogue ──────────────────────────
+// Returns array of 12 integers (Jan-Dec) if a product matches serviceType,
+// or null if no configured cadence found (caller falls back to generic).
+function getProductCadence(PDO $db, string $serviceType): ?array {
+    if (!$serviceType) return null;
+    try {
+        // Check if social_cadence column exists first
+        $colCheck = $db->query("SHOW COLUMNS FROM products LIKE 'social_cadence'");
+        if ($colCheck->rowCount() === 0) return null;
+
+        $stmt = $db->prepare("
+            SELECT social_cadence FROM products
+            WHERE service_type = ? AND social_cadence IS NOT NULL AND social_cadence != ''
+            LIMIT 1
+        ");
+        $stmt->execute([$serviceType]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) return null;
+
+        $parts = array_map('intval', explode(',', $row['social_cadence']));
+        if (count($parts) !== 12) return null;
+        return $parts;
+    } catch (\Throwable $e) {
+        return null;
+    }
 }
 
 // ── Fetch best time slots for a service type ─────────────────────────────
@@ -206,7 +233,8 @@ try {
                 if (!$post) { echo json_encode(['success' => false, 'error' => 'Post not found']); break; }
                 $serviceType = $post['service_type'] ?? '';
             }
-            $bestSlots   = getBestSlots($db, $serviceType);
+            $bestSlots    = getBestSlots($db, $serviceType);
+            $productCadence = ($cadence === 'seasonal') ? getProductCadence($db, $serviceType) : null;
 
             $fromDate = date('Y-m-d');
             $toDate   = date('Y-m-d', strtotime("+{$months} months"));
@@ -221,17 +249,20 @@ try {
                 $mo  = (($curMonth + $m - 1) % 12) + 1;
 
                 if ($cadence === 'seasonal') {
-                    $count = seasonalPostsPerMonth($mo);
+                    // Use product-specific cadence if configured, else generic
+                    $count = $productCadence !== null
+                        ? $productCadence[$mo - 1]
+                        : seasonalPostsPerMonth($mo);
                 } else {
-                    // Fixed: approximate from cadence_days
                     $daysInMo = (int)date('t', mktime(0, 0, 0, $mo, 1, $yr));
                     $count    = max(1, (int)round($daysInMo / $cadenceDays));
                 }
 
+                if ($count === 0) continue; // Month explicitly set to 0 — skip entirely
+
                 $slots = generateSlots($bestSlots, $occupied, $yr, $mo, $count, (string)$postId);
                 foreach ($slots as $s) {
                     $allSlots[] = $s;
-                    // Mark as occupied so subsequent months don't collide
                     $d = substr($s['scheduled_at'], 0, 10);
                     $h = (int)substr($s['scheduled_at'], 11, 2);
                     $occupied[$d][$h] = ($occupied[$d][$h] ?? 0) + 1;
@@ -239,10 +270,11 @@ try {
             }
 
             echo json_encode([
-                'success'    => true,
-                'slots'      => $allSlots,
-                'total'      => count($allSlots),
-                'service_type' => $serviceType,
+                'success'       => true,
+                'slots'         => $allSlots,
+                'total'         => count($allSlots),
+                'service_type'  => $serviceType,
+                'cadence_source'=> ($productCadence !== null) ? 'product' : 'generic',
             ]);
             break;
         }
@@ -274,9 +306,10 @@ try {
             $src = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$src) { echo json_encode(['success' => false, 'error' => 'Post not found']); break; }
 
-            $userId      = (int)($_SESSION['user_id'] ?? 0);
-            $serviceType = $src['service_type'] ?? '';
-            $bestSlots   = getBestSlots($db, $serviceType);
+            $userId         = (int)($_SESSION['user_id'] ?? 0);
+            $serviceType    = $src['service_type'] ?? '';
+            $bestSlots      = getBestSlots($db, $serviceType);
+            $productCadence = ($cadence === 'seasonal') ? getProductCadence($db, $serviceType) : null;
 
             $fromDate = date('Y-m-d');
             $toDate   = date('Y-m-d', strtotime("+{$months} months"));
@@ -292,11 +325,14 @@ try {
                 $mo = (($curMonth + $m - 1) % 12) + 1;
 
                 if ($cadence === 'seasonal') {
-                    $count = seasonalPostsPerMonth($mo);
+                    $count = $productCadence !== null
+                        ? $productCadence[$mo - 1]
+                        : seasonalPostsPerMonth($mo);
                 } else {
                     $daysInMo = (int)date('t', mktime(0, 0, 0, $mo, 1, $yr));
                     $count    = max(1, (int)round($daysInMo / $cadenceDays));
                 }
+                if ($count === 0) continue; // Month set to 0 in product cadence — skip
 
                 $slots = generateSlots($bestSlots, $occupied, $yr, $mo, $count);
                 foreach ($slots as $s) {
@@ -414,9 +450,26 @@ try {
             $tmpl = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$tmpl) { echo json_encode(['success' => false, 'error' => 'Template not found']); break; }
 
-            $userId      = (int)($_SESSION['user_id'] ?? 0);
-            $serviceType = $tmpl['service_type'] ?? '';
-            $bestSlots   = getBestSlots($db, $serviceType);
+            $userId         = (int)($_SESSION['user_id'] ?? 0);
+            $serviceType    = $tmpl['service_type'] ?? '';
+            $bestSlots      = getBestSlots($db, $serviceType);
+            $productCadence = ($cadence === 'seasonal') ? getProductCadence($db, $serviceType) : null;
+
+            // Build caption variants array (cycles through per-post for variety)
+            $captionVariants = [];
+            $rawVariants     = $tmpl['caption_variants'] ?? '';
+            if ($rawVariants) {
+                $decoded = json_decode($rawVariants, true);
+                if (is_array($decoded)) {
+                    foreach ($decoded as $v) {
+                        $v = trim((string)$v);
+                        if ($v !== '') { $captionVariants[] = $v; }
+                    }
+                }
+            }
+            // Always include the base caption_template as the first (fallback) variant
+            array_unshift($captionVariants, $tmpl['caption_template']);
+            $captionVariants = array_values(array_unique($captionVariants));
 
             $fromDate = date('Y-m-d');
             $toDate   = date('Y-m-d', strtotime("+{$months} months"));
@@ -428,8 +481,17 @@ try {
             for ($m = 0; $m < $months; $m++) {
                 $yr = $curYear + (int)floor(($curMonth + $m - 1) / 12);
                 $mo = (($curMonth + $m - 1) % 12) + 1;
-                $count = ($cadence === 'seasonal') ? seasonalPostsPerMonth($mo)
-                    : max(1, (int)round((int)date('t', mktime(0, 0, 0, $mo, 1, $yr)) / $cadenceDays));
+
+                if ($cadence === 'seasonal') {
+                    $count = $productCadence !== null
+                        ? $productCadence[$mo - 1]
+                        : seasonalPostsPerMonth($mo);
+                } else {
+                    $daysInMo = (int)date('t', mktime(0, 0, 0, $mo, 1, $yr));
+                    $count    = max(1, (int)round($daysInMo / $cadenceDays));
+                }
+                if ($count === 0) continue; // Month set to 0 in product cadence — skip
+
                 $slots = generateSlots($bestSlots, $occupied, $yr, $mo, $count);
                 foreach ($slots as $s) {
                     $allSlots[] = $s;
@@ -442,13 +504,6 @@ try {
             if (empty($allSlots)) {
                 echo json_encode(['success' => false, 'error' => 'No available slots found']); break;
             }
-
-            // Resolve placeholder substitutions
-            $caption = str_replace(
-                ['{service}',                           '{neighborhood}', '{city}',      '{date}'],
-                [$serviceType ?: 'landscaping', 'Vancouver',      'Vancouver', date('F j, Y')],
-                $tmpl['caption_template']
-            );
 
             $db->beginTransaction();
 
@@ -479,8 +534,21 @@ try {
                 VALUES (?, ?, ?, 'pending')
             ");
 
+            $variantIdx = 0;
             $createdIds = [];
             foreach ($allSlots as $slot) {
+                // Cycle through caption variants for variety
+                $rawCaption = $captionVariants[$variantIdx % count($captionVariants)];
+                $variantIdx++;
+
+                // Resolve placeholder substitutions for this post's date
+                $postDate = substr($slot['scheduled_at'], 0, 10);
+                $caption  = str_replace(
+                    ['{service}',              '{neighborhood}', '{city}',    '{date}'],
+                    [$serviceType ?: 'landscaping', 'Vancouver', 'Vancouver', date('F j, Y', strtotime($postDate))],
+                    $rawCaption
+                );
+
                 $insPostStmt->execute([
                     $tmpl['name'], $caption, $tmpl['hashtag_preset'],
                     $serviceType, $templateId,

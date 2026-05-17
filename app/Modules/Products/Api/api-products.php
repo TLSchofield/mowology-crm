@@ -185,6 +185,15 @@ try {
                 basename(__FILE__), $e->getMessage(), $e->getFile(), $e->getLine()));
         }
 
+        // Check if social season columns exist (migration 1034)
+        $hasSocialSeason = false;
+        try {
+            $ssCheck = $db->query("SHOW COLUMNS FROM products LIKE 'social_cadence'");
+            $hasSocialSeason = ($ssCheck->rowCount() > 0);
+        } catch (\Throwable $e) {
+            $hasSocialSeason = false;
+        }
+
         // Check if spreader coverage columns exist (migration 601)
         $hasSpreaderData = false;
         try {
@@ -330,6 +339,13 @@ try {
                 $params[] = !empty($data['crew_talking_points']) ? $data['crew_talking_points'] : null;
             }
 
+            if ($hasSocialSeason) {
+                $columns .= ", service_type, social_cadence";
+                $placeholders .= ", ?, ?";
+                $params[] = !empty($data['service_type']) ? trim($data['service_type']) : null;
+                $params[] = !empty($data['social_cadence']) ? trim($data['social_cadence']) : null;
+            }
+
             if ($hasSpreaderData) {
                 $columns .= ", coverage_sqft_per_unit, scotts_spreader_setting";
                 $placeholders .= ", ?, ?";
@@ -436,6 +452,12 @@ try {
                 $params[] = !empty($data['application_rate']) ? $data['application_rate'] : null;
                 $params[] = !empty($data['safety_warnings']) ? $data['safety_warnings'] : null;
                 $params[] = !empty($data['crew_talking_points']) ? $data['crew_talking_points'] : null;
+            }
+
+            if ($hasSocialSeason) {
+                $setClauses .= ", service_type = ?, social_cadence = ?";
+                $params[] = !empty($data['service_type']) ? trim($data['service_type']) : null;
+                $params[] = !empty($data['social_cadence']) ? trim($data['social_cadence']) : null;
             }
 
             if ($hasSpreaderData) {
