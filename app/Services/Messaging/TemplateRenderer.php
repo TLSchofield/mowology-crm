@@ -62,8 +62,64 @@ function renderTemplate(string $templateHtml, array $data): string
  * @param string $unsubscribeUrl Full unsubscribe URL (or empty to omit)
  * @return string                Complete branded HTML email
  */
+/**
+ * Company identity for email footers — sourced from the business
+ * settings the tenant manages on the CRM settings page
+ * (`business_settings` row, edited via /crm/settings.php), NOT
+ * hardcoded. This is the single source of truth so future tenants
+ * get their own footer without code changes.
+ *
+ * Resilient by design: this runs in cron and web contexts; if the
+ * settings row or DB is unavailable the email must still send, so we
+ * fall back to known-good Mowology values (incl. a valid CASL mailing
+ * address) rather than fatal or omit the legally-required address.
+ *
+ * @return array{name:string,address:string,phone:string,email:string}
+ */
+function emailCompanyDetails(): array
+{
+    static $cached = null;
+    if ($cached !== null) {
+        return $cached;
+    }
+
+    // Known-good fallbacks (used if business_settings is empty/unreadable).
+    $d = [
+        'name'    => 'Mowology Landscaping',
+        'address' => '2845 West 15th Ave, Vancouver, BC V6K 3A1',
+        'phone'   => '(604) 358-1818',
+        'email'   => 'info@mowology.ca',
+    ];
+
+    try {
+        if (function_exists('getDB')) {
+            $row = getDB()
+                ->query("SELECT company_name, company_address, company_phone, company_email FROM business_settings WHERE id = 1")
+                ->fetch(PDO::FETCH_ASSOC);
+            if ($row) {
+                if (!empty($row['company_name']))    $d['name']    = trim((string)$row['company_name']);
+                if (!empty($row['company_address']))  $d['address'] = trim((string)$row['company_address']);
+                if (!empty($row['company_phone']))    $d['phone']   = trim((string)$row['company_phone']);
+                if (!empty($row['company_email']))    $d['email']   = trim((string)$row['company_email']);
+            }
+        }
+    } catch (\Throwable $e) {
+        // Non-fatal: keep fallbacks, never block an email send on settings.
+        error_log('emailCompanyDetails: settings read failed, using fallbacks — ' . $e->getMessage());
+    }
+
+    $cached = $d;
+    return $cached;
+}
+
 function wrapInBrandedEmail(string $bodyHtml, string $unsubscribeUrl = ''): string
 {
+    $co = emailCompanyDetails();
+    $coName    = htmlspecialchars($co['name'], ENT_QUOTES, 'UTF-8');
+    $coAddress = htmlspecialchars($co['address'], ENT_QUOTES, 'UTF-8');
+    $coPhone   = htmlspecialchars($co['phone'], ENT_QUOTES, 'UTF-8');
+    $coEmail   = htmlspecialchars($co['email'], ENT_QUOTES, 'UTF-8');
+
     $unsubscribeBlock = '';
     if (!empty($unsubscribeUrl)) {
         $safeUrl = htmlspecialchars($unsubscribeUrl, ENT_QUOTES, 'UTF-8');
@@ -96,9 +152,9 @@ function wrapInBrandedEmail(string $bodyHtml, string $unsubscribeUrl = ''): stri
 <!-- Footer -->
 <tr>
   <td style="background:#0D3B2E;padding:20px 32px;text-align:center;color:#8fa89c;font-size:12px;">
-    <p style="margin:0 0 4px;">Mowology Landscaping</p>
-    <p style="margin:0 0 4px;">2845 West 15th Ave, Vancouver, BC V6K 3A1</p>
-    <p style="margin:0 0 4px;">📞 (604) 358-1818 &bull; 📧 info@mowology.ca</p>
+    <p style="margin:0 0 4px;">' . $coName . '</p>
+    <p style="margin:0 0 4px;">' . $coAddress . '</p>
+    <p style="margin:0 0 4px;">📞 ' . $coPhone . ' &bull; 📧 ' . $coEmail . '</p>
     ' . $unsubscribeBlock . '
   </td>
 </tr>
