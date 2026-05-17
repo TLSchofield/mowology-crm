@@ -453,6 +453,7 @@ try {
             $title       = trim($input['title'] ?? '');
             $caption     = trim($input['caption'] ?? '');
             $hashtags    = trim($input['hashtags'] ?? '');
+            $hashtagsInComment = !empty($input['hashtags_in_comment']) ? 1 : 0;
             $ctaAction   = trim($input['cta_action'] ?? '');
             $ctaUrl      = trim($input['cta_url'] ?? '');
             $neighborhood = trim($input['neighborhood'] ?? '');
@@ -521,13 +522,15 @@ try {
 
                 $db->prepare("
                     UPDATE social_posts
-                    SET title        = ?, caption      = ?, hashtags     = ?,
-                        cta_action   = ?, cta_url      = ?, neighborhood = ?,
-                        city         = ?, service_type = ?, template_id  = ?,
-                        scheduled_at = ?, status       = ?, updated_at   = NOW()
+                    SET title               = ?, caption      = ?, hashtags            = ?,
+                        hashtags_in_comment = ?,
+                        cta_action          = ?, cta_url      = ?, neighborhood        = ?,
+                        city                = ?, service_type = ?, template_id         = ?,
+                        scheduled_at        = ?, status       = ?, updated_at          = NOW()
                     WHERE id = ?
                 ")->execute([
                     $title ?: null, $caption, $hashtags ?: null,
+                    $hashtagsInComment,
                     $ctaAction ?: null, $ctaUrl ?: null, $neighborhood ?: null,
                     $city, $serviceType ?: null, $templateId,
                     $scheduledAt, $status, $id
@@ -537,11 +540,12 @@ try {
                 // Insert new
                 $db->prepare("
                     INSERT INTO social_posts
-                        (title, caption, hashtags, cta_action, cta_url, neighborhood,
-                         city, service_type, template_id, scheduled_at, status, created_by)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        (title, caption, hashtags, hashtags_in_comment, cta_action, cta_url,
+                         neighborhood, city, service_type, template_id, scheduled_at, status, created_by)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ")->execute([
                     $title ?: null, $caption, $hashtags ?: null,
+                    $hashtagsInComment,
                     $ctaAction ?: null, $ctaUrl ?: null, $neighborhood ?: null,
                     $city, $serviceType ?: null, $templateId,
                     $scheduledAt, $status, $user['id']

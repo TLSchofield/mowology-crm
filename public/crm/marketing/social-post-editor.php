@@ -86,7 +86,15 @@ $canApprove = userHasPermission('marketing.approve');
                       <div class="card-body">
                           <textarea class="form-control" id="postHashtags" rows="2"
                               placeholder="#VancouverLandscaping #Mowology #LawnCare"></textarea>
-                          <small class="text-muted">Space-separated. Will be appended to caption when publishing.</small>
+                          <div class="d-flex align-items-center justify-content-between mt-2">
+                              <small class="text-muted" id="hashtagHint">Space-separated. Will be appended to caption when publishing.</small>
+                              <div class="custom-control custom-switch ml-3" style="white-space:nowrap">
+                                  <input type="checkbox" class="custom-control-input" id="hashtagsInComment">
+                                  <label class="custom-control-label small" for="hashtagsInComment">
+                                      Post in first comment <span class="badge badge-pill badge-secondary" style="font-size:10px">Instagram only</span>
+                                  </label>
+                              </div>
+                          </div>
                       </div>
                   </div>
 
@@ -339,6 +347,8 @@ $canApprove = userHasPermission('marketing.approve');
                           document.getElementById('postTitle').value       = p.title || '';
                           document.getElementById('postCaption').value     = p.caption || '';
                           document.getElementById('postHashtags').value    = p.hashtags || '';
+                          document.getElementById('hashtagsInComment').checked = !!parseInt(p.hashtags_in_comment || 0);
+                          updateHashtagHint();
                           document.getElementById('postNeighborhood').value = p.neighborhood || '';
                           document.getElementById('postCity').value        = p.city || 'Vancouver';
                           document.getElementById('postServiceType').value = p.service_type || '';
@@ -757,6 +767,17 @@ $canApprove = userHasPermission('marketing.approve');
               });
               document.getElementById('postHashtags').addEventListener('input', updatePreview);
 
+              function updateHashtagHint() {
+                  var inComment = document.getElementById('hashtagsInComment').checked;
+                  document.getElementById('hashtagHint').textContent = inComment
+                      ? 'Hashtags will be posted as the first comment on Instagram (caption stays clean).'
+                      : 'Space-separated. Will be appended to caption when publishing.';
+              }
+              document.getElementById('hashtagsInComment').addEventListener('change', function() {
+                  updateHashtagHint();
+                  updatePreview();
+              });
+
               // ── Schedule presets ───────────────────────────────────
               window.setPreset = function(hour, daysAhead) {
                   var d = new Date();
@@ -786,7 +807,8 @@ $canApprove = userHasPermission('marketing.approve');
                       id:                editId,
                       title:             document.getElementById('postTitle').value,
                       caption:           document.getElementById('postCaption').value,
-                      hashtags:          document.getElementById('postHashtags').value,
+                      hashtags:              document.getElementById('postHashtags').value,
+                      hashtags_in_comment:   document.getElementById('hashtagsInComment').checked ? 1 : 0,
                       neighborhood:      document.getElementById('postNeighborhood').value,
                       city:              document.getElementById('postCity').value,
                       service_type:      document.getElementById('postServiceType').value,

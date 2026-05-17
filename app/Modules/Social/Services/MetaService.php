@@ -38,7 +38,7 @@ class MetaService
     // to an Instagram Business account linked to a Facebook Page.
     // The page access token inherits these scopes from the user token used to generate it,
     // so all required scopes must be requested during the initial OAuth flow.
-    private const FB_SCOPES = 'pages_show_list,pages_read_engagement,pages_manage_posts,instagram_content_publish,instagram_basic';
+    private const FB_SCOPES = 'pages_show_list,pages_read_engagement,pages_manage_posts,instagram_content_publish,instagram_basic,instagram_manage_comments';
 
     // ── OAuth ────────────────────────────────────────────────────────
 
@@ -346,8 +346,10 @@ class MetaService
             throw new RuntimeException('Instagram requires at least one image. Add media to this post before publishing to Instagram.');
         }
 
-        $caption    = self::buildCaption($post, 2200);
-        $mediaCount = count($mediaUrls);
+        // When hashtags_in_comment is set, keep caption clean and post hashtags separately
+        $firstComment    = !empty($post['hashtags_in_comment']) ? trim($post['hashtags'] ?? '') : '';
+        $caption         = self::buildCaption($post, 2200, (bool)$firstComment);
+        $mediaCount      = count($mediaUrls);
 
         if ($mediaCount === 1) {
             // Single image: create container → publish
@@ -366,6 +368,12 @@ class MetaService
             self::assertNoError($published, 'Instagram media publish');
 
             $mediaId = $published['id'] ?? '';
+
+            // Post hashtags as first comment if flag is set
+            if ($firstComment && $mediaId) {
+                self::postInstagramComment($mediaId, $firstComment, $pageToken);
+            }
+
             return [
                 'success'  => true,
                 'post_id'  => $mediaId,
@@ -401,12 +409,38 @@ class MetaService
         self::assertNoError($published, 'Instagram carousel publish');
 
         $mediaId = $published['id'] ?? '';
+
+        // Post hashtags as first comment if flag is set
+        if ($firstComment && $mediaId) {
+            self::postInstagramComment($mediaId, $firstComment, $pageToken);
+        }
+
         return [
             'success'  => true,
             'post_id'  => $mediaId,
             'url'      => "https://www.instagram.com/p/{$mediaId}",
             'response' => $published,
         ];
+    }
+
+    /**
+     * Post a comment on an Instagram media object (e.g. first-comment hashtags).
+     * Non-fatal — logs on failure so a comment error never blocks the publish.
+     * Requires instagram_manage_comments scope.
+     */
+    public static function postInstagramComment(string $igMediaId, string $text, string $pageToken): void
+    {
+        try {
+            $result = self::graphPost("{$igMediaId}/comments", [
+                'message'      => $text,
+                'access_token' => $pageToken,
+            ]);
+            if (isset($result['error'])) {
+                error_log('MetaService::postInstagramComment failed: ' . json_encode($result['error']));
+            }
+        } catch (\Throwable $e) {
+            error_log('MetaService::postInstagramComment exception: ' . $e->getMessage());
+        }
     }
 
     // ── Metrics ──────────────────────────────────────────────────────
@@ -533,12 +567,14 @@ class MetaService
 
     /**
      * Build and sanitize post caption with hashtags and variable substitution.
+     *
+     * @param bool $stripHashtags When true, hashtags are omitted (posted separately as first comment).
      */
-    private static function buildCaption(array $post, int $maxLen): string
+    private static function buildCaption(array $post, int $maxLen, bool $stripHashtags = false): string
     {
         $caption = trim($post['caption'] ?? '');
 
-        if (!empty($post['hashtags'])) {
+        if (!$stripHashtags && !empty($post['hashtags'])) {
             $caption .= "\n\n" . trim($post['hashtags']);
         }
 
