@@ -83,7 +83,7 @@ try {
         FROM job_plans jp
         JOIN quotes q ON jp.quote_id = q.id
         JOIN expenses e ON e.job_id = jp.id
-        WHERE jp.is_active = 1
+        WHERE jp.status = 'active'
           AND e.status != 'rejected'
           AND q.status NOT IN ('draft')
         LIMIT 200
