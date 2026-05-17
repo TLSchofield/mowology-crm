@@ -157,8 +157,16 @@ $canApprove = userHasPermission('marketing.approve');
 
                   <!-- Platforms -->
                   <div class="card mb-3">
-                      <div class="card-header"><h5 class="mb-0">Publish To</h5></div>
+                      <div class="card-header d-flex justify-content-between align-items-center">
+                          <h5 class="mb-0">
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-1" style="vertical-align:-1px"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+                              Publish To
+                          </h5>
+                          <span class="badge badge-pill badge-secondary" id="platformCount" style="display:none"></span>
+                      </div>
                       <div class="card-body">
+                          <!-- Partial-publish warning (shown when status = published/publishing with failures) -->
+                          <div id="partialBanner" style="display:none"></div>
                           <div id="platformToggles">
                               <div class="mw-soc-loading">Loading connected accounts...</div>
                           </div>
@@ -167,30 +175,41 @@ $canApprove = userHasPermission('marketing.approve');
 
                   <!-- Schedule -->
                   <div class="card mb-3">
-                      <div class="card-header"><h5 class="mb-0">Schedule</h5></div>
+                      <div class="card-header d-flex align-items-center">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--mw-green)" stroke-width="2" class="mr-2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                          <h5 class="mb-0">Schedule</h5>
+                      </div>
                       <div class="card-body">
-                          <div class="row align-items-center">
-                              <div class="col-md-6">
+                          <div class="row">
+                              <div class="col-md-7">
                                   <div class="form-group mb-0">
-                                      <label>Publish Date &amp; Time</label>
-                                      <input type="datetime-local" class="form-control" id="postSchedule"
-                                          value="<?php echo $preSchedule; ?>">
-                                      <small class="text-muted">Leave blank to save as draft without scheduling.</small>
+                                      <label class="small font-weight-bold text-muted text-uppercase" style="letter-spacing:.04em;font-size:.68rem;">Publish Date &amp; Time</label>
+                                      <div class="mw-soc-schedule-wrap">
+                                          <span class="mw-soc-schedule-wrap-icon">
+                                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                          </span>
+                                          <input type="datetime-local" class="form-control" id="postSchedule"
+                                              value="<?php echo $preSchedule; ?>">
+                                      </div>
+                                      <div class="d-flex align-items-center justify-content-between mt-1">
+                                          <small class="text-muted">Leave blank to save as a draft.</small>
+                                          <button class="btn btn-sm" id="btnSuggestedTime" style="display:none;background:var(--mw-lime);color:#1a3a2a;border:none;font-size:.72rem;padding:2px 8px;" onclick="applySuggestedTime()" title="AI-suggested optimal posting time">
+                                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="mr-1"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                              <span id="suggestedTimeLabel">Suggested</span>
+                                          </button>
+                                      </div>
                                       <!-- Schedule busy-day strip: 7-day week view centered on selected date -->
                                       <div class="mw-soc-pulse-strip mt-2" id="schedBusyStrip" style="display:none;"></div>
                                       <div style="font-size:.68rem;color:#6c757d;margin-top:2px;" id="schedBusyHint"></div>
                                   </div>
                               </div>
-                              <div class="col-md-6">
+                              <div class="col-md-5 mt-3 mt-md-0">
+                                  <label class="small font-weight-bold text-muted text-uppercase d-block" style="letter-spacing:.04em;font-size:.68rem;">Quick presets</label>
                                   <div class="mw-soc-time-presets">
-                                      <label class="d-block">Quick presets</label>
                                       <button class="btn btn-sm btn-outline-secondary" onclick="setPreset(9,0)">9am Today</button>
                                       <button class="btn btn-sm btn-outline-secondary" onclick="setPreset(9,1)">9am Tomorrow</button>
                                       <button class="btn btn-sm btn-outline-secondary" onclick="setPreset(12,0)">Noon Today</button>
-                                      <button class="btn btn-sm" id="btnSuggestedTime" style="display:none;background:var(--mw-lime);color:#1a3a2a;border:none" onclick="applySuggestedTime()" title="AI-suggested optimal posting time based on service type and day">
-                                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="mr-1"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                                          <span id="suggestedTimeLabel">Suggested</span>
-                                      </button>
+                                      <button class="btn btn-sm btn-outline-secondary" onclick="setPreset(17,0)">5pm Today</button>
                                   </div>
                               </div>
                           </div>
@@ -289,23 +308,39 @@ $canApprove = userHasPermission('marketing.approve');
                   <div class="card mw-soc-action-card">
                       <div class="card-body">
                           <div class="mw-soc-status-row mb-3" id="currentStatusRow"></div>
-                          <div class="d-grid gap-2">
+                          <!-- Normal edit actions (hidden for published/publishing posts) -->
+                          <div id="normalActions">
+                              <div class="d-grid gap-2">
+                                  <?php if ($canApprove): ?>
+                                  <button class="btn btn-success btn-lg" onclick="schedulePost()" id="btnSchedule">
+                                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                      Approve &amp; Schedule
+                                  </button>
+                                  <?php endif; ?>
+                                  <button class="btn btn-outline-success" onclick="savePost('pending_approval')" id="btnSubmit">
+                                      Submit for Approval
+                                  </button>
+                                  <button class="btn btn-outline-secondary" id="btnDraft" onclick="savePost('draft')">
+                                      Save Draft
+                                  </button>
+                                  <?php if ($editId && $canApprove): ?>
+                                  <button class="btn btn-outline-danger" onclick="cancelPost()" id="btnCancel">
+                                      Cancel Post
+                                  </button>
+                                  <?php endif; ?>
+                              </div>
+                          </div>
+                          <!-- Retry actions (shown for published/publishing posts with failures) -->
+                          <div id="retryActions" style="display:none;">
                               <?php if ($canApprove): ?>
-                              <button class="btn btn-success btn-lg" onclick="schedulePost()" id="btnSchedule">
-                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                                  Approve &amp; Schedule
+                              <button class="btn btn-warning btn-lg btn-block w-100" onclick="retryPost()" id="btnRetry">
+                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-1"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                                  Retry Failed Platforms
                               </button>
-                              <?php endif; ?>
-                              <button class="btn btn-outline-success" onclick="savePost('pending_approval')" id="btnSubmit">
-                                  Submit for Approval
-                              </button>
-                              <button class="btn btn-outline-secondary" id="btnDraft" onclick="savePost('draft')">
-                                  Save Draft
-                              </button>
-                              <?php if ($editId && $canApprove): ?>
-                              <button class="btn btn-outline-danger" onclick="cancelPost()" id="btnCancel">
-                                  Cancel Post
-                              </button>
+                              <?php else: ?>
+                              <div class="alert alert-info mb-0 text-center" style="font-size:.82rem;">
+                                  Some platforms failed to publish. An admin can retry.
+                              </div>
                               <?php endif; ?>
                           </div>
 
@@ -509,20 +544,82 @@ $canApprove = userHasPermission('marketing.approve');
                           });
                           updateMediaSelection();
 
-                          // Pre-select platforms
+                          // Pre-select platforms + detect partial publish
                           selectedAccounts = (p.platforms || []).map(function(pp) {
                               return {platform: pp.platform, account_id: pp.account_id};
                           });
 
+                          var isPublishedOrPublishing = (p.status === 'published' || p.status === 'publishing');
+                          var failedPlatforms = (p.platforms || []).filter(function(pp) {
+                              return pp.status !== 'published';
+                          });
+                          var hasFailures = isPublishedOrPublishing && failedPlatforms.length > 0;
+
+                          // Build statusMap for platform rows (for published/publishing state)
+                          var sMap = null;
+                          if (isPublishedOrPublishing) {
+                              sMap = {};
+                              (p.platforms || []).forEach(function(pp) {
+                                  sMap[pp.account_id] = { status: pp.status, fail_reason: pp.fail_reason || '' };
+                              });
+                          }
+
+                          var doRenderRows = function() {
+                              if (isPublishedOrPublishing) {
+                                  renderPlatformRows(sMap, true); // readonly + status chips
+                              } else {
+                                  renderPlatformRows(null, false);
+                              }
+                          };
+
+                          if (allAccounts.length) {
+                              doRenderRows();
+                          } else {
+                              // accounts not loaded yet — defer
+                              deferredPlatformRender = doRenderRows;
+                          }
+
+                          // Show partial-publish banner
+                          var banner = document.getElementById('partialBanner');
+                          if (banner) {
+                              if (hasFailures) {
+                                  var failedNames = failedPlatforms.map(function(pp) { return pp.platform; }).join(', ');
+                                  banner.innerHTML = '<div class="mw-soc-partial-banner">'
+                                      + '<div class="mw-soc-partial-banner-icon">&#9888;</div>'
+                                      + '<div class="mw-soc-partial-banner-body">'
+                                      + '<div class="mw-soc-partial-banner-title">Partial publish — some platforms failed</div>'
+                                      + '<div class="mw-soc-partial-banner-msg">This post published to some platforms successfully. Failed: <strong>' + esc(failedNames) + '</strong>. Use the retry button to re-queue the failed platforms.</div>'
+                                      + '</div>'
+                                      + '</div>';
+                                  banner.style.display = '';
+                              } else {
+                                  banner.style.display = 'none';
+                              }
+                          }
+
+                          // Switch action buttons: retry vs normal
+                          var normalEl = document.getElementById('normalActions');
+                          var retryEl  = document.getElementById('retryActions');
+                          if (isPublishedOrPublishing) {
+                              if (normalEl) normalEl.style.display = 'none';
+                              if (hasFailures && retryEl) retryEl.style.display = '';
+                          }
+
                           // Show current status
-                          var statusMap = {
+                          var statusLabels = {
                               draft: 'Draft', pending_approval: 'Awaiting Approval',
-                              approved: 'Approved', scheduled: 'Scheduled', published: 'Published', failed: 'Failed'
+                              approved: 'Approved', scheduled: 'Scheduled',
+                              published: 'Published', publishing: 'Publishing…', failed: 'Failed', cancelled: 'Cancelled'
                           };
                           var statusRow = document.getElementById('currentStatusRow');
                           if (p.status) {
-                              statusRow.innerHTML = '<span class="text-muted small">Current status:</span> '
-                                  + '<span class="mw-soc-badge mw-soc-badge-' + p.status + '">' + esc(statusMap[p.status] || p.status) + '</span>';
+                              statusRow.innerHTML = '<span class="text-muted small">Status:</span> '
+                                  + '<span class="mw-soc-badge mw-soc-badge-' + p.status + '">' + esc(statusLabels[p.status] || p.status) + '</span>';
+                              if (p.last_fail_reason) {
+                                  statusRow.innerHTML += '<div class="text-danger small mt-1" style="font-size:.72rem;">'
+                                      + '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="mr-1"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>'
+                                      + esc(p.last_fail_reason) + '</div>';
+                              }
                           }
 
                           updateCharCount();
@@ -749,6 +846,10 @@ $canApprove = userHasPermission('marketing.approve');
               }
 
               // ── Load connected accounts ────────────────────────────
+              var allAccounts = []; // cache for use by renderPlatformRows
+              // Deferred platform render state (set by loadPost if accounts not yet loaded)
+              var deferredPlatformRender = null; // fn to call once allAccounts is populated
+
               function loadAccounts() {
                   fetch('/crm/api/social/accounts.php?action=list')
                       .then(function(r) { return r.json(); })
@@ -760,25 +861,129 @@ $canApprove = userHasPermission('marketing.approve');
                                   + '</div>';
                               return;
                           }
-
-                          var platformNames = { gbp: 'Google Business Profile', facebook: 'Facebook Page', instagram: 'Instagram Business', linkedin: 'LinkedIn' };
-                          var html = '';
-                          data.accounts.forEach(function(a) {
-                              var checked = selectedAccounts.some(function(x) { return x.account_id == a.id; });
-                              html += '<div class="mw-soc-platform-toggle">';
-                              html += '  <label class="d-flex align-items-center gap-2 mb-0 cursor-pointer">';
-                              html += '    <input type="checkbox" class="mw-soc-platform-chk" data-platform="' + esc(a.platform) + '" data-account="' + a.id + '"'
-                                   + (checked ? ' checked' : '') + ' onchange="updateSelectedAccounts()">';
-                              html += '    <span class="mw-soc-platform-pill mw-soc-pl-' + esc(a.platform) + '">'
-                                   + platformIcons[a.platform] + '</span>';
-                              html += '    <strong>' + esc(a.location_name_display || a.account_name) + '</strong>';
-                              html += '    <span class="text-muted small">(' + esc(platformNames[a.platform] || a.platform) + ')</span>';
-                              html += '  </label>';
-                              html += '</div>';
-                          });
-                          container.innerHTML = html;
+                          allAccounts = data.accounts;
+                          // If loadPost already ran and left a deferred render, call it now
+                          if (deferredPlatformRender) {
+                              deferredPlatformRender();
+                              deferredPlatformRender = null;
+                          } else {
+                              renderPlatformRows(null, false); // initial render without status overlay
+                          }
                       });
               }
+
+              /**
+               * Render platform rows.
+               * statusMap: optional {account_id: {status, fail_reason}} from loaded post platforms
+               * readonly: if true, hide checkboxes and show status chips only
+               */
+              function renderPlatformRows(statusMap, readonly) {
+                  var container = document.getElementById('platformToggles');
+                  if (!allAccounts.length) return;
+
+                  var platformNames = {
+                      gbp:       'Google Business Profile',
+                      facebook:  'Facebook Page',
+                      instagram: 'Instagram Business',
+                      linkedin:  'LinkedIn'
+                  };
+
+                  var platformIconsSvg = {
+                      gbp:       '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>',
+                      facebook:  '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 2h-3a5 5 0 00-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 011-1h3z"/></svg>',
+                      instagram: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M16 11.37A4 4 0 1112.63 8 4 4 0 0116 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>',
+                      linkedin:  '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 8a6 6 0 016 6v7h-4v-7a2 2 0 00-2-2 2 2 0 00-2 2v7h-4v-7a6 6 0 016-6z"/><rect x="2" y="9" width="4" height="12"/><circle cx="4" cy="4" r="2"/></svg>',
+                  };
+
+                  var statusLabels = {
+                      published:  'Published',
+                      failed:     'Failed',
+                      pending:    'Pending',
+                      processing: 'Processing',
+                  };
+                  var statusCls = {
+                      published:  'mw-soc-pub-chip-published',
+                      failed:     'mw-soc-pub-chip-failed',
+                      pending:    'mw-soc-pub-chip-pending',
+                      processing: 'mw-soc-pub-chip-processing',
+                  };
+
+                  var html = '';
+                  allAccounts.forEach(function(a) {
+                      var checked  = selectedAccounts.some(function(x) { return x.account_id == a.id; });
+                      var platName = platformNames[a.platform] || a.platform;
+                      var dispName = esc(a.location_name_display || a.account_name);
+                      var iconSvg  = platformIconsSvg[a.platform] || '';
+                      var rowCls   = 'mw-soc-platform-row' + (readonly ? ' mw-row-readonly' : '') + (checked && !readonly ? ' mw-row-selected' : '');
+
+                      var badgeHtml = '';
+                      if (statusMap && statusMap[a.id]) {
+                          var st   = statusMap[a.id].status || 'pending';
+                          var fr   = statusMap[a.id].fail_reason || '';
+                          var chip = '<span class="mw-soc-pub-chip ' + (statusCls[st] || 'mw-soc-pub-chip-pending') + '">'
+                                   + (st === 'published' ? '&#10003; ' : st === 'failed' ? '&#10007; ' : '&#9679; ')
+                                   + esc(statusLabels[st] || st) + '</span>';
+                          var failNote = '';
+                          if (fr && st === 'failed') {
+                              // Show a short excerpt of the fail reason
+                              var shortFr = fr.length > 60 ? fr.substring(0, 60) + '…' : fr;
+                              failNote = '<div style="font-size:.7rem;color:#721c24;margin-top:4px;" title="' + esc(fr) + '">' + esc(shortFr) + '</div>';
+                          }
+                          badgeHtml = '<div class="mw-soc-platform-row-badge">' + chip + failNote + '</div>';
+                      } else if (!readonly) {
+                          // Checkbox mode
+                          badgeHtml = '<input type="checkbox" class="mw-soc-platform-chk" data-platform="' + esc(a.platform) + '" data-account="' + a.id + '"'
+                                    + (checked ? ' checked' : '') + ' onchange="onPlatformChkChange(this,this.closest(\'.mw-soc-platform-row\'))">';
+                      }
+
+                      html += '<div class="' + rowCls + '"'
+                            + (!readonly ? ' onclick="togglePlatformRow(this,' + a.id + ',\'' + esc(a.platform) + '\')"' : '')
+                            + '>';
+                      html += '<div class="mw-soc-platform-row-icon mw-soc-platform-row-icon-' + esc(a.platform) + '">' + iconSvg + '</div>';
+                      html += '<div class="mw-soc-platform-row-info">';
+                      html += '  <div class="mw-soc-platform-row-name">' + dispName + '</div>';
+                      html += '  <div class="mw-soc-platform-row-sub">' + esc(platName) + '</div>';
+                      html += '</div>';
+                      html += badgeHtml;
+                      html += '</div>';
+                  });
+                  container.innerHTML = html;
+
+                  // Update platform count badge in card header
+                  var countBadge = document.getElementById('platformCount');
+                  if (countBadge) {
+                      if (!readonly) {
+                          var selCount = selectedAccounts.length;
+                          if (selCount > 0) {
+                              countBadge.textContent = selCount + ' selected';
+                              countBadge.style.display = '';
+                          } else {
+                              countBadge.style.display = 'none';
+                          }
+                      } else {
+                          countBadge.style.display = 'none';
+                      }
+                  }
+              }
+
+              window.togglePlatformRow = function(row, accountId, platform) {
+                  // Don't toggle if readonly
+                  if (row.classList.contains('mw-row-readonly')) return;
+                  var chk = row.querySelector('.mw-soc-platform-chk');
+                  if (!chk) return;
+                  // The checkbox handles its own state via onchange — clicking the row should toggle it
+                  if (document.activeElement !== chk) {
+                      chk.checked = !chk.checked;
+                      onPlatformChkChange(chk, row);
+                  }
+              };
+
+              window.onPlatformChkChange = function(chk, row) {
+                  if (row) {
+                      row.classList.toggle('mw-row-selected', chk.checked);
+                  }
+                  updateSelectedAccounts();
+              };
 
               window.updateSelectedAccounts = function() {
                   selectedAccounts = [];
@@ -788,6 +993,17 @@ $canApprove = userHasPermission('marketing.approve');
                           account_id: parseInt(chk.dataset.account),
                       });
                   });
+                  // Update count badge
+                  var countBadge = document.getElementById('platformCount');
+                  if (countBadge) {
+                      var n = selectedAccounts.length;
+                      if (n > 0) {
+                          countBadge.textContent = n + ' selected';
+                          countBadge.style.display = '';
+                      } else {
+                          countBadge.style.display = 'none';
+                      }
+                  }
               };
 
               // ── Media library selection ────────────────────────────
@@ -1064,6 +1280,38 @@ $canApprove = userHasPermission('marketing.approve');
                       body: JSON.stringify({id: editId, csrf_token: csrf})
                   }).then(function(r) { return r.json(); }).then(function(data) {
                       if (data.success) window.location.href = '/crm/marketing/social.php';
+                  });
+              };
+
+              window.retryPost = function() {
+                  if (inFlight) return;
+                  var btn = document.getElementById('btnRetry');
+                  if (!btn) return;
+
+                  inFlight = true;
+                  var origHtml = btn.innerHTML;
+                  btn.disabled = true;
+                  btn.innerHTML = '<span class="spinner-border spinner-border-sm mr-1"></span>Queueing retry…';
+
+                  fetch('/crm/api/social/posts.php?action=retry', {
+                      method: 'POST',
+                      headers: {'Content-Type': 'application/json'},
+                      body: JSON.stringify({id: editId, csrf_token: csrf})
+                  }).then(function(r) { return r.json(); }).then(function(data) {
+                      inFlight = false;
+                      if (data.success) {
+                          window.location.href = '/crm/marketing/social.php?msg='
+                              + encodeURIComponent('Retry queued — failed platforms will publish within a few minutes.');
+                      } else {
+                          btn.disabled = false;
+                          btn.innerHTML = origHtml;
+                          alert('Retry failed: ' + (data.error || 'Unknown error'));
+                      }
+                  }).catch(function() {
+                      inFlight = false;
+                      btn.disabled = false;
+                      btn.innerHTML = origHtml;
+                      alert('Network error — please try again.');
                   });
               };
 
