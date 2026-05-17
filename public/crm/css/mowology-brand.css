@@ -21852,15 +21852,11 @@ body.mw-no-scroll {
 .mw-crop-image-wrap {
     background: #1a1a1a;
     border-radius: 6px;
-    overflow: hidden;
-    max-height: 420px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    /* No overflow:hidden — Cropper.js renders drag handles outside the image boundary */
+    max-height: 440px;
 }
 .mw-crop-image-wrap img {
     max-width: 100%;
-    max-height: 420px;
     display: block;
 }
 .mw-crop-ratio-btns {

@@ -1171,40 +1171,69 @@ $extraHead = '
                   if (!meta) return;
                   cropSourceMediaId = mediaId;
 
-                  var imgEl = document.getElementById('cropImg');
-                  imgEl.src = '';
-                  imgEl.src = meta.url + (meta.url.indexOf('?') === -1 ? '?' : '&') + '_c=' + Date.now();
-
-                  // Destroy previous instance
+                  // Destroy any existing Cropper instance first
                   if (cropperInstance) { cropperInstance.destroy(); cropperInstance = null; }
 
-                  // Update ratio status to loading
-                  document.getElementById('cropRatioStatus').className = 'mw-crop-ratio-status mw-crop-ratio-info';
-                  document.getElementById('cropRatioStatus').textContent = 'Loading image…';
+                  var imgEl    = document.getElementById('cropImg');
+                  var statusEl = document.getElementById('cropRatioStatus');
 
-                  $('#cropModal').modal('show');
+                  statusEl.className   = 'mw-crop-ratio-status mw-crop-ratio-info';
+                  statusEl.textContent = 'Loading image…';
 
-                  // Init Cropper after image loads
-                  imgEl.onload = function() {
+                  // Reset ratio buttons to 1:1
+                  document.querySelectorAll('.mw-crop-ratio-btn').forEach(function(b) {
+                      b.classList.toggle('active', b.dataset.ratio === '1');
+                  });
+
+                  // Two conditions must BOTH be true before Cropper can init:
+                  //   imgLoaded  — image has natural dimensions
+                  //   modalShown — Bootstrap animation finished (container has real pixel size)
+                  var imgLoaded  = false;
+                  var modalShown = false;
+                  var initDone   = false;
+
+                  function tryInit() {
+                      if (!imgLoaded || !modalShown || initDone) return;
+                      initDone = true;
                       if (cropperInstance) { cropperInstance.destroy(); }
                       cropperInstance = new Cropper(imgEl, {
-                          aspectRatio: 1, // start with 1:1
-                          viewMode: 1,
-                          dragMode: 'move',
+                          aspectRatio:  1,       // 1:1 default — safe for all platforms
+                          viewMode:     1,
+                          dragMode:     'move',
                           autoCropArea: 0.85,
-                          responsive: true,
-                          guides: true,
-                          center: true,
-                          background: false,
+                          responsive:   true,
+                          guides:       true,
+                          center:       true,
+                          background:   false,
                           crop: function(e) {
                               updateCropStatus(e.detail.width, e.detail.height);
                           },
                       });
-                      // Set 1:1 as active preset
-                      document.querySelectorAll('.mw-crop-ratio-btn').forEach(function(b) {
-                          b.classList.toggle('active', parseFloat(b.dataset.ratio) === 1);
-                      });
+                  }
+
+                  // Attach onload BEFORE setting src — avoids the race where src loads
+                  // synchronously from cache before the handler is registered
+                  imgEl.onload = function() {
+                      imgLoaded = true;
+                      tryInit();
                   };
+
+                  // Cache-bust so the browser makes a real request and fires onload
+                  // (prevents the case where a cached image fires onload before the handler above)
+                  imgEl.src = '';
+                  imgEl.src = meta.url + (meta.url.indexOf('?') === -1 ? '?' : '&') + '_cb=' + Date.now();
+
+                  // Fallback: if browser marks it complete synchronously (e.g. memory cache)
+                  if (imgEl.complete && imgEl.naturalWidth > 0) {
+                      imgLoaded = true;
+                  }
+
+                  // Show modal; init Cropper only after animation ends (container has real size)
+                  $('#cropModal').one('shown.bs.modal', function() {
+                      modalShown = true;
+                      tryInit();
+                  });
+                  $('#cropModal').modal('show');
               };
 
               function updateCropStatus(w, h) {
