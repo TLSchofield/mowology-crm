@@ -35,6 +35,9 @@ class OptinResendService
     /** @var PDO */
     private $db;
 
+    /** @var array<string,bool> information_schema column-existence cache */
+    private $columnCache = [];
+
     public function __construct(PDO $db)
     {
         $this->db = $db;
@@ -55,10 +58,29 @@ class OptinResendService
      * nobody could confirm). CASL: exclude unsubscribes and anyone who
      * somehow already confirmed.
      *
+     * CASL implied consent: an imported list carries NO consent. Lawful
+     * basis to send even a consent-request email rests on an Existing
+     * Business Relationship — a transaction (quote/invoice) within ~24
+     * months, or a recent inquiry (~6 months). With $ebrOnly = true
+     * (default) cold-imported contacts with no real relationship are
+     * excluded entirely. Pass false only for the audience breakdown.
+     *
      * @return array<int,array{contact_id:int,email:string,first_name:string}>
      */
-    public function findRecipients(): array
+    public function findRecipients(bool $ebrOnly = true): array
     {
+        $ebrClause = '';
+        if ($ebrOnly) {
+            $ebr = $this->ebrPredicate();
+            if ($ebr === null) {
+                // EBR could not be evaluated on this deployment. Fail
+                // CLOSED — never silently email a no-consent list.
+                error_log('OptinResendService: EBR predicate unbuildable — refusing to select recipients.');
+                return [];
+            }
+            $ebrClause = " AND ( $ebr )";
+        }
+
         $sql = "
             SELECT c.id AS contact_id, c.email, c.first_name
             FROM contacts c
@@ -80,6 +102,7 @@ class OptinResendService
                   SELECT 1 FROM marketing_unsubscribes mu
                   WHERE mu.email = c.email
               )
+              $ebrClause
             ORDER BY c.id ASC
         ";
         $rows = $this->db->query($sql)->fetchAll(PDO::FETCH_ASSOC);
@@ -97,6 +120,90 @@ class OptinResendService
             ];
         }
         return $out;
+    }
+
+    /**
+     * Total who got the original broken send, split by whether they have
+     * a CASL Existing Business Relationship. Lets the dry-run preview
+     * show the defensible audience BEFORE anything sends.
+     *
+     * @return array{total_original:int,with_ebr:int,cold_excluded:int,ebr_evaluatable:bool}
+     */
+    public function audienceBreakdown(): array
+    {
+        $total   = count($this->findRecipients(false));
+        $ebrOk   = $this->ebrPredicate() !== null;
+        $withEbr = $ebrOk ? count($this->findRecipients(true)) : 0;
+        return [
+            'total_original'  => $total,
+            'with_ebr'        => $withEbr,
+            'cold_excluded'   => max(0, $total - $withEbr),
+            'ebr_evaluatable' => $ebrOk,
+        ];
+    }
+
+    /**
+     * Build the EBR OR-group, including only sub-clauses whose columns
+     * actually exist on THIS deployment (schema drifts between
+     * environments — see VisitCompletionService for the same pattern).
+     * Returns null if not a single EBR signal can be evaluated, so the
+     * caller can fail closed rather than email a no-consent list.
+     */
+    private function ebrPredicate(): ?string
+    {
+        $clauses = [];
+
+        // Transaction/relationship: a quote within 24 months.
+        if ($this->columnExists('quotes', 'contact_id') && $this->columnExists('quotes', 'created_at')) {
+            $clauses[] = "EXISTS (SELECT 1 FROM quotes q
+                          WHERE q.contact_id = c.id
+                            AND q.created_at >= DATE_SUB(NOW(), INTERVAL 24 MONTH))";
+        }
+
+        // Transaction: an invoice within 24 months. Invoice date column
+        // name has drifted across deployments — use the first present.
+        if ($this->columnExists('invoices', 'contact_id')) {
+            $invDate = null;
+            foreach (['invoice_date', 'issue_date', 'created_at'] as $col) {
+                if ($this->columnExists('invoices', $col)) { $invDate = $col; break; }
+            }
+            if ($invDate !== null) {
+                $clauses[] = "EXISTS (SELECT 1 FROM invoices i
+                              WHERE i.contact_id = c.id
+                                AND i.`$invDate` >= DATE_SUB(NOW(), INTERVAL 24 MONTH))";
+            }
+        }
+
+        // Recent inquiry / newly established relationship: contact added
+        // within 6 months (a quote request creates the contact).
+        if ($this->columnExists('contacts', 'created_at')) {
+            $clauses[] = "c.created_at >= DATE_SUB(NOW(), INTERVAL 6 MONTH)";
+        }
+
+        return empty($clauses) ? null : implode(' OR ', $clauses);
+    }
+
+    /** Cached information_schema column-existence probe (current DB). */
+    private function columnExists(string $table, string $column): bool
+    {
+        $key = $table . '.' . $column;
+        if (array_key_exists($key, $this->columnCache)) {
+            return $this->columnCache[$key];
+        }
+        $cache =& $this->columnCache;
+        try {
+            $stmt = $this->db->prepare(
+                "SELECT 1 FROM information_schema.columns
+                 WHERE table_schema = DATABASE()
+                   AND table_name = ? AND column_name = ? LIMIT 1"
+            );
+            $stmt->execute([$table, $column]);
+            $cache[$key] = (bool)$stmt->fetchColumn();
+        } catch (\Throwable $e) {
+            error_log("columnExists($key) probe failed: " . $e->getMessage());
+            $cache[$key] = false;
+        }
+        return $cache[$key];
     }
 
     // ─────────────────────────────────────────────────────────────────────

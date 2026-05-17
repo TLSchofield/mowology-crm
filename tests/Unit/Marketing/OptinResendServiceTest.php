@@ -155,6 +155,54 @@ class OptinResendServiceTest extends TestCase
         $this->assertStringNotContainsString("\r", $h['List-Unsubscribe']);
     }
 
+    // ── EBR consent gate (CASL — imported list has no consent) ────────────
+
+    public function testEbrFailsClosedWhenNoSchemaColumnsExist(): void
+    {
+        // Every information_schema probe says the column does NOT exist,
+        // so no EBR signal can be evaluated.
+        $probe = $this->createMock(PDOStatement::class);
+        $probe->method('execute')->willReturn(true);
+        $probe->method('fetchColumn')->willReturn(false);
+
+        $db = $this->createMock(PDO::class);
+        $db->method('prepare')->willReturn($probe);
+        // Must NEVER run the recipient query — fail closed, email no one.
+        $db->expects($this->never())->method('query');
+
+        $this->assertSame([], $this->svc($db)->findRecipients(true),
+            'EBR unbuildable → zero recipients (must not email a no-consent list)');
+    }
+
+    public function testEbrAppliedWhenAColumnExists(): void
+    {
+        $probe = $this->createMock(PDOStatement::class);
+        $probe->method('execute')->willReturn(true);
+        $probe->method('fetchColumn')->willReturn(true); // columns exist → predicate builds
+
+        $capturedSql = null;
+        $rowsStmt = $this->createMock(PDOStatement::class);
+        $rowsStmt->method('fetchAll')->willReturn([
+            ['contact_id' => 7, 'email' => 'real@cust.com', 'first_name' => 'Real'],
+        ]);
+
+        $db = $this->createMock(PDO::class);
+        $db->method('prepare')->willReturn($probe);
+        $db->method('query')->willReturnCallback(
+            function (string $sql) use (&$capturedSql, $rowsStmt): PDOStatement {
+                $capturedSql = $sql;
+                return $rowsStmt;
+            }
+        );
+
+        $out = $this->svc($db)->findRecipients(true);
+        $this->assertCount(1, $out);
+        $this->assertSame('real@cust.com', $out[0]['email']);
+        $this->assertNotNull($capturedSql);
+        $this->assertStringContainsString('DATE_SUB(NOW(), INTERVAL 24 MONTH)', $capturedSql,
+            'recipient query must carry the EBR predicate');
+    }
+
     // ── Hard-bounce suppression (must NOT mis-suppress valid customers) ───
 
     public function testHardBounceSuppressesOnPermanentFailureOnly(): void

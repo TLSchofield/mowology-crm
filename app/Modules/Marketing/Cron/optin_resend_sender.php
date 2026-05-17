@@ -85,13 +85,18 @@ try {
     // ── Ensure the campaign exists (parked in 'scheduled') ──────────────
     $campaign = $svc->findCampaign();
     if (!$campaign) {
+        $ab    = $svc->audienceBreakdown();
         $built = $svc->buildCampaign();
         $emit([
             'success'  => true,
             'mode'     => 'built',
-            'message'  => "Built opt-in resend campaign #{$built['campaign_id']} in 'scheduled' (dry-run) status with {$built['queued']} recipients queued. NOTHING SENT. Flip status to 'sending' to go live.",
-            'campaign_id' => $built['campaign_id'],
-            'queued'   => $built['queued'],
+            'message'  => "Built opt-in resend campaign #{$built['campaign_id']} in 'scheduled' (dry-run). "
+                . "CASL audience: {$ab['total_original']} originally emailed, {$ab['with_ebr']} have an Existing Business Relationship (will receive), {$ab['cold_excluded']} cold-imported EXCLUDED. "
+                . ($ab['ebr_evaluatable'] ? '' : 'WARNING: EBR could not be evaluated — 0 queued, failing closed. ')
+                . "{$built['queued']} queued. NOTHING SENT. Flip status to 'sending' to go live.",
+            'campaign_id'      => $built['campaign_id'],
+            'queued'           => $built['queued'],
+            'audience'         => $ab,
         ]);
     }
 
@@ -110,7 +115,13 @@ try {
         $emit([
             'success'   => true,
             'mode'      => 'preview',
-            'message'   => "PREVIEW (status='{$status}', dry-run): campaign #{$campaignId} has {$pending} recipients pending, {$sentSoFar} already sent. NOTHING SENT. Flip status to 'sending' to begin.",
+            'message'   => (function () use ($svc, $campaignId, $status, $pending, $sentSoFar) {
+                $ab = $svc->audienceBreakdown();
+                return "PREVIEW (status='{$status}', dry-run): campaign #{$campaignId} has {$pending} pending, {$sentSoFar} sent. "
+                    . "CASL audience now: {$ab['total_original']} originally emailed, {$ab['with_ebr']} with Existing Business Relationship, {$ab['cold_excluded']} cold-imported EXCLUDED"
+                    . ($ab['ebr_evaluatable'] ? '' : ' [WARNING: EBR unevaluable — failing closed]')
+                    . ". NOTHING SENT. Flip status to 'sending' to begin.";
+            })(),
             'campaign_id' => $campaignId,
             'pending'   => $pending,
             'sent'      => $sentSoFar,
