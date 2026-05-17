@@ -334,11 +334,33 @@ class MetaService
         $pageToken = self::ensureFreshToken($account);
         $metaData  = json_decode($account['meta_json'] ?? '{}', true);
         $igUserId  = $metaData['ig_user_id'] ?? null;
+        $pageId    = $account['account_id_external'] ?? '';
+
+        // ig_user_id can be absent if the Instagram lookup failed during OAuth (timing issue,
+        // permissions not yet propagated, etc.). Attempt recovery using the page token —
+        // this works without any additional Instagram OAuth scopes.
+        if (!$igUserId && $pageId && $pageToken) {
+            error_log("MetaService: ig_user_id missing for account #{$account['id']}, attempting live lookup via page $pageId");
+            $igUserId = self::fetchInstagramUserId($pageId, $pageToken);
+
+            if ($igUserId) {
+                // Persist so future publishes don't need to re-fetch
+                $metaData['ig_user_id'] = $igUserId;
+                try {
+                    $db = getDB();
+                    $db->prepare("UPDATE social_accounts SET meta_json = ? WHERE id = ?")
+                        ->execute([json_encode($metaData), $account['id']]);
+                    error_log("MetaService: ig_user_id $igUserId persisted for account #{$account['id']}");
+                } catch (\Throwable $dbE) {
+                    error_log("MetaService: could not persist ig_user_id: " . $dbE->getMessage());
+                }
+            }
+        }
 
         if (!$igUserId) {
             throw new RuntimeException(
                 'No Instagram Business account linked to this Facebook Page. ' .
-                'Link an Instagram Business or Creator account in your Facebook Page settings, then reconnect.'
+                'In Facebook Page Settings → Instagram, link an Instagram Business or Creator account, then reconnect in Social Accounts.'
             );
         }
 

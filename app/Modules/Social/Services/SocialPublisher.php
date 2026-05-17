@@ -37,8 +37,6 @@ class SocialPublisher
 
         try {
             // ── Load post ────────────────────────────────────────
-            $post = $db->prepare("SELECT * FROM social_posts WHERE id = ?")->execute([$postId])
-                ? null : null;
             $stmt = $db->prepare("SELECT * FROM social_posts WHERE id = ?");
             $stmt->execute([$postId]);
             $post = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -303,13 +301,24 @@ class SocialPublisher
                 WHERE id = ?
             ")->execute([$postId]);
         } else {
-            // All failed
+            // All failed — pull the most recent fail reason from platforms into the post row
+            // so the dashboard can surface it without joining social_post_platforms
+            $reasonStmt = $db->prepare("
+                SELECT fail_reason FROM social_post_platforms
+                WHERE post_id = ? AND fail_reason IS NOT NULL
+                ORDER BY updated_at DESC
+                LIMIT 1
+            ");
+            $reasonStmt->execute([$postId]);
+            $failReason = $reasonStmt->fetchColumn();
+
             $db->prepare("
                 UPDATE social_posts
-                SET status     = 'failed',
-                    fail_count = fail_count + 1
+                SET status          = 'failed',
+                    fail_count      = fail_count + 1,
+                    last_fail_reason = ?
                 WHERE id = ?
-            ")->execute([$postId]);
+            ")->execute([$failReason ?: 'Unknown error', $postId]);
         }
     }
 
