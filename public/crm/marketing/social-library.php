@@ -136,6 +136,22 @@ $canEdit    = userHasPermission('marketing.edit');
                               </div>
                           </div>
 
+                          <!-- Caption Variants (optional alternate captions for campaign rotation) -->
+                          <div style="margin-bottom:12px;">
+                              <div class="mw-soc-variants-toggle" id="variantsToggle" onclick="toggleVariants()">
+                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+                                  <span id="variantsToggleLbl">Add caption variants</span>
+                                  <span class="text-muted" style="font-size:.7rem;font-weight:400;" id="variantsBadge"></span>
+                              </div>
+                              <div class="mw-soc-variants-section" id="variantsSection" style="display:none;">
+                                  <div class="mw-soc-variant-hint" style="margin-bottom:10px;">
+                                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#adb5bd" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                                      Campaign posts cycle through these alternates so your feed stays fresh. Leave blank to use the main caption for all posts.
+                                  </div>
+                                  <div id="variantRows"></div>
+                              </div>
+                          </div>
+
                           <!-- AI Caption Stub -->
                           <div class="mw-soc-ai-stub">
                               <div class="mw-soc-ai-icon">
@@ -327,6 +343,51 @@ $canEdit    = userHasPermission('marketing.edit');
               }
 
               // ── Template CRUD ──────────────────────────────────────
+              // ── Caption variants helpers ───────────────────────────
+              function buildVariantRows(variants) {
+                  var container = document.getElementById('variantRows');
+                  if (!container) return;
+                  var html = '';
+                  for (var i = 0; i < 5; i++) {
+                      var val = (variants && variants[i]) ? variants[i] : '';
+                      html += '<div class="mw-soc-variant-row">'
+                           +  '<span class="mw-soc-variant-num">' + (i + 1) + '</span>'
+                           +  '<textarea class="mw-soc-variant-textarea form-control" id="variant' + i + '" rows="2" '
+                           +  'placeholder="Alternate caption ' + (i + 1) + '…">' + esc(val) + '</textarea>'
+                           +  '</div>';
+                  }
+                  container.innerHTML = html;
+              }
+
+              function getVariants() {
+                  var out = [];
+                  for (var i = 0; i < 5; i++) {
+                      var el = document.getElementById('variant' + i);
+                      if (el && el.value.trim()) { out.push(el.value.trim()); }
+                  }
+                  return out;
+              }
+
+              function updateVariantsBadge() {
+                  var count = getVariants().length;
+                  var badge = document.getElementById('variantsBadge');
+                  if (badge) badge.textContent = count > 0 ? '(' + count + ' added)' : '';
+              }
+
+              window.toggleVariants = function() {
+                  var sec = document.getElementById('variantsSection');
+                  var lbl = document.getElementById('variantsToggleLbl');
+                  var tog = document.getElementById('variantsToggle');
+                  if (!sec) return;
+                  var open = sec.style.display !== 'none';
+                  sec.style.display = open ? 'none' : '';
+                  if (lbl) lbl.textContent = open ? 'Add caption variants' : 'Hide variants';
+                  if (tog) {
+                      var svg = tog.querySelector('polyline');
+                      if (svg) svg.setAttribute('points', open ? '6 9 12 15 18 9' : '6 15 12 9 18 15');
+                  }
+              };
+
               window.openTemplateModal = function(data) {
                   document.getElementById('tmplId').value          = data ? data.id : 0;
                   document.getElementById('tmplName').value        = data ? data.name : '';
@@ -337,6 +398,24 @@ $canEdit    = userHasPermission('marketing.edit');
                   document.getElementById('tmplCta').value         = data ? (data.cta_preset || '') : '';
                   document.getElementById('tmplPlatforms').value   = data ? (data.platform_targets || 'gbp,facebook,instagram') : 'gbp,facebook,instagram';
                   document.getElementById('tmplModalTitle').textContent = data ? 'Edit Template' : 'New Template';
+
+                  // Parse caption_variants (JSON array) and populate rows
+                  var variants = [];
+                  if (data && data.caption_variants) {
+                      try { variants = JSON.parse(data.caption_variants); } catch(e) { variants = []; }
+                      if (!Array.isArray(variants)) { variants = []; }
+                  }
+                  buildVariantRows(variants);
+
+                  // Show variants section open if there are existing variants, collapsed if new
+                  var sec = document.getElementById('variantsSection');
+                  var lbl = document.getElementById('variantsToggleLbl');
+                  if (sec) {
+                      sec.style.display = variants.length > 0 ? '' : 'none';
+                      if (lbl) lbl.textContent = variants.length > 0 ? 'Hide variants' : 'Add caption variants';
+                  }
+                  updateVariantsBadge();
+
                   updateCharCount();
                   $('#templateModal').modal('show');
               };
@@ -362,6 +441,7 @@ $canEdit    = userHasPermission('marketing.edit');
                       hashtag_preset:   document.getElementById('tmplHashtags').value,
                       cta_preset:       document.getElementById('tmplCta').value,
                       platform_targets: document.getElementById('tmplPlatforms').value,
+                      caption_variants: getVariants(),
                   };
 
                   fetch('/crm/api/social/accounts.php?action=save-template', {

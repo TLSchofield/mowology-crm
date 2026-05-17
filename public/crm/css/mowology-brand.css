@@ -3960,6 +3960,139 @@ tr[data-href] { cursor: pointer; }
   z-index: 10;
 }
 
+/* ── Products Manager: Social Season Cadence Picker ─────────────────────── */
+.mw-cadence-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 6px;
+    margin: 10px 0 12px;
+}
+@media (max-width: 768px) {
+    .mw-cadence-grid { grid-template-columns: repeat(4, 1fr); }
+}
+@media (max-width: 480px) {
+    .mw-cadence-grid { grid-template-columns: repeat(3, 1fr); }
+}
+.mw-cadence-mo {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+}
+.mw-cadence-mo-label {
+    font-size: .65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: #6c757d;
+    letter-spacing: .04em;
+}
+.mw-cadence-mo-input {
+    width: 100%;
+    text-align: center;
+    border-radius: 6px;
+    border: 1px solid #dee2e6;
+    padding: 4px 2px;
+    font-size: .85rem;
+    font-weight: 600;
+    background: #f8f9fa;
+    color: #adb5bd;
+    transition: background .15s, color .15s, border-color .15s;
+}
+.mw-cadence-mo-input:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(45,134,89,.25);
+}
+.mw-cadence-presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 10px;
+}
+.mw-cadence-preset-btn {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 16px;
+    padding: 4px 12px;
+    font-size: .75rem;
+    font-weight: 500;
+    color: #495057;
+    cursor: pointer;
+    transition: all .15s;
+    white-space: nowrap;
+}
+.mw-cadence-preset-btn:hover {
+    border-color: var(--mw-green);
+    background: #f0f9f4;
+    color: var(--mw-dark);
+}
+
+/* ── Social Library: Caption Variants ───────────────────────────────────── */
+.mw-soc-variants-toggle {
+    font-size: .75rem;
+    color: var(--mw-green);
+    cursor: pointer;
+    font-weight: 600;
+    user-select: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 6px;
+}
+.mw-soc-variants-toggle:hover { text-decoration: underline; }
+.mw-soc-variants-section {
+    border: 1px solid #e0e6ed;
+    border-radius: 8px;
+    padding: 12px 14px;
+    background: #fafbfc;
+    margin-top: 10px;
+}
+.mw-soc-variants-section .mw-soc-variant-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+.mw-soc-variants-section .mw-soc-variant-row:last-child { margin-bottom: 0; }
+.mw-soc-variant-num {
+    width: 22px;
+    height: 22px;
+    background: var(--mw-light);
+    color: var(--mw-dark);
+    border-radius: 50%;
+    font-size: .7rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 6px;
+}
+.mw-soc-variant-textarea {
+    flex: 1;
+    min-height: 60px;
+    font-size: .8rem;
+    resize: vertical;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    padding: 6px 9px;
+    color: #495057;
+    background: #fff;
+    transition: border-color .15s;
+}
+.mw-soc-variant-textarea:focus {
+    border-color: var(--mw-green);
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(45,134,89,.15);
+}
+.mw-soc-variant-hint {
+    font-size: .7rem;
+    color: #adb5bd;
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
 /* Territory Map Styling */
 .mw-map-legend {
   position: absolute;
