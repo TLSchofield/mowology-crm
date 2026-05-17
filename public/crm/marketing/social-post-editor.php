@@ -335,6 +335,9 @@ $extraHead = '
                                   <?php endif; ?>
                               </div>
                           </div>
+                          <!-- Inline error display (replaces alert() calls) -->
+                          <div id="actionError" style="display:none;background:#f8d7da;border:1px solid #f5c6cb;border-radius:6px;padding:10px 14px;margin-bottom:10px;font-size:.82rem;color:#721c24;"></div>
+
                           <!-- Retry actions (shown for published/publishing posts with failures) -->
                           <div id="retryActions" style="display:none;">
                               <?php if ($canApprove): ?>
@@ -477,6 +480,19 @@ $extraHead = '
               var previewPlatform = 'gbp';
               var inFlight = false; // double-submit guard
               var charLimits = { gbp: 1500, instagram: 2200, facebook: 63206 };
+
+              // ── Inline error display ──────────────────────────────────
+              function showActionError(msg) {
+                  var el = document.getElementById('actionError');
+                  if (!el) { console.error(msg); return; }
+                  el.textContent = msg;
+                  el.style.display = '';
+                  el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+              }
+              function clearActionError() {
+                  var el = document.getElementById('actionError');
+                  if (el) { el.style.display = 'none'; el.textContent = ''; }
+              }
 
               // Schedule busy-day strip
               var calCache = {};
@@ -1472,9 +1488,10 @@ $extraHead = '
 
               window.savePost = function(status) {
                   if (inFlight) return;
+                  clearActionError();
                   var payload = buildPayload(status);
-                  if (!payload.caption.trim()) { alert('Caption is required'); return; }
-                  if (!selectedAccounts.length) { alert('Select at least one platform to publish to'); return; }
+                  if (!payload.caption.trim()) { showActionError('Caption is required'); return; }
+                  if (!selectedAccounts.length) { showActionError('Select at least one platform to publish to'); return; }
 
                   inFlight = true;
                   setActionButtons(true, 'Saving…');
@@ -1490,23 +1507,24 @@ $extraHead = '
                       } else {
                           inFlight = false;
                           setActionButtons(false);
-                          alert('Error: ' + (data.error || 'Unknown'));
+                          showActionError('Save error: ' + (data.error || 'Unknown error'));
                       }
-                  }).catch(function(err) {
+                  }).catch(function() {
                       inFlight = false;
                       setActionButtons(false);
-                      alert('Network error — please try again.');
+                      showActionError('Network error — please try again.');
                   });
               };
 
               window.schedulePost = function() {
                   if (inFlight) return;
+                  clearActionError();
                   var scheduledAt = document.getElementById('postSchedule').value;
-                  if (!scheduledAt) { alert('Set a date and time first'); return; }
+                  if (!scheduledAt) { showActionError('Set a date and time first'); return; }
 
                   var payload = buildPayload('approved');
-                  if (!payload.caption.trim()) { alert('Caption is required'); return; }
-                  if (!selectedAccounts.length) { alert('Select at least one platform'); return; }
+                  if (!payload.caption.trim()) { showActionError('Caption is required'); return; }
+                  if (!selectedAccounts.length) { showActionError('Select at least one platform'); return; }
 
                   inFlight = true;
                   setActionButtons(true, 'Scheduling…');
@@ -1520,7 +1538,7 @@ $extraHead = '
                       if (!data.success) {
                           inFlight = false;
                           setActionButtons(false);
-                          alert('Save error: ' + (data.error || 'Unknown'));
+                          showActionError('Save error: ' + (data.error || 'Unknown error'));
                           return;
                       }
 
@@ -1535,13 +1553,13 @@ $extraHead = '
                           } else {
                               inFlight = false;
                               setActionButtons(false);
-                              alert('Schedule error: ' + (sData.error || 'Unknown'));
+                              showActionError('Schedule error: ' + (sData.error || 'Unknown error'));
                           }
                       });
-                  }).catch(function(err) {
+                  }).catch(function() {
                       inFlight = false;
                       setActionButtons(false);
-                      alert('Network error — please try again.');
+                      showActionError('Network error — please try again.');
                   });
               };
 
@@ -1578,13 +1596,13 @@ $extraHead = '
                       } else {
                           btn.disabled = false;
                           btn.innerHTML = origHtml;
-                          alert('Retry failed: ' + (data.error || 'Unknown error'));
+                          showActionError('Retry failed: ' + (data.error || 'Unknown error'));
                       }
                   }).catch(function() {
                       inFlight = false;
                       btn.disabled = false;
                       btn.innerHTML = origHtml;
-                      alert('Network error — please try again.');
+                      showActionError('Network error — please try again.');
                   });
               };
 
