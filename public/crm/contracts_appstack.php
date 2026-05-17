@@ -188,15 +188,17 @@ $activePage = 'contracts';
                                           <a href="contracts/view.php?id=<?php echo (int)$c['id']; ?>" class="font-weight-bold">
                                               <?php echo htmlspecialchars($c['contract_number']); ?>
                                           </a>
-                                          <?php if ($c['title']): ?>
-                                              <div class="text-muted small"><?php echo htmlspecialchars($c['title']); ?></div>
-                                          <?php endif; ?>
                                       </td>
                                       <td>
                                           <?php echo htmlspecialchars($c['property_address']); ?><br>
                                           <span class="text-muted small"><?php echo htmlspecialchars($c['property_city']); ?></span>
                                       </td>
-                                      <td><?php echo htmlspecialchars(trim($c['first_name'] . ' ' . $c['last_name'])); ?></td>
+                                      <td>
+                                          <?php echo htmlspecialchars(trim($c['first_name'] . ' ' . $c['last_name'])); ?>
+                                          <?php if ($c['title']): ?>
+                                              <div class="text-muted small"><?php echo htmlspecialchars($c['title']); ?></div>
+                                          <?php endif; ?>
+                                      </td>
                                       <td>
                                           <span class="mw-badge-status"><?php echo (int)$c['plan_count']; ?> plan<?php echo $c['plan_count'] != 1 ? 's' : ''; ?></span>
                                       </td>
