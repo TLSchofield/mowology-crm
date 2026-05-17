@@ -335,41 +335,49 @@ $canApprove = userHasPermission('marketing.approve');
               function loadScheduleBusyStrip(dateStr) {
                   var stripEl = document.getElementById('schedBusyStrip');
                   if (!stripEl) return;
-                  if (!dateStr) { stripEl.style.display = 'none'; return; }
 
-                  var d     = new Date(dateStr);
-                  var year  = d.getFullYear();
-                  var month = d.getMonth() + 1;
-                  var key   = year + '-' + pad(month);
+                  // Use the selected date, or today if none picked yet
+                  var d        = (dateStr && dateStr.length >= 10) ? new Date(dateStr + (dateStr.length === 10 ? 'T12:00:00' : '')) : new Date();
+                  var year     = d.getFullYear();
+                  var month    = d.getMonth() + 1;
+                  var key      = year + '-' + pad(month);
+                  var selDateStr = (dateStr && dateStr.length >= 10) ? dateStr.substring(0, 10) : '';
 
                   function renderStrip(cal) {
-                      var dayOfWeek = d.getDay();
+                      var dayOfWeek = d.getDay(); // 0=Sun
                       var weekDays  = [];
                       for (var i = 0; i < 7; i++) {
-                          var wd = new Date(d);
+                          var wd = new Date(d.getTime());
                           wd.setDate(d.getDate() - dayOfWeek + i);
                           weekDays.push(wd);
                       }
                       var letters = ['S','M','T','W','T','F','S'];
+                      var todayStr = (function() {
+                          var t = new Date();
+                          return t.getFullYear() + '-' + pad(t.getMonth() + 1) + '-' + pad(t.getDate());
+                      })();
                       var html = '';
                       weekDays.forEach(function(wd) {
-                          var ds    = wd.getFullYear() + '-' + pad(wd.getMonth() + 1) + '-' + pad(wd.getDate());
-                          var posts = (cal[ds] || []).filter(function(p) { return p.id !== editId; });
-                          var pub   = posts.filter(function(p) { return p.status === 'published'; }).length;
-                          var sch   = posts.filter(function(p) { return p.status === 'scheduled' || p.status === 'approved'; }).length;
-                          var cls   = pub > 0 ? 'mw-soc-pulse-dot-published'
-                                    : sch > 0 ? 'mw-soc-pulse-dot-scheduled'
-                                    : 'mw-soc-pulse-dot-empty';
-                          var isSelected = (ds === dateStr.substring(0, 10));
-                          var count = pub + sch;
-                          html += '<div class="mw-soc-pulse-day" style="' + (isSelected ? 'opacity:1' : 'opacity:.6') + '">'
+                          var ds     = wd.getFullYear() + '-' + pad(wd.getMonth() + 1) + '-' + pad(wd.getDate());
+                          var posts  = (cal[ds] || []).filter(function(p) { return p.id !== editId; });
+                          var pub    = posts.filter(function(p) { return p.status === 'published'; }).length;
+                          var sch    = posts.filter(function(p) { return p.status === 'scheduled' || p.status === 'approved'; }).length;
+                          var cls    = pub > 0 ? 'mw-soc-pulse-dot-published'
+                                     : sch > 0 ? 'mw-soc-pulse-dot-scheduled'
+                                     : 'mw-soc-pulse-dot-empty';
+                          var isSel  = selDateStr && (ds === selDateStr);
+                          var isToday = (ds === todayStr);
+                          var count  = pub + sch;
+                          var dayStyle = isSel ? 'opacity:1;font-weight:700;' : (isToday ? 'opacity:.85;' : 'opacity:.55;');
+                          var dotStyle = isSel ? 'box-shadow:0 0 0 2px #fff,0 0 0 3px var(--mw-green);' : '';
+                          html += '<div class="mw-soc-pulse-day" style="' + dayStyle + '">'
                                +  '<span class="mw-soc-pulse-lbl">' + letters[wd.getDay()] + '</span>'
-                               +  '<span class="mw-soc-pulse-dot ' + cls + '" title="' + ds + (count ? ' — ' + count + ' post' + (count > 1 ? 's' : '') : '') + '"></span>'
+                               +  '<span class="mw-soc-pulse-dot ' + cls + '" style="' + dotStyle + '" title="' + ds + (count ? ' — ' + count + ' post' + (count > 1 ? 's' : '') : '') + '"></span>'
                                +  '<span style="font-size:.65rem;color:#6c757d;">' + (count > 0 ? count : '') + '</span>'
                                + '</div>';
                       });
                       stripEl.innerHTML = html;
-                      stripEl.style.display = '';
+                      stripEl.style.display = 'flex';
                   }
 
                   if (calCache[key]) {
@@ -405,7 +413,8 @@ $canApprove = userHasPermission('marketing.approve');
                   schedInput.addEventListener('change', function() {
                       loadScheduleBusyStrip(this.value);
                   });
-                  if (schedInput.value) { loadScheduleBusyStrip(schedInput.value); }
+                  // Always show on load — defaults to current week if no date selected
+                  loadScheduleBusyStrip(schedInput.value || '');
               }
 
               // ── Load existing post ─────────────────────────────────
