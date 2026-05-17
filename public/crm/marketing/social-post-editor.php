@@ -336,36 +336,32 @@ $canApprove = userHasPermission('marketing.approve');
                 </div>
                 <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span>&times;</span></button>
             </div>
-            <div class="modal-body" style="padding:20px;">
-                <div class="row mb-3">
-                    <div class="col-md-6">
-                        <label class="font-weight-600" style="font-size:.82rem;">Posting cadence</label>
+            <div class="modal-body" style="padding:18px 20px 16px;">
+
+                <div class="d-flex flex-wrap align-items-start" style="gap:20px;margin-bottom:14px;">
+                    <!-- Cadence -->
+                    <div style="flex:1;min-width:180px;">
+                        <label style="font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#6c757d;margin-bottom:6px;display:block;">Cadence</label>
                         <div class="mw-soc-cadence-pills" id="cadencePills">
-                            <button class="mw-soc-cadence-pill active" data-cadence="seasonal">
-                                🌱 Seasonal smart
-                                <span class="mw-soc-cadence-desc">More posts in spring/summer, fewer in winter</span>
-                            </button>
-                            <button class="mw-soc-cadence-pill" data-cadence="fixed" data-days="14">
-                                📅 Every 2 weeks
-                                <span class="mw-soc-cadence-desc">Fixed interval, consistent all year</span>
-                            </button>
-                            <button class="mw-soc-cadence-pill" data-cadence="fixed" data-days="7">
-                                ⚡ Weekly
-                                <span class="mw-soc-cadence-desc">High frequency — best for lawn care</span>
-                            </button>
+                            <button class="mw-soc-cadence-pill active" data-cadence="seasonal" data-hint="More posts during peak season, fewer in winter — smart for most services.">🌿 Seasonal</button>
+                            <button class="mw-soc-cadence-pill" data-cadence="fixed" data-days="14" data-hint="One post every 2 weeks, evenly spaced all year.">Fortnightly</button>
+                            <button class="mw-soc-cadence-pill" data-cadence="fixed" data-days="7" data-hint="One post per week — high frequency, best for year-round services.">Weekly</button>
                         </div>
+                        <div class="mw-soc-cadence-hint" id="campCadenceHint">More posts during peak season, fewer in winter — smart for most services.</div>
                     </div>
-                    <div class="col-md-6">
-                        <label class="font-weight-600" style="font-size:.82rem;">Look ahead</label>
+                    <!-- Look ahead -->
+                    <div>
+                        <label style="font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#6c757d;margin-bottom:6px;display:block;">Period</label>
                         <div class="mw-soc-cadence-pills" id="monthPills">
-                            <button class="mw-soc-cadence-pill" data-months="3">3 months</button>
-                            <button class="mw-soc-cadence-pill active" data-months="6">6 months</button>
-                            <button class="mw-soc-cadence-pill" data-months="12">1 year</button>
+                            <button class="mw-soc-cadence-pill" data-months="3">3 mo</button>
+                            <button class="mw-soc-cadence-pill active" data-months="6">6 mo</button>
+                            <button class="mw-soc-cadence-pill" data-months="12">1 yr</button>
                         </div>
                     </div>
                 </div>
+
                 <div id="campaignPreviewWrap">
-                    <div class="mw-soc-loading">Calculating optimal slots…</div>
+                    <div class="mw-soc-loading" style="font-size:.8rem;">Calculating optimal slots…</div>
                 </div>
             </div>
             <div class="modal-footer" style="border-top:1px solid #e9ecef;padding:12px 20px;">
@@ -1087,6 +1083,8 @@ $canApprove = userHasPermission('marketing.approve');
                   btn.classList.add('active');
                   campaignCadence     = btn.getAttribute('data-cadence');
                   campaignCadenceDays = parseInt(btn.getAttribute('data-days') || '14', 10);
+                  var hint = document.getElementById('campCadenceHint');
+                  if (hint) { hint.textContent = btn.getAttribute('data-hint') || ''; }
                   loadCampaignPreview();
               }
               function setMonthPill(btn) {
@@ -1129,52 +1127,55 @@ $canApprove = userHasPermission('marketing.approve');
                   });
               }
 
-              var monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+              var monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+              var shortMo    = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+              var dowNames   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
               function renderCampaignPreview(data) {
                   var wrap = document.getElementById('campaignPreviewWrap');
                   if (!data.slots || !data.slots.length) {
-                      wrap.innerHTML = '<div class="text-muted p-3 text-center">No available slots found for this range.</div>';
+                      wrap.innerHTML = '<div class="text-muted py-3 text-center" style="font-size:.82rem;">No available slots found — try a shorter period or different cadence.</div>';
                       return;
                   }
 
-                  // Group by month
-                  var byMonth = {};
+                  // Group by YYYY-MM
+                  var byMonth  = {};
+                  var moOrder  = [];
                   data.slots.forEach(function(s) {
                       var ym = s.scheduled_at.substring(0, 7);
-                      if (!byMonth[ym]) { byMonth[ym] = []; }
+                      if (!byMonth[ym]) { byMonth[ym] = []; moOrder.push(ym); }
                       byMonth[ym].push(s);
                   });
 
-                  var days  = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-                  var html  = '<div class="mw-soc-campaign-preview">';
-                  html += '<p class="text-muted mb-2" style="font-size:.8rem;">'
-                        + '<strong>' + data.total + ' posts</strong> across '
-                        + Object.keys(byMonth).length + ' months — '
-                        + (data.service_type ? esc(data.service_type) + ' cadence' : 'general cadence')
-                        + '. Slots avoid days already busy. Times are based on your best-performing windows.</p>';
+                  var html = '<div style="font-size:.75rem;color:#6c757d;margin-bottom:10px;">'
+                           + '📅 <strong style="color:#212529;">' + data.total + ' posts</strong> across '
+                           + moOrder.length + ' months'
+                           + (data.service_type ? ' &nbsp;·&nbsp; ' + esc(data.service_type) : '')
+                           + ' &nbsp;·&nbsp; <span style="color:#adb5bd;">slots avoid existing posts</span>'
+                           + '</div>';
 
-                  Object.keys(byMonth).sort().forEach(function(ym) {
-                      var parts = ym.split('-');
-                      var mo    = parseInt(parts[1], 10);
-                      var yr    = parts[0];
+                  html += '<div class="mw-soc-campaign-preview">';
+                  moOrder.forEach(function(ym) {
+                      var mo    = parseInt(ym.substring(5, 7), 10);
+                      var yr    = ym.substring(0, 4);
                       var slots = byMonth[ym];
                       html += '<div class="mw-soc-camp-month">';
                       html += '<div class="mw-soc-camp-month-hd">'
-                            + monthNames[mo - 1] + ' ' + yr
-                            + ' <span class="badge badge-pill badge-light ml-1">' + slots.length + ' posts</span></div>';
+                            + shortMo[mo - 1] + ' ' + yr
+                            + ' <span class="mw-soc-camp-month-badge">' + slots.length + '</span>'
+                            + '</div>';
                       html += '<div class="mw-soc-camp-slots">';
                       slots.forEach(function(s) {
                           var dt   = new Date(s.scheduled_at.replace(' ', 'T'));
-                          var dow  = days[dt.getDay()];
+                          var dow  = dowNames[dt.getDay()];
                           var hr   = dt.getHours();
                           var ampm = hr >= 12 ? 'pm' : 'am';
                           var h12  = hr % 12 === 0 ? 12 : hr % 12;
-                          html += '<div class="mw-soc-camp-slot">'
-                                + '<span class="mw-soc-camp-dow">' + dow + '</span>'
-                                + '<span class="mw-soc-camp-date">' + dt.getDate() + ' ' + monthNames[mo-1] + '</span>'
-                                + '<span class="mw-soc-camp-time">' + h12 + ampm + '</span>'
-                                + '</div>';
+                          html += '<span class="mw-soc-camp-chip">'
+                                + '<span class="mw-soc-camp-chip-dow">' + dow + '</span>'
+                                + ' ' + dt.getDate()
+                                + ' <span class="mw-soc-camp-chip-time">· ' + h12 + ampm + '</span>'
+                                + '</span>';
                       });
                       html += '</div></div>';
                   });

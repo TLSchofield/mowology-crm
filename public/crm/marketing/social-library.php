@@ -572,16 +572,14 @@ $canEdit    = userHasPermission('marketing.edit');
                       byMonth[ym].forEach(function(s) {
                           var dt   = new Date(s.scheduled_at.replace(' ', 'T'));
                           var dow  = dowNames3[dt.getDay()];
-                          var day  = dt.getDate();
-                          var mon  = monthNms[dt.getMonth()];
                           var hr   = dt.getHours();
                           var ampm = hr >= 12 ? 'pm' : 'am';
                           var h12  = hr % 12 === 0 ? 12 : hr % 12;
-                          html += '<div class="mw-soc-camp-slot">'
-                               +  '<span class="mw-soc-camp-dow">' + esc(dow) + '</span>'
-                               +  '<span class="mw-soc-camp-date">' + esc(mon) + ' ' + day + '</span>'
-                               +  '<span class="mw-soc-camp-time">' + h12 + ampm + '</span>'
-                               + '</div>';
+                          html += '<span class="mw-soc-camp-chip">'
+                               +  '<span class="mw-soc-camp-chip-dow">' + esc(dow) + '</span>'
+                               +  ' ' + dt.getDate()
+                               +  ' <span class="mw-soc-camp-chip-time">· ' + h12 + ampm + '</span>'
+                               + '</span>';
                       });
                       html += '</div>';
                   });
