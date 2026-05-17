@@ -542,5 +542,104 @@ function runSaltAlerts(PDO $db): array
         error_log('Salt alert error: ' . $e->getMessage());
     }
 
+    // Capture authoritative weather go-decisions for all winter-service visits
+    // on each salt day. These records form the legal basis for the PoW PDF.
+    if (!empty($saltDays)) {
+        $decisionResults = captureSaltWeatherDecisions($db, $saltDays, $triggerTemp);
+        $saltResults['decisions_captured'] = $decisionResults['captured'];
+        $saltResults['decisions_skipped']  = $decisionResults['skipped'];
+        if (!empty($decisionResults['errors'])) {
+            $saltResults['errors'] = array_merge($saltResults['errors'], $decisionResults['errors']);
+        }
+    }
+
     return $saltResults;
+}
+
+/**
+ * For each salt trigger date, find all winter-service visits (snow_removal or
+ * salt_application) scheduled on that date and write an immutable
+ * salt_weather_decisions record containing the full weather context.
+ *
+ * Uses INSERT IGNORE so cron retries are safe.
+ */
+function captureSaltWeatherDecisions(PDO $db, array $saltDays, float $globalTriggerTemp): array
+{
+    $result = ['captured' => 0, 'skipped' => 0, 'errors' => []];
+
+    // EC source metadata (constant for the Vancouver forecast zone)
+    $ecIdentifier = getEnvironmentCanadaIdentifier('Vancouver', 'BC') ?? 'bc-74';
+    $ecSourceUrl  = "https://api.weather.gc.ca/collections/citypageweather-realtime/items?f=json&lang=en-CA&identifier={$ecIdentifier}";
+    $decisionAt   = date('Y-m-d H:i:s');
+
+    foreach ($saltDays as $triggerDate => $dayForecast) {
+        try {
+            // Find all visits on this date with snow_removal or salt_application
+            $stmt = $db->prepare("
+                SELECT DISTINCT jv.id AS visit_id, jp.property_id
+                FROM job_visits jv
+                JOIN job_plans jp ON jp.id = jv.plan_id
+                JOIN plan_line_items pli ON pli.plan_id = jp.id
+                WHERE jv.scheduled_date = ?
+                  AND jv.status IN ('scheduled', 'in_progress')
+                  AND pli.service_type IN ('snow_removal', 'salt_application')
+            ");
+            $stmt->execute([$triggerDate]);
+            $visits = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            if (empty($visits)) {
+                $result['skipped']++;
+                continue;
+            }
+
+            $overnightLow = (float)($dayForecast['temp_low'] ?? 99);
+            $condition    = (string)($dayForecast['condition'] ?? 'Unknown');
+
+            // The raw_api_response field stores the full parsed day forecast
+            // plus source metadata — sufficient to reproduce the decision context.
+            $rawPayload = json_encode([
+                'source'          => 'Environment Canada',
+                'source_url'      => $ecSourceUrl,
+                'ec_identifier'   => $ecIdentifier,
+                'captured_at_utc' => gmdate('Y-m-d H:i:s') . ' UTC',
+                'trigger_date'    => $triggerDate,
+                'forecast_day'    => $dayForecast,
+                'global_trigger_threshold_c' => $globalTriggerTemp,
+            ]);
+
+            foreach ($visits as $visit) {
+                $inserted = $db->prepare("
+                    INSERT IGNORE INTO salt_weather_decisions
+                        (visit_id, property_id, decision_at, trigger_date,
+                         overnight_low_c, trigger_threshold_c, weather_condition,
+                         data_source, source_station, source_url, raw_api_response)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ")->execute([
+                    (int)$visit['visit_id'],
+                    (int)$visit['property_id'],
+                    $decisionAt,
+                    $triggerDate,
+                    $overnightLow,
+                    $globalTriggerTemp,
+                    $condition,
+                    'Environment Canada',
+                    'Vancouver / BC — station ' . $ecIdentifier,
+                    $ecSourceUrl,
+                    $rawPayload,
+                ]);
+
+                if ($inserted) {
+                    $result['captured']++;
+                } else {
+                    $result['skipped']++;
+                }
+            }
+
+        } catch (Throwable $e) {
+            $result['errors'][] = "Decision capture for {$triggerDate}: " . $e->getMessage();
+            error_log('captureSaltWeatherDecisions error: ' . $e->getMessage());
+        }
+    }
+
+    return $result;
 }

@@ -60,6 +60,24 @@ function generateContractNumber() {
 }
 
 /**
+ * Generate the next salt/winter service report number.
+ * Format: SAL-YYYY-NNNN
+ */
+function generateSaltReportNumber(): string {
+    $db = getDB();
+    $year = date('Y');
+    $stmt = $db->prepare("
+        SELECT MAX(CAST(SUBSTRING(report_number, 10) AS UNSIGNED)) as max_num
+        FROM salt_run_reports
+        WHERE report_number LIKE ?
+    ");
+    $stmt->execute(["SAL-{$year}-%"]);
+    $result = $stmt->fetch();
+    $nextNum = ($result['max_num'] ?? 0) + 1;
+    return sprintf("SAL-%s-%04d", $year, $nextNum);
+}
+
+/**
  * Create a new contract.
  * Returns ['success', 'contract_id', 'contract_number', 'errors']
  */

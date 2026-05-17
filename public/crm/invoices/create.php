@@ -344,6 +344,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($linkedVisitId) {
                     $db->prepare("UPDATE job_visits SET is_invoiced = 1, invoice_id = ? WHERE id = ?")
                        ->execute([$invoiceId, $linkedVisitId]);
+
+                    // Auto-attach salt/winter service report if one exists for this visit
+                    $srCheck = $db->prepare("SELECT id, pdf_path, report_number FROM salt_run_reports WHERE visit_id = ? AND pdf_path IS NOT NULL LIMIT 1");
+                    $srCheck->execute([$linkedVisitId]);
+                    $srRow = $srCheck->fetch(PDO::FETCH_ASSOC);
+                    if ($srRow) {
+                        $db->prepare("
+                            INSERT INTO invoice_attachments (invoice_id, document_type, document_id, pdf_path, label, attached_by)
+                            VALUES (?, 'salt_report', ?, ?, ?, ?)
+                        ")->execute([
+                            $invoiceId,
+                            (int)$srRow['id'],
+                            $srRow['pdf_path'],
+                            'Winter Service Record (' . ($srRow['report_number'] ?? 'Salt Report') . ')',
+                            (int)($user['id'] ?? 0),
+                        ]);
+                        $db->prepare("UPDATE salt_run_reports SET invoice_id = ?, invoice_attached_at = NOW() WHERE id = ?")
+                           ->execute([$invoiceId, (int)$srRow['id']]);
+                    }
                 }
 
                 $db->commit();

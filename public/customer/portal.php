@@ -170,6 +170,30 @@ if ($contact && !$error) {
         $completedVisits = [];
     }
 
+    // Winter Service Reports (salt / snow) — portal-available PDFs only
+    $saltReports = [];
+    try {
+        $stmt = $db->prepare("
+            SELECT srr.visit_id, srr.report_number, srr.pdf_path,
+                   srr.pm_email_sent_at, srr.portal_available_at,
+                   jv.scheduled_date,
+                   pr.address AS property_address, pr.city AS property_city
+            FROM salt_run_reports srr
+            JOIN job_visits jv ON jv.id = srr.visit_id
+            JOIN job_plans jp ON jp.id = jv.plan_id
+            JOIN properties pr ON pr.id = jp.property_id
+            WHERE pr.site_contact_id = ?
+              AND srr.portal_available_at IS NOT NULL
+              AND srr.pdf_path IS NOT NULL
+            ORDER BY jv.scheduled_date DESC
+            LIMIT 50
+        ");
+        $stmt->execute([$contactId]);
+        $saltReports = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Exception $e) {
+        $saltReports = [];
+    }
+
     // Photos for all completed visits
     $visitPhotos = [];
     if (!empty($completedVisits)) {
@@ -590,6 +614,38 @@ function statusBadge(string $status, bool $overdue = false): string {
         </ul>
       <?php endif; ?>
 
+    <?php endif; ?>
+
+    <?php if (!empty($saltReports)): ?>
+      <p class="portal-section-label">Winter Service Records</p>
+      <p style="font-size:12px;color:#666;margin:-8px 0 12px;">
+        Proof-of-work documents for salt application and snow removal visits.
+      </p>
+      <ul style="list-style:none;margin:0 0 24px;padding:0;">
+        <?php foreach ($saltReports as $sr):
+          $srDate    = date('F j, Y', strtotime($sr['scheduled_date']));
+          $srProp    = htmlspecialchars(trim($sr['property_address'] . ', ' . $sr['property_city']));
+          $srNum     = htmlspecialchars($sr['report_number'] ?? '');
+          $srToken   = $contact ? urlencode($contact['portal_token']) : '';
+          $srLink    = $baseUrl . '/customer/salt-report.php?token=' . $srToken . '&visit_id=' . (int)$sr['visit_id'];
+        ?>
+        <li style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid #eee;">
+          <div>
+            <div style="font-size:13px;font-weight:600;color:#1a1a1a;"><?= $srDate ?></div>
+            <div style="font-size:11px;color:#666;"><?= $srProp ?></div>
+            <?php if ($srNum): ?>
+            <div style="font-size:10px;color:#999;font-family:monospace;"><?= $srNum ?></div>
+            <?php endif; ?>
+          </div>
+          <a href="<?= $srLink ?>"
+             class="portal-btn-outline portal-btn-sm"
+             target="_blank"
+             style="white-space:nowrap;">
+            View PDF
+          </a>
+        </li>
+        <?php endforeach; ?>
+      </ul>
     <?php endif; ?>
 
     <div class="portal-footer">
