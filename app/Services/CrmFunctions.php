@@ -318,6 +318,80 @@ function getContractPlans(int $contractId): array {
 }
 
 /**
+ * Billing + visit stats for a single contract.
+ * Returns zeros/nulls gracefully when no invoices or visits exist.
+ */
+function getContractBillingStats(int $contractId): array {
+    $db = getDB();
+
+    // Invoice aggregates
+    $iStmt = $db->prepare("
+        SELECT
+            COALESCE(SUM(i.total), 0)        AS total_billed,
+            COALESCE(SUM(i.amount_paid), 0)   AS total_paid,
+            COALESCE(SUM(i.balance_due), 0)   AS total_outstanding,
+            COALESCE(SUM(
+                CASE WHEN i.due_date < CURDATE()
+                     AND i.status NOT IN ('paid','cancelled','draft')
+                THEN i.balance_due ELSE 0 END
+            ), 0)                             AS overdue_amount,
+            COUNT(*)                          AS invoice_count,
+            COUNT(CASE WHEN i.status = 'paid' THEN 1 END)                                    AS paid_count,
+            COUNT(CASE WHEN i.status IN ('sent','viewed','partial','overdue') THEN 1 END)     AS open_count
+        FROM invoices i
+        JOIN job_plans jp ON i.plan_id = jp.id
+        WHERE jp.contract_id = ?
+          AND i.status != 'cancelled'
+    ");
+    $iStmt->execute([$contractId]);
+    $billing = $iStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+    // Visit date summary (last completed, next scheduled)
+    $vStmt = $db->prepare("
+        SELECT
+            MAX(CASE WHEN jv.status = 'completed' THEN jv.scheduled_date END)  AS last_visit_date,
+            MIN(CASE WHEN jv.status = 'scheduled'
+                      AND jv.scheduled_date >= CURDATE()                        THEN jv.scheduled_date END) AS next_visit_date
+        FROM job_visits jv
+        JOIN job_plans jp ON jv.plan_id = jp.id
+        WHERE jp.contract_id = ?
+    ");
+    $vStmt->execute([$contractId]);
+    $visits = $vStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+    return array_merge([
+        'total_billed'      => 0,
+        'total_paid'        => 0,
+        'total_outstanding' => 0,
+        'overdue_amount'    => 0,
+        'invoice_count'     => 0,
+        'paid_count'        => 0,
+        'open_count'        => 0,
+        'last_visit_date'   => null,
+        'next_visit_date'   => null,
+    ], $billing, $visits);
+}
+
+/**
+ * Most recent non-draft invoices for a contract (via its plans).
+ */
+function getContractRecentInvoices(int $contractId, int $limit = 5): array {
+    $db = getDB();
+    $stmt = $db->prepare("
+        SELECT i.id, i.invoice_number, i.issue_date, i.due_date,
+               i.total, i.amount_paid, i.balance_due, i.status
+        FROM invoices i
+        JOIN job_plans jp ON i.plan_id = jp.id
+        WHERE jp.contract_id = ?
+          AND i.status != 'draft'
+        ORDER BY i.issue_date DESC
+        LIMIT ?
+    ");
+    $stmt->execute([$contractId, $limit]);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/**
  * List all contracts with property + contact + plan count.
  */
 function getAllContracts(?string $status = null): array {

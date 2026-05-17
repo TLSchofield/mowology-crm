@@ -1900,6 +1900,278 @@ tr[data-href] { cursor: pointer; }
 .mw-contact-info-saved { color: var(--mw-green); }
 .mw-contact-info-error { color: #dc3545; }
 
+/* ══════════════════════════════════════════════════════════════════════════════
+   CONTRACT VIEW — redesigned dashboard
+   /crm/contracts/view.php
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+.mw-ctr-header {
+    display:         flex;
+    align-items:     flex-start;
+    justify-content: space-between;
+    gap:             16px;
+    flex-wrap:       wrap;
+}
+.mw-ctr-header-main { flex: 1; min-width: 0; }
+.mw-ctr-header-actions {
+    display:   flex;
+    align-items: center;
+    gap:       8px;
+    flex-wrap: wrap;
+    flex-shrink: 0;
+}
+.mw-ctr-header-top {
+    display:     flex;
+    align-items: center;
+    gap:         10px;
+    flex-wrap:   wrap;
+    margin-bottom: 4px;
+}
+.mw-ctr-title {
+    font-size:   1.5rem;
+    font-weight: 700;
+    color:       var(--mw-forest);
+    margin:      0;
+    letter-spacing: -0.5px;
+}
+.mw-ctr-subtitle {
+    font-size:   1rem;
+    font-weight: 600;
+    color:       #444;
+    margin-bottom: 6px;
+}
+.mw-ctr-meta {
+    font-size:  .85rem;
+    color:      #6c757d;
+    display:    flex;
+    align-items: center;
+    gap:        6px;
+    flex-wrap:  wrap;
+}
+.mw-ctr-meta i { opacity: .7; }
+.mw-ctr-meta-sep { opacity: .4; }
+
+/* Compact GPS badge in header */
+.mw-border-ok--compact {
+    font-size:     .75rem !important;
+    padding:       3px 8px !important;
+    border-radius: 20px !important;
+}
+
+/* ── KPI Strip ───────────────────────────────────────────────────────────── */
+.mw-ctr-kpi-row {
+    display:               grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap:                   12px;
+}
+@media (max-width: 991px) {
+    .mw-ctr-kpi-row { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 575px) {
+    .mw-ctr-kpi-row { grid-template-columns: repeat(2, 1fr); }
+}
+.mw-ctr-kpi-card {
+    background:    #fff;
+    border:        1px solid #e8ecef;
+    border-radius: 8px;
+    padding:       14px 16px;
+    position:      relative;
+}
+.mw-ctr-kpi-card--alert {
+    border-color:  #f5c6cb;
+    background:    #fff5f5;
+}
+.mw-ctr-kpi-label {
+    font-size:     .72rem;
+    font-weight:   600;
+    text-transform: uppercase;
+    letter-spacing: .6px;
+    color:         #888;
+    margin-bottom: 5px;
+}
+.mw-ctr-kpi-value {
+    font-size:   1.45rem;
+    font-weight: 700;
+    color:       var(--mw-forest);
+    line-height: 1.1;
+}
+.mw-ctr-kpi-sub {
+    display:     block;
+    font-size:   .72rem;
+    font-weight: 500;
+    color:       #888;
+    margin-top:  2px;
+}
+
+/* Overdue pill inside KPI / billing bar */
+.mw-ctr-overdue-badge {
+    display:       inline-block;
+    background:    #f8d7da;
+    color:         #721c24;
+    font-size:     .7rem;
+    font-weight:   700;
+    padding:       2px 7px;
+    border-radius: 20px;
+    vertical-align: middle;
+    margin-left:   4px;
+}
+
+/* ── Plans Table ─────────────────────────────────────────────────────────── */
+.mw-ctr-plans-table th {
+    font-size:   .75rem;
+    font-weight: 600;
+    color:       #888;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    border-top:  none;
+    padding:     10px 12px;
+}
+.mw-ctr-plans-table td { padding: 10px 12px; vertical-align: middle; }
+
+/* ── Billing Summary Card ────────────────────────────────────────────────── */
+.mw-ctr-billing-trio {
+    display:               grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap:                   1px;
+    background:            #e8ecef;
+    border:                1px solid #e8ecef;
+    border-radius:         8px;
+    overflow:              hidden;
+}
+.mw-ctr-billing-trio-item {
+    background:    #fff;
+    padding:       12px 14px;
+    text-align:    center;
+}
+.mw-ctr-billing-trio-label {
+    font-size:   .7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    color:       #aaa;
+    margin-bottom: 4px;
+}
+.mw-ctr-billing-trio-value {
+    font-size:   1.15rem;
+    font-weight: 700;
+    color:       var(--mw-forest);
+}
+
+/* Billing progress bar */
+.mw-ctr-billing-bar {
+    height:        8px;
+    background:    #e9ecef;
+    border-radius: 20px;
+    overflow:      hidden;
+}
+.mw-ctr-billing-bar-fill {
+    height:        100%;
+    border-radius: 20px;
+    transition:    width .4s ease;
+    min-width:     2px;
+}
+
+/* Invoice count pills */
+.mw-ctr-inv-summary { display: flex; gap: 6px; flex-wrap: wrap; }
+.mw-ctr-inv-pill {
+    font-size:     .75rem;
+    font-weight:   600;
+    padding:       3px 10px;
+    border-radius: 20px;
+}
+.mw-ctr-inv-pill--paid  { background: #d4edda; color: #155724; }
+.mw-ctr-inv-pill--open  { background: #fff3cd; color: #856404; }
+.mw-ctr-inv-pill--total { background: #e9ecef; color: #495057; }
+
+/* Visit date rows */
+.mw-ctr-visit-row {
+    display:         flex;
+    justify-content: space-between;
+    align-items:     center;
+    padding:         5px 0;
+    border-top:      1px solid #f0f2f4;
+    font-size:       .83rem;
+}
+.mw-ctr-visit-label { color: #888; }
+.mw-ctr-visit-val   { font-weight: 600; color: var(--mw-forest); }
+
+/* ── Recent Invoices List ────────────────────────────────────────────────── */
+.mw-ctr-inv-row {
+    display:         flex;
+    align-items:     center;
+    justify-content: space-between;
+    padding:         10px 16px;
+    border-bottom:   1px solid #f0f2f4;
+    gap:             12px;
+}
+.mw-ctr-inv-row:last-child { border-bottom: none; }
+.mw-ctr-inv-num {
+    display:    flex;
+    flex-direction: column;
+    gap:        2px;
+    min-width:  0;
+}
+.mw-ctr-inv-num a {
+    font-weight: 600;
+    font-size:   .88rem;
+    color:       var(--mw-forest);
+    text-decoration: none;
+}
+.mw-ctr-inv-num a:hover { color: var(--mw-green); }
+.mw-ctr-inv-date { font-size: .75rem; color: #888; }
+.mw-ctr-inv-right {
+    display:     flex;
+    align-items: center;
+    gap:         8px;
+    flex-shrink: 0;
+}
+.mw-ctr-inv-amount {
+    font-size:   .9rem;
+    font-weight: 700;
+    color:       var(--mw-forest);
+}
+.mw-ctr-inv-status {
+    font-size:     .72rem;
+    font-weight:   600;
+    padding:       2px 8px;
+    border-radius: 20px;
+    white-space:   nowrap;
+}
+.mw-ctr-inv-footer {
+    padding:    10px 16px;
+    border-top: 1px solid #f0f2f4;
+    text-align: right;
+}
+
+/* ── Contract Details dl ─────────────────────────────────────────────────── */
+.mw-ctr-detail-list {
+    margin:  0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap:     0;
+}
+.mw-ctr-detail-list dt,
+.mw-ctr-detail-list dd {
+    padding:     9px 16px;
+    border-bottom: 1px solid #f0f2f4;
+    margin:      0;
+    font-size:   .87rem;
+    display:     flex;
+    align-items: flex-start;
+}
+.mw-ctr-detail-list dt {
+    font-weight:  600;
+    color:        #888;
+    white-space:  nowrap;
+    background:   #fafbfc;
+    border-right: 1px solid #f0f2f4;
+}
+.mw-ctr-detail-list dd { color: var(--mw-forest); }
+.mw-ctr-detail-list dt:last-of-type,
+.mw-ctr-detail-list dd:last-child { border-bottom: none; }
+
 /* ── Contract Plans Reconciliation Strip ──────────────── */
 .mw-contract-reconcile {
   display: flex;
