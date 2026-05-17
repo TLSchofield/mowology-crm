@@ -8,7 +8,7 @@
  * Document sections:
  *   1. Cover page        — property, crew, date, service summary
  *   2. Weather Auth      — authoritative EC forecast at time of go-decision
- *   3. Service Record    — clock-in/out, GPS dwell, services performed, materials
+ *   3. Service Record    — service commencement time, GPS pings, services performed, materials
  *   4. GPS Site Map      — Google Static Maps satellite image with GPS track
  *   5. Photo Evidence    — before / during / after photos
  *   6. Chain of Custody  — visit_audit_log entries + PDF integrity hash
@@ -267,17 +267,8 @@ class SaltReportPdfGenerator
         $serviceDate     = $v['scheduled_date'] ? date('l, F j, Y', strtotime($v['scheduled_date'])) : 'N/A';
         $generatedAt     = date('F j, Y \a\t g:i A T');
 
-        $clockIn  = $v['started_at']   ? date('g:i A', strtotime($v['started_at']))   : 'N/A';
-        $clockOut = $v['completed_at'] ? date('g:i A', strtotime($v['completed_at'])) : 'N/A';
-        $duration = '';
-        if ($v['started_at'] && $v['completed_at']) {
-            $mins = (int)round((strtotime($v['completed_at']) - strtotime($v['started_at'])) / 60);
-            $duration = ($mins >= 60 ? floor($mins / 60) . 'h ' : '') . ($mins % 60) . 'm';
-        }
-
-        $dwellMins    = (int)($v['gps_dwell_minutes'] ?? 0);
+        $clockIn      = $v['started_at'] ? date('g:i A', strtotime($v['started_at'])) : 'N/A';
         $dwellQuality = (int)($v['gps_dwell_quality'] ?? 0);
-        $qualityLabel = ['Insufficient', 'Sparse', 'Moderate', 'Good'][$dwellQuality] ?? 'Unknown';
 
         $saltProduct = $svcData['product'] ?? ($svcData['conditions'] ?? '');
         $saltQtyKg   = $svcData['qty_kg'] ?? '';
@@ -522,15 +513,8 @@ body { font-family: helvetica, arial, sans-serif; font-size: 11px; color: #1a1a1
 
     <table class="fact-table" style="margin-bottom:20px;">
         <tr><td>Crew member</td><td><?= htmlspecialchars($v['crew_name'] ?? 'N/A') ?></td></tr>
-        <tr><td>Clock-in</td><td><?= htmlspecialchars($clockIn) ?></td></tr>
-        <tr><td>Clock-out</td><td><?= htmlspecialchars($clockOut) ?></td></tr>
-        <?php if ($duration): ?>
-        <tr><td>Total duration</td><td><?= htmlspecialchars($duration) ?></td></tr>
-        <?php endif; ?>
-        <?php if ($dwellMins > 0): ?>
-        <tr><td>GPS on-site time</td><td><?= $dwellMins ?> minutes (GPS quality: <?= htmlspecialchars($qualityLabel) ?>)</td></tr>
-        <?php endif; ?>
-        <tr><td>GPS points captured</td><td><?= $gpsPointCount ?> location pings recorded</td></tr>
+        <tr><td>Service commenced</td><td><?= htmlspecialchars($clockIn) ?></td></tr>
+        <tr><td>GPS points captured</td><td><?= $gpsPointCount ?> location pings recorded on-site</td></tr>
         <?php if ($distKm !== 'N/A'): ?>
         <tr><td>Distance covered on property</td><td><?= htmlspecialchars($distKm) ?></td></tr>
         <?php endif; ?>
@@ -580,12 +564,12 @@ body { font-family: helvetica, arial, sans-serif; font-size: 11px; color: #1a1a1
     </table>
     <?php endif; ?>
 
-    <?php if ($dwellQuality < 2 && $dwellMins > 0): ?>
+    <?php if ($dwellQuality < 2 && $gpsPointCount > 0): ?>
     <div class="gps-warn">
-        <strong>GPS Coverage Note:</strong> Limited GPS data was captured for this visit
-        (<?= $gpsPointCount ?> points, quality: <?= htmlspecialchars($qualityLabel) ?>).
-        Clock-in/out records and photo timestamps confirm on-site presence.
-        This is disclosed proactively and does not indicate the service was not performed.
+        <strong>GPS Coverage Note:</strong> Sparse GPS signal was recorded for this visit
+        (<?= $gpsPointCount ?> points). Photo timestamps and service commencement records
+        confirm on-site presence. This is disclosed proactively and does not indicate the
+        service was not performed.
     </div>
     <?php endif; ?>
 </div>
@@ -611,9 +595,8 @@ body { font-family: helvetica, arial, sans-serif; font-size: 11px; color: #1a1a1
         <img src="<?= $mapBase64 ?>" style="width:100%;">
     </div>
     <table class="fact-table" style="margin-top:14px;">
-        <tr><td>Arrival time</td><td><?= htmlspecialchars($clockIn) ?><?= $arrivalLat ? ' — GPS: ' . round((float)$arrivalLat, 5) . ', ' . round((float)$arrivalLng, 5) : '' ?></td></tr>
-        <tr><td>Departure time</td><td><?= htmlspecialchars($clockOut) ?><?= $departureLat ? ' — GPS: ' . round((float)$departureLat, 5) . ', ' . round((float)$departureLng, 5) : '' ?></td></tr>
-        <tr><td>Total GPS pings</td><td><?= $gpsPointCount ?> points recorded</td></tr>
+        <tr><td>Service commenced</td><td><?= htmlspecialchars($clockIn) ?><?= $arrivalLat ? ' — GPS: ' . round((float)$arrivalLat, 5) . ', ' . round((float)$arrivalLng, 5) : '' ?></td></tr>
+        <tr><td>Total GPS pings</td><td><?= $gpsPointCount ?> location points recorded on-site</td></tr>
         <?php if ($distKm !== 'N/A'): ?>
         <tr><td>Distance covered</td><td><?= htmlspecialchars($distKm) ?></td></tr>
         <?php endif; ?>
