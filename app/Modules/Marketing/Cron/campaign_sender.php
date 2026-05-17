@@ -5,7 +5,7 @@
  * Processes pending campaign_sends for campaigns in 'sending' status.
  * Renders template, sends email, updates tracking, logs activity.
  *
- * Run every 15 minutes: */15 * * * * php /home/mowology/app/Modules/Marketing/Cron/campaign_sender.php
+ * Run every 15 minutes via cron: 0,15,30,45 * * * * php /home/mowology/app/Modules/Marketing/Cron/campaign_sender.php
  * Also callable via web POST: POST /crm/cron/campaign_sender.php
  *
  * Sends up to 20 emails per run (shared hosting SMTP throttle).
@@ -65,6 +65,7 @@ try {
         FROM marketing_campaigns mc
         LEFT JOIN email_templates et ON et.id = mc.template_id
         WHERE mc.status = 'sending'
+          AND (mc.trigger_type IS NULL OR mc.trigger_type <> 'optin_resend')
         ORDER BY mc.created_at ASC
     ")->fetchAll(PDO::FETCH_ASSOC);
 
