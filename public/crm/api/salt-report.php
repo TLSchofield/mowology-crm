@@ -67,8 +67,13 @@ if ($action === 'generate') {
 
     $siteUrl    = defined('SITE_URL') ? SITE_URL : 'https://mowology.ca';
     $forceRegen = !empty($_POST['force']);
-    $gen        = new SaltReportPdfGenerator($db, PUBLIC_ROOT, $siteUrl);
-    $result     = $gen->generate($visitId, $forceRegen);
+    try {
+        $gen    = new SaltReportPdfGenerator($db, PUBLIC_ROOT, $siteUrl, (int)($user['id'] ?? 0));
+        $result = $gen->generate($visitId, $forceRegen);
+    } catch (\Throwable $e) {
+        error_log('SaltReportPdfGenerator error: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+        $result = ['success' => false, 'error' => $e->getMessage(), 'error_file' => basename($e->getFile()), 'error_line' => $e->getLine()];
+    }
 
     echo json_encode($result);
     exit;

@@ -38,8 +38,9 @@ class SaltReportPdfGenerator
     private string $publicRoot;
     private string $storageDir;
     private string $siteUrl;
+    private int    $userId;
 
-    public function __construct(\PDO $db, string $publicRoot, string $siteUrl)
+    public function __construct(\PDO $db, string $publicRoot, string $siteUrl, int $userId = 0)
     {
         $this->db         = $db;
         $this->publicRoot = rtrim($publicRoot, '/');
@@ -47,6 +48,7 @@ class SaltReportPdfGenerator
             ? STORAGE_ROOT . '/pdfs/salt-reports'
             : dirname($this->publicRoot) . '/storage/pdfs/salt-reports';
         $this->siteUrl    = rtrim($siteUrl, '/');
+        $this->userId     = $userId;
 
         if (!is_dir($this->storageDir)) {
             mkdir($this->storageDir, 0755, true);
@@ -82,10 +84,10 @@ class SaltReportPdfGenerator
         $mapPath  = null;
         $gpsStats = [];
         $googleKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : (getenv('GOOGLE_MAPS_API_KEY') ?: '');
-        if (!empty($data['gps_points'])) {
+        if (!empty($data['gpsPoints'])) {
             $mapSvc   = new MapSnapshotService($googleKey, $this->publicRoot);
-            $gpsStats = $mapSvc->computeStats($data['gps_points']);
-            $mapPath  = $mapSvc->getOrGenerate($visitId, $data['gps_points']);
+            $gpsStats = $mapSvc->computeStats($data['gpsPoints']);
+            $mapPath  = $mapSvc->getOrGenerate($visitId, $data['gpsPoints']);
         }
 
         $html = $this->buildHtml($data, $gpsStats, $mapPath, $report['report_number']);
@@ -110,11 +112,17 @@ class SaltReportPdfGenerator
             UPDATE job_visits SET pdf_path = ?, pdf_generated_at = NOW() WHERE id = ?
         ")->execute([$webPath, $visitId]);
 
-        // Audit log
-        $this->db->prepare("
-            INSERT INTO visit_audit_log (visit_id, user_id, action, payload_json)
-            VALUES (?, 0, 'SALT_REPORT_GENERATED', ?)
-        ")->execute([$visitId, json_encode(['report_number' => $report['report_number'], 'pdf_hash' => $pdfHash, 'version' => $version])]);
+        // Audit log — non-critical; wrap so a FK miss doesn't abort the return
+        if ($this->userId > 0) {
+            try {
+                $this->db->prepare("
+                    INSERT INTO visit_audit_log (visit_id, user_id, action, payload_json)
+                    VALUES (?, ?, 'SALT_REPORT_GENERATED', ?)
+                ")->execute([$visitId, $this->userId, json_encode(['report_number' => $report['report_number'], 'pdf_hash' => $pdfHash, 'version' => $version])]);
+            } catch (\Throwable $e) {
+                error_log('SaltReportPdfGenerator: audit log insert failed — ' . $e->getMessage());
+            }
+        }
 
         return ['success' => true, 'path' => $webPath, 'report_number' => $report['report_number'], 'error' => null];
     }
@@ -295,7 +303,7 @@ class SaltReportPdfGenerator
             }
         }
 
-        $gpsPointCount = count($data['gps_points']);
+        $gpsPointCount = count($data['gpsPoints']);
         $distKm = isset($gpsStats['distance_m']) && $gpsStats['distance_m'] > 0
             ? number_format($gpsStats['distance_m'] / 1000, 2) . ' km'
             : 'N/A';

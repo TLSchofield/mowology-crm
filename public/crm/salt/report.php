@@ -361,7 +361,40 @@ document.querySelectorAll('form[id^="form"]').forEach(function(form) {
             btn.disabled = true;
             btn.innerHTML = '<span class="spinner-border spinner-border-sm mr-1"></span> Working...';
         }
+
+        // Intercept generate / email / attach forms to show JSON error inline
+        var action = form.querySelector('[name="action"]');
+        if (!action) return;
+
+        e.preventDefault();
+        var formData = new FormData(form);
+
+        fetch(form.action, { method: 'POST', body: formData })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.success) {
+                    window.location.href = window.location.href.split('?')[0]
+                        + '?visit_id=<?= $visitId ?>'
+                        + (data.report_number ? '&success=' + encodeURIComponent('Report generated: ' + data.report_number) : '&success=Done');
+                } else {
+                    var msg = data.error || 'Unknown error';
+                    if (data.error_file) msg += ' (' + data.error_file + ':' + data.error_line + ')';
+                    alert('Error: ' + msg);
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = btn.getAttribute('data-orig') || 'Try again';
+                    }
+                }
+            })
+            .catch(function(err) {
+                alert('Request failed: ' + err);
+                if (btn) { btn.disabled = false; btn.innerHTML = 'Try again'; }
+            });
     });
+
+    // Store original button text before disabling
+    var btn = form.querySelector('button[type="submit"]');
+    if (btn) btn.setAttribute('data-orig', btn.innerHTML);
 });
 </script>
 
