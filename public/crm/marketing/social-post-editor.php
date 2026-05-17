@@ -185,30 +185,26 @@ $extraHead = '
                           <h5 class="mb-0">Schedule</h5>
                       </div>
                       <div class="card-body">
-                          <div class="row">
-                              <div class="col-md-7">
-                                  <div class="form-group mb-0">
-                                      <label class="small font-weight-bold text-muted text-uppercase" style="letter-spacing:.04em;font-size:.68rem;">Publish Date &amp; Time</label>
-                                      <div class="mw-soc-schedule-wrap">
-                                          <span class="mw-soc-schedule-wrap-icon">
-                                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                                          </span>
-                                          <input type="datetime-local" class="form-control" id="postSchedule"
-                                              value="<?php echo $preSchedule; ?>">
-                                      </div>
-                                      <div class="d-flex align-items-center justify-content-between mt-1">
-                                          <small class="text-muted">Leave blank to save as a draft.</small>
-                                          <button class="btn btn-sm" id="btnSuggestedTime" style="display:none;background:var(--mw-lime);color:#1a3a2a;border:none;font-size:.72rem;padding:2px 8px;" onclick="applySuggestedTime()" title="AI-suggested optimal posting time">
-                                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="mr-1"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                                              <span id="suggestedTimeLabel">Suggested</span>
-                                          </button>
-                                      </div>
-                                      <!-- Schedule busy-day strip: 7-day week view centered on selected date -->
-                                      <div class="mw-soc-pulse-strip mt-2" id="schedBusyStrip" style="display:none;"></div>
-                                      <div style="font-size:.68rem;color:#6c757d;margin-top:2px;" id="schedBusyHint"></div>
+                          <!-- Row 1: date picker + quick presets -->
+                          <div class="row align-items-end mb-0">
+                              <div class="col-sm-7">
+                                  <label class="small font-weight-bold text-muted text-uppercase" style="letter-spacing:.04em;font-size:.68rem;">Publish Date &amp; Time</label>
+                                  <div class="mw-soc-schedule-wrap">
+                                      <span class="mw-soc-schedule-wrap-icon">
+                                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                      </span>
+                                      <input type="datetime-local" class="form-control" id="postSchedule"
+                                          value="<?php echo $preSchedule; ?>">
+                                  </div>
+                                  <div class="d-flex align-items-center justify-content-between mt-1">
+                                      <small class="text-muted">Leave blank to save as a draft.</small>
+                                      <button class="btn btn-sm" id="btnSuggestedTime" style="display:none;background:var(--mw-lime);color:#1a3a2a;border:none;font-size:.72rem;padding:2px 8px;" onclick="applySuggestedTime()" title="AI-suggested optimal posting time">
+                                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="mr-1"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                          <span id="suggestedTimeLabel">Suggested</span>
+                                      </button>
                                   </div>
                               </div>
-                              <div class="col-md-5 mt-3 mt-md-0">
+                              <div class="col-sm-5 mt-3 mt-sm-0">
                                   <label class="small font-weight-bold text-muted text-uppercase d-block" style="letter-spacing:.04em;font-size:.68rem;">Quick presets</label>
                                   <div class="mw-soc-time-presets">
                                       <button class="btn btn-sm btn-outline-secondary" onclick="setPreset(9,0)">9am Today</button>
@@ -218,6 +214,9 @@ $extraHead = '
                                   </div>
                               </div>
                           </div>
+                          <!-- Row 2: 7-day busy strip — full card width so dots spread evenly -->
+                          <div id="schedBusyStrip" style="display:none;margin-top:12px;"></div>
+                          <div style="font-size:.68rem;color:#6c757d;margin-top:2px;" id="schedBusyHint"></div>
                       </div>
                   </div>
 
@@ -538,22 +537,24 @@ $extraHead = '
                       })();
                       var html = '';
                       weekDays.forEach(function(wd) {
-                          var ds     = wd.getFullYear() + '-' + pad(wd.getMonth() + 1) + '-' + pad(wd.getDate());
-                          var posts  = (cal[ds] || []).filter(function(p) { return p.id !== editId; });
-                          var pub    = posts.filter(function(p) { return p.status === 'published'; }).length;
-                          var sch    = posts.filter(function(p) { return p.status === 'scheduled' || p.status === 'approved'; }).length;
-                          var cls    = pub > 0 ? 'mw-soc-pulse-dot-published'
-                                     : sch > 0 ? 'mw-soc-pulse-dot-scheduled'
-                                     : 'mw-soc-pulse-dot-empty';
-                          var isSel  = selDateStr && (ds === selDateStr);
+                          var ds      = wd.getFullYear() + '-' + pad(wd.getMonth() + 1) + '-' + pad(wd.getDate());
+                          var posts   = (cal[ds] || []).filter(function(p) { return p.id !== editId; });
+                          var pub     = posts.filter(function(p) { return p.status === 'published'; }).length;
+                          var sch     = posts.filter(function(p) { return p.status === 'scheduled' || p.status === 'approved'; }).length;
+                          var cls     = pub > 0 ? 'mw-soc-pulse-dot-published'
+                                      : sch > 0 ? 'mw-soc-pulse-dot-scheduled'
+                                      : 'mw-soc-pulse-dot-empty';
+                          var isSel   = selDateStr && (ds === selDateStr);
                           var isToday = (ds === todayStr);
-                          var count  = pub + sch;
-                          var dayStyle = isSel ? 'opacity:1;font-weight:700;' : (isToday ? 'opacity:.85;' : 'opacity:.55;');
-                          var dotStyle = isSel ? 'box-shadow:0 0 0 2px #fff,0 0 0 3px var(--mw-green);' : '';
-                          html += '<div class="mw-soc-pulse-day" style="' + dayStyle + '">'
-                               +  '<span class="mw-soc-pulse-lbl">' + letters[wd.getDay()] + '</span>'
-                               +  '<span class="mw-soc-pulse-dot ' + cls + '" style="' + dotStyle + '" title="' + ds + (count ? ' — ' + count + ' post' + (count > 1 ? 's' : '') : '') + '"></span>'
-                               +  '<span style="font-size:.65rem;color:#6c757d;">' + (count > 0 ? count : '') + '</span>'
+                          var count   = pub + sch;
+                          var selAttr = isSel   ? ' data-selected="1"' : '';
+                          var todayCls = isToday ? ' mw-soc-pulse-today' : '';
+                          var dotStyle = isSel ? 'box-shadow:0 0 0 2px var(--mw-light),0 0 0 3px var(--mw-green);' : '';
+                          var lblStyle = isToday && !isSel ? 'color:#6c757d;' : '';
+                          html += '<div class="mw-soc-pulse-day' + todayCls + '"' + selAttr + ' title="' + ds + '">'
+                               +  '<span class="mw-soc-pulse-lbl" style="' + lblStyle + '">' + letters[wd.getDay()] + '</span>'
+                               +  '<span class="mw-soc-pulse-dot ' + cls + '" style="' + dotStyle + '"></span>'
+                               +  '<span style="font-size:.65rem;color:#6c757d;line-height:1;">' + (count > 0 ? count : '·') + '</span>'
                                + '</div>';
                       });
                       stripEl.innerHTML = html;
@@ -1503,11 +1504,20 @@ $extraHead = '
                       var el = document.getElementById(id);
                       if (!el) return;
                       el.disabled = disabled;
-                      if (id === 'btnSchedule' && label) {
-                          el.setAttribute('data-orig', el.getAttribute('data-orig') || el.textContent.trim());
-                          el.innerHTML = disabled
-                              ? '<span class="spinner-border spinner-border-sm mr-1"></span>' + label
-                              : el.getAttribute('data-orig') || el.textContent.trim();
+                      if (id === 'btnSchedule') {
+                          if (disabled) {
+                              // Capture full innerHTML (SVG + text) the very first time we disable
+                              if (!el.hasAttribute('data-orig-html')) {
+                                  el.setAttribute('data-orig-html', el.innerHTML);
+                              }
+                              el.innerHTML = '<span class="spinner-border spinner-border-sm mr-1"></span>'
+                                           + (label || 'Working…');
+                          } else {
+                              // Always restore on re-enable — label is irrelevant here
+                              if (el.hasAttribute('data-orig-html')) {
+                                  el.innerHTML = el.getAttribute('data-orig-html');
+                              }
+                          }
                       }
                   });
               }

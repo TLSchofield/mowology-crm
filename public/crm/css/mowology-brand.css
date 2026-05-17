@@ -21236,14 +21236,30 @@ body.mw-no-scroll {
 .mw-soc-top-post-metric  { font-size: .8rem; background: rgba(45,134,89,.1); color: var(--mw-forest); padding: 3px 8px; border-radius: 12px; font-weight: 600; white-space: nowrap; }
 
 /* ── 7-day Activity Pulse strip ─────────────────────────────────────── */
-.mw-soc-pulse-strip { display: flex; gap: 4px; align-items: flex-end; padding: 6px 0 0; width: 100%; }
-.mw-soc-pulse-day   { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1; min-width: 0; }
+.mw-soc-pulse-strip {
+    display: flex; gap: 0; align-items: stretch;
+    width: 100%; border: 1px solid #e9ecef; border-radius: 8px; overflow: hidden;
+}
+.mw-soc-pulse-day {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 5px; flex: 1; min-width: 0; padding: 8px 4px;
+    border-right: 1px solid #e9ecef;
+    background: #fafbfc;
+}
+.mw-soc-pulse-day:last-child { border-right: none; }
 .mw-soc-pulse-lbl   { font-size: .65rem; font-weight: 600; color: #adb5bd; text-transform: uppercase; }
 .mw-soc-pulse-dot   { width: 10px; height: 10px; border-radius: 50%; }
 .mw-soc-pulse-dot-published { background: var(--mw-green); }
 .mw-soc-pulse-dot-scheduled { background: #007bff; }
 .mw-soc-pulse-dot-empty     { background: #e9ecef; border: 1px solid #dee2e6; }
 .mw-soc-pulse-today .mw-soc-pulse-dot { box-shadow: 0 0 0 2px #fff, 0 0 0 3px #adb5bd; }
+/* Selected day (the one in the datetime input) gets a light green tint */
+#schedBusyStrip .mw-soc-pulse-day[data-selected="1"] {
+    background: var(--mw-light);
+}
+#schedBusyStrip .mw-soc-pulse-day[data-selected="1"] .mw-soc-pulse-lbl {
+    color: var(--mw-green);
+}
 
 /* ── Post filter tabs (Scheduled / Drafts / Published) ──────────────── */
 .mw-soc-post-tabs  { display: flex; gap: 2px; background: #f1f3f5; border-radius: 6px; padding: 3px; }
