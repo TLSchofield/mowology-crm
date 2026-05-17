@@ -26,11 +26,13 @@ $contracts = $db->prepare("
     SELECT c.*,
            p.address AS property_address, p.city AS property_city,
            ct.first_name, ct.last_name,
+           co.company_name,
            q.quote_number,
            COUNT(jp.id) AS plan_count
     FROM contracts c
     JOIN  properties p  ON c.property_id = p.id
     JOIN  contacts ct   ON c.contact_id  = ct.id
+    LEFT JOIN companies co ON co.primary_contact_id = ct.id
     LEFT JOIN quotes q  ON c.quote_id    = q.id
     LEFT JOIN job_plans jp ON jp.contract_id = c.id
     {$where}
@@ -188,6 +190,9 @@ $activePage = 'contracts';
                                           <a href="contracts/view.php?id=<?php echo (int)$c['id']; ?>" class="font-weight-bold">
                                               <?php echo htmlspecialchars($c['contract_number']); ?>
                                           </a>
+                                          <?php if ($c['title']): ?>
+                                              <div class="text-muted small"><?php echo htmlspecialchars($c['title']); ?></div>
+                                          <?php endif; ?>
                                       </td>
                                       <td>
                                           <?php echo htmlspecialchars($c['property_address']); ?><br>
@@ -195,8 +200,8 @@ $activePage = 'contracts';
                                       </td>
                                       <td>
                                           <?php echo htmlspecialchars(trim($c['first_name'] . ' ' . $c['last_name'])); ?>
-                                          <?php if ($c['title']): ?>
-                                              <div class="text-muted small"><?php echo htmlspecialchars($c['title']); ?></div>
+                                          <?php if (!empty($c['company_name'])): ?>
+                                              <div class="text-muted small"><?php echo htmlspecialchars($c['company_name']); ?></div>
                                           <?php endif; ?>
                                       </td>
                                       <td>
