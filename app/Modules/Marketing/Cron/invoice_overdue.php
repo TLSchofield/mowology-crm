@@ -27,8 +27,10 @@ unset($__dir, $__i);
 
 require_once CRM_INCLUDES . '/functions.php';
 
-$db  = getDB();
-$log = [];
+$db      = getDB();
+$log     = [];
+$startMs = (int) round(microtime(true) * 1000);
+$fromWeb = (PHP_SAPI !== 'cli');
 
 function ovLog(string $msg): void {
     global $log;
@@ -38,6 +40,10 @@ function ovLog(string $msg): void {
 }
 
 ovLog("=== Invoice Overdue Cron started ===");
+
+$cronStatus = 'success';
+$cronError  = null;
+$rows       = 0;
 
 try {
     // Mark eligible invoices as overdue:
@@ -54,14 +60,26 @@ try {
     ovLog("Marked {$rows} invoice(s) as overdue");
 
 } catch (Throwable $e) {
+    $cronStatus = 'error';
+    $cronError  = $e->getMessage();
     ovLog("ERROR: " . $e->getMessage());
     error_log('[invoice_overdue_cron] ' . $e->getMessage());
 }
 
 ovLog("=== Done ===");
 
+$durationMs = (int) round(microtime(true) * 1000) - $startMs;
+recordCronRun(
+    'invoice_overdue',
+    $cronStatus,
+    "Marked {$rows} invoice(s) as overdue",
+    $durationMs,
+    $cronError,
+    $fromWeb
+);
+
 // If running via web shim, return JSON
-if (PHP_SAPI !== 'cli') {
+if ($fromWeb) {
     header('Content-Type: application/json');
     echo json_encode(['success' => true, 'log' => $log]);
 }
