@@ -22,8 +22,8 @@ $activePage = 'social';
 $canApprove = userHasPermission('marketing.approve');
 
 $extraHead = '
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.css" crossorigin="anonymous">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js" crossorigin="anonymous"></script>
+<link rel="stylesheet" href="https://unpkg.com/cropperjs@1.6.2/dist/cropper.min.css">
+<script src="https://unpkg.com/cropperjs@1.6.2/dist/cropper.min.js"></script>
 ';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
