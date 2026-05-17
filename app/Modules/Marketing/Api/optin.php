@@ -216,12 +216,20 @@ try {
             $db->prepare("UPDATE marketing_optin_tokens SET status='confirmed', confirmed_at=NOW(), ip_address=? WHERE id=?")->execute([$ip, $record['id']]);
             $db->prepare("UPDATE contacts SET receive_marketing=1 WHERE id=?")->execute([$record['contact_id']]);
 
-            // Upsert preferences
+            // Upsert preferences — record WHAT was consented to (CASL/PIPEDA:
+            // keep a snapshot of the consent statement, not just that consent
+            // happened). confirmed_at + marketing_optin_tokens.ip_address
+            // already capture when/where.
+            $consentText = 'Express consent via double opt-in email confirmation on '
+                . date('Y-m-d H:i:s') . ' (IP ' . ($ip ?: 'unknown') . '). '
+                . 'Agreed to receive marketing emails from ' . (defined('SITE_NAME') ? SITE_NAME : 'Mowology Landscaping')
+                . ': seasonal service reminders, special offers, and landscaping tips. '
+                . 'Unsubscribe available in every email.';
             $db->prepare("
-                INSERT INTO client_marketing_preferences (contact_id, email_opt_in, confirmed_at, confirmation_method)
-                VALUES (?, 1, NOW(), 'optin_email')
-                ON DUPLICATE KEY UPDATE email_opt_in=1, confirmed_at=NOW(), confirmation_method='optin_email'
-            ")->execute([$record['contact_id']]);
+                INSERT INTO client_marketing_preferences (contact_id, email_opt_in, confirmed_at, confirmation_method, gdpr_consent, consent_text)
+                VALUES (?, 1, NOW(), 'optin_email', 1, ?)
+                ON DUPLICATE KEY UPDATE email_opt_in=1, confirmed_at=NOW(), confirmation_method='optin_email', gdpr_consent=1, consent_text=VALUES(consent_text)
+            ")->execute([$record['contact_id'], $consentText]);
 
             // Add tag
             $db->prepare("

@@ -127,7 +127,7 @@ try {
               AND c.receive_marketing = 1
               AND c.email IS NOT NULL
               AND c.email != ''
-              AND c.email NOT IN (SELECT email COLLATE utf8mb4_0900_ai_ci FROM marketing_unsubscribes)
+              AND c.email NOT IN (SELECT email COLLATE utf8mb4_general_ci FROM marketing_unsubscribes)
               AND c.id NOT IN (
                   SELECT contact_id FROM contact_product_history WHERE product_id = ?
               )
@@ -164,7 +164,7 @@ try {
               AND c.receive_marketing = 1
               AND c.email IS NOT NULL
               AND c.email != ''
-              AND c.email NOT IN (SELECT email COLLATE utf8mb4_0900_ai_ci FROM marketing_unsubscribes)
+              AND c.email NOT IN (SELECT email COLLATE utf8mb4_general_ci FROM marketing_unsubscribes)
               AND c.id NOT IN (
                   SELECT contact_id FROM contact_product_history WHERE product_id = ?
               )

@@ -112,7 +112,13 @@ function emailCompanyDetails(): array
     return $cached;
 }
 
-function wrapInBrandedEmail(string $bodyHtml, string $unsubscribeUrl = ''): string
+/**
+ * @param bool $trackingNotice  Set true ONLY for emails that actually
+ *   embed open/click tracking (campaign_sender). PIPEDA best practice:
+ *   disclose tracking. Opt-in, transactional, and the Oops resend pass
+ *   false because they are NOT tracked — the notice must stay accurate.
+ */
+function wrapInBrandedEmail(string $bodyHtml, string $unsubscribeUrl = '', bool $trackingNotice = false): string
 {
     $co = emailCompanyDetails();
     $coName    = htmlspecialchars($co['name'], ENT_QUOTES, 'UTF-8');
@@ -125,6 +131,10 @@ function wrapInBrandedEmail(string $bodyHtml, string $unsubscribeUrl = ''): stri
         $safeUrl = htmlspecialchars($unsubscribeUrl, ENT_QUOTES, 'UTF-8');
         $unsubscribeBlock = '<p style="margin:0;"><a href="' . $safeUrl . '" style="color:#8fa89c;text-decoration:underline;">Unsubscribe</a></p>';
     }
+
+    $trackingBlock = $trackingNotice
+        ? '<p style="margin:0 0 4px;font-size:11px;color:#6f8a7e;">This email contains open and click tracking so we can improve our communications.</p>'
+        : '';
 
     return '<!DOCTYPE html>
 <html>
@@ -155,7 +165,7 @@ function wrapInBrandedEmail(string $bodyHtml, string $unsubscribeUrl = ''): stri
     <p style="margin:0 0 4px;">' . $coName . '</p>
     <p style="margin:0 0 4px;">' . $coAddress . '</p>
     <p style="margin:0 0 4px;">📞 ' . $coPhone . ' &bull; 📧 ' . $coEmail . '</p>
-    ' . $unsubscribeBlock . '
+    ' . $trackingBlock . $unsubscribeBlock . '
   </td>
 </tr>
 
@@ -242,6 +252,56 @@ function generateUnsubscribeUrl(string $email, int $sendId = 0): string
  * @param string $unsubUrl  Result of generateUnsubscribeUrl()
  * @return array<string,string>  Header name => value
  */
+/**
+ * If a send failure is an unambiguous PERMANENT recipient failure
+ * (bad mailbox / relay-side reject at submission), add the address to
+ * the do-not-contact list so the Phase-0 suppression gate stops future
+ * marketing sends to it (list hygiene + sender reputation).
+ *
+ * Conservative on purpose: only well-known permanent signatures —
+ * transient failures (timeouts, greylisting, 4xx) must NOT suppress a
+ * possibly-valid customer. This only catches SYNCHRONOUS rejections;
+ * true asynchronous bounces/complaints require mailbox/FBL ingestion
+ * (a separate, larger pipeline).
+ *
+ * @return bool true if the address was suppressed.
+ */
+function suppressIfHardBounce(PDO $db, string $email, string $error): bool
+{
+    $email = strtolower(trim($email));
+    if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        return false;
+    }
+    $e = strtolower($error);
+
+    // Permanent-only signatures. PHP 7.4-safe (strpos, no str_contains).
+    $permanent = [
+        'user unknown', 'no such user', 'no such mailbox', 'mailbox unavailable',
+        'mailbox not found', 'recipient address rejected', 'recipient rejected',
+        'address rejected', 'does not exist', 'address not found',
+        'invalid recipient', 'unrouteable address', 'account disabled',
+        '550 ', '551 ', '553 ', '5.1.1', '5.1.0', '5.1.10', '5.0.0',
+    ];
+    $isPermanent = false;
+    foreach ($permanent as $sig) {
+        if (strpos($e, $sig) !== false) { $isPermanent = true; break; }
+    }
+    if (!$isPermanent) {
+        return false;
+    }
+
+    try {
+        $db->prepare(
+            "INSERT IGNORE INTO marketing_unsubscribes (email, reason, unsubscribed_at)
+             VALUES (?, 'hard_bounce', NOW())"
+        )->execute([$email]);
+    } catch (\Throwable $ex) {
+        error_log('suppressIfHardBounce failed for ' . $email . ': ' . $ex->getMessage());
+        return false;
+    }
+    return true;
+}
+
 function listUnsubscribeHeaders(string $unsubUrl): array
 {
     $co = function_exists('emailCompanyDetails') ? emailCompanyDetails() : ['email' => 'office@mowology.ca'];

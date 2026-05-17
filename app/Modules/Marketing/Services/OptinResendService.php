@@ -393,6 +393,9 @@ seasonal services, special offers, and landscaping tips, just confirm below:</p>
                     "UPDATE campaign_sends SET status='failed', error_message=? WHERE id=?"
                 )->execute([substr($err, 0, 500), $sendId]);
                 $failed++;
+                if (function_exists('suppressIfHardBounce')) {
+                    suppressIfHardBounce($this->db, $email, $err);
+                }
             }
 
             usleep(100000); // 100ms — gentle on shared-hosting SMTP

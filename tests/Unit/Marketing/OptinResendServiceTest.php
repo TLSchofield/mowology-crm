@@ -155,6 +155,35 @@ class OptinResendServiceTest extends TestCase
         $this->assertStringNotContainsString("\r", $h['List-Unsubscribe']);
     }
 
+    // ── Hard-bounce suppression (must NOT mis-suppress valid customers) ───
+
+    public function testHardBounceSuppressesOnPermanentFailureOnly(): void
+    {
+        if (!function_exists('suppressIfHardBounce')) {
+            $this->markTestSkipped('TemplateRenderer not loaded');
+        }
+
+        // Permanent → suppress (one INSERT into marketing_unsubscribes).
+        $ins = $this->createMock(PDOStatement::class);
+        $ins->expects($this->once())->method('execute')->with(['bad@x.com'])->willReturn(true);
+        $dbP = $this->createMock(PDO::class);
+        $dbP->expects($this->once())->method('prepare')
+            ->with($this->stringContains('INSERT IGNORE INTO marketing_unsubscribes'))
+            ->willReturn($ins);
+        $this->assertTrue(suppressIfHardBounce($dbP, 'bad@x.com', '550 5.1.1 <bad@x.com>: Recipient address rejected: User unknown'));
+
+        // Transient → do NOT suppress, never touch the DB.
+        $dbT = $this->createMock(PDO::class);
+        $dbT->expects($this->never())->method('prepare');
+        $this->assertFalse(suppressIfHardBounce($dbT, 'maybe@x.com', '451 4.7.1 Greylisted, please try again later'));
+        $this->assertFalse(suppressIfHardBounce($dbT, 'maybe@x.com', 'Connection timed out'));
+
+        // Invalid email → never suppress.
+        $dbI = $this->createMock(PDO::class);
+        $dbI->expects($this->never())->method('prepare');
+        $this->assertFalse(suppressIfHardBounce($dbI, 'not-an-email', '550 user unknown'));
+    }
+
     // ── Mid-campaign suppression (CASL-critical) ──────────────────────────
 
     public function testProcessBatchSuppressesUnsubscribedRecipientAndDoesNotSend(): void

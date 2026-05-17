@@ -194,7 +194,9 @@ try {
             // Render
             $renderedSubject = renderTemplate($subject, $mergeData);
             $renderedBody = renderTemplate($bodyTemplate, $mergeData);
-            $fullEmail = wrapInBrandedEmail($renderedBody, $unsubUrl);
+            // true: this path injects the open pixel + click-tracking
+            // rewrite below, so the footer must disclose tracking.
+            $fullEmail = wrapInBrandedEmail($renderedBody, $unsubUrl, true);
 
             // Add open tracking pixel
             $fullEmail = str_replace(
@@ -250,6 +252,10 @@ try {
                 $db->prepare("UPDATE campaign_sends SET status = 'failed', error_message = ? WHERE id = ?")
                    ->execute([substr($errorMsg, 0, 500), $send['id']]);
                 $totalFailed++;
+                // List hygiene: permanent rejections → do-not-contact.
+                if (function_exists('suppressIfHardBounce')) {
+                    suppressIfHardBounce($db, $email, $errorMsg);
+                }
             }
 
             // Brief pause between sends (100ms) to avoid SMTP throttling
