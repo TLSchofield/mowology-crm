@@ -61,17 +61,41 @@ const CANADIAN_SMS_GATEWAYS = [
  * @param string      $fromName       Display name (default: 'Mowology')
  * @return array      ['success' => bool, 'method' => string, 'error' => string|null]
  */
+/**
+ * Strip CR/LF from header name/value to prevent header injection.
+ * Extra headers originate from our own code, but the unsubscribe URL
+ * embeds a contact email — defence in depth.
+ *
+ * @param array<string,string> $headers
+ * @return array<string,string>
+ */
+function _sanitizeExtraHeaders(array $headers): array
+{
+    $clean = [];
+    foreach ($headers as $name => $value) {
+        $name  = trim(str_replace(["\r", "\n"], '', (string)$name));
+        $value = trim(str_replace(["\r", "\n"], '', (string)$value));
+        if ($name !== '' && $value !== '') {
+            $clean[$name] = $value;
+        }
+    }
+    return $clean;
+}
+
 function sendEmail(
     string $to,
     string $subject,
     string $htmlBody,
     ?string $attachmentPath = null,
-    string $fromName = 'Mowology'
+    string $fromName = 'Mowology',
+    array $extraHeaders = []
 ): array {
     // Validate email
     if (empty($to) || !filter_var($to, FILTER_VALIDATE_EMAIL)) {
         return ['success' => false, 'method' => 'none', 'error' => "Invalid recipient email: {$to}"];
     }
+
+    $extraHeaders = _sanitizeExtraHeaders($extraHeaders);
 
     // Validate attachment exists
     if ($attachmentPath && !file_exists($attachmentPath)) {
@@ -83,7 +107,7 @@ function sendEmail(
     $htmlBody = trim($htmlBody);
 
     // Try PHPMailer SMTP first
-    $phpMailerResult = _sendViaPhpMailer($to, $subject, $htmlBody, $attachmentPath, $fromName);
+    $phpMailerResult = _sendViaPhpMailer($to, $subject, $htmlBody, $attachmentPath, $fromName, $extraHeaders);
 
     if ($phpMailerResult !== null) {
         // PHPMailer was available and attempted the send
@@ -98,9 +122,9 @@ function sendEmail(
     error_log("PHPMailer unavailable — falling back to native mail()");
 
     if ($attachmentPath) {
-        $result = _sendEmailWithAttachment($to, $subject, $htmlBody, $attachmentPath, $fromName);
+        $result = _sendEmailWithAttachment($to, $subject, $htmlBody, $attachmentPath, $fromName, $extraHeaders);
     } else {
-        $result = _sendSimpleHtmlEmail($to, $subject, $htmlBody, $fromName);
+        $result = _sendSimpleHtmlEmail($to, $subject, $htmlBody, $fromName, $extraHeaders);
     }
 
     return [
@@ -845,9 +869,10 @@ if (!function_exists('sendCrmEmail')) {
         string $subject,
         string $htmlBody,
         ?string $attachmentPath = null,
-        string $from = 'Mowology'
+        string $from = 'Mowology',
+        array $extraHeaders = []
     ): bool {
-        $result = sendEmail($to, $subject, $htmlBody, $attachmentPath, $from);
+        $result = sendEmail($to, $subject, $htmlBody, $attachmentPath, $from, $extraHeaders);
         return $result['success'];
     }
 }
@@ -984,7 +1009,8 @@ function _sendViaPhpMailer(
     string $subject,
     string $htmlBody,
     ?string $attachmentPath,
-    string $fromName
+    string $fromName,
+    array $extraHeaders = []
 ): ?array {
     $mail = _createMailer();
     if (!$mail) {
@@ -997,6 +1023,10 @@ function _sendViaPhpMailer(
         $mail->Subject = $subject;
         $mail->isHTML(true);
         $mail->Body = $htmlBody;
+
+        foreach ($extraHeaders as $hName => $hValue) {
+            $mail->addCustomHeader($hName, $hValue);
+        }
 
         if ($attachmentPath) {
             $mail->addAttachment($attachmentPath, basename($attachmentPath));
@@ -1021,9 +1051,9 @@ function _sendViaPhpMailer(
         // Fall back to native mail()
         error_log("Falling back to native mail() after PHPMailer error");
         if ($attachmentPath) {
-            $fallbackResult = _sendEmailWithAttachment($to, $subject, $htmlBody, $attachmentPath, $fromName);
+            $fallbackResult = _sendEmailWithAttachment($to, $subject, $htmlBody, $attachmentPath, $fromName, $extraHeaders);
         } else {
-            $fallbackResult = _sendSimpleHtmlEmail($to, $subject, $htmlBody, $fromName);
+            $fallbackResult = _sendSimpleHtmlEmail($to, $subject, $htmlBody, $fromName, $extraHeaders);
         }
 
         return [
@@ -1036,9 +1066,9 @@ function _sendViaPhpMailer(
         logEmailAttempt($to, $subject, $htmlBody, 'PHPMailer (ERROR)', false);
 
         if ($attachmentPath) {
-            $fallbackResult = _sendEmailWithAttachment($to, $subject, $htmlBody, $attachmentPath, $fromName);
+            $fallbackResult = _sendEmailWithAttachment($to, $subject, $htmlBody, $attachmentPath, $fromName, $extraHeaders);
         } else {
-            $fallbackResult = _sendSimpleHtmlEmail($to, $subject, $htmlBody, $fromName);
+            $fallbackResult = _sendSimpleHtmlEmail($to, $subject, $htmlBody, $fromName, $extraHeaders);
         }
 
         return [
@@ -1060,7 +1090,8 @@ function _sendSimpleHtmlEmail(
     string $to,
     string $subject,
     string $htmlBody,
-    string $fromName = 'Mowology'
+    string $fromName = 'Mowology',
+    array $extraHeaders = []
 ): bool {
     try {
         $fromEmail = 'no-reply@mowology.ca';
@@ -1071,6 +1102,9 @@ function _sendSimpleHtmlEmail(
         $headers .= "Content-Type: text/html; charset=UTF-8\r\n";
         $headers .= "Content-Transfer-Encoding: 8bit\r\n";
         $headers .= "X-Mailer: Mowology CRM\r\n";
+        foreach (_sanitizeExtraHeaders($extraHeaders) as $hName => $hValue) {
+            $headers .= "{$hName}: {$hValue}\r\n";
+        }
 
         $result = @mail($to, trim($subject), trim($htmlBody), $headers);
 
@@ -1095,7 +1129,8 @@ function _sendEmailWithAttachment(
     string $subject,
     string $htmlBody,
     string $attachmentPath,
-    string $fromName = 'Mowology'
+    string $fromName = 'Mowology',
+    array $extraHeaders = []
 ): bool {
     try {
         $filename = basename($attachmentPath);
@@ -1128,6 +1163,9 @@ function _sendEmailWithAttachment(
         $headers .= "MIME-Version: 1.0\r\n";
         $headers .= "Content-Type: multipart/mixed; boundary=\"{$boundary}\"\r\n";
         $headers .= "X-Mailer: Mowology CRM\r\n";
+        foreach (_sanitizeExtraHeaders($extraHeaders) as $hName => $hValue) {
+            $headers .= "{$hName}: {$hValue}\r\n";
+        }
 
         $result = mail($to, trim($subject), $body, $headers);
 

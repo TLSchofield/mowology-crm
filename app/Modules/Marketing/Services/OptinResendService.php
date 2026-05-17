@@ -290,7 +290,7 @@ seasonal services, special offers, and landscaping tips, just confirm below:</p>
      * must not be emailed in a later batch. Suppressed rows are marked
      * 'unsubscribed' (terminal) so the campaign can still complete.
      *
-     * @param callable $sender fn(string $to, string $subject, string $html): array{success:bool,error?:string}
+     * @param callable $sender fn(string $to, string $subject, string $html, array $extraHeaders): array{success:bool,error?:string}
      * @return array{sent:int,failed:int,suppressed:int,remaining:int,completed:bool}
      */
     public function processBatch(int $campaignId, int $batchSize, callable $sender): array
@@ -351,7 +351,11 @@ seasonal services, special offers, and landscaping tips, just confirm below:</p>
                 : '';
             $html = $this->buildOopsEmail($firstName, $confirmUrl, $unsubUrl);
 
-            $result = $sender($email, self::SUBJECT, $html);
+            $headers = ($unsubUrl !== '' && function_exists('listUnsubscribeHeaders'))
+                ? listUnsubscribeHeaders($unsubUrl)
+                : [];
+
+            $result = $sender($email, self::SUBJECT, $html, $headers);
 
             if (!empty($result['success'])) {
                 $this->db->prepare(

@@ -363,8 +363,20 @@ function sendOptInEmail(PDO $db, int $contactId): array
 <p style="color:#666;font-size:13px;">If you do not wish to receive marketing emails, simply ignore this message. You can always unsubscribe at any time.</p>
 <p style="color:#666;font-size:13px;">This link expires in 30 days.</p>';
 
+    // Brand-wrap so the email carries the CASL footer (sender identity +
+    // mailing address) and a working unsubscribe + one-click headers.
+    $unsubUrl = function_exists('generateUnsubscribeUrl')
+        ? generateUnsubscribeUrl($contact['email'], 0)
+        : '';
+    $wrapped  = function_exists('wrapInBrandedEmail')
+        ? wrapInBrandedEmail($body, $unsubUrl)
+        : $body;
+    $hdrs = ($unsubUrl !== '' && function_exists('listUnsubscribeHeaders'))
+        ? listUnsubscribeHeaders($unsubUrl)
+        : [];
+
     require_once CRM_INCLUDES . '/messaging.php';
-    $sent = sendCrmEmail($contact['email'], $subject, $body, $contact['first_name'] . ' ' . ($contact['last_name'] ?? ''));
+    $sent = sendCrmEmail($contact['email'], $subject, $wrapped, null, 'Mowology', $hdrs);
 
     if (!$sent) {
         return ['success' => false, 'error' => 'Failed to send email'];

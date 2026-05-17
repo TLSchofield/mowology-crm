@@ -229,3 +229,25 @@ function generateUnsubscribeUrl(string $email, int $sendId = 0): string
     ]);
     return 'https://mowology.ca/unsubscribe.php?' . $params;
 }
+
+/**
+ * Build RFC 2369 / RFC 8058 one-click unsubscribe headers for a
+ * marketing email. Gmail/Yahoo bulk-sender rules expect these on
+ * marketing mail; their absence causes spam-foldering and throttling.
+ *
+ * The HTTPS URL carries email/token/sid in the query string, so the
+ * provider's automated one-click POST (body: List-Unsubscribe=One-Click,
+ * no cookies, no interaction) is honoured by unsubscribe.php.
+ *
+ * @param string $unsubUrl  Result of generateUnsubscribeUrl()
+ * @return array<string,string>  Header name => value
+ */
+function listUnsubscribeHeaders(string $unsubUrl): array
+{
+    $co = function_exists('emailCompanyDetails') ? emailCompanyDetails() : ['email' => 'office@mowology.ca'];
+    $mailto = 'mailto:' . $co['email'] . '?subject=unsubscribe';
+    return [
+        'List-Unsubscribe'      => '<' . $mailto . '>, <' . $unsubUrl . '>',
+        'List-Unsubscribe-Post' => 'List-Unsubscribe=One-Click',
+    ];
+}

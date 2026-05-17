@@ -121,6 +121,26 @@ class OptinResendServiceTest extends TestCase
         $this->assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $token);
     }
 
+    // ── RFC 8058 one-click unsubscribe headers ────────────────────────────
+
+    public function testListUnsubscribeHeadersAreWellFormed(): void
+    {
+        if (!function_exists('listUnsubscribeHeaders')) {
+            $this->markTestSkipped('TemplateRenderer not loaded');
+        }
+        $url = 'https://mowology.ca/unsubscribe.php?email=a%40b.com&token=abc&sid=7';
+        $h = listUnsubscribeHeaders($url);
+
+        $this->assertArrayHasKey('List-Unsubscribe', $h);
+        $this->assertArrayHasKey('List-Unsubscribe-Post', $h);
+        $this->assertSame('List-Unsubscribe=One-Click', $h['List-Unsubscribe-Post']);
+        $this->assertStringContainsString('<' . $url . '>', $h['List-Unsubscribe']);
+        $this->assertStringContainsString('<mailto:', $h['List-Unsubscribe']);
+        // No CRLF — header-injection safety once passed through sender.
+        $this->assertStringNotContainsString("\n", $h['List-Unsubscribe']);
+        $this->assertStringNotContainsString("\r", $h['List-Unsubscribe']);
+    }
+
     // ── Mid-campaign suppression (CASL-critical) ──────────────────────────
 
     public function testProcessBatchSuppressesUnsubscribedRecipientAndDoesNotSend(): void

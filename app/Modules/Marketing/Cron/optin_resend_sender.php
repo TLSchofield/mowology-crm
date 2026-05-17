@@ -143,8 +143,8 @@ try {
         ]);
     }
 
-    $result = $svc->processBatch($campaignId, $BATCH_SIZE, static function (string $to, string $subject, string $html): array {
-        return sendEmail($to, $subject, $html);
+    $result = $svc->processBatch($campaignId, $BATCH_SIZE, static function (string $to, string $subject, string $html, array $extraHeaders = []): array {
+        return sendEmail($to, $subject, $html, null, 'Mowology', $extraHeaders);
     });
 
     $emit([

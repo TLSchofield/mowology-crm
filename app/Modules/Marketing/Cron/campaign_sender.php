@@ -214,8 +214,8 @@ try {
                 $fullEmail
             ) ?? $fullEmail;
 
-            // Send
-            $result = sendEmail($email, $renderedSubject, $fullEmail);
+            // Send (with RFC 8058 one-click unsubscribe headers)
+            $result = sendEmail($email, $renderedSubject, $fullEmail, null, 'Mowology', listUnsubscribeHeaders($unsubUrl));
 
             if ($result['success']) {
                 $db->prepare("UPDATE campaign_sends SET status = 'sent', sent_at = NOW() WHERE id = ?")
