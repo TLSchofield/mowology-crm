@@ -308,11 +308,76 @@ $canApprove = userHasPermission('marketing.approve');
                               </button>
                               <?php endif; ?>
                           </div>
+
+                          <?php if ($editId && $canApprove): ?>
+                          <hr style="border-color:#e9ecef;margin:14px 0 10px;">
+                          <button class="btn btn-outline-secondary btn-block w-100" onclick="openCampaignModal()" id="btnCampaign" style="font-size:.8rem;">
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-1"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+                              Create Campaign
+                          </button>
+                          <?php endif; ?>
                       </div>
                   </div>
 
               </div>
           </div>
+
+<!-- ── Smart Campaign Modal ──────────────────────────────────────── -->
+<div class="modal fade" id="campaignModal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header" style="border-bottom:1px solid #e9ecef;padding:16px 20px;">
+                <div>
+                    <h5 class="modal-title mb-0">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+                        Create Campaign from This Post
+                    </h5>
+                    <p class="text-muted mb-0" style="font-size:.8rem;margin-top:3px;">Auto-fill your calendar with optimal posting times based on service type &amp; season</p>
+                </div>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span>&times;</span></button>
+            </div>
+            <div class="modal-body" style="padding:20px;">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="font-weight-600" style="font-size:.82rem;">Posting cadence</label>
+                        <div class="mw-soc-cadence-pills" id="cadencePills">
+                            <button class="mw-soc-cadence-pill active" data-cadence="seasonal">
+                                🌱 Seasonal smart
+                                <span class="mw-soc-cadence-desc">More posts in spring/summer, fewer in winter</span>
+                            </button>
+                            <button class="mw-soc-cadence-pill" data-cadence="fixed" data-days="14">
+                                📅 Every 2 weeks
+                                <span class="mw-soc-cadence-desc">Fixed interval, consistent all year</span>
+                            </button>
+                            <button class="mw-soc-cadence-pill" data-cadence="fixed" data-days="7">
+                                ⚡ Weekly
+                                <span class="mw-soc-cadence-desc">High frequency — best for lawn care</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="font-weight-600" style="font-size:.82rem;">Look ahead</label>
+                        <div class="mw-soc-cadence-pills" id="monthPills">
+                            <button class="mw-soc-cadence-pill" data-months="3">3 months</button>
+                            <button class="mw-soc-cadence-pill active" data-months="6">6 months</button>
+                            <button class="mw-soc-cadence-pill" data-months="12">1 year</button>
+                        </div>
+                    </div>
+                </div>
+                <div id="campaignPreviewWrap">
+                    <div class="mw-soc-loading">Calculating optimal slots…</div>
+                </div>
+            </div>
+            <div class="modal-footer" style="border-top:1px solid #e9ecef;padding:12px 20px;">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" id="btnConfirmCampaign" onclick="confirmCampaign()" disabled>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-1"><polyline points="20 6 9 17 4 12"/></svg>
+                    <span id="btnConfirmCampaignLabel">Create Campaign</span>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 
           <script>
           (function() {
@@ -1003,6 +1068,149 @@ $canApprove = userHasPermission('marketing.approve');
                       body: JSON.stringify({id: editId, csrf_token: csrf})
                   }).then(function(r) { return r.json(); }).then(function(data) {
                       if (data.success) window.location.href = '/crm/marketing/social.php';
+                  });
+              };
+
+              // ── Campaign modal ─────────────────────────────────────
+              var campaignCadence     = 'seasonal';
+              var campaignCadenceDays = 14;
+              var campaignMonths      = 6;
+              var campaignSlots       = [];
+
+              window.openCampaignModal = function() {
+                  $('#campaignModal').modal('show');
+                  loadCampaignPreview();
+              };
+
+              function setCadencePill(btn) {
+                  document.querySelectorAll('#cadencePills .mw-soc-cadence-pill').forEach(function(b) { b.classList.remove('active'); });
+                  btn.classList.add('active');
+                  campaignCadence     = btn.getAttribute('data-cadence');
+                  campaignCadenceDays = parseInt(btn.getAttribute('data-days') || '14', 10);
+                  loadCampaignPreview();
+              }
+              function setMonthPill(btn) {
+                  document.querySelectorAll('#monthPills .mw-soc-cadence-pill').forEach(function(b) { b.classList.remove('active'); });
+                  btn.classList.add('active');
+                  campaignMonths = parseInt(btn.getAttribute('data-months') || '6', 10);
+                  loadCampaignPreview();
+              }
+
+              document.querySelectorAll('#cadencePills .mw-soc-cadence-pill').forEach(function(b) {
+                  b.addEventListener('click', function() { setCadencePill(this); });
+              });
+              document.querySelectorAll('#monthPills .mw-soc-cadence-pill').forEach(function(b) {
+                  b.addEventListener('click', function() { setMonthPill(this); });
+              });
+
+              function loadCampaignPreview() {
+                  var wrap    = document.getElementById('campaignPreviewWrap');
+                  var btnConf = document.getElementById('btnConfirmCampaign');
+                  wrap.innerHTML = '<div class="mw-soc-loading">Calculating optimal slots…</div>';
+                  btnConf.disabled = true;
+
+                  var url = '/crm/api/social/schedules.php?action=preview'
+                          + '&post_id=' + editId
+                          + '&cadence=' + campaignCadence
+                          + '&cadence_days=' + campaignCadenceDays
+                          + '&months=' + campaignMonths;
+
+                  fetch(url).then(function(r) { return r.json(); }).then(function(data) {
+                      if (!data.success) {
+                          wrap.innerHTML = '<div class="text-danger p-3">' + esc(data.error || 'Error loading preview') + '</div>';
+                          return;
+                      }
+                      campaignSlots = data.slots || [];
+                      renderCampaignPreview(data);
+                      document.getElementById('btnConfirmCampaignLabel').textContent = 'Create Campaign (' + campaignSlots.length + ' posts)';
+                      btnConf.disabled = campaignSlots.length === 0;
+                  }).catch(function() {
+                      wrap.innerHTML = '<div class="text-danger p-3">Network error loading preview.</div>';
+                  });
+              }
+
+              var monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+              function renderCampaignPreview(data) {
+                  var wrap = document.getElementById('campaignPreviewWrap');
+                  if (!data.slots || !data.slots.length) {
+                      wrap.innerHTML = '<div class="text-muted p-3 text-center">No available slots found for this range.</div>';
+                      return;
+                  }
+
+                  // Group by month
+                  var byMonth = {};
+                  data.slots.forEach(function(s) {
+                      var ym = s.scheduled_at.substring(0, 7);
+                      if (!byMonth[ym]) { byMonth[ym] = []; }
+                      byMonth[ym].push(s);
+                  });
+
+                  var days  = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+                  var html  = '<div class="mw-soc-campaign-preview">';
+                  html += '<p class="text-muted mb-2" style="font-size:.8rem;">'
+                        + '<strong>' + data.total + ' posts</strong> across '
+                        + Object.keys(byMonth).length + ' months — '
+                        + (data.service_type ? esc(data.service_type) + ' cadence' : 'general cadence')
+                        + '. Slots avoid days already busy. Times are based on your best-performing windows.</p>';
+
+                  Object.keys(byMonth).sort().forEach(function(ym) {
+                      var parts = ym.split('-');
+                      var mo    = parseInt(parts[1], 10);
+                      var yr    = parts[0];
+                      var slots = byMonth[ym];
+                      html += '<div class="mw-soc-camp-month">';
+                      html += '<div class="mw-soc-camp-month-hd">'
+                            + monthNames[mo - 1] + ' ' + yr
+                            + ' <span class="badge badge-pill badge-light ml-1">' + slots.length + ' posts</span></div>';
+                      html += '<div class="mw-soc-camp-slots">';
+                      slots.forEach(function(s) {
+                          var dt   = new Date(s.scheduled_at.replace(' ', 'T'));
+                          var dow  = days[dt.getDay()];
+                          var hr   = dt.getHours();
+                          var ampm = hr >= 12 ? 'pm' : 'am';
+                          var h12  = hr % 12 === 0 ? 12 : hr % 12;
+                          html += '<div class="mw-soc-camp-slot">'
+                                + '<span class="mw-soc-camp-dow">' + dow + '</span>'
+                                + '<span class="mw-soc-camp-date">' + dt.getDate() + ' ' + monthNames[mo-1] + '</span>'
+                                + '<span class="mw-soc-camp-time">' + h12 + ampm + '</span>'
+                                + '</div>';
+                      });
+                      html += '</div></div>';
+                  });
+                  html += '</div>';
+                  wrap.innerHTML = html;
+              }
+
+              window.confirmCampaign = function() {
+                  var btn = document.getElementById('btnConfirmCampaign');
+                  btn.disabled = true;
+                  btn.innerHTML = '<span class="spinner-border spinner-border-sm mr-1"></span>Creating…';
+
+                  fetch('/crm/api/social/schedules.php?action=create', {
+                      method: 'POST',
+                      headers: {'Content-Type': 'application/json'},
+                      body: JSON.stringify({
+                          post_id:      editId,
+                          cadence:      campaignCadence,
+                          cadence_days: campaignCadenceDays,
+                          months:       campaignMonths,
+                          csrf_token:   csrf,
+                      })
+                  }).then(function(r) { return r.json(); }).then(function(data) {
+                      if (data.success) {
+                          $('#campaignModal').modal('hide');
+                          window.location.href = '/crm/marketing/social.php?msg='
+                              + encodeURIComponent('Campaign created! ' + data.posts_created + ' posts scheduled.');
+                      } else {
+                          btn.disabled = false;
+                          btn.innerHTML = 'Create Campaign';
+                          alert('Error: ' + (data.error || 'Unknown'));
+                      }
+                  }).catch(function() {
+                      btn.disabled = false;
+                      btn.innerHTML = 'Create Campaign';
+                      alert('Network error — please try again.');
                   });
               };
 

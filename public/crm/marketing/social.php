@@ -325,6 +325,25 @@ try {
                       </div>
                   </div>
 
+                  <!-- Schedule Density — next 12 months -->
+                  <div class="card mb-4">
+                      <div class="card-header d-flex justify-content-between align-items-center">
+                          <h5 class="mb-0">
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-1"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+                              Schedule Fill
+                          </h5>
+                          <?php if ($canApprove): ?>
+                          <span class="text-muted" style="font-size:.72rem;">next 12 months</span>
+                          <?php endif; ?>
+                      </div>
+                      <div class="card-body" style="padding:12px 16px 10px;">
+                          <div class="mw-soc-density-row" id="densityRow">
+                              <div class="mw-soc-loading" style="width:100%;font-size:.75rem;">Loading…</div>
+                          </div>
+                          <p class="text-muted mb-0 mt-2" style="font-size:.7rem;">Bars show scheduled posts vs seasonal target. Create a Campaign from any post to auto-fill gaps.</p>
+                      </div>
+                  </div>
+
               </div>
           </div>
 
@@ -780,12 +799,41 @@ try {
                       });
               };
 
+              // ── Schedule Density bar ───────────────────────────────
+              var shortMonths = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+              function loadDensity() {
+                  var el = document.getElementById('densityRow');
+                  if (!el) return;
+                  fetch('/crm/api/social/schedules.php?action=density')
+                      .then(function(r) { return r.json(); })
+                      .then(function(data) {
+                          if (!data.success) return;
+                          var html = '';
+                          data.density.forEach(function(d) {
+                              var pct    = d.target > 0 ? Math.min(100, Math.round(d.count / d.target * 100)) : 0;
+                              var mo     = shortMonths[parseInt(d.month.split('-')[1], 10) - 1];
+                              var filled = pct >= 80;
+                              var barCls = d.count > 0 ? 'mw-soc-density-bar-fill' : 'mw-soc-density-bar-empty';
+                              var barH   = Math.max(4, Math.round(pct * 0.4)); // max 40px
+                              html += '<div class="mw-soc-density-col" title="' + esc(d.month) + ': ' + d.count + '/' + d.target + ' posts">'
+                                   +  '<span class="mw-soc-density-ct">' + (d.count > 0 ? d.count : '') + '</span>'
+                                   +  '<div class="mw-soc-density-bar-wrap">'
+                                   +  '<div class="mw-soc-density-bar ' + barCls + '" style="height:' + barH + 'px;">'
+                                   +  (filled ? '<span style="display:none">✓</span>' : '') + '</div></div>'
+                                   +  '<span class="mw-soc-density-mo">' + esc(mo) + '</span>'
+                                   +  '</div>';
+                          });
+                          el.innerHTML = html;
+                      });
+              }
+
               // ── Init ──────────────────────────────────────────────
               loadStats();
               loadUpcoming();
               loadPlatforms();
               loadTopPost();
               loadMiniCalendar(miniCalYear, miniCalMonth);
+              loadDensity();
           })();
           </script>
 
