@@ -487,6 +487,85 @@ try {
             break;
         }
 
+        // ── Publisher diagnostics (admin only) ──────────────────────
+        case 'diag': {
+            requirePermission('marketing.approve');
+            $postId = (int)($_GET['post_id'] ?? 0);
+
+            // Account health — check ig_user_id presence for Instagram accounts
+            $acctStmt = $db->query("SELECT id, platform, account_name, meta_json, access_token_enc FROM social_accounts WHERE is_active = 1 ORDER BY platform");
+            $accounts = $acctStmt->fetchAll(PDO::FETCH_ASSOC);
+            $accountDiag = [];
+            foreach ($accounts as $a) {
+                $meta = json_decode($a['meta_json'] ?? '{}', true);
+                $entry = [
+                    'id'            => $a['id'],
+                    'platform'      => $a['platform'],
+                    'account_name'  => $a['account_name'],
+                    'has_token'     => !empty($a['access_token_enc']),
+                    'ig_user_id'    => $a['platform'] === 'instagram' ? ($meta['ig_user_id'] ?? null) : null,
+                    'ig_user_id_set'=> $a['platform'] === 'instagram' ? !empty($meta['ig_user_id']) : null,
+                ];
+                $accountDiag[] = $entry;
+            }
+
+            // Recent queue failures
+            $queueStmt = $db->prepare("
+                SELECT sq.id, sq.post_id, sq.platform, sq.attempts, sq.max_attempts,
+                       sq.status, sq.scheduled_at, sq.result_payload, sq.created_at
+                FROM social_queue sq
+                WHERE sq.status IN ('failed','pending')
+                ORDER BY sq.created_at DESC
+                LIMIT 20
+            ");
+            $queueStmt->execute();
+            $queue = $queueStmt->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($queue as &$q) {
+                $q['result_payload'] = $q['result_payload'] ? json_decode($q['result_payload'], true) : null;
+            }
+            unset($q);
+
+            // Platform-level fail reasons for recent posts
+            $platStmt = $db->prepare("
+                SELECT spp.post_id, spp.platform, spp.status, spp.fail_reason,
+                       spp.retry_count, sp.title, sp.status AS post_status
+                FROM social_post_platforms spp
+                JOIN social_posts sp ON sp.id = spp.post_id
+                WHERE spp.fail_reason IS NOT NULL
+                ORDER BY spp.updated_at DESC
+                LIMIT 20
+            ");
+            $platStmt->execute();
+            $platformErrors = $platStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Specific post if requested
+            $postDetail = null;
+            if ($postId) {
+                $ps = $db->prepare("SELECT id, title, status, last_fail_reason, fail_count FROM social_posts WHERE id = ?");
+                $ps->execute([$postId]);
+                $postDetail = $ps->fetch(PDO::FETCH_ASSOC);
+                if ($postDetail) {
+                    $pp = $db->prepare("SELECT platform, status, fail_reason, retry_count FROM social_post_platforms WHERE post_id = ?");
+                    $pp->execute([$postId]);
+                    $postDetail['platforms'] = $pp->fetchAll(PDO::FETCH_ASSOC);
+                    $pq = $db->prepare("SELECT platform, status, attempts, result_payload FROM social_queue WHERE post_id = ? ORDER BY created_at DESC LIMIT 10");
+                    $pq->execute([$postId]);
+                    $qrows = $pq->fetchAll(PDO::FETCH_ASSOC);
+                    foreach ($qrows as &$qr) { $qr['result_payload'] = $qr['result_payload'] ? json_decode($qr['result_payload'], true) : null; }
+                    $postDetail['queue_items'] = $qrows;
+                }
+            }
+
+            echo json_encode([
+                'success'         => true,
+                'accounts'        => $accountDiag,
+                'queue_failures'  => $queue,
+                'platform_errors' => $platformErrors,
+                'post'            => $postDetail,
+            ]);
+            break;
+        }
+
         default:
             echo json_encode(['success' => false, 'error' => 'Unknown action']);
     }
