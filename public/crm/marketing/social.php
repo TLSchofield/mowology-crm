@@ -415,21 +415,33 @@ try {
                   el.innerHTML = '<span class="mw-soc-trend ' + cls + '">' + arrow + ' ' + lbl + '</span>';
               }
 
-              // ── Activity Pulse renderer ────────────────────────────
+              // ── Activity Pulse renderer (current week Sun→Sat) ────
               function renderPulse(days) {
                   var el = document.getElementById('pulseStrip');
                   if (!el) return;
-                  var letters = ['S','M','T','W','T','F','S'];
+                  var letters  = ['S','M','T','W','T','F','S'];
+                  var todayStr = (function() {
+                      var t = new Date();
+                      return t.getFullYear() + '-'
+                           + (t.getMonth() < 9 ? '0' : '') + (t.getMonth() + 1) + '-'
+                           + (t.getDate()  < 10 ? '0' : '') + t.getDate();
+                  })();
                   var html = '';
                   days.forEach(function(d) {
-                      var dt  = new Date(d.date + 'T12:00:00');
-                      var ltr = letters[dt.getDay()];
-                      var cls = parseInt(d.published, 10) > 0 ? 'mw-soc-pulse-dot-published'
-                              : parseInt(d.scheduled, 10) > 0 ? 'mw-soc-pulse-dot-scheduled'
-                              : 'mw-soc-pulse-dot-empty';
-                      var title = d.date + (parseInt(d.published, 10) > 0 ? ' — ' + d.published + ' published' : (parseInt(d.scheduled, 10) > 0 ? ' — ' + d.scheduled + ' scheduled' : ''));
-                      html += '<div class="mw-soc-pulse-day">'
-                           +  '<span class="mw-soc-pulse-lbl">' + esc(ltr) + '</span>'
+                      var dt      = new Date(d.date + 'T12:00:00');
+                      var ltr     = letters[dt.getDay()];
+                      var isToday = (d.date === todayStr);
+                      var pub     = parseInt(d.published, 10);
+                      var sch     = parseInt(d.scheduled, 10);
+                      var cls     = pub > 0 ? 'mw-soc-pulse-dot-published'
+                                  : sch > 0 ? 'mw-soc-pulse-dot-scheduled'
+                                  : 'mw-soc-pulse-dot-empty';
+                      var title   = d.date + (pub > 0 ? ' — ' + pub + ' published'
+                                  : sch > 0 ? ' — ' + sch + ' scheduled' : '');
+                      var todayCls   = isToday ? ' mw-soc-pulse-today' : '';
+                      var todayStyle = isToday ? 'font-weight:700;color:#212529;' : '';
+                      html += '<div class="mw-soc-pulse-day' + todayCls + '">'
+                           +  '<span class="mw-soc-pulse-lbl" style="' + todayStyle + '">' + esc(ltr) + '</span>'
                            +  '<span class="mw-soc-pulse-dot ' + cls + '" title="' + esc(title) + '"></span>'
                            + '</div>';
                   });

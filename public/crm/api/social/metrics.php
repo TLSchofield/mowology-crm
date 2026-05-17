@@ -127,10 +127,12 @@ try {
             $stmt->execute([$prevMonthStart, $prevMonthEnd]);
             $prevEng = $stmt->fetch(PDO::FETCH_ASSOC);
 
-            // ── Activity pulse: last 7 days ──────────────────────────
+            // ── Activity pulse: current week Sun→Sat ─────────────────
+            $dayOfWeek = (int)date('w'); // 0=Sun, 6=Sat
+            $weekSunday = date('Y-m-d', strtotime("-{$dayOfWeek} days"));
             $pulseRows = [];
-            for ($i = 6; $i >= 0; $i--) {
-                $pulseRows[] = date('Y-m-d', strtotime("-{$i} days"));
+            for ($i = 0; $i < 7; $i++) {
+                $pulseRows[] = date('Y-m-d', strtotime("{$weekSunday} +{$i} days"));
             }
             $pulsePlaceholders = implode(',', array_fill(0, 7, '?'));
 

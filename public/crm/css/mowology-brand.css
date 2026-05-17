@@ -21110,6 +21110,7 @@ body.mw-no-scroll {
 .mw-soc-pulse-dot-published { background: var(--mw-green); }
 .mw-soc-pulse-dot-scheduled { background: #007bff; }
 .mw-soc-pulse-dot-empty     { background: #e9ecef; border: 1px solid #dee2e6; }
+.mw-soc-pulse-today .mw-soc-pulse-dot { box-shadow: 0 0 0 2px #fff, 0 0 0 3px #adb5bd; }
 
 /* ── Mini Calendar sidebar overrides ────────────────────────────────── */
 .mw-soc-mini-cal .mw-soc-cal-cell    { min-height: 52px; padding: 3px 4px; cursor: pointer; }
