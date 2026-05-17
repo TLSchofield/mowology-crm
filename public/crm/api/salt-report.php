@@ -83,18 +83,22 @@ if ($action === 'generate') {
 if ($action === 'email_pm') {
     require_once APP_ROOT . '/Services/Messaging/EmailHelper.php';
 
-    // Load report + contact details
+    // Load report + contact details + weather decision
     $stmt = $db->prepare("
         SELECT srr.pdf_path, srr.report_number,
                jv.scheduled_date,
                pr.address AS property_address, pr.city AS property_city,
                c.email AS contact_email,
-               CONCAT(c.first_name, ' ', c.last_name) AS contact_name
+               CONCAT(c.first_name, ' ', c.last_name) AS contact_name,
+               swd.overnight_low_c, swd.trigger_threshold_c,
+               swd.weather_condition, swd.data_source,
+               swd.decision_at, swd.source_url
         FROM salt_run_reports srr
         JOIN job_visits jv ON jv.id = srr.visit_id
         JOIN job_plans jp ON jp.id = jv.plan_id
         LEFT JOIN properties pr ON pr.id = jp.property_id
         LEFT JOIN contacts c ON c.id = pr.site_contact_id
+        LEFT JOIN salt_weather_decisions swd ON swd.visit_id = jv.id
         WHERE srr.visit_id = ?
     ");
     $stmt->execute([$visitId]);
@@ -125,24 +129,58 @@ if ($action === 'email_pm') {
     $propertyStr = trim($report['property_address'] . ', ' . $report['property_city']);
     $subject     = 'Winter Service Record — ' . $propertyStr . ' — ' . $serviceDate;
 
-    $body = '<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">';
+    $body  = '<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">';
     $body .= '<div style="background:#0D3B2E;padding:20px 24px;">';
     $body .= '<span style="color:#7FD858;font-size:20px;font-weight:bold;">Mowology</span>';
+    $body .= '<span style="color:#a0c8b8;font-size:12px;margin-left:12px;">Winter Service Record</span>';
     $body .= '</div>';
+
     $body .= '<div style="padding:28px 24px;background:#fff;">';
     $body .= '<p style="color:#333;font-size:15px;">Dear ' . htmlspecialchars($report['contact_name'] ?: 'Property Manager') . ',</p>';
-    $body .= '<p style="color:#333;margin-top:12px;">Please find attached your <strong>Winter Service Record</strong> for:</p>';
-    $body .= '<ul style="color:#333;margin:12px 0;">';
-    $body .= '<li><strong>Property:</strong> ' . htmlspecialchars($propertyStr) . '</li>';
-    $body .= '<li><strong>Service Date:</strong> ' . htmlspecialchars($serviceDate) . '</li>';
-    $body .= '<li><strong>Report No.:</strong> ' . htmlspecialchars($report['report_number']) . '</li>';
-    $body .= '</ul>';
-    $body .= '<p style="color:#555;font-size:13px;margin-top:16px;">This document contains the official weather decision record, GPS verification, photos, and service details for your records. It is available at any time through your client portal.</p>';
-    $body .= '<p style="color:#555;font-size:13px;margin-top:12px;">If you have any questions, please contact us at <a href="tel:7788469273">(778) 846-9273</a>.</p>';
+    $body .= '<p style="color:#333;margin-top:12px;">Please find attached your <strong>Winter Service Record</strong> for the following property. The PDF document includes GPS tracking records, photo evidence, and the full chain of custody.</p>';
+
+    // Service summary table
+    $body .= '<table style="width:100%;border-collapse:collapse;margin:18px 0;font-size:13px;">';
+    $body .= '<tr><td style="padding:7px 10px;background:#f5f5f5;font-weight:bold;color:#444;width:160px;border:1px solid #e0e0e0;">Property</td><td style="padding:7px 10px;border:1px solid #e0e0e0;">' . htmlspecialchars($propertyStr) . '</td></tr>';
+    $body .= '<tr><td style="padding:7px 10px;background:#f5f5f5;font-weight:bold;color:#444;border:1px solid #e0e0e0;">Service Date</td><td style="padding:7px 10px;border:1px solid #e0e0e0;">' . htmlspecialchars($serviceDate) . '</td></tr>';
+    $body .= '<tr><td style="padding:7px 10px;background:#f5f5f5;font-weight:bold;color:#444;border:1px solid #e0e0e0;">Report No.</td><td style="padding:7px 10px;border:1px solid #e0e0e0;">' . htmlspecialchars($report['report_number']) . '</td></tr>';
+    $body .= '</table>';
+
+    // Weather snapshot
+    if ($report['overnight_low_c'] !== null) {
+        $tempLow   = htmlspecialchars($report['overnight_low_c']);
+        $threshold = htmlspecialchars($report['trigger_threshold_c']);
+        $condition = htmlspecialchars($report['weather_condition'] ?? '');
+        $source    = htmlspecialchars($report['data_source'] ?? 'Environment Canada');
+        $decidedAt = $report['decision_at'] ? htmlspecialchars(date('F j, Y \a\t g:i A', strtotime($report['decision_at']))) : '';
+
+        $body .= '<div style="background:#E3F2FD;border:2px solid #1565C0;border-radius:6px;padding:16px 18px;margin:18px 0;">';
+        $body .= '<div style="font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#1565C0;font-weight:bold;margin-bottom:8px;">Official Weather Decision Record</div>';
+        $body .= '<p style="font-size:13px;color:#0D3B2E;font-style:italic;border-left:3px solid #1565C0;padding-left:12px;margin:0 0 12px;">';
+        $body .= 'An overnight low of ' . $tempLow . '&deg;C was forecast, meeting the &le;' . $threshold . '&deg;C service threshold. Winter service was authorized and performed.';
+        $body .= '</p>';
+        $body .= '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
+        $body .= '<tr><td style="padding:4px 8px;color:#555;width:150px;">Forecast overnight low</td><td style="padding:4px 8px;font-weight:bold;color:#333;">' . $tempLow . '&deg;C</td></tr>';
+        $body .= '<tr><td style="padding:4px 8px;color:#555;">Service threshold</td><td style="padding:4px 8px;font-weight:bold;color:#333;">&le;' . $threshold . '&deg;C</td></tr>';
+        if ($condition) {
+            $body .= '<tr><td style="padding:4px 8px;color:#555;">Condition</td><td style="padding:4px 8px;color:#333;">' . $condition . '</td></tr>';
+        }
+        $body .= '<tr><td style="padding:4px 8px;color:#555;">Data source</td><td style="padding:4px 8px;color:#333;">' . $source . '</td></tr>';
+        if ($decidedAt) {
+            $body .= '<tr><td style="padding:4px 8px;color:#555;">Decision captured</td><td style="padding:4px 8px;color:#333;">' . $decidedAt . '</td></tr>';
+        }
+        $body .= '</table>';
+        $body .= '<p style="font-size:10px;color:#555;margin:10px 0 0;">This weather data was captured automatically at the time of the service decision and is stored immutably in our records. The full Environment Canada API response is retained on file.</p>';
+        $body .= '</div>';
+    }
+
+    $body .= '<p style="color:#555;font-size:13px;margin-top:4px;">The attached PDF is your official service record and may be used for insurance, strata, or liability documentation purposes.</p>';
+    $body .= '<p style="color:#555;font-size:13px;margin-top:10px;">If you have any questions, please contact us at <a href="tel:7788469273" style="color:#2D8659;">(778) 846-9273</a>.</p>';
     $body .= '<p style="color:#333;margin-top:20px;">Thank you for choosing Mowology.</p>';
     $body .= '</div>';
+
     $body .= '<div style="background:#f5f5f5;padding:12px 24px;font-size:11px;color:#999;">';
-    $body .= 'Mowology Landscaping &bull; Vancouver, BC &bull; <a href="https://mowology.ca">mowology.ca</a>';
+    $body .= 'Mowology Landscaping &bull; Vancouver, BC &bull; <a href="https://mowology.ca" style="color:#2D8659;">mowology.ca</a>';
     $body .= '</div></div>';
 
     $sent = sendCrmEmail($report['contact_email'], $subject, $body, $pdfAbs);
