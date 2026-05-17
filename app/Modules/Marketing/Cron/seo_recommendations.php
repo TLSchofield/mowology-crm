@@ -102,10 +102,6 @@ if (!$isCli) {
         jsonRespond(false, 'Admin access required', [], 403);
     }
 
-    $csrfToken = $_POST['csrf_token'] ?? '';
-    if (!function_exists('verifyCSRFToken') || !verifyCSRFToken($csrfToken)) {
-        jsonRespond(false, 'CSRF token invalid', [], 403);
-    }
 }
 
 // ============================================================================
