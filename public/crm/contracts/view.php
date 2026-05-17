@@ -149,8 +149,9 @@ $csrfToken  = generateCSRFToken();
 $pageTitle  = $contract['contract_number'] . ' — Contract';
 $activePage = 'contracts';
 
+$extraHead  = '<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">';
 if ($hasPropCoords && !$hasBorder) {
-    $extraHead  = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">';
+    $extraHead .= '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">';
     $extraHead .= '<script src="/crm/js/leaflet/leaflet.min.js"></script>';
 }
 ?>
@@ -165,77 +166,152 @@ if ($hasPropCoords && !$hasBorder) {
           <?php endif; ?>
 
           <!-- ══════════════════════════════════════════════════════════════════
-               CONTRACT HEADER
+               HERO HEADER + KPI STRIP
                ══════════════════════════════════════════════════════════════════ -->
-          <div class="mw-ctr-header mb-4">
-              <div class="mw-ctr-header-main">
-                  <div class="mw-ctr-header-top">
-                      <h1 class="mw-ctr-title"><?php echo htmlspecialchars($contract['contract_number']); ?></h1>
-                      <?php echo getStatusBadge($contract['status'], 'contract'); ?>
-                      <?php if ($hasPropCoords && $hasBorder): ?>
-                          <span class="mw-border-ok mw-border-ok--compact ml-2">
-                              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24"
-                                   fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                  <polyline points="20 6 9 17 4 12"/>
-                              </svg>
-                              GPS active
+          <div class="mw-ctr-hero mb-4">
+
+              <div class="mw-ctr-hero-top">
+                  <div class="mw-ctr-hero-identity">
+                      <div class="mw-ctr-hero-badges">
+                          <?php echo getStatusBadge($contract['status'], 'contract'); ?>
+                          <?php if ($hasPropCoords && $hasBorder): ?>
+                              <span class="mw-border-ok mw-border-ok--compact">
+                                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24"
+                                       fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                      <polyline points="20 6 9 17 4 12"/>
+                                  </svg>
+                                  GPS active
+                              </span>
+                          <?php endif; ?>
+                      </div>
+                      <h1 class="mw-ctr-number"><?php echo htmlspecialchars($contract['contract_number']); ?></h1>
+                      <?php if (!empty($contract['title'])): ?>
+                          <div class="mw-ctr-hero-contract-title"><?php echo htmlspecialchars($contract['title']); ?></div>
+                      <?php endif; ?>
+                      <div class="mw-ctr-hero-meta">
+                          <span>
+                              <i data-feather="user" style="width:12px;height:12px;vertical-align:-1px;"></i>
+                              <?php echo htmlspecialchars(trim($contract['first_name'] . ' ' . $contract['last_name'])); ?>
                           </span>
+                          <span class="mw-ctr-hero-meta-sep">·</span>
+                          <span>
+                              <i data-feather="map-pin" style="width:12px;height:12px;vertical-align:-1px;"></i>
+                              <?php echo htmlspecialchars($contract['property_address'] . ', ' . $contract['property_city']); ?>
+                          </span>
+                          <span class="mw-ctr-hero-meta-sep">·</span>
+                          <span>Started <?php echo $contract['start_date'] ? date('M j, Y', strtotime($contract['start_date'])) : '—'; ?></span>
+                      </div>
+                  </div>
+
+                  <div class="mw-ctr-hero-actions">
+                      <a href="<?php echo $addPlanUrl; ?>" class="btn btn-light btn-sm">
+                          <i data-feather="plus" style="width:12px;height:12px;"></i> Add Plan
+                      </a>
+                      <?php if (in_array($contract['status'], ['active', 'paused'])): ?>
+                          <button type="button" class="btn btn-outline-light btn-sm"
+                                  data-toggle="modal" data-target="#editContractModal">
+                              <i data-feather="edit-2" style="width:12px;height:12px;"></i> Edit
+                          </button>
+                      <?php endif; ?>
+                      <?php if ($contract['status'] === 'active'): ?>
+                          <form method="POST" class="d-inline">
+                              <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                              <button type="submit" name="action" value="pause_contract" class="btn btn-warning btn-sm">Pause</button>
+                          </form>
+                      <?php elseif ($contract['status'] === 'paused'): ?>
+                          <form method="POST" class="d-inline">
+                              <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                              <button type="submit" name="action" value="resume_contract" class="btn btn-success btn-sm">Resume</button>
+                          </form>
+                      <?php endif; ?>
+                      <?php if (in_array($contract['status'], ['active', 'paused'])): ?>
+                          <form method="POST" class="d-inline"
+                                onsubmit="return confirm('Cancel this contract? Plans will remain but billing stops.')">
+                              <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                              <button type="submit" name="action" value="cancel_contract"
+                                      class="btn btn-sm btn-outline-light" style="color:#fca5a5;border-color:rgba(252,165,165,.4);">Cancel</button>
+                          </form>
                       <?php endif; ?>
                   </div>
+              </div><!-- /hero-top -->
 
-                  <?php if (!empty($contract['title'])): ?>
-                      <div class="mw-ctr-subtitle"><?php echo htmlspecialchars($contract['title']); ?></div>
-                  <?php endif; ?>
+              <!-- ── KPI Strip ─────────────────────────────────────────────── -->
+              <div class="mw-ctr-kpi-strip">
 
-                  <div class="mw-ctr-meta">
-                      <span>
-                          <i data-feather="user" style="width:13px;height:13px;vertical-align:-1px;"></i>
-                          <?php echo htmlspecialchars(trim($contract['first_name'] . ' ' . $contract['last_name'])); ?>
-                      </span>
-                      <span class="mw-ctr-meta-sep">·</span>
-                      <span>
-                          <i data-feather="map-pin" style="width:13px;height:13px;vertical-align:-1px;"></i>
-                          <?php echo htmlspecialchars($contract['property_address'] . ', ' . $contract['property_city']); ?>
-                      </span>
-                      <span class="mw-ctr-meta-sep">·</span>
-                      <span>Started <?php echo $contract['start_date'] ? date('M j, Y', strtotime($contract['start_date'])) : '—'; ?></span>
+                  <div class="mw-ctr-kpi-cell mw-ctr-kpi-cell--good">
+                      <div class="mw-ctr-kpi-cell-label">Plans</div>
+                      <div class="mw-ctr-kpi-cell-value"><?php echo count($plans); ?></div>
                   </div>
-              </div>
 
-              <div class="mw-ctr-header-actions">
-                  <a href="<?php echo $addPlanUrl; ?>" class="btn btn-primary btn-sm">
-                      <i data-feather="plus" style="width:13px;height:13px;"></i> Add Plan
-                  </a>
-                  <?php if (in_array($contract['status'], ['active', 'paused'])): ?>
-                      <button type="button" class="btn btn-outline-secondary btn-sm"
-                              data-toggle="modal" data-target="#editContractModal">
-                          <i data-feather="edit-2" style="width:13px;height:13px;"></i> Edit
-                      </button>
-                  <?php endif; ?>
-                  <?php if ($contract['status'] === 'active'): ?>
-                      <form method="POST" class="d-inline">
-                          <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
-                          <button type="submit" name="action" value="pause_contract" class="btn btn-warning btn-sm">Pause</button>
-                      </form>
-                  <?php elseif ($contract['status'] === 'paused'): ?>
-                      <form method="POST" class="d-inline">
-                          <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
-                          <button type="submit" name="action" value="resume_contract" class="btn btn-success btn-sm">Resume</button>
-                      </form>
-                  <?php endif; ?>
-                  <?php if (in_array($contract['status'], ['active', 'paused'])): ?>
-                      <form method="POST" class="d-inline"
-                            onsubmit="return confirm('Cancel this contract? Plans will remain but billing stops.')">
-                          <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
-                          <button type="submit" name="action" value="cancel_contract"
-                                  class="btn btn-outline-danger btn-sm">Cancel</button>
-                      </form>
-                  <?php endif; ?>
-              </div>
-          </div>
+                  <div class="mw-ctr-kpi-cell">
+                      <div class="mw-ctr-kpi-cell-label">Billing Rate</div>
+                      <div class="mw-ctr-kpi-cell-value">
+                          <?php if ($contractBilling > 0): ?>
+                              $<?php echo number_format($contractBilling, 0); ?>
+                              <span class="mw-ctr-kpi-cell-sub"><?php echo $billingCycleLabels[$contract['billing_cycle']] ?? ''; ?></span>
+                          <?php else: ?>
+                              <span style="color:rgba(255,255,255,.3);">—</span>
+                          <?php endif; ?>
+                      </div>
+                  </div>
+
+                  <div class="mw-ctr-kpi-cell">
+                      <div class="mw-ctr-kpi-cell-label">Total Billed</div>
+                      <div class="mw-ctr-kpi-cell-value">
+                          <?php if ($totalBilled > 0): ?>
+                              $<?php echo number_format($totalBilled, 0); ?>
+                          <?php else: ?>
+                              <span style="color:rgba(255,255,255,.3);">—</span>
+                          <?php endif; ?>
+                      </div>
+                  </div>
+
+                  <div class="mw-ctr-kpi-cell<?php echo $totalPaid > 0 ? ' mw-ctr-kpi-cell--good' : ''; ?>">
+                      <div class="mw-ctr-kpi-cell-label">Collected</div>
+                      <div class="mw-ctr-kpi-cell-value">
+                          <?php if ($totalPaid > 0): ?>
+                              $<?php echo number_format($totalPaid, 0); ?>
+                              <?php if ($totalBilled > 0): ?>
+                                  <span class="mw-ctr-kpi-cell-sub"><?php echo $paidPct; ?>%</span>
+                              <?php endif; ?>
+                          <?php else: ?>
+                              <span style="color:rgba(255,255,255,.3);">—</span>
+                          <?php endif; ?>
+                      </div>
+                  </div>
+
+                  <div class="mw-ctr-kpi-cell<?php echo (float)$billingStats['overdue_amount'] > 0 ? ' mw-ctr-kpi-cell--alert' : ((float)$billingStats['total_outstanding'] > 0 ? ' mw-ctr-kpi-cell--warn' : ''); ?>">
+                      <div class="mw-ctr-kpi-cell-label">Outstanding</div>
+                      <div class="mw-ctr-kpi-cell-value">
+                          <?php if ((float)$billingStats['total_outstanding'] > 0): ?>
+                              $<?php echo number_format((float)$billingStats['total_outstanding'], 0); ?>
+                              <?php if ((float)$billingStats['overdue_amount'] > 0): ?>
+                                  <span class="mw-ctr-kpi-cell-sub" style="color:#fca5a5;">Overdue</span>
+                              <?php endif; ?>
+                          <?php else: ?>
+                              <span style="color:#86efac;">Clear</span>
+                          <?php endif; ?>
+                      </div>
+                  </div>
+
+                  <div class="mw-ctr-kpi-cell">
+                      <div class="mw-ctr-kpi-cell-label">Next Service</div>
+                      <div class="mw-ctr-kpi-cell-value" style="font-size:1.1rem;">
+                          <?php if ($billingStats['next_visit_date']): ?>
+                              <?php echo date('M j', strtotime($billingStats['next_visit_date'])); ?>
+                              <span class="mw-ctr-kpi-cell-sub"><?php echo date('Y', strtotime($billingStats['next_visit_date'])); ?></span>
+                          <?php else: ?>
+                              <span style="color:rgba(255,255,255,.3);">—</span>
+                          <?php endif; ?>
+                      </div>
+                  </div>
+
+              </div><!-- /kpi-strip -->
+
+          </div><!-- /hero -->
 
           <?php if ($hasPropCoords && !$hasBorder): ?>
-          <!-- ── No-border prompt (compact, below header) ──────────────────── -->
+          <!-- ── No-border prompt (compact, below hero) ────────────────────── -->
           <div class="mw-border-prompt mb-4">
               <div class="mw-border-prompt-icon">
                   <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24"
@@ -255,81 +331,6 @@ if ($hasPropCoords && !$hasBorder) {
               </button>
           </div>
           <?php endif; ?>
-
-          <!-- ══════════════════════════════════════════════════════════════════
-               KPI STRIP
-               ══════════════════════════════════════════════════════════════════ -->
-          <div class="mw-ctr-kpi-row mb-4">
-
-              <div class="mw-ctr-kpi-card">
-                  <div class="mw-ctr-kpi-label">Plans</div>
-                  <div class="mw-ctr-kpi-value" style="color:var(--mw-green);"><?php echo count($plans); ?></div>
-              </div>
-
-              <div class="mw-ctr-kpi-card">
-                  <div class="mw-ctr-kpi-label">Billing Rate</div>
-                  <div class="mw-ctr-kpi-value">
-                      <?php if ($contractBilling > 0): ?>
-                          $<?php echo number_format($contractBilling, 0); ?>
-                          <span class="mw-ctr-kpi-sub"><?php echo $billingCycleLabels[$contract['billing_cycle']] ?? ''; ?></span>
-                      <?php else: ?>
-                          <span class="text-muted">—</span>
-                      <?php endif; ?>
-                  </div>
-              </div>
-
-              <div class="mw-ctr-kpi-card">
-                  <div class="mw-ctr-kpi-label">Total Billed</div>
-                  <div class="mw-ctr-kpi-value">
-                      <?php if ($totalBilled > 0): ?>
-                          $<?php echo number_format($totalBilled, 0); ?>
-                      <?php else: ?>
-                          <span class="text-muted">—</span>
-                      <?php endif; ?>
-                  </div>
-              </div>
-
-              <div class="mw-ctr-kpi-card">
-                  <div class="mw-ctr-kpi-label">Collected</div>
-                  <div class="mw-ctr-kpi-value" style="color:var(--mw-green);">
-                      <?php if ($totalPaid > 0): ?>
-                          $<?php echo number_format($totalPaid, 0); ?>
-                          <?php if ($totalBilled > 0): ?>
-                              <span class="mw-ctr-kpi-sub"><?php echo $paidPct; ?>%</span>
-                          <?php endif; ?>
-                      <?php else: ?>
-                          <span class="text-muted">—</span>
-                      <?php endif; ?>
-                  </div>
-              </div>
-
-              <div class="mw-ctr-kpi-card<?php echo (float)$billingStats['overdue_amount'] > 0 ? ' mw-ctr-kpi-card--alert' : ''; ?>">
-                  <div class="mw-ctr-kpi-label">Outstanding</div>
-                  <div class="mw-ctr-kpi-value" style="<?php echo (float)$billingStats['total_outstanding'] > 0 ? 'color:#dc3545;' : ''; ?>">
-                      <?php if ((float)$billingStats['total_outstanding'] > 0): ?>
-                          $<?php echo number_format((float)$billingStats['total_outstanding'], 0); ?>
-                          <?php if ((float)$billingStats['overdue_amount'] > 0): ?>
-                              <span class="mw-ctr-overdue-badge">Overdue</span>
-                          <?php endif; ?>
-                      <?php else: ?>
-                          <span style="color:var(--mw-green);">Clear</span>
-                      <?php endif; ?>
-                  </div>
-              </div>
-
-              <div class="mw-ctr-kpi-card">
-                  <div class="mw-ctr-kpi-label">Next Service</div>
-                  <div class="mw-ctr-kpi-value" style="font-size:1.1rem;">
-                      <?php if ($billingStats['next_visit_date']): ?>
-                          <?php echo date('M j', strtotime($billingStats['next_visit_date'])); ?>
-                          <span class="mw-ctr-kpi-sub"><?php echo date('Y', strtotime($billingStats['next_visit_date'])); ?></span>
-                      <?php else: ?>
-                          <span class="text-muted">—</span>
-                      <?php endif; ?>
-                  </div>
-              </div>
-
-          </div><!-- /kpi-row -->
 
           <!-- ══════════════════════════════════════════════════════════════════
                MAIN CONTENT — two columns

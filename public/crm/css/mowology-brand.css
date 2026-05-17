@@ -1901,120 +1901,167 @@ tr[data-href] { cursor: pointer; }
 .mw-contact-info-error { color: #dc3545; }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   CONTRACT VIEW — redesigned dashboard
+   CONTRACT VIEW — Field Survey aesthetic
    /crm/contracts/view.php
    ══════════════════════════════════════════════════════════════════════════════ */
 
-/* ── Header ──────────────────────────────────────────────────────────────── */
-.mw-ctr-header {
+/* ── Hero Header ──────────────────────────────────────────────────────────── */
+.mw-ctr-hero {
+    background:    linear-gradient(150deg, var(--mw-forest) 0%, var(--mw-dark) 100%);
+    border-radius: 10px;
+    padding:       28px 32px 20px;
+    position:      relative;
+    overflow:      hidden;
+    color:         white;
+}
+.mw-ctr-hero::before {
+    content:          '';
+    position:         absolute;
+    right:            -60px;
+    top:              -80px;
+    width:            480px;
+    height:           360px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='480' height='360'%3E%3Cellipse cx='240' cy='180' rx='230' ry='170' fill='none' stroke='%23ffffff' stroke-width='1'/%3E%3Cellipse cx='240' cy='180' rx='180' ry='130' fill='none' stroke='%23ffffff' stroke-width='1'/%3E%3Cellipse cx='240' cy='180' rx='130' ry='90' fill='none' stroke='%23ffffff' stroke-width='1'/%3E%3Cellipse cx='240' cy='180' rx='80' ry='55' fill='none' stroke='%23ffffff' stroke-width='1'/%3E%3Cellipse cx='240' cy='180' rx='35' ry='24' fill='none' stroke='%23ffffff' stroke-width='1'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    opacity:          0.07;
+    pointer-events:   none;
+}
+.mw-ctr-hero-top {
     display:         flex;
     align-items:     flex-start;
     justify-content: space-between;
     gap:             16px;
     flex-wrap:       wrap;
+    position:        relative;
+    z-index:         1;
 }
-.mw-ctr-header-main { flex: 1; min-width: 0; }
-.mw-ctr-header-actions {
-    display:   flex;
+.mw-ctr-hero-identity { flex: 1; min-width: 0; }
+.mw-ctr-hero-badges {
+    display:     flex;
     align-items: center;
-    gap:       8px;
-    flex-wrap: wrap;
-    flex-shrink: 0;
+    gap:         6px;
+    margin-bottom: 8px;
 }
-.mw-ctr-header-top {
+.mw-ctr-number {
+    font-family:  'Instrument Serif', Georgia, 'Times New Roman', serif;
+    font-size:    2.4rem;
+    color:        white;
+    letter-spacing: -1px;
+    line-height:  1;
+    margin-bottom: 4px;
+}
+.mw-ctr-hero-contract-title {
+    font-size:   1rem;
+    font-weight: 500;
+    color:       rgba(255,255,255,.68);
+    margin-bottom: 8px;
+}
+.mw-ctr-hero-meta {
+    font-size:   .84rem;
+    color:       rgba(255,255,255,.58);
     display:     flex;
     align-items: center;
     gap:         10px;
     flex-wrap:   wrap;
-    margin-bottom: 4px;
 }
-.mw-ctr-title {
-    font-size:   1.5rem;
-    font-weight: 700;
-    color:       var(--mw-forest);
-    margin:      0;
-    letter-spacing: -0.5px;
+.mw-ctr-hero-meta-sep { opacity: .4; }
+.mw-ctr-hero-actions {
+    display:     flex;
+    align-items: flex-start;
+    gap:         6px;
+    flex-wrap:   wrap;
+    flex-shrink: 0;
+    position:    relative;
+    z-index:     1;
 }
-.mw-ctr-subtitle {
-    font-size:   1rem;
-    font-weight: 600;
-    color:       #444;
-    margin-bottom: 6px;
-}
-.mw-ctr-meta {
-    font-size:  .85rem;
-    color:      #6c757d;
-    display:    flex;
-    align-items: center;
-    gap:        6px;
-    flex-wrap:  wrap;
-}
-.mw-ctr-meta i { opacity: .7; }
-.mw-ctr-meta-sep { opacity: .4; }
 
-/* Compact GPS badge in header */
+/* Compact GPS badge */
 .mw-border-ok--compact {
     font-size:     .75rem !important;
     padding:       3px 8px !important;
     border-radius: 20px !important;
 }
 
-/* ── KPI Strip ───────────────────────────────────────────────────────────── */
-.mw-ctr-kpi-row {
-    display:               grid;
-    grid-template-columns: repeat(6, 1fr);
-    gap:                   12px;
-}
-@media (max-width: 991px) {
-    .mw-ctr-kpi-row { grid-template-columns: repeat(3, 1fr); }
-}
-@media (max-width: 575px) {
-    .mw-ctr-kpi-row { grid-template-columns: repeat(2, 1fr); }
-}
-.mw-ctr-kpi-card {
-    background:    #fff;
-    border:        1px solid #e8ecef;
+/* ── KPI Strip (inside hero) ─────────────────────────────────────────────── */
+.mw-ctr-kpi-strip {
+    display:      flex;
+    background:   rgba(255,255,255,.07);
+    border:       1px solid rgba(255,255,255,.12);
     border-radius: 8px;
-    padding:       14px 16px;
-    position:      relative;
+    margin-top:   20px;
+    overflow:     hidden;
+    position:     relative;
+    z-index:      1;
 }
-.mw-ctr-kpi-card--alert {
-    border-color:  #f5c6cb;
-    background:    #fff5f5;
+.mw-ctr-kpi-cell {
+    flex:        1;
+    padding:     14px 16px;
+    border-right: 1px solid rgba(255,255,255,.1);
+    min-width:   0;
 }
-.mw-ctr-kpi-label {
-    font-size:     .72rem;
-    font-weight:   600;
+.mw-ctr-kpi-cell:last-child { border-right: none; }
+.mw-ctr-kpi-cell-label {
+    font-size:     .67rem;
+    font-weight:   700;
     text-transform: uppercase;
-    letter-spacing: .6px;
-    color:         #888;
+    letter-spacing: .9px;
+    color:         rgba(255,255,255,.5);
     margin-bottom: 5px;
+    white-space:   nowrap;
 }
-.mw-ctr-kpi-value {
-    font-size:   1.45rem;
+.mw-ctr-kpi-cell-value {
+    font-size:   1.28rem;
     font-weight: 700;
-    color:       var(--mw-forest);
-    line-height: 1.1;
+    color:       white;
+    line-height: 1.15;
 }
-.mw-ctr-kpi-sub {
-    display:     block;
-    font-size:   .72rem;
-    font-weight: 500;
-    color:       #888;
-    margin-top:  2px;
+.mw-ctr-kpi-cell-sub {
+    display:    block;
+    font-size:  .7rem;
+    color:      rgba(255,255,255,.45);
+    margin-top: 2px;
 }
+.mw-ctr-kpi-cell--good  .mw-ctr-kpi-cell-value { color: #86efac; }
+.mw-ctr-kpi-cell--alert .mw-ctr-kpi-cell-value { color: #fca5a5; }
+.mw-ctr-kpi-cell--warn  .mw-ctr-kpi-cell-value { color: #fde68a; }
 
-/* Overdue pill inside KPI / billing bar */
+/* Overdue pill (inside hero — dark bg context) */
 .mw-ctr-overdue-badge {
     display:       inline-block;
-    background:    #f8d7da;
-    color:         #721c24;
-    font-size:     .7rem;
+    background:    rgba(220,53,69,.3);
+    color:         #fca5a5;
+    font-size:     .68rem;
     font-weight:   700;
     padding:       2px 7px;
     border-radius: 20px;
     vertical-align: middle;
     margin-left:   4px;
+}
+/* Overdue pill in billing card (light bg context) */
+.card .mw-ctr-overdue-badge {
+    background: #f8d7da;
+    color:      #721c24;
+}
+
+@media (max-width: 991px) {
+    .mw-ctr-kpi-strip { flex-wrap: wrap; }
+    .mw-ctr-kpi-cell  { flex: 0 0 33.333%; border-bottom: 1px solid rgba(255,255,255,.1); }
+    .mw-ctr-kpi-cell:nth-child(3),
+    .mw-ctr-kpi-cell:nth-child(6) { border-right: none; }
+    .mw-ctr-kpi-cell:nth-child(4),
+    .mw-ctr-kpi-cell:nth-child(5),
+    .mw-ctr-kpi-cell:nth-child(6) { border-bottom: none; }
+}
+@media (max-width: 575px) {
+    .mw-ctr-kpi-cell          { flex: 0 0 50%; }
+    .mw-ctr-kpi-cell:nth-child(even) { border-right: none; }
+    .mw-ctr-kpi-cell:nth-child(3)    { border-right: 1px solid rgba(255,255,255,.1); }
+    .mw-ctr-kpi-cell:nth-child(5),
+    .mw-ctr-kpi-cell:nth-child(6)    { border-bottom: none; }
+}
+@media (max-width: 479px) {
+    .mw-ctr-hero   { padding: 20px 18px 16px; }
+    .mw-ctr-number { font-size: 1.8rem; }
 }
 
 /* ── Plans Table ─────────────────────────────────────────────────────────── */
