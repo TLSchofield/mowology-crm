@@ -35,7 +35,11 @@ require_once CRM_INCLUDES . '/functions.php';
 require_once APP_ROOT . '/Modules/Social/Services/SocialEncryption.php';
 require_once APP_ROOT . '/Modules/Social/Services/MetaService.php';
 
-$isCli = php_sapi_name() === 'cli';
+$isCli      = php_sapi_name() === 'cli';
+$fromWeb    = !$isCli;
+$startMs    = (int) round(microtime(true) * 1000);
+$cronStatus = 'success';
+$cronError  = null;
 
 if (!$isCli) {
     header('Content-Type: application/json');
@@ -178,6 +182,17 @@ try {
     }
 
     $summary = "Synced {$synced} rows, {$errors} errors.";
+
+    $durationMs = (int) round(microtime(true) * 1000) - $startMs;
+    recordCronRun(
+        'social_metrics_sync',
+        $cronStatus,
+        "Synced: {$synced} posts, Errors: {$errors}",
+        $durationMs,
+        $cronError,
+        $fromWeb
+    );
+
     if ($isCli) {
         echo $summary . "\n";
         exit(0);
@@ -193,6 +208,8 @@ try {
 } catch (\Throwable $e) {
     $errMsg = 'metrics_sync fatal error: ' . $e->getMessage();
     error_log($errMsg);
+    $durationMs = (int) round(microtime(true) * 1000) - $startMs;
+    recordCronRun('social_metrics_sync', 'error', null, $durationMs, $e->getMessage(), $fromWeb);
     if ($isCli) { echo "FATAL: $errMsg\n"; exit(1); }
     echo json_encode(['success' => false, 'error' => $errMsg]);
 }

@@ -30,7 +30,11 @@ set_error_handler(function ($severity, $message, $file, $line) {
     throw new ErrorException($message, 0, $severity, $file, $line);
 });
 
-$isCli = (php_sapi_name() === 'cli');
+$isCli      = (php_sapi_name() === 'cli');
+$fromWeb    = !$isCli;
+$startMs    = (int) round(microtime(true) * 1000);
+$cronStatus = 'success';
+$cronError  = null;
 
 if (!$isCli) {
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -166,6 +170,16 @@ $result = [
     'threshold_h' => $thresholdHours,
     'log'        => $log,
 ];
+
+$durationMs = (int) round(microtime(true) * 1000) - $startMs;
+recordCronRun(
+    'stop_orphaned_timers',
+    $cronStatus,
+    "Stopped: {$stopped} orphaned timers, Errors: {$errors}",
+    $durationMs,
+    $cronError,
+    $fromWeb
+);
 
 if ($isCli) {
     echo json_encode($result, JSON_PRETTY_PRINT) . PHP_EOL;

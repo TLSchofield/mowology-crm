@@ -38,6 +38,12 @@ require_once CRM_INCLUDES . '/messaging.php';
 
 $db  = getDB();
 $log = [];
+$startMs    = (int) round(microtime(true) * 1000);
+$fromWeb    = (PHP_SAPI !== 'cli');
+$cronStatus = 'success';
+$cronError  = null;
+$emailsSent = 0;
+$smsSent    = 0;
 
 function remLog(string $msg): void {
     global $log;
@@ -202,14 +208,26 @@ try {
     remLog("Summary: {$emailsSent} email(s), {$smsSent} SMS sent");
 
 } catch (Throwable $e) {
+    $cronStatus = 'error';
+    $cronError  = $e->getMessage();
     remLog("ERROR: " . $e->getMessage());
     error_log('[invoice_reminders_cron] ' . $e->getMessage());
 }
 
 remLog("=== Done ===");
 
+$durationMs = (int) round(microtime(true) * 1000) - $startMs;
+recordCronRun(
+    'invoice_reminders',
+    $cronStatus,
+    "Sent {$emailsSent} email(s), {$smsSent} SMS",
+    $durationMs,
+    $cronError,
+    $fromWeb
+);
+
 // If running via web shim, return JSON
-if (PHP_SAPI !== 'cli') {
+if ($fromWeb) {
     header('Content-Type: application/json');
     echo json_encode(['success' => true, 'log' => $log]);
 }

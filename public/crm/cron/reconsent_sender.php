@@ -37,10 +37,14 @@ require_once CRM_INCLUDES . '/functions.php';
 require_once CRM_INCLUDES . '/messaging.php';
 
 $db = getDB();
-$limit = 10;
-$sent = 0;
-$failed = 0;
-$errors = [];
+$limit      = 10;
+$sent       = 0;
+$failed     = 0;
+$errors     = [];
+$startMs    = (int) round(microtime(true) * 1000);
+$fromWeb    = !$isCli;
+$cronStatus = 'success';
+$cronError  = null;
 
 // Fetch next batch of queued contacts
 $stmt = $db->prepare("
@@ -137,6 +141,16 @@ foreach ($contacts as $row) {
 
 $summary = "Reconsent sender: sent=$sent, failed=$failed, total=" . count($contacts);
 error_log($summary);
+
+$durationMs = (int) round(microtime(true) * 1000) - $startMs;
+recordCronRun(
+    'reconsent_sender',
+    $cronStatus,
+    "Sent: {$sent}, Failed: {$failed}, Total: " . count($contacts),
+    $durationMs,
+    $cronError,
+    $fromWeb
+);
 
 if ($isCli) {
     echo $summary . "\n";

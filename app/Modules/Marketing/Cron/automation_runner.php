@@ -33,6 +33,10 @@ $db = getDB();
 $log = [];
 $processed = 0;
 $maxActions = 50; // Max queue items per run
+$startMs    = (int) round(microtime(true) * 1000);
+$fromWeb    = (PHP_SAPI !== 'cli');
+$cronStatus = 'success';
+$cronError  = null;
 
 function logMsg(string $msg): void {
     global $log;
@@ -96,6 +100,21 @@ foreach ($pending as $qa) {
 }
 
 logMsg("=== Done. Processed $processed actions ===");
+
+$durationMs = (int) round(microtime(true) * 1000) - $startMs;
+recordCronRun(
+    'automation_runner',
+    $cronStatus,
+    "Processed {$processed} queued actions, " . count($rules) . " rules evaluated",
+    $durationMs,
+    $cronError,
+    $fromWeb
+);
+
+if ($fromWeb) {
+    header('Content-Type: application/json');
+    echo json_encode(['success' => true, 'log' => $log, 'processed' => $processed]);
+}
 
 
 // ── Rule Evaluator ─────────────────────────────────────────────────────────

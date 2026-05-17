@@ -28,7 +28,11 @@ unset($__dir, $__i);
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 require_once CRM_INCLUDES . '/functions.php';
 
-$isCli = php_sapi_name() === 'cli';
+$isCli      = php_sapi_name() === 'cli';
+$fromWeb    = !$isCli;
+$startMs    = (int) round(microtime(true) * 1000);
+$cronStatus = 'success';
+$cronError  = null;
 if (!$isCli) {
     header('Content-Type: application/json');
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -216,6 +220,16 @@ try {
         'total_recipients'   => $totalRecipients,
     ];
 
+    $durationMs = (int) round(microtime(true) * 1000) - $startMs;
+    recordCronRun(
+        'seasonal_triggers',
+        $cronStatus,
+        "Created: {$campaignsCreated} campaigns, {$totalRecipients} total recipients",
+        $durationMs,
+        $cronError,
+        $fromWeb
+    );
+
     if ($isCli) {
         echo "\n" . $result['message'] . "\n";
     } else {
@@ -225,6 +239,8 @@ try {
 } catch (\Throwable $e) {
     $error = 'seasonal_triggers error: ' . $e->getMessage();
     error_log($error);
+    $durationMs = (int) round(microtime(true) * 1000) - $startMs;
+    recordCronRun('seasonal_triggers', 'error', null, $durationMs, $e->getMessage(), $fromWeb);
     if ($isCli) { echo "ERROR: $error\n"; exit(1); }
     echo json_encode(['success' => false, 'error' => $error]);
 }

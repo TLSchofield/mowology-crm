@@ -44,7 +44,11 @@ if (!$isCli) {
     }
 }
 
-$batchSize = 20; // Max emails per run
+$batchSize  = 20; // Max emails per run
+$startMs    = (int) round(microtime(true) * 1000);
+$fromWeb    = !$isCli;
+$cronStatus = 'success';
+$cronError  = null;
 
 try {
     $db = getDB();
@@ -256,6 +260,16 @@ try {
         'campaigns_processed' => $campaignsProcessed,
     ];
 
+    $durationMs = (int) round(microtime(true) * 1000) - $startMs;
+    recordCronRun(
+        'campaign_sender',
+        $cronStatus,
+        "Sent: {$totalSent}, Failed: {$totalFailed}, Campaigns processed: {$campaignsProcessed}",
+        $durationMs,
+        $cronError,
+        $fromWeb
+    );
+
     if ($isCli) {
         echo $result['message'] . "\n";
     } else {
@@ -265,6 +279,8 @@ try {
 } catch (\Throwable $e) {
     $error = 'campaign_sender error: ' . $e->getMessage();
     error_log($error);
+    $durationMs = (int) round(microtime(true) * 1000) - $startMs;
+    recordCronRun('campaign_sender', 'error', null, $durationMs, $e->getMessage(), $fromWeb);
     if ($isCli) { echo "ERROR: $error\n"; exit(1); }
     echo json_encode(['success' => false, 'error' => $error]);
 }

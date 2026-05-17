@@ -97,6 +97,11 @@ function ocrLog(string $msg): void
     error_log('process_ocr_queue: ' . $msg);
 }
 
+$startMs = (int) round(microtime(true) * 1000);
+$fromWeb = false; // CLI-only (web returns 403 above)
+$cronStatus = 'success';
+$cronError  = null;
+
 ocrLog('=== OCR queue worker started ===');
 
 $db = getDB();
@@ -227,6 +232,16 @@ foreach ($candidateIds as $jobId) {
 }
 
 ocrLog("Done. processed=$processed succeeded=$succeeded failed=$failed");
+
+$durationMs = (int) round(microtime(true) * 1000) - $startMs;
+recordCronRun(
+    'process_ocr_queue',
+    $cronStatus,
+    "Processed: {$processed}, Succeeded: {$succeeded}, Failed: {$failed}",
+    $durationMs,
+    $cronError,
+    $fromWeb
+);
 exit(0);
 
 // ──────────────────────────────────────────────────────────────────────

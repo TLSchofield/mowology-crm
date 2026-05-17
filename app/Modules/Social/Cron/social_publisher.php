@@ -37,7 +37,11 @@ require_once APP_ROOT . '/Modules/Social/Services/GoogleBusinessService.php';
 require_once APP_ROOT . '/Modules/Social/Services/MetaService.php';
 require_once APP_ROOT . '/Modules/Social/Services/SocialPublisher.php';
 
-$isCli = php_sapi_name() === 'cli';
+$isCli      = php_sapi_name() === 'cli';
+$fromWeb    = !$isCli;
+$startMs    = (int) round(microtime(true) * 1000);
+$cronStatus = 'success';
+$cronError  = null;
 
 if (!$isCli) {
     header('Content-Type: application/json');
@@ -193,6 +197,16 @@ try {
         'results'   => $results,
     ];
 
+    $durationMs = (int) round(microtime(true) * 1000) - $startMs;
+    recordCronRun(
+        'social_publisher',
+        $cronStatus,
+        "Published: {$published}, Failed: {$failed}, Total: " . count($items),
+        $durationMs,
+        $cronError,
+        $fromWeb
+    );
+
     if ($isCli) {
         echo "\n" . $summary['message'] . "\n";
     } else {
@@ -202,6 +216,8 @@ try {
 } catch (\Throwable $e) {
     $error = 'social_publisher error: ' . $e->getMessage();
     error_log($error);
+    $durationMs = (int) round(microtime(true) * 1000) - $startMs;
+    recordCronRun('social_publisher', 'error', null, $durationMs, $e->getMessage(), $fromWeb);
     if ($isCli) { echo "ERROR: $error\n"; exit(1); }
     echo json_encode(['success' => false, 'error' => $error]);
 }

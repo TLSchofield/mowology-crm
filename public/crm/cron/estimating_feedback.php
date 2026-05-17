@@ -53,6 +53,13 @@ if (!$isCli) {
     }
 }
 
+$startMs    = (int) round(microtime(true) * 1000);
+$fromWeb    = !$isCli;
+$cronStatus = 'success';
+$cronError  = null;
+$insertedAccuracy = 0;
+$updatedPrices    = 0;
+
 // ── Main ───────────────────────────────────────────────────────────────
 try {
     $db = getDB();
@@ -236,6 +243,16 @@ try {
         'message'           => "Estimating feedback: {$insertedAccuracy} accuracy records, {$updatedPrices} price index rows updated",
     ];
 
+    $durationMs = (int) round(microtime(true) * 1000) - $startMs;
+    recordCronRun(
+        'estimating_feedback',
+        $cronStatus,
+        "Accuracy records: {$insertedAccuracy}, Price index rows: {$updatedPrices}",
+        $durationMs,
+        $cronError,
+        $fromWeb
+    );
+
     if ($isCli) {
         echo $result['message'] . "\n";
         foreach ($log as $entry) {
@@ -249,6 +266,8 @@ try {
 } catch (\Throwable $e) {
     $error = 'estimating_feedback error: ' . $e->getMessage();
     error_log($error);
+    $durationMs = (int) round(microtime(true) * 1000) - $startMs;
+    recordCronRun('estimating_feedback', 'error', null, $durationMs, $e->getMessage(), $fromWeb);
 
     if ($isCli) {
         echo "ERROR: " . $error . "\n";
