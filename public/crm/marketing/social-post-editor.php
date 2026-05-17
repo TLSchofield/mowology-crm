@@ -1359,9 +1359,13 @@ $extraHead = '
               };
 
               // Destroy Cropper when modal closes to free memory
-              $('#cropModal').on('hidden.bs.modal', function() {
-                  if (cropperInstance) { cropperInstance.destroy(); cropperInstance = null; }
-              });
+              // Use native addEventListener — jQuery loads in the footer (after this IIFE runs)
+              var _cropModalEl = document.getElementById('cropModal');
+              if (_cropModalEl) {
+                  _cropModalEl.addEventListener('hidden.bs.modal', function() {
+                      if (cropperInstance) { cropperInstance.destroy(); cropperInstance = null; }
+                  });
+              }
 
               // ── Preview ────────────────────────────────────────────
               var platformIcons = {
