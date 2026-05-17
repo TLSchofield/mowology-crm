@@ -63,6 +63,6 @@ ALTER TABLE social_templates
 CREATE INDEX idx_st_service_type ON social_templates (service_type);
 
 -- ── Track migration ───────────────────────────────────────────────────────────
-INSERT INTO migrations_log (migration_file, executed_at)
-VALUES ('609_social_card_pipeline.sql', NOW())
-ON DUPLICATE KEY UPDATE executed_at = NOW();
+INSERT INTO migrations_log (migration_filename, executed_at, status)
+VALUES ('609_social_card_pipeline.sql', NOW(), 'success')
+ON DUPLICATE KEY UPDATE executed_at = NOW(), status = 'success';
