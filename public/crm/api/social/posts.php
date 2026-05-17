@@ -230,18 +230,35 @@ try {
             $stmt = $db->prepare("
                 SELECT sp.id, sp.title, sp.caption, sp.last_fail_reason,
                        sp.fail_count, sp.updated_at,
+                       (SELECT GROUP_CONCAT(CONCAT(platform, ':', COALESCE(fail_reason,''))
+                               ORDER BY platform SEPARATOR '||')
+                        FROM social_post_platforms WHERE post_id = sp.id) AS platform_errors,
                        (SELECT GROUP_CONCAT(platform ORDER BY platform SEPARATOR ',')
                         FROM social_post_platforms WHERE post_id = sp.id) AS platforms
                 FROM social_posts sp
                 WHERE sp.status = 'failed'
                 ORDER BY sp.updated_at DESC
-                LIMIT 10
+                LIMIT 20
             ");
             $stmt->execute();
             $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             foreach ($posts as &$p) {
                 $p['platforms'] = $p['platforms'] ? explode(',', $p['platforms']) : [];
+
+                // Build per-platform error detail array [platform => reason]
+                $platformErrors = [];
+                if (!empty($p['platform_errors'])) {
+                    foreach (explode('||', $p['platform_errors']) as $pair) {
+                        $colonPos = strpos($pair, ':');
+                        if ($colonPos !== false) {
+                            $pl  = substr($pair, 0, $colonPos);
+                            $err = substr($pair, $colonPos + 1);
+                            if ($pl) { $platformErrors[$pl] = $err ?: null; }
+                        }
+                    }
+                }
+                $p['platform_errors'] = $platformErrors;
             }
             unset($p);
 
