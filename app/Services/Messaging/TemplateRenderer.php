@@ -96,7 +96,8 @@ function wrapInBrandedEmail(string $bodyHtml, string $unsubscribeUrl = ''): stri
 <!-- Footer -->
 <tr>
   <td style="background:#0D3B2E;padding:20px 32px;text-align:center;color:#8fa89c;font-size:12px;">
-    <p style="margin:0 0 4px;">Mowology Landscaping &bull; Vancouver, BC</p>
+    <p style="margin:0 0 4px;">Mowology Landscaping</p>
+    <p style="margin:0 0 4px;">2845 West 15th Ave, Vancouver, BC V6K 3A1</p>
     <p style="margin:0 0 4px;">📞 (604) 358-1818 &bull; 📧 info@mowology.ca</p>
     ' . $unsubscribeBlock . '
   </td>
