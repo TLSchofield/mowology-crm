@@ -97,6 +97,11 @@ $activePage = 'jobs';
         <h1 class="h3 mb-0">Winter Service Reports</h1>
         <p class="text-muted mb-0">Salt application &amp; snow removal proof-of-work records</p>
     </div>
+    <?php if (($user['role'] ?? '') === 'admin'): ?>
+    <a href="trigger.php" class="btn btn-danger">
+        <i data-feather="zap" class="feather-sm mr-1"></i> Manual Salt Run Trigger
+    </a>
+    <?php endif; ?>
 </div>
 
 <!-- Stats -->
