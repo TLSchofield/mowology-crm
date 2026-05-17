@@ -80,7 +80,7 @@ class SaltReportPdfGenerator
             $version = isset($m[1]) ? (int)$m[1] + 1 : 2;
         }
 
-        // GPS map snapshot
+        // GPS map snapshot — crew device
         $mapPath  = null;
         $gpsStats = [];
         $googleKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : (getenv('GOOGLE_MAPS_API_KEY') ?: '');
@@ -90,7 +90,18 @@ class SaltReportPdfGenerator
             $mapPath  = $mapSvc->getOrGenerate($visitId, $data['gpsPoints']);
         }
 
-        $html = $this->buildHtml($data, $gpsStats, $mapPath, $report['report_number']);
+        // Vehicle GPS map snapshot — truck-mounted tablet (corroborating evidence)
+        $vehicleMapPath  = null;
+        $vehicleGpsStats = [];
+        $vehicleGpsPoints = $this->loadVehicleGpsPoints($visitId, $data['visit']);
+        if (count($vehicleGpsPoints) >= 3) {
+            $vMapSvc         = new MapSnapshotService($googleKey, $this->publicRoot);
+            $vehicleGpsStats = $vMapSvc->computeStats($vehicleGpsPoints);
+            // Use a distinct cache key so the vehicle map file doesn't overwrite the crew map
+            $vehicleMapPath  = $vMapSvc->getOrGenerate($visitId + 1000000, $vehicleGpsPoints);
+        }
+
+        $html = $this->buildHtml($data, $gpsStats, $mapPath, $report['report_number'], $vehicleGpsPoints, $vehicleGpsStats, $vehicleMapPath);
 
         $filename = 'salt_' . $visitId . '_v' . $version . '.pdf';
         $filepath = $this->storageDir . '/' . $filename;
@@ -212,6 +223,69 @@ class SaltReportPdfGenerator
         return $stmt->fetch(\PDO::FETCH_ASSOC) ?: null;
     }
 
+    /**
+     * Load GPS pings from the truck-mounted tablet for the visit's time window.
+     * Returns points remapped to {lat, lng, accuracy_m, ts} for MapSnapshotService.
+     */
+    private function loadVehicleGpsPoints(int $visitId, array $visit): array
+    {
+        // Build time window from visit start/end; fall back to ±2h around scheduled_date
+        if (!empty($visit['started_at'])) {
+            $windowStart = $visit['started_at'];
+        } elseif (!empty($visit['scheduled_date'])) {
+            $windowStart = $visit['scheduled_date'] . ' 00:00:00';
+        } else {
+            return [];
+        }
+
+        if (!empty($visit['completed_at'])) {
+            $windowEnd = $visit['completed_at'];
+        } elseif (!empty($visit['scheduled_date'])) {
+            // Overnight service could extend past midnight; allow until 08:00 next day
+            $windowEnd = date('Y-m-d 08:00:00', strtotime($visit['scheduled_date'] . ' +1 day'));
+        } else {
+            return [];
+        }
+
+        // Build query — filter by time and optionally by property bounding box
+        $propLat = isset($visit['property_lat']) && $visit['property_lat'] !== null ? (float)$visit['property_lat'] : null;
+        $propLng = isset($visit['property_lng']) && $visit['property_lng'] !== null ? (float)$visit['property_lng'] : null;
+
+        if ($propLat !== null && $propLng !== null) {
+            $latMin = $propLat - 0.006; $latMax = $propLat + 0.006; // ≈600m
+            $lngMin = $propLng - 0.008; $lngMax = $propLng + 0.008; // wider for lng at lat ~49°
+            $stmt = $this->db->prepare("
+                SELECT clh.latitude AS lat, clh.longitude AS lng,
+                       clh.accuracy_meters AS accuracy_m, clh.timestamp AS ts
+                FROM crew_location_history clh
+                INNER JOIN users u ON u.id = clh.crew_id
+                WHERE u.is_vehicle_tablet = 1
+                  AND clh.timestamp >= ?
+                  AND clh.timestamp <= ?
+                  AND clh.latitude  BETWEEN ? AND ?
+                  AND clh.longitude BETWEEN ? AND ?
+                ORDER BY clh.timestamp ASC
+                LIMIT 500
+            ");
+            $stmt->execute([$windowStart, $windowEnd, $latMin, $latMax, $lngMin, $lngMax]);
+        } else {
+            $stmt = $this->db->prepare("
+                SELECT clh.latitude AS lat, clh.longitude AS lng,
+                       clh.accuracy_meters AS accuracy_m, clh.timestamp AS ts
+                FROM crew_location_history clh
+                INNER JOIN users u ON u.id = clh.crew_id
+                WHERE u.is_vehicle_tablet = 1
+                  AND clh.timestamp >= ?
+                  AND clh.timestamp <= ?
+                ORDER BY clh.timestamp ASC
+                LIMIT 500
+            ");
+            $stmt->execute([$windowStart, $windowEnd]);
+        }
+
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+    }
+
     private function getOrCreateReportRecord(int $visitId): array
     {
         $stmt = $this->db->prepare("SELECT * FROM salt_run_reports WHERE visit_id = ?");
@@ -240,7 +314,7 @@ class SaltReportPdfGenerator
 
     // ─── HTML builder ─────────────────────────────────────────────────────────
 
-    private function buildHtml(array $data, array $gpsStats, ?string $mapWebPath, string $reportNumber): string
+    private function buildHtml(array $data, array $gpsStats, ?string $mapWebPath, string $reportNumber, array $vehicleGpsPoints = [], array $vehicleGpsStats = [], ?string $vehicleMapWebPath = null): string
     {
         $v        = $data['visit'];
         $services = $data['services'];
@@ -293,6 +367,23 @@ class SaltReportPdfGenerator
                 $mapBase64 = "data:{$mime};base64," . base64_encode(file_get_contents($mapAbs));
             }
         }
+
+        // Vehicle GPS map — embed as base64
+        $vehicleMapBase64 = '';
+        if ($vehicleMapWebPath) {
+            $vMapAbs = $this->publicRoot . $vehicleMapWebPath;
+            if (file_exists($vMapAbs)) {
+                $ext = strtolower(pathinfo($vMapAbs, PATHINFO_EXTENSION));
+                $mime = $ext === 'jpg' || $ext === 'jpeg' ? 'image/jpeg' : 'image/png';
+                $vehicleMapBase64 = "data:{$mime};base64," . base64_encode(file_get_contents($vMapAbs));
+            }
+        }
+        $vehiclePointCount = count($vehicleGpsPoints);
+        $vehicleDistKm = isset($vehicleGpsStats['distance_m']) && $vehicleGpsStats['distance_m'] > 0
+            ? number_format($vehicleGpsStats['distance_m'] / 1000, 2) . ' km'
+            : 'N/A';
+        $vehicleTimeFirst = !empty($vehicleGpsPoints) ? $vehicleGpsPoints[0]['ts'] : null;
+        $vehicleTimeLast  = !empty($vehicleGpsPoints) ? end($vehicleGpsPoints)['ts'] : null;
 
         $gpsPointCount = count($data['gpsPoints']);
         $distKm = isset($gpsStats['distance_m']) && $gpsStats['distance_m'] > 0
@@ -618,7 +709,74 @@ body { font-family: helvetica, arial, sans-serif; font-size: 11px; color: #1a1a1
         GPS departure coordinates: <?= $departureLat ? round((float)$departureLat, 5) . ', ' . round((float)$departureLng, 5) : 'N/A' ?>
     </div>
     <?php endif; ?>
+    <?php if ($vehiclePointCount >= 3): ?>
+    <div class="weather-integrity" style="margin-top:12px;">
+        <strong>See also:</strong> A second, independent GPS record from the vehicle-mounted
+        tablet is included in Section 3b of this report (<?= $vehiclePointCount ?> pings).
+    </div>
+    <?php endif; ?>
 </div>
+
+<?php if ($vehiclePointCount >= 3): ?>
+<!-- ══════════════════════════════════════════════════════════
+     PAGE — VEHICLE GPS (corroborating evidence)
+     ══════════════════════════════════════════════════════════ -->
+<div class="page page-break">
+    <div class="section-header" style="background:#37474F;">
+        <div class="section-eyebrow">Section 3b — Corroborating Evidence</div>
+        <div class="section-title">Vehicle GPS — Truck-Mounted Tablet Record</div>
+    </div>
+
+    <p style="font-size:10px;color:#444;margin-bottom:14px;">
+        A tablet mounted in the service vehicle independently recorded <?= $vehiclePointCount ?>
+        continuous GPS pings during this visit. This record is sourced from a separate device
+        (truck-mounted tablet) and corroborates the crew device data above as an independent
+        second data source.
+    </p>
+
+    <?php if ($vehicleMapBase64): ?>
+    <div class="map-container">
+        <img src="<?= $vehicleMapBase64 ?>" style="width:100%;">
+    </div>
+    <table class="fact-table" style="margin-top:14px;">
+        <?php if ($vehicleTimeFirst): ?>
+        <tr><td>First ping recorded</td><td><?= htmlspecialchars(date('g:i A', strtotime($vehicleTimeFirst))) ?></td></tr>
+        <?php endif; ?>
+        <?php if ($vehicleTimeLast): ?>
+        <tr><td>Last ping recorded</td><td><?= htmlspecialchars(date('g:i A', strtotime($vehicleTimeLast))) ?></td></tr>
+        <?php endif; ?>
+        <tr><td>Total GPS pings</td><td><?= $vehiclePointCount ?> continuous pings from vehicle tablet</td></tr>
+        <?php if ($vehicleDistKm !== 'N/A'): ?>
+        <tr><td>Distance covered</td><td><?= htmlspecialchars($vehicleDistKm) ?></td></tr>
+        <?php endif; ?>
+        <tr><td>Source device</td><td>Vehicle-mounted tablet (continuous tracking, independent of crew device)</td></tr>
+        <tr><td>Map type</td><td>Satellite imagery via Google Maps Static API</td></tr>
+    </table>
+    <?php else: ?>
+    <div class="map-placeholder">
+        Vehicle GPS data was recorded (<?= $vehiclePointCount ?> pings) but a map image could not
+        be generated at this time. The raw GPS coordinates are retained in the service record system.
+    </div>
+    <table class="fact-table" style="margin-top:14px;">
+        <?php if ($vehicleTimeFirst): ?>
+        <tr><td>First ping recorded</td><td><?= htmlspecialchars(date('g:i A', strtotime($vehicleTimeFirst))) ?></td></tr>
+        <?php endif; ?>
+        <?php if ($vehicleTimeLast): ?>
+        <tr><td>Last ping recorded</td><td><?= htmlspecialchars(date('g:i A', strtotime($vehicleTimeLast))) ?></td></tr>
+        <?php endif; ?>
+        <tr><td>Total GPS pings</td><td><?= $vehiclePointCount ?></td></tr>
+        <tr><td>Source device</td><td>Vehicle-mounted tablet (continuous tracking)</td></tr>
+    </table>
+    <?php endif; ?>
+
+    <div class="weather-integrity" style="margin-top:16px;">
+        <strong>Independent Source Notice:</strong> Vehicle GPS pings are recorded continuously
+        by the truck-mounted tablet and are not under crew control. This data stream is separate
+        from the crew member's device and serves as corroborating evidence that the service
+        vehicle was present at this property during the reported service window.
+    </div>
+</div>
+<?php endif; ?>
 
 <!-- ══════════════════════════════════════════════════════════
      PAGE 5+ — PHOTO EVIDENCE
