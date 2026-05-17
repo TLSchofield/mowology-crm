@@ -337,8 +337,8 @@ try {
                           <?php endif; ?>
                       </div>
                       <div class="card-body" style="padding:12px 16px 10px;">
-                          <div class="mw-soc-density-row" id="densityRow">
-                              <div class="mw-soc-loading" style="width:100%;font-size:.75rem;">Loading…</div>
+                          <div id="densityRow" style="display:flex;gap:4px;align-items:flex-end;overflow-x:hidden;">
+                              <div style="width:100%;font-size:.75rem;color:#adb5bd;">Loading…</div>
                           </div>
                           <p class="text-muted mb-0 mt-2" style="font-size:.7rem;">Bars show scheduled posts vs seasonal target. Create a Campaign from any post to auto-fill gaps.</p>
                       </div>
@@ -812,15 +812,17 @@ try {
                           data.density.forEach(function(d) {
                               var pct    = d.target > 0 ? Math.min(100, Math.round(d.count / d.target * 100)) : 0;
                               var mo     = shortMonths[parseInt(d.month.split('-')[1], 10) - 1];
-                              var filled = pct >= 80;
-                              var barCls = d.count > 0 ? 'mw-soc-density-bar-fill' : 'mw-soc-density-bar-empty';
-                              var barH   = Math.max(4, Math.round(pct * 0.4)); // max 40px
-                              html += '<div class="mw-soc-density-col" title="' + esc(d.month) + ': ' + d.count + '/' + d.target + ' posts">'
-                                   +  '<span class="mw-soc-density-ct">' + (d.count > 0 ? d.count : '') + '</span>'
-                                   +  '<div class="mw-soc-density-bar-wrap">'
-                                   +  '<div class="mw-soc-density-bar ' + barCls + '" style="height:' + barH + 'px;">'
-                                   +  (filled ? '<span style="display:none">✓</span>' : '') + '</div></div>'
-                                   +  '<span class="mw-soc-density-mo">' + esc(mo) + '</span>'
+                              var barH   = Math.max(3, Math.round(pct * 0.36)); // 0–36px range
+                              var bgCol  = d.count > 0 ? 'var(--mw-green)' : '#e9ecef';
+                              var ctTxt  = d.count > 0 ? String(d.count) : '';
+                              var tip    = d.month + ': ' + d.count + '/' + d.target;
+                              // Each column: flex column, center-aligned, fixed width ~8.33%
+                              html += '<div style="flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:2px;" title="' + esc(tip) + '">'
+                                   +  '<span style="font-size:.6rem;color:#6c757d;font-weight:700;line-height:1;">' + esc(ctTxt) + '</span>'
+                                   +  '<div style="width:100%;height:36px;display:flex;align-items:flex-end;">'
+                                   +  '<div style="width:100%;height:' + barH + 'px;background:' + bgCol + ';border-radius:2px 2px 0 0;min-height:3px;"></div>'
+                                   +  '</div>'
+                                   +  '<span style="font-size:.58rem;color:#adb5bd;font-weight:600;text-transform:uppercase;white-space:nowrap;overflow:hidden;">' + esc(mo.charAt(0)) + '</span>'
                                    +  '</div>';
                           });
                           el.innerHTML = html;
