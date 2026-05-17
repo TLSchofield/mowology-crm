@@ -347,7 +347,7 @@ function sendOptInEmail(PDO $db, int $contactId): array
     }
 
     $baseUrl   = defined('SITE_URL') ? SITE_URL : 'https://mowology.ca';
-    $confirmUrl = $baseUrl . '/crm/api/optin-confirm.php?token=' . urlencode($rawToken);
+    $confirmUrl = $baseUrl . '/optin-confirm.php?token=' . urlencode($rawToken);
     $firstName  = $contact['first_name'] ?? 'Valued Customer';
 
     $subject = 'Please confirm your email preferences — Mowology Landscaping';
