@@ -1004,15 +1004,19 @@ $extraHead = '
                                    + esc(statusLabels[st] || st) + '</span>';
                           var failNote = '';
                           if (fr && st === 'failed') {
-                              // Show a short excerpt of the fail reason
                               var shortFr = fr.length > 60 ? fr.substring(0, 60) + '…' : fr;
                               failNote = '<div style="font-size:.7rem;color:#721c24;margin-top:4px;" title="' + esc(fr) + '">' + esc(shortFr) + '</div>';
                           }
                           badgeHtml = '<div class="mw-soc-platform-row-badge">' + chip + failNote + '</div>';
                       } else if (!readonly) {
-                          // Checkbox mode
-                          badgeHtml = '<input type="checkbox" class="mw-soc-platform-chk" data-platform="' + esc(a.platform) + '" data-account="' + a.id + '"'
-                                    + (checked ? ' checked' : '') + ' onchange="onPlatformChkChange(this,this.closest(\'.mw-soc-platform-row\'))">';
+                          // stopPropagation prevents the row's onclick from double-toggling the checkbox:
+                          // browser toggles checked state BEFORE onclick fires, so without stopProp the
+                          // row handler would flip it back to its original value.
+                          badgeHtml = '<input type="checkbox" class="mw-soc-platform-chk"'
+                                    + ' data-platform="' + esc(a.platform) + '" data-account="' + a.id + '"'
+                                    + (checked ? ' checked' : '')
+                                    + ' onclick="event.stopPropagation()"'
+                                    + ' onchange="onPlatformChkChange(this,this.closest(\'.mw-soc-platform-row\'))">';
                       }
 
                       html += '<div class="' + rowCls + '"'
@@ -1046,15 +1050,14 @@ $extraHead = '
               }
 
               window.togglePlatformRow = function(row, accountId, platform) {
-                  // Don't toggle if readonly
+                  // Don't toggle if readonly (published post view)
                   if (row.classList.contains('mw-row-readonly')) return;
                   var chk = row.querySelector('.mw-soc-platform-chk');
                   if (!chk) return;
-                  // The checkbox handles its own state via onchange — clicking the row should toggle it
-                  if (document.activeElement !== chk) {
-                      chk.checked = !chk.checked;
-                      onPlatformChkChange(chk, row);
-                  }
+                  // Checkbox has onclick="stopPropagation()" so this handler only fires
+                  // when clicking the row background (not the checkbox itself). Safe to toggle.
+                  chk.checked = !chk.checked;
+                  onPlatformChkChange(chk, row);
               };
 
               window.onPlatformChkChange = function(chk, row) {
