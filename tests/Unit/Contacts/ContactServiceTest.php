@@ -298,4 +298,61 @@ class ContactServiceTest extends TestCase
         $this->assertSame(0, $result['deleted']);
         $this->assertSame(0, $result['skipped']);
     }
+
+    // ── deleteContact ─────────────────────────────────────────────────────────
+
+    /** @test */
+    public function deleteContact_rejects_invalid_id(): void
+    {
+        $svc = new ContactService($this->mockPdo());
+        $this->expectException(\InvalidArgumentException::class);
+        $svc->deleteContact(0);
+    }
+
+    /** @test */
+    public function deleteContact_blocks_when_invoices_or_jobs_exist(): void
+    {
+        $pdo   = $this->mockPdo();
+        $guard = $this->createMock(PDOStatement::class);
+        $guard->method('execute')->willReturn(true);
+        $guard->method('fetchColumn')->willReturn(2); // 2 linked invoices/jobs
+
+        $pdo->method('prepare')->willReturn($guard);
+        $pdo->expects($this->never())->method('beginTransaction');
+
+        $svc = new ContactService($pdo);
+        $this->expectException(\RuntimeException::class);
+        $svc->deleteContact(138);
+    }
+
+    /** @test */
+    public function deleteContact_deletes_when_no_financial_records(): void
+    {
+        $pdo = $this->mockPdo();
+
+        $guard = $this->createMock(PDOStatement::class);
+        $guard->method('execute')->willReturn(true);
+        $guard->method('fetchColumn')->willReturn(0); // no invoices/jobs
+
+        $delStmt = $this->createMock(PDOStatement::class);
+        $delStmt->method('execute')->willReturn(true);
+        $delStmt->method('rowCount')->willReturn(1);
+
+        // prepare() is called for the guard first, then the final contacts DELETE.
+        $pdo->method('prepare')->willReturnOnConsecutiveCalls($guard, $delStmt);
+
+        // INFORMATION_SCHEMA discovery returns no referencing columns.
+        $schemaStmt = $this->createMock(PDOStatement::class);
+        $schemaStmt->method('fetchAll')->willReturn([]);
+        $pdo->method('query')->willReturn($schemaStmt);
+
+        $pdo->expects($this->once())->method('beginTransaction');
+        $pdo->expects($this->once())->method('commit');
+
+        $svc    = new ContactService($pdo);
+        $result = $svc->deleteContact(138);
+
+        $this->assertSame(1, $result['deleted']);
+        $this->assertSame([], $result['cleaned']);
+    }
 }

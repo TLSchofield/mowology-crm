@@ -330,6 +330,90 @@ class ContactService
     }
 
     /**
+     * Permanently delete a single contact and clean up everything that points
+     * at it. Invoices and jobs are treated as protected financial records:
+     * if any exist the deletion is refused (caller surfaces the message).
+     *
+     * Everything else that references the contact is discovered dynamically
+     * from INFORMATION_SCHEMA (the production schema drifts from the repo),
+     * then either NULLed (companies / properties — keep the business record)
+     * or deleted (quotes, requests, notes, activity, etc). The whole thing
+     * runs in one transaction and rolls back on any error.
+     *
+     * @return array ['deleted' => int, 'cleaned' => array<string,string>]
+     * @throws \RuntimeException when linked invoices/jobs block deletion
+     */
+    public function deleteContact(int $contactId): array
+    {
+        if ($contactId <= 0) {
+            throw new \InvalidArgumentException('Invalid contact id');
+        }
+
+        $guard = $this->db->prepare(
+            "SELECT
+                 (SELECT COUNT(*) FROM invoices WHERE contact_id = ?) +
+                 (SELECT COUNT(*) FROM jobs     WHERE contact_id = ?) AS total"
+        );
+        $guard->execute([$contactId, $contactId]);
+        $related = (int) $guard->fetchColumn();
+        if ($related > 0) {
+            throw new \RuntimeException(
+                'This contact has ' . $related . ' linked invoice(s) or job(s). '
+                . 'Reassign or remove those first, then delete the contact.'
+            );
+        }
+
+        $cleaned = [];
+        $this->db->beginTransaction();
+        try {
+            $cols = $this->db->query(
+                "SELECT TABLE_NAME, COLUMN_NAME
+                   FROM INFORMATION_SCHEMA.COLUMNS
+                  WHERE TABLE_SCHEMA = DATABASE()
+                    AND COLUMN_NAME LIKE '%contact_id'"
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            foreach ($cols as $c) {
+                $tbl = $c['TABLE_NAME'];
+                $col = $c['COLUMN_NAME'];
+                if ($tbl === 'contacts') {
+                    continue;
+                }
+                try {
+                    if ($tbl === 'companies' || $tbl === 'properties' || $col === 'site_contact_id') {
+                        // Preserve the company/property record — just unlink it.
+                        $st = $this->db->prepare("UPDATE `{$tbl}` SET `{$col}` = NULL WHERE `{$col}` = ?");
+                        $st->execute([$contactId]);
+                        if ($st->rowCount() > 0) {
+                            $cleaned[$tbl . '.' . $col] = 'unlinked ' . $st->rowCount();
+                        }
+                    } else {
+                        $st = $this->db->prepare("DELETE FROM `{$tbl}` WHERE `{$col}` = ?");
+                        $st->execute([$contactId]);
+                        if ($st->rowCount() > 0) {
+                            $cleaned[$tbl . '.' . $col] = 'deleted ' . $st->rowCount();
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    // Table/column missing on this environment — skip it.
+                }
+            }
+
+            $st = $this->db->prepare("DELETE FROM contacts WHERE id = ?");
+            $st->execute([$contactId]);
+            $deleted = $st->rowCount();
+
+            $this->db->commit();
+            return ['deleted' => $deleted, 'cleaned' => $cleaned];
+        } catch (\Throwable $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            throw $e;
+        }
+    }
+
+    /**
      * Bulk delete companies. Skips any that have related jobs or invoices.
      *
      * @param int[] $ids

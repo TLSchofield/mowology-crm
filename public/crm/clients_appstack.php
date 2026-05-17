@@ -698,6 +698,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $messageType = 'error';
                 }
             }
+        } elseif ($action === 'delete_contact') {
+            $delContactId = intval($_POST['contact_id'] ?? 0);
+            if ($delContactId) {
+                try {
+                    require_once APP_ROOT . '/Modules/Contacts/Services/ContactService.php';
+                    $contactService = new ContactService($db);
+                    $contactService->deleteContact($delContactId);
+                    logActivity($user['id'], $delContactId, 'contact_deleted', 'Deleted contact #' . $delContactId);
+                    $message = 'Contact deleted successfully.';
+                    $messageType = 'success';
+                    $action = null;
+                    $clientId = 0;
+                } catch (RuntimeException $e) {
+                    $message = $e->getMessage();
+                    $messageType = 'error';
+                    $action = 'edit_contact';
+                    $clientId = $delContactId;
+                } catch (Throwable $e) {
+                    $errorHandler->logDatabaseError($e, '', [], 'Failed to delete contact. Please try again.');
+                    $message = 'Failed to delete contact. Please try again.';
+                    $messageType = 'error';
+                    $action = 'edit_contact';
+                    $clientId = $delContactId;
+                }
+            }
         } elseif ($action === 'update_contact') {
             $contactId = intval($_POST['contact_id'] ?? 0);
             if ($contactId) {
@@ -2406,7 +2431,16 @@ $unconvertedRequests = $db->query("
                 <a href="clients_appstack.php" class="btn btn-secondary btn-lg ml-2">
                   <i data-feather="x"></i> Cancel
                 </a>
+                <button type="button" class="btn btn-danger btn-lg ml-2"
+                  onclick="if (confirm('Permanently delete this contact?\n\nLinked quotes, requests and notes will also be removed. Companies and properties stay but are unlinked. This cannot be undone.')) document.getElementById('deleteContactForm').submit();">
+                  <i data-feather="trash-2"></i> Delete Contact
+                </button>
               </div>
+            </form>
+            <form method="POST" id="deleteContactForm" class="d-none">
+              <input type="hidden" name="csrf_token" value="<?php echo csrf_token(); ?>">
+              <input type="hidden" name="action" value="delete_contact">
+              <input type="hidden" name="contact_id" value="<?php echo (int)$contact['id']; ?>">
             </form>
 
           <?php elseif ($action === 'view_contact' && $viewContact): ?>
