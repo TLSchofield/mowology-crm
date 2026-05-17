@@ -67,6 +67,10 @@ switch ($event->type) {
         handlePaymentFailed($event->data->object);
         break;
 
+    case 'setup_intent.succeeded':
+        handleSetupIntentSucceeded($event->data->object);
+        break;
+
     default:
         // Acknowledge receipt of events we don't handle — Stripe expects 200
         error_log('[Stripe Webhook] Unhandled event type: ' . $event->type);
@@ -234,14 +238,16 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): void
             // (covers both save_card=true and subsequent payments with saved card)
             $updateContact = $db->prepare("
                 UPDATE contacts SET
-                    stripe_customer_id = COALESCE(stripe_customer_id, ?),
-                    stripe_card_brand  = ?,
-                    stripe_card_last4  = ?,
-                    stripe_card_exp    = ?
+                    stripe_customer_id       = COALESCE(stripe_customer_id, ?),
+                    stripe_payment_method_id = COALESCE(?, stripe_payment_method_id),
+                    stripe_card_brand        = ?,
+                    stripe_card_last4        = ?,
+                    stripe_card_exp          = ?
                 WHERE id = ?
             ");
             $updateContact->execute([
                 $stripeCustomerIdFromIntent,
+                $paymentMethodId,
                 $cardBrand,
                 $cardLast4,
                 $cardExpiry,
@@ -340,5 +346,85 @@ function handlePaymentFailed(\Stripe\PaymentIntent $intent): void
             $failureMessage ?? 'No message'
         ),
         $invoiceId,
+    ]);
+}
+
+/**
+ * Handle setup_intent.succeeded
+ * Fired when a customer completes the explicit autopay enrollment flow
+ * (SetupIntent, no charge). Saves the PaymentMethod and marks the contact
+ * as autopay-enrolled.
+ */
+function handleSetupIntentSucceeded(\Stripe\SetupIntent $intent): void
+{
+    $contactId = (int) ($intent->metadata['contact_id'] ?? 0);
+    if ($contactId <= 0) {
+        error_log('[Stripe Webhook] setup_intent.succeeded — no contact_id in metadata');
+        return;
+    }
+
+    $pmId = is_string($intent->payment_method)
+        ? $intent->payment_method
+        : ($intent->payment_method->id ?? null);
+
+    if (!$pmId) {
+        error_log('[Stripe Webhook] setup_intent.succeeded — no payment_method on intent');
+        return;
+    }
+
+    \Stripe\Stripe::setApiKey(STRIPE_SECRET_KEY);
+
+    $cardBrand  = null;
+    $cardLast4  = null;
+    $cardExpiry = null;
+
+    try {
+        $pm = \Stripe\PaymentMethod::retrieve($pmId);
+        if (!empty($pm->card)) {
+            $cardBrand = $pm->card->brand  ?? null;
+            $cardLast4 = $pm->card->last4  ?? null;
+            $expMonth  = $pm->card->exp_month ?? null;
+            $expYear   = $pm->card->exp_year  ?? null;
+            if ($expMonth && $expYear) {
+                $cardExpiry = sprintf('%02d/%d', $expMonth, $expYear);
+            }
+        }
+    } catch (\Stripe\Exception\ApiErrorException $e) {
+        error_log('[Stripe Webhook] setup_intent.succeeded — could not retrieve PM: ' . $e->getMessage());
+    }
+
+    $stripeCustomerId = is_string($intent->customer) ? $intent->customer : ($intent->customer->id ?? null);
+
+    $db = getDB();
+    $stmt = $db->prepare("
+        UPDATE contacts SET
+            stripe_customer_id       = COALESCE(stripe_customer_id, ?),
+            stripe_payment_method_id = ?,
+            stripe_card_brand        = COALESCE(?, stripe_card_brand),
+            stripe_card_last4        = COALESCE(?, stripe_card_last4),
+            stripe_card_exp          = COALESCE(?, stripe_card_exp),
+            autopay_enabled          = 1,
+            autopay_enrolled_at      = NOW()
+        WHERE id = ?
+    ");
+    $stmt->execute([
+        $stripeCustomerId,
+        $pmId,
+        $cardBrand,
+        $cardLast4,
+        $cardExpiry,
+        $contactId,
+    ]);
+
+    error_log(sprintf(
+        '[Stripe Webhook] Autopay enrolled for contact %d via SetupIntent %s — PM: %s',
+        $contactId, $intent->id, $pmId
+    ));
+
+    $db->prepare("
+        INSERT INTO activity_log (user_id, action, details, created_at)
+        VALUES (NULL, 'Autopay enrolled', ?, NOW())
+    ")->execute([
+        sprintf('Contact %d enrolled in autopay via SetupIntent %s.', $contactId, $intent->id),
     ]);
 }

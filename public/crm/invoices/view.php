@@ -6,6 +6,7 @@
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 require_once dirname(__DIR__) . '/includes/messaging.php';
+require_once APP_ROOT . '/Services/Payments/AutopayService.php';
 // Note: pdf_bootstrap.php and PdfGenerator.php are loaded lazily below only when PDF generation is needed
 
 requireLogin();
@@ -285,6 +286,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                 $message .= " and SMS sent to " . count($smsSentTo) . " contact(s)";
             }
             $messageType = 'success';
+
+            // Trigger autopay — non-blocking, never fails the page action
+            try {
+                $autopay = new AutopayService($db);
+                if ($autopay->isAutopayEligible($invoiceId)) {
+                    $autopay->attemptCharge($invoiceId);
+                }
+            } catch (\Throwable $e) {
+                error_log('[Autopay] Failed to trigger charge for invoice ' . $invoiceId . ': ' . $e->getMessage());
+            }
         } else {
             $message = 'No valid recipients found. Please add recipients to this invoice first.';
             $messageType = 'warning';

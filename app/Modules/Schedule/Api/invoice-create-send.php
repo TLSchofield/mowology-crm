@@ -63,6 +63,7 @@ require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
 require_once APP_ROOT . '/Services/CrmFunctions.php';
 require_once APP_ROOT . '/Services/Messaging/MessagingService.php';
 require_once APP_ROOT . '/Services/Messaging/EmailWrapper.php';
+require_once APP_ROOT . '/Services/Payments/AutopayService.php';
 
 $jwtUser = requireJwt();
 $isAdmin = jwtIsAdmin($jwtUser['role']);
@@ -368,6 +369,18 @@ try {
                     $smsSent = true;
                 }
             }
+        }
+    }
+
+    // Trigger autopay if the invoice was sent and the client is enrolled
+    if ($invoiceStatus === 'sent') {
+        try {
+            $autopay = new AutopayService($db);
+            if ($autopay->isAutopayEligible($invoiceId)) {
+                $autopay->attemptCharge($invoiceId);
+            }
+        } catch (\Throwable $e) {
+            error_log('[Autopay] Failed to trigger charge for invoice ' . $invoiceId . ': ' . $e->getMessage());
         }
     }
 

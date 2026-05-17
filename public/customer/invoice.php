@@ -29,13 +29,12 @@ if (!$error) {
             c.company_name,
             c.billing_email,
             c.billing_phone,
-            COALESCE(ct.first_name, dc.first_name) as contact_first,
-            COALESCE(ct.last_name, dc.last_name)   as contact_last,
-            COALESCE(ct.email, dc.email)            as contact_email,
-            COALESCE(ct.phone, dc.phone)            as contact_phone,
-            p.address   as property_address,
-            p.city      as property_city,
-            p.postal_code as property_postal
+            COALESCE(ct.first_name, dc.first_name)         as contact_first,
+            COALESCE(ct.last_name, dc.last_name)           as contact_last,
+            COALESCE(ct.email, dc.email)                   as contact_email,
+            COALESCE(ct.phone, dc.phone)                   as contact_phone,
+            COALESCE(dc.stripe_card_last4, ct.stripe_card_last4) as contact_card_last4,
+            COALESCE(dc.autopay_enrolled_at, ct.autopay_enrolled_at) as contact_autopay_enrolled_at
         FROM invoices i
         LEFT JOIN companies c  ON i.company_id = c.id
         LEFT JOIN contacts ct  ON c.primary_contact_id = ct.id
@@ -45,6 +44,7 @@ if (!$error) {
           AND (i.token_expires_at IS NULL OR i.token_expires_at > NOW())
         LIMIT 1
     ");
+    // Note: property join retained for address data via i.* fallback
     $stmt->execute([$token]);
     $invoice = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -100,9 +100,13 @@ if (!$error) {
     }
 }
 
-$isPayable   = $invoice && in_array($invoice['status'], ['sent', 'viewed', 'partial', 'overdue']);
-$contactName = $invoice ? trim(($invoice['contact_first'] ?? '') . ' ' . ($invoice['contact_last'] ?? '')) : '';
-$displayName = $invoice ? ($invoice['company_name'] ?: $contactName ?: 'Valued Customer') : '';
+$isPayable         = $invoice && in_array($invoice['status'], ['sent', 'viewed', 'partial', 'overdue']);
+$contactName       = $invoice ? trim(($invoice['contact_first'] ?? '') . ' ' . ($invoice['contact_last'] ?? '')) : '';
+$displayName       = $invoice ? ($invoice['company_name'] ?: $contactName ?: 'Valued Customer') : '';
+$hasSavedCard      = $invoice && !empty($invoice['contact_card_last4']);
+$autopayEnrolled   = $invoice && !empty($invoice['contact_autopay_enrolled_at']);
+$showAutopayBanner = $hasSavedCard && !$autopayEnrolled && $invoice; // has a card but not yet enrolled
+$autopayUrl        = $invoice ? '/customer/autopay.php?token=' . urlencode($invoice['access_token']) : '#';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 function fmt(float $n): string {
@@ -642,6 +646,20 @@ function fmtDate(string $d): string {
     <?php endif; ?>
 
 <?php endif; ?>
+
+    <?php if ($showAutopayBanner): ?>
+    <div style="max-width:680px;margin:0 auto 24px;background:#e8f3f0;border:1px solid #b8dbd0;border-radius:10px;padding:18px 22px;display:flex;align-items:center;gap:16px;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#2D8659" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+        <div style="flex:1;">
+            <strong style="color:#1A5F4A;font-size:.95rem;">Never chase a payment link again</strong>
+            <p style="margin:4px 0 0;font-size:.88rem;color:#4a6b5d;">Enable autopay and your card will be charged automatically when invoices are generated.</p>
+        </div>
+        <a href="<?php echo htmlspecialchars($autopayUrl); ?>"
+           style="flex-shrink:0;background:#2D8659;color:#fff;padding:9px 18px;border-radius:6px;text-decoration:none;font-size:.88rem;font-weight:600;white-space:nowrap;">
+            Set up autopay
+        </a>
+    </div>
+    <?php endif; ?>
 
     <div class="portal-footer">
         &copy; <?php echo date('Y'); ?> Mowology Landscaping &mdash; mowology.ca

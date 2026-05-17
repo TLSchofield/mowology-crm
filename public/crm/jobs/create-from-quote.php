@@ -217,6 +217,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         $crewIds = array_filter($crewIds, function($id) { return $id > 0; });
     }
 
+    // Autopay override: '' → NULL, '0' → 0, '1' → 1
+    $autopayOverrideRaw = $_POST['autopay_override'] ?? '';
+    $autopayOverride = ($autopayOverrideRaw === '1') ? 1 : (($autopayOverrideRaw === '0') ? 0 : null);
+
     // Recurring fields
     $isRecurring       = ($planType === 'recurring') ? 1 : 0;
     $recurrencePattern = $isRecurring ? ($_POST['recurrence_pattern'] ?? 'weekly') : null;
@@ -312,6 +316,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         $result = createJobPlan($planData, (int)$user['id']);
 
         if ($result['success']) {
+            // Persist autopay_override (not in createJobPlan's fixed INSERT)
+            if ($autopayOverride !== null) {
+                $db->prepare("UPDATE job_plans SET autopay_override = ? WHERE id = ?")
+                   ->execute([$autopayOverride, $result['plan_id']]);
+            }
+
             // Log activity
             if (function_exists('logActivityExtended')) {
                 logActivityExtended(
@@ -634,6 +644,24 @@ if ($propLat && $propLng && $apiKey) {
                               <div id="fertDateRows"></div>
                               <input type="hidden" name="is_prepaid_bundle" id="isPrepaidBundle" value="0">
                               <input type="hidden" name="source_bundle_id" id="sourceBundleId" value="">
+                          </div>
+                      </div>
+
+                      <!-- Autopay setting -->
+                      <div class="card mt-3" style="border-left:3px solid var(--mw-green);">
+                          <div class="card-body py-3">
+                              <div class="mw-form-row">
+                                  <label class="form-label" for="autopayOverride" style="margin-bottom:0;display:flex;align-items:center;gap:6px;">
+                                      <i data-feather="credit-card" style="width:15px;height:15px;color:var(--mw-green);"></i>
+                                      Autopay
+                                  </label>
+                                  <select name="autopay_override" id="autopayOverride" class="form-control form-control-sm" style="max-width:280px;">
+                                      <option value="">Inherit from client settings</option>
+                                      <option value="1">Always on for this plan</option>
+                                      <option value="0">Always off (manual invoicing)</option>
+                                  </select>
+                                  <small class="text-muted">Override the client&rsquo;s autopay preference for this specific plan.</small>
+                              </div>
                           </div>
                       </div>
 
