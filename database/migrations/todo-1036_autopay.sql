@@ -23,6 +23,12 @@ ALTER TABLE job_plans
   ADD COLUMN autopay_override TINYINT(1) NULL DEFAULT NULL
     AFTER is_recurring;
 
+-- ── business_settings: system-wide autopay live-mode gate ───────────────────
+-- Default 0 (disabled). Flip to 1 only after verifying autopay_attempts logs
+-- show the correct invoices/contacts being targeted in your test run.
+ALTER TABLE business_settings
+  ADD COLUMN autopay_live_mode TINYINT(1) NOT NULL DEFAULT 0;
+
 -- ── autopay_attempts: off-session charge audit trail ─────────────────────────
 CREATE TABLE autopay_attempts (
   id                 INT UNSIGNED NOT NULL AUTO_INCREMENT,

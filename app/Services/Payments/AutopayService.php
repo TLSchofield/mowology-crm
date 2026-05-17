@@ -84,6 +84,33 @@ class AutopayService
      */
     public function attemptCharge(int $invoiceId): array
     {
+        // ── System-wide live-mode gate ────────────────────────────────────────
+        // autopay_live_mode must be explicitly set to 1 in business_settings
+        // before any real charges fire. While 0, every eligible invoice is
+        // recorded in autopay_attempts as 'skipped' so you can review what
+        // WOULD be charged before going live.
+        if (!$this->isLiveModeEnabled()) {
+            $data = $this->loadInvoiceData($invoiceId);
+            if ($data && $this->resolveAutopayFlag($data) && !empty($data['stripe_payment_method_id'])) {
+                $contactId   = (int) $data['contact_id'];
+                $balanceDue  = (float) $data['balance_due'];
+                $amountCents = $balanceDue > 0 ? (int) round($balanceDue * 100) : 0;
+                $attemptNum  = $this->nextAttemptNumber($invoiceId);
+                $this->db->prepare("
+                    INSERT INTO autopay_attempts
+                        (invoice_id, contact_id, amount_cents, status, attempt_number,
+                         failure_code, failure_message, created_at)
+                    VALUES (?, ?, ?, 'skipped', ?, 'system_disabled',
+                            'Autopay live mode is OFF — no charge attempted. Set autopay_live_mode=1 in business_settings to enable.', NOW())
+                ")->execute([$invoiceId, $contactId, $amountCents, $attemptNum]);
+                error_log(sprintf(
+                    '[AutopayService] DRY RUN — invoice %d contact %d $%.2f would be charged. Enable live mode to charge.',
+                    $invoiceId, $contactId, $balanceDue
+                ));
+            }
+            return ['status' => 'skipped', 'message' => 'Autopay live mode is disabled — no charge attempted'];
+        }
+
         $data = $this->loadInvoiceData($invoiceId);
         if (!$data) {
             return ['status' => 'skipped', 'message' => 'Invoice not found'];
@@ -224,6 +251,21 @@ class AutopayService
     // ── Private helpers ───────────────────────────────────────────────────────
 
     /**
+     * Check whether autopay_live_mode is enabled in business_settings.
+     * Returns false (safe default) if the column doesn't exist yet or the row is missing.
+     */
+    private function isLiveModeEnabled(): bool
+    {
+        try {
+            $row = $this->db->query("SELECT autopay_live_mode FROM business_settings LIMIT 1")->fetch(\PDO::FETCH_ASSOC);
+            return isset($row['autopay_live_mode']) && (int) $row['autopay_live_mode'] === 1;
+        } catch (\Throwable $e) {
+            // Column doesn't exist yet (migration not run) — treat as disabled
+            return false;
+        }
+    }
+
+    /**
      * Load invoice + contact + plan data needed for autopay decisions.
      */
     private function loadInvoiceData(int $invoiceId): ?array
@@ -315,9 +357,9 @@ class AutopayService
     {
         try {
             $adminEmailRow = $this->db->query(
-                "SELECT setting_value FROM business_settings WHERE setting_key = 'admin_email' LIMIT 1"
+                "SELECT admin_email FROM business_settings LIMIT 1"
             )->fetch(\PDO::FETCH_ASSOC);
-            $adminEmail = $adminEmailRow['setting_value'] ?? 'office@mowology.ca';
+            $adminEmail = !empty($adminEmailRow['admin_email']) ? $adminEmailRow['admin_email'] : 'office@mowology.ca';
         } catch (\Throwable $e) {
             $adminEmail = 'office@mowology.ca';
         }
