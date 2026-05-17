@@ -314,41 +314,77 @@ $errorMsg = htmlspecialchars($_GET['error']    ?? '');
                       .then(function(data) {
                           var container = document.getElementById('accountsTable');
                           if (!data.success || !data.accounts.length) {
-                              container.innerHTML = '<div class="mw-soc-empty-state p-3"><p>No accounts connected yet.</p></div>';
+                              container.innerHTML = '<div class="text-center text-muted py-4">'
+                                  + '<p class="mb-0">No accounts connected yet. Use the cards above to connect a platform.</p></div>';
                               return;
                           }
 
-                          var platformNames = {gbp:'Google Business Profile', facebook:'Facebook Page', instagram:'Instagram Business', linkedin:'LinkedIn'};
-                          var html = '<div class="table-responsive"><table class="table mb-0">'
-                              + '<thead><tr><th>Platform</th><th>Location / Page</th><th>Token Status</th><th>Last Sync</th><th>Status</th>';
-                          if (canApprove) html += '<th>Actions</th>';
-                          html += '</tr></thead><tbody>';
+                          var platformNames = {
+                              gbp:       'Google Business Profile',
+                              facebook:  'Facebook Page',
+                              instagram: 'Instagram Business',
+                              linkedin:  'LinkedIn'
+                          };
+                          var platformAbbr = {gbp:'GBP', facebook:'FB', instagram:'IG', linkedin:'LI'};
+
+                          var html = '<div class="mw-sw-platforms p-3">';
 
                           data.accounts.forEach(function(a) {
-                              var healthLabels = {good:'Active', expiring:'Expiring soon', expired:'Token expired', unknown:'Unknown'};
-                              var healthClasses = {good:'success', expiring:'warning', expired:'danger', unknown:'secondary'};
-                              var h = a.token_health;
-                              var iconHtml = platformIcons[a.platform] || '';
-                              var iconStyle = platformStyles[a.platform] || 'background:#6c757d;color:#fff';
+                              var healthLabels  = {good:'Active', expiring:'Expiring soon', expired:'Token expired', unknown:'Unknown'};
+                              var h             = a.token_health;
+                              var isActive      = !!a.is_active;
+                              var isVerified    = !!a.is_verified;
+                              var connDate      = a.connected_at ? new Date(a.connected_at).toLocaleDateString('en-CA', {year:'numeric',month:'short',day:'numeric'}) : '';
+                              var lastSync      = a.last_sync_at ? formatDt(a.last_sync_at) : null;
+                              var displayName   = esc(a.location_name_display || a.account_name);
+                              var abbr          = platformAbbr[a.platform] || a.platform.toUpperCase().substring(0,2);
+                              var platName      = esc(platformNames[a.platform] || a.platform);
 
-                              html += '<tr>';
-                              html += '<td>'
-                                  + '<span style="' + iconStyle + ';display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:20px;font-size:0.82rem;font-weight:500;white-space:nowrap;width:auto;height:auto">'
-                                  + iconHtml + esc(platformNames[a.platform] || a.platform)
-                                  + '</span></td>';
-                              html += '<td>' + esc(a.location_name_display || a.account_name) + '</td>';
-                              html += '<td><span class="badge badge-' + (healthClasses[h] || 'secondary') + '">' + esc(healthLabels[h] || h) + '</span></td>';
-                              html += '<td class="text-muted small">' + (a.last_sync_at ? formatDt(a.last_sync_at) : '—') + '</td>';
-                              html += '<td>' + (a.is_active ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-secondary">Paused</span>') + '</td>';
-                              if (canApprove) {
-                                  html += '<td class="text-nowrap">';
-                                  html += '<button class="btn btn-sm btn-outline-secondary mr-1" onclick="toggleAccount(' + a.id + ')">Toggle</button>';
-                                  html += '<button class="btn btn-sm btn-outline-danger" onclick="disconnectAccount(' + a.id + ', \'' + esc(a.account_name) + '\')">Disconnect</button>';
-                                  html += '</td>';
+                              html += '<div class="mw-sw-plat-row" style="cursor:default">';
+
+                              // Platform logo badge
+                              html += '<div class="mw-sw-plat-logo ' + a.platform + '">' + abbr + '</div>';
+
+                              // Name + meta
+                              html += '<div style="flex:1;min-width:0">';
+                              html += '<div class="mw-sw-plat-name">' + platName + '</div>';
+                              html += '<div class="mw-sw-plat-info">' + displayName;
+                              if (connDate) html += ' &mdash; connected ' + connDate;
+                              if (lastSync) html += ' &mdash; synced ' + lastSync;
+                              html += '</div></div>';
+
+                              // Status badges + actions
+                              html += '<div class="mw-sw-plat-status d-flex align-items-center flex-wrap" style="gap:6px">';
+
+                              if (!isActive) {
+                                  html += '<span class="mw-sw-plat-badge not-connected">Paused</span>';
+                              } else if (h === 'expired') {
+                                  html += '<span class="mw-sw-plat-badge not-connected">Token expired</span>';
+                              } else if (h === 'expiring') {
+                                  html += '<span class="badge badge-warning" style="font-size:.75rem">Expiring soon</span>';
+                              } else if (isVerified) {
+                                  html += '<span class="mw-sw-plat-badge connected">Verified</span>';
+                              } else {
+                                  html += '<span class="mw-sw-plat-badge not-connected">Unverified</span>';
                               }
-                              html += '</tr>';
+
+                              if (canApprove) {
+                                  // Reconnect button for expired/unverified tokens
+                                  if (h === 'expired' || (!isVerified && a.platform !== 'gbp')) {
+                                      var rUrl = a.platform === 'gbp'
+                                          ? '/crm/api/social/accounts.php?action=oauth-init&platform=gbp'
+                                          : '/crm/api/social/accounts.php?action=oauth-init&platform=facebook';
+                                      html += '<a href="' + rUrl + '" class="btn btn-sm btn-warning">Reconnect</a>';
+                                  }
+                                  html += '<button class="btn btn-sm btn-outline-secondary" onclick="toggleAccount(' + a.id + ')">'
+                                      + (isActive ? 'Pause' : 'Resume') + '</button>';
+                                  html += '<button class="btn btn-sm btn-outline-danger" onclick="disconnectAccount(' + a.id + ', \'' + displayName + '\')">Disconnect</button>';
+                              }
+
+                              html += '</div></div>'; // .mw-sw-plat-status + .mw-sw-plat-row
                           });
-                          html += '</tbody></table></div>';
+
+                          html += '</div>';
                           container.innerHTML = html;
                       });
               }
