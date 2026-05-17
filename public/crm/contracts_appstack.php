@@ -24,7 +24,7 @@ if ($filterStatus !== 'all') {
 
 $contracts = $db->prepare("
     SELECT c.*,
-           p.address AS property_address, p.city AS property_city,
+           p.address AS property_address, p.city AS property_city, p.property_name,
            ct.first_name, ct.last_name,
            co.company_name,
            q.quote_number,
@@ -195,8 +195,10 @@ $activePage = 'contracts';
                                           <?php endif; ?>
                                       </td>
                                       <td>
-                                          <?php echo htmlspecialchars($c['property_address']); ?><br>
-                                          <span class="text-muted small"><?php echo htmlspecialchars($c['property_city']); ?></span>
+                                          <?php echo htmlspecialchars($c['property_address']); ?>
+                                          <?php if (!empty($c['property_name'])): ?>
+                                              <div class="text-muted small"><?php echo htmlspecialchars($c['property_name']); ?></div>
+                                          <?php endif; ?>
                                       </td>
                                       <td>
                                           <?php echo htmlspecialchars(trim($c['first_name'] . ' ' . $c['last_name'])); ?>
