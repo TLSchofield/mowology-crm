@@ -158,8 +158,11 @@ $urlContractId = isset($_GET['contract_id']) ? intval($_GET['contract_id']) : 0;
 if ($urlContactId && $urlPropertyId) {
     $cpStmt = $db->prepare("
         SELECT c.id AS contact_id, c.first_name, c.last_name, c.email,
-               p.id AS property_id, p.address, p.city
+               p.id AS property_id, p.address, p.city,
+               p.billing_company_id,
+               bc.company_name AS billing_company_name
         FROM contacts c, properties p
+        LEFT JOIN companies bc ON p.billing_company_id = bc.id
         WHERE c.id = ? AND p.id = ?
     ");
     $cpStmt->execute([$urlContactId, $urlPropertyId]);
@@ -170,6 +173,8 @@ if ($urlContactId && $urlPropertyId) {
             'contact_name'     => trim($cpData['first_name'] . ' ' . $cpData['last_name']),
             'property_id'      => $cpData['property_id'],
             'property_address' => $cpData['address'] . ', ' . $cpData['city'],
+            'company_id'       => $cpData['billing_company_id'] ?: null,
+            'company_name'     => $cpData['billing_company_name'] ?: null,
         ];
     }
 }

@@ -146,13 +146,20 @@ function createJobPlan(array $planData, int $userId): array {
 
         // Get company_id from property if not provided
         $companyId = !empty($planData['company_id']) ? (int)$planData['company_id'] : null;
-        if (!$companyId) {
-            $stmt = $db->prepare("
-                SELECT cp.company_id FROM company_properties cp WHERE cp.property_id = ? LIMIT 1
-            ");
+        if (!$companyId && !empty($planData['property_id'])) {
+            // 1. Check property's explicit billing_company_id
+            $stmt = $db->prepare("SELECT billing_company_id FROM properties WHERE id = ?");
             $stmt->execute([$planData['property_id']]);
             $found = $stmt->fetchColumn();
-            $companyId = $found ? (int)$found : null;
+            if ($found) {
+                $companyId = (int)$found;
+            } else {
+                // 2. Fall back to company_properties junction
+                $stmt = $db->prepare("SELECT cp.company_id FROM company_properties cp WHERE cp.property_id = ? LIMIT 1");
+                $stmt->execute([$planData['property_id']]);
+                $found = $stmt->fetchColumn();
+                $companyId = $found ? (int)$found : null;
+            }
         }
 
         // If service_package_id provided, inherit proof-of-work template

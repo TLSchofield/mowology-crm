@@ -395,6 +395,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
         }
         exit;
 
+    } elseif ($requestAction === 'set_property_billing') {
+        if (!verifyCSRFToken($jsonData['csrf_token'] ?? '')) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+            exit;
+        }
+
+        $propertyId       = intval($jsonData['property_id'] ?? 0);
+        $billingCompanyId = !empty($jsonData['billing_company_id']) ? intval($jsonData['billing_company_id']) : null;
+
+        if (!$propertyId) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Property ID required']);
+            exit;
+        }
+
+        try {
+            $db->prepare("UPDATE properties SET billing_company_id = ? WHERE id = ?")
+               ->execute([$billingCompanyId, $propertyId]);
+            echo json_encode(['success' => true]);
+        } catch (Exception $e) {
+            http_response_code(500);
+            echo json_encode(['success' => false, 'error' => 'Failed to update billing entity']);
+        }
+        exit;
+
     } elseif ($requestAction === 'link_company_to_contact') {
         if (!verifyCSRFToken($jsonData['csrf_token'] ?? '')) {
             http_response_code(400);
@@ -2610,6 +2636,23 @@ $unconvertedRequests = $db->query("
                                   </span>
                                 <?php endif; ?>
                               </div>
+                              <!-- Billing Entity -->
+                              <div class="mw-property-billing-row" onclick="event.stopPropagation();">
+                                <span class="mw-billing-label"><i data-feather="credit-card" style="width:11px;height:11px;"></i> Bills to:</span>
+                                <span class="mw-billing-value" id="billingVal_<?php echo $propId; ?>">
+                                  <?php if (!empty($prop['billing_company_name'])): ?>
+                                    <?php echo h($prop['billing_company_name']); ?>
+                                  <?php else: ?>
+                                    <?php echo h(trim(($viewContact['first_name'] ?? '') . ' ' . ($viewContact['last_name'] ?? '')) ?: 'Personal'); ?> (personal)
+                                  <?php endif; ?>
+                                </span>
+                                <?php $contactCtxCompanyId = (int)($contactCompany['id'] ?? 0); $contactCtxCompanyName = $contactCompany['company_name'] ?? ''; ?>
+                                <button type="button" class="mw-billing-edit-btn"
+                                        onclick="openBillingPicker(<?php echo $propId; ?>, <?php echo (int)($prop['billing_company_id'] ?? 0); ?>, <?php echo (int)$clientId; ?>, <?php echo $contactCtxCompanyId; ?>, '<?php echo addslashes(h($prop['billing_company_name'] ?? '')); ?>', '<?php echo addslashes(h(trim(($viewContact['first_name'] ?? '') . ' ' . ($viewContact['last_name'] ?? '')) ?: 'Personal')); ?>')"
+                                        title="Change billing entity">
+                                  <i data-feather="edit-2" style="width:10px;height:10px;"></i>
+                                </button>
+                              </div>
                               <div class="mw-property-quick-actions" onclick="event.stopPropagation();">
                                 <a href="quote-workflow.php?contact_id=<?php echo (int)$clientId; ?>&property_id=<?php echo $propId; ?>" class="mw-prop-action-btn mw-prop-action-primary" title="Measure, quote & auto-fill pricing">
                                   <i data-feather="file-text" style="width:11px;height:11px;"></i> Quote &amp; Measure
@@ -4687,6 +4730,22 @@ $unconvertedRequests = $db->query("
                                   <i data-feather="alert-circle" style="width: 11px; height: 11px;"></i> Not measured
                                 </span>
                               <?php endif; ?>
+                            </div>
+                            <!-- Billing Entity -->
+                            <div class="mw-property-billing-row" onclick="event.stopPropagation();">
+                              <span class="mw-billing-label"><i data-feather="credit-card" style="width:11px;height:11px;"></i> Bills to:</span>
+                              <span class="mw-billing-value" id="billingVal_<?php echo (int)$prop['id']; ?>">
+                                <?php if (!empty($prop['billing_company_name'])): ?>
+                                  <?php echo h($prop['billing_company_name']); ?>
+                                <?php else: ?>
+                                  <?php echo h($ownerName ?: 'Personal'); ?> (personal)
+                                <?php endif; ?>
+                              </span>
+                              <button type="button" class="mw-billing-edit-btn"
+                                      onclick="openBillingPicker(<?php echo (int)$prop['id']; ?>, <?php echo (int)($prop['billing_company_id'] ?? 0); ?>, <?php echo (int)($prop['site_contact_id'] ?? 0); ?>, <?php echo (int)$clientId; ?>, '<?php echo addslashes(h($prop['billing_company_name'] ?? $viewCompany['company_name'] ?? '')); ?>', '<?php echo addslashes(h($ownerName ?: 'Personal')); ?>')"
+                                      title="Change billing entity">
+                                <i data-feather="edit-2" style="width:10px;height:10px;"></i>
+                              </button>
                             </div>
                             <!-- Quick Actions -->
                             <div class="mw-property-quick-actions" onclick="event.stopPropagation();">
@@ -7132,5 +7191,104 @@ $unconvertedRequests = $db->query("
 </script>
 
 <?php endif; ?>
+
+<!-- ── Billing Entity Picker Modal ───────────────────────────────────────────── -->
+<div class="modal fade" id="billingPickerModal" tabindex="-1" role="dialog" aria-labelledby="billingPickerModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-sm" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="billingPickerModalLabel">
+          <i data-feather="credit-card" style="width:16px;height:16px;"></i> Billing Entity
+        </h5>
+        <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small mb-3">Who receives invoices for this property?</p>
+        <div id="billingPickerOptions"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-success btn-sm" onclick="saveBillingEntity()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function() {
+  var _billingPropId = 0;
+  var _selectedBillingCompanyId = null;
+
+  window.openBillingPicker = function(propId, currentCompanyId, siteContactId, contextCompanyId, companyName, personalName) {
+    _billingPropId = propId;
+    _selectedBillingCompanyId = currentCompanyId || null;
+
+    var html = '<div class="list-group list-group-flush">';
+    html += '<label class="list-group-item list-group-item-action d-flex align-items-center" style="cursor:pointer;gap:8px;">' +
+            '<input type="radio" name="billingChoice" value="" ' + ((!currentCompanyId) ? 'checked' : '') + '> ' +
+            '<span><strong>' + escBilling(personalName) + '</strong><br><small class="text-muted">Personal — no company invoice</small></span>' +
+            '</label>';
+    if (contextCompanyId && companyName) {
+      html += '<label class="list-group-item list-group-item-action d-flex align-items-center" style="cursor:pointer;gap:8px;">' +
+              '<input type="radio" name="billingChoice" value="' + contextCompanyId + '" ' + ((currentCompanyId == contextCompanyId) ? 'checked' : '') + '> ' +
+              '<span><strong>' + escBilling(companyName) + '</strong><br><small class="text-muted">Invoice to company</small></span>' +
+              '</label>';
+    }
+    html += '</div>';
+
+    document.getElementById('billingPickerOptions').innerHTML = html;
+
+    document.querySelectorAll('input[name="billingChoice"]').forEach(function(r) {
+      r.addEventListener('change', function() {
+        _selectedBillingCompanyId = this.value ? parseInt(this.value) : null;
+      });
+    });
+
+    $('#billingPickerModal').modal('show');
+  };
+
+  window.saveBillingEntity = function() {
+    if (!_billingPropId) return;
+    var payload = {
+      action: 'set_property_billing',
+      csrf_token: (document.querySelector('meta[name="csrf-token"]') || {}).content || '',
+      property_id: _billingPropId,
+      billing_company_id: _selectedBillingCompanyId
+    };
+
+    // Grab CSRF from any existing hidden input on the page
+    var csrfInput = document.querySelector('input[name="csrf_token"]');
+    if (csrfInput) payload.csrf_token = csrfInput.value;
+
+    fetch('clients_appstack.php', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.success) {
+        // Update the displayed label inline
+        var el = document.getElementById('billingVal_' + _billingPropId);
+        if (el) {
+          var chosen = document.querySelector('input[name="billingChoice"]:checked');
+          var label = chosen ? chosen.closest('label').querySelector('strong').textContent : '';
+          var isPersonal = !_selectedBillingCompanyId;
+          el.textContent = isPersonal ? label + ' (personal)' : label;
+        }
+        $('#billingPickerModal').modal('hide');
+      } else {
+        alert('Failed to update billing entity: ' + (data.error || 'Unknown error'));
+      }
+    })
+    .catch(function() {
+      alert('Network error. Please try again.');
+    });
+  };
+
+  function escBilling(s) {
+    return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+})();
+</script>
 
 <?php include 'includes/appstack_footer.php'; ?>

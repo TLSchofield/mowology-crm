@@ -18927,6 +18927,39 @@ body.mw-no-scroll {
     color: #fff;
 }
 
+/* ── Property Billing Entity Row ──────────────────────── */
+.mw-property-billing-row {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    margin-top: 4px;
+    flex-wrap: wrap;
+}
+.mw-billing-label {
+    color: #6c757d;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+}
+.mw-billing-value {
+    font-weight: 500;
+    color: var(--mw-dark);
+}
+.mw-billing-edit-btn {
+    background: none;
+    border: none;
+    padding: 0 2px;
+    color: #aaa;
+    cursor: pointer;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+}
+.mw-billing-edit-btn:hover {
+    color: var(--mw-green);
+}
+
 /* ── Work Zone — Full-Screen Modal ──────────────────────── */
 .mw-modal-fullscreen {
     width:     100vw;

@@ -2752,7 +2752,9 @@ function getPropertiesForContact(int $contactId, PDO $db, bool $activeOnly = fal
     $stmt = $db->prepare("
         SELECT p.id, p.property_name, p.address, p.city, p.province,
                p.postal_code, p.latitude, p.longitude, p.property_type,
-               p.lot_size_sqft, p.status, p.notes,
+               p.lot_size_sqft, p.status, p.notes, p.site_contact_id,
+               p.billing_company_id,
+               bc.company_name AS billing_company_name,
                COALESCE(p.total_lawn_sqft, 0)          AS total_lawn_sqft,
                COALESCE(p.total_hard_surface_sqft, 0)  AS total_hard_surface_sqft,
                COALESCE(p.total_hedge_linear_ft, 0)    AS total_hedge_linear_ft,
@@ -2761,6 +2763,7 @@ function getPropertiesForContact(int $contactId, PDO $db, bool $activeOnly = fal
                (SELECT COUNT(*) FROM property_measurements pm WHERE pm.property_id = p.id)                               AS measurement_count,
                (SELECT COUNT(*) FROM job_geofences jg  WHERE jg.property_id = p.id AND jg.zone_type = 'arrival_border') AS has_arrival_border
         FROM properties p
+        LEFT JOIN companies bc ON p.billing_company_id = bc.id
         WHERE p.id IN ({$placeholders})
         ORDER BY p.address ASC
     ");
@@ -2809,8 +2812,11 @@ function getPropertiesForCompany(int $companyId, PDO $db): array {
         SELECT p.id, p.property_name, p.address, p.city, p.province,
                p.postal_code, p.latitude, p.longitude, p.property_type,
                p.lot_size_sqft, p.status, p.site_contact_id,
+               p.billing_company_id,
+               bc.company_name AS billing_company_name,
                (SELECT COUNT(*) FROM job_geofences jg WHERE jg.property_id = p.id AND jg.zone_type = 'arrival_border') AS has_arrival_border
         FROM properties p
+        LEFT JOIN companies bc ON p.billing_company_id = bc.id
         WHERE p.id IN ({$placeholders})
         ORDER BY p.address ASC
     ");
