@@ -377,14 +377,15 @@ try {
             $input = json_decode(file_get_contents('php://input'), true) ?? [];
             verifyCSRFToken($input['csrf_token'] ?? '');
 
-            $id       = (int)($input['id'] ?? 0);
-            $name     = trim($input['name'] ?? '');
-            $category = trim($input['category'] ?? '');
-            $caption  = trim($input['caption_template'] ?? '');
-            $hashtags = trim($input['hashtag_preset'] ?? '');
-            $cta      = trim($input['cta_preset'] ?? '');
-            $ctaUrl   = trim($input['cta_url_preset'] ?? '');
-            $targets  = trim($input['platform_targets'] ?? 'gbp,facebook,instagram');
+            $id          = (int)($input['id'] ?? 0);
+            $name        = trim($input['name'] ?? '');
+            $category    = trim($input['category'] ?? '');
+            $serviceType = trim($input['service_type'] ?? '');
+            $caption     = trim($input['caption_template'] ?? '');
+            $hashtags    = trim($input['hashtag_preset'] ?? '');
+            $cta         = trim($input['cta_preset'] ?? '');
+            $ctaUrl      = trim($input['cta_url_preset'] ?? '');
+            $targets     = trim($input['platform_targets'] ?? 'gbp,facebook,instagram');
 
             if (!$name || !$caption) {
                 throw new InvalidArgumentException('Name and caption are required');
@@ -398,17 +399,17 @@ try {
             if ($id) {
                 $db->prepare("
                     UPDATE social_templates
-                    SET name = ?, category = ?, caption_template = ?, hashtag_preset = ?,
+                    SET name = ?, category = ?, service_type = ?, caption_template = ?, hashtag_preset = ?,
                         cta_preset = ?, cta_url_preset = ?, platform_targets = ?
                     WHERE id = ?
-                ")->execute([$name, $category, $caption, $hashtags ?: null,
+                ")->execute([$name, $category, $serviceType ?: null, $caption, $hashtags ?: null,
                     $cta ?: null, $ctaUrl ?: null, $targets, $id]);
             } else {
                 $db->prepare("
                     INSERT INTO social_templates
-                        (name, category, caption_template, hashtag_preset, cta_preset, cta_url_preset, platform_targets, created_by)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ")->execute([$name, $category, $caption, $hashtags ?: null,
+                        (name, category, service_type, caption_template, hashtag_preset, cta_preset, cta_url_preset, platform_targets, created_by)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ")->execute([$name, $category, $serviceType ?: null, $caption, $hashtags ?: null,
                     $cta ?: null, $ctaUrl ?: null, $targets, $user['id']]);
                 $id = (int)$db->lastInsertId();
             }

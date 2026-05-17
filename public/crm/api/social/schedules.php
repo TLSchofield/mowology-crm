@@ -183,19 +183,29 @@ try {
 
         // ── Preview proposed slots (no DB write) ─────────────────────
         case 'preview': {
-            $postId      = (int)($_GET['post_id'] ?? 0);
+            $postId      = (int)($_GET['post_id']      ?? 0);
+            $templateId  = (int)($_GET['template_id']  ?? 0);
             $cadence     = $_GET['cadence'] ?? 'seasonal';
             $cadenceDays = (int)($_GET['cadence_days'] ?? 14);
             $months      = min(12, max(1, (int)($_GET['months'] ?? 3)));
 
-            if (!$postId) { echo json_encode(['success' => false, 'error' => 'Missing post_id']); break; }
+            if (!$postId && !$templateId) {
+                echo json_encode(['success' => false, 'error' => 'Missing post_id or template_id']); break;
+            }
 
-            $stmt = $db->prepare("SELECT service_type FROM social_posts WHERE id = ?");
-            $stmt->execute([$postId]);
-            $post = $stmt->fetch(PDO::FETCH_ASSOC);
-            if (!$post) { echo json_encode(['success' => false, 'error' => 'Post not found']); break; }
-
-            $serviceType = $post['service_type'] ?? '';
+            if ($templateId) {
+                $stmt = $db->prepare("SELECT service_type FROM social_templates WHERE id = ? AND is_active = 1");
+                $stmt->execute([$templateId]);
+                $row = $stmt->fetch(PDO::FETCH_ASSOC);
+                if (!$row) { echo json_encode(['success' => false, 'error' => 'Template not found']); break; }
+                $serviceType = $row['service_type'] ?? '';
+            } else {
+                $stmt = $db->prepare("SELECT service_type FROM social_posts WHERE id = ?");
+                $stmt->execute([$postId]);
+                $post = $stmt->fetch(PDO::FETCH_ASSOC);
+                if (!$post) { echo json_encode(['success' => false, 'error' => 'Post not found']); break; }
+                $serviceType = $post['service_type'] ?? '';
+            }
             $bestSlots   = getBestSlots($db, $serviceType);
 
             $fromDate = date('Y-m-d');
@@ -377,6 +387,124 @@ try {
                 'posts_created' => count($createdIds),
                 'post_ids'    => $createdIds,
                 'name'        => $scheduleName,
+            ]);
+            break;
+        }
+
+        // ── Create schedule from a template directly ──────────────────
+        case 'create-from-template': {
+            requirePermission('marketing.edit');
+            $templateId  = (int)($input['template_id']  ?? 0);
+            $accountIds  = $input['account_ids'] ?? [];    // [[account_id, platform], ...]
+            $cadence     = $input['cadence']     ?? 'seasonal';
+            $cadenceDays = (int)($input['cadence_days']  ?? 14);
+            $months      = min(12, max(1, (int)($input['months'] ?? 3)));
+            $name        = trim($input['name'] ?? '');
+
+            if (!$templateId || empty($accountIds)) {
+                echo json_encode(['success' => false, 'error' => 'Missing template_id or account_ids']); break;
+            }
+            if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
+                echo json_encode(['success' => false, 'error' => 'Invalid token']); break;
+            }
+
+            // Load template
+            $stmt = $db->prepare("SELECT * FROM social_templates WHERE id = ? AND is_active = 1");
+            $stmt->execute([$templateId]);
+            $tmpl = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$tmpl) { echo json_encode(['success' => false, 'error' => 'Template not found']); break; }
+
+            $userId      = (int)($_SESSION['user_id'] ?? 0);
+            $serviceType = $tmpl['service_type'] ?? '';
+            $bestSlots   = getBestSlots($db, $serviceType);
+
+            $fromDate = date('Y-m-d');
+            $toDate   = date('Y-m-d', strtotime("+{$months} months"));
+            $occupied = getOccupiedSlots($db, $fromDate, $toDate);
+
+            $allSlots = [];
+            $curYear  = (int)date('Y');
+            $curMonth = (int)date('n');
+            for ($m = 0; $m < $months; $m++) {
+                $yr = $curYear + (int)floor(($curMonth + $m - 1) / 12);
+                $mo = (($curMonth + $m - 1) % 12) + 1;
+                $count = ($cadence === 'seasonal') ? seasonalPostsPerMonth($mo)
+                    : max(1, (int)round((int)date('t', mktime(0, 0, 0, $mo, 1, $yr)) / $cadenceDays));
+                $slots = generateSlots($bestSlots, $occupied, $yr, $mo, $count);
+                foreach ($slots as $s) {
+                    $allSlots[] = $s;
+                    $d = substr($s['scheduled_at'], 0, 10);
+                    $h = (int)substr($s['scheduled_at'], 11, 2);
+                    $occupied[$d][$h] = ($occupied[$d][$h] ?? 0) + 1;
+                }
+            }
+
+            if (empty($allSlots)) {
+                echo json_encode(['success' => false, 'error' => 'No available slots found']); break;
+            }
+
+            // Resolve placeholder substitutions
+            $caption = str_replace(
+                ['{service}',                           '{neighborhood}', '{city}',      '{date}'],
+                [$serviceType ?: 'landscaping', 'Vancouver',      'Vancouver', date('F j, Y')],
+                $tmpl['caption_template']
+            );
+
+            $db->beginTransaction();
+
+            $scheduleName = $name ?: ($tmpl['name'] . ' — ' . ($cadence === 'seasonal' ? 'Seasonal' : 'Every ' . $cadenceDays . ' days'));
+            $insSchedStmt = $db->prepare("
+                INSERT INTO social_schedules
+                    (source_post_id, source_template_id, name, service_type, cadence_type, cadence_days,
+                     lookforward_months, is_active, last_generated_date, created_by)
+                VALUES (NULL, ?, ?, ?, ?, ?, ?, 1, CURDATE(), ?)
+            ");
+            $insSchedStmt->execute([
+                $templateId, $scheduleName, $serviceType,
+                $cadence === 'seasonal' ? 'seasonal' : 'fixed',
+                $cadence === 'seasonal' ? null : $cadenceDays,
+                $months, $userId,
+            ]);
+            $scheduleId = (int)$db->lastInsertId();
+
+            $insPostStmt = $db->prepare("
+                INSERT INTO social_posts
+                    (title, caption, hashtags, neighborhood, service_type, template_id,
+                     schedule_id, is_trial, is_auto_scheduled,
+                     cta_type, cta_url, status, scheduled_at, created_by)
+                VALUES (?, ?, ?, 'Vancouver', ?, ?, ?, 0, 1, ?, ?, 'approved', ?, ?)
+            ");
+            $insPlatStmt = $db->prepare("
+                INSERT INTO social_post_platforms (post_id, account_id, platform, status)
+                VALUES (?, ?, ?, 'pending')
+            ");
+
+            $createdIds = [];
+            foreach ($allSlots as $slot) {
+                $insPostStmt->execute([
+                    $tmpl['name'], $caption, $tmpl['hashtag_preset'],
+                    $serviceType, $templateId,
+                    $scheduleId, 0, 1,
+                    $tmpl['cta_preset'], $tmpl['cta_url_preset'],
+                    $slot['scheduled_at'], $userId,
+                ]);
+                $newPostId = (int)$db->lastInsertId();
+                $createdIds[] = $newPostId;
+
+                foreach ($accountIds as $acctPair) {
+                    if (!empty($acctPair['account_id']) && !empty($acctPair['platform'])) {
+                        $insPlatStmt->execute([$newPostId, (int)$acctPair['account_id'], $acctPair['platform']]);
+                    }
+                }
+            }
+
+            $db->commit();
+
+            echo json_encode([
+                'success'       => true,
+                'schedule_id'   => $scheduleId,
+                'posts_created' => count($createdIds),
+                'name'          => $scheduleName,
             ]);
             break;
         }
