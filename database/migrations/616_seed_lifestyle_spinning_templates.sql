@@ -100,7 +100,3 @@ Free quote → mowology.ca | Link in bio',
     NOW()
 );
 
--- ── Track migration ───────────────────────────────────────────────────────────
-INSERT INTO migrations_log (migration_filename, executed_at, status)
-VALUES ('616_seed_lifestyle_spinning_templates.sql', NOW(), 'success')
-ON DUPLICATE KEY UPDATE executed_at = NOW(), status = 'success';

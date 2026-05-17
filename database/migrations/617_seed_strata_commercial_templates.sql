@@ -125,7 +125,3 @@ Commercial inquiries → mowology.ca',
     NOW()
 );
 
--- ── Track migration ───────────────────────────────────────────────────────────
-INSERT INTO migrations_log (migration_filename, executed_at, status)
-VALUES ('617_seed_strata_commercial_templates.sql', NOW(), 'success')
-ON DUPLICATE KEY UPDATE executed_at = NOW(), status = 'success';
