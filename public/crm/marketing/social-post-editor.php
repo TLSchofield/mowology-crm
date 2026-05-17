@@ -299,7 +299,7 @@ $canApprove = userHasPermission('marketing.approve');
                               <button class="btn btn-outline-success" onclick="savePost('pending_approval')" id="btnSubmit">
                                   Submit for Approval
                               </button>
-                              <button class="btn btn-outline-secondary" onclick="savePost('draft')">
+                              <button class="btn btn-outline-secondary" id="btnDraft" onclick="savePost('draft')">
                                   Save Draft
                               </button>
                               <?php if ($editId && $canApprove): ?>
@@ -325,6 +325,7 @@ $canApprove = userHasPermission('marketing.approve');
               var selectedMedia = [];
               var selectedAccounts = []; // [{platform, account_id}]
               var previewPlatform = 'gbp';
+              var inFlight = false; // double-submit guard
               var charLimits = { gbp: 1500, instagram: 2200, facebook: 63206 };
 
               // Schedule busy-day strip
@@ -895,10 +896,29 @@ $canApprove = userHasPermission('marketing.approve');
                   };
               }
 
+              function setActionButtons(disabled, label) {
+                  var ids = ['btnSchedule', 'btnSubmit', 'btnDraft'];
+                  ids.forEach(function(id) {
+                      var el = document.getElementById(id);
+                      if (!el) return;
+                      el.disabled = disabled;
+                      if (id === 'btnSchedule' && label) {
+                          el.setAttribute('data-orig', el.getAttribute('data-orig') || el.textContent.trim());
+                          el.innerHTML = disabled
+                              ? '<span class="spinner-border spinner-border-sm mr-1"></span>' + label
+                              : el.getAttribute('data-orig') || el.textContent.trim();
+                      }
+                  });
+              }
+
               window.savePost = function(status) {
+                  if (inFlight) return;
                   var payload = buildPayload(status);
                   if (!payload.caption.trim()) { alert('Caption is required'); return; }
                   if (!selectedAccounts.length) { alert('Select at least one platform to publish to'); return; }
+
+                  inFlight = true;
+                  setActionButtons(true, 'Saving…');
 
                   fetch('/crm/api/social/posts.php?action=save', {
                       method: 'POST',
@@ -909,12 +929,19 @@ $canApprove = userHasPermission('marketing.approve');
                           var msg = status === 'pending_approval' ? 'Submitted for approval!' : 'Draft saved!';
                           window.location.href = '/crm/marketing/social.php?msg=' + encodeURIComponent(msg);
                       } else {
+                          inFlight = false;
+                          setActionButtons(false);
                           alert('Error: ' + (data.error || 'Unknown'));
                       }
+                  }).catch(function(err) {
+                      inFlight = false;
+                      setActionButtons(false);
+                      alert('Network error — please try again.');
                   });
               };
 
               window.schedulePost = function() {
+                  if (inFlight) return;
                   var scheduledAt = document.getElementById('postSchedule').value;
                   if (!scheduledAt) { alert('Set a date and time first'); return; }
 
@@ -922,13 +949,21 @@ $canApprove = userHasPermission('marketing.approve');
                   if (!payload.caption.trim()) { alert('Caption is required'); return; }
                   if (!selectedAccounts.length) { alert('Select at least one platform'); return; }
 
+                  inFlight = true;
+                  setActionButtons(true, 'Scheduling…');
+
                   // First save, then schedule
                   fetch('/crm/api/social/posts.php?action=save', {
                       method: 'POST',
                       headers: {'Content-Type': 'application/json'},
                       body: JSON.stringify(payload)
                   }).then(function(r) { return r.json(); }).then(function(data) {
-                      if (!data.success) { alert('Save error: ' + data.error); return; }
+                      if (!data.success) {
+                          inFlight = false;
+                          setActionButtons(false);
+                          alert('Save error: ' + (data.error || 'Unknown'));
+                          return;
+                      }
 
                       var pid = data.id;
                       return fetch('/crm/api/social/posts.php?action=schedule', {
@@ -939,9 +974,15 @@ $canApprove = userHasPermission('marketing.approve');
                           if (sData.success) {
                               window.location.href = '/crm/marketing/social.php?msg=' + encodeURIComponent('Post scheduled!');
                           } else {
+                              inFlight = false;
+                              setActionButtons(false);
                               alert('Schedule error: ' + (sData.error || 'Unknown'));
                           }
                       });
+                  }).catch(function(err) {
+                      inFlight = false;
+                      setActionButtons(false);
+                      alert('Network error — please try again.');
                   });
               };
 
