@@ -169,7 +169,7 @@ try {
             'source'         => 'customer_portal',
             'enable_autopay' => ($saveCard && $enableAutopay) ? '1' : '0',
         ],
-        'statement_descriptor'        => 'MOWOLOGY INV',
+        'statement_descriptor_suffix'  => 'MOWOLOGY',
         'automatic_payment_methods'   => ['enabled' => true],
     ];
 
