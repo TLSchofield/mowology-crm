@@ -148,7 +148,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'start
         'include_granted_scopes' => 'true',
     ]);
 
-    header('Location: ' . $authUrl);
+    // Use header() first; JS fallback handles "headers already sent" edge case
+    if (!headers_sent()) {
+        header('Location: ' . $authUrl);
+    }
+    $safeUrl = htmlspecialchars($authUrl, ENT_QUOTES);
+    echo '<!DOCTYPE html><html><head>';
+    echo '<meta http-equiv="refresh" content="0;url=' . $safeUrl . '">';
+    echo '</head><body>';
+    echo '<script>window.location.replace(' . json_encode($authUrl) . ');</script>';
+    echo '<p>Redirecting to Google… <a href="' . $safeUrl . '">Click here if not redirected automatically.</a></p>';
+    echo '</body></html>';
     exit;
 }
 
