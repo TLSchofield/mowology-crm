@@ -7217,6 +7217,7 @@ $unconvertedRequests = $db->query("
 </div>
 <script>
 (function() {
+  var _csrf = '<?php echo csrf_token(); ?>';
   var _billingPropId = 0;
   var _selectedBillingCompanyId = null;
 
@@ -7252,9 +7253,8 @@ $unconvertedRequests = $db->query("
 
   window.saveBillingEntity = function() {
     if (!_billingPropId) return;
-    var csrfInput = document.querySelector('input[name="csrf_token"]');
     var payload = {
-      csrf_token: csrfInput ? csrfInput.value : '',
+      csrf_token: _csrf,
       property_id: _billingPropId,
       billing_company_id: _selectedBillingCompanyId
     };
