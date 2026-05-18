@@ -177,6 +177,25 @@ foreach ($invoices as $inv) {
             }
         }
 
+        // Campaign event: fire invoice_paid into the campaign trigger log
+        if ($newStatus === 'paid' && defined('APP_ROOT')) {
+            $__emitter = APP_ROOT . '/Modules/CampaignConnector/Services/CampaignEventEmitter.php';
+            if (file_exists($__emitter)) {
+                require_once $__emitter;
+                CampaignEventEmitter::fire(
+                    'invoice_paid', 'invoice', $id, null,
+                    [
+                        'invoice_number' => $inv['invoice_number'],
+                        'amount'         => $payAmount,
+                        'payment_method' => $paymentMethod,
+                        'transaction_ref'=> $transactionRef ?: null,
+                        'balance_due'    => $newBalance,
+                    ],
+                    'invoices'
+                );
+            }
+        }
+
         // CASL: refresh implied consent clock (2-year window from last transaction)
         if ($newStatus === 'paid' && !empty($inv['contact_id'])) {
             try {

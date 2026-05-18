@@ -503,6 +503,25 @@ try {
 
             addAuditLog($db, $visitId, (int)$user['id'], 'photo_upload', ['type' => $photoType, 'file' => $filename], $ip);
 
+            // Campaign event: notify connector that a photo was uploaded (before/after = high value)
+            if (in_array($photoType, ['before', 'after', 'during'])) {
+                $__emitter = APP_ROOT . '/Modules/CampaignConnector/Services/CampaignEventEmitter.php';
+                if (file_exists($__emitter)) {
+                    require_once $__emitter;
+                    CampaignEventEmitter::fire(
+                        'photos_uploaded', 'job_visit', $visitId, null,
+                        [
+                            'photo_id'       => $photoId,
+                            'photo_type'     => $photoType,
+                            'property_id'    => $photoPropertyId,
+                            'service_type'   => $photoServiceType,
+                            'filename'       => $filename,
+                        ],
+                        'crew_app'
+                    );
+                }
+            }
+
             echo json_encode([
                 'success'    => true,
                 'photo_id'   => $photoId,

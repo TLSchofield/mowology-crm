@@ -290,6 +290,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && $quote['status'] 
 
         $quote['status'] = 'declined';
         $success = 'Thank you for letting us know. If you change your mind or have questions, please contact us.';
+
+        // Campaign event: fire quote_declined into the campaign trigger log
+        try {
+            $__dir = __DIR__;
+            for ($__i = 0; $__i < 5; $__i++) {
+                $__dir = dirname($__dir);
+                if (is_file($__dir . '/app/Core/paths.php')) {
+                    if (!defined('APP_ROOT')) require_once $__dir . '/app/Core/paths.php';
+                    break;
+                }
+            }
+            unset($__dir, $__i);
+            if (defined('APP_ROOT')) {
+                $__emitter = APP_ROOT . '/Modules/CampaignConnector/Services/CampaignEventEmitter.php';
+                if (file_exists($__emitter)) {
+                    require_once $__emitter;
+                    CampaignEventEmitter::fire(
+                        'quote_declined', 'quote', (int)$quote['id'], $quote['contact_id'] ?? null,
+                        [
+                            'quote_number'   => $quote['quote_number'],
+                            'decline_reason' => $declineReason ?: null,
+                            'amount'         => $quote['amount'] ?? null,
+                            'service_type'   => $quote['service_type'] ?? null,
+                        ],
+                        'quotes'
+                    );
+                }
+            }
+        } catch (Throwable $__e) {
+            error_log('[customer/quote.php] campaign event error: ' . $__e->getMessage());
+        }
     }
 }
 

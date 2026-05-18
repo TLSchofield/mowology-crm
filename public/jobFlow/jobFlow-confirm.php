@@ -396,6 +396,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
                     error_log('[jobFlow-confirm] sendQuoteRequestNotifications failed: ' . $t->getMessage());
                 }
 
+                // ── 9b. Campaign event: lead submitted ────────────────────
+                try {
+                    $__dir = dirname(__DIR__);
+                    for ($__i = 0; $__i < 4; $__i++) {
+                        if (is_file($__dir . '/app/Core/paths.php')) {
+                            if (!defined('APP_ROOT')) require_once $__dir . '/app/Core/paths.php';
+                            break;
+                        }
+                        $__dir = dirname($__dir);
+                    }
+                    unset($__dir, $__i);
+                    if (defined('APP_ROOT')) {
+                        $__emitter = APP_ROOT . '/Modules/CampaignConnector/Services/CampaignEventEmitter.php';
+                        if (file_exists($__emitter)) {
+                            require_once $__emitter;
+                            CampaignEventEmitter::fire(
+                                'lead_submitted', 'lead', $quoteRequestId, $contactId,
+                                [
+                                    'lead_quality'    => $classification['value_tier'] ?? 'unknown',
+                                    'is_priority'     => $classification['is_priority'] ?? false,
+                                    'service_types'   => $servicesCsv,
+                                    'urgency'         => $data['urgency'],
+                                    'city'            => $data['city'],
+                                    'utm_source'      => $data['tracking']['utm_source'] ?? null,
+                                    'utm_campaign'    => $data['tracking']['utm_campaign'] ?? null,
+                                    'consent_sms'     => $data['consent_sms'],
+                                    'consent_marketing' => $data['consent_marketing'],
+                                    'source'          => $quoteSource,
+                                ],
+                                'jobflow'
+                            );
+                        }
+                    }
+                } catch (Throwable $__t) {
+                    error_log('[jobFlow-confirm] campaign event error: ' . $__t->getMessage());
+                }
+
                 // ── 10. Session cleanup & success redirect ─────────────────
                 // Set success flag BEFORE unsetting quote_data (success.php reads it)
                 $_SESSION['quote_submitted'] = true;
