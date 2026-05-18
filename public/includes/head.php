@@ -43,6 +43,8 @@ $canonicalUrl  = SITE_URL . $canonicalPath;
   <meta name="keywords" content="<?= h($pageKeywords) ?>">
   <?php endif; ?>
 
+  <meta name="google-site-verification" content="Do-QNfB0PFhccyeN4jFmEu1rUYjv5pKQa3UNqgygxjs">
+
   <link rel="canonical" href="<?= h($canonicalUrl) ?>">
 
   <!-- OpenGraph -->
