@@ -24,9 +24,10 @@ require_once dirname(__DIR__, 2) . '/app_config/config.php';
 require_once dirname(__DIR__, 2) . '/app_config/secrets.php';
 require_once dirname(__DIR__, 2) . '/vendor/autoload.php';
 
-$input    = json_decode(file_get_contents('php://input'), true);
-$token    = trim($input['token'] ?? '');
-$saveCard = !empty($input['save_card']); // customer opted in to save card
+$input         = json_decode(file_get_contents('php://input'), true);
+$token         = trim($input['token'] ?? '');
+$saveCard      = !empty($input['save_card']);
+$enableAutopay = !empty($input['enable_autopay']);
 
 if (empty($token)) {
     http_response_code(400);
@@ -166,6 +167,7 @@ try {
             'invoice_number' => $invoice['invoice_number'],
             'contact_id'     => (string) $contactId,
             'source'         => 'customer_portal',
+            'enable_autopay' => ($saveCard && $enableAutopay) ? '1' : '0',
         ],
         'statement_descriptor'        => 'MOWOLOGY INV',
         'automatic_payment_methods'   => ['enabled' => true],

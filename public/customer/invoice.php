@@ -347,6 +347,15 @@ function fmtDate(string $d): string {
                             <button class="portal-btn-text" onclick="showNewCardForm()">Use a different card</button>
                         </div>
                     </div>
+                    <?php if (!$autopayEnrolled): ?>
+                    <div id="autopayWrap" class="portal-save-card-wrap" style="display:none;margin-top:10px;">
+                        <input type="checkbox" id="autopayCheck">
+                        <label for="autopayCheck">
+                            <strong>Enable autopay</strong>
+                            Automatically charge this card when future invoices are sent.
+                        </label>
+                    </div>
+                    <?php endif; ?>
                 </div>
 
                 <div id="stripeLoading">
@@ -360,6 +369,16 @@ function fmtDate(string $d): string {
                         Securely store your card so you can pay future invoices with one click.
                     </label>
                 </div>
+                <?php if (!$autopayEnrolled): ?>
+                <div id="autopayNewWrap" class="portal-save-card-wrap" style="display:none;margin-top:4px;padding-left:28px;">
+                    <input type="checkbox" id="autopayNewCheck">
+                    <label for="autopayNewCheck" style="font-size:.85rem;">
+                        <strong>Enable autopay</strong>
+                        Automatically charge this card for future invoices.
+                    </label>
+                </div>
+                <?php endif; ?>
+
                 <div id="stripeError" class="portal-stripe-error" style="display:none;"></div>
             </div>
             <div class="portal-modal-footer" id="stripeFooter" style="display:none;">
@@ -470,6 +489,10 @@ function fmtDate(string $d): string {
             document.getElementById('savedCardFooter').style.display  = 'flex';
             document.getElementById('savedCardPay').disabled          = false;
 
+            // Show autopay opt-in for saved card path
+            var autopayWrap = document.getElementById('autopayWrap');
+            if (autopayWrap) autopayWrap.style.display = 'flex';
+
             // Hide new card elements
             document.getElementById('payment-element').style.display = 'none';
             document.getElementById('stripeFooter').style.display    = 'none';
@@ -499,6 +522,18 @@ function fmtDate(string $d): string {
                 document.getElementById('stripePay').disabled            = false;
                 // Show "save card" checkbox for new card entry
                 document.getElementById('saveCardWrap').style.display   = 'flex';
+                // Toggle autopay sub-option when save card is checked
+                var saveCardCheck = document.getElementById('saveCardCheck');
+                var autopayNewWrap = document.getElementById('autopayNewWrap');
+                if (saveCardCheck && autopayNewWrap) {
+                    saveCardCheck.addEventListener('change', function () {
+                        autopayNewWrap.style.display = this.checked ? 'flex' : 'none';
+                        if (!this.checked) {
+                            var cb = document.getElementById('autopayNewCheck');
+                            if (cb) cb.checked = false;
+                        }
+                    });
+                }
             });
             paymentEl.on('change', function (e) {
                 if (e.error) showError(e.error.message); else clearError();
@@ -530,7 +565,9 @@ function fmtDate(string $d): string {
             clearError();
 
             // If customer checked "save card", we need a fresh intent with setup_future_usage
-            var wantsSaveCard = document.getElementById('saveCardCheck').checked;
+            var wantsSaveCard  = document.getElementById('saveCardCheck').checked;
+            var autopayNewCheck = document.getElementById('autopayNewCheck');
+            var wantsAutopay   = wantsSaveCard && autopayNewCheck && autopayNewCheck.checked;
             setLoading(true);
 
             var doConfirm = function () {
@@ -554,11 +591,11 @@ function fmtDate(string $d): string {
             };
 
             if (wantsSaveCard && intentData) {
-                // Re-fetch intent with save_card=true to attach setup_future_usage
+                // Re-fetch intent with save_card=true (and optionally enable_autopay)
                 fetch('/customer/api/invoice-payment-intent.php', {
                     method : 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body   : JSON.stringify({ token: <?php echo json_encode($token); ?>, save_card: true })
+                    body   : JSON.stringify({ token: <?php echo json_encode($token); ?>, save_card: true, enable_autopay: wantsAutopay })
                 })
                 .then(function (r) { return r.json(); })
                 .then(function (newData) {
@@ -578,6 +615,9 @@ function fmtDate(string $d): string {
             clearError();
             setSavedCardLoading(true);
 
+            var autopayCheck = document.getElementById('autopayCheck');
+            var wantsAutopay = autopayCheck && autopayCheck.checked;
+
             stripe.confirmCardPayment(intentData.client_secret, {
                 payment_method: intentData.default_payment_method
             })
@@ -590,7 +630,16 @@ function fmtDate(string $d): string {
                         showNewCardForm();
                     }
                 } else if (result.paymentIntent && result.paymentIntent.status === 'succeeded') {
-                    showSuccess();
+                    if (wantsAutopay) {
+                        // Enable autopay in the background — non-blocking
+                        fetch('/customer/api/autopay-setup.php', {
+                            method : 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body   : JSON.stringify({ token: <?php echo json_encode($token); ?>, action: 'enable_existing_card' })
+                        }).then(function () { showSuccess(); }).catch(function () { showSuccess(); });
+                    } else {
+                        showSuccess();
+                    }
                 }
             })
             .catch(function () {

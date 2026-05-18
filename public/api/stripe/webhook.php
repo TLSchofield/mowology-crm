@@ -232,7 +232,8 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): void
         }
 
         // ── Save card details to contact (if applicable) ──────────────────────
-        $contactId = (int) ($intent->metadata['contact_id'] ?? 0);
+        $contactId    = (int) ($intent->metadata['contact_id'] ?? 0);
+        $wantsAutopay = ($intent->metadata['enable_autopay'] ?? '0') === '1';
         if ($contactId > 0 && $cardLast4 && $stripeCustomerIdFromIntent) {
             // Persist card details whenever a Stripe customer is attached
             // (covers both save_card=true and subsequent payments with saved card)
@@ -242,7 +243,9 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): void
                     stripe_payment_method_id = COALESCE(?, stripe_payment_method_id),
                     stripe_card_brand        = ?,
                     stripe_card_last4        = ?,
-                    stripe_card_exp          = ?
+                    stripe_card_exp          = ?,
+                    autopay_enabled          = IF(? = 1, 1, autopay_enabled),
+                    autopay_enrolled_at      = IF(? = 1 AND autopay_enrolled_at IS NULL, NOW(), autopay_enrolled_at)
                 WHERE id = ?
             ");
             $updateContact->execute([
@@ -251,11 +254,13 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): void
                 $cardBrand,
                 $cardLast4,
                 $cardExpiry,
+                (int) $wantsAutopay,
+                (int) $wantsAutopay,
                 $contactId,
             ]);
             error_log(sprintf(
-                '[Stripe Webhook] Saved card on file for contact %d: %s ••••%s exp %s',
-                $contactId, $cardBrand ?? 'unknown', $cardLast4, $cardExpiry ?? ''
+                '[Stripe Webhook] Saved card on file for contact %d: %s ••••%s exp %s autopay=%s',
+                $contactId, $cardBrand ?? 'unknown', $cardLast4, $cardExpiry ?? '', $wantsAutopay ? 'enabled' : 'no'
             ));
         }
 
