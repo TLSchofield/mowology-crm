@@ -155,7 +155,7 @@ class AutopayService
                 'confirm'        => true,
                 'off_session'    => true,
                 'description'    => 'Invoice ' . $data['invoice_number'] . ' — Mowology Landscaping (autopay)',
-                'statement_descriptor' => 'MOWOLOGY INV',
+                'statement_descriptor_suffix' => 'MOWOLOGY',
                 'metadata'       => [
                     'invoice_id'       => (string) $invoiceId,
                     'invoice_number'   => $data['invoice_number'],
