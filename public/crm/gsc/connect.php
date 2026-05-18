@@ -318,8 +318,6 @@ $activePage = 'portfolio';
 
     <?php if ($gscStatus): ?>
       <?php
-        $tokenExpiry = strtotime((string)($gscStatus['expires_at'] ?? ''));
-        $tokenExpired = $tokenExpiry && $tokenExpiry < time();
         $property = (string)($gscStatus['site_url'] ?? '');
         $propertyDisplay = $property !== '' ? $property : '(not set)';
       ?>
@@ -331,17 +329,9 @@ $activePage = 'portfolio';
                 <span class="badge badge-success mr-2">Connected</span>
                 <small class="text-muted">since <?php echo formatDate($gscStatus['connected_at']); ?></small>
               </div>
-              <div class="mb-1">
+              <div>
                 <small class="text-muted d-block">Property</small>
                 <code class="text-dark"><?php echo htmlspecialchars($propertyDisplay); ?></code>
-              </div>
-              <div>
-                <small class="text-muted d-block">Access token</small>
-                <?php if ($tokenExpired): ?>
-                  <span class="text-warning"><i data-feather="alert-circle" style="width:14px;height:14px;"></i> Expired — will auto-refresh on next sync</span>
-                <?php else: ?>
-                  <span class="text-success"><i data-feather="check-circle" style="width:14px;height:14px;"></i> Valid until <?php echo formatDate($gscStatus['expires_at']); ?></span>
-                <?php endif; ?>
               </div>
             </div>
           </div>
