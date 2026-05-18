@@ -319,12 +319,16 @@ function getContractPlans(int $contractId): array {
 
 /**
  * Billing + visit stats for a single contract.
+ * Captures invoices linked via plan_id (standard workflow) AND invoices
+ * linked via contact_id + property_id with no plan (manual invoices).
  * Returns zeros/nulls gracefully when no invoices or visits exist.
  */
 function getContractBillingStats(int $contractId): array {
     $db = getDB();
 
-    // Invoice aggregates
+    // Invoice aggregates — two paths into the contract:
+    //  1. plan_id  → job_plans.contract_id = ? (invoices created through visit/plan workflow)
+    //  2. contact_id + property_id match the contract, plan_id IS NULL (manually created invoices)
     $iStmt = $db->prepare("
         SELECT
             COALESCE(SUM(i.total), 0)        AS total_billed,
@@ -339,11 +343,17 @@ function getContractBillingStats(int $contractId): array {
             COUNT(CASE WHEN i.status = 'paid' THEN 1 END)                                    AS paid_count,
             COUNT(CASE WHEN i.status IN ('sent','viewed','partial','overdue') THEN 1 END)     AS open_count
         FROM invoices i
-        JOIN job_plans jp ON i.plan_id = jp.id
-        WHERE jp.contract_id = ?
-          AND i.status != 'cancelled'
+        WHERE i.status != 'cancelled'
+          AND (
+              i.plan_id IN (SELECT jp.id FROM job_plans jp WHERE jp.contract_id = ?)
+              OR (
+                  i.plan_id IS NULL
+                  AND i.contact_id  = (SELECT c.contact_id  FROM contracts c WHERE c.id = ?)
+                  AND i.property_id = (SELECT c.property_id FROM contracts c WHERE c.id = ?)
+              )
+          )
     ");
-    $iStmt->execute([$contractId]);
+    $iStmt->execute([$contractId, $contractId, $contractId]);
     $billing = $iStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
     // Visit date summary (last completed, next scheduled)
@@ -373,7 +383,8 @@ function getContractBillingStats(int $contractId): array {
 }
 
 /**
- * Most recent non-draft invoices for a contract (via its plans).
+ * Most recent non-draft invoices for a contract.
+ * Includes plan-linked and manually created (contact+property match) invoices.
  */
 function getContractRecentInvoices(int $contractId, int $limit = 5): array {
     $db = getDB();
@@ -381,13 +392,19 @@ function getContractRecentInvoices(int $contractId, int $limit = 5): array {
         SELECT i.id, i.invoice_number, i.issue_date, i.due_date,
                i.total, i.amount_paid, i.balance_due, i.status
         FROM invoices i
-        JOIN job_plans jp ON i.plan_id = jp.id
-        WHERE jp.contract_id = ?
-          AND i.status != 'draft'
+        WHERE i.status != 'draft'
+          AND (
+              i.plan_id IN (SELECT jp.id FROM job_plans jp WHERE jp.contract_id = ?)
+              OR (
+                  i.plan_id IS NULL
+                  AND i.contact_id  = (SELECT c.contact_id  FROM contracts c WHERE c.id = ?)
+                  AND i.property_id = (SELECT c.property_id FROM contracts c WHERE c.id = ?)
+              )
+          )
         ORDER BY i.issue_date DESC
         LIMIT ?
     ");
-    $stmt->execute([$contractId, $limit]);
+    $stmt->execute([$contractId, $contractId, $contractId, $limit]);
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
