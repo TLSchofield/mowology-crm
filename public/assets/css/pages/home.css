@@ -595,19 +595,30 @@
 }
 .mw-testi-dots {
     display: flex;
-    gap: 8px;
+    gap: 0;
 }
 .mw-testi-dot {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    transition: all var(--transition-base);
+}
+.mw-testi-dot::before {
+    content: '';
+    display: block;
     width: 8px;
     height: 8px;
     border-radius: var(--radius-full);
     background: var(--border-color);
-    border: none;
-    cursor: pointer;
     transition: all var(--transition-base);
-    padding: 0;
 }
-.mw-testi-dot.is-active {
+.mw-testi-dot.is-active::before {
     background: var(--color-primary);
     width: 24px;
 }

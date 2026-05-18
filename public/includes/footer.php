@@ -11,13 +11,13 @@
     <div class="container">
       <div class="footer-content">
         <div class="footer-col">
-          <h4><?= h(SITE_NAME) ?></h4>
+          <h3><?= h(SITE_NAME) ?></h3>
           <p>A higher degree of service in landscaping and grounds maintenance.</p>
           <p class="footer-tagline">Serving Vancouver, Burnaby & Richmond</p>
         </div>
 
         <div class="footer-col">
-          <h4>Quick Links</h4>
+          <h3>Quick Links</h3>
           <ul>
             <li><a href="/">Home</a></li>
             <li><a href="/services">Services</a></li>
@@ -28,7 +28,7 @@
         </div>
 
         <div class="footer-col">
-          <h4>Services</h4>
+          <h3>Services</h3>
           <ul>
             <li><a href="/services#property-management">Property Management</a></li>
             <li><a href="/services#residential">Residential Services</a></li>
@@ -38,7 +38,7 @@
         </div>
 
         <div class="footer-col">
-          <h4>Contact</h4>
+          <h3>Contact</h3>
           <ul>
             <li><a href="tel:<?= h(SITE_PHONE_TEL) ?>"><?= h(SITE_PHONE_DISPLAY) ?></a></li>
             <li><a href="mailto:<?= h(SITE_EMAIL) ?>"><?= h(SITE_EMAIL) ?></a></li>
