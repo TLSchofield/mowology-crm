@@ -321,6 +321,83 @@ a:hover { text-decoration: underline; }
 .portal-section-label--outstanding {
   color: #b94700;
 }
+
+/* ─── Autopay card ───────────────────────────────────────────────────────── */
+.portal-autopay-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--p-bg);
+  border: 1px solid var(--p-border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 20px;
+}
+.portal-autopay-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.portal-autopay-card-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: var(--p-bg-subtle);
+  border: 1px solid var(--p-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--p-green);
+  flex-shrink: 0;
+}
+.portal-autopay-card-icon--empty {
+  color: var(--p-text-light);
+}
+.portal-autopay-card-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--p-text);
+}
+.portal-autopay-exp {
+  font-size: 0.78rem;
+  font-weight: 400;
+  color: var(--p-text-light);
+  margin-left: 6px;
+}
+.portal-autopay-status {
+  font-size: 0.78rem;
+  color: var(--p-text-light);
+  margin-top: 2px;
+}
+.portal-autopay-badge {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 12px;
+}
+.portal-autopay-badge--on {
+  background: #e8f3f0;
+  color: var(--p-dark);
+}
+.portal-autopay-badge--off {
+  background: #f3f4f6;
+  color: var(--p-text-light);
+}
+.portal-autopay-link {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--p-green);
+  text-decoration: none;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.portal-autopay-link:hover {
+  color: var(--p-dark);
+  text-decoration: underline;
+}
 .portal-doc-icon {
   width: 40px;
   height: 40px;

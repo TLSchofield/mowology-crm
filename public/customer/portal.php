@@ -29,7 +29,7 @@ if (isset($_GET['contact_id'])) {
     if (!$contactId) {
         $error = 'Invalid contact.';
     } else {
-        $stmt = $db->prepare("SELECT id, first_name, last_name, email, phone, portal_token FROM contacts WHERE id = ? LIMIT 1");
+        $stmt = $db->prepare("SELECT id, first_name, last_name, email, phone, portal_token, autopay_enabled, autopay_enrolled_at, stripe_card_brand, stripe_card_last4, stripe_card_exp, stripe_payment_method_id FROM contacts WHERE id = ? LIMIT 1");
         $stmt->execute([$contactId]);
         $contact = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$contact) $error = 'Contact not found.';
@@ -38,7 +38,7 @@ if (isset($_GET['contact_id'])) {
 // ── Mode 2: Client access via portal token ───────────────────────────────────
 } elseif (isset($_GET['token']) && $_GET['token'] !== '') {
     $token = trim($_GET['token']);
-    $stmt = $db->prepare("SELECT id, first_name, last_name, email, phone, portal_token FROM contacts WHERE portal_token = ? LIMIT 1");
+    $stmt = $db->prepare("SELECT id, first_name, last_name, email, phone, portal_token, autopay_enabled, autopay_enrolled_at, stripe_card_brand, stripe_card_last4, stripe_card_exp, stripe_payment_method_id FROM contacts WHERE portal_token = ? LIMIT 1");
     $stmt->execute([$token]);
     $contact = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$contact) $error = 'This portal link is invalid or has expired.';
@@ -219,6 +219,17 @@ if ($contact && !$error) {
 $firstName   = $contact ? htmlspecialchars($contact['first_name']) : 'there';
 $contactName = $contact ? trim(htmlspecialchars($contact['first_name'] . ' ' . ($contact['last_name'] ?? ''))) : 'Client';
 $hasAnything = !empty($quotes) || !empty($invoices) || !empty($completedVisits);
+
+// Autopay link needs an invoice access_token for identity — use the most recent invoice
+$autopayInvoiceToken = null;
+if ($contact && !empty($invoices)) {
+    foreach ($invoices as $_inv) {
+        if (!empty($_inv['access_token'])) {
+            $autopayInvoiceToken = $_inv['access_token'];
+            break;
+        }
+    }
+}
 $baseUrl     = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'];
 $portalUrl   = $contact && !empty($contact['portal_token'])
                ? $baseUrl . '/customer/portal.php?token=' . urlencode($contact['portal_token'])
@@ -380,6 +391,49 @@ function statusBadge(string $status, bool $overdue = false): string {
               $<?php echo number_format($billingOutstanding, 2); ?>
             </div>
           </div>
+        </div>
+      <?php endif; ?>
+
+      <?php if ($contact && $autopayInvoiceToken): ?>
+        <?php
+          $hasCard       = !empty($contact['stripe_card_last4']);
+          $autopayActive = !empty($contact['autopay_enrolled_at']);
+          $autopayUrl    = $baseUrl . '/customer/autopay.php?token=' . urlencode($autopayInvoiceToken);
+        ?>
+        <div class="portal-autopay-card">
+          <div class="portal-autopay-left">
+            <?php if ($hasCard): ?>
+              <div class="portal-autopay-card-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+              </div>
+              <div>
+                <div class="portal-autopay-card-label">
+                  <?php echo htmlspecialchars(ucfirst($contact['stripe_card_brand'] ?? 'Card')); ?> ••••<?php echo htmlspecialchars($contact['stripe_card_last4']); ?>
+                  <?php if (!empty($contact['stripe_card_exp'])): ?>
+                    <span class="portal-autopay-exp">exp <?php echo htmlspecialchars($contact['stripe_card_exp']); ?></span>
+                  <?php endif; ?>
+                </div>
+                <div class="portal-autopay-status">
+                  <?php if ($autopayActive): ?>
+                    <span class="portal-autopay-badge portal-autopay-badge--on">&#10003; Autopay on</span>
+                  <?php else: ?>
+                    <span class="portal-autopay-badge portal-autopay-badge--off">Autopay off</span>
+                  <?php endif; ?>
+                </div>
+              </div>
+            <?php else: ?>
+              <div class="portal-autopay-card-icon portal-autopay-card-icon--empty">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+              </div>
+              <div>
+                <div class="portal-autopay-card-label">No card on file</div>
+                <div class="portal-autopay-status">Set up autopay to pay automatically</div>
+              </div>
+            <?php endif; ?>
+          </div>
+          <a href="<?php echo htmlspecialchars($autopayUrl); ?>" class="portal-autopay-link">
+            <?php echo $autopayActive ? 'Manage' : ($hasCard ? 'Enable autopay' : 'Set up autopay'); ?> →
+          </a>
         </div>
       <?php endif; ?>
 
