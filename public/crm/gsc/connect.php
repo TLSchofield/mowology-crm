@@ -127,8 +127,8 @@ function fetchGscSites(string $accessToken): ?array
     return is_array($sites) ? $sites : [];
 }
 
-// Step 1: User initiates connection
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'start') {
+// Step 1: User initiates connection (GET link — avoids jQuery AJAX form interception)
+if (($_GET['action'] ?? '') === 'start') {
     $state = bin2hex(random_bytes(32));
     $_SESSION['gsc_oauth_state'] = $state;
 
@@ -335,12 +335,9 @@ $activePage = 'portfolio';
         Connect your Google Search Console account to see top search queries, click-through rates, and ranking opportunities.
       </p>
 
-      <form method="POST">
-        <input type="hidden" name="action" value="start">
-        <button type="submit" class="btn btn-primary">
-          <i data-feather="link-2"></i> Connect Google Account
-        </button>
-      </form>
+      <a href="/crm/gsc/connect.php?action=start" class="btn btn-primary">
+        <i data-feather="link-2"></i> Connect Google Account
+      </a>
     <?php endif; ?>
   </div>
 </div>
