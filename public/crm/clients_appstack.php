@@ -416,6 +416,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
                ->execute([$billingCompanyId, $propertyId]);
             echo json_encode(['success' => true]);
         } catch (Exception $e) {
+            error_log('set_property_billing error: ' . $e->getMessage());
             http_response_code(500);
             echo json_encode(['success' => false, 'error' => 'Failed to update billing entity']);
         }
@@ -7205,6 +7206,7 @@ $unconvertedRequests = $db->query("
       <div class="modal-body">
         <p class="text-muted small mb-3">Who receives invoices for this property?</p>
         <div id="billingPickerOptions"></div>
+        <div id="billingErrorMsg" class="mt-2"></div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">Cancel</button>
@@ -7221,6 +7223,8 @@ $unconvertedRequests = $db->query("
   window.openBillingPicker = function(propId, currentCompanyId, siteContactId, contextCompanyId, companyName, personalName) {
     _billingPropId = propId;
     _selectedBillingCompanyId = currentCompanyId || null;
+    var errEl = document.getElementById('billingErrorMsg');
+    if (errEl) errEl.innerHTML = '';
 
     var html = '<div class="list-group list-group-flush">';
     html += '<label class="list-group-item list-group-item-action d-flex align-items-center" style="cursor:pointer;gap:8px;">' +
@@ -7248,18 +7252,14 @@ $unconvertedRequests = $db->query("
 
   window.saveBillingEntity = function() {
     if (!_billingPropId) return;
+    var csrfInput = document.querySelector('input[name="csrf_token"]');
     var payload = {
-      action: 'set_property_billing',
-      csrf_token: (document.querySelector('meta[name="csrf-token"]') || {}).content || '',
+      csrf_token: csrfInput ? csrfInput.value : '',
       property_id: _billingPropId,
       billing_company_id: _selectedBillingCompanyId
     };
 
-    // Grab CSRF from any existing hidden input on the page
-    var csrfInput = document.querySelector('input[name="csrf_token"]');
-    if (csrfInput) payload.csrf_token = csrfInput.value;
-
-    fetch('clients_appstack.php', {
+    fetch('clients_appstack.php?action=set_property_billing', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(payload)
@@ -7267,7 +7267,6 @@ $unconvertedRequests = $db->query("
     .then(function(r) { return r.json(); })
     .then(function(data) {
       if (data.success) {
-        // Update the displayed label inline
         var el = document.getElementById('billingVal_' + _billingPropId);
         if (el) {
           var chosen = document.querySelector('input[name="billingChoice"]:checked');
@@ -7277,13 +7276,21 @@ $unconvertedRequests = $db->query("
         }
         $('#billingPickerModal').modal('hide');
       } else {
-        alert('Failed to update billing entity: ' + (data.error || 'Unknown error'));
+        showBillingError('Failed to update billing entity: ' + (data.error || 'Unknown error'));
       }
     })
     .catch(function() {
-      alert('Network error. Please try again.');
+      showBillingError('Network error. Please try again.');
     });
   };
+
+  function showBillingError(msg) {
+    var el = document.getElementById('billingErrorMsg');
+    if (el) el.innerHTML = '<div class="alert alert-danger py-1 px-2 mb-0 small d-flex justify-content-between align-items-center">' +
+      '<span>' + msg + '</span>' +
+      '<button type="button" class="close ml-2" style="font-size:14px" onclick="this.closest(\'.alert\').remove()">&times;</button>' +
+      '</div>';
+  }
 
   function escBilling(s) {
     return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
