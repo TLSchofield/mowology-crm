@@ -17,14 +17,14 @@
 }
 
 .btn-primary {
-    background: #c75003;
+    background: #be4c00;
     color: white;
 }
 
 .btn-primary:hover {
-    background: #a84200;
+    background: #993d00;
     transform: translateY(-2px);
-    box-shadow: 0 5px 15px rgba(199, 80, 3, 0.3);
+    box-shadow: 0 5px 15px rgba(190, 76, 0, 0.3);
 }
 
 .btn-secondary {
@@ -39,16 +39,16 @@
 }
 
 .btn-primary-large {
-    background: #c75003;
+    background: #be4c00;
     color: white;
     padding: 18px 40px;
     font-size: 18px;
 }
 
 .btn-primary-large:hover {
-    background: #a84200;
+    background: #993d00;
     transform: translateY(-2px);
-    box-shadow: 0 5px 20px rgba(199, 80, 3, 0.4);
+    box-shadow: 0 5px 20px rgba(190, 76, 0, 0.4);
 }
 
 .btn-secondary-large {
