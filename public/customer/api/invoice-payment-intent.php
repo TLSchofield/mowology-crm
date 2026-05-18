@@ -138,18 +138,54 @@ if (!empty($invoice['stripe_payment_intent_id'])) {
             in_array($existing->status, ['requires_payment_method', 'requires_confirmation', 'requires_action'], true)
             && $existing->amount === $amountCents
         ) {
-            echo json_encode([
-                'client_secret'           => $existing->client_secret,
-                'publishable_key'         => STRIPE_PUBLISHABLE_KEY,
-                'amount_cents'            => $amountCents,
-                'currency'                => $existing->currency,
-                'has_saved_card'          => $hasSavedCard,
-                'saved_card_brand'        => $savedCardBrand,
-                'saved_card_last4'        => $savedCardLast4,
-                'saved_card_exp'          => $savedCardExp,
-                'default_payment_method'  => $defaultPaymentMethodId,
-            ]);
-            exit;
+            // If this PI was created with automatic_payment_methods (allows Link, bank transfers, etc.)
+            // cancel it and fall through to create a card-only PI. This prevents non-card PMs being
+            // used for save-card / autopay, where we need brand/last4/exp.
+            if (!empty($existing->automatic_payment_methods) && $existing->automatic_payment_methods->enabled) {
+                try {
+                    $existing->cancel();
+                } catch (\Stripe\Exception\ApiErrorException $e) {
+                    error_log('[Stripe Customer] Could not cancel auto-methods PI: ' . $e->getMessage());
+                }
+                // Fall through to create a fresh card-only PaymentIntent
+            } else {
+                // Update setup_future_usage and metadata to reflect the user's current save/autopay choice.
+                // Without this, a PI created on modal-open (save_card=false) would never get
+                // setup_future_usage=off_session even if the user later checks "Save card".
+                try {
+                    $updateParams = [
+                        'metadata' => [
+                            'invoice_id'     => (string) $invoice['id'],
+                            'invoice_number' => $invoice['invoice_number'],
+                            'contact_id'     => (string) $contactId,
+                            'source'         => 'customer_portal',
+                            'enable_autopay' => ($saveCard && $enableAutopay) ? '1' : '0',
+                        ],
+                    ];
+                    if ($saveCard && $stripeCustomerId) {
+                        $updateParams['setup_future_usage'] = 'off_session';
+                    } else {
+                        // Clear it if user unchecked Save card
+                        $updateParams['setup_future_usage'] = '';
+                    }
+                    $existing = \Stripe\PaymentIntent::update($existing->id, $updateParams);
+                } catch (\Stripe\Exception\ApiErrorException $e) {
+                    error_log('[Stripe Customer] Could not update PaymentIntent: ' . $e->getMessage());
+                }
+
+                echo json_encode([
+                    'client_secret'           => $existing->client_secret,
+                    'publishable_key'         => STRIPE_PUBLISHABLE_KEY,
+                    'amount_cents'            => $amountCents,
+                    'currency'                => $existing->currency,
+                    'has_saved_card'          => $hasSavedCard,
+                    'saved_card_brand'        => $savedCardBrand,
+                    'saved_card_last4'        => $savedCardLast4,
+                    'saved_card_exp'          => $savedCardExp,
+                    'default_payment_method'  => $defaultPaymentMethodId,
+                ]);
+                exit;
+            } // end else (card-only PI reuse)
         }
     } catch (\Stripe\Exception\ApiErrorException $e) {
         error_log('[Stripe Customer] Could not retrieve PaymentIntent: ' . $e->getMessage());
@@ -169,8 +205,10 @@ try {
             'source'         => 'customer_portal',
             'enable_autopay' => ($saveCard && $enableAutopay) ? '1' : '0',
         ],
-        'statement_descriptor_suffix'  => 'MOWOLOGY',
-        'automatic_payment_methods'   => ['enabled' => true],
+        'statement_descriptor_suffix' => 'MOWOLOGY',
+        // Restrict to card only — ensures every saved PM has brand/last4/exp usable for off-session autopay.
+        // Apple Pay and Google Pay are card-type PMs and are included automatically.
+        'payment_method_types' => ['card'],
     ];
 
     // Link to Stripe Customer if we have one

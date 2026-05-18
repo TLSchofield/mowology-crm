@@ -170,6 +170,10 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): void
                 if ($expMonth && $expYear) {
                     $cardExpiry = sprintf('%02d/%d', $expMonth, $expYear);
                 }
+            } else {
+                // Non-card PM type (e.g. link, us_bank_account) — skip card save.
+                // PIs should now use payment_method_types=['card'] so this is rare.
+                error_log(sprintf('[Stripe Webhook] PM %s is type "%s" — skipping card save for contact.', $paymentMethodId, $pm->type ?? 'unknown'));
             }
         } catch (\Stripe\Exception\ApiErrorException $e) {
             error_log('[Stripe Webhook] Could not retrieve PaymentMethod: ' . $e->getMessage());
