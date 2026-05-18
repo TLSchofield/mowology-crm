@@ -317,19 +317,49 @@ $activePage = 'portfolio';
     <?php endif; ?>
 
     <?php if ($gscStatus): ?>
-      <div class="alert alert-info">
-        <strong>Connected</strong> since <?php echo formatDate($gscStatus['connected_at']); ?>
-        <br>Token expires: <?php echo formatDate($gscStatus['expires_at']); ?>
-        <br>Stored property: <code><?php echo htmlspecialchars((string)$gscStatus['site_url']); ?></code>
+      <?php
+        $tokenExpiry = strtotime((string)($gscStatus['expires_at'] ?? ''));
+        $tokenExpired = $tokenExpiry && $tokenExpiry < time();
+        $property = (string)($gscStatus['site_url'] ?? '');
+        $propertyDisplay = $property !== '' ? $property : '(not set)';
+      ?>
+      <div class="row mb-4">
+        <div class="col-md-6">
+          <div class="card border-0 bg-light">
+            <div class="card-body py-3">
+              <div class="d-flex align-items-center mb-2">
+                <span class="badge badge-success mr-2">Connected</span>
+                <small class="text-muted">since <?php echo formatDate($gscStatus['connected_at']); ?></small>
+              </div>
+              <div class="mb-1">
+                <small class="text-muted d-block">Property</small>
+                <code class="text-dark"><?php echo htmlspecialchars($propertyDisplay); ?></code>
+              </div>
+              <div>
+                <small class="text-muted d-block">Access token</small>
+                <?php if ($tokenExpired): ?>
+                  <span class="text-warning"><i data-feather="alert-circle" style="width:14px;height:14px;"></i> Expired — will auto-refresh on next sync</span>
+                <?php else: ?>
+                  <span class="text-success"><i data-feather="check-circle" style="width:14px;height:14px;"></i> Valid until <?php echo formatDate($gscStatus['expires_at']); ?></span>
+                <?php endif; ?>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <form method="POST" style="margin-top: 20px;">
-        <input type="hidden" name="csrf_token" value="<?php echo generateCSRFToken(); ?>">
-        <input type="hidden" name="action" value="disconnect">
-        <button type="submit" class="btn btn-danger" onclick="return confirm('Disconnect Google Search Console?')">
-          Disconnect
-        </button>
-      </form>
+      <div class="d-flex align-items-center" style="gap:12px;">
+        <a href="/crm/portfolio/index.php?tab=insights" class="btn btn-primary">
+          <i data-feather="bar-chart-2"></i> View GSC Insights
+        </a>
+        <form method="POST" class="d-inline m-0">
+          <input type="hidden" name="csrf_token" value="<?php echo generateCSRFToken(); ?>">
+          <input type="hidden" name="action" value="disconnect">
+          <button type="submit" class="btn btn-outline-danger" onclick="return confirm('Disconnect Google Search Console?')">
+            <i data-feather="x-circle"></i> Disconnect
+          </button>
+        </form>
+      </div>
     <?php else: ?>
       <p class="text-muted mb-4">
         Connect your Google Search Console account to see top search queries, click-through rates, and ranking opportunities.
