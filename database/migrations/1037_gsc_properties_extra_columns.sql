@@ -9,6 +9,3 @@ ALTER TABLE gsc_properties
     ADD COLUMN api_site_url  VARCHAR(255)    NULL         AFTER site_url,
     ADD COLUMN property_type VARCHAR(50)     NULL         AFTER api_site_url,
     ADD COLUMN is_active     TINYINT(1)  NOT NULL DEFAULT 1 AFTER property_type;
-
-INSERT INTO migrations_log (migration_filename, executed_at, status)
-VALUES ('1037_gsc_properties_extra_columns.sql', NOW(), 'success');
