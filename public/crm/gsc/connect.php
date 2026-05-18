@@ -133,8 +133,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'start
     $_SESSION['gsc_oauth_state'] = $state;
 
     if (!defined('GOOGLE_CLIENT_ID') || !defined('GOOGLE_CLIENT_SECRET')) {
-        http_response_code(500);
-        die('Google OAuth credentials not configured. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to secrets.php');
+        header('Location: /crm/gsc/connect.php?oauth_error=' . urlencode('credentials_missing: GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are not defined in secrets.php'));
+        exit;
     }
 
     $authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' . http_build_query([
@@ -159,20 +159,20 @@ if (($_GET['step'] ?? '') === 'callback') {
     $error = $_GET['error'] ?? null;
 
     if ($error) {
-        http_response_code(400);
-        die('OAuth error: ' . htmlspecialchars((string)$error));
+        header('Location: /crm/gsc/connect.php?oauth_error=' . urlencode('Google returned: ' . (string)$error));
+        exit;
     }
 
     if (!$code || !$state || $state !== ($_SESSION['gsc_oauth_state'] ?? '')) {
-        http_response_code(400);
-        die('Invalid OAuth state or missing code');
+        header('Location: /crm/gsc/connect.php?oauth_error=' . urlencode('State mismatch — try again (session may have expired)'));
+        exit;
     }
 
     $tokenResponse = exchangeOAuthCode((string)$code, $REDIRECT_URI);
 
     if (!$tokenResponse || empty($tokenResponse['access_token'])) {
-        http_response_code(500);
-        die('Failed to exchange OAuth code for tokens');
+        header('Location: /crm/gsc/connect.php?oauth_error=' . urlencode('Token exchange failed — check GOOGLE_CLIENT_ID/SECRET and that the redirect URI matches Google Cloud Console exactly: ' . $REDIRECT_URI));
+        exit;
     }
 
     $accessTokenPlain = (string)$tokenResponse['access_token'];
@@ -214,20 +214,23 @@ if (($_GET['step'] ?? '') === 'callback') {
     // ✅ Fetch /sites and choose best property (domain property preferred)
     $sites = fetchGscSites($accessTokenPlain);
     if ($sites === null) {
-        http_response_code(500);
-        die('Connected, but failed to read Search Console sites list. Check server logs.');
+        header('Location: /crm/gsc/connect.php?oauth_error=' . urlencode('Connected to Google, but failed to read Search Console sites list. Check that the account has GSC access.'));
+        exit;
     }
 
     $chosenSiteUrl = pickBestGscProperty($sites, GSC_CANONICAL_DOMAIN);
     if (!$chosenSiteUrl) {
-        http_response_code(500);
-        die('Connected, but no Search Console properties were found for this account.');
+        header('Location: /crm/gsc/connect.php?oauth_error=' . urlencode('Connected, but no Search Console properties found for this Google account. Make sure mowology.ca is verified in Google Search Console.'));
+        exit;
     }
 
     // Determine property type from the chosen URL format
     $chosenPropertyType = (strpos($chosenSiteUrl, 'sc-domain:') === 0) ? 'domain' : 'url_prefix';
 
-    // ✅ Upsert a SINGLE row for the chosen property (keeps your schema simple)
+    // Delete any stale rows (old empty-site_url rows from pre-migration connects)
+    // then insert/update the single canonical row.
+    $db->exec("DELETE FROM gsc_properties WHERE site_url = '' OR site_url IS NULL");
+
     $stmt = $db->prepare("
         INSERT INTO gsc_properties (site_url, api_site_url, property_type, access_token_encrypted, refresh_token_encrypted, expires_at, connected_at, is_active)
         VALUES (?, ?, ?, ?, ?, ?, NOW(), 1)
@@ -265,8 +268,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'disco
     exit;
 }
 
-// Default: show connection status (single row)
-$stmt = $db->query("SELECT site_url, connected_at, expires_at FROM gsc_properties ORDER BY id ASC LIMIT 1");
+// Default: show connection status — newest non-empty row
+$stmt = $db->query("SELECT site_url, connected_at, expires_at FROM gsc_properties WHERE site_url != '' AND site_url IS NOT NULL ORDER BY id DESC LIMIT 1");
 $gscStatus = $stmt->fetch(PDO::FETCH_ASSOC);
 
 $pageTitle = 'Google Search Console';
@@ -278,10 +281,16 @@ $activePage = 'portfolio';
   <div class="card-body">
     <h5 class="card-title mb-4">Google Search Console Connection</h5>
 
+    <?php if (isset($_GET['oauth_error']) && $_GET['oauth_error'] !== ''): ?>
+      <div class="alert alert-danger">
+        <strong>Connection failed:</strong> <?php echo htmlspecialchars((string)$_GET['oauth_error']); ?>
+      </div>
+    <?php endif; ?>
+
     <?php if (isset($_GET['needs_refresh']) && $_GET['needs_refresh'] === '1'): ?>
       <div class="alert alert-warning">
         Connected, but Google did not return a refresh token.
-        <br><strong>Fix:</strong> Google Account → Security → Third-party access → remove app access, then reconnect.
+        <br><strong>Fix:</strong> Go to <a href="https://myaccount.google.com/permissions" target="_blank">Google Account → Third-party apps</a>, remove Mowology access, then reconnect here.
       </div>
     <?php endif; ?>
 
