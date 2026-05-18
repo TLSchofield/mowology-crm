@@ -256,7 +256,7 @@ $firstName     = $contact ? htmlspecialchars($contact['first_name'] ?? 'there') 
                     if (data.error) { showError(data.error); return; }
 
                     elements = stripe.elements({ clientSecret: data.client_secret, appearance: { theme: 'stripe' } });
-                    paymentElement = elements.create('payment');
+                    paymentElement = elements.create('payment', { wallets: { link: 'never' } });
                     paymentElement.mount('#stripe-payment-element');
                     paymentElement.on('ready', function () {
                         stripeReady = true;

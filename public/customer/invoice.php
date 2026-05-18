@@ -519,7 +519,7 @@ function fmtDate(string $d): string {
                     }
                 }
             });
-            paymentEl = elements.create('payment', { layout: 'tabs' });
+            paymentEl = elements.create('payment', { layout: 'tabs', wallets: { link: 'never' } });
             paymentEl.mount('#payment-element');
             paymentEl.on('ready', function () {
                 document.getElementById('stripeLoading').style.display  = 'none';
