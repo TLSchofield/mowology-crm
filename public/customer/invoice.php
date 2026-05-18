@@ -624,20 +624,21 @@ function fmtDate(string $d): string {
             var autopayCheck = document.getElementById('autopayCheck');
             var wantsAutopay = autopayCheck && autopayCheck.checked;
 
-            stripe.confirmCardPayment(intentData.client_secret, {
-                payment_method: intentData.default_payment_method
+            // Server-side confirmation — avoids confirmCardPayment() incompatibility
+            // with automatic_payment_methods PaymentIntents which detaches saved cards.
+            fetch('/customer/api/confirm-saved-card.php', {
+                method : 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body   : JSON.stringify({ token: <?php echo json_encode($token); ?> })
             })
+            .then(function (r) { return r.json(); })
             .then(function (result) {
                 setSavedCardLoading(false);
                 if (result.error) {
-                    showError(result.error.message);
-                    // If saved card declined, offer new card entry
-                    if (result.error.code === 'card_declined' || result.error.code === 'expired_card') {
-                        showNewCardForm();
-                    }
-                } else if (result.paymentIntent && result.paymentIntent.status === 'succeeded') {
+                    showError(result.error);
+                    if (/declined|expired/i.test(result.error)) { showNewCardForm(); }
+                } else if (result.status === 'succeeded') {
                     if (wantsAutopay) {
-                        // Enable autopay in the background — non-blocking
                         fetch('/customer/api/autopay-setup.php', {
                             method : 'POST',
                             headers: { 'Content-Type': 'application/json' },
@@ -646,6 +647,13 @@ function fmtDate(string $d): string {
                     } else {
                         showSuccess(false);
                     }
+                } else if (result.status === 'requires_action' && stripe) {
+                    // 3DS challenge — hand off to Stripe.js
+                    stripe.handleNextAction({ clientSecret: result.next_action_client_secret })
+                    .then(function (r) {
+                        if (r.error) { showError(r.error.message); }
+                        else { showSuccess(wantsAutopay); }
+                    });
                 }
             })
             .catch(function () {
