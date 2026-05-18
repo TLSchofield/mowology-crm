@@ -14,7 +14,8 @@ $activeNav = $activeNav ?? '';
 
 // Dynamic logo from site record (set by bootstrap.php → cms_resolveSite)
 $__siteRecord = $GLOBALS['__cms_site'] ?? [];
-$logoPath = $__siteRecord['logo_path'] ?? '/assets/img/logo/mowology-logo.jpg';
+$logoPath    = $__siteRecord['logo_path'] ?? '/assets/img/logo/mowology-logo.jpg';
+$logoWebP    = preg_replace('/\.(jpe?g|png)$/i', '.webp', $logoPath);
 $logoAlt = SITE_NAME;
 
 // Dynamic nav: try cms_menus first, then fall back to hardcoded Mowology nav
@@ -68,7 +69,10 @@ unset($__abRow, $__ab, $__style, $__abEx);
       <div class="container">
         <div class="nav-wrapper">
           <a href="/" class="logo">
-            <img src="<?= h($logoPath) ?>" alt="<?= h($logoAlt) ?>" class="logo-icon" width="200" height="55">
+            <picture>
+              <source type="image/webp" srcset="<?= h($logoWebP) ?>">
+              <img src="<?= h($logoPath) ?>" alt="<?= h($logoAlt) ?>" class="logo-icon" width="200" height="55" loading="eager" decoding="async">
+            </picture>
             <div class="logo-text-group">
               <span class="logo-text"><?= h(SITE_NAME) ?></span>
               <span class="logo-tagline"><?= h(SITE_TAGLINE) ?></span>
