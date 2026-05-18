@@ -74,7 +74,22 @@ $heroImg = '/assets/img/hero/hero-lawn-care-1920x1080.jpg';
 
   <!-- Hero Section -->
   <section class="mw-hero">
-    <div class="mw-hero__bg" style="background-image: url('<?= htmlspecialchars($heroImg, ENT_QUOTES) ?>')"></div>
+    <picture class="mw-hero__bg">
+      <source type="image/webp"
+        srcset="/assets/img/hero/hero-lawn-care-480w.webp 480w,
+                /assets/img/hero/hero-lawn-care-1080w.webp 1080w,
+                /assets/img/hero/hero-lawn-care-1920w.webp 1920w"
+        sizes="100vw">
+      <source type="image/jpeg"
+        srcset="/assets/img/hero/hero-lawn-care-480w.jpg 480w,
+                /assets/img/hero/hero-lawn-care-1080w.jpg 1080w,
+                /assets/img/hero/hero-lawn-care-1920x1080.jpg 1920w"
+        sizes="100vw">
+      <img src="/assets/img/hero/hero-lawn-care-1920x1080.jpg"
+           alt="Professional landscaping services in Metro Vancouver"
+           fetchpriority="high"
+           decoding="async">
+    </picture>
     <div class="mw-hero__overlay"></div>
     <div class="mw-hero__particles" aria-hidden="true" id="mwHeroParticles"></div>
 

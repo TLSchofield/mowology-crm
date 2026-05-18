@@ -76,9 +76,12 @@ $canonicalUrl  = SITE_URL . $canonicalPath;
   <link rel="icon" type="image/png" sizes="16x16" href="/assets/favicon/favicon-16x16.png">
   <link rel="manifest" href="/assets/favicon/site.webmanifest">
 
-  <!-- Hero image preload: discovered by scanner before background-image paint -->
+  <!-- Hero image preload: responsive srcset so mobile downloads the small WebP -->
   <?php if (!empty($heroImg)): ?>
-  <link rel="preload" as="image" href="<?= htmlspecialchars($heroImg, ENT_QUOTES) ?>" fetchpriority="high">
+  <link rel="preload" as="image"
+    imagesrcset="/assets/img/hero/hero-lawn-care-480w.webp 480w, /assets/img/hero/hero-lawn-care-1080w.webp 1080w, /assets/img/hero/hero-lawn-care-1920w.webp 1920w"
+    imagesizes="100vw"
+    fetchpriority="high">
   <?php endif; ?>
 
   <!-- Fonts (async — non-render-blocking) -->
