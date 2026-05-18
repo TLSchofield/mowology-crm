@@ -120,7 +120,7 @@
 .mw-hero__sub {
     font-family: var(--font-body, 'DM Sans', system-ui, sans-serif);
     font-size: clamp(1rem, 1.8vw, 1.2rem);
-    color: rgba(255, 255, 255, 0.78);
+    color: rgba(255, 255, 255, 0.95);
     line-height: 1.65;
     max-width: 560px;
     margin: 0 0 2.5rem;
@@ -164,7 +164,7 @@
 .mw-hero__trust-item span:last-child {
     font-family: var(--font-body, 'DM Sans', system-ui, sans-serif);
     font-size: 0.7rem;
-    color: rgba(255, 255, 255, 0.5);
+    color: rgba(255, 255, 255, 0.85);
     text-transform: uppercase;
     letter-spacing: 0.09em;
 }
@@ -254,7 +254,7 @@
 .mw-stat__label {
     font-family: var(--font-body, 'DM Sans', system-ui, sans-serif);
     font-size: 0.78rem;
-    color: rgba(255, 255, 255, 0.5);
+    color: rgba(255, 255, 255, 0.75);
     text-transform: uppercase;
     letter-spacing: 0.1em;
     margin: 0;

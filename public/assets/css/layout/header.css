@@ -67,6 +67,9 @@
 }
 
 .nav-menu a {
+    display: flex;
+    align-items: center;
+    min-height: 48px;
     text-decoration: none;
     color: var(--text-medium);
     font-weight: 500;
@@ -95,7 +98,11 @@
 .mobile-menu-toggle {
     display: none;
     flex-direction: column;
+    justify-content: center;
+    align-items: center;
     gap: 5px;
+    min-width: 48px;
+    min-height: 48px;
     background: none;
     border: none;
     cursor: pointer;

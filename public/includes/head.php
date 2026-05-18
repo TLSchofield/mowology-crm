@@ -74,10 +74,16 @@ $canonicalUrl  = SITE_URL . $canonicalPath;
   <link rel="icon" type="image/png" sizes="16x16" href="/assets/favicon/favicon-16x16.png">
   <link rel="manifest" href="/assets/favicon/site.webmanifest">
 
-  <!-- Fonts -->
+  <!-- Hero image preload: discovered by scanner before background-image paint -->
+  <?php if (!empty($heroImg)): ?>
+  <link rel="preload" as="image" href="<?= htmlspecialchars($heroImg, ENT_QUOTES) ?>" fetchpriority="high">
+  <?php endif; ?>
+
+  <!-- Fonts (async — non-render-blocking) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;0,700;1,600&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&display=swap" rel="stylesheet">
+  <link rel="preload" href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;0,700;1,600&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'">
+  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;0,700;1,600&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&display=swap"></noscript>
 
   <!-- Styles -->
   <link rel="stylesheet" href="/assets/css/master.css">

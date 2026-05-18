@@ -3,7 +3,10 @@
    ===================================================== */
 
 .btn {
-    display: inline-block;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 48px;
     padding: 14px 32px;
     text-decoration: none;
     border-radius: 5px;

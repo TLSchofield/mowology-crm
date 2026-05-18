@@ -68,7 +68,7 @@ unset($__abRow, $__ab, $__style, $__abEx);
       <div class="container">
         <div class="nav-wrapper">
           <a href="/" class="logo">
-            <img src="<?= h($logoPath) ?>" alt="<?= h($logoAlt) ?>" class="logo-icon">
+            <img src="<?= h($logoPath) ?>" alt="<?= h($logoAlt) ?>" class="logo-icon" width="200" height="55">
             <div class="logo-text-group">
               <span class="logo-text"><?= h(SITE_NAME) ?></span>
               <span class="logo-tagline"><?= h(SITE_TAGLINE) ?></span>

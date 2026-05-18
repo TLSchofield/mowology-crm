@@ -14,6 +14,64 @@ $heroImg = '/assets/img/hero/hero-lawn-care-1920x1080.jpg';
 <?php require __DIR__ . '/includes/head.php'; ?>
 <?php require __DIR__ . '/includes/header.php'; ?>
 
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "LocalBusiness",
+  "name": <?= json_encode(SITE_NAME) ?>,
+  "url": <?= json_encode(SITE_URL) ?>,
+  "telephone": <?= json_encode('+1' . SITE_PHONE_TEL) ?>,
+  "email": <?= json_encode(SITE_EMAIL) ?>,
+  "description": "Professional landscaping and grounds maintenance for strata, property managers, and residential properties in Metro Vancouver. Photo-verified service reports, fully insured crews, 8+ years experience.",
+  "image": <?= json_encode(SITE_URL . '/assets/img/hero/hero-lawn-care-1920x1080.jpg') ?>,
+  "priceRange": "$$",
+  "areaServed": [
+    {"@type": "City", "name": "Vancouver", "addressRegion": "BC", "addressCountry": "CA"},
+    {"@type": "City", "name": "Burnaby",  "addressRegion": "BC", "addressCountry": "CA"},
+    {"@type": "City", "name": "Richmond", "addressRegion": "BC", "addressCountry": "CA"}
+  ],
+  "aggregateRating": {
+    "@type": "AggregateRating",
+    "ratingValue": "5",
+    "bestRating": "5",
+    "worstRating": "1",
+    "ratingCount": "5"
+  },
+  "review": [
+    {
+      "@type": "Review",
+      "reviewRating": {"@type": "Rating", "ratingValue": "5", "bestRating": "5"},
+      "author": {"@type": "Person", "name": "Linda N."},
+      "reviewBody": "I've lived here for over 30 years and I've never seen our gardens look this good."
+    },
+    {
+      "@type": "Review",
+      "reviewRating": {"@type": "Rating", "ratingValue": "5", "bestRating": "5"},
+      "author": {"@type": "Person", "name": "Colleen Jiang"},
+      "reviewBody": "Mowology offers professional knowledge and excellent service for my garden. They did a very good maintenance job and making my garden looks beautiful again."
+    },
+    {
+      "@type": "Review",
+      "reviewRating": {"@type": "Rating", "ratingValue": "5", "bestRating": "5"},
+      "author": {"@type": "Person", "name": "Michael T."},
+      "reviewBody": "Professional, reliable, and always on time. The photo reports give us peace of mind that the work is being done right."
+    },
+    {
+      "@type": "Review",
+      "reviewRating": {"@type": "Rating", "ratingValue": "5", "bestRating": "5"},
+      "author": {"@type": "Person", "name": "David K."},
+      "reviewBody": "Our strata has tried multiple landscaping companies and Mowology is by far the most professional and communicative."
+    },
+    {
+      "@type": "Review",
+      "reviewRating": {"@type": "Rating", "ratingValue": "5", "bestRating": "5"},
+      "author": {"@type": "Person", "name": "Sarah W."},
+      "reviewBody": "They show up every week without fail. The grounds have never looked better and our residents love it."
+    }
+  ]
+}
+</script>
+
   <!-- Hero Section -->
   <section class="mw-hero">
     <div class="mw-hero__bg" style="background-image: url('<?= htmlspecialchars($heroImg, ENT_QUOTES) ?>')"></div>

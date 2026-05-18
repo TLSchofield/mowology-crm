@@ -86,7 +86,7 @@ require __DIR__ . '/includes/header.php';
                                 }
                                 ?>
                                 <?php if ($displayImage): ?>
-                                    <img src="<?php echo htmlspecialchars($displayImage); ?>" alt="<?php echo htmlspecialchars($project['project_name']); ?>" style="width: 100%; height: 100%; object-fit: cover;">
+                                    <img src="<?php echo htmlspecialchars($displayImage); ?>" alt="<?php echo htmlspecialchars($project['project_name']); ?>" style="width: 100%; height: 100%; object-fit: cover;" width="800" height="600" loading="lazy">
                                 <?php else: ?>
                                     <div class="placeholder-image" style="background: linear-gradient(135deg, #2d5016 0%, #4a7c2c 100%); display: flex; align-items: center; justify-content: center; color: white; font-size: 48px; height: 100%;">
                                         🌿
