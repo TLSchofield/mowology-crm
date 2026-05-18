@@ -62,6 +62,19 @@ if (!$invoice) {
     exit;
 }
 
+// Contact autopay + card-on-file status
+$contactAutopay = null;
+if (!empty($invoice['contact_id'])) {
+    $caStmt = $db->prepare("
+        SELECT autopay_enabled, autopay_enrolled_at,
+               stripe_card_brand, stripe_card_last4, stripe_card_exp,
+               stripe_payment_method_id
+        FROM contacts WHERE id = ? LIMIT 1
+    ");
+    $caStmt->execute([$invoice['contact_id']]);
+    $contactAutopay = $caStmt->fetch(PDO::FETCH_ASSOC);
+}
+
 // Get line items
 $stmt = $db->prepare("SELECT * FROM invoice_line_items WHERE invoice_id = ? ORDER BY sort_order");
 $stmt->execute([$invoiceId]);
@@ -758,6 +771,33 @@ $extraHead = $isPayable
                               <span class="mw-detail-label">Created By</span>
                               <span class="mw-detail-value"><?php echo htmlspecialchars($invoice['created_by_name'] ?? 'Unknown'); ?></span>
                           </div>
+                          <?php if ($contactAutopay): ?>
+                          <div class="mw-detail-row" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--mw-light);">
+                              <span class="mw-detail-label">Autopay</span>
+                              <span class="mw-detail-value">
+                                  <?php if (!empty($contactAutopay['autopay_enabled'])): ?>
+                                      <span class="badge badge-success" style="font-size:.75rem;">&#10003; Active</span>
+                                  <?php elseif (!empty($contactAutopay['stripe_payment_method_id'])): ?>
+                                      <span class="badge badge-warning" style="font-size:.75rem;">Card saved, not enrolled</span>
+                                  <?php else: ?>
+                                      <span class="text-muted" style="font-size:.82rem;">Not set up</span>
+                                  <?php endif; ?>
+                              </span>
+                          </div>
+                          <?php if (!empty($contactAutopay['stripe_card_last4'])): ?>
+                          <div class="mw-detail-row">
+                              <span class="mw-detail-label">Card on File</span>
+                              <span class="mw-detail-value" style="font-size:.85rem;">
+                                  <?php
+                                  $brand = ucfirst($contactAutopay['stripe_card_brand'] ?? '');
+                                  $last4 = $contactAutopay['stripe_card_last4'];
+                                  $exp   = $contactAutopay['stripe_card_exp'] ?? '';
+                                  echo htmlspecialchars($brand . ' ···· ' . $last4 . ($exp ? '  exp ' . $exp : ''));
+                                  ?>
+                              </span>
+                          </div>
+                          <?php endif; ?>
+                          <?php endif; ?>
                           <?php if (!empty($invoice['pdf_version']) && $invoice['pdf_version'] > 0): ?>
                               <div class="mw-detail-row">
                                   <span class="mw-detail-label">PDF Version</span>
