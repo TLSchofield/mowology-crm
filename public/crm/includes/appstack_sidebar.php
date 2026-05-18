@@ -83,6 +83,7 @@ $navItems = [
     ['key' => 'intel',     'label' => 'Marketing Intel',  'icon' => 'target',   'href' => '/crm/marketing/intel.php',      'perm' => 'marketing.view'],
     ['key' => 'marketing', 'label' => 'Email Campaigns', 'icon' => 'zap',      'href' => '/crm/marketing/campaigns.php', 'perm' => 'marketing.view'],
     ['key' => 'social',    'label' => 'Social Posts',    'icon' => 'share-2',  'href' => '/crm/marketing/social.php',   'perm' => 'marketing.view'],
+    ['key' => 'social-analytics', 'label' => 'Social Analytics', 'icon' => 'bar-chart-2', 'href' => '/crm/marketing/social-analytics.php', 'perm' => 'marketing.view'],
     ['key' => 'referrals', 'label' => 'Referrals',       'icon' => 'gift',     'href' => '/crm/marketing/referrals.php', 'perm' => 'marketing.view'],
     ['key' => 'cms',       'label' => 'Website CMS',     'icon' => 'edit-3',   'href' => '/crm/cms-pages_appstack.php', 'perm' => 'marketing.edit'],
 
