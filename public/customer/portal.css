@@ -131,6 +131,20 @@ a:hover { text-decoration: underline; }
   color: var(--p-text-mid);
 }
 
+.portal-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--p-text-mid);
+  text-decoration: none;
+  margin-right: 12px;
+  opacity: 0.75;
+  transition: opacity 0.15s;
+}
+.portal-back-link:hover { opacity: 1; color: var(--p-green); }
+
 /* ─── Admin Banner ───────────────────────────────────────────────────────── */
 .portal-admin-banner {
   background: #fffbeb;

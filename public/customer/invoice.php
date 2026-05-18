@@ -131,6 +131,12 @@ function fmtDate(string $d): string {
 <body>
 
 <header class="portal-header">
+    <?php if ($invoice && !empty($invoice['contact_id'])): ?>
+        <a href="/customer/portal.php?contact_id=<?php echo (int)$invoice['contact_id']; ?>" class="portal-back-link">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+            Portal
+        </a>
+    <?php endif; ?>
     <div class="portal-logo-text">Mowo<span>logy</span></div>
     <div class="portal-header-divider"></div>
     <span class="portal-header-label">Invoice</span>
