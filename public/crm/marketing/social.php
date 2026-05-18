@@ -159,6 +159,23 @@ try {
               <a class="btn btn-sm btn-outline-success ml-2" id="topPostLink" href="#" style="flex-shrink:0;">View</a>
           </div>
 
+          <!-- Visual Format Decision Tree -->
+          <div class="card mb-4 mw-dtree-card">
+              <div class="card-header mw-dtree-header" id="dtreeToggle" role="button" tabindex="0"
+                   aria-expanded="false" aria-controls="dtreeBody">
+                  <span class="mw-dtree-header-text">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                      Not sure which format? Use our decision tree
+                  </span>
+                  <svg class="mw-dtree-caret" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+              </div>
+              <div class="card-body mw-dtree-hidden" id="dtreeBody">
+                  <p class="text-muted mw-dtree-intro">Answer a few quick questions and we'll point you to the Motion ad format that fits this post.</p>
+                  <div class="mw-dtree-crumbs" id="dtreeCrumbs"></div>
+                  <div id="dtreeStage"></div>
+              </div>
+          </div>
+
           <!-- Main Content Grid -->
           <div class="row">
               <!-- Left: Upcoming + Failed -->
@@ -836,6 +853,195 @@ try {
               loadTopPost();
               loadMiniCalendar(miniCalYear, miniCalMonth);
               loadDensity();
+          })();
+          </script>
+
+          <!-- Visual Format Decision Tree logic -->
+          <script>
+          (function () {
+              'use strict';
+
+              var RESULTS = {
+                  testimonial: {
+                      name: 'Testimonial',
+                      desc: 'Real customers share their experience and the results they got.',
+                      bestFor: 'Building trust fast with authentic social proof.',
+                      budget: 'Low-Mid'
+                  },
+                  tutorial: {
+                      name: 'Tutorial / How-To',
+                      desc: 'A step-by-step walkthrough focused on the result the viewer can achieve.',
+                      bestFor: 'Educating prospects while showcasing your expertise and the outcome.',
+                      budget: 'Mid'
+                  },
+                  demo: {
+                      name: 'Demo',
+                      desc: 'The product shown in action, solving a real problem.',
+                      bestFor: 'Visual products where seeing it work is what closes the sale.',
+                      budget: 'Mid'
+                  },
+                  splitscreen: {
+                      name: 'Split Screen',
+                      desc: 'Side-by-side comparison — before/after or you vs. the alternative.',
+                      bestFor: 'Dramatizing a transformation or a clear competitive edge.',
+                      budget: 'Low-Mid'
+                  },
+                  listicle: {
+                      name: 'Listicle',
+                      desc: 'A numbered rundown of 3–5 key benefits or features.',
+                      bestFor: 'Communicating multiple value points quickly and scannably.',
+                      budget: 'Low'
+                  },
+                  unboxing: {
+                      name: 'Unboxing',
+                      desc: 'A first-look reveal of the packaging and product experience.',
+                      bestFor: 'Products with a premium or memorable unboxing moment.',
+                      budget: 'Low-Mid'
+                  },
+                  behindthescenes: {
+                      name: 'Behind the Scenes',
+                      desc: 'An authentic look at your process, team, or founder story.',
+                      bestFor: 'Humanizing the brand and building a genuine connection.',
+                      budget: 'Low'
+                  },
+                  montage: {
+                      name: 'Montage',
+                      desc: 'Fast-paced, energetic cuts set to music or a strong beat.',
+                      bestFor: 'Brand awareness and emotional resonance when no single format fits.',
+                      budget: 'Low-Mid'
+                  }
+              };
+
+              // node: { q: question, yes: nextId|result:key, no: nextId|result:key }
+              var TREE = {
+                  q1: { q: 'Do you have real customers with a compelling story?',                       yes: 'r:testimonial',     no: 'q2'  },
+                  q2: { q: 'Is your product visual — does seeing it in action sell it?',                yes: 'q2b',               no: 'q3'  },
+                  q2b:{ q: 'Is the focus on the outcome / result rather than the product itself?',      yes: 'r:tutorial',        no: 'r:demo' },
+                  q3: { q: 'Do you want to compare before/after, or us vs. them?',                      yes: 'r:splitscreen',     no: 'q4'  },
+                  q4: { q: 'Do you have 3–5 distinct benefits or features to highlight?',               yes: 'r:listicle',        no: 'q5'  },
+                  q5: { q: 'Is your packaging / unboxing experience impressive?',                       yes: 'r:unboxing',        no: 'q6'  },
+                  q6: { q: 'Can you show behind the scenes — your process, team, or founder story?',    yes: 'r:behindthescenes', no: 'r:montage' }
+              };
+
+              var START = 'q1';
+              var stage  = document.getElementById('dtreeStage');
+              var crumbs = document.getElementById('dtreeCrumbs');
+              var body   = document.getElementById('dtreeBody');
+              var toggle = document.getElementById('dtreeToggle');
+              if (!stage || !toggle) { return; }
+
+              var history = []; // [{ node, answer }]
+
+              function budgetClass(b) {
+                  if (b === 'Low')     { return 'mw-dtree-budget-low'; }
+                  if (b === 'Low-Mid') { return 'mw-dtree-budget-lowmid'; }
+                  return 'mw-dtree-budget-mid';
+              }
+
+              function renderCrumbs() {
+                  if (!history.length) { crumbs.innerHTML = ''; return; }
+                  var html = '';
+                  history.forEach(function (h, i) {
+                      html += '<span class="mw-dtree-crumb">' + (i + 1) + '. ' +
+                              (h.answer ? 'Yes' : 'No') + '</span>';
+                  });
+                  crumbs.innerHTML = html;
+              }
+
+              function showQuestion(nodeId) {
+                  var node = TREE[nodeId];
+                  var html = '' +
+                      '<div class="mw-dtree-q">' + node.q + '</div>' +
+                      '<div class="mw-dtree-btns">' +
+                          '<button type="button" class="mw-dtree-btn" data-ans="yes">Yes</button>' +
+                          '<button type="button" class="mw-dtree-btn mw-dtree-btn-no" data-ans="no">No</button>' +
+                      '</div>' +
+                      '<div class="mw-dtree-nav">' +
+                          (history.length ? '<button type="button" class="mw-dtree-link" id="dtreeBack">← Back</button>' : '') +
+                          '<button type="button" class="mw-dtree-link" id="dtreeReset">Start over</button>' +
+                      '</div>';
+                  stage.innerHTML = html;
+                  stage.setAttribute('data-node', nodeId);
+
+                  stage.querySelectorAll('.mw-dtree-btn').forEach(function (btn) {
+                      btn.addEventListener('click', function () {
+                          var ans = this.getAttribute('data-ans') === 'yes';
+                          history.push({ node: nodeId, answer: ans });
+                          go(ans ? node.yes : node.no);
+                      });
+                  });
+                  var backBtn = document.getElementById('dtreeBack');
+                  if (backBtn) { backBtn.addEventListener('click', stepBack); }
+                  document.getElementById('dtreeReset').addEventListener('click', reset);
+                  renderCrumbs();
+              }
+
+              function showResult(key) {
+                  var r = RESULTS[key];
+                  stage.setAttribute('data-node', 'r:' + key);
+                  stage.innerHTML = '' +
+                      '<div class="mw-dtree-result">' +
+                          '<div class="mw-dtree-result-tag">Recommended format</div>' +
+                          '<div class="mw-dtree-result-name">' + r.name + '</div>' +
+                          '<p class="mw-dtree-result-desc">' + r.desc + '</p>' +
+                          '<div class="mw-dtree-result-row">' +
+                              '<span class="mw-dtree-result-lbl">Best for</span>' +
+                              '<span class="mw-dtree-result-val">' + r.bestFor + '</span>' +
+                          '</div>' +
+                          '<div class="mw-dtree-result-row">' +
+                              '<span class="mw-dtree-result-lbl">Budget</span>' +
+                              '<span class="mw-dtree-budget ' + budgetClass(r.budget) + '">' + r.budget + '</span>' +
+                          '</div>' +
+                          '<div class="mw-dtree-nav">' +
+                              '<button type="button" class="mw-dtree-link" id="dtreeBack">← Back</button>' +
+                              '<button type="button" class="mw-dtree-link" id="dtreeReset">Start over</button>' +
+                          '</div>' +
+                      '</div>';
+                  document.getElementById('dtreeBack').addEventListener('click', stepBack);
+                  document.getElementById('dtreeReset').addEventListener('click', reset);
+                  renderCrumbs();
+              }
+
+              function go(target) {
+                  if (target.indexOf('r:') === 0) {
+                      showResult(target.slice(2));
+                  } else {
+                      showQuestion(target);
+                  }
+              }
+
+              function stepBack() {
+                  if (!history.length) { return; }
+                  var last = history.pop();
+                  showQuestion(last.node);
+              }
+
+              function reset() {
+                  history = [];
+                  showQuestion(START);
+              }
+
+              // Collapsible toggle
+              function setExpanded(open) {
+                  toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+                  if (open) {
+                      body.classList.remove('mw-dtree-hidden');
+                      toggle.classList.add('mw-dtree-open');
+                      if (!stage.hasChildNodes()) { reset(); }
+                  } else {
+                      body.classList.add('mw-dtree-hidden');
+                      toggle.classList.remove('mw-dtree-open');
+                  }
+              }
+              toggle.addEventListener('click', function () {
+                  setExpanded(toggle.getAttribute('aria-expanded') !== 'true');
+              });
+              toggle.addEventListener('keydown', function (e) {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setExpanded(toggle.getAttribute('aria-expanded') !== 'true');
+                  }
+              });
           })();
           </script>
 
