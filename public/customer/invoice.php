@@ -587,7 +587,7 @@ function fmtDate(string $d): string {
                     if (result.error) {
                         showError(result.error.message);
                     } else if (result.paymentIntent && result.paymentIntent.status === 'succeeded') {
-                        showSuccess();
+                        showSuccess(wantsAutopay);
                     }
                 })
                 .catch(function () {
@@ -642,9 +642,9 @@ function fmtDate(string $d): string {
                             method : 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body   : JSON.stringify({ token: <?php echo json_encode($token); ?>, action: 'enable_existing_card' })
-                        }).then(function () { showSuccess(); }).catch(function () { showSuccess(); });
+                        }).then(function () { showSuccess(true); }).catch(function () { showSuccess(true); });
                     } else {
-                        showSuccess();
+                        showSuccess(false);
                     }
                 }
             })
@@ -673,16 +673,26 @@ function fmtDate(string $d): string {
             document.getElementById('savedCardPayLabel').style.display    = on ? 'none'   : 'inline';
             document.getElementById('savedCardPaySpinner').style.display  = on ? 'inline' : 'none';
         }
-        function showSuccess() {
+        function showSuccess(autopayEnabled) {
+            var extraMsg = autopayEnabled
+                ? '<div style="margin-top:20px;background:#e8f3f0;border:1px solid #b8dbd0;border-radius:8px;padding:12px 16px;">'
+                  + '<strong style="color:#1A5F4A;font-size:.92rem;">&#10003; Autopay enabled</strong>'
+                  + '<p style="color:#4a6b5d;font-size:.83rem;margin:4px 0 0;">Future invoices will be charged to this card automatically.</p>'
+                  + '</div>'
+                : '';
             document.querySelector('#payModal .portal-modal').innerHTML = [
                 '<div style="padding:48px 32px;text-align:center;">',
                 '<div style="font-size:56px;color:#2D8659;line-height:1;">&#10003;</div>',
                 '<h3 style="color:#0D3B2E;margin:16px 0 8px;font-family:Montserrat,sans-serif;">Payment Received!</h3>',
                 '<p style="color:#4a6b5d;font-size:14px;">Thank you. Your payment is being processed and this invoice will be marked paid shortly.</p>',
+                extraMsg,
                 '<p style="color:#9ca3af;font-size:12px;margin-top:12px;">Refreshing in 3 seconds&hellip;</p>',
                 '</div>'
             ].join('');
-            setTimeout(function () { location.reload(); }, 3000);
+            var reloadUrl = location.href.replace(/[?&]payment=[^&]*/,'').replace(/[?&]autopay=[^&]*/,'');
+            reloadUrl += (reloadUrl.indexOf('?') === -1 ? '?' : '&') + 'payment=success';
+            if (autopayEnabled) reloadUrl += '&autopay=1';
+            setTimeout(function () { location.href = reloadUrl; }, 3000);
         }
 
         <?php if (isset($_GET['payment']) && $_GET['payment'] === 'success'): ?>
@@ -690,7 +700,11 @@ function fmtDate(string $d): string {
         document.addEventListener('DOMContentLoaded', function () {
             var bar = document.createElement('div');
             bar.className = 'portal-paid-banner';
+            <?php if (!empty($_GET['autopay'])): ?>
+            bar.innerHTML = '<h3>&#10003; Payment received &amp; autopay enabled</h3><p>Future invoices will be charged to your card automatically &mdash; no action needed.</p>';
+            <?php else: ?>
             bar.innerHTML = '<h3>&#10003; Payment Submitted</h3><p>Your invoice will be updated once the payment is confirmed.</p>';
+            <?php endif; ?>
             var container = document.querySelector('.portal-container');
             container.insertBefore(bar, container.firstChild);
         });
