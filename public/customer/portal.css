@@ -297,6 +297,16 @@ a:hover { text-decoration: underline; }
   box-shadow: var(--p-shadow);
   border-color: var(--p-border-mid);
 }
+.portal-doc-card--outstanding {
+  border-left: 3px solid #e85d04;
+  background: #fffaf5;
+}
+.portal-doc-card--outstanding:hover {
+  border-left-color: #c94d00;
+}
+.portal-section-label--outstanding {
+  color: #b94700;
+}
 .portal-doc-icon {
   width: 40px;
   height: 40px;

@@ -414,47 +414,84 @@ function statusBadge(string $status, bool $overdue = false): string {
         </ul>
       <?php endif; ?>
 
-      <?php if (!empty($invoices)): ?>
-        <p class="portal-section-label">Invoices</p>
-        <ul class="portal-doc-list">
-          <?php foreach ($invoices as $inv): ?>
-            <?php
-              $url = $baseUrl . '/customer/invoice.php?token=' . urlencode($inv['access_token']);
-              $isPastDue = $inv['status'] === 'overdue'
-                  || (in_array($inv['status'], ['sent', 'partial', 'viewed'])
-                      && !empty($inv['due_date'])
-                      && strtotime($inv['due_date']) < time());
-            ?>
-            <li class="portal-doc-card">
-              <div class="portal-doc-icon">
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
-              </div>
-              <div class="portal-doc-info">
-                <div class="portal-doc-number"><?php echo htmlspecialchars($inv['invoice_number']); ?></div>
-                <div class="portal-doc-meta">
-                  <?php echo statusBadge($inv['status'], $isPastDue); ?>
-                  <?php if ($inv['total_amount'] > 0): ?>
-                    <span class="portal-doc-amount">$<?php echo number_format($inv['total_amount'], 2); ?></span>
-                  <?php endif; ?>
-                  <?php
-                    $balDue = floatval($inv['balance_due'] ?? 0);
-                    $amtPaid = floatval($inv['amount_paid'] ?? 0);
-                    if ($balDue > 0 && $amtPaid > 0):
-                  ?>
-                    <span class="portal-doc-balance">Balance: $<?php echo number_format($balDue, 2); ?></span>
-                  <?php endif; ?>
-                  <?php if (!empty($inv['due_date'])): ?>
-                    <span class="portal-doc-date">Due <?php echo date('M j, Y', strtotime($inv['due_date'])); ?></span>
-                  <?php endif; ?>
+      <?php if (!empty($invoices)):
+          $unpaidStatuses  = ['sent', 'viewed', 'partial', 'overdue'];
+          $unpaidInvoices  = array_filter($invoices, fn($i) => in_array($i['status'], $unpaidStatuses, true));
+          $paidInvoices    = array_filter($invoices, fn($i) => !in_array($i['status'], $unpaidStatuses, true));
+          $invoiceIcon     = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>';
+      ?>
+
+        <?php if (!empty($unpaidInvoices)): ?>
+          <p class="portal-section-label portal-section-label--outstanding">
+            Outstanding (<?php echo count($unpaidInvoices); ?>)
+          </p>
+          <ul class="portal-doc-list">
+            <?php foreach ($unpaidInvoices as $inv): ?>
+              <?php
+                $url = $baseUrl . '/customer/invoice.php?token=' . urlencode($inv['access_token']);
+                $isPastDue = $inv['status'] === 'overdue'
+                    || (in_array($inv['status'], ['sent', 'partial', 'viewed'])
+                        && !empty($inv['due_date'])
+                        && strtotime($inv['due_date']) < time());
+                $balDue  = floatval($inv['balance_due'] ?? $inv['total_amount'] ?? 0);
+                $amtPaid = floatval($inv['amount_paid'] ?? 0);
+              ?>
+              <li class="portal-doc-card portal-doc-card--outstanding">
+                <div class="portal-doc-icon">
+                  <?php echo $invoiceIcon; ?>
                 </div>
-              </div>
-              <div class="portal-doc-actions">
-                <button class="portal-btn-outline" onclick="copyLink('<?php echo htmlspecialchars($url, ENT_QUOTES); ?>', this)">Copy</button>
-                <a href="<?php echo htmlspecialchars($url); ?>" class="portal-btn">View</a>
-              </div>
-            </li>
-          <?php endforeach; ?>
-        </ul>
+                <div class="portal-doc-info">
+                  <div class="portal-doc-number"><?php echo htmlspecialchars($inv['invoice_number']); ?></div>
+                  <div class="portal-doc-meta">
+                    <?php echo statusBadge($inv['status'], $isPastDue); ?>
+                    <?php if ($balDue > 0): ?>
+                      <span class="portal-doc-amount">$<?php echo number_format($balDue, 2); ?> due</span>
+                    <?php endif; ?>
+                    <?php if (!empty($inv['due_date'])): ?>
+                      <span class="portal-doc-date">Due <?php echo date('M j, Y', strtotime($inv['due_date'])); ?></span>
+                    <?php endif; ?>
+                  </div>
+                </div>
+                <div class="portal-doc-actions">
+                  <a href="<?php echo htmlspecialchars($url); ?>" class="portal-btn">Pay Now</a>
+                </div>
+              </li>
+            <?php endforeach; ?>
+          </ul>
+        <?php endif; ?>
+
+        <?php if (!empty($paidInvoices)): ?>
+          <p class="portal-section-label" style="margin-top:<?php echo !empty($unpaidInvoices) ? '20px' : '0'; ?>">
+            Invoices
+          </p>
+          <ul class="portal-doc-list">
+            <?php foreach ($paidInvoices as $inv): ?>
+              <?php $url = $baseUrl . '/customer/invoice.php?token=' . urlencode($inv['access_token']); ?>
+              <li class="portal-doc-card">
+                <div class="portal-doc-icon">
+                  <?php echo $invoiceIcon; ?>
+                </div>
+                <div class="portal-doc-info">
+                  <div class="portal-doc-number"><?php echo htmlspecialchars($inv['invoice_number']); ?></div>
+                  <div class="portal-doc-meta">
+                    <?php echo statusBadge($inv['status']); ?>
+                    <?php if ($inv['total_amount'] > 0): ?>
+                      <span class="portal-doc-amount">$<?php echo number_format($inv['total_amount'], 2); ?></span>
+                    <?php endif; ?>
+                    <?php if (!empty($inv['due_date'])): ?>
+                      <span class="portal-doc-date">Due <?php echo date('M j, Y', strtotime($inv['due_date'])); ?></span>
+                    <?php endif; ?>
+                  </div>
+                </div>
+                <div class="portal-doc-actions">
+                  <button class="portal-btn-outline" onclick="copyLink('<?php echo htmlspecialchars($url, ENT_QUOTES); ?>', this)">Copy</button>
+                  <a href="<?php echo htmlspecialchars($url); ?>" class="portal-btn-outline">View</a>
+                </div>
+              </li>
+            <?php endforeach; ?>
+          </ul>
+        <?php endif; ?>
+
       <?php endif; ?>
 
       <?php if (!empty($upcomingVisits)): ?>
