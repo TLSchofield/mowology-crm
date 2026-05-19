@@ -37,8 +37,9 @@ header('Content-Type: application/json; charset=utf-8');
 
 requireLogin();
 $user = getCurrentUser();
+requirePermission('marketing.edit');
 
-// CSRF must be verified before session_write_close
+// CSRF and all session reads must happen before session_write_close
 $csrfToken = trim($_POST['csrf_token'] ?? '');
 if (!verifyCSRFToken($csrfToken)) {
     http_response_code(403);
@@ -47,7 +48,6 @@ if (!verifyCSRFToken($csrfToken)) {
 }
 
 session_write_close();
-requirePermission('marketing.edit');
 
 // ── Method guard ─────────────────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
