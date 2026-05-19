@@ -216,10 +216,16 @@ fi
 LFTP_OUT=$(mktemp)
 trap 'rm -f "$LFTP_OUT"' EXIT
 
+# Atomic deploy: upload to a .deploying temp file, then rename.
+# If the transfer is interrupted the live file is never touched.
+TEMP_NAME="${FILENAME}.deploying"
+TEMP_DEST="${REMOTE_DIR}${TEMP_NAME}"
+
 if ! lftp -u "$FTP_USER,$FTP_PASS" -e "
     set ssl:verify-certificate no
     set ftp:ssl-force true
-    put -O '$REMOTE_DIR' '$LOCAL' -o '$FILENAME'
+    put -O '$REMOTE_DIR' '$LOCAL' -o '$TEMP_NAME'
+    mv '$TEMP_DEST' '$EXPECTED_DEST'
     quit
 " "ftp://$FTP_HOST" >"$LFTP_OUT" 2>&1; then
     echo "ERROR: lftp upload failed" >&2
