@@ -62,6 +62,32 @@ foreach ($rules as $rule) {
     }
 }
 
+// ── 1b. Process campaign_trigger_log events ───────────────────────────────
+// Reads events fired by operational modules (invoices, quotes, jobflow, crew)
+// and evaluates any automation rules whose trigger_type matches the event name.
+
+$unprocessedEvents = $db->query("
+    SELECT * FROM campaign_trigger_log
+    WHERE processed_at IS NULL
+    ORDER BY fired_at ASC
+    LIMIT 100
+")->fetchAll(PDO::FETCH_ASSOC);
+
+logMsg("Found " . count($unprocessedEvents) . " unprocessed trigger log events");
+
+foreach ($unprocessedEvents as $event) {
+    try {
+        processEventLogTrigger($db, $event, $rules);
+    } catch (Throwable $e) {
+        logMsg("ERROR processing trigger_log #{$event['id']} ({$event['event_name']}): " . $e->getMessage());
+        error_log("automation_runner trigger_log #{$event['id']}: " . $e->getMessage());
+    }
+
+    // Always mark processed — prevents infinite retry on permanent failures
+    $db->prepare("UPDATE campaign_trigger_log SET processed_at = NOW() WHERE id = ?")
+       ->execute([$event['id']]);
+}
+
 // ── 2. Process pending queued actions ─────────────────────────────────────
 
 $pending = $db->query("
@@ -557,4 +583,188 @@ function logRow(PDO $db, int $ruleId, int $contactId, string $triggerType, strin
 {
     $db->prepare("INSERT INTO automation_logs (rule_id, contact_id, trigger_type, status, created_at) VALUES (?,?,?,?,NOW())")
        ->execute([$ruleId, $contactId, $triggerType, $status]);
+}
+
+
+// ── Campaign Event Log Processing ──────────────────────────────────────────
+
+/**
+ * Processes a single campaign_trigger_log event against all enabled rules
+ * whose trigger_type matches the event name.
+ */
+function processEventLogTrigger(PDO $db, array $event, array $rules): void
+{
+    $eventName = $event['event_name'];
+    $payload   = json_decode($event['payload'] ?? '{}', true) ?: [];
+
+    $matchingRules = array_filter($rules, function ($r) use ($eventName) {
+        return $r['trigger_type'] === $eventName;
+    });
+
+    if (empty($matchingRules)) {
+        logMsg("  trigger_log #{$event['id']} ({$eventName}): no matching rules");
+        return;
+    }
+
+    // Resolve contact — use stored contact_id if available, else look up via entity
+    $contactId = !empty($event['contact_id'])
+        ? (int)$event['contact_id']
+        : resolveContactFromEvent($db, $event);
+
+    if (!$contactId) {
+        logMsg("  trigger_log #{$event['id']} ({$eventName}): could not resolve contact");
+        return;
+    }
+
+    $contactStmt = $db->prepare("
+        SELECT id, first_name, last_name, email, receive_marketing
+        FROM contacts
+        WHERE id = ? AND is_active = 1
+    ");
+    $contactStmt->execute([$contactId]);
+    $contact = $contactStmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$contact) {
+        logMsg("  trigger_log #{$event['id']} ({$eventName}): contact #{$contactId} not found or inactive");
+        return;
+    }
+
+    foreach ($matchingRules as $rule) {
+        $conditions = json_decode($rule['conditions'] ?? '[]', true) ?: [];
+        $actions    = json_decode($rule['actions']   ?? '[]', true) ?: [];
+
+        if (empty($actions)) continue;
+
+        // Cooldown check
+        if ($rule['cooldown_hours'] > 0) {
+            $chk = $db->prepare("
+                SELECT id FROM automation_logs
+                WHERE rule_id=? AND contact_id=? AND status='completed'
+                  AND created_at >= DATE_SUB(NOW(), INTERVAL ? HOUR)
+                LIMIT 1
+            ");
+            $chk->execute([$rule['id'], $contactId, $rule['cooldown_hours']]);
+            if ($chk->fetchColumn()) {
+                logMsg("  trigger_log #{$event['id']}: rule #{$rule['id']} on cooldown for contact #{$contactId}");
+                continue;
+            }
+        }
+
+        // Max executions check
+        if ($rule['max_executions'] > 0 && $rule['execution_count'] >= $rule['max_executions']) {
+            $db->prepare("UPDATE automation_rules SET is_enabled=0 WHERE id=?")->execute([$rule['id']]);
+            logMsg("  Rule #{$rule['id']}: max executions reached, disabled.");
+            continue;
+        }
+
+        // Evaluate conditions (supports payload.* fields)
+        if (!empty($conditions)) {
+            if (!evaluateConditionsWithPayload($db, $contactId, $conditions, $payload)) {
+                logRow($db, $rule['id'], $contactId, $eventName, 'conditions_failed');
+                continue;
+            }
+        }
+
+        // Queue actions
+        foreach ($actions as $i => $action) {
+            $schedTime = date('Y-m-d H:i:s', time() + ($i * 60));
+            $db->prepare("
+                INSERT INTO queued_actions
+                    (rule_id, contact_id, action_type, action_data, status, scheduled_at, created_at)
+                VALUES (?, ?, ?, ?, 'pending', ?, NOW())
+            ")->execute([
+                $rule['id'],
+                $contactId,
+                $action['type'] ?? 'unknown',
+                json_encode(array_merge(
+                    $action['config'] ?? [],
+                    ['contact' => $contact, 'event_payload' => $payload]
+                )),
+                $schedTime,
+            ]);
+        }
+
+        logRow($db, $rule['id'], $contactId, $eventName, 'triggered');
+        $db->prepare("UPDATE automation_rules SET execution_count=execution_count+1, last_executed_at=NOW() WHERE id=?")
+           ->execute([$rule['id']]);
+        logMsg("  trigger_log #{$event['id']} ({$eventName}): queued " . count($actions) . " action(s) for contact #{$contactId} via rule #{$rule['id']}");
+    }
+}
+
+/**
+ * Resolves the contact_id for a trigger log event when it wasn't stored directly.
+ * Looks up the owning contact via the entity's table.
+ */
+function resolveContactFromEvent(PDO $db, array $event): int
+{
+    $entityType = $event['entity_type'];
+    $entityId   = (int)$event['entity_id'];
+
+    switch ($entityType) {
+        case 'invoice':
+            $stmt = $db->prepare("SELECT contact_id FROM invoices WHERE id = ?");
+            $stmt->execute([$entityId]);
+            return (int)($stmt->fetchColumn() ?: 0);
+
+        case 'quote':
+            $stmt = $db->prepare("SELECT contact_id FROM quotes WHERE id = ?");
+            $stmt->execute([$entityId]);
+            return (int)($stmt->fetchColumn() ?: 0);
+
+        case 'job_visit':
+            $stmt = $db->prepare("
+                SELECT jp.contact_id
+                FROM job_visits jv
+                INNER JOIN job_plans jp ON jp.id = jv.plan_id
+                WHERE jv.id = ?
+            ");
+            $stmt->execute([$entityId]);
+            return (int)($stmt->fetchColumn() ?: 0);
+
+        case 'lead':
+            $stmt = $db->prepare("SELECT contact_id FROM quote_requests WHERE id = ?");
+            $stmt->execute([$entityId]);
+            return (int)($stmt->fetchColumn() ?: 0);
+
+        default:
+            return 0;
+    }
+}
+
+/**
+ * Like evaluateConditions() but also handles payload.* fields that filter
+ * on values in the event payload (e.g. payload.lead_quality = 'high').
+ */
+function evaluateConditionsWithPayload(PDO $db, int $contactId, array $conditions, array $payload): bool
+{
+    foreach ($conditions as $cond) {
+        $field    = $cond['field']    ?? '';
+        $operator = $cond['operator'] ?? 'eq';
+        $value    = $cond['value']    ?? '';
+
+        if (strpos($field, 'payload.') === 0) {
+            $payloadKey = substr($field, 8);
+            $actual     = $payload[$payloadKey] ?? null;
+            if ($actual === null) return false;
+
+            $pass = false;
+            switch ($operator) {
+                case 'eq':       $pass = (string)$actual === (string)$value; break;
+                case 'not_eq':   $pass = (string)$actual !== (string)$value; break;
+                case 'gt':       $pass = (float)$actual >  (float)$value;   break;
+                case 'gte':      $pass = (float)$actual >= (float)$value;   break;
+                case 'lt':       $pass = (float)$actual <  (float)$value;   break;
+                case 'lte':      $pass = (float)$actual <= (float)$value;   break;
+                case 'contains': $pass = strpos((string)$actual, (string)$value) !== false; break;
+                default:         $pass = true;
+            }
+            if (!$pass) return false;
+            continue;
+        }
+
+        if (!evaluateSingleCondition($db, $contactId, $field, $operator, $value)) {
+            return false;
+        }
+    }
+    return true;
 }
