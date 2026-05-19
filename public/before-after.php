@@ -131,43 +131,43 @@ require __DIR__ . '/includes/header.php';
 
 <script>
 (function () {
-  var filterBtns  = document.querySelectorAll('.ba-filter-btn');
-  var cards       = document.querySelectorAll('.ba-card');
-  var emptyMsg    = document.getElementById('baEmptyMsg');
-  var grid        = document.getElementById('baGrid');
-  var backdrop    = document.getElementById('baBackdrop');
-  var lb          = document.getElementById('baLb');
-  var lbAfter     = document.getElementById('baLbAfter');
-  var lbBefore    = document.getElementById('baLbBefore');
-  var lbLine      = document.getElementById('baLbLine');
-  var lbGrip      = document.getElementById('baLbGrip');
-  var lbMeta      = document.getElementById('baLbMeta');
-  var closeBtn    = document.getElementById('baClose');
-  var prevBtn     = document.getElementById('baPrev');
-  var nextBtn     = document.getElementById('baNext');
-  var slider      = document.getElementById('baSlider');
+  var filterBtns = document.querySelectorAll('.ba-filter-btn');
+  var cards      = document.querySelectorAll('.ba-card');
+  var emptyMsg   = document.getElementById('baEmptyMsg');
+  var grid       = document.getElementById('baGrid');
+  var backdrop   = document.getElementById('baBackdrop');
+  var lb         = document.getElementById('baLb');
+  var lbAfter    = document.getElementById('baLbAfter');
+  var lbBefore   = document.getElementById('baLbBefore');
+  var lbLine     = document.getElementById('baLbLine');
+  var lbGrip     = document.getElementById('baLbGrip');
+  var lbMeta     = document.getElementById('baLbMeta');
+  var closeBtn   = document.getElementById('baClose');
+  var prevBtn    = document.getElementById('baPrev');
+  var nextBtn    = document.getElementById('baNext');
+  var lbSlider   = document.getElementById('baSlider');
 
-  var allPairs    = [];
-  var visibleIdx  = [];
-  var curPos      = 0;
-  var dragging    = false;
+  var allPairs   = [];
+  var visibleIdx = [];
+  var curPos     = 0;
+
+  // Card-level drag state
+  var activeCard  = null;
+  var cardStartX  = 0;
+  var cardDidDrag = false;
+
+  // Lightbox drag state
+  var lbDragging = false;
 
   if (grid) {
     try { allPairs = JSON.parse(grid.dataset.pairs || '[]'); } catch (e) {}
   }
 
-  // ── Helpers ──────────────────────────────────────────────────────────
+  // ── Helpers ───────────────────────────────────────────────────────────
   function esc(str) {
     var d = document.createElement('div');
     d.textContent = str || '';
     return d.innerHTML;
-  }
-
-  function setSliderPct(pct) {
-    lbBefore.style.clipPath = 'inset(0 ' + (100 - pct) + '% 0 0)';
-    lbLine.style.left       = pct + '%';
-    lbGrip.style.left       = pct + '%';
-    lbGrip.style.transform  = 'translate(-50%, -50%)';
   }
 
   function rebuildVisible() {
@@ -179,41 +179,42 @@ require __DIR__ . '/includes/header.php';
     });
   }
 
-  // ── Filter ───────────────────────────────────────────────────────────
+  // ── Filter ────────────────────────────────────────────────────────────
   filterBtns.forEach(function (btn) {
     btn.addEventListener('click', function () {
       var filter = btn.dataset.filter;
       filterBtns.forEach(function (b) { b.classList.remove('is-active'); });
       btn.classList.add('is-active');
-
       var visible = 0;
       cards.forEach(function (card) {
         var show = filter === 'all' || (card.dataset.category || 'general') === filter;
         card.classList.toggle('is-hidden', !show);
         if (show) visible++;
       });
-
       if (emptyMsg) emptyMsg.style.display = visible === 0 ? 'block' : 'none';
     });
   });
 
-  // ── Lightbox open/close ──────────────────────────────────────────────
+  // ── Lightbox ──────────────────────────────────────────────────────────
+  function setLbPct(pct) {
+    lbBefore.style.clipPath = 'inset(0 ' + (100 - pct) + '% 0 0)';
+    lbLine.style.left       = pct + '%';
+    lbGrip.style.left       = pct + '%';
+    lbGrip.style.transform  = 'translate(-50%, -50%)';
+  }
+
   function openLb(pairIdx) {
     var pair = allPairs[pairIdx];
     if (!pair) return;
-
     lbAfter.style.backgroundImage  = 'url(' + pair.after_url  + ')';
     lbBefore.style.backgroundImage = 'url(' + pair.before_url + ')';
-    setSliderPct(50);
-
+    setLbPct(50);
     var meta = '';
     if (pair.service) meta += '<div class="ba-lb__meta-service">' + esc(pair.service) + '</div>';
     if (pair.label)   meta += '<div class="ba-lb__meta-title">'   + esc(pair.label)   + '</div>';
     lbMeta.innerHTML = meta;
-
     curPos = visibleIdx.indexOf(pairIdx);
     if (curPos === -1) curPos = 0;
-
     backdrop.classList.add('is-open');
     lb.classList.add('is-open');
     document.body.style.overflow = 'hidden';
@@ -227,21 +228,6 @@ require __DIR__ . '/includes/header.php';
   }
 
   if (!grid || !lb) return;
-
-  // ── Card click ───────────────────────────────────────────────────────
-  cards.forEach(function (card) {
-    card.addEventListener('click', function () {
-      rebuildVisible();
-      openLb(parseInt(card.dataset.index, 10));
-    });
-    card.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        rebuildVisible();
-        openLb(parseInt(card.dataset.index, 10));
-      }
-    });
-  });
 
   closeBtn.addEventListener('click', closeLb);
   backdrop.addEventListener('click', closeLb);
@@ -265,35 +251,108 @@ require __DIR__ . '/includes/header.php';
     if (e.key === 'ArrowRight') { curPos = (curPos + 1) % visibleIdx.length; openLb(visibleIdx[curPos]); }
   });
 
-  // ── Slider drag ──────────────────────────────────────────────────────
-  function getPct(e) {
-    var r = slider.getBoundingClientRect();
+  // ── Lightbox slider drag ──────────────────────────────────────────────
+  function getLbPct(e) {
+    var r = lbSlider.getBoundingClientRect();
     var x = (e.touches ? e.touches[0].clientX : e.clientX) - r.left;
     return Math.min(100, Math.max(0, (x / r.width) * 100));
   }
 
-  slider.addEventListener('mousedown', function (e) {
-    dragging = true;
-    setSliderPct(getPct(e));
+  lbSlider.addEventListener('mousedown', function (e) {
+    lbDragging = true;
+    setLbPct(getLbPct(e));
     e.preventDefault();
   });
 
-  document.addEventListener('mousemove', function (e) {
-    if (dragging) setSliderPct(getPct(e));
-  });
-
-  document.addEventListener('mouseup', function () { dragging = false; });
-
-  slider.addEventListener('touchstart', function (e) {
-    dragging = true;
-    setSliderPct(getPct(e));
+  lbSlider.addEventListener('touchstart', function (e) {
+    lbDragging = true;
+    setLbPct(getLbPct(e));
   }, { passive: true });
 
-  slider.addEventListener('touchmove', function (e) {
-    if (dragging) { setSliderPct(getPct(e)); e.preventDefault(); }
+  lbSlider.addEventListener('touchmove', function (e) {
+    if (lbDragging) { setLbPct(getLbPct(e)); e.preventDefault(); }
   }, { passive: false });
 
-  slider.addEventListener('touchend', function () { dragging = false; });
+  lbSlider.addEventListener('touchend', function () { lbDragging = false; });
+
+  // ── Card in-place drag slider ─────────────────────────────────────────
+  function getCardPct(card, e) {
+    var r = card.getBoundingClientRect();
+    var x = (e.touches ? e.touches[0].clientX : e.clientX) - r.left;
+    return Math.min(100, Math.max(0, (x / r.width) * 100));
+  }
+
+  function setCardPct(card, pct) {
+    var beforeEl = card.querySelector('.ba-card__before');
+    var lineEl   = card.querySelector('.ba-card__line');
+    var handleEl = card.querySelector('.ba-card__handle');
+    beforeEl.style.clipPath  = 'inset(0 ' + (100 - pct) + '% 0 0)';
+    lineEl.style.left        = pct + '%';
+    handleEl.style.left      = pct + '%';
+    handleEl.style.transform = 'translate(-50%, -50%)';
+  }
+
+  cards.forEach(function (card) {
+    // Init slider at 50%
+    setCardPct(card, 50);
+
+    card.addEventListener('mousedown', function (e) {
+      if (lb.classList.contains('is-open')) return;
+      activeCard  = card;
+      cardDidDrag = false;
+      cardStartX  = e.clientX;
+      setCardPct(card, getCardPct(card, e));
+      e.preventDefault();
+    });
+
+    card.addEventListener('touchstart', function (e) {
+      activeCard  = card;
+      cardDidDrag = false;
+      cardStartX  = e.touches[0].clientX;
+      setCardPct(card, getCardPct(card, e));
+    }, { passive: true });
+
+    card.addEventListener('touchmove', function (e) {
+      if (activeCard !== card) return;
+      if (Math.abs(e.touches[0].clientX - cardStartX) > 4) cardDidDrag = true;
+      setCardPct(card, getCardPct(card, e));
+      e.preventDefault();
+    }, { passive: false });
+
+    card.addEventListener('touchend', function () {
+      if (activeCard === card && !cardDidDrag) {
+        rebuildVisible();
+        openLb(parseInt(card.dataset.index, 10));
+      }
+      activeCard = null;
+    });
+
+    card.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        rebuildVisible();
+        openLb(parseInt(card.dataset.index, 10));
+      }
+    });
+  });
+
+  document.addEventListener('mousemove', function (e) {
+    if (lbDragging)  { setLbPct(getLbPct(e)); return; }
+    if (!activeCard) return;
+    if (Math.abs(e.clientX - cardStartX) > 4) cardDidDrag = true;
+    setCardPct(activeCard, getCardPct(activeCard, e));
+  });
+
+  document.addEventListener('mouseup', function () {
+    if (lbDragging) { lbDragging = false; return; }
+    if (!activeCard) return;
+    var card = activeCard;
+    activeCard = null;
+    if (!cardDidDrag) {
+      rebuildVisible();
+      openLb(parseInt(card.dataset.index, 10));
+    }
+  });
 })();
 </script>
 
