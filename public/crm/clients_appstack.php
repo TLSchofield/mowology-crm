@@ -4043,34 +4043,59 @@ $unconvertedRequests = $db->query("
                 btn.disabled = true;
                 btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Adding...';
 
+                var propCity = document.getElementById('propCity').value.trim() || 'Vancouver';
+                var propPostalCode = document.getElementById('propPostalCode').value.trim();
+                var propName = document.getElementById('propName').value.trim();
+
                 fetch('clients_appstack.php?action=add_property_to_contact', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
                     contact_id: CONTACT_ID,
                     address: address,
-                    city: document.getElementById('propCity').value.trim() || 'Vancouver',
-                    postal_code: document.getElementById('propPostalCode').value.trim(),
-                    property_name: document.getElementById('propName').value.trim(),
+                    city: propCity,
+                    postal_code: propPostalCode,
+                    property_name: propName,
                     csrf_token: CSRF_TOKEN
                   })
                 })
                 .then(function(r) { return r.json(); })
                 .then(function(data) {
                   if (data.success) {
-                    // Geocode the new property, then prompt for arrival border
                     var newPropId = data.property_id;
-                    geocodePropertyAjax(newPropId).then(function() {
-                      // Geocode succeeded — prompt to draw arrival border
+                    // Geocode using the form address directly (new properties aren't in propertiesData yet)
+                    var geocodePromise = new Promise(function(resolve) {
+                      var timer = setTimeout(function() { resolve(false); }, 6000);
+                      try {
+                        if (!geocoder) geocoder = new google.maps.Geocoder();
+                        var fullAddr = [address, propCity, 'BC', propPostalCode, 'Canada'].filter(Boolean).join(', ');
+                        geocoder.geocode({ address: fullAddr }, function(results, status) {
+                          clearTimeout(timer);
+                          if (status === 'OK' && results[0]) {
+                            var loc = results[0].geometry.location;
+                            fetch('clients_appstack.php?action=save_property_coords', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ property_id: newPropId, lat: loc.lat(), lng: loc.lng(), csrf_token: CSRF_TOKEN })
+                            }).then(function() { resolve(true); }).catch(function() { resolve(false); });
+                          } else {
+                            resolve(false);
+                          }
+                        });
+                      } catch(e) { clearTimeout(timer); resolve(false); }
+                    });
+
+                    geocodePromise.then(function(geocoded) {
                       $('#addPropertyModal').modal('hide');
-                      var returnTo = 'clients_appstack.php?action=view_contact&id=' + CONTACT_ID;
-                      var zoneUrl = 'jobs/zone-editor.php?property_id=' + newPropId + '&return_to=' + encodeURIComponent(returnTo);
-                      document.getElementById('drawBorderNowBtn').href = zoneUrl;
-                      $('#arrivalBorderPromptModal').modal('show');
-                      feather.replace();
-                    }).catch(function() {
-                      // Geocode failed — just reload (can't draw border without coords)
-                      location.reload();
+                      if (geocoded) {
+                        var returnTo = 'clients_appstack.php?action=view_contact&id=' + CONTACT_ID;
+                        var zoneUrl = 'jobs/zone-editor.php?property_id=' + newPropId + '&return_to=' + encodeURIComponent(returnTo);
+                        document.getElementById('drawBorderNowBtn').href = zoneUrl;
+                        $('#arrivalBorderPromptModal').modal('show');
+                        feather.replace();
+                      } else {
+                        location.reload();
+                      }
                     });
                   } else {
                     alert('Error: ' + (data.error || 'Unknown error'));
