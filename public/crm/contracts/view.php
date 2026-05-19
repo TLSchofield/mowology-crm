@@ -88,6 +88,47 @@ if (isset($_GET['from']) && $_GET['from'] === 'quote') { $message = 'Contract al
 
 $plans = getContractPlans($contractId);
 
+// ── Billing stats (invoices via plan_id → job_plans.contract_id) ─────────
+$billingStmt = $db->prepare("
+    SELECT
+        COALESCE(SUM(i.total), 0)                                                      AS total_billed,
+        COALESCE(SUM(i.total - i.balance_due), 0)                                      AS total_collected,
+        COALESCE(SUM(i.balance_due), 0)                                                AS total_outstanding,
+        COUNT(*)                                                                        AS invoice_count,
+        SUM(CASE WHEN i.status NOT IN ('paid','cancelled') THEN 1 ELSE 0 END)          AS open_count
+    FROM invoices i
+    JOIN job_plans jp ON i.plan_id = jp.id
+    WHERE jp.contract_id = ?
+    AND i.status != 'cancelled'
+");
+$billingStmt->execute([$contractId]);
+$billing = $billingStmt->fetch(PDO::FETCH_ASSOC) ?: [
+    'total_billed' => 0, 'total_collected' => 0, 'total_outstanding' => 0,
+    'invoice_count' => 0, 'open_count' => 0,
+];
+
+$recentInvStmt = $db->prepare("
+    SELECT i.id, i.invoice_number, i.issue_date, i.total, i.status
+    FROM invoices i
+    JOIN job_plans jp ON i.plan_id = jp.id
+    WHERE jp.contract_id = ?
+    AND i.status != 'cancelled'
+    ORDER BY i.issue_date DESC
+    LIMIT 5
+");
+$recentInvStmt->execute([$contractId]);
+$recentInvoices = $recentInvStmt->fetchAll(PDO::FETCH_ASSOC);
+
+// ── Next service date across all plans ───────────────────────────────────
+$nextService = null;
+foreach ($plans as $plan) {
+    if (!empty($plan['next_visit_date'])) {
+        if ($nextService === null || $plan['next_visit_date'] < $nextService) {
+            $nextService = $plan['next_visit_date'];
+        }
+    }
+}
+
 // Reconciliation: sum of plan estimated_amounts vs contract billing_amount
 $plansAllocated  = array_sum(array_map(fn($p) => (float)($p['estimated_amount'] ?? 0), $plans));
 $contractBilling = (float)($contract['billing_amount'] ?? 0);
@@ -219,7 +260,7 @@ if ($hasPropCoords && !$hasBorder) {
 
           <!-- ── Summary Row ─────────────────────────────────────────────────── -->
           <div class="row mb-4">
-              <div class="col-6 col-lg-3">
+              <div class="col-6 col-md-4 col-lg-2">
                   <div class="card">
                       <div class="card-body">
                           <div class="mw-stat-label">Plans</div>
@@ -229,10 +270,10 @@ if ($hasPropCoords && !$hasBorder) {
                       </div>
                   </div>
               </div>
-              <div class="col-6 col-lg-3">
+              <div class="col-6 col-md-4 col-lg-2">
                   <div class="card">
                       <div class="card-body">
-                          <div class="mw-stat-label">Billing</div>
+                          <div class="mw-stat-label">Billing Rate</div>
                           <div class="mw-stat-value">
                               <?php if ($contract['billing_amount']): ?>
                                   $<?php echo number_format((float)$contract['billing_amount'], 2); ?>
@@ -246,37 +287,57 @@ if ($hasPropCoords && !$hasBorder) {
                       </div>
                   </div>
               </div>
-              <div class="col-6 col-lg-3">
+              <div class="col-6 col-md-4 col-lg-2">
                   <div class="card">
                       <div class="card-body">
-                          <div class="mw-stat-label">Start Date</div>
+                          <div class="mw-stat-label">Total Billed</div>
                           <div class="mw-stat-value">
-                              <?php echo $contract['start_date'] ? date('M j, Y', strtotime($contract['start_date'])) : '—'; ?>
+                              <?php if ((float)$billing['total_billed'] > 0): ?>
+                                  $<?php echo number_format((float)$billing['total_billed'], 0); ?>
+                              <?php else: ?>
+                                  <span class="text-muted">—</span>
+                              <?php endif; ?>
                           </div>
                       </div>
                   </div>
               </div>
-              <div class="col-6 col-lg-3">
+              <div class="col-6 col-md-4 col-lg-2">
                   <div class="card">
                       <div class="card-body">
-                          <div class="mw-stat-label">
-                              <?php
-                              if ($contract['auto_renew'] ?? 0) {
-                                  echo 'Next Renewal';
-                              } else {
-                                  echo $contract['renewal_date'] ? 'Renewal Date' : 'End Date';
-                              }
-                              ?>
+                          <div class="mw-stat-label">Collected</div>
+                          <div class="mw-stat-value" style="color: var(--mw-green);">
+                              <?php if ((float)$billing['total_collected'] > 0): ?>
+                                  $<?php echo number_format((float)$billing['total_collected'], 0); ?>
+                              <?php else: ?>
+                                  <span class="text-muted">—</span>
+                              <?php endif; ?>
                           </div>
+                      </div>
+                  </div>
+              </div>
+              <div class="col-6 col-md-4 col-lg-2">
+                  <div class="card">
+                      <div class="card-body">
+                          <div class="mw-stat-label">Outstanding</div>
+                          <div class="mw-stat-value" <?php if ((float)$billing['total_outstanding'] > 0) echo 'style="color: var(--mw-orange);"'; ?>>
+                              <?php if ((float)$billing['total_outstanding'] > 0): ?>
+                                  $<?php echo number_format((float)$billing['total_outstanding'], 0); ?>
+                              <?php else: ?>
+                                  <span class="text-muted">—</span>
+                              <?php endif; ?>
+                          </div>
+                      </div>
+                  </div>
+              </div>
+              <div class="col-6 col-md-4 col-lg-2">
+                  <div class="card">
+                      <div class="card-body">
+                          <div class="mw-stat-label">Next Service</div>
                           <div class="mw-stat-value">
-                              <?php
-                              $d = $contract['renewal_date'] ?: $contract['end_date'];
-                              echo $d ? date('M j, Y', strtotime($d)) : 'Ongoing';
-                              ?>
-                              <?php if ($contract['auto_renew'] ?? 0): ?>
-                                  <small class="d-block" style="font-size:.72rem;color:var(--mw-green);font-weight:600;">
-                                      Auto-renews<?php echo (($contract['renewal_increase_pct'] ?? 0) > 0) ? ' +' . number_format((float)$contract['renewal_increase_pct'], 1) . '%' : ''; ?>
-                                  </small>
+                              <?php if ($nextService): ?>
+                                  <?php echo date('M j', strtotime($nextService)); ?>
+                              <?php else: ?>
+                                  <span class="text-muted">—</span>
                               <?php endif; ?>
                           </div>
                       </div>
@@ -284,8 +345,10 @@ if ($hasPropCoords && !$hasBorder) {
               </div>
           </div>
 
-          <!-- ── Service Plans ────────────────────────────────────────────────── -->
-          <div class="card mb-4">
+          <!-- ── Service Plans + Billing Summary ──────────────────────────────── -->
+          <div class="row mb-4">
+          <div class="col-md-8">
+          <div class="card">
               <div class="card-header d-flex align-items-center justify-content-between">
                   <h5 class="card-title mb-0">
                       <i data-feather="briefcase" style="width:16px;height:16px;vertical-align:-2px;"></i>
@@ -394,6 +457,90 @@ if ($hasPropCoords && !$hasBorder) {
               </div>
               <?php endif; ?>
           </div>
+          </div><!-- /.col-md-8 -->
+
+          <!-- ── Billing Summary ──────────────────────────────────────────────── -->
+          <div class="col-md-4">
+              <div class="card">
+                  <div class="card-header d-flex align-items-center justify-content-between">
+                      <h5 class="card-title mb-0">
+                          <i data-feather="dollar-sign" style="width:16px;height:16px;vertical-align:-2px;"></i>
+                          Billing Summary
+                      </h5>
+                      <?php
+                      $timingLabels = ['after_visit' => 'After Visit', 'end_of_month' => 'End of Month', 'upfront' => 'Upfront'];
+                      $timing = $contract['invoice_timing'] ?? 'after_visit';
+                      ?>
+                      <span class="mw-invoice-timing-badge mw-timing-<?php echo htmlspecialchars($timing); ?>">
+                          <?php echo htmlspecialchars($timingLabels[$timing] ?? $timing); ?>
+                      </span>
+                  </div>
+                  <div class="card-body">
+                      <div class="mw-billing-stat">
+                          <div class="mw-billing-stat-label">Total Billed</div>
+                          <div class="mw-billing-stat-value">
+                              $<?php echo number_format((float)$billing['total_billed'], 2); ?>
+                          </div>
+                      </div>
+                      <div class="mw-billing-stat">
+                          <div class="mw-billing-stat-label">Collected</div>
+                          <div class="mw-billing-stat-value is-green">
+                              $<?php echo number_format((float)$billing['total_collected'], 2); ?>
+                          </div>
+                      </div>
+                      <div class="mw-billing-stat">
+                          <div class="mw-billing-stat-label">Outstanding</div>
+                          <div class="mw-billing-stat-value <?php echo (float)$billing['total_outstanding'] > 0 ? 'is-orange' : ''; ?>">
+                              $<?php echo number_format((float)$billing['total_outstanding'], 2); ?>
+                          </div>
+                      </div>
+                      <?php
+                      $pctCollected = (float)$billing['total_billed'] > 0
+                          ? round(((float)$billing['total_collected'] / (float)$billing['total_billed']) * 100)
+                          : 0;
+                      ?>
+                      <div class="mw-billing-meta">
+                          <?php echo $pctCollected; ?>% collected
+                          &middot;
+                          <?php echo (int)$billing['open_count']; ?> open
+                          <?php echo (int)$billing['invoice_count']; ?> total
+                      </div>
+                      <?php if ($nextService): ?>
+                      <div class="mw-billing-meta" style="border-top:none;margin-top:4px;padding-top:0;">
+                          Next service <?php echo date('M j, Y', strtotime($nextService)); ?>
+                      </div>
+                      <?php endif; ?>
+
+                      <?php if (!empty($recentInvoices)): ?>
+                          <div class="mw-billing-section-label">Recent Invoices</div>
+                          <?php foreach ($recentInvoices as $inv): ?>
+                              <div class="mw-billing-invoice-row">
+                                  <div>
+                                      <a href="../invoices/view.php?id=<?php echo (int)$inv['id']; ?>"
+                                         class="mw-billing-invoice-num">
+                                          <?php echo htmlspecialchars($inv['invoice_number']); ?>
+                                      </a>
+                                      <div class="mw-billing-invoice-date">
+                                          <?php echo date('M j, Y', strtotime($inv['issue_date'])); ?>
+                                      </div>
+                                  </div>
+                                  <div class="mw-billing-invoice-right">
+                                      <div class="mw-billing-invoice-amount">
+                                          $<?php echo number_format((float)$inv['total'], 2); ?>
+                                      </div>
+                                      <div><?php echo getStatusBadge($inv['status'], 'invoice'); ?></div>
+                                  </div>
+                              </div>
+                          <?php endforeach; ?>
+                          <a href="../invoices/index.php?contract=<?php echo $contractId; ?>"
+                             class="mw-billing-view-all">View all invoices &rarr;</a>
+                      <?php else: ?>
+                          <div class="mw-billing-empty">No invoices yet</div>
+                      <?php endif; ?>
+                  </div>
+              </div>
+          </div><!-- /.col-md-4 -->
+          </div><!-- /.row -->
 
           <!-- ── Contract Details ─────────────────────────────────────────────── -->
           <div class="row">

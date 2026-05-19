@@ -7308,6 +7308,105 @@ tr[data-href] { cursor: pointer; }
   object-fit: contain;
 }
 
+/* ── Global stat card typography (used across CRM: contracts, reports, map, etc.) ── */
+.mw-stat-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #888;
+  margin-bottom: 4px;
+}
+.mw-stat-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: #1e2433;
+  line-height: 1.1;
+}
+
+/* ── Invoice timing badge (contracts view) ───────────────────────────── */
+.mw-invoice-timing-badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.mw-timing-upfront      { background: #dbeafe; color: #1d4ed8; }
+.mw-timing-after_visit  { background: #f3f4f6; color: #6b7280; }
+.mw-timing-end_of_month { background: #fef3c7; color: #92400e; }
+
+/* ── Billing Summary sidebar (contracts view) ────────────────────────── */
+.mw-billing-stat { margin-bottom: 14px; }
+.mw-billing-stat-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: #888;
+  margin-bottom: 2px;
+}
+.mw-billing-stat-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: #1e2433;
+  line-height: 1.2;
+}
+.mw-billing-stat-value.is-green    { color: var(--mw-green); }
+.mw-billing-stat-value.is-orange   { color: var(--mw-orange); }
+.mw-billing-meta {
+  font-size: 12px;
+  color: #888;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #f0f2f4;
+}
+.mw-billing-section-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: #aaa;
+  margin-bottom: 8px;
+  margin-top: 16px;
+}
+.mw-billing-invoice-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 7px 0;
+  border-bottom: 1px solid #f4f5f6;
+}
+.mw-billing-invoice-row:last-child { border-bottom: none; }
+.mw-billing-invoice-num {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--mw-green);
+  text-decoration: none;
+}
+.mw-billing-invoice-num:hover { color: var(--mw-dark); text-decoration: none; }
+.mw-billing-invoice-date { font-size: 11px; color: #888; }
+.mw-billing-invoice-right { text-align: right; }
+.mw-billing-invoice-amount { font-size: 13px; font-weight: 700; color: #1e2433; }
+.mw-billing-view-all {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--mw-green);
+  text-decoration: none;
+  display: block;
+  text-align: right;
+  margin-top: 10px;
+}
+.mw-billing-view-all:hover { color: var(--mw-dark); text-decoration: none; }
+.mw-billing-empty {
+  text-align: center;
+  padding: 20px 0;
+  color: #aaa;
+  font-size: 13px;
+}
+
 .card {
   border-color: #dee2e6;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
