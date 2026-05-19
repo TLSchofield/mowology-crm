@@ -467,24 +467,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
         }
 
         try {
-            // Verify property belongs to this contact
-            $checkStmt = $db->prepare("SELECT id FROM properties WHERE id = ? AND site_contact_id = ?");
-            $checkStmt->execute([$propertyId, $currentContactId]);
-            if (!$checkStmt->fetch()) {
+            // Verify property is linked to this contact via site_contact_id OR property_contacts junction table
+            $checkDirect = $db->prepare("SELECT id FROM properties WHERE id = ? AND site_contact_id = ?");
+            $checkDirect->execute([$propertyId, $currentContactId]);
+            $linkedDirect = (bool)$checkDirect->fetch();
+
+            $checkJunction = $db->prepare("SELECT property_id FROM property_contacts WHERE property_id = ? AND contact_id = ?");
+            $checkJunction->execute([$propertyId, $currentContactId]);
+            $linkedJunction = (bool)$checkJunction->fetch();
+
+            if (!$linkedDirect && !$linkedJunction) {
                 http_response_code(400);
                 echo json_encode(['success' => false, 'error' => 'Property not found or not linked to this contact']);
                 exit;
             }
 
             if ($newContactId > 0) {
-                // Reassign to different contact
-                $db->prepare("UPDATE properties SET site_contact_id = ? WHERE id = ?")
-                   ->execute([$newContactId, $propertyId]);
+                // Reassign: update direct link and replace junction row
+                if ($linkedDirect) {
+                    $db->prepare("UPDATE properties SET site_contact_id = ? WHERE id = ?")->execute([$newContactId, $propertyId]);
+                }
+                if ($linkedJunction) {
+                    $db->prepare("DELETE FROM property_contacts WHERE property_id = ? AND contact_id = ?")->execute([$propertyId, $currentContactId]);
+                    $db->prepare("INSERT IGNORE INTO property_contacts (property_id, contact_id) VALUES (?, ?)")->execute([$propertyId, $newContactId]);
+                }
                 echo json_encode(['success' => true, 'action' => 'reassigned']);
             } else {
-                // Unlink (set to NULL)
-                $db->prepare("UPDATE properties SET site_contact_id = NULL WHERE id = ?")
-                   ->execute([$propertyId]);
+                // Unlink: remove from both sources
+                if ($linkedDirect) {
+                    $db->prepare("UPDATE properties SET site_contact_id = NULL WHERE id = ?")->execute([$propertyId]);
+                }
+                if ($linkedJunction) {
+                    $db->prepare("DELETE FROM property_contacts WHERE property_id = ? AND contact_id = ?")->execute([$propertyId, $currentContactId]);
+                }
                 echo json_encode(['success' => true, 'action' => 'unlinked']);
             }
         } catch (Exception $e) {
