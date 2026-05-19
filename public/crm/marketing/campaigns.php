@@ -12,6 +12,29 @@ requirePermission('marketing.view');
 
 $canEdit = userHasPermission('marketing.edit');
 
+// Load pending-approval campaigns (queued + auto_send=0)
+$pendingApproval = [];
+if ($canEdit) {
+    try {
+        $db = getDB();
+        $paStmt = $db->query("
+            SELECT mc.id, mc.name, mc.trigger_type, mc.recipient_count, mc.created_at,
+                   COALESCE(mc.subject_override, et.subject, '(no subject)') AS subject,
+                   COALESCE(mc.body_override,    et.body_html, '')            AS body_html,
+                   u.full_name AS created_by_name
+            FROM marketing_campaigns mc
+            LEFT JOIN email_templates et ON et.id = mc.template_id
+            LEFT JOIN users u ON u.id = mc.created_by
+            WHERE mc.status = 'queued' AND mc.auto_send = 0
+            ORDER BY mc.created_at ASC
+            LIMIT 20
+        ");
+        $pendingApproval = $paStmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Throwable $__e) {
+        error_log('[campaigns.php] pending approval query: ' . $__e->getMessage());
+    }
+}
+
 $pageTitle  = 'Marketing';
 $activePage = 'marketing';
 ?>
@@ -36,6 +59,121 @@ $activePage = 'marketing';
                   <?php endif; ?>
               </div>
           </div>
+
+          <?php if (!empty($pendingApproval)): ?>
+          <!-- ── Pending Approval Queue ─────────────────────────────── -->
+          <div class="card border-0 shadow-sm mb-4" id="approvalQueueCard">
+              <div class="card-header d-flex align-items-center" style="background:#fff7ed;border-left:4px solid var(--mw-orange);">
+                  <div style="color:var(--mw-orange);" class="mr-3">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                  </div>
+                  <div class="flex-grow-1">
+                      <h6 class="mb-0 font-weight-bold" style="color:var(--mw-orange);">
+                          Pending Approval
+                          <span class="badge badge-pill ml-1" style="background:var(--mw-orange);font-size:.8rem;"><?= count($pendingApproval) ?></span>
+                      </h6>
+                      <p class="mb-0 small text-muted">These campaigns were queued by automation but require your sign-off before sending.</p>
+                  </div>
+              </div>
+
+              <div id="approvalList">
+              <?php foreach ($pendingApproval as $pa): ?>
+              <div class="mw-approval-row d-flex align-items-center px-3 py-3 border-bottom" id="approvalRow<?= $pa['id'] ?>">
+                  <div class="flex-grow-1 mr-3" style="min-width:0;">
+                      <div class="font-weight-500"><?= htmlspecialchars($pa['name']) ?></div>
+                      <div class="text-muted small">
+                          <strong>Subject:</strong> <?= htmlspecialchars($pa['subject']) ?>
+                          <?php if ($pa['recipient_count'] > 0): ?>
+                          &nbsp;·&nbsp; <?= $pa['recipient_count'] ?> recipient<?= $pa['recipient_count'] === 1 ? '' : 's' ?>
+                          <?php endif; ?>
+                          &nbsp;·&nbsp; Triggered <?= date('M j g:ia', strtotime($pa['created_at'])) ?>
+                      </div>
+                  </div>
+                  <div class="d-flex gap-2 flex-shrink-0">
+                      <button class="btn btn-sm btn-outline-secondary"
+                              onclick="previewCampaign(<?= $pa['id'] ?>, <?= htmlspecialchars(json_encode($pa['subject']), ENT_QUOTES) ?>, <?= htmlspecialchars(json_encode(strip_tags($pa['body_html'])), ENT_QUOTES) ?>)">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                          Preview
+                      </button>
+                      <button class="btn btn-sm" style="background:var(--mw-green);color:#fff;"
+                              onclick="actOnCampaign(<?= $pa['id'] ?>, 'approve')">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+                          Approve &amp; Send
+                      </button>
+                      <button class="btn btn-sm btn-outline-danger"
+                              onclick="actOnCampaign(<?= $pa['id'] ?>, 'reject')">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                          Reject
+                      </button>
+                  </div>
+              </div>
+              <?php endforeach; ?>
+              </div>
+          </div>
+
+          <!-- Campaign Preview Modal -->
+          <div class="modal fade" id="campaignPreviewModal" tabindex="-1">
+              <div class="modal-dialog modal-lg">
+                  <div class="modal-content">
+                      <div class="modal-header">
+                          <h5 class="modal-title">Campaign Preview</h5>
+                          <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+                      </div>
+                      <div class="modal-body">
+                          <p class="font-weight-500 mb-1">Subject:</p>
+                          <p id="previewSubject" class="text-dark border rounded p-2 mb-3" style="background:#f8f9fa;"></p>
+                          <p class="font-weight-500 mb-1">Body (plain text preview):</p>
+                          <div id="previewBody" class="border rounded p-3 small" style="background:#f8f9fa;white-space:pre-wrap;max-height:300px;overflow-y:auto;"></div>
+                      </div>
+                      <div class="modal-footer">
+                          <button class="btn btn-secondary" data-dismiss="modal">Close</button>
+                      </div>
+                  </div>
+              </div>
+          </div>
+
+          <script>
+          var _csrfToken = '<?= generateCSRFToken() ?>';
+
+          function previewCampaign(id, subject, body) {
+              document.getElementById('previewSubject').textContent = subject;
+              document.getElementById('previewBody').textContent    = body.substring(0, 2000);
+              $('#campaignPreviewModal').modal('show');
+          }
+
+          function actOnCampaign(id, action) {
+              var label = action === 'approve' ? 'Approve & Send' : 'Reject';
+              if (!confirm(label + ' this campaign?')) return;
+
+              fetch('/crm/api/approve-campaign.php', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ csrf_token: _csrfToken, campaign_id: id, action: action })
+              })
+              .then(function(r) { return r.json(); })
+              .then(function(data) {
+                  if (data.success) {
+                      var row = document.getElementById('approvalRow' + id);
+                      if (row) {
+                          row.style.transition = 'opacity 0.3s';
+                          row.style.opacity = '0';
+                          setTimeout(function() {
+                              row.remove();
+                              var list = document.getElementById('approvalList');
+                              if (!list || list.children.length === 0) {
+                                  var card = document.getElementById('approvalQueueCard');
+                                  if (card) card.style.display = 'none';
+                              }
+                          }, 300);
+                      }
+                  } else {
+                      alert('Error: ' + (data.message || 'Unknown error'));
+                  }
+              })
+              .catch(function() { alert('Network error — please try again.'); });
+          }
+          </script>
+          <?php endif; ?>
 
           <!-- ── Top-level Section Tabs ─────────────────────────────── -->
           <ul class="nav nav-tabs mw-marketing-tabs mb-4" id="marketingTabs">

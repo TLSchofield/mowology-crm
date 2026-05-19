@@ -300,6 +300,39 @@ class SocialPublisher
                     published_at = COALESCE(published_at, NOW())
                 WHERE id = ?
             ")->execute([$postId]);
+
+            // Fire campaign attribution event for posts linked to a visit
+            try {
+                $postMeta = $db->prepare("
+                    SELECT visit_id, contact_id, service_type, city
+                    FROM social_posts WHERE id = ? LIMIT 1
+                ");
+                $postMeta->execute([$postId]);
+                $meta = $postMeta->fetch(PDO::FETCH_ASSOC);
+                if ($meta && $meta['visit_id']) {
+                    $__emitter = defined('APP_ROOT')
+                        ? APP_ROOT . '/Modules/CampaignConnector/Services/CampaignEventEmitter.php'
+                        : null;
+                    if ($__emitter && file_exists($__emitter)) {
+                        require_once $__emitter;
+                        CampaignEventEmitter::fire(
+                            'social_post_published',
+                            'social_post',
+                            $postId,
+                            $meta['contact_id'] ?: null,
+                            [
+                                'visit_id'     => (int)$meta['visit_id'],
+                                'service_type' => $meta['service_type'],
+                                'city'         => $meta['city'],
+                                'post_id'      => $postId,
+                            ],
+                            'social'
+                        );
+                    }
+                }
+            } catch (\Throwable $__attrE) {
+                error_log('[SocialPublisher] attribution event error: ' . $__attrE->getMessage());
+            }
         } else {
             // All failed — pull the most recent fail reason from platforms into the post row
             // so the dashboard can surface it without joining social_post_platforms

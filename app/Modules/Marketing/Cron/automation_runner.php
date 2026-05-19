@@ -571,6 +571,58 @@ function executeQueuedAction(PDO $db, string $type, array $data, int $contactId)
             logMsg("  [SMS-QUEUED] For contact #$contactId: " . $msg);
             break;
 
+        case 'push_notification':
+            // Sends a push notification to all registered devices for any user linked
+            // to this contact. Inserts into push_queue; the push-drain cron delivers it.
+            $pushTitle = trim($data['title'] ?? 'Mowology');
+            $pushBody  = trim($data['body']  ?? '');
+            if (!$pushBody) {
+                logMsg("  [PUSH] Skipped for contact #$contactId — no body text");
+                break;
+            }
+            $pushTitle = substr($pushTitle, 0, 200);
+            $pushBody  = substr($pushBody,  0, 500);
+            $pushData  = !empty($data['data']) ? json_encode($data['data']) : null;
+
+            // Find users whose contact record matches (crew member = contact match)
+            // Fallback: notify all admin users if contact has no linked user
+            $deviceStmt = $db->prepare("
+                SELECT dt.user_id, dt.device_token, dt.platform
+                FROM device_tokens dt
+                INNER JOIN users u ON u.id = dt.user_id
+                WHERE u.is_active = 1
+                  AND dt.device_token IS NOT NULL
+                  AND dt.device_token != ''
+                  AND (
+                        u.id IN (SELECT id FROM users WHERE email = (
+                            SELECT email FROM contacts WHERE id = ?
+                        ))
+                        OR u.role = 'admin'
+                  )
+                LIMIT 10
+            ");
+            $deviceStmt->execute([$contactId]);
+            $devices = $deviceStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            $pushCount = 0;
+            foreach ($devices as $dev) {
+                $db->prepare("
+                    INSERT INTO push_queue
+                        (user_id, device_token, platform, title, body, data_payload, status, scheduled_at, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, 'pending', NOW(), NOW())
+                ")->execute([
+                    $dev['user_id'],
+                    $dev['device_token'],
+                    $dev['platform'],
+                    $pushTitle,
+                    $pushBody,
+                    $pushData,
+                ]);
+                $pushCount++;
+            }
+            logMsg("  [PUSH] Queued $pushCount notification(s) for contact #$contactId — \"$pushTitle\"");
+            break;
+
         default:
             logMsg("  Unknown action type: $type");
     }
