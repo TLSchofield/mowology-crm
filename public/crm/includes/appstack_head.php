@@ -88,6 +88,11 @@ $bodyClass  = $bodyClass  ?? '';
   <!-- Global mobile navigation bars (top bar + bottom bar + slide-up menu) -->
   <link href="/crm/css/mobile-nav.css?v=20260303d" rel="stylesheet">
 
+  <!-- JWT auth manager: offline login bypass + Bearer token injection.
+       Must load synchronously (no defer) so the offline redirect fires
+       before the page renders. -->
+  <script src="/crm/js/mw-auth.js?v=20260519a"></script>
+
   <!-- Global Spotlight Search -->
   <script src="/crm/js/global-search.js?v=1" defer></script>
 

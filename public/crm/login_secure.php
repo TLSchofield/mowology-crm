@@ -7,7 +7,8 @@ if (isLoggedIn()) {
     exit();
 }
 
-$error = '';
+$error   = '';
+$jwtData = null; // set on successful login to inject into page
 
 // Handle login form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -23,8 +24,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Please enter both email and password.';
         } else {
             if (loginUser($email, $password)) {
-                header('Location: dashboard_appstack.php');
-                exit();
+                // Issue a 30-day JWT for offline/mobile use.
+                // The JS below stores it in localStorage and redirects to dashboard.
+                $user = getCurrentUser();
+                if ($user) {
+                    require_once dirname(__DIR__, 2) . '/app/Core/Auth/JwtService.php';
+                    $ttl   = 30 * 24 * 3600; // 30 days
+                    $token = generateMowologyJwt(
+                        (int)$user['id'],
+                        (string)$user['email'],
+                        (string)$user['name'],
+                        (string)$user['role'],
+                        $ttl
+                    );
+                    $jwtData = [
+                        'token' => $token,
+                        'user'  => $user,
+                        'exp'   => time() + $ttl,
+                    ];
+                } else {
+                    header('Location: dashboard_appstack.php');
+                    exit();
+                }
             } else {
                 $error = 'Invalid email or password.';
             }
@@ -35,6 +56,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $csrf_token = generateCSRFToken();
+
+// If login succeeded, render a tiny redirect page that stores the JWT first
+if ($jwtData !== null):
+?><!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Logging in…</title></head>
+<body>
+<script>
+(function() {
+    try {
+        var d = <?= json_encode($jwtData) ?>;
+        localStorage.setItem('mw_jwt', JSON.stringify(d));
+    } catch(e) {}
+    window.location.replace('dashboard_appstack.php');
+})();
+</script>
+<noscript><meta http-equiv="refresh" content="0;url=dashboard_appstack.php"></noscript>
+</body>
+</html>
+<?php
+    exit();
+endif;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -273,6 +316,8 @@ $csrf_token = generateCSRFToken();
             letter-spacing: 0.5px;
         }
     </style>
+    <!-- JWT manager: fires offline-login bypass before the form renders -->
+    <script src="/crm/js/mw-auth.js?v=20260519a"></script>
 </head>
 <body>
     <div class="login-container">

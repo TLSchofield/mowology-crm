@@ -307,6 +307,64 @@ function logActivity(int $user_id, $client_id, string $action, ?string $details 
     }
 }
 
+// -------------------- JWT auth helpers --------------------
+
+/**
+ * Returns the authenticated user from either a JWT Bearer token or an active
+ * PHP session — whichever is present. Bearer token takes priority so that
+ * mobile/API callers don't need a cookie.
+ *
+ * @return array|null  ['id','email','name','role'] or null if neither valid
+ */
+function getCurrentUserFromRequest(): ?array
+{
+    // 1. Try JWT Bearer token (mobile / API clients)
+    if (!function_exists('getJwtUser')) {
+        require_once __DIR__ . '/JwtAuth.php';
+    }
+    $jwtUser = getJwtUser();
+    if ($jwtUser !== null) {
+        return $jwtUser;
+    }
+
+    // 2. Fall back to PHP session (browser clients)
+    return getCurrentUser();
+}
+
+/**
+ * Require authentication via JWT Bearer token OR PHP session.
+ * API endpoints call this instead of requireLogin() so both browser and
+ * mobile callers are accepted.
+ *
+ * On failure: sends 401 JSON and exits.
+ *
+ * @return array  Authenticated user: ['id','email','name','role']
+ */
+function requireLoginOrJwt(): array
+{
+    $user = getCurrentUserFromRequest();
+    if ($user === null) {
+        // Determine response format: JSON for API requests, redirect for browser
+        $wantsJson = (
+            (isset($_SERVER['HTTP_ACCEPT']) && strpos($_SERVER['HTTP_ACCEPT'], 'application/json') !== false) ||
+            (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') ||
+            extractBearerToken() !== ''
+        );
+        if ($wantsJson) {
+            if (!function_exists('extractBearerToken')) {
+                require_once __DIR__ . '/JwtAuth.php';
+            }
+            http_response_code(401);
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode(['error' => 'Authentication required', 'code' => 'unauthenticated']);
+            exit;
+        }
+        header('Location: ' . (defined('LOGIN_URL') ? LOGIN_URL : '/crm/login_secure.php'));
+        exit;
+    }
+    return $user;
+}
+
 // -------------------- Snake_case compatibility wrappers --------------------
 // loginAuth_ARCHITECTURE.md documents helpers in snake_case.
 // Canonical functions above are camelCase. These wrappers bridge the gap
