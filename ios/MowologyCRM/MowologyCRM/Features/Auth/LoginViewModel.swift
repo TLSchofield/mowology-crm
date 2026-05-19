@@ -62,12 +62,7 @@ final class LoginViewModel: ObservableObject {
         let trimmedPassword = password.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !trimmedEmail.isEmpty else {
-            errorMessage = "Please enter your email address."
-            return
-        }
-
-        guard isValidEmail(trimmedEmail) else {
-            errorMessage = "Please enter a valid email address."
+            errorMessage = "Please enter your email or username."
             return
         }
 
@@ -134,11 +129,4 @@ final class LoginViewModel: ObservableObject {
         errorMessage = nil
     }
 
-    // MARK: - Validation
-
-    private func isValidEmail(_ value: String) -> Bool {
-        // RFC 5322-lite pattern sufficient for UX validation.
-        let pattern = #"^[A-Z0-9a-z._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$"#
-        return value.range(of: pattern, options: .regularExpression) != nil
-    }
 }

@@ -106,15 +106,15 @@ struct LoginView: View {
                 errorBanner(message: message)
             }
 
-            // Email Field
+            // Email / Username Field
             VStack(alignment: .leading, spacing: 6) {
-                Label("Email", systemImage: "envelope")
+                Label("Email or Username", systemImage: "at")
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(.secondary)
 
-                TextField("you@mowology.ca", text: $viewModel.email)
-                    .keyboardType(.emailAddress)
-                    .textContentType(.emailAddress)
+                TextField("Email or username", text: $viewModel.email)
+                    .keyboardType(.default)
+                    .textContentType(.username)
                     .autocapitalization(.none)
                     .autocorrectionDisabled()
                     .focused($focusedField, equals: .email)

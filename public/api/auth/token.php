@@ -86,17 +86,19 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 $raw = file_get_contents('php://input');
 $body = json_decode($raw ?: '{}', true);
 
-$email    = isset($body['email'])    ? strtolower(trim((string)$body['email']))    : '';
-$password = isset($body['password']) ? (string)$body['password']                  : '';
-$audience = isset($body['audience']) ? strtolower(trim((string)$body['audience'])) : 'web';
+$credential = isset($body['email'])    ? strtolower(trim((string)$body['email']))    : '';
+$password   = isset($body['password']) ? (string)$body['password']                  : '';
+$audience   = isset($body['audience']) ? strtolower(trim((string)$body['audience'])) : 'web';
 // Valid audiences: 'web' (BlueMoon), 'mobile' (iOS/Android)
 $audience = in_array($audience, ['web', 'mobile'], true) ? $audience : 'web';
 
-if ($email === '' || $password === '') {
+if ($credential === '' || $password === '') {
     http_response_code(400);
-    echo json_encode(['error' => 'Email and password are required']);
+    echo json_encode(['error' => 'Email (or username) and password are required']);
     exit;
 }
+// Keep $email alias for rate-limiting calls below
+$email = $credential;
 
 // ── Rate limiting ──────────────────────────────────────────────────────────
 require_once APP_ROOT . '/Core/Auth/auth.php';
@@ -116,10 +118,10 @@ try {
     $stmt = $db->prepare("
         SELECT id, email, password_hash, full_name, role, is_active
         FROM users
-        WHERE LOWER(email) = ?
+        WHERE LOWER(email) = ? OR LOWER(username) = ?
         LIMIT 1
     ");
-    $stmt->execute([$email]);
+    $stmt->execute([$credential, $credential]);
     $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
     // Check active — treat NULL/missing is_active as active (matches web login behaviour)
