@@ -61,6 +61,7 @@
 		85F56124C51718001957DF1C /* JobActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCEB9B209AB3B7603BD9A6F4 /* JobActivityAttributes.swift */; };
 		31D74891E9FAF8FA62EE91DF /* VisitDetailViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 868710A6EF45802F24C19AEA /* VisitDetailViewModel.swift */; };
 		EE8C477DB149FED7C7D095D2 /* JobPhotoQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020780B1CE91FCD6C5F342B3 /* JobPhotoQueue.swift */; };
+		FA1B2C3D4E5F6A7B8C9D0E1F /* ExpenseSaveQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB1C2D3E4F5A6B7C8D9E0F1A /* ExpenseSaveQueue.swift */; };
 		57FCE40AF9463F23F42E2150 /* JobsListViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85758A4EC9AD151D51C79AC5 /* JobsListViewModel.swift */; };
 		8E3BBCE0D44E2746B26C7579 /* QuotesViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25C65D44A564B9D1F3913F66 /* QuotesViewModel.swift */; };
 		4B04231D64BBFF7DFC55A9D2 /* InvoicesViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBFD5988D30BEC5153325102 /* InvoicesViewModel.swift */; };
@@ -104,6 +105,7 @@
 
 /* Begin PBXFileReference section */
 		020780B1CE91FCD6C5F342B3 /* JobPhotoQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobPhotoQueue.swift; sourceTree = "<group>"; };
+		AB1C2D3E4F5A6B7C8D9E0F1A /* ExpenseSaveQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExpenseSaveQueue.swift; sourceTree = "<group>"; };
 		11B9496B9E804E3CD0342C49 /* AuthSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthSession.swift; sourceTree = "<group>"; };
 		1F2E3D4C5B6A7980A1B2C3D4 /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
 		23FD0CE4AE1671A750AF3E16 /* JobsQuotesInvoicesModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobsQuotesInvoicesModels.swift; sourceTree = "<group>"; };
@@ -334,6 +336,7 @@
 				F2A3B4C5D6E7F8A9B0C1D2E3 /* PingQueue.swift */,
 				B3C4D5E6F7A8B9C0D1E2F3A4 /* ReceiptQueue.swift */,
 				020780B1CE91FCD6C5F342B3 /* JobPhotoQueue.swift */,
+				AB1C2D3E4F5A6B7C8D9E0F1A /* ExpenseSaveQueue.swift */,
 			);
 			path = Offline;
 			sourceTree = "<group>";
@@ -662,6 +665,7 @@
 				9E258FAB0FCE4FA8A9137063 /* VisionOCRService.swift in Sources */,
 				9D8769DD00DDEAF3E56D1C2E /* JobsListView.swift in Sources */,
 				EE8C477DB149FED7C7D095D2 /* JobPhotoQueue.swift in Sources */,
+				FA1B2C3D4E5F6A7B8C9D0E1F /* ExpenseSaveQueue.swift in Sources */,
 				06343724E4F5E8821DEF01A0 /* ActivityMonitor.swift in Sources */,
 				79389074C49361ABCABFE627 /* ArrivalMonitor.swift in Sources */,
 				DFCB0D57E0F3364FC462E9BB /* RouteStore.swift in Sources */,

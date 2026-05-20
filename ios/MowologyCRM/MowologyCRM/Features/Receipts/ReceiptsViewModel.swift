@@ -167,6 +167,32 @@ final class ReceiptsViewModel: ObservableObject {
             isSaving = false
             return true
         } catch let err as APIError {
+            if case .networkError = err {
+                // Persist the form data so the queue can replay it on reconnect.
+                let parsedStr: String? = ocrParsed.flatMap {
+                    (try? JSONEncoder().encode($0)).flatMap { String(data: $0, encoding: .utf8) }
+                }
+                ExpenseSaveQueue.shared.enqueue(
+                    expenseDate:   date,
+                    vendorId:      vendorId,
+                    vendorName:    vendorName,
+                    amount:        amount,
+                    gst:           gst,
+                    pst:           pst,
+                    hst:           hst,
+                    total:         total,
+                    taxModel:      taxModel,
+                    category:      category,
+                    paymentMethod: paymentMethod,
+                    notes:         notes,
+                    mediaId:       mediaId,
+                    lat:           lat,
+                    lng:           lng,
+                    ocrParsed:     parsedStr
+                )
+                isSaving = false
+                return true   // dismiss review sheet — queued is a success from the user's perspective
+            }
             saveError = err.errorDescription
         } catch {
             saveError = "Failed to save expense."

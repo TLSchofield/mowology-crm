@@ -47,6 +47,7 @@ struct MowologyCRMApp: App {
                         )
                     }
                     startJobPhotoQueueMonitor()
+                    startExpenseSaveQueueMonitor()
                 }
                 .onReceive(
                     NotificationCenter.default.publisher(
@@ -55,6 +56,15 @@ struct MowologyCRMApp: App {
                 ) { _ in
                     schedulePingRefresh()
                 }
+        }
+    }
+
+    /// Drains queued expense saves (metadata entered offline) when connectivity returns.
+    private func startExpenseSaveQueueMonitor() {
+        let client = APIClient(authSession: authSession)
+        ExpenseSaveQueue.shared.startMonitoring { body in
+            struct Resp: Decodable { let success: Bool }
+            let _: Resp = try await client.request(.expenseSave, body: body)
         }
     }
 

@@ -14,11 +14,12 @@ struct ReceiptsView: View {
     @StateObject private var viewModel: ReceiptsViewModel
 
     // Camera as fullScreenCover — must be on the root view, not inside a sheet.
-    @State private var showCamera   = false
-    @State private var showLibrary  = false
-    @State private var showReview   = false
-    @State private var pickerItem: PhotosPickerItem?
-    @State private var showErrorAlert = false
+    @State private var showCamera      = false
+    @State private var showLibrary     = false
+    @State private var showReview      = false
+    @State private var pickerItem:     PhotosPickerItem?
+    @State private var showErrorAlert  = false
+    @State private var showQueuedAlert = false
 
     private let impact          = UIImpactFeedbackGenerator(style: .medium)
     private let locationManager = CLLocationManager()
@@ -66,6 +67,14 @@ struct ReceiptsView: View {
         } message: {
             Text(viewModel.uploadError ?? "")
         }
+        .alert("Saved Offline", isPresented: $showQueuedAlert) {
+            Button("OK") { }
+        } message: {
+            Text("Your expense has been queued and will save automatically when you reconnect.")
+        }
+        .onChange(of: ExpenseSaveQueue.shared.pendingCount) { old, new in
+            if new > old { showQueuedAlert = true }
+        }
         .onChange(of: pickerItem) { _, newItem in
             guard let newItem else { return }
             showLibrary = false
@@ -110,6 +119,19 @@ struct ReceiptsView: View {
             lat: loc?.coordinate.latitude,
             lng: loc?.coordinate.longitude
         )
+    }
+
+    // MARK: - Manual Entry
+
+    /// Opens the review sheet with blank fields — no photo, no OCR.
+    /// Allows saving an expense without a receipt image (e.g., cash purchase offline).
+    private func openManualEntry() {
+        impact.impactOccurred()
+        viewModel.uploadError    = nil
+        viewModel.intakeResponse = nil
+        viewModel.visionPreFill  = nil
+        viewModel.capturedImage  = nil
+        showReview = true
     }
 
     // MARK: - List
@@ -177,6 +199,11 @@ struct ReceiptsView: View {
             } label: {
                 Label("Choose from Library", systemImage: "photo.on.rectangle")
             }
+            Button {
+                openManualEntry()
+            } label: {
+                Label("Manual Entry", systemImage: "pencil")
+            }
         }
     }
 
@@ -216,8 +243,9 @@ struct ReceiptsView: View {
         ToolbarItem(placement: .principal) {
             HStack(spacing: 6) {
                 Text("Receipts").font(.headline.weight(.semibold))
-                if ReceiptQueue.shared.pendingCount > 0 {
-                    Text("\(ReceiptQueue.shared.pendingCount) pending")
+                let totalPending = ReceiptQueue.shared.pendingCount + ExpenseSaveQueue.shared.pendingCount
+                if totalPending > 0 {
+                    Text("\(totalPending) queued")
                         .font(.caption2.weight(.semibold))
                         .padding(.horizontal, 6).padding(.vertical, 2)
                         .background(Color.MW.orange.opacity(0.15))
