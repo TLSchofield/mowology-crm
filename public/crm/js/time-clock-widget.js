@@ -30,6 +30,8 @@
     var hasActiveJobTimer = false; // Whether a job timer is currently running
     var autoArrivalEnabled = false; // Whether proximity auto-clock-in is active
     var lastAutoStartVisitId = null; // Prevent re-triggering same visit
+    var idleInterval = null; // 5-min ping when clocked in but no active job (personal devices)
+    var IDLE_INTERVAL_MS = 300000; // 5 minutes
 
     // ── Screen Wake Lock ──
     // Keeps the screen on while GPS tracking is active so mobile browsers
@@ -106,10 +108,12 @@
                     // Truck: always track when app is open
                     startTracking();
                 } else if (hasActiveJobTimer) {
-                    // Personal: track only during active job timer
+                    // Personal: full tracking during active job timer
                     startTracking();
                 } else {
+                    // Personal, no job: probe permission state + idle ping every 5 min
                     probeGPSStatus();
+                    if (data.clocked_in) startIdleTracking();
                 }
             } else {
                 probeGPSStatus();
@@ -257,6 +261,49 @@
 
     // One-shot GPS probe — just checks if permission is granted/denied
     // and updates the icon color. Does NOT start continuous tracking.
+    // ── Idle Tracking (personal device, clocked in, no active job) ──
+    // Sends a GPS ping every 5 minutes so the server has location data
+    // and the proximity check can fire auto-arrival between jobs.
+
+    function startIdleTracking() {
+        if (idleInterval) return; // already running
+        runIdlePing(); // fire immediately, then repeat
+        idleInterval = setInterval(runIdlePing, IDLE_INTERVAL_MS);
+    }
+
+    function stopIdleTracking() {
+        if (idleInterval) {
+            clearInterval(idleInterval);
+            idleInterval = null;
+        }
+    }
+
+    function runIdlePing() {
+        if (!navigator.geolocation) return;
+        navigator.geolocation.getCurrentPosition(
+            function(pos) {
+                var lat = pos.coords.latitude;
+                var lng = pos.coords.longitude;
+                var accuracy = pos.coords.accuracy;
+                latestPosition = { lat: lat, lng: lng, accuracy: accuracy, speed: 0, heading: null };
+                updateTrackingDot('active', 'idle · ' + Math.round(accuracy) + 'm');
+                fetch('/crm/api/crew-location.php', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ lat: lat, lng: lng, accuracy: accuracy, proximity_check: true })
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.auto_started) handleServerAutoStart(data.auto_started);
+                })
+                .catch(function() {});
+            },
+            function() {},
+            { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
+        );
+    }
+
     function probeGPSStatus() {
         if (!navigator.geolocation) {
             updateTrackingDot('error', 'Not supported');
@@ -381,6 +428,7 @@
     var gpsErrorToastShown = false;
 
     function startTracking() {
+        stopIdleTracking(); // switch from idle ping to full GPS tracking
         gpsErrorCount = 0;
         gpsErrorToastShown = false;
         updateTrackingDot('unknown', 'Acquiring GPS...');
@@ -1174,6 +1222,8 @@
             hasActiveJobTimer = false;
             if (deviceType === 'personal') {
                 stopTracking();
+                // Resume idle ping so location and auto-arrival keep working between jobs
+                if (trackingEnabled && clockInTime) startIdleTracking();
             }
         },
         /**
