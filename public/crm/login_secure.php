@@ -84,16 +84,38 @@ if ($jwtData !== null):
 <html lang="en">
 <head><meta charset="UTF-8"><title>Logging in…</title></head>
 <body>
+<script src="/crm/js/mw-offline-db.js?v=20260519a"></script>
 <script>
 (function() {
-    try {
-        var d = <?= json_encode($jwtData) ?>;
-        localStorage.setItem('mw_jwt', JSON.stringify(d));
-    } catch(e) {}
-    window.location.replace('/crm/dashboard_appstack.php');
+    var jwtData = <?= json_encode($jwtData) ?>;
+    try { localStorage.setItem('mw_jwt', JSON.stringify(jwtData)); } catch(e) {}
+
+    function redirect() {
+        window.location.replace('/crm/dashboard_appstack.php');
+    }
+
+    // Pull schedule into IndexedDB before redirecting (best-effort, 5s cap)
+    var done = false;
+    var timer = setTimeout(function() {
+        if (!done) { done = true; redirect(); }
+    }, 5000);
+
+    fetch('/crm/api/offline-schedule.php', {
+        headers: { 'Authorization': 'Bearer ' + jwtData.token }
+    })
+    .then(function(r) { return r.ok ? r.json() : null; })
+    .then(function(data) {
+        if (data && data.ok && window.MwOfflineDB) {
+            return MwOfflineDB.saveScheduleDays(data.days);
+        }
+    })
+    .catch(function() {})
+    .then(function() {
+        if (!done) { done = true; clearTimeout(timer); redirect(); }
+    });
 })();
 </script>
-<noscript><meta http-equiv="refresh" content="0;url=dashboard_appstack.php"></noscript>
+<noscript><meta http-equiv="refresh" content="0;url=/crm/dashboard_appstack.php"></noscript>
 </body>
 </html>
 <?php

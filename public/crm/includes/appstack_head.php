@@ -92,6 +92,7 @@ $bodyClass  = $bodyClass  ?? '';
        Must load synchronously (no defer) so the offline redirect fires
        before the page renders. -->
   <script src="/crm/js/mw-auth.js?v=20260519a"></script>
+  <script src="/crm/js/mw-offline-db.js?v=20260519a"></script>
 
   <!-- Global Spotlight Search -->
   <script src="/crm/js/global-search.js?v=1" defer></script>

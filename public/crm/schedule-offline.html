@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Schedule — Offline</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  :root {
+    --green:  #2D8659;
+    --dark:   #1A5F4A;
+    --forest: #0D3B2E;
+    --lime:   #7FD858;
+    --light:  #E8F3F0;
+    --orange: #e85d04;
+    --text:   #1a2e1a;
+    --muted:  #6b7c6b;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #f4f6f4;
+    color: var(--text);
+    margin: 0;
+    padding: 0;
+    min-height: 100vh;
+  }
+  .topbar {
+    background: var(--forest);
+    color: #fff;
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .topbar-brand { font-size: 18px; font-weight: 700; letter-spacing: -0.5px; }
+  .offline-badge {
+    background: var(--orange);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 20px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .day-nav {
+    background: var(--dark);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+  }
+  .day-nav button {
+    background: none;
+    border: none;
+    color: #fff;
+    font-size: 22px;
+    cursor: pointer;
+    padding: 4px 10px;
+    border-radius: 8px;
+    opacity: 0.8;
+  }
+  .day-nav button:hover { opacity: 1; background: rgba(255,255,255,.1); }
+  .day-label {
+    color: #fff;
+    font-weight: 700;
+    font-size: 15px;
+    text-align: center;
+    flex: 1;
+  }
+  .day-label .date-sub { font-weight: 400; font-size: 12px; opacity: .7; display: block; }
+  .content { padding: 12px; max-width: 600px; margin: 0 auto; }
+  .stop-card {
+    background: #fff;
+    border-radius: 14px;
+    margin-bottom: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.08);
+    overflow: hidden;
+  }
+  .stop-header {
+    padding: 14px 16px 10px;
+    border-bottom: 1px solid var(--light);
+  }
+  .stop-address {
+    font-weight: 700;
+    font-size: 15px;
+    color: var(--forest);
+    margin-bottom: 2px;
+  }
+  .stop-city { font-size: 13px; color: var(--muted); }
+  .stop-meta {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+  }
+  .meta-chip {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 20px;
+    background: var(--light);
+    color: var(--dark);
+  }
+  .meta-chip.crew { background: #e8f0fe; color: #1a73e8; }
+  .meta-chip.arrival { background: #fef3e2; color: #c56a00; }
+  .visits { padding: 0 16px 12px; }
+  .visit-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 0;
+    border-bottom: 1px solid #f0f0f0;
+  }
+  .visit-row:last-child { border-bottom: none; }
+  .visit-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: var(--green);
+  }
+  .visit-dot.completed { background: #888; }
+  .visit-dot.in_progress { background: var(--lime); }
+  .visit-info { flex: 1; min-width: 0; }
+  .visit-title { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .visit-detail { font-size: 12px; color: var(--muted); }
+  .visit-status {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 20px;
+    text-transform: capitalize;
+    background: var(--light);
+    color: var(--dark);
+    flex-shrink: 0;
+  }
+  .visit-status.completed { background: #d4edda; color: #155724; }
+  .visit-status.in_progress { background: #fff3cd; color: #856404; }
+  .empty-day {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--muted);
+  }
+  .empty-day .icon { font-size: 40px; margin-bottom: 12px; }
+  .empty-day p { font-size: 15px; font-weight: 600; margin: 0 0 4px; }
+  .empty-day small { font-size: 13px; }
+  .sync-bar {
+    background: #fffbeb;
+    border-bottom: 1px solid #fcd34d;
+    padding: 8px 16px;
+    font-size: 12px;
+    color: #92400e;
+    text-align: center;
+  }
+  .loading { text-align: center; padding: 80px 20px; color: var(--muted); font-size: 15px; }
+  .nav-links {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: var(--forest);
+    padding: 10px 16px;
+    display: flex;
+    justify-content: space-around;
+    max-width: 600px;
+    margin: 0 auto;
+  }
+  .nav-link {
+    color: rgba(255,255,255,.6);
+    text-decoration: none;
+    font-size: 12px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 4px 8px;
+  }
+  .nav-link svg { width: 20px; height: 20px; }
+  body { padding-bottom: 60px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-brand">Mowology</div>
+  <div class="offline-badge">Offline</div>
+</div>
+
+<div id="sync-bar" class="sync-bar" style="display:none"></div>
+
+<div class="day-nav">
+  <button id="btn-prev" onclick="changeDay(-1)">&#8249;</button>
+  <div class="day-label">
+    <span id="day-name">—</span>
+    <span id="day-date" class="date-sub">—</span>
+  </div>
+  <button id="btn-next" onclick="changeDay(1)">&#8250;</button>
+</div>
+
+<div class="content">
+  <div class="loading" id="loading">Loading cached schedule…</div>
+  <div id="stops-container" style="display:none"></div>
+</div>
+
+<div class="nav-links">
+  <a href="/crm/jobs/schedule.php" class="nav-link">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+    Schedule
+  </a>
+  <a href="/crm/dashboard_appstack.php" class="nav-link">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+    Home
+  </a>
+</div>
+
+<script src="/crm/js/mw-offline-db.js?v=20260519a"></script>
+<script>
+(function () {
+    var DAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+    var allDays = [];   // [{date, stops}] sorted
+    var currentIdx = 0; // index into allDays
+
+    function todayStr() {
+        var d = new Date();
+        return d.getFullYear() + '-' +
+            String(d.getMonth() + 1).padStart(2, '0') + '-' +
+            String(d.getDate()).padStart(2, '0');
+    }
+
+    function formatDateLabel(dateStr) {
+        var parts = dateStr.split('-');
+        var d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+        return {
+            day:  DAYS[d.getDay()],
+            date: MONTHS[d.getMonth()] + ' ' + d.getDate(),
+        };
+    }
+
+    function renderDay(idx) {
+        currentIdx = Math.max(0, Math.min(idx, allDays.length - 1));
+        var entry = allDays[currentIdx];
+        var lbl = formatDateLabel(entry.date);
+
+        document.getElementById('day-name').textContent = entry.date === todayStr() ? 'Today' : lbl.day;
+        document.getElementById('day-date').textContent = lbl.date;
+        document.getElementById('btn-prev').style.visibility = currentIdx > 0 ? 'visible' : 'hidden';
+        document.getElementById('btn-next').style.visibility = currentIdx < allDays.length - 1 ? 'visible' : 'hidden';
+
+        var container = document.getElementById('stops-container');
+        if (!entry.stops || !entry.stops.length) {
+            container.innerHTML = '<div class="empty-day"><div class="icon">&#127797;</div><p>No stops scheduled</p><small>Enjoy the day off!</small></div>';
+            return;
+        }
+
+        container.innerHTML = entry.stops.map(function (stop) {
+            var name = stop.property_name || stop.property_address;
+            var city = stop.property_city || '';
+            var crew = (stop.crew_names || []).join(', ');
+            var arrival = stop.estimated_arrival ? stop.estimated_arrival.slice(0,5) : '';
+
+            var metaChips = '';
+            if (arrival) metaChips += '<span class="meta-chip arrival">&#128336; ' + arrival + '</span>';
+            if (crew)    metaChips += '<span class="meta-chip crew">&#128100; ' + escHtml(crew) + '</span>';
+            if (stop.route_order) metaChips += '<span class="meta-chip">Stop #' + stop.route_order + '</span>';
+
+            var visitsHtml = (stop.visits || []).map(function (v) {
+                var statusClass = v.visit_status === 'completed' ? 'completed' : v.visit_status === 'in_progress' ? 'in_progress' : '';
+                var dur = v.duration_min ? v.duration_min + ' min' : '';
+                return '<div class="visit-row">' +
+                    '<div class="visit-dot ' + statusClass + '"></div>' +
+                    '<div class="visit-info">' +
+                        '<div class="visit-title">' + escHtml(v.plan_title || v.service_type || 'Service') + '</div>' +
+                        (dur ? '<div class="visit-detail">' + dur + '</div>' : '') +
+                    '</div>' +
+                    '<span class="visit-status ' + statusClass + '">' + escHtml(v.visit_status || 'scheduled') + '</span>' +
+                '</div>';
+            }).join('');
+
+            return '<div class="stop-card">' +
+                '<div class="stop-header">' +
+                    '<div class="stop-address">' + escHtml(name) + '</div>' +
+                    (city ? '<div class="stop-city">' + escHtml(city) + '</div>' : '') +
+                    (metaChips ? '<div class="stop-meta">' + metaChips + '</div>' : '') +
+                '</div>' +
+                (visitsHtml ? '<div class="visits">' + visitsHtml + '</div>' : '') +
+            '</div>';
+        }).join('');
+    }
+
+    function escHtml(s) {
+        return String(s || '').replace(/[&<>"']/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+    }
+
+    window.changeDay = function (delta) {
+        renderDay(currentIdx + delta);
+    };
+
+    // ── Bootstrap from IDB ────────────────────────────────────────────────────
+    MwOfflineDB.getAllSchedule().then(function (rows) {
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('stops-container').style.display = '';
+
+        if (!rows || !rows.length) {
+            document.getElementById('stops-container').innerHTML =
+                '<div class="empty-day"><div class="icon">&#128262;</div>' +
+                '<p>No offline data</p>' +
+                '<small>Log in while online to cache your schedule.</small></div>';
+            return;
+        }
+
+        allDays = rows;
+
+        // Show sync age
+        MwOfflineDB.getMeta('last_sync').then(function (ts) {
+            if (!ts) return;
+            var age = Math.round((Date.now() - ts) / 60000);
+            var bar = document.getElementById('sync-bar');
+            bar.textContent = 'Cached ' + (age < 1 ? 'just now' : age + ' min ago') + ' — reconnect for latest data';
+            bar.style.display = '';
+        });
+
+        // Start on today (or first available day)
+        var today = todayStr();
+        var startIdx = 0;
+        for (var i = 0; i < allDays.length; i++) {
+            if (allDays[i].date >= today) { startIdx = i; break; }
+        }
+        renderDay(startIdx);
+    }).catch(function () {
+        document.getElementById('loading').textContent = 'Could not load cached data.';
+    });
+
+    // ── Try to go online and load the real schedule ───────────────────────────
+    if (navigator.onLine) {
+        setTimeout(function () {
+            window.location.replace('/crm/jobs/schedule.php');
+        }, 800);
+    }
+
+})();
+</script>
+</body>
+</html>

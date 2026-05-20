@@ -19,7 +19,7 @@
  * URL so the WebView can use a service worker just like a browser can).
  */
 
-var CACHE_VERSION = 'mw-v31';
+var CACHE_VERSION = 'mw-v32';
 var SHELL_CACHE  = 'mw-shell-' + CACHE_VERSION;
 var PAGE_CACHE   = 'mw-pages-' + CACHE_VERSION;
 var IMG_CACHE    = 'mw-images-' + CACHE_VERSION;
@@ -48,6 +48,8 @@ var APP_SHELL = [
   '/crm/js/schedule-drag-drop.js',
   '/crm/js/route-engine.js?v=20260219a',
   '/crm/js/offline-receipts.js',
+  '/crm/js/mw-offline-db.js?v=20260519a',
+  '/crm/schedule-offline.html',
 
   /* ── Geofence / location ── */
   '/crm/js/geofence/geofence-manager.js',
@@ -134,7 +136,15 @@ self.addEventListener('fetch', function(event) {
   // Only handle same-origin requests from here on
   if (url.origin !== self.location.origin) return;
 
-  // ── Navigation requests → bypass SW entirely ──
+  // ── Navigate: schedule pages — network-first with 4.5s timeout + offline fallback ──
+  // Schedule is the crew's primary view; serve it from cache or the offline viewer
+  // when the server is unreachable, rather than showing a browser error page.
+  if (request.mode === 'navigate' && isSchedulePage(pathname)) {
+    event.respondWith(scheduleNavigate(request));
+    return;
+  }
+
+  // ── Navigation requests → bypass SW entirely (all other pages) ──
   // Android Chrome/WebView enforces a hard ~5s timeout on SW navigation responses.
   // If the PHP page is slow (DB connection + queries on shared hosting), the SW
   // response deadline expires and Chrome fails with ERR_FAILED — even when the
@@ -430,6 +440,49 @@ self.addEventListener('notificationclick', function(event) {
     })
   );
 });
+
+// ══════════════════════════════════════════════════════
+//  SCHEDULE-SPECIFIC NAVIGATE STRATEGY
+// ══════════════════════════════════════════════════════
+
+/**
+ * Network-first for schedule page navigations with a 4.5s AbortController timeout.
+ * If the server is slow or unreachable: serve from page cache, then offline viewer.
+ *
+ * Why 4.5s: Android WebView hard-kills SW navigation responses after ~5s.
+ * We abort the network fetch at 4.5s so we have 0.5s headroom to serve from cache.
+ */
+function scheduleNavigate(request) {
+  var controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+  var timer = null;
+
+  var networkPromise = new Promise(function(resolve, reject) {
+    if (controller) {
+      timer = setTimeout(function() { controller.abort(); }, 4500);
+    }
+    fetch(request, Object.assign({ redirect: 'follow' }, controller ? { signal: controller.signal } : {}))
+      .then(function(response) {
+        if (timer) clearTimeout(timer);
+        if (response.ok) {
+          var clone = response.clone();
+          caches.open(PAGE_CACHE).then(function(c) { c.put(request, clone); });
+        }
+        resolve(response);
+      })
+      .catch(function(err) {
+        if (timer) clearTimeout(timer);
+        reject(err);
+      });
+  });
+
+  return networkPromise.catch(function() {
+    // Server unreachable or timed out — try page cache, then offline viewer
+    return caches.match(request).then(function(cached) {
+      if (cached) return cached;
+      return caches.match('/crm/schedule-offline.html');
+    });
+  });
+}
 
 // ══════════════════════════════════════════════════════
 //  CACHING STRATEGIES
