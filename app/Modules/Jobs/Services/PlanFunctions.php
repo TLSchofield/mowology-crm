@@ -2467,6 +2467,20 @@ function updateJobPlan(int $planId, array $data, int $userId): array {
 
         $db->commit();
 
+        // If price_per_visit was explicitly changed, sync the single line item to match
+        // so the "Services Included" table never shows a stale price.
+        if (array_key_exists('price_per_visit', $changes) && $changes['price_per_visit'] > 0) {
+            $liCountStmt = $db->prepare("SELECT COUNT(*) FROM plan_line_items WHERE plan_id = ?");
+            $liCountStmt->execute([$planId]);
+            if ((int)$liCountStmt->fetchColumn() === 1) {
+                $db->prepare("
+                    UPDATE plan_line_items
+                    SET unit_price = ?, line_total = ?
+                    WHERE plan_id = ?
+                ")->execute([$changes['price_per_visit'], $changes['price_per_visit'], $planId]);
+            }
+        }
+
         // Update crew assignments if provided
         if (array_key_exists('crew_ids', $data) && is_array($data['crew_ids'])) {
             $leadId = !empty($data['default_crew_id']) ? (int)$data['default_crew_id'] : null;
