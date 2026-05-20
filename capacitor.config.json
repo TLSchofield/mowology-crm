@@ -9,6 +9,16 @@
     "androidScheme": "https"
   },
 
+  "_comment_local_dev": [
+    "To develop against MAMP locally, change server.url to your MAMP address.",
+    "Default MAMP port is 8888: http://YOUR_MAC_LAN_IP:8888",
+    "Find your LAN IP: System Settings → Wi-Fi → Details → IP Address",
+    "Use LAN IP (not localhost) — Android emulator/device can't reach localhost.",
+    "Also set cleartext: true and androidScheme: http for plain HTTP.",
+    "Example: { url: 'http://192.168.1.50:8888', cleartext: true, androidScheme: 'http' }",
+    "NEVER commit the local dev URL — always revert before building a release."
+  ],
+
   "android": {
     "buildOptions": {
       "keystorePath": null,

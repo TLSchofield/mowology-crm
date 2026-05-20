@@ -10,7 +10,8 @@
  *   { "action": "sync_compliance", "events": [...] }
  *
  * Idempotent: uses device_id + timestamp to prevent duplicates.
- * Auth: uses MOWOSESS cookie (passed by WorkManager from SharedPreferences).
+ * Auth: JWT Bearer token (preferred — WorkManager stores after login) or
+ *       MOWOSESS session cookie (fallback during migration period).
  */
 declare(strict_types=1);
 header('Content-Type: application/json');
@@ -30,14 +31,22 @@ if (!defined('APP_ROOT')) {
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
     require_once CRM_INCLUDES . '/functions.php';
+    require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
 
-    requireLogin();
-    $user = getCurrentUser();
-    // Release session lock immediately — this endpoint never writes to $_SESSION.
-    // Without this, the WorkManager SyncWorker (which loops 100+ DB queries per batch)
-    // holds the session file lock for 2–5 seconds, causing concurrent page navigations
-    // to block at session_start() and time out with ERR_FAILED on Android.
-    session_write_close();
+    // Prefer JWT Bearer (WorkManager will send this once MwTracking AAR is updated).
+    // Fall back to session cookie for backward compatibility during migration.
+    $jwtPayload = getJwtUser();
+    if ($jwtPayload !== null) {
+        $user = ['id' => $jwtPayload['id'], 'name' => $jwtPayload['name'], 'role' => $jwtPayload['role']];
+    } else {
+        requireLogin();
+        $user = getCurrentUser();
+        // Release session lock immediately — this endpoint never writes to $_SESSION.
+        // Without this, the WorkManager SyncWorker (which loops 100+ DB queries per batch)
+        // holds the session file lock for 2–5 seconds, causing concurrent page navigations
+        // to block at session_start() and time out with ERR_FAILED on Android.
+        session_write_close();
+    }
     $db = getDB();
 
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {

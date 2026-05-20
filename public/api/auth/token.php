@@ -166,7 +166,11 @@ $secret = defined('BLUEMOON_JWT_SECRET') ? BLUEMOON_JWT_SECRET : JWT_SECRET_FALL
 
 $header  = base64url_encode(json_encode(['alg' => 'HS256', 'typ' => 'JWT']));
 $now     = time();
+// Mobile tokens live 30 days — crew must survive server outages and long
+// weekends without being forced to re-authenticate. Web tokens stay short.
 $aud = $audience === 'mobile' ? 'ios' : 'bluemoon';
+$ttl = $audience === 'mobile' ? (30 * 24 * 3600) : (8 * 3600);
+
 $payload = base64url_encode(json_encode([
     'iss'   => 'mowology',
     'aud'   => $aud,
@@ -175,7 +179,7 @@ $payload = base64url_encode(json_encode([
     'name'  => (string)($user['full_name'] ?? ''),
     'role'  => (string)($user['role'] ?? 'user'),
     'iat'   => $now,
-    'exp'   => $now + (8 * 3600),   // 8-hour expiry
+    'exp'   => $now + $ttl,
 ]));
 
 $signature = base64url_encode(
@@ -194,7 +198,7 @@ echo json_encode([
         'name'  => (string)($user['full_name'] ?? ''),
         'role'  => (string)($user['role'] ?? 'user'),
     ],
-    'expires_in' => 8 * 3600,
+    'expires_in' => $ttl,
 ]);
 
 // ── Helpers ────────────────────────────────────────────────────────────────

@@ -543,6 +543,34 @@
         }
     }
 
+    // ── JWT persistence for WorkManager ──────────────────────────────────────
+    // WorkManager also accepts a JWT Bearer token (preferred — survives session
+    // expiry during long shifts). We store it in SharedPreferences alongside the
+    // session cookie so the SyncWorker can use whichever is still valid.
+    //
+    // ⚠️  Requires MwTracking AAR v2+ with storeJwtToken() implemented.
+    //     This call is a no-op on older builds — session cookie fallback applies.
+    if (MwTracking && typeof MwTracking.storeJwtToken === 'function') {
+        try {
+            var jwtRaw = localStorage.getItem('mw_jwt');
+            if (jwtRaw) {
+                var jwtParsed = JSON.parse(jwtRaw);
+                if (jwtParsed && jwtParsed.token && jwtParsed.exp) {
+                    var nowS = Math.floor(Date.now() / 1000);
+                    if (nowS < jwtParsed.exp - 300) { // skip if expiring within 5 min
+                        MwTracking.storeJwtToken({ token: jwtParsed.token }).then(function() {
+                            console.log('[MwNative] JWT stored in SharedPreferences for WorkManager');
+                        }).catch(function(e) {
+                            console.warn('[MwNative] Failed to store JWT:', e);
+                        });
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn('[MwNative] JWT storage parse error:', e);
+        }
+    }
+
     console.log('[MwNative] Capacitor bridge v2 initialized (with MwTracking)');
 
     // ── Proof of Work — Visit GPS Integration ──────────────────────────────
