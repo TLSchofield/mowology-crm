@@ -159,7 +159,7 @@ try {
         JOIN job_plans jp ON jp.id = jv.plan_id
         JOIN properties p  ON p.id  = jp.property_id
         WHERE jv.is_flagged = 1
-          AND jv.status = 'completed'
+          AND jv.status IN ('completed', 'in_progress')
           AND NOT EXISTS (
               SELECT 1 FROM ba_pairs bp
               JOIN media_assets ma_b ON ma_b.id = bp.before_id
@@ -170,7 +170,7 @@ try {
                       AND vp2.visit_id = jv.id
                 )
           )
-        ORDER BY jv.completed_at DESC
+        ORDER BY jv.completed_at DESC, jv.updated_at DESC
         LIMIT 50
     ");
     $rawVisits = $stmtFv->fetchAll(PDO::FETCH_ASSOC);
