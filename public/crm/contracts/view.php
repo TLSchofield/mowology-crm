@@ -471,9 +471,18 @@ if ($hasPropCoords && !$hasBorder) {
                       $timingLabels = ['after_visit' => 'After Visit', 'end_of_month' => 'End of Month', 'upfront' => 'Upfront'];
                       $timing = $contract['invoice_timing'] ?? 'after_visit';
                       ?>
-                      <span class="mw-invoice-timing-badge mw-timing-<?php echo htmlspecialchars($timing); ?>">
-                          <?php echo htmlspecialchars($timingLabels[$timing] ?? $timing); ?>
-                      </span>
+                      <div class="d-flex align-items-center" style="gap:8px;">
+                          <span class="mw-invoice-timing-badge mw-timing-<?php echo htmlspecialchars($timing); ?>">
+                              <?php echo htmlspecialchars($timingLabels[$timing] ?? $timing); ?>
+                          </span>
+                          <?php if ($contract['status'] === 'active' && !empty($plans) && userHasPermission('billing.edit')): ?>
+                          <a href="../invoices/create.php?plan_id=<?php echo (int)$plans[0]['id']; ?>"
+                             class="btn btn-sm mw-btn-primary">
+                              <i data-feather="file-plus" style="width:12px;height:12px;"></i>
+                              Raise Invoice
+                          </a>
+                          <?php endif; ?>
+                      </div>
                   </div>
                   <div class="card-body">
                       <div class="mw-billing-stat">
@@ -536,6 +545,13 @@ if ($hasPropCoords && !$hasBorder) {
                              class="mw-billing-view-all">View all invoices &rarr;</a>
                       <?php else: ?>
                           <div class="mw-billing-empty">No invoices yet</div>
+                          <?php if ($contract['status'] === 'active' && !empty($plans) && userHasPermission('billing.edit')): ?>
+                          <a href="../invoices/create.php?plan_id=<?php echo (int)$plans[0]['id']; ?>"
+                             class="btn btn-sm mw-btn-primary w-100 mt-2">
+                              <i data-feather="file-plus" style="width:12px;height:12px;margin-right:4px;"></i>
+                              Raise First Invoice
+                          </a>
+                          <?php endif; ?>
                       <?php endif; ?>
                   </div>
               </div>

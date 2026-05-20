@@ -94,6 +94,72 @@ if ($visitId) {
     }
 }
 
+// Prefill from plan (contract upfront/manual billing — no visit required)
+if (!$visitId && isset($_GET['plan_id'])) {
+    $planId = intval($_GET['plan_id']);
+    if ($planId) {
+        $pStmt = $db->prepare("
+            SELECT jp.*, jp.plan_number, jp.title, jp.service_type,
+                   jp.estimated_amount, jp.plan_start_date,
+                   p.address, p.city, p.province, p.postal_code,
+                   p.site_contact_id,
+                   COALESCE(con.first_name, '') AS contact_first,
+                   COALESCE(con.last_name,  '') AS contact_last,
+                   con.email  AS contact_email,
+                   con.mobile AS contact_mobile,
+                   con.receive_sms AS contact_receive_sms,
+                   ctr.billing_amount, ctr.billing_cycle, ctr.start_date AS contract_start_date
+            FROM job_plans jp
+            LEFT JOIN properties p  ON jp.property_id = p.id
+            LEFT JOIN contacts con  ON p.site_contact_id = con.id
+            LEFT JOIN contracts ctr ON jp.contract_id = ctr.id
+            WHERE jp.id = ?
+        ");
+        $pStmt->execute([$planId]);
+        $planRow = $pStmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($planRow) {
+            $prefillLineItems = [];
+            try {
+                $pliStmt = $db->prepare("
+                    SELECT service_type, description, quantity, unit_type, unit_price, line_total, sort_order
+                    FROM plan_line_items WHERE plan_id = ? ORDER BY sort_order, id
+                ");
+                $pliStmt->execute([$planId]);
+                $prefillLineItems = $pliStmt->fetchAll(PDO::FETCH_ASSOC);
+            } catch (PDOException $e) {}
+
+            $amount      = !empty($planRow['billing_amount']) ? $planRow['billing_amount'] : $planRow['estimated_amount'];
+            $contactName = trim($planRow['contact_first'] . ' ' . $planRow['contact_last']) ?: null;
+            $baseDate    = !empty($planRow['contract_start_date']) ? $planRow['contract_start_date'] : ($planRow['plan_start_date'] ?? date('Y-m-d'));
+            $billMonth   = date('F Y', strtotime($baseDate));
+            $svcLabel    = $planRow['title'] ?: ucwords(str_replace('_', ' ', $planRow['service_type'] ?? 'Service'));
+
+            $prefill = [
+                'property_id'         => $planRow['property_id'],
+                'contact_id'          => $planRow['site_contact_id'],
+                'plan_id'             => $planId,
+                'amount'              => $amount,
+                'contact_name'        => $contactName,
+                'contact_email'       => $planRow['contact_email'],
+                'contact_mobile'      => $planRow['contact_mobile'],
+                'contact_receive_sms' => $planRow['contact_receive_sms'],
+                'service_address'     => $planRow['address'] ?? '',
+                'service_city'        => $planRow['city'] ?? '',
+                'service_province'    => $planRow['province'] ?? 'BC',
+                'service_postal'      => $planRow['postal_code'] ?? '',
+                'plan_number'         => $planRow['plan_number'],
+                'description'         => $svcLabel . ' — ' . $billMonth,
+                'plan_line_items'     => $prefillLineItems,
+                'extras_minutes'      => 0,
+                'extras_amount'       => 0.0,
+                'extras_note'         => '',
+                'issue_date'          => $baseDate,
+            ];
+        }
+    }
+}
+
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verifyCSRFToken($_POST['csrf_token'] ?? '')) {
@@ -494,7 +560,7 @@ if ($apiKey) {
                             <div class="mw-form-group">
                                 <label class="form-label">Issue Date</label>
                                 <input type="date" name="issue_date" class="form-control"
-                                       value="<?php echo htmlspecialchars($prefill['scheduled_date'] ?? date('Y-m-d')); ?>">
+                                       value="<?php echo htmlspecialchars($prefill['issue_date'] ?? $prefill['scheduled_date'] ?? date('Y-m-d')); ?>">
                             </div>
                             <div class="mw-form-group">
                                 <label class="form-label">Due Date</label>
