@@ -94,23 +94,33 @@ if ($jwtData !== null):
         window.location.replace('/crm/dashboard_appstack.php');
     }
 
-    // Pull schedule into IndexedDB before redirecting (best-effort, 5s cap)
+    // Pull schedule + quiz into IndexedDB before redirecting (best-effort, 5s cap)
     var done = false;
     var timer = setTimeout(function() {
         if (!done) { done = true; redirect(); }
     }, 5000);
 
-    fetch('/crm/api/offline-schedule.php', {
-        headers: { 'Authorization': 'Bearer ' + jwtData.token }
-    })
-    .then(function(r) { return r.ok ? r.json() : null; })
-    .then(function(data) {
-        if (data && data.ok && window.MwOfflineDB) {
-            return MwOfflineDB.saveScheduleDays(data.days);
-        }
-    })
-    .catch(function() {})
-    .then(function() {
+    var headers = { 'Authorization': 'Bearer ' + jwtData.token };
+
+    var scheduleP = fetch('/crm/api/offline-schedule.php', { headers: headers })
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(data) {
+            if (data && data.ok && window.MwOfflineDB) {
+                return MwOfflineDB.saveScheduleDays(data.days);
+            }
+        })
+        .catch(function() {});
+
+    var quizP = fetch('/crm/api/offline-quiz.php', { headers: headers })
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(data) {
+            if (data && data.ok && window.MwOfflineDB && data.questions) {
+                return MwOfflineDB.saveQuizQuestions(data.questions);
+            }
+        })
+        .catch(function() {});
+
+    Promise.all([scheduleP, quizP]).then(function() {
         if (!done) { done = true; clearTimeout(timer); redirect(); }
     });
 })();

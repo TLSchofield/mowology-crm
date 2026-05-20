@@ -19,7 +19,7 @@
  * URL so the WebView can use a service worker just like a browser can).
  */
 
-var CACHE_VERSION = 'mw-v32';
+var CACHE_VERSION = 'mw-v33';
 var SHELL_CACHE  = 'mw-shell-' + CACHE_VERSION;
 var PAGE_CACHE   = 'mw-pages-' + CACHE_VERSION;
 var IMG_CACHE    = 'mw-images-' + CACHE_VERSION;
@@ -48,7 +48,8 @@ var APP_SHELL = [
   '/crm/js/schedule-drag-drop.js',
   '/crm/js/route-engine.js?v=20260219a',
   '/crm/js/offline-receipts.js',
-  '/crm/js/mw-offline-db.js?v=20260519a',
+  '/crm/js/mw-offline-db.js?v=20260519b',
+  '/crm/js/mw-quiz-offline.js?v=20260519a',
   '/crm/schedule-offline.html',
 
   /* ── Geofence / location ── */

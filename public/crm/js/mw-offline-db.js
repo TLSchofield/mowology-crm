@@ -15,9 +15,11 @@
     'use strict';
 
     var DB_NAME    = 'mw-offline';
-    var DB_VERSION = 1;
+    var DB_VERSION = 2;          // v2 adds quiz_questions + quiz_preshift stores
     var S_SCHEDULE = 'schedule';
     var S_META     = 'meta';
+    var S_QUIZ_Q   = 'quiz_questions';
+    var S_QUIZ_PS  = 'quiz_preshift';
 
     // ── DB open ───────────────────────────────────────────────────────────────
 
@@ -33,6 +35,14 @@
                 }
                 if (!db.objectStoreNames.contains(S_META)) {
                     db.createObjectStore(S_META, { keyPath: 'key' });
+                }
+                // v2 additions
+                if (!db.objectStoreNames.contains(S_QUIZ_Q)) {
+                    db.createObjectStore(S_QUIZ_Q, { keyPath: 'id' });
+                }
+                if (!db.objectStoreNames.contains(S_QUIZ_PS)) {
+                    // keyPath = date string 'YYYY-MM-DD'; one record per day per user
+                    db.createObjectStore(S_QUIZ_PS, { keyPath: 'date' });
                 }
             };
         });
@@ -120,6 +130,80 @@
         });
     }
 
+    // ── Quiz questions store ──────────────────────────────────────────────────
+
+    /**
+     * Save quiz questions array from offline-quiz API.
+     * Each question: { id, text, category_name, category_colour, difficulty, options: [{id, text, is_correct}] }
+     */
+    function saveQuizQuestions(questions) {
+        if (!Array.isArray(questions) || !questions.length) return Promise.resolve();
+        return openDB().then(function (db) {
+            return new Promise(function (resolve, reject) {
+                var tx    = db.transaction(S_QUIZ_Q, 'readwrite');
+                var store = tx.objectStore(S_QUIZ_Q);
+                questions.forEach(function (q) { store.put(q); });
+                tx.oncomplete = function () { resolve(); };
+                tx.onerror    = function () { reject(tx.error); };
+            });
+        });
+    }
+
+    /** Get all cached quiz questions. Returns [] if none cached. */
+    function getQuizQuestions() {
+        return openDB().then(function (db) {
+            return new Promise(function (resolve, reject) {
+                var tx  = db.transaction(S_QUIZ_Q, 'readonly');
+                var req = tx.objectStore(S_QUIZ_Q).getAll();
+                req.onsuccess = function () { resolve(req.result || []); };
+                req.onerror   = function () { reject(req.error); };
+            });
+        });
+    }
+
+    // ── Quiz preshift log (offline) ───────────────────────────────────────────
+
+    /**
+     * Save today's preshift completion locally.
+     * data: { correct, asked, completed_at, synced: false }
+     */
+    function saveQuizPreshift(date, data) {
+        return openDB().then(function (db) {
+            return new Promise(function (resolve, reject) {
+                var tx = db.transaction(S_QUIZ_PS, 'readwrite');
+                tx.objectStore(S_QUIZ_PS).put(Object.assign({ date: date }, data));
+                tx.oncomplete = function () { resolve(); };
+                tx.onerror    = function () { reject(tx.error); };
+            });
+        });
+    }
+
+    /** Get preshift log for a given date. Returns null if not recorded. */
+    function getQuizPreshift(date) {
+        return openDB().then(function (db) {
+            return new Promise(function (resolve, reject) {
+                var tx  = db.transaction(S_QUIZ_PS, 'readonly');
+                var req = tx.objectStore(S_QUIZ_PS).get(date);
+                req.onsuccess = function () { resolve(req.result || null); };
+                req.onerror   = function () { reject(req.error); };
+            });
+        });
+    }
+
+    /** Get all preshift records not yet synced to the server. */
+    function getPendingQuizSyncs() {
+        return openDB().then(function (db) {
+            return new Promise(function (resolve, reject) {
+                var tx  = db.transaction(S_QUIZ_PS, 'readonly');
+                var req = tx.objectStore(S_QUIZ_PS).getAll();
+                req.onsuccess = function () {
+                    resolve((req.result || []).filter(function (r) { return !r.synced; }));
+                };
+                req.onerror = function () { reject(req.error); };
+            });
+        });
+    }
+
     // ── Utility ───────────────────────────────────────────────────────────────
 
     function clear() {
@@ -163,13 +247,21 @@
     // ── Public API ────────────────────────────────────────────────────────────
 
     window.MwOfflineDB = {
-        saveScheduleDays: saveScheduleDays,
-        getSchedule:      getSchedule,
-        getAllSchedule:    getAllSchedule,
-        setMeta:          setMeta,
-        getMeta:          getMeta,
-        clear:            clear,
-        pullFromServer:   pullFromServer,
+        // Schedule
+        saveScheduleDays:   saveScheduleDays,
+        getSchedule:        getSchedule,
+        getAllSchedule:      getAllSchedule,
+        pullFromServer:     pullFromServer,
+        // Quiz
+        saveQuizQuestions:  saveQuizQuestions,
+        getQuizQuestions:   getQuizQuestions,
+        saveQuizPreshift:   saveQuizPreshift,
+        getQuizPreshift:    getQuizPreshift,
+        getPendingQuizSyncs: getPendingQuizSyncs,
+        // Meta / util
+        setMeta:            setMeta,
+        getMeta:            getMeta,
+        clear:              clear,
     };
 
 })();
