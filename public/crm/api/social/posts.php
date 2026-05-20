@@ -482,6 +482,11 @@ try {
             $scheduledAt = !empty($input['scheduled_at']) ? $input['scheduled_at'] : null;
             $status      = $input['status'] ?? 'draft';
 
+            $validAnims    = ['wipe', 'split', 'zoom', 'fade', 'reveal', 'blinds'];
+            $rawAnim       = trim($input['animation_type'] ?? '');
+            $animationType = in_array($rawAnim, $validAnims, true) ? $rawAnim : null;
+            $videoMediaId  = !empty($input['video_media_id']) ? (int)$input['video_media_id'] : null;
+
             if (!$caption) {
                 throw new InvalidArgumentException('Caption is required');
             }
@@ -543,14 +548,16 @@ try {
                         hashtags_in_comment = ?,
                         cta_action          = ?, cta_url      = ?, neighborhood        = ?,
                         city                = ?, service_type = ?, template_id         = ?,
-                        scheduled_at        = ?, status       = ?, updated_at          = NOW()
+                        scheduled_at        = ?, status       = ?, updated_at          = NOW(),
+                        animation_type      = ?, video_media_id = ?
                     WHERE id = ?
                 ")->execute([
                     $title ?: null, $caption, $hashtags ?: null,
                     $hashtagsInComment,
                     $ctaAction ?: null, $ctaUrl ?: null, $neighborhood ?: null,
                     $city, $serviceType ?: null, $templateId,
-                    $scheduledAt, $status, $id
+                    $scheduledAt, $status,
+                    $animationType, $videoMediaId, $id
                 ]);
 
             } else {
@@ -558,14 +565,16 @@ try {
                 $db->prepare("
                     INSERT INTO social_posts
                         (title, caption, hashtags, hashtags_in_comment, cta_action, cta_url,
-                         neighborhood, city, service_type, template_id, scheduled_at, status, created_by)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         neighborhood, city, service_type, template_id, scheduled_at, status,
+                         created_by, animation_type, video_media_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ")->execute([
                     $title ?: null, $caption, $hashtags ?: null,
                     $hashtagsInComment,
                     $ctaAction ?: null, $ctaUrl ?: null, $neighborhood ?: null,
                     $city, $serviceType ?: null, $templateId,
-                    $scheduledAt, $status, $user['id']
+                    $scheduledAt, $status, $user['id'],
+                    $animationType, $videoMediaId
                 ]);
                 $id = (int)$db->lastInsertId();
             }
@@ -575,6 +584,15 @@ try {
             foreach ($mediaIds as $i => $mid) {
                 $db->prepare("INSERT INTO social_post_media (post_id, media_id, sort_order) VALUES (?, ?, ?)")
                    ->execute([$id, $mid, $i]);
+            }
+            // Append generated animation video (sort after images)
+            if ($videoMediaId) {
+                $chkVid = $db->prepare("SELECT id FROM media_assets WHERE id = ? AND file_type = 'video'");
+                $chkVid->execute([$videoMediaId]);
+                if ($chkVid->fetch()) {
+                    $db->prepare("INSERT INTO social_post_media (post_id, media_id, sort_order) VALUES (?, ?, ?)")
+                       ->execute([$id, $videoMediaId, count($mediaIds)]);
+                }
             }
 
             // Sync platform targets

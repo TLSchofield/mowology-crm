@@ -288,6 +288,54 @@ $extraHead = '
                       </div>
                   </div>
 
+                  <!-- Animation Builder — shown when ≥2 media items are selected -->
+                  <div class="card mb-3" id="animSection" style="display:none">
+                      <div class="card-header d-flex justify-content-between align-items-center">
+                          <h5 class="mb-0">
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-1"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+                              Animation
+                          </h5>
+                          <span id="animReadyBadge" class="badge badge-pill" style="display:none;background:#28a745;color:#fff">✓ Video ready</span>
+                      </div>
+                      <div class="card-body">
+                          <div class="row mb-2">
+                              <div class="col-6">
+                                  <label class="small font-weight-bold mb-1">Before photo</label>
+                                  <select class="form-control form-control-sm" id="animBeforeSelect" onchange="svbLoadImages()">
+                                      <option value="">— select —</option>
+                                  </select>
+                              </div>
+                              <div class="col-6">
+                                  <label class="small font-weight-bold mb-1">After photo</label>
+                                  <select class="form-control form-control-sm" id="animAfterSelect" onchange="svbLoadImages()">
+                                      <option value="">— select —</option>
+                                  </select>
+                              </div>
+                          </div>
+                          <div class="btn-group btn-group-sm w-100 mb-2" id="animStyleBtns">
+                              <button type="button" class="btn btn-outline-secondary active" data-anim="wipe" onclick="svbSetAnim('wipe',this)">↔ Wipe</button>
+                              <button type="button" class="btn btn-outline-secondary" data-anim="split" onclick="svbSetAnim('split',this)">⇔ Split</button>
+                              <button type="button" class="btn btn-outline-secondary" data-anim="zoom" onclick="svbSetAnim('zoom',this)">⊕ Zoom</button>
+                              <button type="button" class="btn btn-outline-secondary" data-anim="fade" onclick="svbSetAnim('fade',this)">◐ Fade</button>
+                              <button type="button" class="btn btn-outline-secondary" data-anim="reveal" onclick="svbSetAnim('reveal',this)">⊙ Reveal</button>
+                              <button type="button" class="btn btn-outline-secondary" data-anim="blinds" onclick="svbSetAnim('blinds',this)">▤ Blinds</button>
+                          </div>
+                          <div style="background:#0D3B2E;border-radius:6px;overflow:hidden;margin-bottom:10px">
+                              <canvas id="animCanvas" width="1080" height="1080" style="width:100%;height:auto;display:block"></canvas>
+                          </div>
+                          <div class="d-flex mb-2">
+                              <button type="button" class="btn btn-sm btn-outline-primary flex-grow-1 mr-2" id="btnAnimPlay" onclick="svbPlay()">▶ Preview</button>
+                              <button type="button" class="btn btn-sm btn-success flex-grow-1" id="btnAnimGenerate" onclick="svbGenerate()">🎬 Generate Video</button>
+                          </div>
+                          <div id="animStatus" style="display:none;font-size:.8rem;padding:4px 0"></div>
+                          <div id="animVideoReady" style="display:none" class="d-flex align-items-center mt-1">
+                              <span class="badge badge-success mr-2">✓ Video attached</span>
+                              <span class="text-muted small" id="animVideoLabel"></span>
+                              <button type="button" class="btn btn-link btn-sm p-0 ml-auto text-danger" style="font-size:.78rem" onclick="svbClearVideo()">Remove</button>
+                          </div>
+                      </div>
+                  </div>
+
                   <!-- Post Preview -->
                   <div class="card mb-3">
                       <div class="card-header d-flex justify-content-between align-items-center">
@@ -1186,11 +1234,16 @@ $extraHead = '
                   updatePreview();
               };
 
+              // Notify animation builder whenever media selection changes
+              function notifyAnimBuilder() {
+                  if (window.svbRefreshSelectors) window.svbRefreshSelectors(selectedMediaMeta);
+              }
+
               function updateMediaSelection() {
                   document.getElementById('mediaSelectedCount').textContent = selectedMedia.length + ' of 10 selected';
                   var strip = document.getElementById('selectedThumbStrip');
                   if (!strip) return;
-                  if (!selectedMediaMeta.length) { strip.innerHTML = ''; return; }
+                  if (!selectedMediaMeta.length) { strip.innerHTML = ''; notifyAnimBuilder(); return; }
 
                   var igSelected = isInstagramSelected();
                   strip.innerHTML = selectedMediaMeta.map(function(m) {
@@ -1206,6 +1259,8 @@ $extraHead = '
                           + '<button type="button" class="mw-soc-thumb-crop" onclick="openCropModal(' + m.id + ')" title="' + esc(ratioTip) + '">✂ Crop</button>'
                           + '</div>';
                   }).join('');
+
+                  notifyAnimBuilder();
               }
 
               // ── Crop tool ─────────────────────────────────────────
@@ -1499,6 +1554,8 @@ $extraHead = '
                       status:            status,
                       media_ids:         selectedMedia,
                       platform_accounts: selectedAccounts,
+                      animation_type:    window.getAnimType ? window.getAnimType() : null,
+                      video_media_id:    window.getAnimVideoMediaId ? window.getAnimVideoMediaId() : null,
                   };
               }
 
@@ -1816,5 +1873,187 @@ $extraHead = '
               updateCharCount();
           })();
           </script>
+
+<script src="/crm/js/social-video-builder.js"></script>
+<script>
+(function () {
+    var svb              = null;
+    var animType         = 'wipe';
+    var videoMediaId     = null;
+    var generatedAnim    = null;
+
+    document.addEventListener('DOMContentLoaded', function () {
+        var canvas = document.getElementById('animCanvas');
+        if (!canvas) return;
+        svb = new SocialVideoBuilder(canvas, {
+            onStateChange: function (playing) {
+                var btn = document.getElementById('btnAnimPlay');
+                if (btn) btn.textContent = playing ? '⏹ Stop' : '▶ Preview';
+            }
+        });
+        svb.drawFrame(0);
+    });
+
+    // Called by the IIFE's notifyAnimBuilder() whenever selectedMediaMeta changes
+    window.svbRefreshSelectors = function (metaArr) {
+        var sec = document.getElementById('animSection');
+        if (!sec) return;
+
+        if (metaArr.length < 2) {
+            sec.style.display = 'none';
+            return;
+        }
+        sec.style.display = '';
+
+        var bSel = document.getElementById('animBeforeSelect');
+        var aSel = document.getElementById('animAfterSelect');
+        if (!bSel || !aSel) return;
+
+        var bVal = bSel.value;
+        var aVal = aSel.value;
+
+        var opts = '<option value="">— select —</option>'
+            + metaArr.map(function (m, i) {
+                var label = m.alt || ('Photo ' + (i + 1));
+                return '<option value="' + m.url + '">' + label + '</option>';
+            }).join('');
+        bSel.innerHTML = opts;
+        aSel.innerHTML = opts;
+
+        // Restore prior selection if still available, else default to first/second
+        if (bVal && metaArr.some(function (m) { return m.url === bVal; })) {
+            bSel.value = bVal;
+        } else if (metaArr.length > 0) {
+            bSel.value = metaArr[0].url;
+        }
+
+        if (aVal && metaArr.some(function (m) { return m.url === aVal; })) {
+            aSel.value = aVal;
+        } else if (metaArr.length > 1) {
+            aSel.value = metaArr[1].url;
+        }
+
+        svbLoadImages();
+    };
+
+    window.svbLoadImages = function () {
+        if (!svb) return;
+        var bSel = document.getElementById('animBeforeSelect');
+        var aSel = document.getElementById('animAfterSelect');
+        var bUrl = bSel ? bSel.value : '';
+        var aUrl = aSel ? aSel.value : '';
+        svbSyncBranding();
+        svb.loadImages(bUrl || null, aUrl || null);
+    };
+
+    function svbSyncBranding() {
+        if (!svb) return;
+        svb.setBranding({
+            name:    'Mowology',
+            city:    (document.getElementById('postCity')        || {}).value || '',
+            service: (document.getElementById('postServiceType') || {}).value || '',
+            caption: (document.getElementById('postCaption')     || {}).value || '',
+        });
+    }
+
+    window.svbSetAnim = function (type, btn) {
+        animType = type;
+        document.querySelectorAll('#animStyleBtns .btn').forEach(function (b) { b.classList.remove('active'); });
+        if (btn) btn.classList.add('active');
+        if (svb) { svb.setAnimType(type); }
+    };
+
+    window.svbPlay = function () {
+        if (!svb) return;
+        svbSyncBranding();
+        var bSel = document.getElementById('animBeforeSelect');
+        var aSel = document.getElementById('animAfterSelect');
+        if (!bSel.value && !aSel.value) { showAnimStatus('Select before and after photos first.', '#856404'); return; }
+        svb.play();
+    };
+
+    window.svbGenerate = function () {
+        if (!svb) return;
+        var bSel = document.getElementById('animBeforeSelect');
+        var aSel = document.getElementById('animAfterSelect');
+        if (!bSel || !bSel.value || !aSel || !aSel.value) {
+            showAnimStatus('Select both a before and after photo first.', '#856404'); return;
+        }
+        svbSyncBranding();
+
+        var btn = document.getElementById('btnAnimGenerate');
+        btn.disabled = true;
+        btn.textContent = '⏳ Rendering…';
+        showAnimStatus('Rendering animation…', '#155724');
+
+        svb.capture().then(function (blob) {
+            if (!blob) {
+                btn.disabled = false;
+                btn.textContent = '🎬 Generate Video';
+                showAnimStatus('MediaRecorder not supported in this browser.', '#721c24');
+                return;
+            }
+
+            btn.textContent = '⬆️ Uploading…';
+            showAnimStatus('Uploading video…', '#155724');
+
+            var csrf = '<?php echo generateCSRFToken(); ?>';
+
+            var fd = new FormData();
+            fd.append('video', blob, 'animation.webm');
+            fd.append('animation_type', animType);
+            fd.append('csrf_token', csrf);
+
+            fetch('/crm/api/social/video-upload.php', { method: 'POST', body: fd })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    btn.disabled = false;
+                    if (data.success) {
+                        videoMediaId  = data.media_id;
+                        generatedAnim = animType;
+                        btn.textContent = '🎬 Regenerate';
+                        showAnimStatus('');
+                        document.getElementById('animReadyBadge').style.display  = '';
+                        document.getElementById('animVideoReady').style.display  = '';
+                        document.getElementById('animVideoLabel').textContent =
+                            animType + ' · ' + Math.round(blob.size / 1024) + ' KB';
+                    } else {
+                        btn.textContent = '🎬 Generate Video';
+                        showAnimStatus('Upload failed: ' + (data.error || 'Unknown'), '#721c24');
+                    }
+                })
+                .catch(function () {
+                    btn.disabled = false;
+                    btn.textContent = '🎬 Generate Video';
+                    showAnimStatus('Upload error — please try again.', '#721c24');
+                });
+        });
+    };
+
+    window.svbClearVideo = function () {
+        videoMediaId  = null;
+        generatedAnim = null;
+        document.getElementById('animReadyBadge').style.display = 'none';
+        document.getElementById('animVideoReady').style.display = 'none';
+        document.getElementById('animVideoLabel').textContent   = '';
+        var btn = document.getElementById('btnAnimGenerate');
+        if (btn) { btn.disabled = false; btn.textContent = '🎬 Generate Video'; }
+        showAnimStatus('Video removed.', '#6c757d');
+    };
+
+    // Exposed to buildPayload() inside the IIFE
+    window.getAnimType         = function () { return generatedAnim; };
+    window.getAnimVideoMediaId = function () { return videoMediaId; };
+
+    function showAnimStatus(msg, color) {
+        var el = document.getElementById('animStatus');
+        if (!el) return;
+        if (!msg) { el.style.display = 'none'; return; }
+        el.style.display = '';
+        el.style.color   = color || '';
+        el.textContent   = msg;
+    }
+}());
+</script>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
