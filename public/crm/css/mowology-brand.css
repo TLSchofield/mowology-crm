@@ -28905,3 +28905,61 @@ body.mw-no-scroll {
   color: #6c757d;
   margin-top: 2px;
 }
+
+/* ── Offline Action Queue Strip (offline-queue.js) ─────────────────────── */
+/* Sits below the day-strip on schedule.php; hidden when online and empty.  */
+.mw-mc-offline-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 16px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  border-radius: 0 0 6px 6px;
+  transition: background 0.3s;
+}
+
+/* Offline — amber warning */
+.mw-mc-offline-strip.mw-offline-state-offline {
+  background: #f0ad4e;
+  color: #4a3000;
+}
+
+/* Online, replaying — blue pulse */
+.mw-mc-offline-strip.mw-offline-state-syncing {
+  background: #5bc0de;
+  color: #fff;
+  animation: mw-strip-pulse 1.4s ease-in-out infinite;
+}
+
+/* All clear — green fade-out */
+.mw-mc-offline-strip.mw-offline-state-clear {
+  background: var(--mw-green, #2D8659);
+  color: #fff;
+}
+
+@keyframes mw-strip-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.7; }
+}
+
+/* Queue badge on the clock icon button */
+.mw-clock-queue-badge {
+  display: none;
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
+  line-height: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: #e85d04;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  text-align: center;
+}
+.mw-clock-queue-badge.mw-queue-has-items {
+  display: block;
+}

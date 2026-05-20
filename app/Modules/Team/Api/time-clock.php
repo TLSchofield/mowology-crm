@@ -28,10 +28,9 @@ try {
     require_once CRM_INCLUDES . '/functions.php';
     require_once CRM_INCLUDES . '/timeclock-functions.php';
 
-    requireLogin();
-    $user = getCurrentUser();
+    $user = requireLoginOrJwt();
     requirePermission('timer.start');
-    session_write_close(); // writes to DB only — release session lock after auth
+    session_write_close(); // release session lock before DB work
 
     // Check if time clock is enabled for this user's role
     if (!isTimeClockEnabledForRole($user['role'])) {

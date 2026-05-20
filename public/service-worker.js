@@ -19,7 +19,7 @@
  * URL so the WebView can use a service worker just like a browser can).
  */
 
-var CACHE_VERSION = 'mw-v33';
+var CACHE_VERSION = 'mw-v34';
 var SHELL_CACHE  = 'mw-shell-' + CACHE_VERSION;
 var PAGE_CACHE   = 'mw-pages-' + CACHE_VERSION;
 var IMG_CACHE    = 'mw-images-' + CACHE_VERSION;
@@ -316,10 +316,23 @@ function latLngToTile(lat, lng, zoom) {
   return { x: x, y: y };
 }
 
-// ── Background Sync: retry failed receipt uploads ──
+// ── Background Sync: retry failed receipt uploads + action queue ──
 self.addEventListener('sync', function(event) {
   if (event.tag === 'receipt-upload') {
     event.waitUntil(syncPendingReceipts());
+  }
+
+  // Action queue (time-clock, pow-actions, job-timer queued while offline).
+  // The actual replay lives in offline-queue.js on the page; the SW just
+  // signals any open client to call OfflineActions.syncNow().
+  if (event.tag === 'action-queue-sync') {
+    event.waitUntil(
+      self.clients.matchAll({ includeUncontrolled: true, type: 'window' }).then(function(clients) {
+        clients.forEach(function(client) {
+          client.postMessage({ type: 'action-queue-flush' });
+        });
+      })
+    );
   }
 });
 

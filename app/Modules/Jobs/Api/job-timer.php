@@ -33,8 +33,7 @@ try {
         require_once $locFuncsPath;
     }
 
-    requireLogin();
-    $user = getCurrentUser();
+    $user = requireLoginOrJwt();
     requirePermission('timer.start');
 
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {
@@ -43,7 +42,10 @@ try {
         $input = json_decode(file_get_contents('php://input'), true);
         $action = $input['action'] ?? '';
 
-        if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
+        // Skip CSRF for JWT Bearer requests — the signed token is the auth mechanism.
+        // Browsers without a Bearer token must include csrf_token in the body.
+        $isBearerRequest = function_exists('extractBearerToken') && extractBearerToken() !== '';
+        if (!$isBearerRequest && !verifyCSRFToken($input['csrf_token'] ?? '')) {
             http_response_code(403);
             echo json_encode(['success' => false, 'error' => 'CSRF token invalid']);
             exit;

@@ -362,6 +362,18 @@ function requireLoginOrJwt(): array
         header('Location: ' . (defined('LOGIN_URL') ? LOGIN_URL : '/crm/login_secure.php'));
         exit;
     }
+
+    // Hydrate session when JWT auth was used so RBAC helpers (requirePermission,
+    // userHasPermission) that internally call getCurrentUser() find the user.
+    // Only writes if no session user is already present (prevents overwriting a
+    // valid browser session with stale JWT data).
+    if (!isset($_SESSION['user_id']) && !empty($user['id'])) {
+        $_SESSION['user_id']    = (int)$user['id'];
+        $_SESSION['user_email'] = (string)($user['email'] ?? '');
+        $_SESSION['user_name']  = (string)($user['name']  ?? '');
+        $_SESSION['user_role']  = (string)($user['role']  ?? 'user');
+    }
+
     return $user;
 }
 
