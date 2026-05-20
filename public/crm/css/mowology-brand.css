@@ -18817,6 +18817,15 @@ body.mw-no-scroll {
     100% { box-shadow: 0 0 0 0 rgba(220,53,69,0); transform: scale(1); }
 }
 
+/* Ext. Billed badge — muted teal, indicates visit was invoiced outside the CRM */
+.mw-badge-ext-billed {
+    background: #5a8a7a;
+    color: #fff;
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+}
+
 /* ── Invoice Bulk Payment UI ─────────────────────────────────────────────── */
 
 /* Checkbox column */

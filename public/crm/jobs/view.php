@@ -352,6 +352,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         }
     }
 
+    // Mark a completed visit as invoiced externally (toggles billed_externally flag)
+    if ($action === 'mark_external_invoice') {
+        requirePermission('jobs.edit');
+        $markVisitId = intval($_POST['mark_visit_id'] ?? 0);
+        if ($markVisitId) {
+            $vChk = $db->prepare("SELECT id, billed_externally FROM job_visits WHERE id = ? AND plan_id = ? AND status = 'completed'");
+            $vChk->execute([$markVisitId, $planId]);
+            $vRow = $vChk->fetch(PDO::FETCH_ASSOC);
+            if ($vRow) {
+                $newVal = $vRow['billed_externally'] ? 0 : 1;
+                $db->prepare("UPDATE job_visits SET billed_externally = ? WHERE id = ?")->execute([$newVal, $markVisitId]);
+                header("Location: view.php?id={$planId}&ext_invoice=1");
+                exit;
+            }
+        }
+        $message = 'Could not update visit.';
+        $messageType = 'error';
+    }
+
     // Delete a plan (admin/manager only — soft-cancels scheduled visits, sets plan to cancelled)
     if ($action === 'delete_plan') {
         requirePermission('jobs.edit');
@@ -586,6 +605,7 @@ if (isset($_GET['time_moved']))   { $message = 'Time entry moved!'; $messageType
 if (isset($_GET['time_deleted']))   { $message = 'Time entry deleted.'; $messageType = 'success'; }
 if (isset($_GET['visit_deleted']))  { $message = 'Visit deleted.'; $messageType = 'success'; }
 if (isset($_GET['time_edited']))  { $message = 'Time entry updated!'; $messageType = 'success'; }
+if (isset($_GET['ext_invoice']))  { $message = 'Visit updated.'; $messageType = 'success'; }
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -1383,12 +1403,14 @@ if ($hasPropCoords) {
                                                 <?php echo htmlspecialchars($visit['crew_name'] ?? 'Unassigned'); ?>
                                             </td>
                                             <td>
-                                                <?php if ($visit['status'] === 'completed' && empty($visit['invoice_id']) && empty($plan['contract_id'])): ?>
+                                                <?php if ($visit['status'] === 'completed' && empty($visit['invoice_id']) && empty($plan['contract_id']) && empty($visit['billed_externally'])): ?>
                                                     <a href="/crm/invoices/create.php?visit_id=<?php echo (int)$visit['id']; ?>"
                                                        class="mw-unbilled-pulse" title="Invoice not raised — click to fix">
                                                         <span class="mw-unbilled-dot"></span>
                                                         Invoice!
                                                     </a>
+                                                <?php elseif (!empty($visit['billed_externally'])): ?>
+                                                    <span class="mw-badge-status mw-badge-ext-billed" title="Invoiced outside this CRM">Ext. Billed</span>
                                                 <?php else: ?>
                                                     <?php echo getStatusBadge($visit['status'], 'visit'); ?>
                                                 <?php endif; ?>
@@ -1467,6 +1489,28 @@ if ($hasPropCoords) {
                                                             <i data-feather="file-text" style="width:12px;height:12px;"></i>
                                                             Invoiced
                                                         </a>
+                                                    <?php elseif (userHasPermission('jobs.edit') && empty($plan['contract_id'])): ?>
+                                                        <form method="POST" style="display:inline;">
+                                                            <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                                                            <input type="hidden" name="mark_visit_id" value="<?php echo (int)$visit['id']; ?>">
+                                                            <?php if (empty($visit['billed_externally'])): ?>
+                                                                <button type="submit" name="action" value="mark_external_invoice"
+                                                                        class="btn btn-sm btn-outline-secondary"
+                                                                        title="Invoiced in another system (e.g. Jobber) — mark to silence the Invoice! prompt"
+                                                                        onclick="return confirm('Mark this visit as invoiced externally?\nThis will silence the Invoice! prompt and show an Ext. Billed badge.')">
+                                                                    <i data-feather="external-link" style="width:12px;height:12px;"></i>
+                                                                    Ext. Invoice
+                                                                </button>
+                                                            <?php else: ?>
+                                                                <button type="submit" name="action" value="mark_external_invoice"
+                                                                        class="btn btn-sm btn-outline-warning"
+                                                                        title="Remove the external invoice mark"
+                                                                        onclick="return confirm('Remove the Ext. Billed mark?')">
+                                                                    <i data-feather="x" style="width:12px;height:12px;"></i>
+                                                                    Unmark
+                                                                </button>
+                                                            <?php endif; ?>
+                                                        </form>
                                                     <?php endif; ?>
                                                 <?php elseif ($visit['status'] === 'skipped'): ?>
                                                     <span class="text-muted small">Skipped</span>
