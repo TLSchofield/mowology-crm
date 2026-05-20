@@ -193,10 +193,7 @@ function loginUser(string $email, string $password): bool {
     try {
         // Fetch user without is_active filter — check it separately so NULL is treated as active
         $stmt = $db->prepare("
-            SELECT id, email, password_hash, full_name, role, is_active,
-                   COALESCE(is_driver, 0) AS is_driver,
-                   COALESCE(first_name, '') AS first_name,
-                   COALESCE(last_name, '') AS last_name
+            SELECT id, email, password_hash, full_name, role, is_active
             FROM users
             WHERE LOWER(email) = ?
             LIMIT 1
@@ -216,11 +213,25 @@ function loginUser(string $email, string $password): bool {
             $_SESSION['user_email']     = (string)$user['email'];
             $_SESSION['user_name']      = (string)($user['full_name'] ?? '');
             $_SESSION['user_role']      = (string)($user['role'] ?: 'user');
-            $_SESSION['user_is_driver'] = (int)($user['is_driver'] ?? 0);
-            $_SESSION['user_first_name'] = (string)($user['first_name'] ?? '');
-            $_SESSION['user_last_name']  = (string)($user['last_name'] ?? '');
             $_SESSION['login_time']     = time();
             $_SESSION['last_activity']  = time();
+
+            // Fetch extended profile fields separately — graceful if columns missing
+            try {
+                $ext = $db->prepare("
+                    SELECT COALESCE(is_driver, 0)   AS is_driver,
+                           COALESCE(first_name, '') AS first_name,
+                           COALESCE(last_name, '')  AS last_name
+                    FROM users WHERE id = ? LIMIT 1
+                ");
+                $ext->execute([(int)$user['id']]);
+                $profile = $ext->fetch(PDO::FETCH_ASSOC) ?: [];
+            } catch (Throwable $e) {
+                $profile = [];
+            }
+            $_SESSION['user_is_driver']  = (int)($profile['is_driver']  ?? 0);
+            $_SESSION['user_first_name'] = (string)($profile['first_name'] ?? '');
+            $_SESSION['user_last_name']  = (string)($profile['last_name']  ?? '');
 
             // Update last login
             $upd = $db->prepare("UPDATE users SET last_login = NOW() WHERE id = ? LIMIT 1");
