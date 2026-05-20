@@ -1,9 +1,30 @@
 <?php
 require_once __DIR__ . '/../loginAuth/auth.php';
 
-// If already logged in, redirect to dashboard
+// If already logged in, issue JWT if missing then redirect via JS so it gets stored
 if (isLoggedIn()) {
-    header('Location: dashboard_appstack.php');
+    $user = getCurrentUser();
+    if ($user) {
+        require_once dirname(__DIR__) . '/app/Core/Auth/JwtService.php';
+        $ttl = 30 * 24 * 3600;
+        $existingJwtData = [
+            'token' => generateMowologyJwt((int)$user['id'], $user['email'], $user['name'], $user['role'], $ttl),
+            'user'  => $user,
+            'exp'   => time() + $ttl,
+        ];
+    }
+    ?><!DOCTYPE html>
+    <html lang="en"><head><meta charset="UTF-8"><title>Redirecting…</title></head><body>
+    <script>
+    (function() {
+        <?php if (!empty($existingJwtData)): ?>
+        try { localStorage.setItem('mw_jwt', JSON.stringify(<?= json_encode($existingJwtData) ?>)); } catch(e) {}
+        <?php endif; ?>
+        window.location.replace('/crm/dashboard_appstack.php');
+    })();
+    </script>
+    </body></html>
+    <?php
     exit();
 }
 
@@ -28,7 +49,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // The JS below stores it in localStorage and redirects to dashboard.
                 $user = getCurrentUser();
                 if ($user) {
-                    require_once dirname(__DIR__, 2) . '/app/Core/Auth/JwtService.php';
+                    require_once dirname(__DIR__) . '/app/Core/Auth/JwtService.php';
                     $ttl   = 30 * 24 * 3600; // 30 days
                     $token = generateMowologyJwt(
                         (int)$user['id'],
@@ -69,7 +90,7 @@ if ($jwtData !== null):
         var d = <?= json_encode($jwtData) ?>;
         localStorage.setItem('mw_jwt', JSON.stringify(d));
     } catch(e) {}
-    window.location.replace('dashboard_appstack.php');
+    window.location.replace('/crm/dashboard_appstack.php');
 })();
 </script>
 <noscript><meta http-equiv="refresh" content="0;url=dashboard_appstack.php"></noscript>
