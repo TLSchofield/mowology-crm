@@ -12957,6 +12957,21 @@ body.mw-no-scroll {
   color: #856404;
 }
 
+/* Profit-tier overrides — take precedence over GPS-confidence colors */
+.mw-duration-badge--profitable {
+  background: #e8f3f0;
+  color: var(--mw-dark);
+}
+.mw-duration-badge--marginal {
+  background: #fef3c7;
+  color: #92400e;
+}
+.mw-duration-badge--unprofitable {
+  background: #fee2e2;
+  color: #991b1b;
+  font-weight: 600;
+}
+
 /* Stop status indicators */
 .mw-stop-card.mw-stop-in-progress {
   border-left: 3px solid var(--mw-orange);
