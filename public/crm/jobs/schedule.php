@@ -1930,7 +1930,7 @@ if ($apiKey) {
 
                                       <?php
                                       // Profitability bar — margin already computed above
-                                      <?php if ($stopHasProfit && $stopMargin !== null): ?>
+                                      if ($stopHasProfit && $stopMargin !== null): ?>
                                           <div class="mw-profit-bar" title="Est. margin: <?php echo $stopMargin; ?>%">
                                               <div class="mw-profit-bar-fill" style="width: <?php echo max(0, min(100, $stopMargin)); ?>%; background: <?php echo profitBarColor($stopMargin); ?>" data-margin="<?php echo $stopMargin; ?>"></div>
                                           </div>
