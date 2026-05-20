@@ -166,7 +166,7 @@ try {
               WHERE ma_b.context_type = 'visit_photo'
                 AND EXISTS (
                     SELECT 1 FROM visit_photos vp2
-                    WHERE vp2.filename = ma_b.stored_filename
+                    WHERE vp2.filename = ma_b.stored_filename COLLATE utf8mb4_general_ci
                       AND vp2.visit_id = jv.id
                 )
           )
