@@ -3215,8 +3215,10 @@ function getServiceLabel(type) {
         })
         .then(function(resp) {
             if (!resp.ok) {
-                return resp.json().then(function(d) {
-                    throw new Error(d.error || 'Server error');
+                return resp.text().then(function(text) {
+                    var d;
+                    try { d = JSON.parse(text); } catch (e) { d = {}; }
+                    throw new Error(d.error || ('Server error ' + resp.status));
                 });
             }
             return resp.json();

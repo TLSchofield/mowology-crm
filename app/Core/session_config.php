@@ -8,9 +8,6 @@ declare(strict_types=1);
  * Migrated from /public/app_config/session_config.php
  */
 
-error_reporting(E_ALL);
-ini_set('display_errors', '1');
-
 // If output started already, sessions can break.
 if (headers_sent($file, $line)) {
     error_log("Session start blocked: headers already sent at $file:$line");

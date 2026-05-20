@@ -19,8 +19,8 @@ date_default_timezone_set('America/Vancouver');
 
 // Environment flags (set APP_ENV in server config if you want)
 if (!defined('APP_ENV')) {
-    // dev | prod
-    define('APP_ENV', 'dev');
+    // dev | prod — default prod so API responses are never contaminated with HTML errors
+    define('APP_ENV', 'prod');
 }
 if (!defined('APP_DEBUG')) {
     define('APP_DEBUG', APP_ENV !== 'prod');
