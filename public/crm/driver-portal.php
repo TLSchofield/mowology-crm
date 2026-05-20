@@ -16,7 +16,7 @@ $user = getCurrentUser();
 
 // Only designated drivers (and admins) can see the driver portal
 if (empty($user['is_driver']) && $user['role'] !== 'admin') {
-    header('Location: /crm/');
+    header('Location: /crm/jobs/schedule.php');
     exit;
 }
 

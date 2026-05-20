@@ -137,6 +137,8 @@ self.addEventListener('fetch', function(event) {
   // Only handle same-origin requests from here on
   if (url.origin !== self.location.origin) return;
 
+  var pathname = url.pathname;
+
   // ── Navigate: schedule pages — network-first with 4.5s timeout + offline fallback ──
   // Schedule is the crew's primary view; serve it from cache or the offline viewer
   // when the server is unreachable, rather than showing a browser error page.
@@ -153,8 +155,6 @@ self.addEventListener('fetch', function(event) {
   // Bypassing navigations lets the browser show a normal loading spinner instead
   // of hard-failing. Static assets (CSS/JS) still use cache-first for fast loads.
   if (request.mode === 'navigate') return;
-
-  var pathname = url.pathname;
 
   // ── API calls → network-first (always fresh data, cache as fallback) ──
   if (pathname.startsWith('/crm/api/') || pathname.startsWith('/app/Modules/')) {

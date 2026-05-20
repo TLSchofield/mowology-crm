@@ -95,10 +95,14 @@ function getCurrentUser(): ?array {
     if (!isLoggedIn()) return null;
 
     return [
-        'id'    => (int)$_SESSION['user_id'],
-        'email' => (string)($_SESSION['user_email'] ?? ''),
-        'name'  => (string)($_SESSION['user_name'] ?? ''),
-        'role'  => (string)($_SESSION['user_role'] ?? 'user'),
+        'id'         => (int)$_SESSION['user_id'],
+        'email'      => (string)($_SESSION['user_email'] ?? ''),
+        'name'       => (string)($_SESSION['user_name'] ?? ''),
+        'full_name'  => (string)($_SESSION['user_name'] ?? ''),
+        'role'       => (string)($_SESSION['user_role'] ?? 'user'),
+        'is_driver'  => (bool)($_SESSION['user_is_driver'] ?? false),
+        'first_name' => (string)($_SESSION['user_first_name'] ?? ''),
+        'last_name'  => (string)($_SESSION['user_last_name'] ?? ''),
     ];
 }
 
@@ -189,7 +193,10 @@ function loginUser(string $email, string $password): bool {
     try {
         // Fetch user without is_active filter — check it separately so NULL is treated as active
         $stmt = $db->prepare("
-            SELECT id, email, password_hash, full_name, role, is_active
+            SELECT id, email, password_hash, full_name, role, is_active,
+                   COALESCE(is_driver, 0) AS is_driver,
+                   COALESCE(first_name, '') AS first_name,
+                   COALESCE(last_name, '') AS last_name
             FROM users
             WHERE LOWER(email) = ?
             LIMIT 1
@@ -205,12 +212,15 @@ function loginUser(string $email, string $password): bool {
         if ($user && isset($user['password_hash']) && password_verify($password, (string)$user['password_hash'])) {
             session_regenerate_id(true);
 
-            $_SESSION['user_id'] = (int)$user['id'];
-            $_SESSION['user_email'] = (string)$user['email'];
-            $_SESSION['user_name'] = (string)($user['full_name'] ?? '');
-            $_SESSION['user_role'] = (string)($user['role'] ?: 'user');
-            $_SESSION['login_time'] = time();
-            $_SESSION['last_activity'] = time();
+            $_SESSION['user_id']        = (int)$user['id'];
+            $_SESSION['user_email']     = (string)$user['email'];
+            $_SESSION['user_name']      = (string)($user['full_name'] ?? '');
+            $_SESSION['user_role']      = (string)($user['role'] ?: 'user');
+            $_SESSION['user_is_driver'] = (int)($user['is_driver'] ?? 0);
+            $_SESSION['user_first_name'] = (string)($user['first_name'] ?? '');
+            $_SESSION['user_last_name']  = (string)($user['last_name'] ?? '');
+            $_SESSION['login_time']     = time();
+            $_SESSION['last_activity']  = time();
 
             // Update last login
             $upd = $db->prepare("UPDATE users SET last_login = NOW() WHERE id = ? LIMIT 1");
@@ -368,10 +378,13 @@ function requireLoginOrJwt(): array
     // Only writes if no session user is already present (prevents overwriting a
     // valid browser session with stale JWT data).
     if (!isset($_SESSION['user_id']) && !empty($user['id'])) {
-        $_SESSION['user_id']    = (int)$user['id'];
-        $_SESSION['user_email'] = (string)($user['email'] ?? '');
-        $_SESSION['user_name']  = (string)($user['name']  ?? '');
-        $_SESSION['user_role']  = (string)($user['role']  ?? 'user');
+        $_SESSION['user_id']         = (int)$user['id'];
+        $_SESSION['user_email']      = (string)($user['email']      ?? '');
+        $_SESSION['user_name']       = (string)($user['name']       ?? '');
+        $_SESSION['user_role']       = (string)($user['role']       ?? 'user');
+        $_SESSION['user_is_driver']  = (int)($user['is_driver']     ?? 0);
+        $_SESSION['user_first_name'] = (string)($user['first_name'] ?? '');
+        $_SESSION['user_last_name']  = (string)($user['last_name']  ?? '');
     }
 
     return $user;
