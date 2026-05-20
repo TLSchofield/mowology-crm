@@ -2065,9 +2065,17 @@ if ($hasPropCoords) {
                                oninput="editCalcDurationFromTime()">
                     </div>
                     <div class="mw-form-group">
-                        <label class="form-label">Duration (min) <span id="editDurationHrsLabel" class="mw-duration-hrs-label"></span></label>
+                        <label class="form-label">Duration (min)
+                            <span id="editDurationHrsLabel" class="mw-duration-hrs-label"></span>
+                            <?php if (!empty($plan['gps_avg_dwell_minutes']) && !empty($plan['gps_visit_count'])): ?>
+                                <span class="mw-duration-gps-hint" title="Rolling GPS average from completed visits">
+                                    GPS avg: <?php echo (int)$plan['gps_avg_dwell_minutes']; ?> min
+                                    <span class="mw-duration-gps-count">(<?php echo (int)$plan['gps_visit_count']; ?> visit<?php echo $plan['gps_visit_count'] != 1 ? 's' : ''; ?>)</span>
+                                </span>
+                            <?php endif; ?>
+                        </label>
                         <input type="number" name="edit_duration" id="editDurationInput" class="form-control"
-                               value="<?php echo (int)$plan['estimated_duration_minutes']; ?>" min="15" step="15"
+                               value="<?php echo (int)$plan['estimated_duration_minutes']; ?>" min="1" step="1"
                                oninput="editCalcContractHelper(); editUpdateRevenuePreview();">
                     </div>
                 </div>
