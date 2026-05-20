@@ -112,7 +112,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $filePath = '/uploads/photos/' . $vp['filename'];
                 // Check if already imported
                 $stmtChk = $db->prepare(
-                    "SELECT id FROM media_assets WHERE context_type = 'visit_photo' AND filename = ? LIMIT 1"
+                    "SELECT id FROM media_assets WHERE context_type = 'visit_photo' AND stored_filename = ? LIMIT 1"
                 );
                 $stmtChk->execute([$vp['filename']]);
                 $existing = $stmtChk->fetchColumn();
@@ -120,10 +120,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     return (int)$existing;
                 }
                 $stmtIns = $db->prepare(
-                    "INSERT INTO media_assets (filename, file_path, context_type, status, created_at)
-                     VALUES (?, ?, 'visit_photo', 'ready', NOW())"
+                    "INSERT INTO media_assets (stored_filename, original_filename, file_path, context_type, status, created_at)
+                     VALUES (?, ?, ?, 'visit_photo', 'ready', NOW())"
                 );
-                $stmtIns->execute([$vp['filename'], $filePath]);
+                $stmtIns->execute([$vp['filename'], $vp['original_filename'] ?? $vp['filename'], $filePath]);
                 return (int)$db->lastInsertId();
             }
 
@@ -166,7 +166,7 @@ try {
               WHERE ma_b.context_type = 'visit_photo'
                 AND EXISTS (
                     SELECT 1 FROM visit_photos vp2
-                    WHERE vp2.filename = ma_b.filename
+                    WHERE vp2.filename = ma_b.stored_filename
                       AND vp2.visit_id = jv.id
                 )
           )
