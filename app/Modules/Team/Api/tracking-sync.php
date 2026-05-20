@@ -101,13 +101,6 @@ function syncLocationPoints(PDO $db, array $user, array $points): array
     $inserted = 0;
     $skipped = 0;
 
-    // Prepare insert statement
-    $stmt = $db->prepare("
-        INSERT INTO crew_location_history
-            (crew_id, latitude, longitude, accuracy_meters, visit_id, timestamp)
-        VALUES (?, ?, ?, ?, NULL, ?)
-    ");
-
     // Prepare dedup check — check if point already exists within 1 second
     $dedupStmt = $db->prepare("
         SELECT COUNT(*) FROM crew_location_history
@@ -117,11 +110,24 @@ function syncLocationPoints(PDO $db, array $user, array $points): array
           AND ABS(longitude - ?) < 0.00001
     ");
 
+    // Two insert statements: with visit_id and without (legacy points)
+    $stmtWithVisit = $db->prepare("
+        INSERT INTO crew_location_history
+            (crew_id, latitude, longitude, accuracy_meters, visit_id, timestamp)
+        VALUES (?, ?, ?, ?, ?, ?)
+    ");
+    $stmtNoVisit = $db->prepare("
+        INSERT INTO crew_location_history
+            (crew_id, latitude, longitude, accuracy_meters, visit_id, timestamp)
+        VALUES (?, ?, ?, ?, NULL, ?)
+    ");
+
     foreach ($points as $pt) {
         $lat = isset($pt['lat']) ? (float)$pt['lat'] : null;
         $lng = isset($pt['lng']) ? (float)$pt['lng'] : null;
         $accuracy = isset($pt['accuracy']) ? (int)round((float)$pt['accuracy']) : null;
         $timestamp = isset($pt['timestamp']) ? (int)$pt['timestamp'] : null;
+        $visitId = !empty($pt['visit_id']) ? (int)$pt['visit_id'] : null;
 
         if (!$lat || !$lng || !$timestamp) {
             $skipped++;
@@ -138,8 +144,11 @@ function syncLocationPoints(PDO $db, array $user, array $points): array
             continue;
         }
 
-        // Insert
-        $stmt->execute([$userId, $lat, $lng, $accuracy, $mysqlTimestamp]);
+        if ($visitId) {
+            $stmtWithVisit->execute([$userId, $lat, $lng, $accuracy, $visitId, $mysqlTimestamp]);
+        } else {
+            $stmtNoVisit->execute([$userId, $lat, $lng, $accuracy, $mysqlTimestamp]);
+        }
         $inserted++;
     }
 
