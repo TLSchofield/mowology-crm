@@ -2274,6 +2274,13 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 return result;
             });
 
+            // Offline path: expense queued to IndexedDB — not on server yet
+            if (d.offline) {
+                resetCapture();
+                alert('You\'re offline. This expense has been queued and will save automatically when you reconnect.');
+                return;
+            }
+
             // Capture context for impact card before resetting
             var savedVendor = document.getElementById('rvVendorSearch').value;
             var savedTotal  = parseFloat(document.getElementById('rvTotal').value || '0');
@@ -4133,6 +4140,14 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             });
             var d = await r.json();
             if (!d.success) throw new Error(d.error);
+
+            // Offline path: expense was queued to IndexedDB — not saved to server yet
+            if (d.offline) {
+                haptic('save');
+                mobileToast('Queued — will save when reconnected');
+                setTimeout(function() { mobileResetReview(); }, 700);
+                return;
+            }
 
             if (andSend && d.expense_id) {
                 var sr = await fetch('/crm/api/receipt-send.php', {

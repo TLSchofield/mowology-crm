@@ -101,7 +101,7 @@ $bodyClass  = $bodyClass  ?? '';
   <!-- Offline Action Queue: intercepts time-clock / pow-actions / job-timer
        fetch() calls when offline and queues them in IndexedDB for replay.
        Loads on every CRM page so queued actions sync on any page load. -->
-  <script src="/crm/js/offline-queue.js?v=20260303d" defer></script>
+  <script src="/crm/js/offline-queue.js?v=20260520a" defer></script>
 
   <script>window.MW_USER_ROLE = '<?= htmlspecialchars($user['role'] ?? 'crew', ENT_QUOTES, 'UTF-8') ?>';</script>
 

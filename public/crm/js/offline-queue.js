@@ -41,7 +41,8 @@
     var QUEUED_ENDPOINTS = [
         '/crm/api/time-clock.php',
         '/crm/api/pow-actions.php',
-        '/crm/api/job-timer.php'
+        '/crm/api/job-timer.php',
+        '/crm/api/expenses.php'
     ];
 
     var _db = null;
@@ -148,6 +149,10 @@
             if (body && body.action === 'stop')  return 'Stop Timer';
             return 'Job Timer';
         }
+        if (url.indexOf('expenses') !== -1) {
+            var vendor = (body && (body.vendor_name_raw || '')) || '';
+            return 'Expense' + (vendor ? ' — ' + vendor.slice(0, 20) : '');
+        }
         return 'Action';
     }
 
@@ -182,6 +187,11 @@
             }
             // clock_out
             return Object.assign({}, base, { clocked_in: false });
+        }
+
+        if (url.indexOf('expenses') !== -1) {
+            // expense_id 0 signals offline-queued; mobileSaveExpense checks d.offline
+            return Object.assign({}, base, { expense_id: 0 });
         }
 
         // pow-actions: start_visit, end_visit, save_notes, etc.
@@ -358,9 +368,18 @@
         var url    = typeof resource === 'string' ? resource : (resource && resource.url) || '';
         var method = ((options && options.method) || 'GET').toUpperCase();
 
-        // Only intercept POST requests to the three queued endpoints when offline
+        // Parse body once here so we can inspect action for filtering
+        var bodyStr = (options && options.body) || '';
+        var bodyObj = null;
+        try { bodyObj = typeof bodyStr === 'string' ? JSON.parse(bodyStr) : null; } catch (e) {}
+
+        // Only intercept POST requests to queued endpoints when offline.
+        // For expenses.php, only queue `action === 'create'` — updates/deletes/searches pass through.
+        var matchesEndpoint = QUEUED_ENDPOINTS.some(function (ep) { return url.indexOf(ep) !== -1; });
+        var isExpenseCreate = url.indexOf('expenses') !== -1 && (!bodyObj || bodyObj.action === 'create');
         var shouldQueue = method === 'POST' &&
-            QUEUED_ENDPOINTS.some(function (ep) { return url.indexOf(ep) !== -1; }) &&
+            matchesEndpoint &&
+            (url.indexOf('expenses') === -1 || isExpenseCreate) &&
             !isOnline();
 
         if (!shouldQueue) {
@@ -368,10 +387,7 @@
         }
 
         // Offline path: queue the action and return an optimistic response
-        var bodyStr = (options && options.body) || '';
-        var bodyObj = null;
-        try { bodyObj = typeof bodyStr === 'string' ? JSON.parse(bodyStr) : null; } catch (e) {}
-
+        // (bodyStr and bodyObj are already set above)
         return queueAction(url, options).then(function () {
             var fakeData = buildOptimisticResponse(url, bodyObj);
             return new Response(
