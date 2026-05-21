@@ -28,6 +28,15 @@ if (!$company) {
 $justCreated = isset($_GET['created']);
 $justUpdated = isset($_GET['updated']);
 
+// Primary contact portal token (for combined portal link)
+$primaryContactToken = null;
+if (!empty($company['primary_contact_id'])) {
+    $ptStmt = $db->prepare("SELECT portal_token FROM contacts WHERE id = ? LIMIT 1");
+    $ptStmt->execute([$company['primary_contact_id']]);
+    $row = $ptStmt->fetch(PDO::FETCH_ASSOC);
+    $primaryContactToken = $row['portal_token'] ?? null;
+}
+
 // Get related data
 $companyContacts = getCompanyContacts($companyId);
 $companyProperties = getCompanyProperties($companyId);
@@ -132,6 +141,14 @@ $extraHead = '<script src="https://js.stripe.com/v3/" defer></script>';
                     </div>
                 </div>
                 <div class="mt-2 mt-md-0">
+                    <?php if ($primaryContactToken): ?>
+                        <button class="btn btn-outline-secondary mr-1" onclick="copyCombinedPortalLink()"
+                                title="Copy combined personal + business portal link for this client">
+                            <i data-feather="link" class="align-middle mr-1" style="width:14px;height:14px;"></i> Combined Portal
+                        </button>
+                        <input type="hidden" id="mw-combined-portal-url"
+                               value="https://mowology.ca/customer/combined-portal.php?token=<?= htmlspecialchars($primaryContactToken, ENT_QUOTES) ?>">
+                    <?php endif; ?>
                     <a href="edit.php?id=<?= $companyId ?>" class="btn btn-outline-primary mr-1">
                         <i data-feather="edit-2" class="align-middle mr-1" style="width:14px;height:14px;"></i> Edit
                     </a>
@@ -638,6 +655,25 @@ $extraHead = '<script src="https://js.stripe.com/v3/" defer></script>';
                     else alert(data.error || 'Remove failed');
                 })
                 .catch(function() { alert('Network error'); });
+            }
+
+            function copyCombinedPortalLink() {
+                var url = document.getElementById('mw-combined-portal-url');
+                if (!url) return;
+                navigator.clipboard.writeText(url.value).then(function() {
+                    var btn = event.currentTarget;
+                    var orig = btn.innerHTML;
+                    btn.innerHTML = '<i data-feather="check" style="width:14px;height:14px;" class="align-middle mr-1"></i> Copied!';
+                    btn.classList.remove('btn-outline-secondary');
+                    btn.classList.add('btn-outline-success');
+                    if (window.feather) feather.replace();
+                    setTimeout(function() {
+                        btn.innerHTML = orig;
+                        btn.classList.remove('btn-outline-success');
+                        btn.classList.add('btn-outline-secondary');
+                        if (window.feather) feather.replace();
+                    }, 2500);
+                });
             }
 
             function archiveCompany(id) {
