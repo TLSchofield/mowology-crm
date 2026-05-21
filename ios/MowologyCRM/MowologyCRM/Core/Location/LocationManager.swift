@@ -90,6 +90,15 @@ final class LocationManager: NSObject {
     /// are added to the visit timeline API.
     func resetSessionMetrics() {}
 
+    /// Seed lastLocation from the OS location cache so BGTask pings have a
+    /// position even when startUpdatingLocation() hasn't been called yet.
+    /// CLLocationManager.location holds the last fix the system recorded,
+    /// persisted across app termination. Safe to call before startBackgroundTracking().
+    func seedFromSystemCache() {
+        guard lastLocation == nil, let cached = manager.location else { return }
+        lastLocation = cached
+    }
+
     // MARK: - Private Helpers
 
     /// Classify the activity from GPS speed (m/s).

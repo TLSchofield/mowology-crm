@@ -101,6 +101,9 @@ struct MowologyCRMApp: App {
         }
 
         let pingTask = Task { @MainActor in
+            // Re-initialize from Keychain when cold-launched for this BGTask
+            // (apiClient is nil in terminated state — start() was never called)
+            GPSTrackingService.shared.backgroundResume()
             await GPSTrackingService.shared.sendPing()
             task.setTaskCompleted(success: true)
         }

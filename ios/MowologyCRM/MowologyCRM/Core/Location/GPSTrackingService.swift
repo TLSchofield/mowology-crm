@@ -142,6 +142,21 @@ final class GPSTrackingService: ObservableObject {
         }
     }
 
+    // MARK: - Background resume (BGTask cold-launch path)
+
+    /// Called by the BGAppRefreshTask handler when the app is cold-launched
+    /// in the background (app was previously terminated by the user).
+    /// Re-creates the apiClient from Keychain so sendPing() has something to
+    /// send with. Seeds lastLocation from the OS cache so the ping has a position.
+    /// No-op if the apiClient is already set (normal foreground/background path).
+    func backgroundResume() {
+        guard apiClient == nil else { return }
+        let bgSession = AuthSession()          // restores JWT + user from Keychain
+        guard bgSession.isAuthenticated else { return }
+        apiClient = APIClient(authSession: bgSession)
+        locationManager.seedFromSystemCache()
+    }
+
     // MARK: - Single ping (used by BGTask handler)
 
     func sendPing() async {
