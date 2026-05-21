@@ -267,6 +267,10 @@ class AutopayService
 
     /**
      * Load invoice + contact + plan data needed for autopay decisions.
+     *
+     * Payment method resolution (company card takes precedence):
+     *   - Invoice linked to a company AND company has a card → use company card
+     *   - Otherwise → use contact card
      */
     private function loadInvoiceData(int $invoiceId): ?array
     {
@@ -278,23 +282,43 @@ class AutopayService
                 i.balance_due,
                 i.plan_id,
                 i.contact_id,
+                i.company_id,
                 i.access_token,
-                ct.stripe_customer_id,
-                ct.stripe_payment_method_id,
-                ct.autopay_enabled,
+                ct.stripe_customer_id        AS ct_stripe_customer_id,
+                ct.stripe_payment_method_id  AS ct_stripe_payment_method_id,
+                ct.autopay_enabled           AS ct_autopay_enabled,
                 ct.email            AS contact_email,
                 ct.first_name       AS contact_first,
                 ct.last_name        AS contact_last,
+                co.stripe_customer_id        AS co_stripe_customer_id,
+                co.stripe_payment_method_id  AS co_stripe_payment_method_id,
+                co.autopay_enabled           AS co_autopay_enabled,
                 jp.autopay_override
             FROM invoices i
-            LEFT JOIN contacts  ct ON i.contact_id = ct.id
-            LEFT JOIN job_plans jp ON i.plan_id    = jp.id
+            LEFT JOIN contacts  ct ON i.contact_id  = ct.id
+            LEFT JOIN companies co ON i.company_id  = co.id
+            LEFT JOIN job_plans jp ON i.plan_id     = jp.id
             WHERE i.id = ?
             LIMIT 1
         ");
         $stmt->execute([$invoiceId]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
-        return $row ?: null;
+        if (!$row) {
+            return null;
+        }
+
+        // Resolve which payment source to use
+        if (!empty($row['company_id']) && !empty($row['co_stripe_payment_method_id'])) {
+            $row['stripe_customer_id']       = $row['co_stripe_customer_id'];
+            $row['stripe_payment_method_id'] = $row['co_stripe_payment_method_id'];
+            $row['autopay_enabled']          = $row['co_autopay_enabled'];
+        } else {
+            $row['stripe_customer_id']       = $row['ct_stripe_customer_id'];
+            $row['stripe_payment_method_id'] = $row['ct_stripe_payment_method_id'];
+            $row['autopay_enabled']          = $row['ct_autopay_enabled'];
+        }
+
+        return $row;
     }
 
     /**

@@ -4,6 +4,7 @@
  */
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
+require_once dirname(__DIR__) . '/../app_config/secrets.php';
 
 requireLogin();
 $user = getCurrentUser();
@@ -91,6 +92,8 @@ $typeLabels = ['individual' => 'Individual', 'business' => 'Business', 'strata' 
 
 $pageTitle = htmlspecialchars($company['company_name']);
 $activePage = 'companies';
+$stripePublishableKey = defined('STRIPE_PUBLISHABLE_KEY') ? STRIPE_PUBLISHABLE_KEY : '';
+$extraHead = '<script src="https://js.stripe.com/v3/" defer></script>';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
@@ -251,6 +254,29 @@ $activePage = 'companies';
                                         <tr><td class="font-weight-bold text-muted"><span class="mw-icon-box"><i data-feather="clock" class="mw-detail-icon"></i></span> Payment Terms</td><td><?= htmlspecialchars($company['payment_terms'] ?? 'Net 30') ?></td></tr>
                                         <tr><td class="font-weight-bold text-muted"><span class="mw-icon-box"><i data-feather="credit-card" class="mw-detail-icon"></i></span> Payment Method</td><td><?= htmlspecialchars(ucfirst(str_replace('_', ' ', $company['payment_method'] ?? 'invoice'))) ?></td></tr>
                                         <tr><td class="font-weight-bold text-muted"><span class="mw-icon-box"><i data-feather="send" class="mw-detail-icon"></i></span> Invoice Routing</td><td><?= htmlspecialchars(ucfirst(str_replace('_', ' ', $company['invoice_routing_method'] ?? 'primary contact'))) ?></td></tr>
+                                        <tr>
+                                            <td class="font-weight-bold text-muted"><span class="mw-icon-box"><i data-feather="credit-card" class="mw-detail-icon"></i></span> Autopay Card</td>
+                                            <td id="mw-company-card-cell">
+                                                <?php if (!empty($company['stripe_card_last4'])): ?>
+                                                    <span class="text-dark">
+                                                        <?= htmlspecialchars(ucfirst($company['stripe_card_brand'] ?? 'Card')) ?>
+                                                        &middot;&middot;&middot;&middot; <?= htmlspecialchars($company['stripe_card_last4']) ?>
+                                                        &nbsp;<span class="text-muted small">exp <?= htmlspecialchars($company['stripe_card_exp'] ?? '') ?></span>
+                                                    </span>
+                                                    <button type="button" class="btn btn-sm btn-link text-danger p-0 ml-2" onclick="removeCompanyCard()" title="Remove card">
+                                                        <i data-feather="x" style="width:13px;height:13px;"></i>
+                                                    </button>
+                                                    <button type="button" class="btn btn-sm btn-link text-primary p-0 ml-1" onclick="openCardModal()" title="Replace card">
+                                                        <i data-feather="refresh-cw" style="width:13px;height:13px;"></i>
+                                                    </button>
+                                                <?php else: ?>
+                                                    <span class="text-muted">No card on file</span>
+                                                    <button type="button" class="btn btn-sm btn-outline-success ml-2" onclick="openCardModal()">
+                                                        <i data-feather="plus" style="width:12px;height:12px;"></i> Set Up Card
+                                                    </button>
+                                                <?php endif; ?>
+                                            </td>
+                                        </tr>
                                     </table>
                                 </div>
                             </div>
@@ -497,7 +523,123 @@ $activePage = 'companies';
 
             </div>
 
+            <!-- Card Setup Modal -->
+            <div class="modal fade" id="companyCardModal" tabindex="-1" role="dialog" aria-labelledby="companyCardModalLabel" aria-hidden="true">
+                <div class="modal-dialog modal-dialog-centered" role="document">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title" id="companyCardModalLabel">
+                                <i data-feather="credit-card" style="width:16px;height:16px;" class="mr-1"></i>
+                                Business Card — <?= htmlspecialchars($company['company_name']) ?>
+                            </h5>
+                            <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+                        </div>
+                        <div class="modal-body">
+                            <p class="text-muted small mb-3">
+                                This card will be charged automatically for all invoices linked to
+                                <strong><?= htmlspecialchars($company['company_name']) ?></strong>.
+                                Personal invoices will continue to use <?= !empty($company['primary_first_name']) ? htmlspecialchars($company['primary_first_name']) . "'s " : 'the contact\'s ' ?>card on file.
+                            </p>
+                            <div id="mw-card-element" style="padding:10px;border:1px solid #dee2e6;border-radius:4px;background:#fff;min-height:40px;"></div>
+                            <div id="mw-card-errors" class="text-danger small mt-2" role="alert"></div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                            <button type="button" class="btn btn-success" id="mw-save-card-btn" onclick="saveCompanyCard()">
+                                <i data-feather="lock" style="width:13px;height:13px;" class="mr-1"></i>
+                                Save Card
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <script>
+            var mwStripe, mwCardElement;
+            var mwCompanyId  = <?= $companyId ?>;
+            var mwCsrfToken  = '<?= generateCSRFToken() ?>';
+            var mwStripeKey  = '<?= htmlspecialchars($stripePublishableKey ?? '', ENT_QUOTES) ?>';
+
+            function openCardModal() {
+                $('#companyCardModal').modal('show');
+                if (!mwStripe && mwStripeKey) {
+                    mwStripe = Stripe(mwStripeKey);
+                    var elements = mwStripe.elements();
+                    mwCardElement = elements.create('card', {
+                        style: {
+                            base: { fontSize: '15px', color: '#343a40', '::placeholder': { color: '#adb5bd' } },
+                            invalid: { color: '#dc3545' }
+                        }
+                    });
+                    mwCardElement.mount('#mw-card-element');
+                    mwCardElement.on('change', function(e) {
+                        document.getElementById('mw-card-errors').textContent = e.error ? e.error.message : '';
+                    });
+                    if (window.feather) feather.replace();
+                }
+            }
+
+            function saveCompanyCard() {
+                if (!mwStripe || !mwCardElement) return;
+                var btn = document.getElementById('mw-save-card-btn');
+                btn.disabled = true;
+                btn.textContent = 'Saving…';
+
+                mwStripe.createPaymentMethod({ type: 'card', card: mwCardElement })
+                .then(function(result) {
+                    if (result.error) {
+                        document.getElementById('mw-card-errors').textContent = result.error.message;
+                        btn.disabled = false;
+                        btn.textContent = 'Save Card';
+                        return;
+                    }
+                    var fd = new FormData();
+                    fd.append('company_id', mwCompanyId);
+                    fd.append('payment_method_id', result.paymentMethod.id);
+                    fd.append('csrf_token', mwCsrfToken);
+
+                    fetch('api-save-company-card.php', { method: 'POST', body: fd })
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        if (data.success) {
+                            $('#companyCardModal').modal('hide');
+                            var brand = data.card_brand ? data.card_brand.charAt(0).toUpperCase() + data.card_brand.slice(1) : 'Card';
+                            document.getElementById('mw-company-card-cell').innerHTML =
+                                '<span class="text-dark">' + brand + ' &middot;&middot;&middot;&middot; ' + data.card_last4 +
+                                ' &nbsp;<span class="text-muted small">exp ' + data.card_exp + '</span></span>' +
+                                ' <button type="button" class="btn btn-sm btn-link text-danger p-0 ml-2" onclick="removeCompanyCard()" title="Remove card">' +
+                                '<i data-feather="x" style="width:13px;height:13px;"></i></button>' +
+                                ' <button type="button" class="btn btn-sm btn-link text-primary p-0 ml-1" onclick="openCardModal()" title="Replace card">' +
+                                '<i data-feather="refresh-cw" style="width:13px;height:13px;"></i></button>';
+                            if (window.feather) feather.replace();
+                        } else {
+                            document.getElementById('mw-card-errors').textContent = data.error || 'Save failed. Please try again.';
+                            btn.disabled = false;
+                            btn.textContent = 'Save Card';
+                        }
+                    })
+                    .catch(function() {
+                        document.getElementById('mw-card-errors').textContent = 'Network error. Please try again.';
+                        btn.disabled = false;
+                        btn.textContent = 'Save Card';
+                    });
+                });
+            }
+
+            function removeCompanyCard() {
+                if (!confirm('Remove the business card on file for <?= htmlspecialchars(addslashes($company['company_name'])) ?>? Autopay will be disabled until a new card is added.')) return;
+                var fd = new FormData();
+                fd.append('company_id', mwCompanyId);
+                fd.append('csrf_token', mwCsrfToken);
+                fetch('api-save-company-card.php?action=remove', { method: 'POST', body: fd })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.success) location.reload();
+                    else alert(data.error || 'Remove failed');
+                })
+                .catch(function() { alert('Network error'); });
+            }
+
             function archiveCompany(id) {
                 if (!confirm('Archive this company? It will be hidden from the default list but can be restored.')) return;
                 fetch('api.php', {
