@@ -1005,7 +1005,13 @@ if ($hasPropCoords) {
                                     <span class="mw-icon-box"><i data-feather="briefcase" class="mw-detail-icon"></i></span>Client
                                 </span>
                                 <span class="mw-detail-value">
-                                    <?php echo htmlspecialchars($clientDisplay ?: 'N/A'); ?>
+                                    <?php if (!empty($plan['company_id']) && $plan['company_name']): ?>
+                                        <a href="/crm/companies/view.php?id=<?php echo (int)$plan['company_id']; ?>"><?php echo htmlspecialchars($clientDisplay); ?></a>
+                                    <?php elseif (!empty($plan['contact_id']) && $clientDisplay): ?>
+                                        <a href="/crm/clients_appstack.php?action=view_contact&id=<?php echo (int)$plan['contact_id']; ?>"><?php echo htmlspecialchars($clientDisplay); ?></a>
+                                    <?php else: ?>
+                                        <?php echo htmlspecialchars($clientDisplay ?: 'N/A'); ?>
+                                    <?php endif; ?>
                                 </span>
                             </div>
                             <?php if ($contactName && $plan['company_name']): ?>
@@ -1014,10 +1020,14 @@ if ($hasPropCoords) {
                                         <span class="mw-icon-box"><i data-feather="user" class="mw-detail-icon"></i></span>Contact
                                     </span>
                                     <span class="mw-detail-value">
-                                        <?php echo htmlspecialchars($contactName); ?>
+                                        <?php if (!empty($plan['contact_id'])): ?>
+                                            <a href="/crm/clients_appstack.php?action=view_contact&id=<?php echo (int)$plan['contact_id']; ?>"><?php echo htmlspecialchars($contactName); ?></a>
+                                        <?php else: ?>
+                                            <?php echo htmlspecialchars($contactName); ?>
+                                        <?php endif; ?>
                                         <?php if (!empty($plan['contact_phone'])): ?>
                                             &mdash;
-                                            <a href="tel:<?php echo htmlspecialchars($plan['contact_phone']); ?>">
+                                            <a href="tel:<?php echo htmlspecialchars(preg_replace('/[^\d+]/', '', $plan['contact_phone'])); ?>">
                                                 <?php echo formatPhone($plan['contact_phone']); ?>
                                             </a>
                                         <?php endif; ?>
@@ -1029,7 +1039,7 @@ if ($hasPropCoords) {
                                         <span class="mw-icon-box"><i data-feather="phone" class="mw-detail-icon"></i></span>Phone
                                     </span>
                                     <span class="mw-detail-value">
-                                        <a href="tel:<?php echo htmlspecialchars($plan['contact_phone']); ?>">
+                                        <a href="tel:<?php echo htmlspecialchars(preg_replace('/[^\d+]/', '', $plan['contact_phone'])); ?>">
                                             <?php echo formatPhone($plan['contact_phone']); ?>
                                         </a>
                                     </span>

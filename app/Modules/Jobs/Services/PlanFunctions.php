@@ -1515,6 +1515,7 @@ function getPlanDetails(int $planId): ?array {
                p.address AS property_address, p.city AS property_city,
                p.latitude, p.longitude,
                co.company_name,
+               COALESCE(ct.id, pc.id) AS contact_id,
                COALESCE(ct.first_name, pc.first_name) AS first_name,
                COALESCE(ct.last_name, pc.last_name) AS last_name,
                COALESCE(ct.email, pc.email) AS contact_email,

@@ -516,13 +516,23 @@ $extraHead = $isPayable
                           <?php if ($displayCompany): ?>
                           <div class="mw-detail-row">
                               <span class="mw-detail-label"><span class="mw-icon-box"><i data-feather="briefcase" class="mw-detail-icon"></i></span>Company</span>
-                              <span class="mw-detail-value"><?php echo htmlspecialchars($displayCompany); ?></span>
+                              <span class="mw-detail-value">
+                                  <?php if (!empty($invoice['company_id'])): ?>
+                                      <a href="/crm/companies/view.php?id=<?php echo (int)$invoice['company_id']; ?>"><?php echo htmlspecialchars($displayCompany); ?></a>
+                                  <?php else: ?>
+                                      <?php echo htmlspecialchars($displayCompany); ?>
+                                  <?php endif; ?>
+                              </span>
                           </div>
                           <?php endif; ?>
                           <div class="mw-detail-row">
                               <span class="mw-detail-label"><span class="mw-icon-box"><i data-feather="user" class="mw-detail-icon"></i></span>Contact</span>
                               <span class="mw-detail-value">
-                                  <?php echo htmlspecialchars($contactFullName ?: 'N/A'); ?>
+                                  <?php if (!empty($invoice['contact_id']) && $contactFullName): ?>
+                                      <a href="/crm/clients_appstack.php?action=view_contact&id=<?php echo (int)$invoice['contact_id']; ?>"><?php echo htmlspecialchars($contactFullName); ?></a>
+                                  <?php else: ?>
+                                      <?php echo htmlspecialchars($contactFullName ?: 'N/A'); ?>
+                                  <?php endif; ?>
                               </span>
                           </div>
                           <?php
@@ -544,11 +554,21 @@ $extraHead = $isPayable
                           <?php endif; ?>
                           <div class="mw-detail-row">
                               <span class="mw-detail-label"><span class="mw-icon-box"><i data-feather="mail" class="mw-detail-icon"></i></span>Email</span>
-                              <span class="mw-detail-value"><?php echo htmlspecialchars($invoice['contact_email'] ?: $invoice['billing_email'] ?: 'N/A'); ?></span>
+                              <span class="mw-detail-value">
+                                  <?php $invEmail = $invoice['contact_email'] ?: $invoice['billing_email'] ?: null; ?>
+                                  <?php if ($invEmail): ?>
+                                      <a href="mailto:<?php echo htmlspecialchars($invEmail); ?>"><?php echo htmlspecialchars($invEmail); ?></a>
+                                  <?php else: ?>N/A<?php endif; ?>
+                              </span>
                           </div>
                           <div class="mw-detail-row">
                               <span class="mw-detail-label"><span class="mw-icon-box"><i data-feather="phone" class="mw-detail-icon"></i></span>Phone</span>
-                              <span class="mw-detail-value"><?php echo formatPhone($invoice['contact_phone'] ?: $invoice['billing_phone'] ?: ''); ?></span>
+                              <span class="mw-detail-value">
+                                  <?php $invPhone = $invoice['contact_phone'] ?: $invoice['billing_phone'] ?: null; ?>
+                                  <?php if ($invPhone): ?>
+                                      <a href="tel:<?php echo htmlspecialchars(preg_replace('/[^\d+]/', '', $invPhone)); ?>"><?php echo formatPhone($invPhone); ?></a>
+                                  <?php else: ?>—<?php endif; ?>
+                              </span>
                           </div>
                           <?php if ($svcAddrFull && $svcAddrFull !== $billAddrFull): ?>
                               <div class="mw-detail-row">

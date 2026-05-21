@@ -877,20 +877,44 @@ $activePage = 'quotes';
                           <?php if (!$isResidential && $quote['company_name']): ?>
                           <div class="mw-detail-row">
                               <span class="mw-detail-label"><span class="mw-icon-box"><i data-feather="briefcase" class="mw-detail-icon"></i></span>Company</span>
-                              <span class="mw-detail-value"><?php echo htmlspecialchars($quote['company_name']); ?></span>
+                              <span class="mw-detail-value">
+                                  <?php if (!empty($quote['company_id'])): ?>
+                                      <a href="/crm/companies/view.php?id=<?php echo (int)$quote['company_id']; ?>"><?php echo htmlspecialchars($quote['company_name']); ?></a>
+                                  <?php else: ?>
+                                      <?php echo htmlspecialchars($quote['company_name']); ?>
+                                  <?php endif; ?>
+                              </span>
                           </div>
                           <?php endif; ?>
                           <div class="mw-detail-row">
                               <span class="mw-detail-label"><span class="mw-icon-box"><i data-feather="user" class="mw-detail-icon"></i></span><?php echo $isResidential ? 'Owner Name' : 'Contact'; ?></span>
-                              <span class="mw-detail-value"><?php echo htmlspecialchars($contactName); ?></span>
+                              <span class="mw-detail-value">
+                                  <?php if ($editContactId && $contactName !== 'N/A'): ?>
+                                      <a href="/crm/clients_appstack.php?action=view_contact&id=<?php echo (int)$editContactId; ?>"><?php echo htmlspecialchars($contactName); ?></a>
+                                  <?php else: ?>
+                                      <?php echo htmlspecialchars($contactName); ?>
+                                  <?php endif; ?>
+                              </span>
                           </div>
                           <div class="mw-detail-row">
                               <span class="mw-detail-label"><span class="mw-icon-box"><i data-feather="mail" class="mw-detail-icon"></i></span>Email</span>
-                              <span class="mw-detail-value"><?php echo htmlspecialchars($contactEmail); ?></span>
+                              <span class="mw-detail-value">
+                                  <?php if ($contactEmail && $contactEmail !== 'N/A'): ?>
+                                      <a href="mailto:<?php echo htmlspecialchars($contactEmail); ?>"><?php echo htmlspecialchars($contactEmail); ?></a>
+                                  <?php else: ?>
+                                      <?php echo htmlspecialchars($contactEmail); ?>
+                                  <?php endif; ?>
+                              </span>
                           </div>
                           <div class="mw-detail-row">
                               <span class="mw-detail-label"><span class="mw-icon-box"><i data-feather="phone" class="mw-detail-icon"></i></span>Phone</span>
-                              <span class="mw-detail-value"><?php echo formatPhone($contactPhone); ?></span>
+                              <span class="mw-detail-value">
+                                  <?php if ($contactPhone && $contactPhone !== 'N/A'): ?>
+                                      <a href="tel:<?php echo htmlspecialchars(preg_replace('/[^\d+]/', '', $contactPhone)); ?>"><?php echo formatPhone($contactPhone); ?></a>
+                                  <?php else: ?>
+                                      <?php echo formatPhone($contactPhone); ?>
+                                  <?php endif; ?>
+                              </span>
                           </div>
                           <div class="mw-detail-row">
                               <span class="mw-detail-label"><span class="mw-icon-box"><i data-feather="map-pin" class="mw-detail-icon"></i></span>Property</span>

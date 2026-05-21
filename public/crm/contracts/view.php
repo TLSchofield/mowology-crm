@@ -556,12 +556,17 @@ if ($hasPropCoords && !$hasBorder) {
                               </dd>
                               <dt class="col-sm-4"><span class="mw-icon-box"><i data-feather="briefcase" class="mw-detail-icon"></i></span> Client</dt>
                               <dd class="col-sm-8">
-                                  <?php echo htmlspecialchars(trim($contract['first_name'] . ' ' . $contract['last_name'])); ?>
+                                  <?php $ctrClientName = trim($contract['first_name'] . ' ' . $contract['last_name']); ?>
+                                  <?php if (!empty($contract['contact_id']) && $ctrClientName): ?>
+                                      <a href="/crm/clients_appstack.php?action=view_contact&id=<?php echo (int)$contract['contact_id']; ?>"><?php echo htmlspecialchars($ctrClientName); ?></a>
+                                  <?php else: ?>
+                                      <?php echo htmlspecialchars($ctrClientName); ?>
+                                  <?php endif; ?>
                                   <?php if ($contract['contact_email']): ?>
-                                      <div class="text-muted small"><?php echo htmlspecialchars($contract['contact_email']); ?></div>
+                                      <div class="text-muted small"><a href="mailto:<?php echo htmlspecialchars($contract['contact_email']); ?>"><?php echo htmlspecialchars($contract['contact_email']); ?></a></div>
                                   <?php endif; ?>
                                   <?php if ($contract['contact_phone']): ?>
-                                      <div class="text-muted small"><?php echo htmlspecialchars($contract['contact_phone']); ?></div>
+                                      <div class="text-muted small"><a href="tel:<?php echo htmlspecialchars(preg_replace('/[^\d+]/', '', $contract['contact_phone'])); ?>"><?php echo htmlspecialchars($contract['contact_phone']); ?></a></div>
                                   <?php endif; ?>
                               </dd>
                               <?php if ($contract['notes']): ?>
