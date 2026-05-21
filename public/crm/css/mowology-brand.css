@@ -2157,8 +2157,9 @@ tr[data-href] { cursor: pointer; }
 }
 
 .mw-detail-row:last-child { border-bottom: none; }
-.mw-detail-label { color: #6c757d; }
+.mw-detail-label { color: #6c757d; display: inline-flex; align-items: center; gap: 6px; }
 .mw-detail-value { font-weight: 500; text-align: right; }
+.mw-detail-icon { width: 13px; height: 13px; flex-shrink: 0; opacity: 0.55; }
 
 .mw-page-header {
   display: flex;

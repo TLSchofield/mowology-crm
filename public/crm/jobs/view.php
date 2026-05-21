@@ -984,8 +984,15 @@ if ($hasPropCoords) {
                             <h5 class="card-title mb-0">Plan Details</h5>
                         </div>
                         <div class="card-body">
+                            <?php
+                                $contactName = trim(($plan['first_name'] ?? '') . ' ' . ($plan['last_name'] ?? ''));
+                                $clientDisplay = $plan['company_name'] ?? '';
+                                if (!$clientDisplay) $clientDisplay = $contactName;
+                            ?>
                             <div class="mw-detail-row">
-                                <span class="mw-detail-label">Property</span>
+                                <span class="mw-detail-label">
+                                    <i data-feather="map-pin" class="mw-detail-icon"></i>Property
+                                </span>
                                 <span class="mw-detail-value">
                                     <?php
                                         $addr = trim(($plan['property_address'] ?? '') . ', ' . ($plan['property_city'] ?? ''), ', ');
@@ -994,17 +1001,18 @@ if ($hasPropCoords) {
                                 </span>
                             </div>
                             <div class="mw-detail-row">
-                                <span class="mw-detail-label">Client</span>
+                                <span class="mw-detail-label">
+                                    <i data-feather="briefcase" class="mw-detail-icon"></i>Client
+                                </span>
                                 <span class="mw-detail-value">
-                                    <?php echo htmlspecialchars($plan['company_name'] ?? 'N/A'); ?>
+                                    <?php echo htmlspecialchars($clientDisplay ?: 'N/A'); ?>
                                 </span>
                             </div>
-                            <?php
-                                $contactName = trim(($plan['first_name'] ?? '') . ' ' . ($plan['last_name'] ?? ''));
-                                if ($contactName):
-                            ?>
+                            <?php if ($contactName && $plan['company_name']): ?>
                                 <div class="mw-detail-row">
-                                    <span class="mw-detail-label">Contact</span>
+                                    <span class="mw-detail-label">
+                                        <i data-feather="user" class="mw-detail-icon"></i>Contact
+                                    </span>
                                     <span class="mw-detail-value">
                                         <?php echo htmlspecialchars($contactName); ?>
                                         <?php if (!empty($plan['contact_phone'])): ?>
@@ -1015,27 +1023,46 @@ if ($hasPropCoords) {
                                         <?php endif; ?>
                                     </span>
                                 </div>
+                            <?php elseif ($contactName && !empty($plan['contact_phone'])): ?>
+                                <div class="mw-detail-row">
+                                    <span class="mw-detail-label">
+                                        <i data-feather="phone" class="mw-detail-icon"></i>Phone
+                                    </span>
+                                    <span class="mw-detail-value">
+                                        <a href="tel:<?php echo htmlspecialchars($plan['contact_phone']); ?>">
+                                            <?php echo formatPhone($plan['contact_phone']); ?>
+                                        </a>
+                                    </span>
+                                </div>
                             <?php endif; ?>
                             <div class="mw-detail-row">
-                                <span class="mw-detail-label">Service Type</span>
+                                <span class="mw-detail-label">
+                                    <i data-feather="tool" class="mw-detail-icon"></i>Service Type
+                                </span>
                                 <span class="mw-detail-value">
                                     <?php echo htmlspecialchars(ucfirst(str_replace('_', ' ', $plan['service_type']))); ?>
                                 </span>
                             </div>
                             <div class="mw-detail-row">
-                                <span class="mw-detail-label">Pricing Model</span>
+                                <span class="mw-detail-label">
+                                    <i data-feather="tag" class="mw-detail-icon"></i>Pricing Model
+                                </span>
                                 <span class="mw-detail-value">
                                     <?php echo htmlspecialchars(ucfirst(str_replace('_', ' ', $plan['pricing_model'] ?? 'per_visit'))); ?>
                                 </span>
                             </div>
                             <div class="mw-detail-row">
-                                <span class="mw-detail-label">Price / Visit</span>
+                                <span class="mw-detail-label">
+                                    <i data-feather="dollar-sign" class="mw-detail-icon"></i>Price / Visit
+                                </span>
                                 <span class="mw-detail-value">
                                     <?php echo $plan['price_per_visit'] ? formatCurrency($plan['price_per_visit']) : 'N/A'; ?>
                                 </span>
                             </div>
                             <div class="mw-detail-row">
-                                <span class="mw-detail-label">Duration</span>
+                                <span class="mw-detail-label">
+                                    <i data-feather="clock" class="mw-detail-icon"></i>Duration
+                                </span>
                                 <span class="mw-detail-value">
                                     <?php echo (int)$plan['estimated_duration_minutes']; ?> min
                                     <?php if ($durAvgCount > 0): ?>
@@ -1044,7 +1071,9 @@ if ($hasPropCoords) {
                                 </span>
                             </div>
                             <div class="mw-detail-row">
-                                <span class="mw-detail-label">Crew</span>
+                                <span class="mw-detail-label">
+                                    <i data-feather="users" class="mw-detail-icon"></i>Crew
+                                </span>
                                 <span class="mw-detail-value">
                                     <?php
                                     $crewAssignments = getPlanCrewAssignments($planId);
@@ -1080,14 +1109,18 @@ if ($hasPropCoords) {
                         </div>
                         <div class="card-body">
                             <div class="mw-detail-row">
-                                <span class="mw-detail-label">Plan Type</span>
+                                <span class="mw-detail-label">
+                                    <i data-feather="repeat" class="mw-detail-icon"></i>Plan Type
+                                </span>
                                 <span class="mw-detail-value">
                                     <?php echo $plan['is_recurring'] ? 'Recurring' : 'One-time'; ?>
                                 </span>
                             </div>
                             <?php if ($plan['is_recurring']): ?>
                                 <div class="mw-detail-row">
-                                    <span class="mw-detail-label">Recurrence</span>
+                                    <span class="mw-detail-label">
+                                        <i data-feather="refresh-cw" class="mw-detail-icon"></i>Recurrence
+                                    </span>
                                     <span class="mw-detail-value">
                                         <?php echo htmlspecialchars(describeRecurrence($plan)); ?>
                                         <?php if ($plan['recurrence_day_of_week'] !== null && $plan['recurrence_day_of_week'] !== ''): ?>
@@ -1103,20 +1136,26 @@ if ($hasPropCoords) {
                                 </div>
                             <?php endif; ?>
                             <div class="mw-detail-row">
-                                <span class="mw-detail-label">Start Date</span>
+                                <span class="mw-detail-label">
+                                    <i data-feather="calendar" class="mw-detail-icon"></i>Start Date
+                                </span>
                                 <span class="mw-detail-value">
                                     <?php echo $plan['plan_start_date'] ? formatDate($plan['plan_start_date']) : 'Not set'; ?>
                                 </span>
                             </div>
                             <div class="mw-detail-row">
-                                <span class="mw-detail-label">End Date</span>
+                                <span class="mw-detail-label">
+                                    <i data-feather="calendar" class="mw-detail-icon"></i>End Date
+                                </span>
                                 <span class="mw-detail-value">
                                     <?php echo $plan['plan_end_date'] ? formatDate($plan['plan_end_date']) : 'Ongoing'; ?>
                                 </span>
                             </div>
                             <?php if ($plan['default_time_start']): ?>
                                 <div class="mw-detail-row">
-                                    <span class="mw-detail-label">Default Time</span>
+                                    <span class="mw-detail-label">
+                                        <i data-feather="sun" class="mw-detail-icon"></i>Default Time
+                                    </span>
                                     <span class="mw-detail-value">
                                         <?php echo date('g:i A', strtotime($plan['default_time_start'])); ?>
                                         <?php if ($plan['default_time_end']): ?>
@@ -1126,14 +1165,18 @@ if ($hasPropCoords) {
                                 </div>
                             <?php endif; ?>
                             <div class="mw-detail-row">
-                                <span class="mw-detail-label">Horizon</span>
+                                <span class="mw-detail-label">
+                                    <i data-feather="eye" class="mw-detail-icon"></i>Horizon
+                                </span>
                                 <span class="mw-detail-value">
                                     <?php echo (int)$plan['horizon_days']; ?> days ahead
                                 </span>
                             </div>
                             <?php if ($plan['status'] === 'paused' && $plan['paused_reason']): ?>
                                 <div class="mw-detail-row">
-                                    <span class="mw-detail-label">Paused Reason</span>
+                                    <span class="mw-detail-label">
+                                        <i data-feather="pause-circle" class="mw-detail-icon"></i>Paused Reason
+                                    </span>
                                     <span class="mw-detail-value text-warning">
                                         <?php echo htmlspecialchars($plan['paused_reason']); ?>
                                     </span>
@@ -1143,20 +1186,26 @@ if ($hasPropCoords) {
                             <hr class="my-3">
 
                             <div class="mw-detail-row">
-                                <span class="mw-detail-label">Created By</span>
+                                <span class="mw-detail-label">
+                                    <i data-feather="user" class="mw-detail-icon"></i>Created By
+                                </span>
                                 <span class="mw-detail-value">
                                     <?php echo htmlspecialchars($plan['created_by_name'] ?? 'Unknown'); ?>
                                 </span>
                             </div>
                             <div class="mw-detail-row">
-                                <span class="mw-detail-label">Created At</span>
+                                <span class="mw-detail-label">
+                                    <i data-feather="clock" class="mw-detail-icon"></i>Created At
+                                </span>
                                 <span class="mw-detail-value">
                                     <?php echo formatDateTime($plan['created_at']); ?>
                                 </span>
                             </div>
                             <?php if ($plan['quote_number']): ?>
                                 <div class="mw-detail-row">
-                                    <span class="mw-detail-label">From Quote</span>
+                                    <span class="mw-detail-label">
+                                        <i data-feather="file-text" class="mw-detail-icon"></i>From Quote
+                                    </span>
                                     <span class="mw-detail-value">
                                         <a href="../quotes/view.php?id=<?php echo (int)$plan['quote_id']; ?>">
                                             <?php echo htmlspecialchars($plan['quote_number']); ?>
