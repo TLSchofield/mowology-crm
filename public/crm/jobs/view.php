@@ -991,7 +991,7 @@ if ($hasPropCoords) {
                             ?>
                             <div class="mw-detail-row">
                                 <span class="mw-detail-label">
-                                    <i data-feather="map-pin" class="mw-detail-icon"></i>Property
+                                    <span class="mw-icon-box"><i data-feather="map-pin" class="mw-detail-icon"></i></span>Property
                                 </span>
                                 <span class="mw-detail-value">
                                     <?php
@@ -1002,7 +1002,7 @@ if ($hasPropCoords) {
                             </div>
                             <div class="mw-detail-row">
                                 <span class="mw-detail-label">
-                                    <i data-feather="briefcase" class="mw-detail-icon"></i>Client
+                                    <span class="mw-icon-box"><i data-feather="briefcase" class="mw-detail-icon"></i></span>Client
                                 </span>
                                 <span class="mw-detail-value">
                                     <?php echo htmlspecialchars($clientDisplay ?: 'N/A'); ?>
@@ -1011,7 +1011,7 @@ if ($hasPropCoords) {
                             <?php if ($contactName && $plan['company_name']): ?>
                                 <div class="mw-detail-row">
                                     <span class="mw-detail-label">
-                                        <i data-feather="user" class="mw-detail-icon"></i>Contact
+                                        <span class="mw-icon-box"><i data-feather="user" class="mw-detail-icon"></i></span>Contact
                                     </span>
                                     <span class="mw-detail-value">
                                         <?php echo htmlspecialchars($contactName); ?>
@@ -1026,7 +1026,7 @@ if ($hasPropCoords) {
                             <?php elseif ($contactName && !empty($plan['contact_phone'])): ?>
                                 <div class="mw-detail-row">
                                     <span class="mw-detail-label">
-                                        <i data-feather="phone" class="mw-detail-icon"></i>Phone
+                                        <span class="mw-icon-box"><i data-feather="phone" class="mw-detail-icon"></i></span>Phone
                                     </span>
                                     <span class="mw-detail-value">
                                         <a href="tel:<?php echo htmlspecialchars($plan['contact_phone']); ?>">
@@ -1037,7 +1037,7 @@ if ($hasPropCoords) {
                             <?php endif; ?>
                             <div class="mw-detail-row">
                                 <span class="mw-detail-label">
-                                    <i data-feather="tool" class="mw-detail-icon"></i>Service Type
+                                    <span class="mw-icon-box"><i data-feather="tool" class="mw-detail-icon"></i></span>Service Type
                                 </span>
                                 <span class="mw-detail-value">
                                     <?php echo htmlspecialchars(ucfirst(str_replace('_', ' ', $plan['service_type']))); ?>
@@ -1045,7 +1045,7 @@ if ($hasPropCoords) {
                             </div>
                             <div class="mw-detail-row">
                                 <span class="mw-detail-label">
-                                    <i data-feather="tag" class="mw-detail-icon"></i>Pricing Model
+                                    <span class="mw-icon-box"><i data-feather="tag" class="mw-detail-icon"></i></span>Pricing Model
                                 </span>
                                 <span class="mw-detail-value">
                                     <?php echo htmlspecialchars(ucfirst(str_replace('_', ' ', $plan['pricing_model'] ?? 'per_visit'))); ?>
@@ -1053,7 +1053,7 @@ if ($hasPropCoords) {
                             </div>
                             <div class="mw-detail-row">
                                 <span class="mw-detail-label">
-                                    <i data-feather="dollar-sign" class="mw-detail-icon"></i>Price / Visit
+                                    <span class="mw-icon-box"><i data-feather="dollar-sign" class="mw-detail-icon"></i></span>Price / Visit
                                 </span>
                                 <span class="mw-detail-value">
                                     <?php echo $plan['price_per_visit'] ? formatCurrency($plan['price_per_visit']) : 'N/A'; ?>
@@ -1061,7 +1061,7 @@ if ($hasPropCoords) {
                             </div>
                             <div class="mw-detail-row">
                                 <span class="mw-detail-label">
-                                    <i data-feather="clock" class="mw-detail-icon"></i>Duration
+                                    <span class="mw-icon-box"><i data-feather="clock" class="mw-detail-icon"></i></span>Duration
                                 </span>
                                 <span class="mw-detail-value">
                                     <?php echo (int)$plan['estimated_duration_minutes']; ?> min
@@ -1072,7 +1072,7 @@ if ($hasPropCoords) {
                             </div>
                             <div class="mw-detail-row">
                                 <span class="mw-detail-label">
-                                    <i data-feather="users" class="mw-detail-icon"></i>Crew
+                                    <span class="mw-icon-box"><i data-feather="users" class="mw-detail-icon"></i></span>Crew
                                 </span>
                                 <span class="mw-detail-value">
                                     <?php
@@ -1110,7 +1110,7 @@ if ($hasPropCoords) {
                         <div class="card-body">
                             <div class="mw-detail-row">
                                 <span class="mw-detail-label">
-                                    <i data-feather="repeat" class="mw-detail-icon"></i>Plan Type
+                                    <span class="mw-icon-box"><i data-feather="repeat" class="mw-detail-icon"></i></span>Plan Type
                                 </span>
                                 <span class="mw-detail-value">
                                     <?php echo $plan['is_recurring'] ? 'Recurring' : 'One-time'; ?>
@@ -1119,7 +1119,7 @@ if ($hasPropCoords) {
                             <?php if ($plan['is_recurring']): ?>
                                 <div class="mw-detail-row">
                                     <span class="mw-detail-label">
-                                        <i data-feather="refresh-cw" class="mw-detail-icon"></i>Recurrence
+                                        <span class="mw-icon-box"><i data-feather="refresh-cw" class="mw-detail-icon"></i></span>Recurrence
                                     </span>
                                     <span class="mw-detail-value">
                                         <?php echo htmlspecialchars(describeRecurrence($plan)); ?>
@@ -1137,7 +1137,7 @@ if ($hasPropCoords) {
                             <?php endif; ?>
                             <div class="mw-detail-row">
                                 <span class="mw-detail-label">
-                                    <i data-feather="calendar" class="mw-detail-icon"></i>Start Date
+                                    <span class="mw-icon-box"><i data-feather="calendar" class="mw-detail-icon"></i></span>Start Date
                                 </span>
                                 <span class="mw-detail-value">
                                     <?php echo $plan['plan_start_date'] ? formatDate($plan['plan_start_date']) : 'Not set'; ?>
@@ -1145,7 +1145,7 @@ if ($hasPropCoords) {
                             </div>
                             <div class="mw-detail-row">
                                 <span class="mw-detail-label">
-                                    <i data-feather="calendar" class="mw-detail-icon"></i>End Date
+                                    <span class="mw-icon-box"><i data-feather="calendar" class="mw-detail-icon"></i></span>End Date
                                 </span>
                                 <span class="mw-detail-value">
                                     <?php echo $plan['plan_end_date'] ? formatDate($plan['plan_end_date']) : 'Ongoing'; ?>
@@ -1154,7 +1154,7 @@ if ($hasPropCoords) {
                             <?php if ($plan['default_time_start']): ?>
                                 <div class="mw-detail-row">
                                     <span class="mw-detail-label">
-                                        <i data-feather="sun" class="mw-detail-icon"></i>Default Time
+                                        <span class="mw-icon-box"><i data-feather="sun" class="mw-detail-icon"></i></span>Default Time
                                     </span>
                                     <span class="mw-detail-value">
                                         <?php echo date('g:i A', strtotime($plan['default_time_start'])); ?>
@@ -1166,7 +1166,7 @@ if ($hasPropCoords) {
                             <?php endif; ?>
                             <div class="mw-detail-row">
                                 <span class="mw-detail-label">
-                                    <i data-feather="eye" class="mw-detail-icon"></i>Horizon
+                                    <span class="mw-icon-box"><i data-feather="eye" class="mw-detail-icon"></i></span>Horizon
                                 </span>
                                 <span class="mw-detail-value">
                                     <?php echo (int)$plan['horizon_days']; ?> days ahead
@@ -1175,7 +1175,7 @@ if ($hasPropCoords) {
                             <?php if ($plan['status'] === 'paused' && $plan['paused_reason']): ?>
                                 <div class="mw-detail-row">
                                     <span class="mw-detail-label">
-                                        <i data-feather="pause-circle" class="mw-detail-icon"></i>Paused Reason
+                                        <span class="mw-icon-box"><i data-feather="pause-circle" class="mw-detail-icon"></i></span>Paused Reason
                                     </span>
                                     <span class="mw-detail-value text-warning">
                                         <?php echo htmlspecialchars($plan['paused_reason']); ?>
@@ -1187,7 +1187,7 @@ if ($hasPropCoords) {
 
                             <div class="mw-detail-row">
                                 <span class="mw-detail-label">
-                                    <i data-feather="user" class="mw-detail-icon"></i>Created By
+                                    <span class="mw-icon-box"><i data-feather="user" class="mw-detail-icon"></i></span>Created By
                                 </span>
                                 <span class="mw-detail-value">
                                     <?php echo htmlspecialchars($plan['created_by_name'] ?? 'Unknown'); ?>
@@ -1195,7 +1195,7 @@ if ($hasPropCoords) {
                             </div>
                             <div class="mw-detail-row">
                                 <span class="mw-detail-label">
-                                    <i data-feather="clock" class="mw-detail-icon"></i>Created At
+                                    <span class="mw-icon-box"><i data-feather="clock" class="mw-detail-icon"></i></span>Created At
                                 </span>
                                 <span class="mw-detail-value">
                                     <?php echo formatDateTime($plan['created_at']); ?>
@@ -1204,7 +1204,7 @@ if ($hasPropCoords) {
                             <?php if ($plan['quote_number']): ?>
                                 <div class="mw-detail-row">
                                     <span class="mw-detail-label">
-                                        <i data-feather="file-text" class="mw-detail-icon"></i>From Quote
+                                        <span class="mw-icon-box"><i data-feather="file-text" class="mw-detail-icon"></i></span>From Quote
                                     </span>
                                     <span class="mw-detail-value">
                                         <a href="../quotes/view.php?id=<?php echo (int)$plan['quote_id']; ?>">

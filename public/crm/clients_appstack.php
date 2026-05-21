@@ -3628,15 +3628,15 @@ $unconvertedRequests = $db->query("
                       <div class="mw-radial-legend-item"><span class="mw-radial-dot" style="background:#2D8659"></span><span>Profit</span></div>
                     </div>
                     <div class="mw-detail-row">
-                      <span class="mw-detail-label"><i data-feather="trending-up" class="mw-detail-icon"></i>Revenue</span>
+                      <span class="mw-detail-label"><span class="mw-icon-box"><i data-feather="trending-up" class="mw-detail-icon"></i></span>Revenue</span>
                       <span class="font-weight-bold text-success"><?php echo formatCurrency($totalRevenue); ?></span>
                     </div>
                     <div class="mw-detail-row">
-                      <span class="mw-detail-label"><i data-feather="shopping-bag" class="mw-detail-icon"></i>Expenses</span>
+                      <span class="mw-detail-label"><span class="mw-icon-box"><i data-feather="shopping-bag" class="mw-detail-icon"></i></span>Expenses</span>
                       <span class="font-weight-bold text-danger"><?php echo formatCurrency($totalExpenses); ?></span>
                     </div>
                     <div class="mw-detail-row" style="border-top: 2px solid #dee2e6;">
-                      <span class="mw-detail-label font-weight-bold"><i data-feather="bar-chart-2" class="mw-detail-icon"></i>Profit</span>
+                      <span class="mw-detail-label font-weight-bold"><span class="mw-icon-box"><i data-feather="bar-chart-2" class="mw-detail-icon"></i></span>Profit</span>
                       <span class="font-weight-bold <?php echo $cProfit >= 0 ? 'text-success' : 'text-danger'; ?>">
                         <?php echo formatCurrency($cProfit); ?>
                         <small class="text-muted">(<?php echo number_format($cMargin, 0); ?>%)</small>
@@ -3644,7 +3644,7 @@ $unconvertedRequests = $db->query("
                     </div>
                     <?php if ($totalQuoted > 0 && $totalQuoted != $totalRevenue): ?>
                     <div class="mw-detail-row">
-                      <span class="mw-detail-label"><i data-feather="check-circle" class="mw-detail-icon"></i>Quoted (Accepted)</span>
+                      <span class="mw-detail-label"><span class="mw-icon-box"><i data-feather="check-circle" class="mw-detail-icon"></i></span>Quoted (Accepted)</span>
                       <span class="text-muted"><?php echo formatCurrency($totalQuoted); ?></span>
                     </div>
                     <?php endif; ?>

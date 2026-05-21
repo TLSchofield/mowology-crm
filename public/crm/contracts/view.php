@@ -549,12 +549,12 @@ if ($hasPropCoords && !$hasBorder) {
                       <div class="card-header"><h5 class="card-title mb-0">Property &amp; Client</h5></div>
                       <div class="card-body">
                           <dl class="row mb-0">
-                              <dt class="col-sm-4"><i data-feather="map-pin" class="mw-detail-icon"></i> Property</dt>
+                              <dt class="col-sm-4"><span class="mw-icon-box"><i data-feather="map-pin" class="mw-detail-icon"></i></span> Property</dt>
                               <dd class="col-sm-8">
                                   <?php echo htmlspecialchars($contract['property_address']); ?><br>
                                   <span class="text-muted"><?php echo htmlspecialchars($contract['property_city']); ?></span>
                               </dd>
-                              <dt class="col-sm-4"><i data-feather="briefcase" class="mw-detail-icon"></i> Client</dt>
+                              <dt class="col-sm-4"><span class="mw-icon-box"><i data-feather="briefcase" class="mw-detail-icon"></i></span> Client</dt>
                               <dd class="col-sm-8">
                                   <?php echo htmlspecialchars(trim($contract['first_name'] . ' ' . $contract['last_name'])); ?>
                                   <?php if ($contract['contact_email']): ?>
@@ -565,7 +565,7 @@ if ($hasPropCoords && !$hasBorder) {
                                   <?php endif; ?>
                               </dd>
                               <?php if ($contract['notes']): ?>
-                                  <dt class="col-sm-4"><i data-feather="message-square" class="mw-detail-icon"></i> Notes</dt>
+                                  <dt class="col-sm-4"><span class="mw-icon-box"><i data-feather="message-square" class="mw-detail-icon"></i></span> Notes</dt>
                                   <dd class="col-sm-8"><?php echo nl2br(htmlspecialchars($contract['notes'])); ?></dd>
                               <?php endif; ?>
                           </dl>
@@ -578,18 +578,18 @@ if ($hasPropCoords && !$hasBorder) {
                       <div class="card-body">
                           <dl class="row mb-0">
                               <?php if ($contract['quote_id']): ?>
-                                  <dt class="col-sm-4"><i data-feather="file-text" class="mw-detail-icon"></i> Source Quote</dt>
+                                  <dt class="col-sm-4"><span class="mw-icon-box"><i data-feather="file-text" class="mw-detail-icon"></i></span> Source Quote</dt>
                                   <dd class="col-sm-8">
                                       <a href="../quotes/view.php?id=<?php echo (int)$contract['quote_id']; ?>">
                                           <?php echo htmlspecialchars($contract['quote_number'] ?? 'View Quote'); ?>
                                       </a>
                                   </dd>
                               <?php endif; ?>
-                              <dt class="col-sm-4"><i data-feather="user" class="mw-detail-icon"></i> Created By</dt>
+                              <dt class="col-sm-4"><span class="mw-icon-box"><i data-feather="user" class="mw-detail-icon"></i></span> Created By</dt>
                               <dd class="col-sm-8"><?php echo htmlspecialchars($contract['created_by_name'] ?? '—'); ?></dd>
-                              <dt class="col-sm-4"><i data-feather="calendar" class="mw-detail-icon"></i> Created</dt>
+                              <dt class="col-sm-4"><span class="mw-icon-box"><i data-feather="calendar" class="mw-detail-icon"></i></span> Created</dt>
                               <dd class="col-sm-8"><?php echo date('M j, Y', strtotime($contract['created_at'])); ?></dd>
-                              <dt class="col-sm-4"><i data-feather="refresh-cw" class="mw-detail-icon"></i> Auto-Renew</dt>
+                              <dt class="col-sm-4"><span class="mw-icon-box"><i data-feather="refresh-cw" class="mw-detail-icon"></i></span> Auto-Renew</dt>
                               <dd class="col-sm-8">
                                   <?php if ($contract['auto_renew'] ?? 0): ?>
                                       <span style="color:var(--mw-green);font-weight:600;">Enabled</span>
@@ -601,7 +601,7 @@ if ($hasPropCoords && !$hasBorder) {
                                   <?php endif; ?>
                               </dd>
                               <?php if (!empty($contract['last_renewed_at'])): ?>
-                                  <dt class="col-sm-4"><i data-feather="clock" class="mw-detail-icon"></i> Last Renewed</dt>
+                                  <dt class="col-sm-4"><span class="mw-icon-box"><i data-feather="clock" class="mw-detail-icon"></i></span> Last Renewed</dt>
                                   <dd class="col-sm-8"><?php echo date('M j, Y', strtotime($contract['last_renewed_at'])); ?></dd>
                               <?php endif; ?>
                           </dl>

@@ -2159,23 +2159,32 @@ tr[data-href] { cursor: pointer; }
 .mw-detail-row:last-child { border-bottom: none; }
 .mw-detail-label { color: #6c757d; display: inline-flex; align-items: center; gap: 6px; }
 .mw-detail-value { font-weight: 500; text-align: right; }
-.mw-detail-icon {
-  width: 13px; height: 13px; flex-shrink: 0;
-  padding: 4px; border-radius: 5px; box-sizing: content-box;
-  background: #f1f5f9; color: #94a3b8;
+/* Icon is just the SVG inside the box — size and color only */
+.mw-detail-icon { width: 13px; height: 13px; flex-shrink: 0; color: inherit; }
+
+/* The box wraps the icon and carries background/radius */
+.mw-icon-box {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px; height: 22px;
+  background: #f1f5f9;
+  border-radius: 5px;
+  flex-shrink: 0;
+  color: #94a3b8;
   transition: background 0.15s, color 0.15s;
 }
 /* Green when the row value contains a link */
-.mw-detail-row:has(.mw-detail-value a) .mw-detail-icon,
-dt:has(+ dd a) .mw-detail-icon,
-tr:has(td a) .mw-detail-icon {
+.mw-detail-row:has(.mw-detail-value a) .mw-icon-box,
+dt:has(+ dd a) .mw-icon-box,
+tr:has(td a) .mw-icon-box {
   background: rgba(45, 134, 89, 0.10);
   color: var(--mw-green);
 }
 /* Dark green on hover */
-.mw-detail-row:has(.mw-detail-value a):hover .mw-detail-icon,
-dt:has(+ dd a):hover .mw-detail-icon,
-tr:has(td a):hover .mw-detail-icon {
+.mw-detail-row:has(.mw-detail-value a):hover .mw-icon-box,
+dt:has(+ dd a):hover .mw-icon-box,
+tr:has(td a):hover .mw-icon-box {
   background: rgba(45, 134, 89, 0.18);
   color: var(--mw-dark);
 }

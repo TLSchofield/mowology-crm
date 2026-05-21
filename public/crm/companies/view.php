@@ -192,12 +192,12 @@ $activePage = 'companies';
                                 <div class="card-header"><h5 class="card-title mb-0">Company Details</h5></div>
                                 <div class="card-body p-0">
                                     <table class="table table-sm mb-0">
-                                        <tr><td class="font-weight-bold text-muted" style="width:40%;"><i data-feather="briefcase" class="mw-detail-icon"></i> Name</td><td><?= htmlspecialchars($company['company_name']) ?></td></tr>
-                                        <tr><td class="font-weight-bold text-muted"><i data-feather="tag" class="mw-detail-icon"></i> Type</td><td><?= htmlspecialchars($typeLabels[$company['company_type']] ?? 'Individual') ?></td></tr>
-                                        <tr><td class="font-weight-bold text-muted"><i data-feather="activity" class="mw-detail-icon"></i> Status</td><td><span class="badge badge-<?= $statusColor ?>"><?= htmlspecialchars(ucfirst($company['account_status'])) ?></span></td></tr>
-                                        <tr><td class="font-weight-bold text-muted"><i data-feather="trending-up" class="mw-detail-icon"></i> Lifecycle Stage</td><td><?= htmlspecialchars(ucfirst($company['lifecycle_stage'] ?? 'prospect')) ?></td></tr>
+                                        <tr><td class="font-weight-bold text-muted" style="width:40%;"><span class="mw-icon-box"><i data-feather="briefcase" class="mw-detail-icon"></i></span> Name</td><td><?= htmlspecialchars($company['company_name']) ?></td></tr>
+                                        <tr><td class="font-weight-bold text-muted"><span class="mw-icon-box"><i data-feather="tag" class="mw-detail-icon"></i></span> Type</td><td><?= htmlspecialchars($typeLabels[$company['company_type']] ?? 'Individual') ?></td></tr>
+                                        <tr><td class="font-weight-bold text-muted"><span class="mw-icon-box"><i data-feather="activity" class="mw-detail-icon"></i></span> Status</td><td><span class="badge badge-<?= $statusColor ?>"><?= htmlspecialchars(ucfirst($company['account_status'])) ?></span></td></tr>
+                                        <tr><td class="font-weight-bold text-muted"><span class="mw-icon-box"><i data-feather="trending-up" class="mw-detail-icon"></i></span> Lifecycle Stage</td><td><?= htmlspecialchars(ucfirst($company['lifecycle_stage'] ?? 'prospect')) ?></td></tr>
                                         <tr>
-                                            <td class="font-weight-bold text-muted"><i data-feather="user" class="mw-detail-icon"></i> Primary Contact</td>
+                                            <td class="font-weight-bold text-muted"><span class="mw-icon-box"><i data-feather="user" class="mw-detail-icon"></i></span> Primary Contact</td>
                                             <td>
                                                 <?php if ($company['primary_first_name']): ?>
                                                     <a href="/crm/clients_appstack.php?action=view_contact&id=<?= $company['primary_contact_id'] ?>">
@@ -209,7 +209,7 @@ $activePage = 'companies';
                                             </td>
                                         </tr>
                                         <tr>
-                                            <td class="font-weight-bold text-muted"><i data-feather="user" class="mw-detail-icon"></i> Billing Contact</td>
+                                            <td class="font-weight-bold text-muted"><span class="mw-icon-box"><i data-feather="user" class="mw-detail-icon"></i></span> Billing Contact</td>
                                             <td>
                                                 <?php if ($company['billing_first_name']): ?>
                                                     <a href="/crm/clients_appstack.php?action=view_contact&id=<?= $company['billing_contact_id'] ?>">
@@ -221,7 +221,7 @@ $activePage = 'companies';
                                             </td>
                                         </tr>
                                         <?php if ($company['notes']): ?>
-                                            <tr><td class="font-weight-bold text-muted"><i data-feather="message-square" class="mw-detail-icon"></i> Notes</td><td><?= nl2br(htmlspecialchars($company['notes'])) ?></td></tr>
+                                            <tr><td class="font-weight-bold text-muted"><span class="mw-icon-box"><i data-feather="message-square" class="mw-detail-icon"></i></span> Notes</td><td><?= nl2br(htmlspecialchars($company['notes'])) ?></td></tr>
                                         <?php endif; ?>
                                     </table>
                                 </div>
@@ -233,7 +233,7 @@ $activePage = 'companies';
                                 <div class="card-body p-0">
                                     <table class="table table-sm mb-0">
                                         <tr>
-                                            <td class="font-weight-bold text-muted" style="width:40%;"><i data-feather="map-pin" class="mw-detail-icon"></i> Billing Address</td>
+                                            <td class="font-weight-bold text-muted" style="width:40%;"><span class="mw-icon-box"><i data-feather="map-pin" class="mw-detail-icon"></i></span> Billing Address</td>
                                             <td>
                                                 <?php
                                                 $addrParts = array_filter([
@@ -246,11 +246,11 @@ $activePage = 'companies';
                                                 ?>
                                             </td>
                                         </tr>
-                                        <tr><td class="font-weight-bold text-muted"><i data-feather="mail" class="mw-detail-icon"></i> Billing Email</td><td><?= $company['billing_email'] ? htmlspecialchars($company['billing_email']) : '<span class="text-muted">—</span>' ?></td></tr>
-                                        <tr><td class="font-weight-bold text-muted"><i data-feather="phone" class="mw-detail-icon"></i> Billing Phone</td><td><?= $company['billing_phone'] ? htmlspecialchars($company['billing_phone']) : '<span class="text-muted">—</span>' ?></td></tr>
-                                        <tr><td class="font-weight-bold text-muted"><i data-feather="clock" class="mw-detail-icon"></i> Payment Terms</td><td><?= htmlspecialchars($company['payment_terms'] ?? 'Net 30') ?></td></tr>
-                                        <tr><td class="font-weight-bold text-muted"><i data-feather="credit-card" class="mw-detail-icon"></i> Payment Method</td><td><?= htmlspecialchars(ucfirst(str_replace('_', ' ', $company['payment_method'] ?? 'invoice'))) ?></td></tr>
-                                        <tr><td class="font-weight-bold text-muted"><i data-feather="send" class="mw-detail-icon"></i> Invoice Routing</td><td><?= htmlspecialchars(ucfirst(str_replace('_', ' ', $company['invoice_routing_method'] ?? 'primary contact'))) ?></td></tr>
+                                        <tr><td class="font-weight-bold text-muted"><span class="mw-icon-box"><i data-feather="mail" class="mw-detail-icon"></i></span> Billing Email</td><td><?= $company['billing_email'] ? htmlspecialchars($company['billing_email']) : '<span class="text-muted">—</span>' ?></td></tr>
+                                        <tr><td class="font-weight-bold text-muted"><span class="mw-icon-box"><i data-feather="phone" class="mw-detail-icon"></i></span> Billing Phone</td><td><?= $company['billing_phone'] ? htmlspecialchars($company['billing_phone']) : '<span class="text-muted">—</span>' ?></td></tr>
+                                        <tr><td class="font-weight-bold text-muted"><span class="mw-icon-box"><i data-feather="clock" class="mw-detail-icon"></i></span> Payment Terms</td><td><?= htmlspecialchars($company['payment_terms'] ?? 'Net 30') ?></td></tr>
+                                        <tr><td class="font-weight-bold text-muted"><span class="mw-icon-box"><i data-feather="credit-card" class="mw-detail-icon"></i></span> Payment Method</td><td><?= htmlspecialchars(ucfirst(str_replace('_', ' ', $company['payment_method'] ?? 'invoice'))) ?></td></tr>
+                                        <tr><td class="font-weight-bold text-muted"><span class="mw-icon-box"><i data-feather="send" class="mw-detail-icon"></i></span> Invoice Routing</td><td><?= htmlspecialchars(ucfirst(str_replace('_', ' ', $company['invoice_routing_method'] ?? 'primary contact'))) ?></td></tr>
                                     </table>
                                 </div>
                             </div>
