@@ -11151,6 +11151,75 @@ textarea.font-monospace {
   .mw-schedule-status-desktop { display: none; }
 }
 
+/* ── Desktop topbar: unified icon-box language ───────────
+ * All topbar action icons share the same box style as .mw-tracking-dot-wrapper:
+ *   neutral grey by default, green when the feature is live/active.
+ * Mobile keeps its prominent pill layout (see max-width:1024px above).
+ * ─────────────────────────────────────────────────────── */
+@media (min-width: 1025px) {
+
+  /* Clock-In button: neutral box, not filled green */
+  .mw-clock-btn.mw-clock-in {
+    background: transparent;
+    color: #6c757d;
+    border-radius: 6px;
+    padding: 6px 10px;
+    border: none;
+    transition: background 0.15s, color 0.15s;
+  }
+  .mw-clock-btn.mw-clock-in:hover {
+    background: rgba(0, 0, 0, 0.06);
+    color: #374151;
+    transform: none;
+    box-shadow: none;
+  }
+  .mw-clock-btn.mw-clock-in svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  /* Clocked-in active state: box style + green tint (mirrors tracking-dot-on) */
+  .mw-clock-active {
+    border-radius: 6px;
+    border: none;
+    background: rgba(45, 134, 89, 0.1);
+    padding: 4px 8px 4px 6px;
+    gap: 6px;
+  }
+  .mw-clock-icon-pulse {
+    animation: mw-dot-pulse-green 2s ease-in-out infinite;
+    color: var(--mw-green);
+  }
+
+  /* Clock-Out button inside active container: small neutral action */
+  .mw-clock-active .mw-clock-btn.mw-clock-out {
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 0.75rem;
+    min-height: auto;
+    background: rgba(220, 38, 38, 0.08);
+    color: #dc2626;
+  }
+  .mw-clock-active .mw-clock-btn.mw-clock-out:hover {
+    background: #dc2626;
+    color: #fff;
+  }
+
+  /* Receipt button: neutral icon box (not a live indicator, no green) */
+  .mw-snap-receipt-btn {
+    background: transparent;
+    color: #6c757d !important;
+    padding: 6px 10px;
+    border-radius: 6px;
+    margin-right: 4px;
+  }
+  .mw-snap-receipt-btn:hover {
+    background: rgba(0, 0, 0, 0.06);
+    color: #374151 !important;
+  }
+  .mw-snap-receipt-label { font-size: 0.78rem; font-weight: 500; }
+}
+
 /* ── Flatline Animation (clock-in transition) ─────────── */
 /*
  * clip-path: inset clips the card to a thin center strip without
