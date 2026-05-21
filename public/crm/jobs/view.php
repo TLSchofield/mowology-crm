@@ -2494,12 +2494,23 @@ if ($hasPropCoords) {
                 </div>
                 <div class="form-group">
                     <label class="form-label">Crew</label>
-                    <select name="visit_crew_id" id="editVisitCrew" class="form-control">
-                        <option value="">Unassigned</option>
-                        <?php foreach ($staff as $s): ?>
-                            <option value="<?php echo $s['id']; ?>"><?php echo htmlspecialchars($s['full_name']); ?></option>
-                        <?php endforeach; ?>
-                    </select>
+                    <div class="mw-crew-wrapper">
+                        <div class="mw-crew-chips" id="visitCrewChips">
+                            <button type="button" class="mw-crew-add-btn" onclick="visitToggleCrewDropdown()">+ Assign</button>
+                        </div>
+                        <div class="mw-crew-dropdown" id="visitCrewDropdown">
+                            <?php foreach ($staff as $s): ?>
+                                <div class="mw-crew-dropdown-item"
+                                     data-id="<?php echo (int)$s['id']; ?>"
+                                     data-name="<?php echo htmlspecialchars($s['full_name'], ENT_QUOTES); ?>"
+                                     onclick="visitAssignCrew(<?php echo (int)$s['id']; ?>, this.dataset.name)">
+                                    <?php echo htmlspecialchars($s['full_name']); ?>
+                                    <small class="text-muted"><?php echo htmlspecialchars($s['role'] ?? ''); ?></small>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                    <input type="hidden" name="visit_crew_id" id="visitCrewIdHidden" value="">
                 </div>
 
                 <div class="mw-modal-actions">
@@ -3048,6 +3059,48 @@ if ($hasPropCoords) {
             }
         });
 
+        // ── Visit crew chip picker ──────────────────────────
+        var mwStaffMap = <?php
+            $sm = [];
+            foreach ($staff as $s) { $sm[(int)$s['id']] = $s['full_name']; }
+            echo json_encode($sm);
+        ?>;
+        var visitAssignedCrew = null; // { id, name } or null
+
+        function visitToggleCrewDropdown() {
+            var dd = document.getElementById('visitCrewDropdown');
+            dd.classList.toggle('show');
+            dd.querySelectorAll('.mw-crew-dropdown-item').forEach(function(item) {
+                item.classList.toggle('disabled', visitAssignedCrew && parseInt(item.dataset.id) === visitAssignedCrew.id);
+            });
+        }
+
+        function visitAssignCrew(id, name) {
+            visitAssignedCrew = { id: id, name: name };
+            visitRenderCrewChip();
+            document.getElementById('visitCrewDropdown').classList.remove('show');
+        }
+
+        function visitRemoveCrew() {
+            visitAssignedCrew = null;
+            visitRenderCrewChip();
+        }
+
+        function visitRenderCrewChip() {
+            var container = document.getElementById('visitCrewChips');
+            var html = '';
+            if (visitAssignedCrew) {
+                html += '<span class="mw-crew-chip mw-crew-lead">' +
+                    escHtml(visitAssignedCrew.name) +
+                    '<button type="button" class="mw-crew-chip-remove" onclick="visitRemoveCrew()">&times;</button>' +
+                    '</span>';
+            }
+            var btnLabel = visitAssignedCrew ? 'Change' : '+ Assign';
+            html += '<button type="button" class="mw-crew-add-btn" onclick="visitToggleCrewDropdown()">' + btnLabel + '</button>';
+            container.innerHTML = html;
+            document.getElementById('visitCrewIdHidden').value = visitAssignedCrew ? visitAssignedCrew.id : '';
+        }
+
         // ── Edit Visit modal ────────────────────────────────
         function openEditVisitModal(visitId, visitNumber, date, timeStart, timeEnd, crewId) {
             document.getElementById('editVisitId').value = visitId;
@@ -3055,8 +3108,9 @@ if ($hasPropCoords) {
             document.getElementById('editVisitDate').value = date;
             document.getElementById('editVisitTimeStart').value = timeStart || '';
             document.getElementById('editVisitTimeEnd').value = timeEnd || '';
-            var crewSelect = document.getElementById('editVisitCrew');
-            crewSelect.value = crewId || '';
+            var cid = crewId ? parseInt(crewId) : 0;
+            visitAssignedCrew = cid ? { id: cid, name: mwStaffMap[cid] || 'Unknown' } : null;
+            visitRenderCrewChip();
             showModal('editVisitModal');
         }
 
