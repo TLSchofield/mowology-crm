@@ -97,6 +97,7 @@ try {
 
             $statusBase = [
                 'success' => true,
+                'user_id' => $user['id'],
                 'location_tracking_enabled' => $locationTrackingEnabled,
                 'device_type' => $deviceType,
                 'gps_interval_standard_ms' => $gpsIntervalStandard,

@@ -21,6 +21,8 @@
     // ── Device & Tracking State ──
     var deviceType = 'personal'; // 'personal' or 'truck'
     var trackingEnabled = false;
+    var currentUserId = null;   // set from status API, used to start MwTracking session
+    var currentEntryId = null;  // clock entry ID, used as session ID for MwTracking
     var gpsWatchId = null;
     var trackingInterval = null;
     var latestPosition = null; // { lat, lng, accuracy, speed, heading }
@@ -80,6 +82,8 @@
             trackingEnabled = !!data.location_tracking_enabled;
             deviceType = data.device_type || 'personal';
             hasActiveJobTimer = !!(data.active_job);
+            if (data.user_id) currentUserId = data.user_id;
+            if (data.entry_id) currentEntryId = data.entry_id;
 
             // Store configurable GPS intervals from server
             if (data.gps_interval_standard_ms) {
@@ -105,8 +109,9 @@
                 if (deviceType === 'truck') {
                     // Truck: always track when app is open
                     startTracking();
-                } else if (hasActiveJobTimer) {
-                    // Personal: track only during active job timer
+                } else if (data.clocked_in) {
+                    // Personal: track for the full shift (clock-in to clock-out)
+                    // so GPS continues in the background even when the app is closed
                     startTracking();
                 } else {
                     probeGPSStatus();
@@ -386,6 +391,15 @@
         updateTrackingDot('unknown', 'Acquiring GPS...');
         requestWakeLock();
 
+        // Start the MwTracking resilience service (START_STICKY Android service +
+        // WorkManager sync + boot receiver). This is what enables background GPS
+        // to continue after the app is swiped away or the device reboots mid-shift.
+        // startSession() is idempotent — safe to call on every page load.
+        if (window.MwNative && window.MwNative.tracking && currentUserId) {
+            var sessionId = currentEntryId ? String(currentEntryId) : ('shift-' + currentUserId);
+            window.MwNative.tracking.startSession(currentUserId, sessionId);
+        }
+
         // ── Native Capacitor: background-capable GPS ──
         // Start the native plugin for background capability, BUT also start
         // browser watchPosition as a reliable secondary source. The native
@@ -482,6 +496,11 @@
 
     function stopTracking() {
         releaseWakeLock();
+        // Stop the MwTracking resilience service for personal devices.
+        // Trucks stay running — their service is only stopped by admin toggle.
+        if (window.MwNative && window.MwNative.tracking && deviceType !== 'truck') {
+            window.MwNative.tracking.stopSession();
+        }
         // Stop native background GPS
         if (window.MwNative && window.MwNative.geo) {
             window.MwNative.geo.stopBackgroundTracking();
