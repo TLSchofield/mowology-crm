@@ -876,24 +876,24 @@ $activePage = 'quotes';
                           ?>
                           <?php if (!$isResidential && $quote['company_name']): ?>
                           <div class="mw-detail-row">
-                              <span class="mw-detail-label">Company</span>
+                              <span class="mw-detail-label"><i data-feather="briefcase" class="mw-detail-icon"></i>Company</span>
                               <span class="mw-detail-value"><?php echo htmlspecialchars($quote['company_name']); ?></span>
                           </div>
                           <?php endif; ?>
                           <div class="mw-detail-row">
-                              <span class="mw-detail-label"><?php echo $isResidential ? 'Owner Name' : 'Contact'; ?></span>
+                              <span class="mw-detail-label"><i data-feather="user" class="mw-detail-icon"></i><?php echo $isResidential ? 'Owner Name' : 'Contact'; ?></span>
                               <span class="mw-detail-value"><?php echo htmlspecialchars($contactName); ?></span>
                           </div>
                           <div class="mw-detail-row">
-                              <span class="mw-detail-label">Email</span>
+                              <span class="mw-detail-label"><i data-feather="mail" class="mw-detail-icon"></i>Email</span>
                               <span class="mw-detail-value"><?php echo htmlspecialchars($contactEmail); ?></span>
                           </div>
                           <div class="mw-detail-row">
-                              <span class="mw-detail-label">Phone</span>
+                              <span class="mw-detail-label"><i data-feather="phone" class="mw-detail-icon"></i>Phone</span>
                               <span class="mw-detail-value"><?php echo formatPhone($contactPhone); ?></span>
                           </div>
                           <div class="mw-detail-row">
-                              <span class="mw-detail-label">Property</span>
+                              <span class="mw-detail-label"><i data-feather="map-pin" class="mw-detail-icon"></i>Property</span>
                               <span class="mw-detail-value">
                                   <?php echo htmlspecialchars($quote['property_address'] . ', ' . $quote['property_city']); ?>
                               </span>
@@ -1020,48 +1020,48 @@ $activePage = 'quotes';
                       </div>
                       <div class="card-body">
                           <div class="mw-detail-row">
-                              <span class="mw-detail-label">Status</span>
+                              <span class="mw-detail-label"><i data-feather="activity" class="mw-detail-icon"></i>Status</span>
                               <span class="mw-detail-value"><?php echo getStatusBadge($quote['status']); ?></span>
                           </div>
                           <div class="mw-detail-row">
-                              <span class="mw-detail-label">Created</span>
+                              <span class="mw-detail-label"><i data-feather="calendar" class="mw-detail-icon"></i>Created</span>
                               <span class="mw-detail-value"><?php echo formatDateTime($quote['created_at']); ?></span>
                           </div>
                           <div class="mw-detail-row">
-                              <span class="mw-detail-label">Valid Until</span>
+                              <span class="mw-detail-label"><i data-feather="calendar" class="mw-detail-icon"></i>Valid Until</span>
                               <span class="mw-detail-value"><?php echo formatDate($quote['valid_until']); ?></span>
                           </div>
                           <?php if ($quote['sent_at']): ?>
                               <div class="mw-detail-row">
-                                  <span class="mw-detail-label">Sent</span>
+                                  <span class="mw-detail-label"><i data-feather="send" class="mw-detail-icon"></i>Sent</span>
                                   <span class="mw-detail-value"><?php echo formatDateTime($quote['sent_at']); ?></span>
                               </div>
                           <?php endif; ?>
                           <?php if (!empty($quote['email_opened_at'])): ?>
                               <div class="mw-detail-row">
-                                  <span class="mw-detail-label">Email Opened</span>
+                                  <span class="mw-detail-label"><i data-feather="eye" class="mw-detail-icon"></i>Email Opened</span>
                                   <span class="mw-detail-value"><?php echo formatDateTime($quote['email_opened_at']); ?></span>
                               </div>
                           <?php endif; ?>
                           <?php if ($quote['viewed_at']): ?>
                               <div class="mw-detail-row">
-                                  <span class="mw-detail-label">Viewed</span>
+                                  <span class="mw-detail-label"><i data-feather="eye" class="mw-detail-icon"></i>Viewed</span>
                                   <span class="mw-detail-value"><?php echo formatDateTime($quote['viewed_at']); ?> (<?php echo $quote['view_count']; ?>x)</span>
                               </div>
                           <?php endif; ?>
                           <?php if ($quote['accepted_at']): ?>
                               <div class="mw-detail-row">
-                                  <span class="mw-detail-label">Accepted</span>
+                                  <span class="mw-detail-label"><i data-feather="check-circle" class="mw-detail-icon"></i>Accepted</span>
                                   <span class="mw-detail-value"><?php echo formatDateTime($quote['accepted_at']); ?></span>
                               </div>
                           <?php endif; ?>
                           <div class="mw-detail-row">
-                              <span class="mw-detail-label">Created By</span>
+                              <span class="mw-detail-label"><i data-feather="user" class="mw-detail-icon"></i>Created By</span>
                               <span class="mw-detail-value"><?php echo htmlspecialchars($quote['created_by_name'] ?? 'Unknown'); ?></span>
                           </div>
                           <?php if (!empty($quote['pdf_version']) && $quote['pdf_version'] > 0): ?>
                               <div class="mw-detail-row">
-                                  <span class="mw-detail-label">PDF Version</span>
+                                  <span class="mw-detail-label"><i data-feather="file" class="mw-detail-icon"></i>PDF Version</span>
                                   <span class="mw-detail-value">
                                       v<?php echo (int)$quote['pdf_version']; ?>
                                       <?php if (!empty($quote['pdf_generated_at'])): ?>
@@ -1073,7 +1073,7 @@ $activePage = 'quotes';
 
                           <?php if ($quote['access_token'] && in_array($quote['status'], ['sent', 'accepted'])): ?>
                               <div class="mt-3">
-                                  <span class="mw-detail-label">Customer Link:</span>
+                                  <span class="mw-detail-label"><i data-feather="link" class="mw-detail-icon"></i>Customer Link:</span>
                                   <div class="mw-customer-link">
                                       <?php echo "https://" . $_SERVER['HTTP_HOST'] . "/customer/quote.php?token=" . $quote['access_token']; ?>
                                   </div>
@@ -1118,14 +1118,14 @@ $activePage = 'quotes';
                       <div class="card-body">
                           <?php if ($fuDaysSent !== null): ?>
                           <div class="mw-detail-row">
-                              <span class="mw-detail-label">Days Since Sent</span>
+                              <span class="mw-detail-label"><i data-feather="clock" class="mw-detail-icon"></i>Days Since Sent</span>
                               <span class="mw-detail-value">
                                   <strong><?php echo $fuDaysSent; ?></strong> day<?php echo $fuDaysSent === 1 ? '' : 's'; ?>
                               </span>
                           </div>
                           <?php endif; ?>
                           <div class="mw-detail-row">
-                              <span class="mw-detail-label">Email Opened</span>
+                              <span class="mw-detail-label"><i data-feather="eye" class="mw-detail-icon"></i>Email Opened</span>
                               <span class="mw-detail-value">
                                   <?php if ($fuEmailOpened): ?>
                                       <span style="color: var(--mw-green);">✓ Yes</span>
@@ -1136,7 +1136,7 @@ $activePage = 'quotes';
                               </span>
                           </div>
                           <div class="mw-detail-row">
-                              <span class="mw-detail-label">Quote Viewed</span>
+                              <span class="mw-detail-label"><i data-feather="eye" class="mw-detail-icon"></i>Quote Viewed</span>
                               <span class="mw-detail-value">
                                   <?php if ($fuViewed): ?>
                                       <span style="color: var(--mw-green);">✓ <?php echo (int)($quote['view_count'] ?? 0); ?>x</span>
@@ -1147,7 +1147,7 @@ $activePage = 'quotes';
                               </span>
                           </div>
                           <div class="mw-detail-row">
-                              <span class="mw-detail-label">Follow-Ups Sent</span>
+                              <span class="mw-detail-label"><i data-feather="bell" class="mw-detail-icon"></i>Follow-Ups Sent</span>
                               <span class="mw-detail-value">
                                   <?php if ($fuCount > 0): ?>
                                       <strong><?php echo $fuCount; ?></strong>

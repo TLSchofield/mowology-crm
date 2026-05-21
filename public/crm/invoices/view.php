@@ -515,12 +515,12 @@ $extraHead = $isPayable
                           ?>
                           <?php if ($displayCompany): ?>
                           <div class="mw-detail-row">
-                              <span class="mw-detail-label">Company</span>
+                              <span class="mw-detail-label"><i data-feather="briefcase" class="mw-detail-icon"></i>Company</span>
                               <span class="mw-detail-value"><?php echo htmlspecialchars($displayCompany); ?></span>
                           </div>
                           <?php endif; ?>
                           <div class="mw-detail-row">
-                              <span class="mw-detail-label">Contact</span>
+                              <span class="mw-detail-label"><i data-feather="user" class="mw-detail-icon"></i>Contact</span>
                               <span class="mw-detail-value">
                                   <?php echo htmlspecialchars($contactFullName ?: 'N/A'); ?>
                               </span>
@@ -538,21 +538,21 @@ $extraHead = $isPayable
                           ?>
                           <?php if ($billAddrFull): ?>
                           <div class="mw-detail-row">
-                              <span class="mw-detail-label">Billing Address</span>
+                              <span class="mw-detail-label"><i data-feather="map-pin" class="mw-detail-icon"></i>Billing Address</span>
                               <span class="mw-detail-value"><?php echo htmlspecialchars($billAddrFull); ?></span>
                           </div>
                           <?php endif; ?>
                           <div class="mw-detail-row">
-                              <span class="mw-detail-label">Email</span>
+                              <span class="mw-detail-label"><i data-feather="mail" class="mw-detail-icon"></i>Email</span>
                               <span class="mw-detail-value"><?php echo htmlspecialchars($invoice['contact_email'] ?: $invoice['billing_email'] ?: 'N/A'); ?></span>
                           </div>
                           <div class="mw-detail-row">
-                              <span class="mw-detail-label">Phone</span>
+                              <span class="mw-detail-label"><i data-feather="phone" class="mw-detail-icon"></i>Phone</span>
                               <span class="mw-detail-value"><?php echo formatPhone($invoice['contact_phone'] ?: $invoice['billing_phone'] ?: ''); ?></span>
                           </div>
                           <?php if ($svcAddrFull && $svcAddrFull !== $billAddrFull): ?>
                               <div class="mw-detail-row">
-                                  <span class="mw-detail-label">Service Address</span>
+                                  <span class="mw-detail-label"><i data-feather="map-pin" class="mw-detail-icon"></i>Service Address</span>
                                   <span class="mw-detail-value"><?php echo htmlspecialchars($svcAddrFull); ?></span>
                               </div>
                           <?php endif; ?>
@@ -718,18 +718,18 @@ $extraHead = $isPayable
                           </div>
                           <div class="card-body">
                               <div class="mw-detail-row">
-                                  <span class="mw-detail-label">Payment Date</span>
+                                  <span class="mw-detail-label"><i data-feather="calendar" class="mw-detail-icon"></i>Payment Date</span>
                                   <span class="mw-detail-value"><?php echo formatDateTime($invoice['paid_at']); ?></span>
                               </div>
                               <?php if (!empty($invoice['payment_method'])): ?>
                                   <div class="mw-detail-row">
-                                      <span class="mw-detail-label">Method</span>
+                                      <span class="mw-detail-label"><i data-feather="credit-card" class="mw-detail-icon"></i>Method</span>
                                       <span class="mw-detail-value"><?php echo htmlspecialchars(ucfirst($invoice['payment_method'])); ?></span>
                                   </div>
                               <?php endif; ?>
                               <?php if (!empty($invoice['payment_reference'])): ?>
                                   <div class="mw-detail-row">
-                                      <span class="mw-detail-label">Reference</span>
+                                      <span class="mw-detail-label"><i data-feather="hash" class="mw-detail-icon"></i>Reference</span>
                                       <span class="mw-detail-value"><?php echo htmlspecialchars($invoice['payment_reference']); ?></span>
                                   </div>
                               <?php endif; ?>
@@ -746,34 +746,34 @@ $extraHead = $isPayable
                       </div>
                       <div class="card-body">
                           <div class="mw-detail-row">
-                              <span class="mw-detail-label">Status</span>
+                              <span class="mw-detail-label"><i data-feather="activity" class="mw-detail-icon"></i>Status</span>
                               <span class="mw-detail-value"><?php echo getStatusBadge($invoice['status'], 'invoice'); ?></span>
                           </div>
                           <div class="mw-detail-row">
-                              <span class="mw-detail-label">Issue Date</span>
+                              <span class="mw-detail-label"><i data-feather="calendar" class="mw-detail-icon"></i>Issue Date</span>
                               <span class="mw-detail-value"><?php echo formatDate($invoice['issue_date']); ?></span>
                           </div>
                           <div class="mw-detail-row">
-                              <span class="mw-detail-label">Due Date</span>
+                              <span class="mw-detail-label"><i data-feather="calendar" class="mw-detail-icon"></i>Due Date</span>
                               <span class="mw-detail-value"><?php echo formatDate($invoice['due_date']); ?></span>
                           </div>
                           <?php if (!empty($invoice['sent_at'])): ?>
                               <div class="mw-detail-row">
-                                  <span class="mw-detail-label">Sent</span>
+                                  <span class="mw-detail-label"><i data-feather="send" class="mw-detail-icon"></i>Sent</span>
                                   <span class="mw-detail-value"><?php echo formatDateTime($invoice['sent_at']); ?></span>
                               </div>
                           <?php endif; ?>
                           <div class="mw-detail-row">
-                              <span class="mw-detail-label">Created</span>
+                              <span class="mw-detail-label"><i data-feather="calendar" class="mw-detail-icon"></i>Created</span>
                               <span class="mw-detail-value"><?php echo formatDateTime($invoice['created_at']); ?></span>
                           </div>
                           <div class="mw-detail-row">
-                              <span class="mw-detail-label">Created By</span>
+                              <span class="mw-detail-label"><i data-feather="user" class="mw-detail-icon"></i>Created By</span>
                               <span class="mw-detail-value"><?php echo htmlspecialchars($invoice['created_by_name'] ?? 'Unknown'); ?></span>
                           </div>
                           <?php if ($contactAutopay): ?>
                           <div class="mw-detail-row" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--mw-light);">
-                              <span class="mw-detail-label">Autopay</span>
+                              <span class="mw-detail-label"><i data-feather="refresh-cw" class="mw-detail-icon"></i>Autopay</span>
                               <span class="mw-detail-value">
                                   <?php if (!empty($contactAutopay['autopay_enabled'])): ?>
                                       <span class="badge badge-success" style="font-size:.75rem;">&#10003; Active</span>
@@ -786,7 +786,7 @@ $extraHead = $isPayable
                           </div>
                           <?php if (!empty($contactAutopay['stripe_card_last4'])): ?>
                           <div class="mw-detail-row">
-                              <span class="mw-detail-label">Card on File</span>
+                              <span class="mw-detail-label"><i data-feather="credit-card" class="mw-detail-icon"></i>Card on File</span>
                               <span class="mw-detail-value" style="font-size:.85rem;">
                                   <?php
                                   $brand = ucfirst($contactAutopay['stripe_card_brand'] ?? '');
@@ -800,7 +800,7 @@ $extraHead = $isPayable
                           <?php endif; ?>
                           <?php if (!empty($invoice['pdf_version']) && $invoice['pdf_version'] > 0): ?>
                               <div class="mw-detail-row">
-                                  <span class="mw-detail-label">PDF Version</span>
+                                  <span class="mw-detail-label"><i data-feather="file" class="mw-detail-icon"></i>PDF Version</span>
                                   <span class="mw-detail-value">
                                       v<?php echo (int)$invoice['pdf_version']; ?>
                                       <?php if (!empty($invoice['pdf_generated_at'])): ?>
@@ -811,7 +811,7 @@ $extraHead = $isPayable
                           <?php endif; ?>
                           <?php if (!empty($invoice['plan_id'])): ?>
                               <div class="mw-detail-row">
-                                  <span class="mw-detail-label">Linked Plan</span>
+                                  <span class="mw-detail-label"><i data-feather="link" class="mw-detail-icon"></i>Linked Plan</span>
                                   <span class="mw-detail-value">
                                       <a href="../jobs/view.php?id=<?php echo $invoice['plan_id']; ?>">
                                           <?php echo htmlspecialchars($invoice['plan_number']); ?>
@@ -824,7 +824,7 @@ $extraHead = $isPayable
                           <?php endif; ?>
                           <?php if (!empty($invoice['visit_id'])): ?>
                               <div class="mw-detail-row">
-                                  <span class="mw-detail-label">Linked Visit</span>
+                                  <span class="mw-detail-label"><i data-feather="link" class="mw-detail-icon"></i>Linked Visit</span>
                                   <span class="mw-detail-value">
                                       <a href="../jobs/view.php?id=<?php echo $invoice['plan_id']; ?>">
                                           <?php echo htmlspecialchars($invoice['visit_number']); ?>
