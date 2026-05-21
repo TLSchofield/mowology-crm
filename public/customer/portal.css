@@ -1356,6 +1356,116 @@ a:hover { text-decoration: underline; }
   flex-shrink: 0;
 }
 
+/* ─── Dual-account split view ────────────────────────────────────────────── */
+.portal-accounts-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin-bottom: 28px;
+}
+
+.portal-account-panel {
+  background: var(--p-bg);
+  border: 1px solid var(--p-border);
+  border-radius: var(--p-radius-lg);
+  box-shadow: var(--p-shadow-sm);
+  overflow: hidden;
+}
+
+.portal-account-header {
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--p-border);
+  background: var(--p-bg-subtle);
+}
+
+.portal-account-badge {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 20px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .6px;
+  text-transform: uppercase;
+  margin-bottom: 7px;
+}
+.portal-account-badge.personal { background: #eff6ff; color: #1d4ed8; }
+.portal-account-badge.business { background: #e8f3f0; color: var(--p-dark); }
+
+.portal-account-name {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--p-text);
+  margin-bottom: 6px;
+}
+
+.portal-account-card {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--p-text-mid);
+  margin-bottom: 10px;
+}
+.portal-account-card svg { flex-shrink: 0; stroke: var(--p-green); }
+
+.portal-autopay-tag {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 700;
+  background: #e8f3f0;
+  color: var(--p-dark);
+  margin-left: 4px;
+}
+
+.portal-account-balance {
+  font-size: 1.2rem;
+  font-weight: 700;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.portal-account-balance span {
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+}
+.portal-account-balance.owing { color: #c9780c; }
+.portal-account-balance.owing span { color: #c9780c; opacity: .7; }
+.portal-account-balance.clear { color: var(--p-green); }
+.portal-account-balance.clear span { color: var(--p-green); opacity: .7; }
+
+.portal-panel-section-label {
+  display: block;
+  padding: 7px 20px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .5px;
+  text-transform: uppercase;
+  color: var(--p-text-muted);
+  background: var(--p-bg-gray);
+  border-bottom: 1px solid var(--p-border);
+}
+.portal-panel-section-label.outstanding { color: #c9780c; background: #fffbf5; }
+
+.portal-doc-list--compact .portal-doc-card {
+  padding: 10px 16px;
+}
+.portal-doc-list--compact .portal-doc-icon { display: none; }
+
+.portal-panel-empty {
+  padding: 28px 20px;
+  text-align: center;
+  color: var(--p-text-muted);
+  font-size: 13px;
+}
+
+@media (max-width: 680px) {
+  .portal-accounts-split { grid-template-columns: 1fr; }
+}
+
 /* ─── Responsive ─────────────────────────────────────────────────────────── */
 @media (max-width: 520px) {
   .portal-container { padding: 24px 14px 56px; }

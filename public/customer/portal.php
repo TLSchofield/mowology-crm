@@ -29,7 +29,9 @@ if (isset($_GET['contact_id'])) {
     if (!$contactId) {
         $error = 'Invalid contact.';
     } else {
-        $stmt = $db->prepare("SELECT id, first_name, last_name, email, phone, portal_token FROM contacts WHERE id = ? LIMIT 1");
+        $stmt = $db->prepare("SELECT id, first_name, last_name, email, phone, portal_token,
+                                     stripe_card_brand, stripe_card_last4, stripe_card_exp, autopay_enabled
+                              FROM contacts WHERE id = ? LIMIT 1");
         $stmt->execute([$contactId]);
         $contact = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$contact) $error = 'Contact not found.';
@@ -38,7 +40,9 @@ if (isset($_GET['contact_id'])) {
 // ── Mode 2: Client access via portal token ───────────────────────────────────
 } elseif (isset($_GET['token']) && $_GET['token'] !== '') {
     $token = trim($_GET['token']);
-    $stmt = $db->prepare("SELECT id, first_name, last_name, email, phone, portal_token FROM contacts WHERE portal_token = ? LIMIT 1");
+    $stmt = $db->prepare("SELECT id, first_name, last_name, email, phone, portal_token,
+                                 stripe_card_brand, stripe_card_last4, stripe_card_exp, autopay_enabled
+                          FROM contacts WHERE portal_token = ? LIMIT 1");
     $stmt->execute([$token]);
     $contact = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$contact) $error = 'This portal link is invalid or has expired.';
@@ -78,7 +82,8 @@ if ($contact && !$error) {
     // Invoices: via invoice_contacts junction table
     $stmt = $db->prepare("
         SELECT i.id, i.invoice_number, i.status, i.total AS total_amount,
-               i.amount_paid, i.balance_due, i.access_token, i.created_at, i.due_date
+               i.amount_paid, i.balance_due, i.access_token, i.created_at, i.due_date,
+               i.company_id
         FROM invoices i
         JOIN invoice_contacts ic ON ic.invoice_id = i.id
         WHERE ic.contact_id = ?
@@ -111,6 +116,58 @@ if ($contact && !$error) {
         }
     } catch (Exception $e) {
         $paymentHistory = [];
+    }
+
+    // ── Company link detection (dual-account split view) ─────────────────────
+    $linkedCompany      = null;
+    $personalInvoices   = $invoices;
+    $businessInvoices   = [];
+    $bizBalance         = 0.0;
+    $bizTotalCharged    = 0.0;
+    $bizTotalPaid       = 0.0;
+
+    try {
+        $coStmt = $db->prepare("
+            SELECT id, company_name,
+                   stripe_card_brand, stripe_card_last4, stripe_card_exp, autopay_enabled
+            FROM companies
+            WHERE (primary_contact_id = ? OR billing_contact_id = ?)
+            LIMIT 1
+        ");
+        $coStmt->execute([$contactId, $contactId]);
+        $linkedCompany = $coStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    } catch (Exception $e) { $linkedCompany = null; }
+
+    if ($linkedCompany) {
+        $coId = $linkedCompany['id'];
+
+        // Split already-loaded invoices: personal = no company link to this company
+        $personalInvoices = array_filter($invoices, fn($i) => empty($i['company_id']) || (int)$i['company_id'] !== $coId);
+        $personalInvoices = array_values($personalInvoices);
+
+        // Business invoices: direct company_id match
+        try {
+            $bizStmt = $db->prepare("
+                SELECT i.id, i.invoice_number, i.status, i.total AS total_amount,
+                       i.amount_paid, i.balance_due, i.access_token, i.created_at, i.due_date
+                FROM invoices i
+                WHERE i.company_id = ?
+                  AND i.access_token IS NOT NULL AND i.access_token != ''
+                  AND i.status NOT IN ('draft', 'cancelled')
+                ORDER BY i.created_at DESC
+                LIMIT 30
+            ");
+            $bizStmt->execute([$coId]);
+            $businessInvoices = $bizStmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Exception $e) { $businessInvoices = []; }
+
+        foreach ($businessInvoices as $inv) {
+            $bizTotalCharged += floatval($inv['total_amount'] ?? 0);
+            $bizTotalPaid    += floatval($inv['amount_paid'] ?? 0);
+            if (in_array($inv['status'], ['sent', 'viewed', 'partial', 'overdue'])) {
+                $bizBalance += floatval($inv['balance_due'] ?? 0);
+            }
+        }
     }
 
     // Billing summary totals
@@ -362,6 +419,106 @@ function statusBadge(string $status, bool $overdue = false): string {
 
     <?php else: ?>
 
+      <?php if ($linkedCompany): ?>
+        <!-- ── Dual-account split view ──────────────────────────────────── -->
+        <div class="portal-accounts-split">
+
+          <?php
+          // Shared macro: render an invoice list inside a panel
+          function renderPortalInvoicePanel(array $invs, string $baseUrl): void {
+              $unpaidStatuses = ['sent', 'viewed', 'partial', 'overdue'];
+              $unpaid = array_filter($invs, fn($i) => in_array($i['status'], $unpaidStatuses, true));
+              $paid   = array_filter($invs, fn($i) => !in_array($i['status'], $unpaidStatuses, true));
+              $icon   = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>';
+              if (empty($invs)) { echo '<p class="portal-panel-empty">No invoices yet.</p>'; return; }
+              if (!empty($unpaid)):
+          ?>
+                <p class="portal-panel-section-label outstanding">Outstanding (<?= count($unpaid) ?>)</p>
+                <ul class="portal-doc-list portal-doc-list--compact">
+                  <?php foreach ($unpaid as $inv):
+                      $url = $baseUrl . '/customer/invoice.php?token=' . urlencode($inv['access_token']);
+                      $bal = floatval($inv['balance_due'] ?? $inv['total_amount'] ?? 0);
+                      $pastDue = $inv['status'] === 'overdue' || (in_array($inv['status'], ['sent','partial','viewed']) && !empty($inv['due_date']) && strtotime($inv['due_date']) < time());
+                  ?>
+                    <li class="portal-doc-card portal-doc-card--outstanding">
+                      <div class="portal-doc-icon"><?= $icon ?></div>
+                      <div class="portal-doc-info">
+                        <div class="portal-doc-number"><?= htmlspecialchars($inv['invoice_number']) ?></div>
+                        <div class="portal-doc-meta">
+                          <?= statusBadge($inv['status'], $pastDue) ?>
+                          <?php if ($bal > 0): ?><span class="portal-doc-amount">$<?= number_format($bal, 2) ?> due</span><?php endif; ?>
+                        </div>
+                      </div>
+                      <div class="portal-doc-actions"><a href="<?= htmlspecialchars($url) ?>" class="portal-btn">Pay Now</a></div>
+                    </li>
+                  <?php endforeach; ?>
+                </ul>
+          <?php endif; if (!empty($paid)): ?>
+                <p class="portal-panel-section-label" style="<?= !empty($unpaid) ? 'margin-top:12px;' : '' ?>">Paid</p>
+                <ul class="portal-doc-list portal-doc-list--compact">
+                  <?php foreach ($paid as $inv):
+                      $url = $baseUrl . '/customer/invoice.php?token=' . urlencode($inv['access_token']);
+                  ?>
+                    <li class="portal-doc-card">
+                      <div class="portal-doc-icon"><?= $icon ?></div>
+                      <div class="portal-doc-info">
+                        <div class="portal-doc-number"><?= htmlspecialchars($inv['invoice_number']) ?></div>
+                        <div class="portal-doc-meta">
+                          <?= statusBadge($inv['status']) ?>
+                          <?php if ($inv['total_amount'] > 0): ?><span class="portal-doc-amount">$<?= number_format($inv['total_amount'], 2) ?></span><?php endif; ?>
+                        </div>
+                      </div>
+                      <div class="portal-doc-actions"><a href="<?= htmlspecialchars($url) ?>" class="portal-btn-outline">View</a></div>
+                    </li>
+                  <?php endforeach; ?>
+                </ul>
+          <?php endif; }
+          ?>
+
+          <!-- Personal panel -->
+          <div class="portal-account-panel">
+            <div class="portal-account-header">
+              <span class="portal-account-badge personal">Personal</span>
+              <div class="portal-account-name"><?= $contactName ?></div>
+              <?php if (!empty($contact['stripe_card_last4'])): ?>
+                <div class="portal-account-card">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+                  <?= htmlspecialchars(ucfirst($contact['stripe_card_brand'] ?? 'Card')) ?> ···· <?= htmlspecialchars($contact['stripe_card_last4']) ?>
+                  <?php if (!empty($contact['autopay_enabled'])): ?><span class="portal-autopay-tag">Autopay</span><?php endif; ?>
+                </div>
+              <?php endif; ?>
+              <div class="portal-account-balance <?= $billingOutstanding > 0 ? 'owing' : 'clear' ?>">
+                $<?= number_format($billingOutstanding, 2) ?>
+                <span><?= $billingOutstanding > 0 ? 'outstanding' : 'all clear' ?></span>
+              </div>
+            </div>
+            <?php renderPortalInvoicePanel($personalInvoices, $baseUrl); ?>
+          </div>
+
+          <!-- Business panel -->
+          <div class="portal-account-panel">
+            <div class="portal-account-header">
+              <span class="portal-account-badge business">Business</span>
+              <div class="portal-account-name"><?= htmlspecialchars($linkedCompany['company_name']) ?></div>
+              <?php if (!empty($linkedCompany['stripe_card_last4'])): ?>
+                <div class="portal-account-card">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+                  <?= htmlspecialchars(ucfirst($linkedCompany['stripe_card_brand'] ?? 'Card')) ?> ···· <?= htmlspecialchars($linkedCompany['stripe_card_last4']) ?>
+                  <?php if (!empty($linkedCompany['autopay_enabled'])): ?><span class="portal-autopay-tag">Autopay</span><?php endif; ?>
+                </div>
+              <?php endif; ?>
+              <div class="portal-account-balance <?= $bizBalance > 0 ? 'owing' : 'clear' ?>">
+                $<?= number_format($bizBalance, 2) ?>
+                <span><?= $bizBalance > 0 ? 'outstanding' : 'all clear' ?></span>
+              </div>
+            </div>
+            <?php renderPortalInvoicePanel($businessInvoices, $baseUrl); ?>
+          </div>
+
+        </div><!-- .portal-accounts-split -->
+
+      <?php else: ?>
+        <!-- ── Standard single-account view ─────────────────────────────── -->
       <?php if ($billingOutstanding > 0 || $billingTotalPaid > 0): ?>
         <div class="portal-billing-summary">
           <div class="portal-billing-stat">
@@ -493,6 +650,7 @@ function statusBadge(string $status, bool $overdue = false): string {
         <?php endif; ?>
 
       <?php endif; ?>
+      <?php endif; // end else (standard single-account view) ?>
 
       <?php if (!empty($upcomingVisits)): ?>
         <p class="portal-section-label">Upcoming Visits</p>
