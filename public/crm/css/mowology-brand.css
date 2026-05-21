@@ -2159,7 +2159,26 @@ tr[data-href] { cursor: pointer; }
 .mw-detail-row:last-child { border-bottom: none; }
 .mw-detail-label { color: #6c757d; display: inline-flex; align-items: center; gap: 6px; }
 .mw-detail-value { font-weight: 500; text-align: right; }
-.mw-detail-icon { width: 13px; height: 13px; flex-shrink: 0; opacity: 0.55; }
+.mw-detail-icon {
+  width: 13px; height: 13px; flex-shrink: 0;
+  padding: 4px; border-radius: 5px; box-sizing: content-box;
+  background: #f1f5f9; color: #94a3b8;
+  transition: background 0.15s, color 0.15s;
+}
+/* Green when the row value contains a link */
+.mw-detail-row:has(.mw-detail-value a) .mw-detail-icon,
+dt:has(+ dd a) .mw-detail-icon,
+tr:has(td a) .mw-detail-icon {
+  background: rgba(45, 134, 89, 0.10);
+  color: var(--mw-green);
+}
+/* Dark green on hover */
+.mw-detail-row:has(.mw-detail-value a):hover .mw-detail-icon,
+dt:has(+ dd a):hover .mw-detail-icon,
+tr:has(td a):hover .mw-detail-icon {
+  background: rgba(45, 134, 89, 0.18);
+  color: var(--mw-dark);
+}
 
 .mw-page-header {
   display: flex;
