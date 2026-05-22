@@ -230,6 +230,32 @@ $csrf_token = generateCSRFToken();
             75% { transform: translateX(10px); }
         }
         
+        /* Password field with show/hide toggle */
+        .password-wrapper {
+            position: relative;
+            display: flex;
+            align-items: stretch;
+        }
+        .password-wrapper .form-input {
+            flex: 1;
+            border-radius: 12px 0 0 12px;
+            border-right: none;
+        }
+        .pw-toggle {
+            background: var(--mist-gray);
+            border: 2px solid transparent;
+            border-left: none;
+            border-radius: 0 12px 12px 0;
+            padding: 0 14px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--grass-green);
+            cursor: pointer;
+            transition: background 0.2s;
+            white-space: nowrap;
+        }
+        .pw-toggle:hover { background: #d5ede6; }
+
         .login-button {
             width: 100%;
             padding: 16px;
@@ -412,15 +438,21 @@ $csrf_token = generateCSRFToken();
             
             <div class="form-group">
                 <label class="form-label" for="password">Password</label>
-                <input 
-                    type="password" 
-                    id="password" 
-                    name="password" 
-                    class="form-input" 
-                    required 
-                    autocomplete="current-password"
-                    placeholder="Enter your password"
-                >
+                <div class="password-wrapper">
+                    <input
+                        type="password"
+                        id="password"
+                        name="password"
+                        class="form-input"
+                        required
+                        autocomplete="current-password"
+                        autocorrect="off"
+                        autocapitalize="none"
+                        spellcheck="false"
+                        placeholder="Enter your password"
+                    >
+                    <button type="button" id="toggle-password" class="pw-toggle" aria-label="Show password" tabindex="-1">Show</button>
+                </div>
             </div>
             
             <button type="submit" class="login-button">Sign In</button>
@@ -547,6 +579,51 @@ $csrf_token = generateCSRFToken();
         checkVersion(installedVersion);
     } else if (isAndroid) {
         checkVersion(null);
+    }
+})();
+
+// ── Password show/hide toggle ───────────────────────────────────────────────
+(function () {
+    'use strict';
+    var pwField  = document.getElementById('password');
+    var toggleBtn = document.getElementById('toggle-password');
+
+    if (toggleBtn && pwField) {
+        toggleBtn.addEventListener('click', function () {
+            var showing = pwField.type === 'text';
+            pwField.type = showing ? 'password' : 'text';
+            toggleBtn.textContent = showing ? 'Show' : 'Hide';
+            pwField.focus();
+        });
+    }
+
+    // ── Capacitor autofill defence ──────────────────────────────────────────
+    // Samsung Pass / Android WebView autofill silently fills the password field
+    // with a stored (possibly wrong) value. Clear it after 600 ms so the user
+    // always types their password intentionally. This only fires in the native
+    // Capacitor app — desktop browser autofill is left alone.
+    var isNative = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+    if (isNative && pwField) {
+        setTimeout(function () {
+            pwField.value = '';
+            pwField.placeholder = 'Type your password';
+        }, 600);
+    }
+
+    // ── Guard against phantom short-password submits ────────────────────────
+    // Android autofill can trigger form submission before the password field
+    // is fully populated, sending pwLen=1 attempts. Block any submit where
+    // the password is fewer than 4 characters.
+    var form = document.querySelector('form');
+    if (form && pwField) {
+        form.addEventListener('submit', function (e) {
+            if (pwField.value.length < 4) {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                pwField.value = '';
+                pwField.focus();
+            }
+        }, true); // capture phase so it fires before anything else
     }
 })();
 </script>
