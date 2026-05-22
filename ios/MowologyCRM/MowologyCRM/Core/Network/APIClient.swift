@@ -230,7 +230,8 @@ final class APIClient: ObservableObject {
         }
 
         var body = Data()
-        body.appendField(name: "job_photo", filename: "photo.jpg",
+        // Server expects $_FILES['photo'] — field name must be "photo".
+        body.appendField(name: "photo", filename: "photo.jpg",
                          mimeType: "image/jpeg", data: imageData, boundary: boundary)
         body.appendField(name: "visit_id",   value: "\(visitId)",         boundary: boundary)
         body.appendField(name: "photo_type", value: photoType.rawValue,   boundary: boundary)
@@ -240,7 +241,11 @@ final class APIClient: ObservableObject {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await performDataTask(request, retryOnTransientError: false)
+            // retryOnTransientError: true — cPanel keep-alive socket recycling causes
+            // spurious -1005 (NSURLErrorNetworkConnectionLost) on the first attempt;
+            // retrying succeeds without re-uploading duplicate data because the
+            // server's MediaUploadService deduplicates by SHA-256 hash.
+            (data, response) = try await performDataTask(request, retryOnTransientError: true)
         } catch {
             let err = APIError.networkError(error)
             #if DEBUG
