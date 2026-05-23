@@ -93,6 +93,17 @@ final class ReceiptsViewModel: ObservableObject {
         visionPreFill = await VisionOCRService.scan(image)
     }
 
+    // MARK: - Offline Queue Monitor
+
+    /// Wires up NWPathMonitor so queued receipts drain automatically on reconnect.
+    /// Safe to call multiple times — the monitor ignores duplicate starts.
+    func startReceiptQueueMonitor() {
+        ReceiptQueue.shared.startMonitoring { [weak self] data, lat, lng, jobId in
+            guard let self else { throw APIError.invalidURL }
+            return try await self.apiClient.uploadReceipt(imageData: data, lat: lat, lng: lng, jobId: jobId)
+        }
+    }
+
     // MARK: - Upload
 
     /// Uploads the compressed image in the background.

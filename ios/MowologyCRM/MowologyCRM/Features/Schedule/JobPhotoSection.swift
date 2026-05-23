@@ -54,6 +54,10 @@ final class JobPhotoViewModel: ObservableObject {
     @Published var serverBeforeURL: URL?     = nil
     @Published var serverAfterURL:  URL?     = nil
 
+    /// True when a photo is queued offline but not yet synced to the server.
+    @Published var beforePendingSync: Bool = false
+    @Published var afterPendingSync:  Bool = false
+
     /// Active camera slot — drives the fullScreenCover in JobPhotoSection.
     @Published var captureSlot: JobPhotoType? = nil
 
@@ -61,12 +65,40 @@ final class JobPhotoViewModel: ObservableObject {
 
     private let visitId:   Int
     private let apiClient: APIClient
+    private var connectivityObserver: NSObjectProtocol?
 
     // MARK: - Init
 
     init(visitId: Int, authSession: AuthSession) {
         self.visitId   = visitId
         self.apiClient = APIClient(authSession: authSession)
+        refreshPendingState()
+
+        // Drain queued photos automatically when connectivity returns.
+        connectivityObserver = NotificationCenter.default.addObserver(
+            forName: .mwPingQueueOnline,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await JobPhotoQueue.shared.drain(using: self.apiClient)
+                self.refreshPendingState()
+            }
+        }
+    }
+
+    deinit {
+        if let obs = connectivityObserver {
+            NotificationCenter.default.removeObserver(obs)
+        }
+    }
+
+    // MARK: - Helpers
+
+    private func refreshPendingState() {
+        beforePendingSync = JobPhotoQueue.shared.hasQueued(visitId: visitId, photoType: .before)
+        afterPendingSync  = JobPhotoQueue.shared.hasQueued(visitId: visitId, photoType: .after)
     }
 
     // MARK: - Computed
@@ -136,12 +168,24 @@ final class JobPhotoViewModel: ObservableObject {
             try await apiClient.uploadJobPhoto(imageData: data,
                                                visitId:   visitId,
                                                photoType: slot)
+            // Success — clear any queued marker for this slot.
+            switch slot {
+            case .before: beforePendingSync = false
+            case .after:  afterPendingSync  = false
+            }
+        } catch let err as APIError {
+            if case .networkError = err {
+                // Offline — queue to disk and show a soft indicator instead of an error.
+                JobPhotoQueue.shared.enqueue(imageData: data, visitId: visitId, photoType: slot)
+                switch slot {
+                case .before: beforePendingSync = true
+                case .after:  afterPendingSync  = true
+                }
+            } else {
+                errorMessage = "Upload failed — retake the photo to try again."
+            }
         } catch {
-            // Network failure — persist to disk queue, drain when online
-            JobPhotoQueue.shared.enqueue(imageData: data,
-                                         visitId:   visitId,
-                                         photoType: slot)
-            errorMessage = "Saved offline — will sync when connection restores."
+            errorMessage = "Upload failed — retake the photo to try again."
         }
 
         isUploading = false
@@ -198,7 +242,22 @@ struct JobPhotoSection: View {
                 }
             }
 
-            // Error banner
+            // Queued / pending sync banner (no signal at capture time)
+            if vm.beforePendingSync || vm.afterPendingSync {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.caption)
+                        .foregroundStyle(Color.MW.green)
+                    Text("Photo saved — will upload when signal returns")
+                        .font(.caption)
+                        .foregroundStyle(Color.MW.green)
+                }
+                .padding(8)
+                .background(Color.MW.green.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+
+            // Error banner (server errors, not network-offline)
             if let err = vm.errorMessage {
                 HStack(alignment: .top, spacing: 6) {
                     Image(systemName: "exclamationmark.triangle.fill")
