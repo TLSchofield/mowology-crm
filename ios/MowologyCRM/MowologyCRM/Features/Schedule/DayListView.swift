@@ -14,6 +14,7 @@ struct DayListView: View {
     let errorMessage: String?
     let isAdmin: Bool
     let onRefresh: () async -> Void
+    var scrollTargetId: Int? = nil
 
     var body: some View {
         Group {
@@ -32,30 +33,41 @@ struct DayListView: View {
     // MARK: - Stop List
 
     private var stopList: some View {
-        List {
-            // Inline error banner above the list when we have stale data + an error.
-            if let message = errorMessage {
-                Section {
-                    errorBanner(message: message)
-                        .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+        ScrollViewReader { proxy in
+            List {
+                // Inline error banner above the list when we have stale data + an error.
+                if let message = errorMessage {
+                    Section {
+                        errorBanner(message: message)
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                    }
+                }
+
+                ForEach(stops) { stop in
+                    NavigationLink(value: stop) {
+                        StopCardView(stop: stop, isAdmin: isAdmin)
+                            .padding(.vertical, 4)
+                    }
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                 }
             }
-
-            ForEach(stops) { stop in
-                NavigationLink(value: stop) {
-                    StopCardView(stop: stop, isAdmin: isAdmin)
-                        .padding(.vertical, 4)
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(Color(.systemGroupedBackground))
+            .refreshable { await onRefresh() }
+            .onChange(of: scrollTargetId) { _, newId in
+                guard let id = newId else { return }
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(350))
+                    withAnimation(.easeInOut(duration: 0.45)) {
+                        proxy.scrollTo(id, anchor: .top)
+                    }
                 }
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
             }
         }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .background(Color(.systemGroupedBackground))
-        .refreshable { await onRefresh() }
     }
 
     // MARK: - Loading Skeleton

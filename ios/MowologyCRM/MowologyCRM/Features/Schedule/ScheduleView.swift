@@ -39,11 +39,12 @@ struct ScheduleView: View {
 
                 // MARK: Day List
                 DayListView(
-                    stops:        viewModel.stops,
-                    isLoading:    viewModel.isLoading,
-                    errorMessage: viewModel.errorMessage,
-                    isAdmin:      authSession.user?.isAdmin ?? false,
-                    onRefresh:    { await viewModel.refresh() }
+                    stops:          viewModel.stops,
+                    isLoading:      viewModel.isLoading,
+                    errorMessage:   viewModel.errorMessage,
+                    isAdmin:        authSession.user?.isAdmin ?? false,
+                    onRefresh:      { await viewModel.refresh() },
+                    scrollTargetId: viewModel.scrollTargetStopId
                 )
                 .navigationDestination(for: Stop.self) { stop in
                     VisitDetailView(

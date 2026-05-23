@@ -50,6 +50,10 @@ final class ScheduleViewModel: ObservableObject {
     @Published var lastFetched: Date?
     @Published var quizRequired: Bool = false
 
+    // MARK: - Nearest-stop scroll
+    @Published private(set) var scrollTargetStopId: Int? = nil
+    private var scrolledDates: Set<String> = []
+
     // MARK: - Private
 
     private let apiClient: APIClient
@@ -72,6 +76,33 @@ final class ScheduleViewModel: ObservableObject {
         guard !quizRequired else { return }
         await loadWeek(for: selectedDate)
         await loadDay(selectedDate)
+        await triggerNearestScrollIfNeeded()
+    }
+
+    /// Finds the stop closest to `location` and publishes its id as the scroll target.
+    func computeNearestStop(to location: CLLocation) {
+        let nearest = stops
+            .compactMap { stop -> (Int, CLLocationDistance)? in
+                guard let lat = stop.latitude, let lng = stop.longitude else { return nil }
+                let dist = CLLocation(latitude: lat, longitude: lng).distance(from: location)
+                return (stop.stopId, dist)
+            }
+            .min(by: { $0.1 < $1.1 })
+        scrollTargetStopId = nearest?.0
+    }
+
+    /// One-shot: resolves current location then scrolls. No-ops if this date was already scrolled.
+    func triggerNearestScrollIfNeeded() async {
+        let dateKey = String(selectedDate.ISO8601Format().prefix(10))
+        guard !scrolledDates.contains(dateKey), !stops.isEmpty else { return }
+        scrolledDates.insert(dateKey)
+
+        let lm = GPSTrackingService.shared.locationManager
+        if let loc = lm.lastLocation {
+            computeNearestStop(to: loc)
+        } else if let loc = try? await lm.currentLocation() {
+            computeNearestStop(to: loc)
+        }
     }
 
     /// Called by QuizView's onPass callback — dismisses the gate and loads schedule.
