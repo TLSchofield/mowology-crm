@@ -23,6 +23,10 @@ enum APIEndpoint {
     /// GET /api/schedule/week?start=YYYY-MM-DD — weekly summary strip.
     case scheduleWeek(start: String)
 
+    /// GET /api/schedule/freshness?start=YYYY-MM-DD&days=N — per-day checksums
+    /// used by the prefetch handshake to skip unchanged days.
+    case scheduleFreshness(start: String, days: Int)
+
     /// POST /api/schedule/timer — start or stop a job timer.
     case scheduleTimer
 
@@ -95,6 +99,14 @@ enum APIEndpoint {
         case .scheduleWeek(let start):
             var components = URLComponents(string: "\(baseURLString)/schedule/week")
             components?.queryItems = [URLQueryItem(name: "start", value: start)]
+            return components?.url
+
+        case .scheduleFreshness(let start, let days):
+            var components = URLComponents(string: "\(baseURLString)/schedule/freshness")
+            components?.queryItems = [
+                URLQueryItem(name: "start", value: start),
+                URLQueryItem(name: "days",  value: "\(days)"),
+            ]
             return components?.url
 
         case .scheduleTimer:
@@ -182,6 +194,7 @@ enum APIEndpoint {
         case .tokenAuth: return false
         case .scheduleDay,
              .scheduleWeek,
+             .scheduleFreshness,
              .scheduleTimer,
              .scheduleLocation,
              .scheduleCrewTrails,
@@ -211,6 +224,7 @@ enum APIEndpoint {
         case .tokenAuth:    return "POST"
         case .scheduleDay,
              .scheduleWeek,
+             .scheduleFreshness,
              .scheduleCrewTrails,
              .scheduleClockStatus: return "GET"
 

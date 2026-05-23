@@ -33,6 +33,23 @@ private struct WeekResponse: Decodable {
     let days: [ScheduleDay]
 }
 
+struct FreshnessDay: Decodable {
+    let date: String
+    let stopCount: Int
+    let checksum: String
+
+    enum CodingKeys: String, CodingKey {
+        case date
+        case stopCount = "stop_count"
+        case checksum
+    }
+}
+
+struct FreshnessResponse: Decodable {
+    let success: Bool
+    let days: [FreshnessDay]
+}
+
 // MARK: - ScheduleViewModel
 
 @MainActor
@@ -242,6 +259,7 @@ final class ScheduleViewModel: ObservableObject {
             isOffline   = false
             stops       = fetched
             lastFetched = .now
+            prefetchUpcoming()
         } catch let err as APIError {
             guard !Task.isCancelled else { return }
             if case .networkError = err {
@@ -299,5 +317,65 @@ final class ScheduleViewModel: ObservableObject {
 
     private func isSameDay(_ a: Date, _ b: Date) -> Bool {
         calendar.isDate(a, inSameDayAs: b)
+    }
+
+    // MARK: - Background Prefetch
+
+    private static let prefetchDays = 7
+
+    /// Fires after a successful refresh. Checks freshness for the next 7 days,
+    /// then silently fetches only stale or uncached days.
+    func prefetchUpcoming() {
+        Task.detached(priority: .background) { [weak self] in
+            await self?.runPrefetch()
+        }
+    }
+
+    @MainActor
+    private func runPrefetch() async {
+        // Rate-limit: skip if we already prefetched for today within the last 30 min.
+        let prefetchKey = "mw_prefetch_\(isoDateString(from: Date()))"
+        let lastRun = UserDefaults.standard.double(forKey: prefetchKey)
+        let elapsed = Date().timeIntervalSince1970 - lastRun
+        guard elapsed > 1800 else { return }  // 30 minutes
+
+        guard !isOffline else { return }
+
+        let startDate   = calendar.startOfDay(for: Date())
+        let startString = isoDateString(from: startDate)
+
+        // Step 1: freshness check
+        guard let freshnessResponse: FreshnessResponse = try? await apiClient.request(
+            .scheduleFreshness(start: startString, days: Self.prefetchDays)
+        ) else { return }
+
+        // Step 2: fetch only stale/uncached days
+        for day in freshnessResponse.days {
+            let cached = stopCache[day.date]
+            let cachedChecksum = ScheduleCache.shared.checksum(forDate: day.date)
+
+            // Skip if in-memory cache exists AND checksums match.
+            if cached != nil, cachedChecksum == day.checksum { continue }
+
+            // Skip if disk cache has matching checksum — hydrate in-memory cache.
+            if cached == nil, cachedChecksum == day.checksum,
+               let disk = ScheduleCache.shared.load(forDate: day.date) {
+                cacheStops(disk, forDate: day.date)
+                continue
+            }
+
+            // Fetch fresh data.
+            if let dayResponse: DayResponse = try? await apiClient.request(
+                .scheduleDay(date: day.date)
+            ) {
+                cacheStops(dayResponse.stops, forDate: day.date)
+                ScheduleCache.shared.save(dayResponse.stops, forDate: day.date, checksum: day.checksum)
+            }
+
+            // Small delay between fetches — be a polite background task.
+            try? await Task.sleep(for: .milliseconds(300))
+        }
+
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: prefetchKey)
     }
 }

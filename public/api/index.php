@@ -151,6 +151,7 @@ $actionAliases = [
     'schedule' => [
         'day'                => 'day',
         'week'               => 'week',
+        'freshness'          => 'freshness', // Mobile prefetch — per-day checksum (JWT)
         'clock'              => 'clock',       // Mobile time-clock (JWT) — GET status / POST clock_in|clock_out
         'jobs'               => 'jobs',        // Mobile jobs history (JWT) — GET paginated visit list
         'quotes'             => 'quotes',      // Mobile quotes (JWT, admin only)
