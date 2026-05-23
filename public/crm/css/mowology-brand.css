@@ -5188,6 +5188,16 @@ a.mw-clock-timer-nav:hover {
 }
 .mw-dv-invoice-link:hover { text-decoration:underline; }
 
+/* Create Invoice fallback link — shown on completed stops with no invoice */
+.mw-dv-create-invoice-link {
+  font-size:0.72rem;
+  color:var(--mw-orange);
+  text-decoration:none;
+  font-weight:600;
+  white-space:nowrap;
+}
+.mw-dv-create-invoice-link:hover { text-decoration:underline; color:var(--mw-orange); }
+
 .mw-dv-btn-reopen {
   margin-left:auto;
   background:none;
@@ -7636,6 +7646,23 @@ a.mw-clock-timer-nav:hover {
   display:flex;
   gap:12px;
   margin-top:20px;
+}
+
+.mw-radio-group {
+  display:flex;
+  gap:16px;
+  flex-wrap:wrap;
+  margin-top:4px;
+}
+
+.mw-radio-option {
+  display:flex;
+  align-items:center;
+  gap:6px;
+  font-weight:400;
+  cursor:pointer;
+  font-size:.9rem;
+  margin-bottom:0;
 }
 .mw-job-card-sched {
   background:#fff;
@@ -17835,7 +17862,7 @@ a.mw-clock-timer-nav:hover {
 }
 .mw-photo-grid {
   display:grid;
-  grid-template-columns:repeat(auto-fill,minmax(88px,1fr));
+  grid-template-columns:repeat(auto-fill,minmax(88px,108px));
   gap:8px;
 }
 .mw-ba-row {
@@ -18191,7 +18218,7 @@ a.mw-clock-timer-nav:hover {
 .mw-photo-type-dot--additional { background:var(--mw-orange); }
 .mw-photo-grid {
   display:grid;
-  grid-template-columns:repeat(auto-fill,minmax(88px,1fr));
+  grid-template-columns:repeat(auto-fill,minmax(88px,108px));
   gap:6px;
 }
 .mw-photo-tile {
@@ -27674,7 +27701,9 @@ a.mw-clock-timer-nav:hover {
 }
 .mw-visit-trio-slot {
     flex: 1;
+    height: 140px;
     min-height: 80px;
+    max-height: 140px;
     border-radius: 10px;
     border: 2px dashed var(--mw-light);
     overflow: hidden;
@@ -27794,6 +27823,9 @@ a.mw-clock-timer-nav:hover {
     margin-bottom: 0;
 }
 .mw-ba-col { }
+.mw-ba-col .mw-photo-grid {
+    grid-template-columns: repeat(auto-fill, minmax(80px, 100px));
+}
 
 .mw-ba-header {
     font-size: 11px;
@@ -33744,3 +33776,71 @@ a.mw-clock-timer-nav:hover {
   color: #7a4f00;
   font-weight: 700;
 }
+
+/* ─── Inline Risk Analysis (job view) ───────────────────────────────────────── */
+.mw-irt-grid {
+  display: grid;
+  grid-template-columns: 270px 1fr;
+}
+@media (max-width: 768px) {
+  .mw-irt-grid { grid-template-columns: 1fr; }
+}
+.mw-irt-chart {
+  background: linear-gradient(135deg, #f0f7f4 0%, #f8fbf9 100%);
+  border-radius: 0 0 0 4px;
+  border-right: 1px solid #e5eeea;
+  padding: 12px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.mw-irt-table-wrap {
+  padding: 12px 16px;
+  overflow-x: auto;
+}
+.mw-irt-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .8rem;
+}
+.mw-irt-table thead th {
+  padding: 4px 8px 8px;
+  font-size: .7rem;
+  font-weight: 600;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  border-bottom: 1px solid #e5e7eb;
+}
+.mw-irt-table tbody tr:not(:last-child) td { border-bottom: 1px solid #f1f5f9; }
+.mw-irt-factor { padding: 6px 8px; font-weight: 600; color: #334155; }
+.mw-irt-value  { padding: 6px 8px; color: #64748b; }
+.mw-irt-sev    { padding: 6px 8px; font-weight: 700; }
+.mw-irt-recs   { padding: 14px 16px; border-top: 1px solid #e5e7eb; }
+.mw-irt-recs-title {
+  font-size: .7rem;
+  font-weight: 700;
+  color: #334155;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  margin-bottom: 10px;
+}
+.mw-irt-rec {
+  font-size: .8rem;
+  color: #475569;
+  padding: 4px 0 4px 16px;
+  position: relative;
+  line-height: 1.5;
+}
+.mw-irt-rec + .mw-irt-rec { margin-top: 4px; }
+.mw-irt-rec::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 10px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #f59e0b;
+}
+.mw-irt-rec-key { font-weight: 700; color: #334155; }

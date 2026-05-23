@@ -51,6 +51,68 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         }
     }
 
+    // Delete plan — admin / jobs.edit only; no completed visits; no invoices
+    if ($action === 'delete_plan') {
+        requirePermission('jobs.edit');
+
+        // Guard: no completed visits
+        $cvCount = (int)$db->prepare("SELECT COUNT(*) FROM job_visits WHERE plan_id = ? AND status = 'completed'")
+                            ->execute([$planId]) ? $db->query("SELECT COUNT(*) FROM job_visits WHERE plan_id = " . (int)$planId . " AND status = 'completed'")->fetchColumn() : 0;
+        // Use prepared statement properly
+        $cvStmt = $db->prepare("SELECT COUNT(*) FROM job_visits WHERE plan_id = ? AND status = 'completed'");
+        $cvStmt->execute([$planId]);
+        $cvCount = (int)$cvStmt->fetchColumn();
+
+        if ($cvCount > 0) {
+            $message = 'Cannot delete a plan that has completed visits.';
+            $messageType = 'error';
+        } else {
+            // Guard: no invoices
+            $invStmt = $db->prepare("SELECT COUNT(*) FROM invoices WHERE plan_id = ?");
+            $invStmt->execute([$planId]);
+            if ((int)$invStmt->fetchColumn() > 0) {
+                $message = 'Cannot delete a plan that has been invoiced.';
+                $messageType = 'error';
+            } else {
+                try {
+                    // Find stops that belong ONLY to this plan (safe to delete)
+                    $orphanStmt = $db->prepare("
+                        SELECT DISTINCT jv.stop_id
+                        FROM job_visits jv
+                        WHERE jv.plan_id = ?
+                          AND jv.stop_id IS NOT NULL
+                          AND NOT EXISTS (
+                              SELECT 1 FROM job_visits jv2
+                              WHERE jv2.stop_id = jv.stop_id
+                                AND jv2.plan_id != ?
+                          )
+                    ");
+                    $orphanStmt->execute([$planId, $planId]);
+                    $orphanStopIds = array_column($orphanStmt->fetchAll(PDO::FETCH_ASSOC), 'stop_id');
+
+                    if (!empty($orphanStopIds)) {
+                        $ph = implode(',', array_fill(0, count($orphanStopIds), '?'));
+                        // Delete crew assignments first (FK)
+                        $db->prepare("DELETE FROM calendar_stop_crew WHERE stop_id IN ({$ph})")
+                           ->execute($orphanStopIds);
+                        // Delete the stops themselves
+                        $db->prepare("DELETE FROM calendar_stops WHERE id IN ({$ph})")
+                           ->execute($orphanStopIds);
+                    }
+
+                    // Delete the plan — CASCADE handles job_visits + plan_line_items
+                    $db->prepare("DELETE FROM job_plans WHERE id = ?")->execute([$planId]);
+
+                    header('Location: index.php?plan_deleted=1');
+                    exit;
+                } catch (PDOException $e) {
+                    $message = 'Could not delete plan: ' . htmlspecialchars($e->getMessage());
+                    $messageType = 'error';
+                }
+            }
+        }
+    }
+
     // Start visit
     if ($action === 'start_visit') {
         $visitId = intval($_POST['visit_id'] ?? 0);
@@ -415,19 +477,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         $newDate = $_POST['visit_date'] ?? '';
         $newTimeStart = !empty($_POST['visit_time_start']) ? $_POST['visit_time_start'] : null;
         $newTimeEnd = !empty($_POST['visit_time_end']) ? $_POST['visit_time_end'] : null;
+        $updateScope = $_POST['update_scope'] ?? 'this_only';
         $newCrewIds = !empty($_POST['visit_crew_ids']) && is_array($_POST['visit_crew_ids'])
             ? array_values(array_filter(array_map('intval', $_POST['visit_crew_ids']), function($id) { return $id > 0; }))
             : [];
 
         if ($visitId && $newDate) {
+            // Fetch original date before moving (needed for future-visit offset)
+            $origStmt = $db->prepare("SELECT scheduled_date FROM job_visits WHERE id = ?");
+            $origStmt->execute([$visitId]);
+            $origDate = $origStmt->fetchColumn();
+
             moveVisit($visitId, $newDate, $newTimeStart, $user['id']);
 
             if ($newTimeEnd !== null) {
-                $stmt = $db->prepare("UPDATE job_visits SET scheduled_time_end = ? WHERE id = ?");
-                $stmt->execute([$newTimeEnd, $visitId]);
+                $db->prepare("UPDATE job_visits SET scheduled_time_end = ? WHERE id = ?")->execute([$newTimeEnd, $visitId]);
             }
 
             setVisitCrewAssignments($visitId, $newCrewIds);
+
+            // Propagate changes to all future scheduled visits on this plan
+            if ($updateScope === 'this_and_future' && $origDate) {
+                $origDt   = new DateTime($origDate);
+                $targetDt = new DateTime($newDate);
+                $offsetDays = (int)$origDt->diff($targetDt)->format('%r%a');
+
+                $futureStmt = $db->prepare(
+                    "SELECT id, scheduled_date FROM job_visits
+                     WHERE plan_id = ? AND status = 'scheduled' AND scheduled_date > ? AND id != ?
+                     ORDER BY scheduled_date ASC"
+                );
+                $futureStmt->execute([$planId, $origDate, $visitId]);
+
+                foreach ($futureStmt->fetchAll(PDO::FETCH_ASSOC) as $fv) {
+                    if ($offsetDays !== 0) {
+                        $fDt = new DateTime($fv['scheduled_date']);
+                        $fDt->modify("{$offsetDays} days");
+                        moveVisit($fv['id'], $fDt->format('Y-m-d'), $newTimeStart, $user['id']);
+                    } elseif ($newTimeStart !== null) {
+                        $db->prepare("UPDATE job_visits SET scheduled_time_start = ? WHERE id = ?")->execute([$newTimeStart, $fv['id']]);
+                    }
+                    if ($newTimeEnd !== null) {
+                        $db->prepare("UPDATE job_visits SET scheduled_time_end = ? WHERE id = ?")->execute([$newTimeEnd, $fv['id']]);
+                    }
+                    setVisitCrewAssignments($fv['id'], $newCrewIds);
+                }
+            }
 
             header("Location: view.php?id={$planId}&visit_updated=1");
             exit;
@@ -546,6 +641,16 @@ if (isset($_GET['time_deleted']))   { $message = 'Time entry deleted.'; $message
 if (isset($_GET['visit_deleted']))  { $message = 'Visit deleted.'; $messageType = 'success'; }
 if (isset($_GET['time_edited']))  { $message = 'Time entry updated!'; $messageType = 'success'; }
 
+// ── Delete Plan eligibility ───────────────────────────────────────────
+$canDeletePlan = false;
+if (in_array($plan['status'], ['active', 'paused', 'completed', 'cancelled'])) {
+    $cdpStmt = $db->prepare("SELECT COUNT(*) FROM job_visits WHERE plan_id = ? AND status = 'completed'");
+    $cdpStmt->execute([$planId]);
+    $cdpInvStmt = $db->prepare("SELECT COUNT(*) FROM invoices WHERE plan_id = ?");
+    $cdpInvStmt->execute([$planId]);
+    $canDeletePlan = ((int)$cdpStmt->fetchColumn() === 0) && ((int)$cdpInvStmt->fetchColumn() === 0);
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────
 
 /**
@@ -661,14 +766,6 @@ if ($hasPropCoords) {
                             <i data-feather="map-pin" style="width:14px;height:14px;"></i> Work Zone
                         </button>
                     <?php endif; ?>
-                    <button class="mw-pro-trigger btn btn-outline-secondary"
-                            data-plan-id="<?php echo (int)$planId; ?>"
-                            data-address="<?php echo htmlspecialchars(trim(($plan['property_address'] ?? '') . ', ' . ($plan['property_city'] ?? ''), ', ')); ?>"
-                            title="Open profit risk analysis"
-                            aria-label="Open profit risk analysis">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="vertical-align:-1px;"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"></polygon></svg>
-                        Risk
-                    </button>
                     <?php if (in_array($plan['status'], ['active', 'paused'])): ?>
                         <button type="button" class="btn btn-outline-primary" onclick="showModal('editPlanModal')">
                             <i data-feather="edit-2" style="width:14px;height:14px;"></i> Edit Plan
@@ -690,6 +787,11 @@ if ($hasPropCoords) {
                         <a href="../quotes/view.php?id=<?php echo (int)$plan['quote_id']; ?>" class="btn btn-secondary">
                             View Quote <?php echo htmlspecialchars($plan['quote_number'] ?? ''); ?>
                         </a>
+                    <?php endif; ?>
+                    <?php if ($canDeletePlan): ?>
+                        <button type="button" class="btn btn-outline-danger" onclick="showModal('deletePlanModal')">
+                            <i data-feather="trash-2" style="width:14px;height:14px;"></i> Delete Plan
+                        </button>
                     <?php endif; ?>
                 </div>
             </div>
@@ -748,152 +850,13 @@ if ($hasPropCoords) {
 
             <?php if ($profitability['has_data']): ?>
             <div class="card mb-4">
-                <div class="card-header">
-                    <h5 class="card-title mb-0">
-                        Profitability
-                        <?php if ($profitability['labor_estimated']): ?>
-                            <span class="badge badge-warning ml-2" title="Labor cost estimated from plan duration, not actual time tracking">Estimated</span>
-                        <?php endif; ?>
-                    </h5>
+                <div class="card-header d-flex align-items-center justify-content-between">
+                    <h5 class="card-title mb-0">Risk Analysis</h5>
+                    <span class="text-muted" style="font-size:.75rem;">8-factor profitability risk score</span>
                 </div>
-                <div class="card-body">
-                    <div class="row">
-                        <!-- LEFT: Radial Donut Chart -->
-                        <div class="col-lg-5 text-center">
-                            <?php
-                            $rev = max(1, $profitability['revenue']);
-                            $rSectors = [
-                                ['label' => 'Labor',    'amount' => $profitability['labor_cost'],    'color' => '#3B82F6'],
-                                ['label' => 'Expenses', 'amount' => $profitability['expense_cost'],  'color' => '#F59E0B'],
-                                ['label' => 'Overhead', 'amount' => $profitability['overhead_cost'], 'color' => '#8B5CF6'],
-                            ];
-                            if ($profitability['profit'] > 0) {
-                                $rSectors[] = ['label' => 'Profit', 'amount' => $profitability['profit'], 'color' => '#2D8659'];
-                            }
-                            $rTotal = array_sum(array_column($rSectors, 'amount'));
-                            if ($rTotal <= 0) $rTotal = 1;
-                            $profColor = $profitability['profit'] >= 0 ? '#2D8659' : '#DC2626';
-                            $rCx = 90; $rCy = 90; $rIn = 40; $rOut = 70;
-                            $rAngle = -90.0;
-                            ?>
-                            <svg viewBox="0 0 180 180" class="mw-radial-svg">
-                                <!-- Background ring -->
-                                <circle cx="90" cy="90" r="70" fill="none" stroke="#F3F4F6" stroke-width="30"/>
-                                <?php foreach ($rSectors as $ri => $rSec):
-                                    $rPct  = $rSec['amount'] / $rTotal;
-                                    $rSwp  = $rPct * 360;
-                                    $rEnd  = $rAngle + $rSwp;
-                                    $rA1   = deg2rad($rAngle);
-                                    $rA2   = deg2rad($rEnd);
-                                    $rLg   = $rSwp > 180 ? 1 : 0;
-                                    $rx1=$rCx+$rIn*cos($rA1); $ry1=$rCy+$rIn*sin($rA1);
-                                    $rx2=$rCx+$rOut*cos($rA1);$ry2=$rCy+$rOut*sin($rA1);
-                                    $rx3=$rCx+$rOut*cos($rA2);$ry3=$rCy+$rOut*sin($rA2);
-                                    $rx4=$rCx+$rIn*cos($rA2); $ry4=$rCy+$rIn*sin($rA2);
-                                    $rPath = sprintf(
-                                        "M%.2f,%.2f L%.2f,%.2f A%d,%d 0 %d,1 %.2f,%.2f L%.2f,%.2f A%d,%d 0 %d,0 %.2f,%.2f Z",
-                                        $rx1,$ry1,$rx2,$ry2,$rOut,$rOut,$rLg,$rx3,$ry3,
-                                        $rx4,$ry4,$rIn,$rIn,$rLg,$rx1,$ry1
-                                    );
-                                    $rAngle = $rEnd;
-                                ?>
-                                <path d="<?php echo $rPath; ?>" fill="<?php echo $rSec['color']; ?>"
-                                      stroke="#fff" stroke-width="2"
-                                      class="mw-radial-sector"
-                                      style="animation-delay:<?php echo number_format($ri * 0.12, 2); ?>s"/>
-                                <?php endforeach; ?>
-                                <!-- White center -->
-                                <circle cx="90" cy="90" r="38" fill="white"/>
-                                <text x="90" y="77" font-size="6" fill="#9CA3AF" text-anchor="middle" letter-spacing="0.8">NET PROFIT</text>
-                                <text x="90" y="93" font-size="13" font-weight="800" fill="<?php echo $profColor; ?>" text-anchor="middle"><?php echo formatCurrency($profitability['profit']); ?></text>
-                                <text x="90" y="106" font-size="9" font-weight="700" fill="<?php echo $profColor; ?>" text-anchor="middle"><?php echo $profitability['margin_pct']; ?>%</text>
-                                <text x="90" y="116" font-size="6" fill="#9CA3AF" text-anchor="middle" letter-spacing="0.5">MARGIN</text>
-                            </svg>
-                            <!-- Legend chips -->
-                            <div class="mw-radial-legend">
-                                <?php foreach ([
-                                    ['color' => '#3B82F6', 'label' => 'Labor',    'pct' => round(($profitability['labor_cost']    / $rev) * 100, 1)],
-                                    ['color' => '#F59E0B', 'label' => 'Expenses', 'pct' => round(($profitability['expense_cost']   / $rev) * 100, 1)],
-                                    ['color' => '#8B5CF6', 'label' => 'Overhead', 'pct' => round(($profitability['overhead_cost']  / $rev) * 100, 1)],
-                                    ['color' => '#2D8659', 'label' => 'Profit',   'pct' => $profitability['margin_pct']],
-                                ] as $rLeg): ?>
-                                <div class="mw-radial-legend-item">
-                                    <span class="mw-radial-dot" style="background:<?php echo $rLeg['color']; ?>"></span>
-                                    <span><?php echo $rLeg['label']; ?></span>
-                                    <span class="mw-radial-legend-pct"><?php echo $rLeg['pct']; ?>%</span>
-                                </div>
-                                <?php endforeach; ?>
-                            </div>
-                            <!-- Status label -->
-                            <div class="mw-radial-status mt-2">
-                                <?php if ($profitability['margin_pct'] >= 40): ?>
-                                    <span style="color:var(--mw-green);">Exceeding Target</span>
-                                <?php elseif ($profitability['margin_pct'] >= 20): ?>
-                                    <span style="color:#F59E0B;">On Target</span>
-                                <?php elseif ($profitability['margin_pct'] >= 0): ?>
-                                    <span style="color:#DC2626;">Below Target</span>
-                                <?php else: ?>
-                                    <span style="color:#DC2626;">Losing Money</span>
-                                <?php endif; ?>
-                            </div>
-                        </div>
-
-                        <!-- RIGHT: Cost Breakdown -->
-                        <div class="col-lg-7">
-                            <div class="mw-profit-breakdown">
-                                <?php
-                                $breakdownItems = [
-                                    ['label' => 'Revenue',  'amount' => $profitability['revenue'],      'color' => 'var(--mw-green)', 'icon' => 'dollar-sign', 'positive' => true],
-                                    ['label' => 'Labor',    'amount' => $profitability['labor_cost'],    'color' => '#3B82F6',         'icon' => 'clock',        'positive' => false],
-                                    ['label' => 'Expenses', 'amount' => $profitability['expense_cost'],  'color' => '#F59E0B',         'icon' => 'shopping-cart', 'positive' => false],
-                                    ['label' => 'Overhead', 'amount' => $profitability['overhead_cost'], 'color' => '#8B5CF6',         'icon' => 'briefcase',    'positive' => false],
-                                ];
-                                $maxAmount = max(1, max(array_column($breakdownItems, 'amount')));
-                                ?>
-
-                                <?php foreach ($breakdownItems as $item): ?>
-                                <div class="mw-profit-row">
-                                    <div class="mw-profit-row-label">
-                                        <i data-feather="<?php echo $item['icon']; ?>" style="width:14px;height:14px;color:<?php echo $item['color']; ?>"></i>
-                                        <span><?php echo $item['label']; ?></span>
-                                    </div>
-                                    <div class="mw-profit-row-bar">
-                                        <div class="mw-profit-row-fill" style="width: <?php echo round(($item['amount'] / $maxAmount) * 100, 1); ?>%; background: <?php echo $item['color']; ?>"></div>
-                                    </div>
-                                    <div class="mw-profit-row-amount">
-                                        <?php echo formatCurrency($item['amount']); ?>
-                                    </div>
-                                </div>
-                                <?php endforeach; ?>
-
-                                <hr class="my-2">
-
-                                <div class="mw-profit-row mw-profit-row-total">
-                                    <div class="mw-profit-row-label">
-                                        <i data-feather="<?php echo $profitability['profit'] >= 0 ? 'trending-up' : 'trending-down'; ?>" style="width:14px;height:14px;color:<?php echo $profitability['profit'] >= 0 ? 'var(--mw-green)' : '#DC2626'; ?>"></i>
-                                        <strong>Net Profit</strong>
-                                    </div>
-                                    <div class="mw-profit-row-bar"></div>
-                                    <div class="mw-profit-row-amount" style="color: <?php echo $profitability['profit'] >= 0 ? 'var(--mw-green)' : '#DC2626'; ?>">
-                                        <strong><?php echo formatCurrency($profitability['profit']); ?></strong>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="mt-3 text-muted small">
-                                <?php if ($profitability['labor_estimated']): ?>
-                                    <i data-feather="info" style="width:12px;height:12px;"></i>
-                                    Labor estimated from plan duration (<?php echo (int)$plan['estimated_duration_minutes']; ?> min/visit &times; <?php echo $profitability['completed_visits']; ?> visits). Use job timers for actual tracking.
-                                <?php else: ?>
-                                    <i data-feather="check-circle" style="width:12px;height:12px;color:var(--mw-green);"></i>
-                                    Based on <?php echo round($profitability['labor_minutes']); ?> min tracked across <?php echo $profitability['completed_visits']; ?> completed visit<?php echo $profitability['completed_visits'] !== 1 ? 's' : ''; ?>.
-                                <?php endif; ?>
-                                <?php if ($profitability['expense_cost'] > 0): ?>
-                                    <br><i data-feather="alert-circle" style="width:12px;height:12px;color:#F59E0B;"></i>
-                                    Expenses shown are for the entire property, not specific to this plan.
-                                <?php endif; ?>
-                            </div>
-                        </div>
+                <div class="card-body p-0" id="mwInlineRiskBody">
+                    <div class="d-flex align-items-center justify-content-center py-4">
+                        <span class="text-muted small">Analysing&hellip;</span>
                     </div>
                 </div>
             </div>
@@ -901,7 +864,7 @@ if ($hasPropCoords) {
             <div class="card mb-4">
                 <div class="card-body text-center text-muted py-4">
                     <i data-feather="bar-chart-2" style="width:24px;height:24px;"></i>
-                    <p class="mb-0 mt-2">Profitability data will appear after visits are completed.</p>
+                    <p class="mb-0 mt-2">Risk analysis will appear after visits are completed.</p>
                 </div>
             </div>
             <?php endif; ?>
@@ -923,14 +886,26 @@ if ($hasPropCoords) {
                                 <span class="mw-detail-value">
                                     <?php
                                         $addr = trim(($plan['property_address'] ?? '') . ', ' . ($plan['property_city'] ?? ''), ', ');
-                                        echo htmlspecialchars($addr ?: 'N/A');
+                                        if ($addr && !empty($plan['property_id'])):
                                     ?>
+                                        <a href="../properties/view.php?id=<?php echo (int)$plan['property_id']; ?>">
+                                            <i data-feather="map-pin" style="width:13px;height:13px;vertical-align:-1px;margin-right:3px;"></i><?php echo htmlspecialchars($addr); ?>
+                                        </a>
+                                    <?php else: ?>
+                                        <?php echo htmlspecialchars($addr ?: 'N/A'); ?>
+                                    <?php endif; ?>
                                 </span>
                             </div>
                             <div class="mw-detail-row">
                                 <span class="mw-detail-label">Client</span>
                                 <span class="mw-detail-value">
-                                    <?php echo htmlspecialchars($plan['company_name'] ?? 'N/A'); ?>
+                                    <?php if (!empty($plan['company_name']) && !empty($plan['company_id'])): ?>
+                                        <a href="../companies/view.php?id=<?php echo (int)$plan['company_id']; ?>">
+                                            <i data-feather="briefcase" style="width:13px;height:13px;vertical-align:-1px;margin-right:3px;"></i><?php echo htmlspecialchars($plan['company_name']); ?>
+                                        </a>
+                                    <?php else: ?>
+                                        N/A
+                                    <?php endif; ?>
                                 </span>
                             </div>
                             <?php
@@ -940,7 +915,13 @@ if ($hasPropCoords) {
                                 <div class="mw-detail-row">
                                     <span class="mw-detail-label">Contact</span>
                                     <span class="mw-detail-value">
-                                        <?php echo htmlspecialchars($contactName); ?>
+                                        <?php if (!empty($plan['contact_id'])): ?>
+                                            <a href="../clients_appstack.php?action=view_contact&id=<?php echo (int)$plan['contact_id']; ?>">
+                                                <i data-feather="user" style="width:13px;height:13px;vertical-align:-1px;margin-right:3px;"></i><?php echo htmlspecialchars($contactName); ?>
+                                            </a>
+                                        <?php else: ?>
+                                            <?php echo htmlspecialchars($contactName); ?>
+                                        <?php endif; ?>
                                         <?php if (!empty($plan['contact_phone'])): ?>
                                             &mdash;
                                             <a href="tel:<?php echo htmlspecialchars($plan['contact_phone']); ?>">
@@ -1657,6 +1638,32 @@ if ($hasPropCoords) {
                     </form>
                 </div>
             </div>
+
+            <!-- ══════════════════════════════════════════════════════
+                 Delete Plan Modal
+                 ══════════════════════════════════════════════════════ -->
+            <?php if ($canDeletePlan): ?>
+            <div class="mw-modal-overlay" id="deletePlanModal">
+                <div class="mw-modal">
+                    <h3 class="mw-modal-title" style="color: var(--danger, #dc3545);">
+                        <i data-feather="alert-triangle" style="width:16px;height:16px;vertical-align:-2px;margin-right:6px;"></i>
+                        Delete Plan?
+                    </h3>
+                    <p class="text-muted small mb-1">You are about to permanently delete:</p>
+                    <p class="mb-3"><strong><?php echo htmlspecialchars($plan['plan_number']); ?></strong>
+                        &mdash; <?php echo htmlspecialchars($plan['title'] ?? $plan['service_type']); ?></p>
+                    <p class="text-muted small mb-3">All scheduled visits and line items will be removed. This cannot be undone.</p>
+                    <form method="POST" action="view.php?id=<?php echo (int)$planId; ?>">
+                        <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrfToken); ?>">
+                        <input type="hidden" name="action" value="delete_plan">
+                        <div class="mw-modal-actions">
+                            <button type="submit" class="btn btn-danger">Yes, Delete Plan</button>
+                            <button type="button" class="btn btn-secondary" onclick="hideModal('deletePlanModal')">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            <?php endif; ?>
 
             <!-- ══════════════════════════════════════════════════════
                  Add Manual Time Entry Modal
@@ -2428,6 +2435,21 @@ if ($hasPropCoords) {
                     <small class="text-muted">First person assigned is the crew lead.</small>
                 </div>
 
+                <?php if (!empty($plan['is_recurring'])): ?>
+                <div class="form-group">
+                    <label class="form-label">Apply to</label>
+                    <div class="mw-radio-group">
+                        <label class="mw-radio-option">
+                            <input type="radio" name="update_scope" value="this_only" checked> This visit only
+                        </label>
+                        <label class="mw-radio-option">
+                            <input type="radio" name="update_scope" value="this_and_future"> This &amp; all future visits
+                        </label>
+                    </div>
+                    <small class="text-muted" id="editVisitScopeHint"></small>
+                </div>
+                <?php endif; ?>
+
                 <div class="mw-modal-actions">
                     <button type="submit" class="btn btn-primary">Save Visit</button>
                     <button type="button" class="btn btn-secondary" onclick="hideModal('editVisitModal')">Cancel</button>
@@ -3061,10 +3083,29 @@ if ($hasPropCoords) {
             document.getElementById('editVisitDate').value = date;
             document.getElementById('editVisitTimeStart').value = timeStart || '';
             document.getElementById('editVisitTimeEnd').value = timeEnd || '';
+            // Reset scope radio to "this only"
+            var scopeThis = document.querySelector('input[name="update_scope"][value="this_only"]');
+            if (scopeThis) { scopeThis.checked = true; }
+            var hint = document.getElementById('editVisitScopeHint');
+            if (hint) hint.textContent = '';
             visitEditAssignedCrew = visitCrewData[visitId] ? visitCrewData[visitId].slice() : [];
             visitEditRenderCrewChips();
             showModal('editVisitModal');
         }
+
+        // Hint text when scope changes
+        (function() {
+            var radios = document.querySelectorAll('input[name="update_scope"]');
+            var hint = document.getElementById('editVisitScopeHint');
+            if (!radios.length || !hint) return;
+            radios.forEach(function(r) {
+                r.addEventListener('change', function() {
+                    hint.textContent = this.value === 'this_and_future'
+                        ? 'All future scheduled visits will shift by the same number of days and receive the same crew.'
+                        : '';
+                });
+            });
+        })();
 
         function visitEditToggleCrewDropdown() {
             var dd = document.getElementById('visitEditCrewDropdown');
@@ -3093,14 +3134,23 @@ if ($hasPropCoords) {
             visitEditAssignedCrew.forEach(function(c, idx) {
                 var isLead = (idx === 0);
                 html += '<span class="mw-crew-chip ' + (isLead ? 'mw-crew-lead' : '') + '">' +
-                    escHtml(c.name) + (isLead ? ' (Lead)' : '') +
-                    '<button type="button" class="mw-crew-chip-remove" onclick="visitEditRemoveCrew(' + c.id + ')">&times;</button>' +
+                    escHtml(c.name) + (isLead ? ' <small>(Lead)</small>' : '') +
+                    '<button type="button" class="mw-crew-chip-remove" data-uid="' + c.id + '">&times;</button>' +
                     '<input type="hidden" name="visit_crew_ids[]" value="' + c.id + '">' +
                     '</span>';
             });
-            html += '<button type="button" class="mw-crew-add-btn" onclick="visitEditToggleCrewDropdown()">+ Assign</button>';
+            html += '<button type="button" class="mw-crew-add-btn js-visit-edit-assign">+ Assign</button>';
             container.innerHTML = html;
         }
+
+        // Event delegation — avoids inline onclick inside innerHTML (CSP-safe)
+        document.getElementById('visitEditCrewChips').addEventListener('click', function(e) {
+            if (e.target.matches('.mw-crew-chip-remove')) {
+                visitEditRemoveCrew(parseInt(e.target.getAttribute('data-uid')));
+            } else if (e.target.matches('.js-visit-edit-assign')) {
+                visitEditToggleCrewDropdown();
+            }
+        });
 
         document.addEventListener('click', function(e) {
             if (!e.target.closest('#visitEditCrewChips') && !e.target.closest('#visitEditCrewDropdown')) {
@@ -4182,4 +4232,53 @@ if ($hasPropCoords) {
 <?php endif; ?>
 
 <script src="/crm/js/profit-risk-octagon.js?v=<?php echo filemtime(dirname(__DIR__) . '/js/profit-risk-octagon.js'); ?>"></script>
+<?php if ($profitability['has_data'] ?? false): ?>
+<script>
+(function () {
+    var body = document.getElementById('mwInlineRiskBody');
+    if (!body) return;
+    var sevColor = { critical: '#ef4444', high: '#f97316', medium: '#f59e0b', low: '#22c55e' };
+    fetch('/crm/api/profit-risk-factors.php?plan_id=<?php echo (int)$planId; ?>', {
+        credentials: 'same-origin',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    })
+    .then(function (r) { return r.json(); })
+    .then(function (resp) {
+        if (!resp.success || !resp.has_data) {
+            body.innerHTML = '<div class="text-center text-muted py-4 px-3"><p class="mb-0">' + (resp.message || 'No data available.') + '</p></div>';
+            return;
+        }
+        var d = resp.data;
+        var rows = d.factors.map(function (f) {
+            var c = sevColor[f.severity] || '#64748b';
+            var sev = f.severity.charAt(0).toUpperCase() + f.severity.slice(1);
+            return '<tr><td class="mw-irt-factor">' + f.label + '</td>' +
+                '<td class="mw-irt-value">' + f.raw_value + '</td>' +
+                '<td class="mw-irt-sev" style="color:' + c + '">' + sev + '</td></tr>';
+        }).join('');
+        var recHtml = '';
+        if (d.recommendations && d.recommendations.length) {
+            recHtml = '<div class="mw-irt-recs"><div class="mw-irt-recs-title">Recommendations</div>' +
+                d.recommendations.map(function (r) {
+                    return '<div class="mw-irt-rec"><span class="mw-irt-rec-key">' + r.key + '</span> ' + r.text + '</div>';
+                }).join('') + '</div>';
+        }
+        body.innerHTML =
+            '<div class="mw-irt-grid">' +
+                '<div class="mw-irt-chart" id="mwIrtOctWrap"></div>' +
+                '<div class="mw-irt-table-wrap">' +
+                    '<table class="mw-irt-table"><thead><tr>' +
+                        '<th>Factor</th><th>Value</th><th>Risk</th>' +
+                    '</tr></thead><tbody>' + rows + '</tbody></table>' +
+                '</div>' +
+            '</div>' + recHtml;
+        var oct = new ProfitRiskOctagon(document.getElementById('mwIrtOctWrap'), { size: 260, maxR: 78, labelR: 106, centerR: 40 });
+        oct.render(d);
+    })
+    .catch(function () {
+        body.innerHTML = '<div class="text-center text-muted py-4"><p class="mb-0">Error loading risk data.</p></div>';
+    });
+}());
+</script>
+<?php endif; ?>
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

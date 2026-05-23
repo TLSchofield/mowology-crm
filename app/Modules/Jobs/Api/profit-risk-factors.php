@@ -230,17 +230,80 @@ try {
         ],
     ];
 
+    // ── Recommendations (for medium/high/critical factors) ──────────────────
+    $recs = [];
+
+    if ($marginScore >= 0.25 && $totalCost > 0 && $completedVisits > 0) {
+        $targetRev   = $totalCost / 0.60;
+        $priceNeeded = $targetRev / $completedVisits;
+        $diff        = $priceNeeded - $pricePerVisit;
+        $diffPct     = $pricePerVisit > 0 ? ($diff / $pricePerVisit) * 100 : 0;
+        $recs[] = [
+            'key'  => 'Margin',
+            'text' => sprintf(
+                'Raise price/visit from %s → %s (%+.2f, %+.1f%%) to reach 40%% margin.',
+                '$' . number_format($pricePerVisit, 2),
+                '$' . number_format($priceNeeded, 2),
+                $diff, $diffPct
+            ),
+        ];
+    }
+
+    if ($laborScore >= 0.25 && $completedVisits > 0) {
+        $targetPriceLabor = ($labor / $completedVisits) / 0.45;
+        $recs[] = [
+            'key'  => 'Labour',
+            'text' => sprintf(
+                'Labour is eating into margin. To keep it under 45%%, raise price to %s/visit, or reduce average job time.',
+                '$' . number_format($targetPriceLabor, 2)
+            ),
+        ];
+    }
+
+    if ($timeScore >= 0.25 && !$isEstimated && $completedVisits > 0) {
+        $avgActualMins = (int)round($laborMins / $completedVisits);
+        $overMins      = $avgActualMins - $estDuration;
+        $overPct       = $estDuration > 0 ? round(($overMins / $estDuration) * 100) : 0;
+        $recs[] = [
+            'key'  => 'Time',
+            'text' => sprintf(
+                'Jobs are averaging %s over estimate (%d%% longer). Either streamline the job or update the plan estimate to %s.',
+                $fmtMins($overMins), $overPct, $fmtMins($avgActualMins)
+            ),
+        ];
+    }
+
+    if ($ohScore >= 0.25) {
+        $recs[] = [
+            'key'  => 'Overhead',
+            'text' => "Overhead is allocated as a % of labour. Adding more stops to the same route day spreads overhead across more revenue and reduces each plan's share.",
+        ];
+    }
+
+    if ($completionScore >= 0.25 && $totalVisits > 0) {
+        $completionPct    = round(($completedVisits / $totalVisits) * 100);
+        $projectedRevenue = $pricePerVisit * $totalVisits;
+        $recs[] = [
+            'key'  => 'Visits',
+            'text' => sprintf(
+                'Plan is %d%% complete. Full completion projects %s revenue. Check for skipped or unscheduled visits.',
+                $completionPct, '$' . number_format($projectedRevenue, 0)
+            ),
+        ];
+    }
+
     echo json_encode([
         'success'  => true,
         'has_data' => true,
         'data'     => [
-            'plan_id'     => $planId,
-            'plan_number' => $planRow['plan_number'],
-            'plan_title'  => $planRow['title'],
-            'net_profit'  => round($profit, 2),
-            'net_margin'  => round($marginPct, 1),
-            'factors'     => $factors,
-            'updated_at'  => date('c'),
+            'plan_id'         => $planId,
+            'plan_number'     => $planRow['plan_number'],
+            'plan_title'      => $planRow['title'],
+            'net_profit'      => round($profit, 2),
+            'net_margin'      => round($marginPct, 1),
+            'factors'         => $factors,
+            'recommendations' => $recs,
+            'updated_at'      => date('c'),
         ],
     ]);
 
