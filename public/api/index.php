@@ -161,6 +161,7 @@ $actionAliases = [
     'schedule' => [
         'day'                => 'day',
         'week'               => 'week',
+        'freshness'          => 'freshness',  // Mobile prefetch — per-day checksum (JWT)
         'clock'              => 'clock',       // Mobile time-clock (JWT) — GET status / POST clock_in|clock_out
         'timer'              => 'timer',       // Mobile job timer (JWT) — POST start|stop
         'location'           => 'location',   // Mobile GPS ping (JWT) — POST lat/lng
