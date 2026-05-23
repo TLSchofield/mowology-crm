@@ -38,7 +38,11 @@ struct ReceiptsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
         }
-        .task { await viewModel.loadExpenses() }
+        .task {
+            await viewModel.loadExpenses()
+            // Wire up auto-drain for receipts that were queued while offline.
+            viewModel.startReceiptQueueMonitor()
+        }
         // Camera opens as fullScreenCover directly on this view — no intermediate sheet.
         .fullScreenCover(isPresented: $showCamera) {
             CameraPicker(

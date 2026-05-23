@@ -69,6 +69,15 @@ enum APIEndpoint {
     /// POST /api/device/token — register APNs device token for push notifications.
     case deviceTokenRegister
 
+    /// POST /api/schedule/quiz — start, answer, or finish a quiz session.
+    case quizAction
+
+    /// GET /api/schedule/quiz?session_id=N&q=N — fetch a single quiz question.
+    case quizQuestion(sessionId: Int, q: Int)
+
+    /// POST /api/schedule/job-photo — upload a before/after job photo for a visit.
+    case scheduleJobPhoto
+
     // MARK: - URL
 
     /// Builds the full URL for the endpoint. Returns `nil` only if the base
@@ -148,6 +157,20 @@ enum APIEndpoint {
 
         case .deviceTokenRegister:
             return URL(string: "\(baseURLString)/device/token")
+
+        case .quizAction:
+            return URL(string: "\(baseURLString)/schedule/quiz")
+
+        case .quizQuestion(let sessionId, let q):
+            var components = URLComponents(string: "\(baseURLString)/schedule/quiz")
+            components?.queryItems = [
+                URLQueryItem(name: "session_id", value: "\(sessionId)"),
+                URLQueryItem(name: "q",          value: "\(q)"),
+            ]
+            return components?.url
+
+        case .scheduleJobPhoto:
+            return URL(string: "\(baseURLString)/schedule/job-photo")
         }
     }
 
@@ -173,7 +196,10 @@ enum APIEndpoint {
              .receiptUpload,
              .expenseSave,
              .expenseList,
-             .deviceTokenRegister: return true
+             .deviceTokenRegister,
+             .quizAction,
+             .quizQuestion,
+             .scheduleJobPhoto: return true
         }
     }
 
@@ -201,7 +227,11 @@ enum APIEndpoint {
         case .expenseList,
              .scheduleJobs,
              .scheduleInvoices,
-             .scheduleQuotes: return "GET"
+             .scheduleQuotes,
+             .quizQuestion: return "GET"
+
+        case .quizAction,
+             .scheduleJobPhoto: return "POST"
         }
     }
 }

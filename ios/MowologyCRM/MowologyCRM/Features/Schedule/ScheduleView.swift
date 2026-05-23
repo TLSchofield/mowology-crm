@@ -69,6 +69,7 @@ struct ScheduleView: View {
                         stops:        viewModel.stops,
                         isLoading:    viewModel.isLoading,
                         errorMessage: viewModel.errorMessage,
+                        isOffline:    viewModel.isOffline,
                         isAdmin:      authSession.user?.isAdmin ?? false,
                         onRefresh:    { await viewModel.refresh() }
                     )
@@ -100,6 +101,11 @@ struct ScheduleView: View {
         }
         .sheet(isPresented: $showDatePicker) {
             datePicker
+        }
+        .fullScreenCover(isPresented: $viewModel.quizRequired) {
+            QuizView(authSession: authSession) {
+                Task { await viewModel.quizPassed() }
+            }
         }
     }
 

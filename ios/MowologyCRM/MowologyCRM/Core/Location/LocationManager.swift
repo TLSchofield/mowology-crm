@@ -108,6 +108,10 @@ final class LocationManager: NSObject, ObservableObject {
 
     private var pendingContinuation: CheckedContinuation<CLLocation, Error>?
 
+    /// Set to true when startBackgroundTracking() is called before "Always" is granted.
+    /// locationManagerDidChangeAuthorization will start tracking as soon as it arrives.
+    private var backgroundTrackingRequested = false
+
     // Fix-quality state (reset per job session)
     private var lastAcceptedFix:     CLLocation?
     private var sessionWorstAccuracy: Double = 0
@@ -135,7 +139,10 @@ final class LocationManager: NSObject, ObservableObject {
     }
 
     func requestAlwaysPermission() {
-        guard clManager.authorizationStatus == .authorizedWhenInUse else { return }
+        let status = clManager.authorizationStatus
+        // Handle notDetermined (ask for Always directly) or upgrade from WhenInUse.
+        // If denied/restricted there is nothing we can do — user must go to Settings.
+        guard status == .notDetermined || status == .authorizedWhenInUse else { return }
         clManager.requestAlwaysAuthorization()
     }
 
@@ -168,7 +175,16 @@ final class LocationManager: NSObject, ObservableObject {
     // MARK: - Background Continuous Tracking
 
     func startBackgroundTracking() {
-        guard authorizationStatus == .authorizedAlways else { return }
+        if authorizationStatus == .authorizedAlways {
+            activateBackgroundTracking()
+        } else {
+            // Defer: activate as soon as "Always" permission arrives.
+            backgroundTrackingRequested = true
+        }
+    }
+
+    private func activateBackgroundTracking() {
+        backgroundTrackingRequested             = false
         clManager.allowsBackgroundLocationUpdates    = true
         clManager.pausesLocationUpdatesAutomatically = false  // managed via activity
         clManager.startUpdatingLocation()
@@ -176,6 +192,7 @@ final class LocationManager: NSObject, ObservableObject {
     }
 
     func stopBackgroundTracking() {
+        backgroundTrackingRequested = false
         clManager.stopUpdatingLocation()
         if clManager.authorizationStatus == .authorizedAlways {
             clManager.allowsBackgroundLocationUpdates = false
@@ -307,6 +324,11 @@ extension LocationManager: CLLocationManagerDelegate {
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         Task { @MainActor in
             self.authorizationStatus = manager.authorizationStatus
+            // If "Always" permission just arrived and tracking was deferred, start now.
+            if manager.authorizationStatus == .authorizedAlways,
+               self.backgroundTrackingRequested {
+                self.activateBackgroundTracking()
+            }
         }
     }
 }

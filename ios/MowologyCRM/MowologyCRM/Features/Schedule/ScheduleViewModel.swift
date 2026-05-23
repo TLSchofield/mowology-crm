@@ -54,10 +54,44 @@ final class ScheduleViewModel: ObservableObject {
     /// Latest known position per crew member (last 24 h). Same visibility rules.
     @Published var crewLive: [CrewLiveLocation] = []
 
+    /// True when the pre-shift quiz gate should be displayed.
+    @Published var quizRequired: Bool = false
+
+    /// True when the displayed schedule is from the disk cache (server unreachable).
+    @Published var isOffline: Bool = false
+
     // MARK: - Private
 
     private let apiClient: APIClient
     private var stopCache: [String: [Stop]] = [:]
+    private static let maxCachedDays = 14
+
+    /// Handles for in-flight tasks — cancelled when a new load supersedes them.
+    private var scheduleTask: Task<Void, Never>?
+    private var trailsTask:   Task<Void, Never>?
+
+    // Stored once — DateFormatter and Calendar construction is expensive.
+    private let calendar: Calendar = {
+        var cal = Calendar(identifier: .gregorian)
+        cal.firstWeekday = 2
+        cal.locale = Locale(identifier: "en_CA")
+        return cal
+    }()
+
+    private lazy var isoFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.locale     = Locale(identifier: "en_CA")
+        f.calendar   = calendar
+        return f
+    }()
+
+    private lazy var displayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MMM d"
+        f.locale     = Locale(identifier: "en_CA")
+        return f
+    }()
 
     // MARK: - Init
 
@@ -68,104 +102,31 @@ final class ScheduleViewModel: ObservableObject {
     // MARK: - Public API
 
     /// Loads both the week strip summary and the day stops for the given date.
+    /// Also gates on the daily pre-shift quiz.
     func refresh() async {
-        await loadWeek(for: selectedDate)
-        await loadDay(selectedDate)
-        await loadCrewTrails(for: selectedDate)
+        ScheduleCache.shared.evictOlderThan()
+        quizRequired = !QuizViewModel.hasPassedToday()
+        guard !quizRequired else { return }
+        await loadSchedule(for: selectedDate, reloadWeek: true)
     }
 
-    /// Fetches GPS trail polylines + live crew positions for the given date.
-    /// Failures are silent — trails are non-essential, the rest of the schedule
-    /// view should keep working if the endpoint errors or is offline.
-    func loadCrewTrails(for date: Date) async {
-        let dateString = isoDateString(from: date)
-        do {
-            let response: CrewTrailsResponse = try await apiClient.request(
-                .scheduleCrewTrails(date: dateString)
-            )
-            crewRoutes = response.routes.filter { !$0.points.isEmpty }
-            crewLive   = response.live
-        } catch {
-            crewRoutes = []
-            crewLive   = []
-        }
-    }
-
-    /// Fetches the week summary strip (7 ScheduleDay objects).
-    func loadWeek(for date: Date) async {
-        let monday = mondayOf(week: date)
-        let startString = isoDateString(from: monday)
-
-        isLoading    = true
-        errorMessage = nil
-
-        do {
-            let response: WeekResponse = try await apiClient.request(
-                .scheduleWeek(start: startString)
-            )
-            weekDays = response.days
-        } catch let apiError as APIError {
-            errorMessage = apiError.errorDescription
-        } catch {
-            errorMessage = "Failed to load week schedule."
-        }
-
-        isLoading = false
-    }
-
-    /// Fetches stops for a specific date. Results are cached by ISO date string.
-    func loadDay(_ date: Date) async {
-        let dateString = isoDateString(from: date)
-
-        // Serve from cache if available.
-        if let cached = stopCache[dateString] {
-            stops       = cached
-            lastFetched = .now
-            return
-        }
-
-        isLoading    = true
-        errorMessage = nil
-
-        do {
-            let response: DayResponse = try await apiClient.request(
-                .scheduleDay(date: dateString)
-            )
-            let fetched = response.stops
-            stopCache[dateString] = fetched
-            stops       = fetched
-            lastFetched = .now
-        } catch let apiError as APIError {
-            errorMessage = apiError.errorDescription
-            stops = []
-        } catch {
-            errorMessage = "Failed to load stops for \(dateString)."
-            stops = []
-        }
-
-        isLoading = false
+    /// Called by QuizView's onPass callback — dismisses the gate and loads the schedule.
+    func quizPassed() async {
+        quizRequired = false
+        await loadSchedule(for: selectedDate, reloadWeek: true)
     }
 
     /// Changes the selected date and loads its stops. If the week changes,
     /// also refreshes the week strip.
     func selectDate(_ date: Date) async {
-        let previousWeekMonday = mondayOf(week: selectedDate)
-        let newWeekMonday      = mondayOf(week: date)
-
+        let weekChanged = !isSameDay(mondayOf(week: selectedDate), mondayOf(week: date))
         selectedDate = date
-
-        if !isSameDay(previousWeekMonday, newWeekMonday) {
-            await loadWeek(for: date)
-        }
-
-        await loadDay(date)
-        await loadCrewTrails(for: date)
+        await loadSchedule(for: date, reloadWeek: weekChanged)
     }
 
     /// Invalidates the cache for the current day and reloads.
     func invalidateAndRefresh() async {
-        let dateString = isoDateString(from: selectedDate)
-        stopCache.removeValue(forKey: dateString)
+        stopCache.removeValue(forKey: isoDateString(from: selectedDate))
         await refresh()
     }
 
@@ -181,28 +142,18 @@ final class ScheduleViewModel: ObservableObject {
     var weekRangeLabel: String {
         let monday = mondayOf(week: selectedDate)
         let sunday = calendar.date(byAdding: .day, value: 6, to: monday) ?? monday
-        let f      = DateFormatter()
-        f.dateFormat = "MMM d"
-        f.locale     = Locale(identifier: "en_CA")
         let year   = calendar.component(.year,  from: sunday)
         let sMonth = calendar.component(.month, from: monday)
         let eMonth = calendar.component(.month, from: sunday)
         if sMonth == eMonth {
             let endDay = calendar.component(.day, from: sunday)
-            return "\(f.string(from: monday))–\(endDay), \(year)"
+            return "\(displayFormatter.string(from: monday))–\(endDay), \(year)"
         } else {
-            return "\(f.string(from: monday)) – \(f.string(from: sunday)), \(year)"
+            return "\(displayFormatter.string(from: monday)) – \(displayFormatter.string(from: sunday)), \(year)"
         }
     }
 
     // MARK: - Date Utilities
-
-    private var calendar: Calendar {
-        var cal = Calendar(identifier: .gregorian)
-        cal.firstWeekday = 2  // Monday = first day of week.
-        cal.locale = Locale(identifier: "en_CA")
-        return cal
-    }
 
     /// Returns the Monday of the week containing `date`.
     func mondayOf(week date: Date) -> Date {
@@ -211,12 +162,140 @@ final class ScheduleViewModel: ObservableObject {
     }
 
     func isoDateString(from date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        formatter.locale     = Locale(identifier: "en_CA")
-        formatter.calendar   = calendar
-        return formatter.string(from: date)
+        isoFormatter.string(from: date)
     }
+
+    // MARK: - Private Load Orchestration
+
+    /// Single entry point for all schedule loads. Cancels any in-flight request before
+    /// starting, then fires week + day concurrently via a task group. Trails are
+    /// non-essential and run in a separate background task that does not block the spinner.
+    private func loadSchedule(for date: Date, reloadWeek: Bool) async {
+        scheduleTask?.cancel()
+        trailsTask?.cancel()
+
+        isLoading    = true
+        errorMessage = nil
+
+        let handle = Task {
+            await withTaskGroup(of: Void.self) { group in
+                if reloadWeek {
+                    group.addTask { await self.loadWeek(for: date) }
+                }
+                group.addTask { await self.loadDay(date) }
+            }
+        }
+        scheduleTask = handle
+        await handle.value
+
+        // Only clear the spinner and start trails if this load wasn't superseded.
+        guard !handle.isCancelled else { return }
+        isLoading = false
+
+        let trailHandle = Task { await self.loadCrewTrails(for: date) }
+        trailsTask = trailHandle
+    }
+
+    /// Fetches the week summary strip (7 ScheduleDay objects).
+    private func loadWeek(for date: Date) async {
+        let startString = isoDateString(from: mondayOf(week: date))
+        do {
+            let response: WeekResponse = try await apiClient.request(
+                .scheduleWeek(start: startString)
+            )
+            guard !Task.isCancelled else { return }
+            isOffline = false
+            weekDays  = response.days
+        } catch let err as APIError {
+            guard !Task.isCancelled else { return }
+            if case .networkError = err {
+                isOffline = true   // week strip is decorative — fail silently
+            } else {
+                errorMessage = err.errorDescription ?? "Failed to load week schedule."
+            }
+        } catch {
+            guard !Task.isCancelled else { return }
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Fetches stops for a specific date. Falls back to the disk cache when offline.
+    private func loadDay(_ date: Date) async {
+        let dateString = isoDateString(from: date)
+
+        // Serve from in-memory cache if available (avoids redundant network hits
+        // when the user swipes back to a date they already loaded this session).
+        if let cached = stopCache[dateString] {
+            stops       = cached
+            lastFetched = .now
+            return
+        }
+
+        do {
+            let response: DayResponse = try await apiClient.request(
+                .scheduleDay(date: dateString)
+            )
+            guard !Task.isCancelled else { return }
+            let fetched = response.stops
+            cacheStops(fetched, forDate: dateString)
+            ScheduleCache.shared.save(fetched, forDate: dateString)
+            isOffline   = false
+            stops       = fetched
+            lastFetched = .now
+        } catch let err as APIError {
+            guard !Task.isCancelled else { return }
+            if case .networkError = err {
+                // Offline — try disk cache before showing an error.
+                if let diskCached = ScheduleCache.shared.load(forDate: dateString) {
+                    cacheStops(diskCached, forDate: dateString)
+                    stops     = diskCached
+                    isOffline = true
+                } else {
+                    isOffline    = true
+                    errorMessage = "No signal and no cached schedule for this date."
+                    stops        = []
+                }
+            } else {
+                errorMessage = err.errorDescription ?? "Failed to load stops."
+                stops        = []
+            }
+        } catch {
+            guard !Task.isCancelled else { return }
+            errorMessage = error.localizedDescription
+            stops        = []
+        }
+    }
+
+    /// Fetches GPS trail polylines + live crew positions for the given date.
+    /// Failures are silent — trails are non-essential; the rest of the schedule
+    /// view keeps working if the endpoint errors or is offline.
+    private func loadCrewTrails(for date: Date) async {
+        let dateString = isoDateString(from: date)
+        do {
+            let response: CrewTrailsResponse = try await apiClient.request(
+                .scheduleCrewTrails(date: dateString)
+            )
+            guard !Task.isCancelled else { return }
+            crewRoutes = response.routes.filter { !$0.points.isEmpty }
+            crewLive   = response.live
+        } catch {
+            crewRoutes = []
+            crewLive   = []
+        }
+    }
+
+    // MARK: - Cache
+
+    private func cacheStops(_ fetched: [Stop], forDate dateString: String) {
+        stopCache[dateString] = fetched
+        // Evict oldest entry when cap is exceeded. ISO date strings sort lexically.
+        if stopCache.count > Self.maxCachedDays,
+           let oldest = stopCache.keys.sorted().first {
+            stopCache.removeValue(forKey: oldest)
+        }
+    }
+
+    // MARK: - Helpers
 
     private func isSameDay(_ a: Date, _ b: Date) -> Bool {
         calendar.isDate(a, inSameDayAs: b)

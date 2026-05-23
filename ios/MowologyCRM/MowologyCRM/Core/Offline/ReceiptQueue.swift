@@ -17,9 +17,10 @@ final class ReceiptQueue: ObservableObject {
 
     @Published private(set) var pendingCount: Int = 0
 
-    private let defaults   = UserDefaults.standard
-    private let storeKey   = "mw.receipt.queue.v1"
-    private let monitor    = NWPathMonitor()
+    private let defaults       = UserDefaults.standard
+    private let storeKey       = "mw.receipt.queue.v1"
+    private let monitor        = NWPathMonitor()
+    private var monitorStarted = false
     private var uploadTask: Task<Void, Never>?
 
     private init() { updateCount() }
@@ -65,13 +66,17 @@ final class ReceiptQueue: ObservableObject {
     // MARK: - Monitor & Drain
 
     func startMonitoring(uploadHandler: @escaping (Data, Double?, Double?, Int?) async throws -> ReceiptIntakeResponse) {
-        let queue = DispatchQueue(label: "mw.receipt.monitor", qos: .utility)
+        // Re-set the handler so the latest apiClient closure is always used,
+        // but only start the monitor once (NWPathMonitor asserts on double-start).
         monitor.pathUpdateHandler = { [weak self] path in
             guard path.status == .satisfied else { return }
             Task { @MainActor [weak self] in
                 await self?.drain(uploadHandler: uploadHandler)
             }
         }
+        guard !monitorStarted else { return }
+        monitorStarted = true
+        let queue = DispatchQueue(label: "mw.receipt.monitor", qos: .utility)
         monitor.start(queue: queue)
     }
 

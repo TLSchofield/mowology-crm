@@ -136,7 +136,7 @@ final class APIClient: ObservableObject {
     // MARK: - Multipart Upload
 
     /// Uploads a receipt image as multipart/form-data and returns OCR suggestions.
-    func uploadReceipt(imageData: Data, lat: Double?, lng: Double?, jobId: Int?) async throws -> ReceiptIntakeResponse {
+       func uploadReceipt(imageData: Data, lat: Double?, lng: Double?, jobId: Int?) async throws -> ReceiptIntakeResponse {
         guard let url = APIEndpoint.receiptUpload.url else { throw APIError.invalidURL }
 
         let boundary = "MwBoundary-\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
@@ -182,8 +182,7 @@ final class APIClient: ObservableObject {
     /// Uploads a single before/after job photo for a visit.
     @discardableResult
     func uploadJobPhoto(imageData: Data, visitId: Int, photoType: JobPhotoType) async throws -> [String: Any] {
-        let endpoint = APIEndpoint.scheduleTimer   // reuses /api/schedule/timer path pattern
-        guard let url = URL(string: "https://mowology.ca/api/schedule/job-photo") else {
+        guard let url = APIEndpoint.scheduleJobPhoto.url else {
             throw APIError.invalidURL
         }
 

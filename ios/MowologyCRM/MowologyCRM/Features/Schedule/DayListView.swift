@@ -12,6 +12,7 @@ struct DayListView: View {
     let stops: [Stop]
     let isLoading: Bool
     let errorMessage: String?
+    let isOffline: Bool
     let isAdmin: Bool
     let onRefresh: () async -> Void
 
@@ -33,6 +34,15 @@ struct DayListView: View {
 
     private var stopList: some View {
         List {
+            // Offline banner — shown above the cached stop list.
+            if isOffline {
+                Section {
+                    offlineBanner
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                }
+            }
+
             // Inline error banner above the list when we have stale data + an error.
             if let message = errorMessage {
                 Section {
@@ -98,6 +108,27 @@ struct DayListView: View {
         .background(Color(.systemGroupedBackground))
         // Allow pull-to-refresh on empty state.
         .refreshable { await onRefresh() }
+    }
+
+    // MARK: - Offline Banner
+
+    private var offlineBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "wifi.slash")
+                .foregroundStyle(.secondary)
+                .font(.subheadline)
+
+            Text("No signal — showing last synced schedule")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Spacer()
+        }
+        .padding(10)
+        .background(Color(.systemGray6))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 4)
     }
 
     // MARK: - Error Banner
