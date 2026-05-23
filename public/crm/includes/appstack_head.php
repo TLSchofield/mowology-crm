@@ -95,6 +95,10 @@ $bodyClass  = $bodyClass  ?? '';
   <script src="/crm/js/mw-offline-db.js?v=20260519b"></script>
   <script src="/crm/js/mw-quiz-offline.js?v=20260519a"></script>
 
+  <!-- JSON API service layer: wraps fetch() with CSRF + idempotency key injection.
+       Loaded synchronously so MwApi is available to any deferred script that needs it. -->
+  <script src="/crm/js/mw-api.js?v=20260522a"></script>
+
   <!-- Global Spotlight Search -->
   <script src="/crm/js/global-search.js?v=1" defer></script>
 
