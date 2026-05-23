@@ -55,6 +55,11 @@
 		830366ECB2EB0FD75F3B29CB /* VisitWorkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19463DBBCA2314B237BE00C /* VisitWorkView.swift */; };
 		86E989C600C80A671765708E /* VisitWorkViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FDD84813573A6DC8A7E4DB7 /* VisitWorkViewModel.swift */; };
 		28DDF3EB718E233882AA85C8 /* CrewTrail.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAFA16A03CBB34877128A74E /* CrewTrail.swift */; };
+		BB1234567890ABCDEF123401 /* QuizModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1234567890ABCDEF123401 /* QuizModels.swift */; };
+		BB1234567890ABCDEF123402 /* QuizView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1234567890ABCDEF123402 /* QuizView.swift */; };
+		BB1234567890ABCDEF123403 /* QuizViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1234567890ABCDEF123403 /* QuizViewModel.swift */; };
+		6CB330DA9E770330F8DBB500 /* ClockQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = C38B412AFB12D52D9679198C /* ClockQueue.swift */; };
+		FEE6F4240C835E02425E19BD /* JobPhotoQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020780B1CE91FCD6C5F342B3 /* JobPhotoQueue.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -108,6 +113,11 @@
 		B19463DBBCA2314B237BE00C /* VisitWorkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitWorkView.swift; sourceTree = "<group>"; };
 		3FDD84813573A6DC8A7E4DB7 /* VisitWorkViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitWorkViewModel.swift; sourceTree = "<group>"; };
 		EAFA16A03CBB34877128A74E /* CrewTrail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrewTrail.swift; sourceTree = "<group>"; };
+		AA1234567890ABCDEF123401 /* QuizModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuizModels.swift; sourceTree = "<group>"; };
+		AA1234567890ABCDEF123402 /* QuizView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuizView.swift; sourceTree = "<group>"; };
+		AA1234567890ABCDEF123403 /* QuizViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuizViewModel.swift; sourceTree = "<group>"; };
+		C38B412AFB12D52D9679198C /* ClockQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClockQueue.swift; sourceTree = "<group>"; };
+		020780B1CE91FCD6C5F342B3 /* JobPhotoQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobPhotoQueue.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -127,7 +137,9 @@
 			children = (
 				51F215642B22B1FCC54B663F /* MowologyCRM */,
 				636F64D13F9CF99C7CCAD7EA /* Products */,
-			);
+							C38B412AFB12D52D9679198C /* ClockQueue.swift */,
+				020780B1CE91FCD6C5F342B3 /* JobPhotoQueue.swift */,
+);
 			sourceTree = "<group>";
 		};
 		3CAC498CFC84EC47A1CECC6B /* Network */ = {
@@ -214,6 +226,16 @@
 			path = TimeClock;
 			sourceTree = "<group>";
 		};
+		CC1234567890ABCDEF123401 /* Quiz */ = {
+			isa = PBXGroup;
+			children = (
+				AA1234567890ABCDEF123401 /* QuizModels.swift */,
+				AA1234567890ABCDEF123402 /* QuizView.swift */,
+				AA1234567890ABCDEF123403 /* QuizViewModel.swift */,
+			);
+			path = Quiz;
+			sourceTree = "<group>";
+		};
 		77C42B8E19B50F970FF6A5FB /* Schedule */ = {
 			isa = PBXGroup;
 			children = (
@@ -245,6 +267,7 @@
 			isa = PBXGroup;
 			children = (
 				CE20BCAEE842327D670D075B /* Auth */,
+				CC1234567890ABCDEF123401 /* Quiz */,
 				77C42B8E19B50F970FF6A5FB /* Schedule */,
 				72C8560F970C9C517EFD669D /* TimeClock */,
 				A8B19292E74114A1A37EDE2C /* Receipts */,
@@ -408,6 +431,9 @@
 				830366ECB2EB0FD75F3B29CB /* VisitWorkView.swift in Sources */,
 				86E989C600C80A671765708E /* VisitWorkViewModel.swift in Sources */,
 				28DDF3EB718E233882AA85C8 /* CrewTrail.swift in Sources */,
+				BB1234567890ABCDEF123401 /* QuizModels.swift in Sources */,
+				BB1234567890ABCDEF123402 /* QuizView.swift in Sources */,
+				BB1234567890ABCDEF123403 /* QuizViewModel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

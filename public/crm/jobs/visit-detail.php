@@ -215,6 +215,13 @@ $activePage = 'jobs';
       <i data-feather="lock" class="mr-1"></i> Lock Visit
     </button>
     <?php endif; ?>
+    <?php if (!$isLocked && $visit['status'] !== 'completed'): ?>
+    <button class="btn btn-outline-primary btn-sm" id="btn-reschedule"
+            data-visit="<?= $visitId ?>"
+            data-current-date="<?= htmlspecialchars($visit['scheduled_date'] ?? '') ?>">
+      <i data-feather="calendar" class="mr-1"></i> Reschedule
+    </button>
+    <?php endif; ?>
     <button class="btn btn-outline-info btn-sm" id="btn-email-pow" data-visit="<?= $visitId ?>">
       <i data-feather="mail" class="mr-1"></i> Email PoW
     </button>
@@ -825,6 +832,31 @@ $activePage = 'jobs';
   </div>
 </div>
 
+<!-- Reschedule Modal -->
+<div class="modal fade" id="rescheduleModal" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i data-feather="calendar" class="mr-2" style="width:16px;height:16px;"></i>Reschedule Visit</h5>
+        <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group mb-0">
+          <label class="small font-weight-600">New Date</label>
+          <input type="date" class="form-control" id="reschedule-date-input">
+          <div class="invalid-feedback" id="reschedule-error-msg"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary btn-sm" id="btn-reschedule-confirm">
+          <i data-feather="check" class="mr-1" style="width:14px;height:14px;"></i> Confirm
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 (function() {
   'use strict';
@@ -1344,6 +1376,60 @@ $activePage = 'jobs';
     .catch(function() { /* silent — UI reverts on next load */ })
     .finally(function() { btn.disabled = false; });
   });
+
+  // ── Reschedule ──────────────────────────────────────────────────────────
+  var btnReschedule = document.getElementById('btn-reschedule');
+  if (btnReschedule) {
+    btnReschedule.addEventListener('click', function() {
+      var dateInput = document.getElementById('reschedule-date-input');
+      var errMsg    = document.getElementById('reschedule-error-msg');
+      dateInput.value = this.dataset.currentDate || '';
+      dateInput.classList.remove('is-invalid');
+      errMsg.textContent = '';
+      if (typeof $ !== 'undefined') $('#rescheduleModal').modal('show');
+    });
+
+    document.getElementById('btn-reschedule-confirm').addEventListener('click', function() {
+      var btn       = this;
+      var dateInput = document.getElementById('reschedule-date-input');
+      var errMsg    = document.getElementById('reschedule-error-msg');
+      var newDate   = dateInput.value;
+
+      if (!newDate) {
+        dateInput.classList.add('is-invalid');
+        errMsg.textContent = 'Please select a date.';
+        return;
+      }
+
+      btn.disabled    = true;
+      btn.textContent = 'Saving…';
+
+      fetch('/crm/api/reschedule-visit.php', {
+        method:  'POST',
+        headers: {'Content-Type': 'application/json'},
+        body:    JSON.stringify({ visit_id: VISIT_ID, new_date: newDate, csrf_token: CSRF })
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.success) {
+          if (typeof $ !== 'undefined') $('#rescheduleModal').modal('hide');
+          location.reload();
+        } else {
+          dateInput.classList.add('is-invalid');
+          errMsg.textContent = data.message || 'Failed to reschedule.';
+          btn.disabled    = false;
+          btn.textContent = 'Confirm';
+        }
+      })
+      .catch(function() {
+        errMsg.textContent = 'Network error — please try again.';
+        dateInput.classList.add('is-invalid');
+        btn.disabled    = false;
+        btn.textContent = 'Confirm';
+      });
+    });
+  }
+
 })();
 </script>
 

@@ -3,7 +3,11 @@
 ## Architecture
 - SwiftUI, minimum iOS 17.0, Swift 5.9
 - Xcode project generated from `project.yml` via XcodeGen
-- After adding or removing Swift files, run `xcodegen generate` in this directory to regenerate `.xcodeproj`
+- After adding a new Swift file, register it in the Xcode project using the Python bridge script:
+```
+python3 ios/add_swift_file.py ios/MowologyCRM/MowologyCRM/Features/NewFeature/NewFile.swift
+```
+Run once per file. Safe to re-run — exits cleanly if already registered. Do NOT manually edit `project.pbxproj` and do NOT use xcodegen (not installed).
 
 ## APIEndpoint
 Every new backend route needs a case in `MowologyCRM/Core/Network/APIEndpoints.swift`.
