@@ -19,7 +19,7 @@
  * URL so the WebView can use a service worker just like a browser can).
  */
 
-var CACHE_VERSION = 'mw-v43';
+var CACHE_VERSION = 'mw-v44';
 var SHELL_CACHE  = 'mw-shell-' + CACHE_VERSION;
 var PAGE_CACHE   = 'mw-pages-' + CACHE_VERSION;
 var IMG_CACHE    = 'mw-images-' + CACHE_VERSION;
@@ -93,6 +93,35 @@ var APP_SHELL = [
  * Pages are cached on-demand after first successful (logged-in) visit instead.
  */
 var WARM_PAGES = [];
+
+/**
+ * Open an IndexedDB store from the service-worker context and read a single
+ * record by key. Used by the calendar-stops deep-offline fallback to read the
+ * `mowology-schedule` DB populated by schedule-prefetch.js.
+ *
+ * NOTE: this assumes the store already exists. The SW does not run
+ * onupgradeneeded, so the page-side ScheduleCache module must have opened
+ * the DB at least once before the SW can read from it. In practice that
+ * always happens — schedule-prefetch.js runs on every schedule page load.
+ */
+function idbGet(dbName, storeName, key) {
+  return new Promise(function(resolve, reject) {
+    var req = indexedDB.open(dbName, 1);
+    req.onsuccess = function(e) {
+      var db = e.target.result;
+      if (!db.objectStoreNames.contains(storeName)) {
+        db.close();
+        resolve(null);
+        return;
+      }
+      var tx = db.transaction(storeName, 'readonly');
+      var r  = tx.objectStore(storeName).get(key);
+      r.onsuccess = function() { resolve(r.result || null); };
+      r.onerror   = function() { reject(r.error); };
+    };
+    req.onerror = function(e) { reject(e.target.error); };
+  });
+}
 
 // ── Install: pre-cache the app shell + warm key pages ──
 self.addEventListener('install', function(event) {
@@ -177,6 +206,55 @@ self.addEventListener('fetch', function(event) {
   }
 
   var pathname = url.pathname;
+
+  // ── Calendar stops → network → Cache Storage → IndexedDB (deep offline) ──
+  // schedule-prefetch.js warms IDB ahead of time so the schedule page still
+  // renders day data when both the network and the SW page cache miss.
+  if (pathname === '/crm/api/calendar-stops.php') {
+    event.respondWith(
+      fetch(request)
+        .then(function(res) {
+          // Cache fresh copy for next time
+          var clone = res.clone();
+          caches.open(PAGE_CACHE).then(function(c) { c.put(request, clone); });
+          return res;
+        })
+        .catch(function() {
+          return caches.match(request).then(function(cached) {
+            if (cached) return cached;
+            var date = new URL(request.url).searchParams.get('date');
+            if (!date) {
+              return new Response(
+                JSON.stringify({ success: false, offline: true, stops: [] }),
+                { headers: { 'Content-Type': 'application/json' } }
+              );
+            }
+            return idbGet('mowology-schedule', 'days', date)
+              .then(function(entry) {
+                if (entry) {
+                  return new Response(JSON.stringify({
+                    success: true,
+                    date: date,
+                    stops: entry.stops,
+                    offline: true
+                  }), { headers: { 'Content-Type': 'application/json' } });
+                }
+                return new Response(
+                  JSON.stringify({ success: false, offline: true, stops: [] }),
+                  { headers: { 'Content-Type': 'application/json' } }
+                );
+              })
+              .catch(function() {
+                return new Response(
+                  JSON.stringify({ success: false, offline: true, stops: [] }),
+                  { headers: { 'Content-Type': 'application/json' } }
+                );
+              });
+          });
+        })
+    );
+    return;
+  }
 
   // ── API calls → network-first (always fresh data, cache as fallback) ──
   if (pathname.startsWith('/crm/api/') || pathname.startsWith('/app/Modules/')) {

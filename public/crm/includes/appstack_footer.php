@@ -120,6 +120,12 @@
   <!-- Photo Queue: durable storage + background upload engine (must load before media-uploader.js) -->
   <script src="/crm/js/photo-queue.js?v=20260401a"></script>
 
+  <!-- Schedule prefetch: warms next-7-days IndexedDB cache via freshness handshake.
+       schedule-cache.js must load first so ScheduleCache is defined when the
+       prefetch IIFE runs. -->
+  <script src="/crm/js/schedule-cache.js?v=20260523a"></script>
+  <script src="/crm/js/schedule-prefetch.js?v=20260523a" defer></script>
+
   <!-- Dropdown fix: app.js bundles jQuery+Bootstrap whose dropdown plugin fails without global Popper.
        Remove the broken jQuery handler and replace with a working vanilla JS one. -->
   <script>
