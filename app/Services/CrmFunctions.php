@@ -2178,7 +2178,7 @@ function getCompanyProperties($companyId) {
                 $propWhere .= " AND p.id NOT IN ({$eph})";
                 $params     = array_merge($params, $explicitIds);
             }
-            $propStmt = $db->prepare("SELECT * FROM properties {$propWhere} ORDER BY address ASC");
+            $propStmt = $db->prepare("SELECT * FROM properties p {$propWhere} ORDER BY p.address ASC");
             $propStmt->execute($params);
             foreach ($propStmt->fetchAll(PDO::FETCH_ASSOC) as $p) {
                 $p['relationship_type']      = 'manager';
