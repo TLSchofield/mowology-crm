@@ -2121,87 +2121,80 @@ function getCompanyContacts($companyId) {
 }
 
 /**
- * Get properties linked to a company via the company_properties junction table
+ * Get properties linked to a company — two sources merged in PHP:
+ *
+ *   A) Explicit: rows in company_properties junction (user created via Link Property modal).
+ *   B) Inferred: properties whose site_contact_id is the company's primary or billing contact,
+ *      but NOT already in company_properties (avoids duplicates).
+ *
+ * Each row carries link_source ('explicit'|'inferred') and linked_via_name for display.
  */
 function getCompanyProperties($companyId) {
     $db = getDB();
     try {
-        // Two sources of truth merged via UNION:
-        //
-        //   A) Explicit links — rows a user created via the
-        //      company_properties junction (Link Property modal, import,
-        //      manual SQL, etc.). These carry an explicit relationship_type
-        //      and is_primary flag.
-        //
-        //   B) Inferred links — every property whose site_contact_id
-        //      matches the company's primary_contact_id OR billing_contact_id.
-        //      The user shouldn't have to manually re-state what the data
-        //      already says: if Monica is MACDONALD REALTY's primary contact
-        //      and the property at 1685 W 14th Ave has her as site contact,
-        //      that property belongs to MACDONALD REALTY.
-        //
-        // Each row carries a `link_source` flag ('explicit' or 'inferred')
-        // plus `linked_via_name` (the contact that bridges the relationship
-        // for inferred rows). The Properties tab on the company page uses
-        // both to render a "Linked via Monica Nicule" badge so the user
-        // can see WHY a row is showing up.
-        $sql = "
-            SELECT * FROM (
-                SELECT
-                    p.*,
-                    cp.relationship_type AS relationship_type,
-                    cp.is_primary        AS is_primary,
-                    'explicit'           AS link_source,
-                    NULL                 AS linked_via_name,
-                    NULL                 AS linked_via_contact_id
-                FROM properties p
-                JOIN company_properties cp ON cp.property_id = p.id
-                WHERE cp.company_id = :cid_a
+        // Source A — explicit junction rows
+        $stmt = $db->prepare("
+            SELECT p.*,
+                   cp.relationship_type AS relationship_type,
+                   cp.is_primary        AS is_primary,
+                   'explicit'           AS link_source,
+                   NULL                 AS linked_via_name,
+                   NULL                 AS linked_via_contact_id
+            FROM properties p
+            JOIN company_properties cp ON cp.property_id = p.id
+            WHERE cp.company_id = ?
+            ORDER BY cp.is_primary DESC, p.address ASC
+        ");
+        $stmt->execute([$companyId]);
+        $explicit = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $explicitIds = array_column($explicit, 'id');
 
-                UNION
+        // Source B — inferred via primary/billing contact's site_contact_id
+        $compRow = $db->prepare("SELECT primary_contact_id, billing_contact_id FROM companies WHERE id = ?");
+        $compRow->execute([$companyId]);
+        $comp = $compRow->fetch(PDO::FETCH_ASSOC);
 
-                SELECT
-                    p.*,
-                    'manager'            AS relationship_type,
-                    0                    AS is_primary,
-                    'inferred'           AS link_source,
-                    TRIM(CONCAT(COALESCE(ct.first_name,''), ' ', COALESCE(ct.last_name,''))) AS linked_via_name,
-                    ct.id                AS linked_via_contact_id
-                FROM properties p
-                JOIN contacts  ct ON ct.id = p.site_contact_id
-                JOIN companies co ON (co.primary_contact_id = ct.id OR co.billing_contact_id = ct.id)
-                WHERE co.id = :cid_b
-                  AND p.id NOT IN (
-                      SELECT property_id
-                      FROM company_properties
-                      WHERE company_id = :cid_c
-                  )
-            ) combined
-            ORDER BY is_primary DESC, address ASC
-        ";
-        $stmt = $db->prepare($sql);
-        $stmt->execute([
-            ':cid_a' => $companyId,
-            ':cid_b' => $companyId,
-            ':cid_c' => $companyId,
-        ]);
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
-    } catch (Exception $e) {
-        // Legacy fallback if site_contact_id column or contacts join fails
-        try {
-            $stmt = $db->prepare("
-                SELECT p.*, cp.relationship_type, cp.is_primary,
-                       'explicit' AS link_source, NULL AS linked_via_name
-                FROM properties p
-                JOIN company_properties cp ON p.id = cp.property_id
-                WHERE cp.company_id = ?
-                ORDER BY cp.is_primary DESC, p.address ASC
-            ");
-            $stmt->execute([$companyId]);
-            return $stmt->fetchAll(PDO::FETCH_ASSOC);
-        } catch (Exception $e2) {
-            return [];
+        $contactIds = array_values(array_unique(array_filter([
+            (int)($comp['primary_contact_id'] ?? 0),
+            (int)($comp['billing_contact_id'] ?? 0),
+        ])));
+
+        $inferred = [];
+        if (!empty($contactIds)) {
+            // Build contact name map for the "Linked via …" badge
+            $cph = implode(',', array_fill(0, count($contactIds), '?'));
+            $ctStmt = $db->prepare("SELECT id, first_name, last_name FROM contacts WHERE id IN ({$cph})");
+            $ctStmt->execute($contactIds);
+            $contactNames = [];
+            foreach ($ctStmt->fetchAll(PDO::FETCH_ASSOC) as $ct) {
+                $contactNames[(int)$ct['id']] = trim($ct['first_name'] . ' ' . $ct['last_name']);
+            }
+
+            // Fetch properties for those contacts, excluding ones already explicit
+            $propWhere = "WHERE p.site_contact_id IN ({$cph})";
+            $params    = $contactIds;
+            if (!empty($explicitIds)) {
+                $eph        = implode(',', array_fill(0, count($explicitIds), '?'));
+                $propWhere .= " AND p.id NOT IN ({$eph})";
+                $params     = array_merge($params, $explicitIds);
+            }
+            $propStmt = $db->prepare("SELECT * FROM properties {$propWhere} ORDER BY address ASC");
+            $propStmt->execute($params);
+            foreach ($propStmt->fetchAll(PDO::FETCH_ASSOC) as $p) {
+                $p['relationship_type']      = 'manager';
+                $p['is_primary']             = 0;
+                $p['link_source']            = 'inferred';
+                $p['linked_via_contact_id']  = (int)$p['site_contact_id'];
+                $p['linked_via_name']        = $contactNames[(int)$p['site_contact_id']] ?? '';
+                $inferred[] = $p;
+            }
         }
+
+        // Explicit rows first (sorted by is_primary DESC inside query), then inferred
+        return array_merge($explicit, $inferred);
+
+    } catch (Throwable $e) {
+        return [];
     }
 }
 
