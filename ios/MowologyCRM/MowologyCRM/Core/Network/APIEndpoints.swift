@@ -109,7 +109,6 @@ enum APIEndpoint {
 
     /// GET /api/schedule/visit-photos?visit_id=N — list uploaded before/after photos for a visit.
     case visitPhotos(visitId: Int)
-
     // MARK: - URL
 
     /// Builds the full URL for the endpoint. Returns `nil` only if the base

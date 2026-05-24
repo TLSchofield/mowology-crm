@@ -42,7 +42,6 @@ struct ScheduleView: View {
                     stops:          viewModel.stops,
                     isLoading:      viewModel.isLoading,
                     errorMessage:   viewModel.errorMessage,
-                    isOffline:      viewModel.isOffline,
                     isAdmin:        authSession.user?.isAdmin ?? false,
                     onRefresh:      { await viewModel.refresh() },
                     scrollTargetId: viewModel.scrollTargetStopId

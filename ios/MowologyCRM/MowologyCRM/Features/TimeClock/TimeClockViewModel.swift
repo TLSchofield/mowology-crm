@@ -22,18 +22,14 @@ final class TimeClockViewModel: ObservableObject {
         didSet { updateLiveActivity(job: activeJob) }
     }
 
-    @Published var isLoading: Bool        = false
-    @Published var errorMessage: String?  = nil
-
-    /// True when a clock action was accepted locally but not yet confirmed by the server.
-    @Published private(set) var isPendingSync: Bool = false
+    @Published var isLoading: Bool   = false
+    @Published var errorMessage: String? = nil
 
     // MARK: - Private
 
     private let apiClient: APIClient
     private var tickTimer: AnyCancellable?
     private var liveActivity: Activity<MowJobActivity>?
-    private var connectivityObserver: NSObjectProtocol?
 
     // MARK: - Init
 
@@ -66,25 +62,11 @@ final class TimeClockViewModel: ObservableObject {
                 await self?.loadStatus()
             }
         }
-
-        // Drain queued clock actions automatically when connectivity is restored.
-        connectivityObserver = NotificationCenter.default.addObserver(
-            forName: .mwPingQueueOnline,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                await self?.drainAndReconcile()
-            }
-        }
     }
 
     deinit {
         if let ob = arrivalObserver {
             NotificationCenter.default.removeObserver(ob)
-        }
-        if let obs = connectivityObserver {
-            NotificationCenter.default.removeObserver(obs)
         }
     }
 
@@ -98,21 +80,7 @@ final class TimeClockViewModel: ObservableObject {
             let response: ClockStatusResponse = try await apiClient.request(
                 .scheduleClockStatus
             )
-            // Server confirmed current state — discard any stale queued action.
-            if ClockQueue.shared.hasPending {
-                ClockQueue.shared.clear()
-                isPendingSync = false
-            }
             applyStatus(response)
-        } catch let err as APIError {
-            if case .networkError = err {
-                // Offline — restore last-known clock state from disk so the UI
-                // shows the correct clocked-in/out status without an error message.
-                restorePersistedClockState()
-                if ClockQueue.shared.hasPending { isPendingSync = true }
-            } else {
-                errorMessage = friendlyError(err)
-            }
         } catch {
             errorMessage = friendlyError(error)
         }
@@ -140,27 +108,11 @@ final class TimeClockViewModel: ObservableObject {
             entryId        = response.entryId
             clockInTime    = response.clockIn
             elapsedSeconds = response.elapsedSeconds ?? 0
-            isPendingSync  = false
-            persistClockState()
             if clockedIn {
                 startTicking()
                 GPSTrackingService.shared.start(authSession: authSession)
                 startLiveActivity(elapsed: elapsedSeconds)
                 syncWidgetState()
-            }
-        } catch let err as APIError {
-            if case .networkError = err {
-                // Offline — accept locally and queue for sync.
-                clockedIn     = true
-                isPendingSync = true
-                ClockQueue.shared.enqueue(action: "clock_in", lat: lat, lng: lng)
-                persistClockState()
-                startTicking()
-                GPSTrackingService.shared.start(authSession: authSession)
-                startLiveActivity(elapsed: elapsedSeconds)
-                syncWidgetState()
-            } else {
-                errorMessage = err.localizedDescription
             }
         } catch {
             errorMessage = friendlyError(error)
@@ -188,31 +140,11 @@ final class TimeClockViewModel: ObservableObject {
             clockInTime    = nil
             elapsedSeconds = 0
             activeJob      = nil
-            isPendingSync  = false
-            persistClockState()
             stopTicking()
             GPSTrackingService.shared.stop()
             endLiveActivity()
             syncWidgetState()
-            _ = response  // totalMinutes available if needed for summary display
-        } catch let err as APIError {
-            if case .networkError = err {
-                // Offline — accept locally and queue for sync.
-                clockedIn      = false
-                entryId        = nil
-                clockInTime    = nil
-                elapsedSeconds = 0
-                activeJob      = nil
-                isPendingSync  = true
-                ClockQueue.shared.enqueue(action: "clock_out", lat: lat, lng: lng)
-                persistClockState()
-                stopTicking()
-                GPSTrackingService.shared.stop()
-                endLiveActivity()
-                syncWidgetState()
-            } else {
-                errorMessage = err.localizedDescription
-            }
+            _ = response // totalMinutes available here if needed for summary display
         } catch {
             errorMessage = friendlyError(error)
         }
@@ -232,21 +164,7 @@ final class TimeClockViewModel: ObservableObject {
         return String(format: "%02d:%02d", m, s)
     }
 
-    // MARK: - Private
-
-    private func drainAndReconcile() async {
-        let result = await ClockQueue.shared.drain(using: apiClient)
-        switch result {
-        case .empty:
-            isPendingSync = false
-        case .success, .reconcile:
-            isPendingSync = false
-            // Reload from server to confirm our optimistic state.
-            await loadStatus()
-        case .offline:
-            break  // still no signal — keep pending state
-        }
-    }
+    // MARK: - Private Helpers
 
     private func applyStatus(_ response: ClockStatusResponse) {
         clockedIn      = response.clockedIn
@@ -254,7 +172,6 @@ final class TimeClockViewModel: ObservableObject {
         clockInTime    = response.clockIn
         elapsedSeconds = response.elapsedSeconds ?? 0
         activeJob      = response.activeJob
-        persistClockState()
 
         if clockedIn {
             startTicking()
@@ -266,34 +183,6 @@ final class TimeClockViewModel: ObservableObject {
             stopTicking()
             GPSTrackingService.shared.stop()
             syncWidgetState()
-        }
-    }
-
-    // MARK: - Clock State Persistence
-
-    private enum PersistKey {
-        static let clockedIn  = "mw.clock.state.clockedIn"
-        static let entryId    = "mw.clock.state.entryId"
-        static let clockInTime = "mw.clock.state.clockInTime"
-    }
-
-    private func persistClockState() {
-        let d = UserDefaults.standard
-        d.set(clockedIn, forKey: PersistKey.clockedIn)
-        d.set(entryId ?? 0, forKey: PersistKey.entryId)
-        d.set(clockInTime, forKey: PersistKey.clockInTime)
-    }
-
-    private func restorePersistedClockState() {
-        let d         = UserDefaults.standard
-        clockedIn     = d.bool(forKey: PersistKey.clockedIn)
-        let savedId   = d.integer(forKey: PersistKey.entryId)
-        entryId       = savedId > 0 ? savedId : nil
-        clockInTime   = d.string(forKey: PersistKey.clockInTime)
-        // Elapsed seconds will restart from 0 — server reconciles on reconnect.
-        if clockedIn {
-            startTicking()
-            GPSTrackingService.shared.start(authSession: authSession)
         }
     }
 

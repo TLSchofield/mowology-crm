@@ -50,9 +50,6 @@ final class ScheduleViewModel: ObservableObject {
     @Published var lastFetched: Date?
     @Published var quizRequired: Bool = false
 
-    /// True when the displayed schedule is from the disk cache (server unreachable).
-    @Published var isOffline: Bool = false
-
     // MARK: - Nearest-stop scroll
     @Published private(set) var scrollTargetStopId: Int? = nil
     private var scrolledDates: Set<String> = []
@@ -75,7 +72,6 @@ final class ScheduleViewModel: ObservableObject {
     /// Loads both the week strip summary and the day stops for the given date.
     /// Also gates on the daily pre-shift quiz.
     func refresh() async {
-        ScheduleCache.shared.evictOlderThan()
         quizRequired = !QuizViewModel.hasPassedToday()
         guard !quizRequired else { return }
         await loadWeek(for: selectedDate)
@@ -117,8 +113,6 @@ final class ScheduleViewModel: ObservableObject {
     }
 
     /// Fetches the week summary strip (7 ScheduleDay objects).
-    /// The week strip is decorative — fail silently on network error so the
-    /// cached day view remains usable offline.
     func loadWeek(for date: Date) async {
         let monday = mondayOf(week: date)
         let startString = isoDateString(from: monday)
@@ -132,11 +126,7 @@ final class ScheduleViewModel: ObservableObject {
             )
             weekDays = response.days
         } catch let apiError as APIError {
-            if case .networkError = apiError {
-                isOffline = true   // silent — day loader will set the banner
-            } else {
-                errorMessage = apiError.errorDescription
-            }
+            errorMessage = apiError.errorDescription
         } catch {
             errorMessage = "Failed to load week schedule."
         }
@@ -167,8 +157,6 @@ final class ScheduleViewModel: ObservableObject {
             let fetched = response.stops
             stopCache[dateString]        = fetched
             stopCacheFetched[dateString] = .now
-            ScheduleCache.shared.save(fetched, forDate: dateString)
-            isOffline   = false
             stops       = fetched
             lastFetched = .now
             let sites: [MonitoredSite] = fetched.flatMap { stop -> [MonitoredSite] in
@@ -180,22 +168,8 @@ final class ScheduleViewModel: ObservableObject {
             Task { await CalendarSyncService.shared.sync(stops: fetched, for: date) }
             syncWidgetSchedule(fetched)
         } catch let apiError as APIError {
-            if case .networkError = apiError {
-                // Offline — fall back to the disk cache before showing an error.
-                if let diskCached = ScheduleCache.shared.load(forDate: dateString) {
-                    stopCache[dateString]        = diskCached
-                    stopCacheFetched[dateString] = .now
-                    stops     = diskCached
-                    isOffline = true
-                } else {
-                    isOffline    = true
-                    errorMessage = "No signal and no cached schedule for this date."
-                    stops        = []
-                }
-            } else {
-                errorMessage = apiError.errorDescription
-                stops = []
-            }
+            errorMessage = apiError.errorDescription
+            stops = []
         } catch {
             errorMessage = "Failed to load stops for \(dateString)."
             stops = []

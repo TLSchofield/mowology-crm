@@ -17,10 +17,9 @@ final class ReceiptQueue: ObservableObject {
 
     @Published private(set) var pendingCount: Int = 0
 
-    private let defaults       = UserDefaults.standard
-    private let storeKey       = "mw.receipt.queue.v1"
-    private let monitor        = NWPathMonitor()
-    private var monitorStarted = false
+    private let defaults   = UserDefaults.standard
+    private let storeKey   = "mw.receipt.queue.v1"
+    private let monitor    = NWPathMonitor()
     private var uploadTask: Task<Void, Never>?
 
     // Application Support survives the OS temp-dir purge (which wipes the
@@ -84,17 +83,13 @@ final class ReceiptQueue: ObservableObject {
     // MARK: - Monitor & Drain
 
     func startMonitoring(uploadHandler: @escaping (Data, Double?, Double?, Int?) async throws -> ReceiptIntakeResponse) {
-        // Re-set the handler so the latest apiClient closure is always used,
-        // but only start the monitor once (NWPathMonitor asserts on double-start).
+        let queue = DispatchQueue(label: "mw.receipt.monitor", qos: .utility)
         monitor.pathUpdateHandler = { [weak self] path in
             guard path.status == .satisfied else { return }
             Task { @MainActor [weak self] in
                 await self?.drain(uploadHandler: uploadHandler)
             }
         }
-        guard !monitorStarted else { return }
-        monitorStarted = true
-        let queue = DispatchQueue(label: "mw.receipt.monitor", qos: .utility)
         monitor.start(queue: queue)
     }
 

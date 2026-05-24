@@ -3,7 +3,7 @@
 //  MowologyCRM
 //
 //  Disk-backed offline queue for before/after job site photos.
-//  Images are written to the Documents directory; metadata stored in UserDefaults.
+//  Images are written to the temp directory; metadata stored in UserDefaults.
 //  NWPathMonitor drains the queue automatically on reconnect.
 //
 //  Mirrors ReceiptQueue.swift in structure — same offline-first pattern.
@@ -81,18 +81,7 @@ final class JobPhotoQueue: ObservableObject {
 
     // MARK: - Enqueue
 
-    /// Saves an image to disk and records the pending upload.
-    /// Replaces any existing queued item for the same visit + slot so there is
-    /// always at most one pending upload per slot (the most recent capture).
     func enqueue(imageData: Data, visitId: Int, photoType: JobPhotoType) {
-        var current = items
-        // Drop stale entries for this slot and remove their files.
-        for stale in current where stale.visitId == visitId && stale.photoType == photoType {
-            let staleURL = queueDirectory.appendingPathComponent(stale.imageFilename)
-            try? FileManager.default.removeItem(at: staleURL)
-        }
-        current.removeAll { $0.visitId == visitId && $0.photoType == photoType }
-
         let id       = UUID().uuidString
         let filename = "jobphoto-\(id).jpg"
         let fileURL  = queueDirectory.appendingPathComponent(filename)
@@ -104,6 +93,7 @@ final class JobPhotoQueue: ObservableObject {
             return  // Don't queue an entry that points to a missing file
         }
 
+        var current = items
         current.append(PendingItem(
             id:            id,
             visitId:       visitId,
@@ -113,12 +103,6 @@ final class JobPhotoQueue: ObservableObject {
         ))
         items = current
         NSLog("[JobPhotoQueue] queued \(photoType.rawValue) photo for visit \(visitId) — pending: \(current.count)")
-    }
-
-    /// Returns true if there is a photo queued for this visit + slot.
-    /// Drives the soft "pending sync" indicator in JobPhotoSection.
-    func hasQueued(visitId: Int, photoType: JobPhotoType) -> Bool {
-        items.contains { $0.visitId == visitId && $0.photoType == photoType }
     }
 
     // MARK: - Monitor & Drain
@@ -132,14 +116,6 @@ final class JobPhotoQueue: ObservableObject {
             }
         }
         monitor.start(queue: queue)
-    }
-
-    /// Convenience overload: drain via an APIClient. Stops on the first network
-    /// error so the remaining queue is preserved for the next reconnect.
-    func drain(using apiClient: APIClient) async {
-        await drain { data, visitId, photoType in
-            try await apiClient.uploadJobPhoto(imageData: data, visitId: visitId, photoType: photoType)
-        }
     }
 
     func drain(uploadHandler: @escaping (Data, Int, JobPhotoType) async throws -> Void) async {

@@ -70,21 +70,6 @@ struct TimeClockView: View {
                 .font(.title2.bold())
                 .foregroundStyle(viewModel.clockedIn ? Color.MW.green : .primary)
 
-            // Pending sync indicator (action was accepted locally, waiting for signal)
-            if viewModel.isPendingSync {
-                HStack(spacing: 6) {
-                    Image(systemName: "arrow.triangle.2.circlepath")
-                        .font(.caption)
-                    Text("Saved — will sync when signal returns")
-                        .font(.caption)
-                }
-                .foregroundStyle(Color.MW.green)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(Color.MW.green.opacity(0.10))
-                .clipShape(Capsule())
-            }
-
             // Elapsed time (only when clocked in)
             if viewModel.clockedIn {
                 Text(viewModel.elapsedFormatted)
