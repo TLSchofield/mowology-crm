@@ -60,6 +60,20 @@ final class GPSTrackingService: ObservableObject {
     /// to update its visitStatuses without owning the ping loop itself.
     @Published private(set) var autoStartedPayload: AutoStartedPayload? = nil
 
+    /// The visit whose job timer is currently running, if any. Published so
+    /// UI surfaces (banner, dashboards) can react to start/stop in real time.
+    /// Set by `setActiveVisit(_:)` — manually from VisitDetailViewModel on
+    /// Start tap, OR automatically when a proximity auto-start payload
+    /// arrives on a ping response.
+    @Published private(set) var activeVisitId: Int? = nil
+
+    /// Wall-clock time the active job timer started on the device. Used by
+    /// the tracking banner to display elapsed time. nil whenever
+    /// `activeVisitId` is nil. Close-enough to server-side `start_time`:
+    /// drift is bounded by the ping round-trip (sub-second in normal
+    /// conditions), which is acceptable for crew-facing display.
+    @Published private(set) var activeVisitStartedAt: Date? = nil
+
     // MARK: - Internal (used by VisitDetailViewModel for location reads)
 
     let locationManager = LocationManager()
@@ -74,7 +88,6 @@ final class GPSTrackingService: ObservableObject {
     private var apiClient: APIClient?
     private var pingTask:  Task<Void, Never>?
     private var heartbeatTimer: DispatchSourceTimer?
-    private(set) var activeVisitId: Int? = nil
     private var connectivityObserver: NSObjectProtocol?
 
     /// Heartbeat tick. Fires roughly every 60 s while clocked in; on each
@@ -131,11 +144,42 @@ final class GPSTrackingService: ObservableObject {
         UserDefaults.standard.set(false, forKey: Self.kShiftActive)
     }
 
-    /// Call when a job timer starts (visitId) or stops (nil).
+    /// Call when a job timer starts (visitId) or stops (nil). Sources:
+    ///   - `VisitDetailViewModel.startJob/completeJob` (manual taps)
+    ///   - `handleAutoStart(_:)` below, when the server auto-starts a visit
+    ///     via proximity on a location-ping response
+    /// Updates `activeVisitId` + `activeVisitStartedAt` together so
+    /// observers (banner, etc.) see a consistent state.
     func setActiveVisit(_ visitId: Int?) {
-        activeVisitId = visitId
+        // No-op if state is already aligned — keeps `activeVisitStartedAt`
+        // stable when the same visit is re-asserted (e.g. server reconfirms).
+        if visitId == activeVisitId { return }
+
+        activeVisitId        = visitId
+        activeVisitStartedAt = visitId != nil ? Date() : nil
+
         if visitId != nil {
             locationManager.resetSessionMetrics()
+        }
+    }
+
+    /// Handles a proximity auto-start payload arriving on a ping response.
+    /// The server has already created the clock-in (if needed) and started
+    /// the job timer server-side; this just syncs iOS state so:
+    ///   - the GPS ping loop starts stamping visit_id on subsequent pings
+    ///   - the in-app tracking banner shows the running timer
+    ///   - any visible VisitDetailViewModel can react via autoStartedPayload
+    private func handleAutoStart(_ payload: AutoStartedPayload) {
+        // Sync the active-visit state — primary user-visible side effect.
+        if activeVisitId != payload.visitId {
+            setActiveVisit(payload.visitId)
+        }
+        // Re-publish the payload so VisitDetailViewModel can present the
+        // "auto clocked in" toast and refresh its local timer state.
+        autoStartedPayload = payload
+        Task {
+            try? await Task.sleep(for: .milliseconds(100))
+            autoStartedPayload = nil
         }
     }
 
@@ -179,12 +223,7 @@ final class GPSTrackingService: ObservableObject {
                 .scheduleLocation, body: body
             )
             if let payload = response.autoStarted {
-                autoStartedPayload = payload
-                // Reset after a tick so observers see the change even if same visitId fires twice.
-                Task {
-                    try? await Task.sleep(for: .milliseconds(100))
-                    autoStartedPayload = nil
-                }
+                handleAutoStart(payload)
             }
         } catch let error as APIError {
             if case .networkError = error {

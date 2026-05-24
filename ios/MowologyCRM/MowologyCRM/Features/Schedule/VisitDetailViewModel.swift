@@ -42,6 +42,8 @@ final class VisitDetailViewModel: ObservableObject {
 
     // MARK: - Init
 
+    private var autoStartObserver: AnyCancellable?
+
     init(stop: Stop, apiClient: APIClient) {
         self.stop      = stop
         self.apiClient = apiClient
@@ -59,6 +61,61 @@ final class VisitDetailViewModel: ObservableObject {
                 guard let self else { return }
                 Task { await self.drainPendingTransitions() }
             }
+
+        // Proximity auto-start: the server runs auto-start logic on every
+        // GPS ping and surfaces the result via `gps.autoStartedPayload`.
+        // When the auto-started visit belongs to THIS stop, mirror the
+        // server's state-change locally — flip the visit to in_progress,
+        // start the on-screen tick, and configure ArrivalMonitor so dwell
+        // metrics keep accumulating like a manual start.
+        autoStartObserver = gps.$autoStartedPayload
+            .compactMap { $0 }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] payload in
+                self?.applyAutoStartIfApplicable(payload)
+            }
+    }
+
+    /// Local state sync for a server-driven auto-start. Idempotent: re-emits
+    /// of the same visit ID are no-ops.
+    private func applyAutoStartIfApplicable(_ payload: AutoStartedPayload) {
+        let vid = payload.visitId
+        // Scope: only react when the auto-started visit belongs to this stop.
+        guard stop.visits.contains(where: { $0.visitId == vid }) else { return }
+        // Idempotency: ignore re-emissions of an already-active timer.
+        guard activeTimerVisitId != vid else { return }
+
+        // Mirror server state: visit is now in_progress.
+        visitStatuses[vid] = "in_progress"
+        activeTimerVisitId = vid
+
+        // Seed elapsedSeconds from gps.activeVisitStartedAt so the on-screen
+        // counter doesn't restart at 0 if VisitDetailView is opened mid-job.
+        if let started = gps.activeVisitStartedAt {
+            elapsedSeconds = max(0, Int(Date().timeIntervalSince(started)))
+        } else {
+            elapsedSeconds = 0
+        }
+        startTicking()
+
+        // Configure ArrivalMonitor so dwell + accuracy accumulate the same
+        // as a manual Start tap. Safe no-op if already configured.
+        if let lat = stop.latitude, let lon = stop.longitude {
+            ArrivalMonitor.shared.configure(
+                site: CLLocationCoordinate2D(latitude: lat, longitude: lon)
+            )
+            ArrivalMonitor.shared.jobStarted()
+        }
+
+        // Surface a toast that the crew was clocked in automatically, so
+        // they're not confused by the time-clock state changing under them.
+        if payload.clockInCreated == true {
+            autoClockInNotice = "Auto clocked in — \(payload.jobTitle ?? "job") started."
+        } else {
+            autoClockInNotice = "\(payload.jobTitle ?? "Job") started automatically."
+        }
+
+        haptic.notificationOccurred(.success)
     }
 
     // MARK: - Job Lifecycle

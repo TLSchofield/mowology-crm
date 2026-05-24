@@ -35,7 +35,11 @@ struct GPSTrackingBanner: View {
     @ObservedObject private var tracking = GPSTrackingService.shared
 
     var body: some View {
-        GPSTrackingBannerContent(isTracking: tracking.isTracking)
+        GPSTrackingBannerContent(
+            isTracking:          tracking.isTracking,
+            activeVisitId:       tracking.activeVisitId,
+            activeVisitStartedAt: tracking.activeVisitStartedAt
+        )
     }
 }
 
@@ -43,8 +47,13 @@ struct GPSTrackingBanner: View {
 
 private struct GPSTrackingBannerContent: View {
     let isTracking: Bool
+    let activeVisitId: Int?
+    let activeVisitStartedAt: Date?
+
     @State private var showSheet = false
     @State private var pulseScale: CGFloat = 1.0
+
+    private var isJobActive: Bool { activeVisitId != nil && activeVisitStartedAt != nil }
 
     var body: some View {
         Button { showSheet = true } label: {
@@ -54,9 +63,7 @@ private struct GPSTrackingBannerContent: View {
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(.white)
                 Spacer(minLength: 8)
-                Text(trailing)
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(.white.opacity(0.85))
+                trailingContent
                 Image(systemName: "chevron.right")
                     .font(.caption2.weight(.bold))
                     .foregroundStyle(.white.opacity(0.7))
@@ -69,13 +76,53 @@ private struct GPSTrackingBannerContent: View {
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(isTracking
-            ? "Location tracking is on. Tap for details."
-            : "Location tracking is off. Tap for details.")
+        .accessibilityLabel(accessibilityLabel)
         .onAppear { startPulse() }
         .sheet(isPresented: $showSheet) {
-            GPSTrackingDetailSheet(isTracking: isTracking)
-                .presentationDetents([.medium, .large])
+            GPSTrackingDetailSheet(
+                isTracking:          isTracking,
+                activeVisitId:       activeVisitId,
+                activeVisitStartedAt: activeVisitStartedAt
+            )
+            .presentationDetents([.medium, .large])
+        }
+    }
+
+    // MARK: - Trailing content
+
+    /// When a job is active: clock glyph + live elapsed timer.
+    /// Otherwise: contextual hint ("tap for details" / "clock in to start").
+    @ViewBuilder
+    private var trailingContent: some View {
+        if isJobActive, let startedAt = activeVisitStartedAt {
+            HStack(spacing: 4) {
+                Image(systemName: "clock.fill")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.white)
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    Text(formattedElapsed(from: startedAt, to: context.date))
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .monospacedDigit()
+                }
+            }
+        } else {
+            Text(trailing)
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.white.opacity(0.85))
+        }
+    }
+
+    /// MM:SS for jobs under an hour; H:MM:SS otherwise. Clamped at zero.
+    private func formattedElapsed(from start: Date, to now: Date) -> String {
+        let total = max(0, Int(now.timeIntervalSince(start)))
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        let s = total % 60
+        if h > 0 {
+            return String(format: "%d:%02d:%02d", h, m, s)
+        } else {
+            return String(format: "%d:%02d", m, s)
         }
     }
 
@@ -117,11 +164,21 @@ private struct GPSTrackingBannerContent: View {
     }
 
     private var headline: String {
-        isTracking ? "Location tracking on" : "Not tracking"
+        if isJobActive { return "Job in progress" }
+        return isTracking ? "Location tracking on" : "Not tracking"
     }
 
     private var trailing: String {
         isTracking ? "tap for details" : "clock in to start"
+    }
+
+    private var accessibilityLabel: String {
+        if isJobActive {
+            return "Job timer running. Tap for details."
+        }
+        return isTracking
+            ? "Location tracking is on. Tap for details."
+            : "Location tracking is off. Tap for details."
     }
 }
 
@@ -129,7 +186,11 @@ private struct GPSTrackingBannerContent: View {
 
 private struct GPSTrackingDetailSheet: View {
     let isTracking: Bool
+    let activeVisitId: Int?
+    let activeVisitStartedAt: Date?
     @Environment(\.dismiss) private var dismiss
+
+    private var isJobActive: Bool { activeVisitId != nil && activeVisitStartedAt != nil }
 
     var body: some View {
         NavigationStack {
@@ -140,6 +201,20 @@ private struct GPSTrackingDetailSheet: View {
                     LabeledContent("Reason",
                         value: isTracking ? "You are clocked in" : "You are off shift")
                 }
+
+                if isJobActive, let startedAt = activeVisitStartedAt {
+                    Section("Job timer") {
+                        LabeledContent("Visit", value: "#\(activeVisitId ?? 0)")
+                        TimelineView(.periodic(from: .now, by: 1)) { context in
+                            LabeledContent("Elapsed",
+                                value: liveElapsed(from: startedAt, to: context.date))
+                        }
+                        Text("Started automatically when you arrived at the property. Stop the timer from the visit detail screen.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
                 Section(isTracking ? "Why we track" : "Why this is off") {
                     Text(isTracking
                         ? "Location is recorded while you're clocked in. It's used to confirm arrivals at properties, calculate drive time between jobs, and provide a record of work performed. Tracking stops automatically when you clock out."
@@ -164,6 +239,16 @@ private struct GPSTrackingDetailSheet: View {
             }
         }
     }
+
+    private func liveElapsed(from start: Date, to now: Date) -> String {
+        let total = max(0, Int(now.timeIntervalSince(start)))
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        let s = total % 60
+        return h > 0
+            ? String(format: "%d:%02d:%02d", h, m, s)
+            : String(format: "%d:%02d", m, s)
+    }
 }
 
 // MARK: - Modifier
@@ -181,13 +266,31 @@ extension View {
 
 // MARK: - Previews
 
-#Preview("Tracking on") {
+#Preview("Tracking on, no job") {
     NavigationStack {
         Color(.systemGroupedBackground)
             .ignoresSafeArea()
     }
     .safeAreaInset(edge: .top, spacing: 0) {
-        GPSTrackingBannerContent(isTracking: true)
+        GPSTrackingBannerContent(
+            isTracking: true,
+            activeVisitId: nil,
+            activeVisitStartedAt: nil
+        )
+    }
+}
+
+#Preview("Tracking on, job running") {
+    NavigationStack {
+        Color(.systemGroupedBackground)
+            .ignoresSafeArea()
+    }
+    .safeAreaInset(edge: .top, spacing: 0) {
+        GPSTrackingBannerContent(
+            isTracking: true,
+            activeVisitId: 12345,
+            activeVisitStartedAt: Date().addingTimeInterval(-754)  // 12:34
+        )
     }
 }
 
@@ -197,6 +300,10 @@ extension View {
             .ignoresSafeArea()
     }
     .safeAreaInset(edge: .top, spacing: 0) {
-        GPSTrackingBannerContent(isTracking: false)
+        GPSTrackingBannerContent(
+            isTracking: false,
+            activeVisitId: nil,
+            activeVisitStartedAt: nil
+        )
     }
 }
