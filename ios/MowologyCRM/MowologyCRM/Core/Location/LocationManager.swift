@@ -112,6 +112,11 @@ final class LocationManager: NSObject, ObservableObject {
     /// locationManagerDidChangeAuthorization will start tracking as soon as it arrives.
     private var backgroundTrackingRequested = false
 
+    /// Fired from `didUpdateLocations` after a fix passes the quality filter.
+    /// GPSTrackingService uses this to drive pings from CoreLocation events
+    /// instead of from a `Task.sleep` loop, which is unreliable when backgrounded.
+    var onAcceptedFix: ((CLLocation) -> Void)?
+
     // Fix-quality state (reset per job session)
     private var lastAcceptedFix:     CLLocation?
     private var sessionWorstAccuracy: Double = 0
@@ -128,6 +133,9 @@ final class LocationManager: NSObject, ObservableObject {
         authorizationStatus = CLLocationManager().authorizationStatus
         super.init()
         clManager.delegate = self
+        // Tell iOS this is a navigation/field-tracking app so it doesn't
+        // aggressively auto-pause us in the background.
+        clManager.activityType = .otherNavigation
         applySettings(for: .unknown)
     }
 
@@ -188,16 +196,30 @@ final class LocationManager: NSObject, ObservableObject {
         clManager.allowsBackgroundLocationUpdates    = true
         clManager.pausesLocationUpdatesAutomatically = false  // managed via activity
         clManager.startUpdatingLocation()
+        // SLC survives app eviction / force-quit: if the user moves ~500 m the
+        // OS relaunches the app and we resume the in-process loop. This is the
+        // only mechanism that recovers from a swipe-up dismiss.
+        clManager.startMonitoringSignificantLocationChanges()
         startMotionTracking()
     }
 
     func stopBackgroundTracking() {
         backgroundTrackingRequested = false
         clManager.stopUpdatingLocation()
+        clManager.stopMonitoringSignificantLocationChanges()
         if clManager.authorizationStatus == .authorizedAlways {
             clManager.allowsBackgroundLocationUpdates = false
         }
         stopMotionTracking()
+    }
+
+    // MARK: - On-demand fix (used by stationary heartbeat)
+
+    /// Forces CoreLocation to deliver a fresh fix even when no motion has
+    /// occurred. Safe to call alongside `startUpdatingLocation()`.
+    func requestImmediateFix() {
+        guard canUseLocation else { return }
+        clManager.requestLocation()
     }
 
     // MARK: - Session Metrics Reset (call on job start)
@@ -305,6 +327,11 @@ extension LocationManager: CLLocationManagerDelegate {
                 self.lastAcceptedFix = fix
                 self.lastLocation    = fix
                 self.refreshBadge(accuracy: fix.horizontalAccuracy)
+                // Notify subscribers (GPSTrackingService) that a usable fix
+                // is available. This is the primary trigger for ping posting
+                // when the app is backgrounded — replaces the Task.sleep loop
+                // as the canonical "time to ping" signal.
+                self.onAcceptedFix?(fix)
             }
         }
     }

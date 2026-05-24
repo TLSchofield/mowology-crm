@@ -73,8 +73,20 @@ final class GPSTrackingService: ObservableObject {
 
     private var apiClient: APIClient?
     private var pingTask:  Task<Void, Never>?
+    private var heartbeatTimer: DispatchSourceTimer?
     private(set) var activeVisitId: Int? = nil
     private var connectivityObserver: NSObjectProtocol?
+
+    /// Minimum cadence between visits (i.e. no active job timer).
+    /// When a visit is active, the activity-based table in
+    /// `LocationManager.ActivityState.pingInterval` is used instead.
+    static let kBetweenVisitsInterval: TimeInterval = 300  // 5 min
+
+    /// Heartbeat tick. Fires roughly every 60 s while clocked in; on each
+    /// tick we check whether a ping is overdue and, if so, force a fresh
+    /// location fix via `requestImmediateFix()`. The fix delivery in turn
+    /// triggers `onAcceptedFix` which calls `sendPingIfDue`.
+    private static let heartbeatInterval: TimeInterval = 60
 
     private init() {
         connectivityObserver = NotificationCenter.default.addObserver(
@@ -97,8 +109,18 @@ final class GPSTrackingService: ObservableObject {
         isTracking = true
         UserDefaults.standard.set(true, forKey: Self.kShiftActive)
         locationManager.requestAlwaysPermission()
+        // Delegate-driven pings: whenever CoreLocation gives us a usable
+        // fix, see if we're due to post. This is the primary cadence source
+        // when the app is backgrounded — Task.sleep below is a fallback.
+        locationManager.onAcceptedFix = { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor in
+                await self.sendPingIfDue(minInterval: self.currentInterval())
+            }
+        }
         locationManager.startBackgroundTracking()
         startPingLoop()
+        startHeartbeat()
     }
 
     func stop() {
@@ -106,6 +128,9 @@ final class GPSTrackingService: ObservableObject {
         activeVisitId = nil
         pingTask?.cancel()
         pingTask = nil
+        heartbeatTimer?.cancel()
+        heartbeatTimer = nil
+        locationManager.onAcceptedFix = nil
         locationManager.stopBackgroundTracking()
         locationManager.resetSessionMetrics()
         UserDefaults.standard.set(false, forKey: Self.kShiftActive)
@@ -163,18 +188,82 @@ final class GPSTrackingService: ObservableObject {
         } catch { }
     }
 
+    // MARK: - Cadence
+
+    /// The minimum gap between pings right now, based on whether a visit
+    /// is active. Between visits we drop to a 5-min floor to save battery
+    /// and reduce off-job tracking density. With a visit active, the
+    /// activity-based table from `LocationManager` applies.
+    private func currentInterval() -> TimeInterval {
+        if activeVisitId == nil { return Self.kBetweenVisitsInterval }
+        return locationManager.currentActivity.pingInterval
+    }
+
+    /// Single rate-limited entry point for ping triggers (Task.sleep loop,
+    /// delegate callback, and heartbeat all funnel through this). Prevents
+    /// duplicate pings when multiple wake sources fire near-simultaneously.
+    func sendPingIfDue(minInterval: TimeInterval) async {
+        let lastPing = UserDefaults.standard.double(forKey: Self.kLastPingAt)
+        let elapsed  = lastPing > 0
+            ? Date().timeIntervalSince1970 - lastPing
+            : .greatestFiniteMagnitude
+        guard elapsed >= minInterval else { return }
+        await sendPing()
+    }
+
     // MARK: - Private
 
+    /// Fallback ping loop. Survives foreground reliably; gets unreliable in
+    /// the background when the process loses CPU. Kept as belt-and-suspenders
+    /// alongside the delegate-driven path. All triggers funnel through
+    /// `sendPingIfDue` so duplicates are deduped via `lastPingAt`.
     private func startPingLoop() {
         pingTask?.cancel()
         pingTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { break }
-                let interval = locationManager.currentActivity.pingInterval
+                let interval = self.currentInterval()
                 try? await Task.sleep(for: .seconds(interval))
                 guard !Task.isCancelled else { break }
-                await self.sendPing()
+                await self.sendPingIfDue(minInterval: interval)
             }
         }
+    }
+
+    /// Stationary heartbeat. Every 60 s, if a ping is overdue, we ask
+    /// CoreLocation for a fresh fix — even when the user hasn't moved.
+    /// This is what catches "crew mowing for 20 min with phone in pocket"
+    /// where no `didUpdateLocations` would otherwise fire.
+    ///
+    /// GCD timers on `.main` get CPU whenever the process does, which is
+    /// often enough in background-resident state (location entitlement
+    /// keeps the process alive). Not bulletproof under deep iOS sleep,
+    /// but covers the dominant production failure mode.
+    private func startHeartbeat() {
+        heartbeatTimer?.cancel()
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(
+            deadline: .now() + Self.heartbeatInterval,
+            repeating: Self.heartbeatInterval,
+            leeway: .seconds(5)
+        )
+        timer.setEventHandler { [weak self] in
+            self?.heartbeatTick()
+        }
+        timer.resume()
+        heartbeatTimer = timer
+    }
+
+    private func heartbeatTick() {
+        guard isTracking else { return }
+        let lastPing = UserDefaults.standard.double(forKey: Self.kLastPingAt)
+        let elapsed  = lastPing > 0
+            ? Date().timeIntervalSince1970 - lastPing
+            : .greatestFiniteMagnitude
+        guard elapsed >= currentInterval() else { return }
+        // Force a fresh fix; the delegate's onAcceptedFix will fire and
+        // route through sendPingIfDue. If the fix is rejected by the
+        // quality filter we'll try again on the next tick (60 s).
+        locationManager.requestImmediateFix()
     }
 }

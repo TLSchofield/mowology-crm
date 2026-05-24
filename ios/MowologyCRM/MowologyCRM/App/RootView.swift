@@ -12,6 +12,7 @@ struct RootView: View {
             } else if authSession.isAuthenticated {
                 MainTabView()
                     .environmentObject(authSession)
+                    .gpsTrackingBanner()
             } else {
                 LoginView(authSession: authSession)
             }

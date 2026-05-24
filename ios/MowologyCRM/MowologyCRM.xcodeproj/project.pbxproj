@@ -61,6 +61,7 @@
 		6CB330DA9E770330F8DBB500 /* ClockQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = C38B412AFB12D52D9679198C /* ClockQueue.swift */; };
 		FEE6F4240C835E02425E19BD /* JobPhotoQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020780B1CE91FCD6C5F342B3 /* JobPhotoQueue.swift */; };
 		9123154214A57C98D697E9A0 /* ScheduleCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD1CBB45AF36E4DCB8B81C51 /* ScheduleCache.swift */; };
+		11F7B288EE0FEF17FE881A89 /* GPSTrackingBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B964F83E81DEC7656F957B6 /* GPSTrackingBanner.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -120,6 +121,7 @@
 		C38B412AFB12D52D9679198C /* ClockQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClockQueue.swift; sourceTree = "<group>"; };
 		020780B1CE91FCD6C5F342B3 /* JobPhotoQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobPhotoQueue.swift; sourceTree = "<group>"; };
 		AD1CBB45AF36E4DCB8B81C51 /* ScheduleCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleCache.swift; sourceTree = "<group>"; };
+		5B964F83E81DEC7656F957B6 /* GPSTrackingBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GPSTrackingBanner.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -289,7 +291,8 @@
 				46E2EA872345FA9825A6DF2E /* Visit.swift */,
 				15B038E603948161013BAE5A /* ReceiptIntakeResponse.swift */,
 				D2304800F25344F166EF4441 /* Expense.swift */,
-			);
+							7A443FB2E75BCC1DD6E566B9 /* Common */,
+);
 			path = Models;
 			sourceTree = "<group>";
 		};
@@ -319,6 +322,14 @@
 				020A7702F7F98D53EF42EBAC /* ReceiptReviewView.swift */,
 			);
 			path = Receipts;
+			sourceTree = "<group>";
+		};
+		7A443FB2E75BCC1DD6E566B9 /* Common */ = {
+			isa = PBXGroup;
+			children = (
+				5B964F83E81DEC7656F957B6 /* GPSTrackingBanner.swift */,
+			);
+			path = Common;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -437,6 +448,7 @@
 				BB1234567890ABCDEF123401 /* QuizModels.swift in Sources */,
 				BB1234567890ABCDEF123402 /* QuizView.swift in Sources */,
 				BB1234567890ABCDEF123403 /* QuizViewModel.swift in Sources */,
+				11F7B288EE0FEF17FE881A89 /* GPSTrackingBanner.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
