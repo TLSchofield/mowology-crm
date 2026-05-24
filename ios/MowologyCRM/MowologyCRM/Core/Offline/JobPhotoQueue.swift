@@ -105,6 +105,12 @@ final class JobPhotoQueue: ObservableObject {
         NSLog("[JobPhotoQueue] queued \(photoType.rawValue) photo for visit \(visitId) — pending: \(current.count)")
     }
 
+    /// Returns true if there is a pending upload for this visit + slot.
+    /// Drives the soft "pending sync" indicator in JobPhotoSection.
+    func hasQueued(visitId: Int, photoType: JobPhotoType) -> Bool {
+        items.contains { $0.visitId == visitId && $0.photoType == photoType }
+    }
+
     // MARK: - Monitor & Drain
 
     func startMonitoring(uploadHandler: @escaping (Data, Int, JobPhotoType) async throws -> Void) {
