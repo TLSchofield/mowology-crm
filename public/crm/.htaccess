@@ -1,6 +1,12 @@
 # Disable directory browsing
 Options -Indexes
 
+# Prevent LiteSpeed and browser caching of all CRM pages (authenticated, dynamic content)
+<IfModule mod_headers.c>
+    Header set Cache-Control "no-store, no-cache, must-revalidate"
+    Header set X-LiteSpeed-Cache-Control "no-cache"
+</IfModule>
+
 # Serve dashboard_appstack.php as default for /crm/ directory
 DirectoryIndex dashboard_appstack.php index.php
 
