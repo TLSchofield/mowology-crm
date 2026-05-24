@@ -88,6 +88,47 @@ if (isset($_GET['from']) && $_GET['from'] === 'quote') { $message = 'Contract al
 
 $plans = getContractPlans($contractId);
 
+// ── Billing stats (invoices via plan_id → job_plans.contract_id) ─────────
+$billingStmt = $db->prepare("
+    SELECT
+        COALESCE(SUM(i.total), 0)                                                      AS total_billed,
+        COALESCE(SUM(i.total - i.balance_due), 0)                                      AS total_collected,
+        COALESCE(SUM(i.balance_due), 0)                                                AS total_outstanding,
+        COUNT(*)                                                                        AS invoice_count,
+        SUM(CASE WHEN i.status NOT IN ('paid','cancelled') THEN 1 ELSE 0 END)          AS open_count
+    FROM invoices i
+    JOIN job_plans jp ON i.plan_id = jp.id
+    WHERE jp.contract_id = ?
+    AND i.status != 'cancelled'
+");
+$billingStmt->execute([$contractId]);
+$billing = $billingStmt->fetch(PDO::FETCH_ASSOC) ?: [
+    'total_billed' => 0, 'total_collected' => 0, 'total_outstanding' => 0,
+    'invoice_count' => 0, 'open_count' => 0,
+];
+
+$recentInvStmt = $db->prepare("
+    SELECT i.id, i.invoice_number, i.issue_date, i.total, i.status
+    FROM invoices i
+    JOIN job_plans jp ON i.plan_id = jp.id
+    WHERE jp.contract_id = ?
+    AND i.status != 'cancelled'
+    ORDER BY i.issue_date DESC
+    LIMIT 5
+");
+$recentInvStmt->execute([$contractId]);
+$recentInvoices = $recentInvStmt->fetchAll(PDO::FETCH_ASSOC);
+
+// ── Next service date across all plans ───────────────────────────────────
+$nextService = null;
+foreach ($plans as $plan) {
+    if (!empty($plan['next_visit_date'])) {
+        if ($nextService === null || $plan['next_visit_date'] < $nextService) {
+            $nextService = $plan['next_visit_date'];
+        }
+    }
+}
+
 // Reconciliation: sum of plan estimated_amounts vs contract billing_amount
 $plansAllocated  = array_sum(array_map(fn($p) => (float)($p['estimated_amount'] ?? 0), $plans));
 $contractBilling = (float)($contract['billing_amount'] ?? 0);
@@ -119,6 +160,11 @@ $csrfToken  = generateCSRFToken();
 $pageTitle  = $contract['contract_number'] . ' — Contract';
 $activePage = 'contracts';
 
+// Load Leaflet if we'll show the border draw modal
+if ($hasPropCoords && !$hasBorder) {
+    $extraHead  = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">';
+    $extraHead .= '<script src="/crm/js/leaflet/leaflet.min.js"></script>';
+}
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
@@ -146,9 +192,9 @@ $activePage = 'contracts';
                       Crew cannot auto clock-in without a property boundary. Draw it once — it activates GPS tracking for every plan at this property.
                   </div>
               </div>
-              <a href="/crm/jobs/zone-editor.php?property_id=<?php echo (int)$contract['property_id']; ?>&return_to=contracts/view.php?id=<?php echo $contractId; ?>" class="mw-border-prompt-btn">
+              <button type="button" class="mw-border-prompt-btn" data-toggle="modal" data-target="#ctrBorderModal">
                   Draw Border Now
-              </a>
+              </button>
           </div>
           <?php elseif ($hasPropCoords && $hasBorder): ?>
           <div class="mw-border-ok mb-3">
@@ -157,8 +203,8 @@ $activePage = 'contracts';
                   <polyline points="20 6 9 17 4 12"/>
               </svg>
               Property border drawn — crew auto clock-in is active
-              <?php if ($contract['property_id']): ?>
-                  <a href="/crm/jobs/zone-editor.php?property_id=<?php echo (int)$contract['property_id']; ?>&return_to=contracts/view.php?id=<?php echo $contractId; ?>" class="mw-border-ok-link">Manage zones →</a>
+              <?php if ($firstPlanId): ?>
+                  <a href="../jobs/view.php?id=<?php echo $firstPlanId; ?>" class="mw-border-ok-link">Manage zones →</a>
               <?php endif; ?>
           </div>
           <?php endif; ?>
@@ -214,7 +260,7 @@ $activePage = 'contracts';
 
           <!-- ── Summary Row ─────────────────────────────────────────────────── -->
           <div class="row mb-4">
-              <div class="col-6 col-lg-3">
+              <div class="col-6 col-md-4 col-lg-2">
                   <div class="card">
                       <div class="card-body">
                           <div class="mw-stat-label">Plans</div>
@@ -224,10 +270,10 @@ $activePage = 'contracts';
                       </div>
                   </div>
               </div>
-              <div class="col-6 col-lg-3">
+              <div class="col-6 col-md-4 col-lg-2">
                   <div class="card">
                       <div class="card-body">
-                          <div class="mw-stat-label">Billing</div>
+                          <div class="mw-stat-label">Billing Rate</div>
                           <div class="mw-stat-value">
                               <?php if ($contract['billing_amount']): ?>
                                   $<?php echo number_format((float)$contract['billing_amount'], 2); ?>
@@ -241,37 +287,57 @@ $activePage = 'contracts';
                       </div>
                   </div>
               </div>
-              <div class="col-6 col-lg-3">
+              <div class="col-6 col-md-4 col-lg-2">
                   <div class="card">
                       <div class="card-body">
-                          <div class="mw-stat-label">Start Date</div>
+                          <div class="mw-stat-label">Total Billed</div>
                           <div class="mw-stat-value">
-                              <?php echo $contract['start_date'] ? date('M j, Y', strtotime($contract['start_date'])) : '—'; ?>
+                              <?php if ((float)$billing['total_billed'] > 0): ?>
+                                  $<?php echo number_format((float)$billing['total_billed'], 0); ?>
+                              <?php else: ?>
+                                  <span class="text-muted">—</span>
+                              <?php endif; ?>
                           </div>
                       </div>
                   </div>
               </div>
-              <div class="col-6 col-lg-3">
+              <div class="col-6 col-md-4 col-lg-2">
                   <div class="card">
                       <div class="card-body">
-                          <div class="mw-stat-label">
-                              <?php
-                              if ($contract['auto_renew'] ?? 0) {
-                                  echo 'Next Renewal';
-                              } else {
-                                  echo $contract['renewal_date'] ? 'Renewal Date' : 'End Date';
-                              }
-                              ?>
+                          <div class="mw-stat-label">Collected</div>
+                          <div class="mw-stat-value" style="color: var(--mw-green);">
+                              <?php if ((float)$billing['total_collected'] > 0): ?>
+                                  $<?php echo number_format((float)$billing['total_collected'], 0); ?>
+                              <?php else: ?>
+                                  <span class="text-muted">—</span>
+                              <?php endif; ?>
                           </div>
+                      </div>
+                  </div>
+              </div>
+              <div class="col-6 col-md-4 col-lg-2">
+                  <div class="card">
+                      <div class="card-body">
+                          <div class="mw-stat-label">Outstanding</div>
+                          <div class="mw-stat-value" <?php if ((float)$billing['total_outstanding'] > 0) echo 'style="color: var(--mw-orange);"'; ?>>
+                              <?php if ((float)$billing['total_outstanding'] > 0): ?>
+                                  $<?php echo number_format((float)$billing['total_outstanding'], 0); ?>
+                              <?php else: ?>
+                                  <span class="text-muted">—</span>
+                              <?php endif; ?>
+                          </div>
+                      </div>
+                  </div>
+              </div>
+              <div class="col-6 col-md-4 col-lg-2">
+                  <div class="card">
+                      <div class="card-body">
+                          <div class="mw-stat-label">Next Service</div>
                           <div class="mw-stat-value">
-                              <?php
-                              $d = $contract['renewal_date'] ?: $contract['end_date'];
-                              echo $d ? date('M j, Y', strtotime($d)) : 'Ongoing';
-                              ?>
-                              <?php if ($contract['auto_renew'] ?? 0): ?>
-                                  <small class="d-block" style="font-size:.72rem;color:var(--mw-green);font-weight:600;">
-                                      Auto-renews<?php echo (($contract['renewal_increase_pct'] ?? 0) > 0) ? ' +' . number_format((float)$contract['renewal_increase_pct'], 1) . '%' : ''; ?>
-                                  </small>
+                              <?php if ($nextService): ?>
+                                  <?php echo date('M j', strtotime($nextService)); ?>
+                              <?php else: ?>
+                                  <span class="text-muted">—</span>
                               <?php endif; ?>
                           </div>
                       </div>
@@ -279,8 +345,10 @@ $activePage = 'contracts';
               </div>
           </div>
 
-          <!-- ── Service Plans ────────────────────────────────────────────────── -->
-          <div class="card mb-4">
+          <!-- ── Service Plans + Billing Summary ──────────────────────────────── -->
+          <div class="row mb-4">
+          <div class="col-md-8">
+          <div class="card">
               <div class="card-header d-flex align-items-center justify-content-between">
                   <h5 class="card-title mb-0">
                       <i data-feather="briefcase" style="width:16px;height:16px;vertical-align:-2px;"></i>
@@ -389,6 +457,90 @@ $activePage = 'contracts';
               </div>
               <?php endif; ?>
           </div>
+          </div><!-- /.col-md-8 -->
+
+          <!-- ── Billing Summary ──────────────────────────────────────────────── -->
+          <div class="col-md-4">
+              <div class="card">
+                  <div class="card-header d-flex align-items-center justify-content-between">
+                      <h5 class="card-title mb-0">
+                          <i data-feather="dollar-sign" style="width:16px;height:16px;vertical-align:-2px;"></i>
+                          Billing Summary
+                      </h5>
+                      <?php
+                      $timingLabels = ['after_visit' => 'After Visit', 'end_of_month' => 'End of Month', 'upfront' => 'Upfront'];
+                      $timing = $contract['invoice_timing'] ?? 'after_visit';
+                      ?>
+                      <span class="mw-invoice-timing-badge mw-timing-<?php echo htmlspecialchars($timing); ?>">
+                          <?php echo htmlspecialchars($timingLabels[$timing] ?? $timing); ?>
+                      </span>
+                  </div>
+                  <div class="card-body">
+                      <div class="mw-billing-stat">
+                          <div class="mw-billing-stat-label">Total Billed</div>
+                          <div class="mw-billing-stat-value">
+                              $<?php echo number_format((float)$billing['total_billed'], 2); ?>
+                          </div>
+                      </div>
+                      <div class="mw-billing-stat">
+                          <div class="mw-billing-stat-label">Collected</div>
+                          <div class="mw-billing-stat-value is-green">
+                              $<?php echo number_format((float)$billing['total_collected'], 2); ?>
+                          </div>
+                      </div>
+                      <div class="mw-billing-stat">
+                          <div class="mw-billing-stat-label">Outstanding</div>
+                          <div class="mw-billing-stat-value <?php echo (float)$billing['total_outstanding'] > 0 ? 'is-orange' : ''; ?>">
+                              $<?php echo number_format((float)$billing['total_outstanding'], 2); ?>
+                          </div>
+                      </div>
+                      <?php
+                      $pctCollected = (float)$billing['total_billed'] > 0
+                          ? round(((float)$billing['total_collected'] / (float)$billing['total_billed']) * 100)
+                          : 0;
+                      ?>
+                      <div class="mw-billing-meta">
+                          <?php echo $pctCollected; ?>% collected
+                          &middot;
+                          <?php echo (int)$billing['open_count']; ?> open
+                          <?php echo (int)$billing['invoice_count']; ?> total
+                      </div>
+                      <?php if ($nextService): ?>
+                      <div class="mw-billing-meta" style="border-top:none;margin-top:4px;padding-top:0;">
+                          Next service <?php echo date('M j, Y', strtotime($nextService)); ?>
+                      </div>
+                      <?php endif; ?>
+
+                      <?php if (!empty($recentInvoices)): ?>
+                          <div class="mw-billing-section-label">Recent Invoices</div>
+                          <?php foreach ($recentInvoices as $inv): ?>
+                              <div class="mw-billing-invoice-row">
+                                  <div>
+                                      <a href="../invoices/view.php?id=<?php echo (int)$inv['id']; ?>"
+                                         class="mw-billing-invoice-num">
+                                          <?php echo htmlspecialchars($inv['invoice_number']); ?>
+                                      </a>
+                                      <div class="mw-billing-invoice-date">
+                                          <?php echo date('M j, Y', strtotime($inv['issue_date'])); ?>
+                                      </div>
+                                  </div>
+                                  <div class="mw-billing-invoice-right">
+                                      <div class="mw-billing-invoice-amount">
+                                          $<?php echo number_format((float)$inv['total'], 2); ?>
+                                      </div>
+                                      <div><?php echo getStatusBadge($inv['status'], 'invoice'); ?></div>
+                                  </div>
+                              </div>
+                          <?php endforeach; ?>
+                          <a href="../invoices/index.php?contract=<?php echo $contractId; ?>"
+                             class="mw-billing-view-all">View all invoices &rarr;</a>
+                      <?php else: ?>
+                          <div class="mw-billing-empty">No invoices yet</div>
+                      <?php endif; ?>
+                  </div>
+              </div>
+          </div><!-- /.col-md-4 -->
+          </div><!-- /.row -->
 
           <!-- ── Contract Details ─────────────────────────────────────────────── -->
           <div class="row">
@@ -397,23 +549,28 @@ $activePage = 'contracts';
                       <div class="card-header"><h5 class="card-title mb-0">Property &amp; Client</h5></div>
                       <div class="card-body">
                           <dl class="row mb-0">
-                              <dt class="col-sm-4">Property</dt>
+                              <dt class="col-sm-4"><span class="mw-icon-box"><i data-feather="map-pin" class="mw-detail-icon"></i></span> Property</dt>
                               <dd class="col-sm-8">
                                   <?php echo htmlspecialchars($contract['property_address']); ?><br>
                                   <span class="text-muted"><?php echo htmlspecialchars($contract['property_city']); ?></span>
                               </dd>
-                              <dt class="col-sm-4">Client</dt>
+                              <dt class="col-sm-4"><span class="mw-icon-box"><i data-feather="briefcase" class="mw-detail-icon"></i></span> Client</dt>
                               <dd class="col-sm-8">
-                                  <?php echo htmlspecialchars(trim($contract['first_name'] . ' ' . $contract['last_name'])); ?>
+                                  <?php $ctrClientName = trim($contract['first_name'] . ' ' . $contract['last_name']); ?>
+                                  <?php if (!empty($contract['contact_id']) && $ctrClientName): ?>
+                                      <a href="/crm/clients_appstack.php?action=view_contact&id=<?php echo (int)$contract['contact_id']; ?>"><?php echo htmlspecialchars($ctrClientName); ?></a>
+                                  <?php else: ?>
+                                      <?php echo htmlspecialchars($ctrClientName); ?>
+                                  <?php endif; ?>
                                   <?php if ($contract['contact_email']): ?>
-                                      <div class="text-muted small"><?php echo htmlspecialchars($contract['contact_email']); ?></div>
+                                      <div class="text-muted small"><a href="mailto:<?php echo htmlspecialchars($contract['contact_email']); ?>"><?php echo htmlspecialchars($contract['contact_email']); ?></a></div>
                                   <?php endif; ?>
                                   <?php if ($contract['contact_phone']): ?>
-                                      <div class="text-muted small"><?php echo htmlspecialchars($contract['contact_phone']); ?></div>
+                                      <div class="text-muted small"><a href="tel:<?php echo htmlspecialchars(preg_replace('/[^\d+]/', '', $contract['contact_phone'])); ?>"><?php echo htmlspecialchars($contract['contact_phone']); ?></a></div>
                                   <?php endif; ?>
                               </dd>
                               <?php if ($contract['notes']): ?>
-                                  <dt class="col-sm-4">Notes</dt>
+                                  <dt class="col-sm-4"><span class="mw-icon-box"><i data-feather="message-square" class="mw-detail-icon"></i></span> Notes</dt>
                                   <dd class="col-sm-8"><?php echo nl2br(htmlspecialchars($contract['notes'])); ?></dd>
                               <?php endif; ?>
                           </dl>
@@ -426,18 +583,18 @@ $activePage = 'contracts';
                       <div class="card-body">
                           <dl class="row mb-0">
                               <?php if ($contract['quote_id']): ?>
-                                  <dt class="col-sm-4">Source Quote</dt>
+                                  <dt class="col-sm-4"><span class="mw-icon-box"><i data-feather="file-text" class="mw-detail-icon"></i></span> Source Quote</dt>
                                   <dd class="col-sm-8">
                                       <a href="../quotes/view.php?id=<?php echo (int)$contract['quote_id']; ?>">
                                           <?php echo htmlspecialchars($contract['quote_number'] ?? 'View Quote'); ?>
                                       </a>
                                   </dd>
                               <?php endif; ?>
-                              <dt class="col-sm-4">Created By</dt>
+                              <dt class="col-sm-4"><span class="mw-icon-box"><i data-feather="user" class="mw-detail-icon"></i></span> Created By</dt>
                               <dd class="col-sm-8"><?php echo htmlspecialchars($contract['created_by_name'] ?? '—'); ?></dd>
-                              <dt class="col-sm-4">Created</dt>
+                              <dt class="col-sm-4"><span class="mw-icon-box"><i data-feather="calendar" class="mw-detail-icon"></i></span> Created</dt>
                               <dd class="col-sm-8"><?php echo date('M j, Y', strtotime($contract['created_at'])); ?></dd>
-                              <dt class="col-sm-4">Auto-Renew</dt>
+                              <dt class="col-sm-4"><span class="mw-icon-box"><i data-feather="refresh-cw" class="mw-detail-icon"></i></span> Auto-Renew</dt>
                               <dd class="col-sm-8">
                                   <?php if ($contract['auto_renew'] ?? 0): ?>
                                       <span style="color:var(--mw-green);font-weight:600;">Enabled</span>
@@ -449,7 +606,7 @@ $activePage = 'contracts';
                                   <?php endif; ?>
                               </dd>
                               <?php if (!empty($contract['last_renewed_at'])): ?>
-                                  <dt class="col-sm-4">Last Renewed</dt>
+                                  <dt class="col-sm-4"><span class="mw-icon-box"><i data-feather="clock" class="mw-detail-icon"></i></span> Last Renewed</dt>
                                   <dd class="col-sm-8"><?php echo date('M j, Y', strtotime($contract['last_renewed_at'])); ?></dd>
                               <?php endif; ?>
                           </dl>
@@ -589,5 +746,212 @@ $activePage = 'contracts';
     </div>
 </div>
 
+<?php if ($hasPropCoords && !$hasBorder): ?>
+<!-- ══════════════════════════════════════════════════════
+     PROPERTY BORDER DRAW MODAL
+     ══════════════════════════════════════════════════════ -->
+<div class="modal fade" id="ctrBorderModal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog mw-modal-fullscreen" role="document">
+        <div class="modal-content">
+
+            <div class="modal-header py-2 px-3">
+                <h5 class="modal-title">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+                         fill="none" stroke="var(--mw-orange)" stroke-width="2" stroke-linecap="round"
+                         stroke-linejoin="round" style="vertical-align:-2px;margin-right:6px;">
+                        <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+                        <circle cx="12" cy="10" r="3"/>
+                    </svg>
+                    Draw Property Border
+                    <span class="text-muted font-weight-normal small ml-2">
+                        <?php echo htmlspecialchars($contract['property_address'] . ', ' . $contract['property_city']); ?>
+                    </span>
+                </h5>
+                <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+            </div>
+
+            <!-- Map fills modal body -->
+            <div style="flex:1;position:relative;overflow:hidden;">
+                <div id="ctr-border-map" style="position:absolute;inset:0;width:100%;height:100%;"></div>
+            </div>
+
+            <!-- Footer: hint + controls -->
+            <div class="modal-footer py-2 px-3 d-flex align-items-center" style="flex-shrink:0;gap:8px;">
+                <div id="ctr-hint" class="mw-wz-hint mw-wz-hint--info flex-grow-1 mr-2"
+                     style="border-radius:5px;margin:0;">
+                    <span id="ctr-hint-text">Click <strong>Draw Border</strong> then click the map to trace the property boundary.</span>
+                </div>
+                <div class="flex-shrink-0 d-flex" style="gap:6px;">
+                    <button class="btn btn-sm btn-outline-secondary" id="ctr-cancel-btn"
+                            style="display:none;" onclick="ctrCancelDraw()">Cancel Draw</button>
+                    <button class="btn btn-sm btn-outline-success" id="ctr-finish-btn"
+                            style="display:none;" onclick="ctrFinishDraw()" disabled>✓ Finish Drawing</button>
+                    <button class="btn btn-sm btn-outline-primary" id="ctr-draw-btn"
+                            onclick="ctrStartDraw()" disabled>Draw Border</button>
+                    <button class="btn btn-sm btn-success" id="ctr-save-btn"
+                            style="display:none;" onclick="ctrSave()">
+                        <span id="ctr-save-spinner" style="display:none;">⏳ </span>Save Border
+                    </button>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<script src="/crm/js/geofence/geofence-manager.js?v=3"></script>
+<script>
+(function() {
+    var CTR_PROP_ID  = <?php echo (int)$contract['property_id']; ?>;
+    var CTR_PROP_LAT = <?php echo (float)($contract['latitude']  ?? 49.2827); ?>;
+    var CTR_PROP_LNG = <?php echo (float)($contract['longitude'] ?? -123.1207); ?>;
+    var CTR_CSRF     = <?php echo json_encode(generateCSRFToken()); ?>;
+    var CTR_API      = '/crm/api/geofence.php';
+
+    var ctrMgr        = null;
+    var ctrRing       = null;
+    var ctrIsSaving   = false;
+    var ctrVertices   = 0;
+
+    document.addEventListener('DOMContentLoaded', function() {
+        $('#ctrBorderModal').on('shown.bs.modal', function() {
+            ctrInitMap();
+        });
+        $('#ctrBorderModal').on('hidden.bs.modal', function() {
+            if (ctrMgr) { ctrMgr.destroy(); ctrMgr = null; }
+            ctrRing     = null;
+            ctrVertices = 0;
+        });
+    });
+
+    function ctrInitMap() {
+        if (ctrMgr) { ctrMgr.destroy(); ctrMgr = null; }
+        ctrMgr = new GeofenceManager({
+            mapContainer: 'ctr-border-map',
+            apiBase:      CTR_API,
+            csrfToken:    CTR_CSRF,
+            planId:       null,
+            mode:         'edit',
+            center:       [CTR_PROP_LAT, CTR_PROP_LNG],
+            zoom:         18,
+            strokeColor:  '#e85d04',
+            fillColor:    '#e85d04',
+            onDraw: function(ring) {
+                ctrRing = ring;
+                // Show save button
+                document.getElementById('ctr-draw-btn').style.display   = 'inline-flex';
+                document.getElementById('ctr-cancel-btn').style.display  = 'none';
+                document.getElementById('ctr-finish-btn').style.display  = 'none';
+                document.getElementById('ctr-save-btn').style.display    = 'inline-flex';
+                ctrSetHint('Border traced (' + ring.length + ' points). Click <strong>Save Border</strong> to activate auto clock-in.', 'success');
+            },
+        });
+        ctrMgr.init();
+
+        // Green dot marks the exact property coordinates so the user knows which lot to trace
+        if (typeof L !== 'undefined' && ctrMgr._map) {
+            L.circleMarker([CTR_PROP_LAT, CTR_PROP_LNG], {
+                radius: 10,
+                color: '#0D3B2E',
+                weight: 2,
+                fillColor: '#2D8659',
+                fillOpacity: 0.9,
+            }).addTo(ctrMgr._map).bindTooltip('Property location', { permanent: false, direction: 'top' });
+        }
+
+        // Track vertices so we can enable Finish button after 3+
+        if (ctrMgr._map) {
+            ctrMgr._map.on('click', function() {
+                if (ctrVertices >= 0) {
+                    ctrVertices++;
+                    var fBtn = document.getElementById('ctr-finish-btn');
+                    if (fBtn) fBtn.disabled = (ctrVertices < 3);
+                }
+            });
+        }
+
+        document.getElementById('ctr-draw-btn').disabled = false;
+        ctrSetHint('Click <strong>Draw Border</strong> then click the map to trace the property boundary. Double-click to close the shape.', 'info');
+    }
+
+    window.ctrStartDraw = function() {
+        if (!ctrMgr) return;
+        ctrRing     = null;
+        ctrVertices = 0;
+        ctrMgr.startDraw();
+        document.getElementById('ctr-draw-btn').style.display   = 'none';
+        document.getElementById('ctr-cancel-btn').style.display  = 'inline-flex';
+        document.getElementById('ctr-finish-btn').style.display  = 'inline-flex';
+        document.getElementById('ctr-save-btn').style.display    = 'none';
+        document.getElementById('ctr-finish-btn').disabled = true;
+        ctrSetHint('Click map to add corner points. Double-click (or Finish) to close the shape.', 'draw');
+    };
+
+    window.ctrFinishDraw = function() {
+        if (!ctrMgr) return;
+        ctrMgr.finishDraw();
+    };
+
+    window.ctrCancelDraw = function() {
+        if (!ctrMgr) return;
+        ctrVertices = 0;
+        ctrMgr.cancelDraw();
+        ctrMgr.setPolygon([]);
+        document.getElementById('ctr-draw-btn').style.display   = 'inline-flex';
+        document.getElementById('ctr-cancel-btn').style.display  = 'none';
+        document.getElementById('ctr-finish-btn').style.display  = 'none';
+        document.getElementById('ctr-save-btn').style.display    = 'none';
+        ctrSetHint('Cancelled. Click <strong>Draw Border</strong> to try again.', 'info');
+    };
+
+    window.ctrSave = function() {
+        if (!ctrRing || ctrIsSaving) return;
+        ctrIsSaving = true;
+        var spinner = document.getElementById('ctr-save-spinner');
+        var saveBtn = document.getElementById('ctr-save-btn');
+        if (spinner) spinner.style.display = 'inline';
+        if (saveBtn) saveBtn.disabled = true;
+        ctrSetHint('Saving property border…', 'info');
+
+        fetch(CTR_API, {
+            method:      'POST',
+            headers:     { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body:        JSON.stringify({
+                action:      'save_zone',
+                csrf_token:  CTR_CSRF,
+                property_id: CTR_PROP_ID,
+                zone_type:   'arrival_border',
+                plan_id:     null,
+                ring:        ctrRing,
+                label:       null,
+            }),
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (!data.success) throw new Error(data.error || 'Save failed');
+            // Reload so the banner disappears and the green indicator shows
+            window.location.reload();
+        })
+        .catch(function(err) {
+            ctrIsSaving = false;
+            if (spinner) spinner.style.display = 'none';
+            if (saveBtn) saveBtn.disabled = false;
+            ctrSetHint('Save failed: ' + err.message, 'error');
+        });
+    };
+
+    function ctrSetHint(html, variant) {
+        var el   = document.getElementById('ctr-hint');
+        var span = document.getElementById('ctr-hint-text');
+        if (!el || !span) return;
+        span.innerHTML = html;
+        el.className = 'mw-wz-hint mw-wz-hint--' + (variant || 'info') + ' flex-grow-1 mr-2';
+        el.style.borderRadius = '5px';
+        el.style.margin = '0';
+    }
+})();
+</script>
+<?php endif; ?>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
