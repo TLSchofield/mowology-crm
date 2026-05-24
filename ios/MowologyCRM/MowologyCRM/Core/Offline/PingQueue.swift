@@ -11,6 +11,11 @@ import Network
 
 /// A GPS ping that could not be delivered while offline.
 /// Stored locally and flushed when connectivity returns.
+///
+/// `fixTimestamp` is the CLLocation capture time — distinct from `queuedAt`
+/// (when we tried to send) and from the server-side receive time. Sending
+/// `fixTimestamp` to the server lets drained queues reconstruct accurate
+/// chronological trails instead of all collapsing to "now" on drain.
 @Model
 final class PendingPing {
     var lat: Double
@@ -18,13 +23,33 @@ final class PendingPing {
     var accuracy: Double
     var visitId: Int?
     var queuedAt: Date
+    /// When CoreLocation actually captured this fix (vs when we queued it).
+    /// Nullable for backwards compatibility with pings queued before this
+    /// field existed — drain falls back to `queuedAt` in that case.
+    var fixTimestamp: Date?
+    /// Optional CLLocation metrics (nil when CLLocation reported invalid).
+    var speed:    Double?
+    var course:   Double?
+    var altitude: Double?
 
-    init(lat: Double, lng: Double, accuracy: Double, visitId: Int?) {
-        self.lat       = lat
-        self.lng       = lng
-        self.accuracy  = accuracy
-        self.visitId   = visitId
-        self.queuedAt  = Date()
+    init(lat: Double,
+         lng: Double,
+         accuracy: Double,
+         visitId: Int?,
+         fixTimestamp: Date?  = nil,
+         speed:    Double?    = nil,
+         course:   Double?    = nil,
+         altitude: Double?    = nil)
+    {
+        self.lat          = lat
+        self.lng          = lng
+        self.accuracy     = accuracy
+        self.visitId      = visitId
+        self.queuedAt     = Date()
+        self.fixTimestamp = fixTimestamp
+        self.speed        = speed
+        self.course       = course
+        self.altitude     = altitude
     }
 }
 
@@ -48,6 +73,12 @@ final class PingQueue: ObservableObject {
     private let container: ModelContainer
     private let monitor    = NWPathMonitor()
     private let monitorQ   = DispatchQueue(label: "ca.mowology.ping-monitor", qos: .utility)
+
+    /// In-flight guard. `mwPingQueueOnline` can fire multiple times on
+    /// flaky networks; without this, concurrent `drain()` calls could
+    /// race on the ModelContext and double-post the same rows.
+    /// MainActor isolation makes the read+set atomic.
+    private var draining = false
 
     private init() {
         do {
@@ -85,9 +116,24 @@ final class PingQueue: ObservableObject {
     // MARK: - Store
 
     /// Persist a ping that failed to send (called on network error).
-    func store(lat: Double, lng: Double, accuracy: Double, visitId: Int?) {
+    /// `fixTimestamp` and the optional metrics are forwarded to the server
+    /// on drain so the trail reflects when the fix was captured, not when
+    /// it was eventually delivered.
+    func store(lat: Double,
+               lng: Double,
+               accuracy: Double,
+               visitId: Int?,
+               fixTimestamp: Date? = nil,
+               speed:    Double?  = nil,
+               course:   Double?  = nil,
+               altitude: Double?  = nil)
+    {
         let ctx = ModelContext(container)
-        ctx.insert(PendingPing(lat: lat, lng: lng, accuracy: accuracy, visitId: visitId))
+        ctx.insert(PendingPing(
+            lat: lat, lng: lng, accuracy: accuracy, visitId: visitId,
+            fixTimestamp: fixTimestamp,
+            speed: speed, course: course, altitude: altitude
+        ))
         try? ctx.save()
         refreshCount()
     }
@@ -96,7 +142,15 @@ final class PingQueue: ObservableObject {
 
     /// Send all queued pings oldest-first. Stops on the first failure
     /// to preserve ordering. Expired pings (> 8 h old) are deleted silently.
+    ///
+    /// Guarded by `draining` so concurrent invocations (e.g. multiple
+    /// `mwPingQueueOnline` notifications on a flaky network) collapse
+    /// to a single in-flight pass.
     func drain(using apiClient: APIClient) async {
+        guard !draining else { return }
+        draining = true
+        defer { draining = false }
+
         let ctx = ModelContext(container)
         guard let pings = try? ctx.fetch(
             FetchDescriptor<PendingPing>(sortBy: [SortDescriptor(\.queuedAt)])
@@ -110,12 +164,22 @@ final class PingQueue: ObservableObject {
                 continue
             }
 
+            // Send the original capture time so the server can timestamp
+            // this row with when the fix actually happened, not when we
+            // managed to drain it. Falls back to queuedAt for pings
+            // queued before fixTimestamp existed (legacy on-disk rows).
+            let captureTs = (ping.fixTimestamp ?? ping.queuedAt).timeIntervalSince1970
+
             var body: [String: Any] = [
-                "lat": ping.lat,
-                "lng": ping.lng,
-                "accuracy": ping.accuracy,
+                "lat":              ping.lat,
+                "lng":              ping.lng,
+                "accuracy":         ping.accuracy,
+                "client_timestamp": captureTs,
             ]
-            if let vid = ping.visitId { body["visit_id"] = vid }
+            if let vid = ping.visitId  { body["visit_id"] = vid }
+            if let v   = ping.speed    { body["speed"]    = v }
+            if let v   = ping.course   { body["course"]   = v }
+            if let v   = ping.altitude { body["altitude"] = v }
 
             struct Resp: Decodable { let success: Bool }
             if let resp = try? await apiClient.request(.scheduleLocation, body: body) as Resp,

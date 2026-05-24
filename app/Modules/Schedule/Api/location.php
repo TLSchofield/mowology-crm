@@ -8,7 +8,20 @@ declare(strict_types=1);
  *
  * POST /api/schedule/location
  * Authorization: Bearer <jwt>
- * Body: { "lat": float, "lng": float, "accuracy": float?, "visit_id": int? }
+ * Body: {
+ *   "lat":              float,    required
+ *   "lng":              float,    required
+ *   "accuracy":         float?,   default 50.0
+ *   "visit_id":         int?
+ *   "client_timestamp": float?    Unix epoch seconds when CLLocation captured
+ *                                 the fix. Used for chronologically-correct
+ *                                 offline-drained pings. Falls back to NOW()
+ *                                 server-side if absent. Ignored when >24h
+ *                                 in the future (rogue clock).
+ *   "speed":            float?    m/s
+ *   "course":           float?    heading in degrees
+ *   "altitude":         float?    meters above sea level
+ * }
  *
  * Stores a ping in crew_location_history and runs proximity auto-start check
  * (same logic as crew-location.php POST, but session-free for JWT/iOS clients).
@@ -53,6 +66,22 @@ try {
     $lng      = isset($input['lng'])      ? (float)$input['lng']      : null;
     $accuracy = isset($input['accuracy']) ? (float)$input['accuracy'] : 50.0;
     $visitId  = isset($input['visit_id']) ? (int)$input['visit_id']   : null;
+    $speed    = isset($input['speed'])    ? (float)$input['speed']    : null;
+    $course   = isset($input['course'])   ? (float)$input['course']   : null;
+    $altitude = isset($input['altitude']) ? (float)$input['altitude'] : null;
+
+    // Client capture time (Unix epoch seconds). Trusted when provided AND
+    // not obviously wrong (rogue clock guard: reject anything >24h ahead).
+    // Falls back to NOW() at INSERT time when absent.
+    $clientTs    = null;
+    $clientTsStr = null;
+    if (isset($input['client_timestamp'])) {
+        $candidate = (float)$input['client_timestamp'];
+        if ($candidate > 0 && $candidate <= time() + 86400) {
+            $clientTs    = $candidate;
+            $clientTsStr = date('Y-m-d H:i:s', (int)$candidate);
+        }
+    }
 
     if ($lat === null || $lng === null) {
         http_response_code(400);
@@ -83,12 +112,29 @@ try {
         exit;
     }
 
-    // Store the ping
+    // Store the ping. `timestamp` is always server-receive time (useful as a
+    // sequence-of-arrival ledger). `client_timestamp` is when CLLocation
+    // actually captured the fix — preserves chronological order for offline-
+    // drained pings. The new metric columns (speed/course/altitude) are
+    // nullable for clients that don't provide them.
     $stmt = $db->prepare("
-        INSERT INTO crew_location_history (crew_id, latitude, longitude, accuracy_meters, visit_id, timestamp)
-        VALUES (?, ?, ?, ?, ?, NOW())
+        INSERT INTO crew_location_history
+            (crew_id, latitude, longitude, accuracy_meters, visit_id,
+             timestamp, client_timestamp, speed, course, altitude)
+        VALUES
+            (?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?)
     ");
-    $stmt->execute([$userId, $lat, $lng, (int)round($accuracy), $visitId ?: null]);
+    $stmt->execute([
+        $userId,
+        $lat,
+        $lng,
+        (int)round($accuracy),
+        $visitId ?: null,
+        $clientTsStr,
+        $speed,
+        $course,
+        $altitude,
+    ]);
     $insertId = (int)$db->lastInsertId();
 
     // Proximity auto-start — uses existing CRM logic, session-free via $preloadedVisits.

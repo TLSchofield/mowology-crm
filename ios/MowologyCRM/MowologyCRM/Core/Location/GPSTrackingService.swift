@@ -77,11 +77,6 @@ final class GPSTrackingService: ObservableObject {
     private(set) var activeVisitId: Int? = nil
     private var connectivityObserver: NSObjectProtocol?
 
-    /// Minimum cadence between visits (i.e. no active job timer).
-    /// When a visit is active, the activity-based table in
-    /// `LocationManager.ActivityState.pingInterval` is used instead.
-    static let kBetweenVisitsInterval: TimeInterval = 300  // 5 min
-
     /// Heartbeat tick. Fires roughly every 60 s while clocked in; on each
     /// tick we check whether a ping is overdue and, if so, force a fresh
     /// location fix via `requestImmediateFix()`. The fix delivery in turn
@@ -153,6 +148,10 @@ final class GPSTrackingService: ObservableObject {
         let lat      = loc.coordinate.latitude
         let lng      = loc.coordinate.longitude
         let accuracy = loc.horizontalAccuracy >= 0 ? loc.horizontalAccuracy : 50.0
+        // Capture time of the fix itself — sent to the server as
+        // `client_timestamp` so chronological order is preserved even
+        // when this ping ends up in the offline drain queue.
+        let captureTs = loc.timestamp.timeIntervalSince1970
 
         if let vid = activeVisitId {
             RouteStore.shared.record(visitId: vid, location: loc)
@@ -162,12 +161,18 @@ final class GPSTrackingService: ObservableObject {
         UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: Self.kLastPingAt)
 
         var body: [String: Any] = [
-            "lat":      lat,
-            "lng":      lng,
-            "accuracy": accuracy,
-            "activity": locationManager.currentActivity.rawValue
+            "lat":              lat,
+            "lng":              lng,
+            "accuracy":         accuracy,
+            "client_timestamp": captureTs,
+            "activity":         locationManager.currentActivity.rawValue
         ]
-        if let vid = activeVisitId { body["visit_id"] = vid }
+        if let vid    = activeVisitId            { body["visit_id"] = vid }
+        // CLLocation reports speed/course as negative when invalid.
+        if loc.speed  >= 0                       { body["speed"]    = loc.speed }
+        if loc.course >= 0                       { body["course"]   = loc.course }
+        // altitude is always provided; may be coarse without a barometer.
+        body["altitude"] = loc.altitude
 
         do {
             let response: LocationPingResponse = try await client.request(
@@ -183,31 +188,53 @@ final class GPSTrackingService: ObservableObject {
             }
         } catch let error as APIError {
             if case .networkError = error {
-                PingQueue.shared.store(lat: lat, lng: lng, accuracy: accuracy, visitId: activeVisitId)
+                PingQueue.shared.store(
+                    lat: lat, lng: lng, accuracy: accuracy,
+                    visitId:      activeVisitId,
+                    fixTimestamp: loc.timestamp,
+                    speed:    loc.speed  >= 0 ? loc.speed  : nil,
+                    course:   loc.course >= 0 ? loc.course : nil,
+                    altitude: loc.altitude
+                )
             }
         } catch { }
     }
 
     // MARK: - Cadence
 
-    /// The minimum gap between pings right now, based on whether a visit
-    /// is active. Between visits we drop to a 5-min floor to save battery
-    /// and reduce off-job tracking density. With a visit active, the
-    /// activity-based table from `LocationManager` applies.
+    /// The minimum gap between pings right now. Pure activity-based — the
+    /// table in `LocationManager.ActivityState.pingInterval` is the single
+    /// source of truth (20–120 s depending on motion). Visit-state no longer
+    /// gates cadence; the server stamps `visit_id` when a timer is active.
     private func currentInterval() -> TimeInterval {
-        if activeVisitId == nil { return Self.kBetweenVisitsInterval }
-        return locationManager.currentActivity.pingInterval
+        locationManager.currentActivity.pingInterval
     }
 
     /// Single rate-limited entry point for ping triggers (Task.sleep loop,
     /// delegate callback, and heartbeat all funnel through this). Prevents
     /// duplicate pings when multiple wake sources fire near-simultaneously.
+    ///
+    /// Also gates on fix freshness: if `lastLocation` is stale (older than
+    /// `2 × minInterval`), we force a refresh instead of posting old data.
+    /// The fresh delegate callback will re-enter this method with current
+    /// coordinates.
     func sendPingIfDue(minInterval: TimeInterval) async {
         let lastPing = UserDefaults.standard.double(forKey: Self.kLastPingAt)
         let elapsed  = lastPing > 0
             ? Date().timeIntervalSince1970 - lastPing
             : .greatestFiniteMagnitude
         guard elapsed >= minInterval else { return }
+
+        // Stale-fix guard: don't post a fix that's much older than the
+        // cadence we're trying to enforce. Request a fresh one instead.
+        if let fix = locationManager.lastLocation {
+            let fixAge = Date().timeIntervalSince(fix.timestamp)
+            if fixAge > minInterval * 2 {
+                locationManager.requestImmediateFix()
+                return
+            }
+        }
+
         await sendPing()
     }
 
