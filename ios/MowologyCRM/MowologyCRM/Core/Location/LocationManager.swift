@@ -24,6 +24,13 @@ enum ActivityType: String {
     case unknown    = "UNKNOWN"
 }
 
+// MARK: - LocationError
+
+enum LocationError: Error {
+    case permissionDenied
+    case locationUnavailable
+}
+
 // MARK: - LocationManager
 
 /// Thin, non-singleton wrapper around `CLLocationManager`.
@@ -49,6 +56,7 @@ final class LocationManager: NSObject {
     // MARK: - Private
 
     private let manager = CLLocationManager()
+    private var pendingLocationContinuation: CheckedContinuation<CLLocation, Error>?
 
     // MARK: - Init
 
@@ -90,6 +98,28 @@ final class LocationManager: NSObject {
     /// are added to the visit timeline API.
     func resetSessionMetrics() {}
 
+    // MARK: - One-shot Location Fix
+
+    /// Returns the most recent fix if it is younger than 30 s; otherwise
+    /// requests a single fresh fix and awaits it. Throws if permission is
+    /// denied or the fix request fails.
+    func currentLocation() async throws -> CLLocation {
+        switch manager.authorizationStatus {
+        case .denied, .restricted:
+            throw LocationError.permissionDenied
+        default:
+            break
+        }
+        if let cached = lastLocation, cached.timestamp.timeIntervalSinceNow > -30 {
+            return cached
+        }
+        return try await withCheckedThrowingContinuation { continuation in
+            pendingLocationContinuation?.resume(throwing: LocationError.locationUnavailable)
+            pendingLocationContinuation = continuation
+            manager.requestLocation()
+        }
+    }
+
     // MARK: - Private Helpers
 
     /// Classify the activity from GPS speed (m/s).
@@ -121,12 +151,20 @@ extension LocationManager: CLLocationManagerDelegate {
         lastLocation    = loc
         currentActivity = deriveActivity(from: loc)
         onLocationFix?(loc)
+        if let cont = pendingLocationContinuation {
+            pendingLocationContinuation = nil
+            cont.resume(returning: loc)
+        }
     }
 
     func locationManager(_ manager: CLLocationManager,
                          didFailWithError error: Error) {
-        // Non-fatal: last known location stays valid. Log for diagnostics.
+        // Non-fatal for continuous tracking: last known location stays valid.
         print("[LocationManager] fix error: \(error.localizedDescription)")
+        if let cont = pendingLocationContinuation {
+            pendingLocationContinuation = nil
+            cont.resume(throwing: error)
+        }
     }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
