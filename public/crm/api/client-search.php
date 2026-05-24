@@ -11,6 +11,7 @@
  * GET ?action=properties&company_id=<id>
  *   Returns properties linked to a specific company
  */
+ini_set('display_errors', '0');
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 requireLogin();
 session_write_close(); // release session lock — autocomplete fires on every keypress
