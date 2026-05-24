@@ -4,6 +4,7 @@
  */
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
+require_once dirname(__DIR__) . '/../app_config/secrets.php';
 
 requireLogin();
 $user = getCurrentUser();
@@ -26,97 +27,19 @@ if (!$company) {
 // Flash messages
 $justCreated = isset($_GET['created']);
 $justUpdated = isset($_GET['updated']);
-$linkFlash = $_GET['linked'] ?? ($_GET['unlinked'] ?? '');
-$linkError = '';
 
-// ── Property link/unlink POST handler ────────────────────────────────────────
-// Adds a row to company_properties (link) or removes one (unlink). Both
-// actions require the CSRF token and billing.edit so only admins/office
-// can change the billing hierarchy.
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $action = $_POST['action'] ?? '';
-    if (in_array($action, ['link_property', 'unlink_property'], true)) {
-        if (!userHasPermission('billing.edit')) {
-            $linkError = 'You need the billing.edit permission to change company properties.';
-        } elseif (!verifyCSRFToken($_POST['csrf_token'] ?? '')) {
-            $linkError = 'Your session expired. Please reload and try again.';
-        } elseif ($action === 'link_property') {
-            $propId = (int)($_POST['property_id'] ?? 0);
-            $rel    = trim($_POST['relationship_type'] ?? 'owner');
-            $isPri  = !empty($_POST['is_primary']) ? 1 : 0;
-            $allowedRel = ['owner', 'manager', 'billing', 'tenant'];
-            if (!in_array($rel, $allowedRel, true)) $rel = 'owner';
-            if ($propId > 0) {
-                try {
-                    // Idempotent — do nothing if already linked
-                    $exists = $db->prepare("SELECT id FROM company_properties WHERE company_id = ? AND property_id = ?");
-                    $exists->execute([$companyId, $propId]);
-                    if (!$exists->fetchColumn()) {
-                        $db->prepare("
-                            INSERT INTO company_properties (company_id, property_id, relationship_type, is_primary)
-                            VALUES (?, ?, ?, ?)
-                        ")->execute([$companyId, $propId, $rel, $isPri]);
-                    }
-                    header('Location: view.php?id=' . $companyId . '&linked=1#properties');
-                    exit;
-                } catch (Throwable $e) {
-                    $linkError = 'Could not link property: ' . $e->getMessage();
-                }
-            } else {
-                $linkError = 'Please pick a property to link.';
-            }
-        } elseif ($action === 'unlink_property') {
-            $propId = (int)($_POST['property_id'] ?? 0);
-            if ($propId > 0) {
-                try {
-                    $db->prepare("DELETE FROM company_properties WHERE company_id = ? AND property_id = ?")
-                       ->execute([$companyId, $propId]);
-                    header('Location: view.php?id=' . $companyId . '&unlinked=1#properties');
-                    exit;
-                } catch (Throwable $e) {
-                    $linkError = 'Could not unlink property: ' . $e->getMessage();
-                }
-            }
-        }
-    }
+// Primary contact portal token (for combined portal link)
+$primaryContactToken = null;
+if (!empty($company['primary_contact_id'])) {
+    $ptStmt = $db->prepare("SELECT portal_token FROM contacts WHERE id = ? LIMIT 1");
+    $ptStmt->execute([$company['primary_contact_id']]);
+    $row = $ptStmt->fetch(PDO::FETCH_ASSOC);
+    $primaryContactToken = $row['portal_token'] ?? null;
 }
 
 // Get related data
-$companyContacts   = getCompanyContacts($companyId);
+$companyContacts = getCompanyContacts($companyId);
 $companyProperties = getCompanyProperties($companyId);
-
-// Unlinked properties (for the "+ Link Property" picker).
-// Show every active property that isn't already attached to this company.
-$linkedIds = array_map(fn($p) => (int)$p['id'], $companyProperties);
-$unlinkedProps = [];
-try {
-    if (empty($linkedIds)) {
-        $unlinkedStmt = $db->query("
-            SELECT id, property_name, address, city, province, postal_code
-            FROM properties
-            WHERE COALESCE(status, 'active') = 'active'
-            ORDER BY address ASC
-            LIMIT 500
-        ");
-        $unlinkedProps = $unlinkedStmt->fetchAll(PDO::FETCH_ASSOC);
-    } else {
-        $ph = implode(',', array_fill(0, count($linkedIds), '?'));
-        $unlinkedStmt = $db->prepare("
-            SELECT id, property_name, address, city, province, postal_code
-            FROM properties
-            WHERE COALESCE(status, 'active') = 'active'
-              AND id NOT IN ({$ph})
-            ORDER BY address ASC
-            LIMIT 500
-        ");
-        $unlinkedStmt->execute($linkedIds);
-        $unlinkedProps = $unlinkedStmt->fetchAll(PDO::FETCH_ASSOC);
-    }
-} catch (Throwable $e) {
-    $unlinkedProps = [];
-}
-
-$csrfToken = generateCSRFToken();
 
 // Quotes
 $quotesStmt = $db->prepare("
@@ -174,10 +97,24 @@ $activities = $activityStmt->fetchAll(PDO::FETCH_ASSOC);
 $statusColors = ['active' => 'success', 'inactive' => 'secondary', 'suspended' => 'warning'];
 $statusColor = $statusColors[$company['account_status']] ?? 'secondary';
 
+// Summary stats
+$totalInvoiced = array_sum(array_map(function ($inv) {
+    return floatval($inv['total'] ?? $inv['total_amount'] ?? $inv['subtotal'] ?? 0);
+}, $invoices));
+$activeJobCount = count(array_filter($jobs, function ($j) {
+    return in_array($j['status'] ?? '', ['active', 'scheduled', 'in_progress']);
+}));
+$geocodedCount = count(array_filter($companyProperties, function ($p) {
+    return !empty($p['latitude']) && !empty($p['longitude']);
+}));
+
 $typeLabels = ['individual' => 'Individual', 'business' => 'Business', 'strata' => 'Strata', 'property_manager' => 'Property Manager'];
 
 $pageTitle = htmlspecialchars($company['company_name']);
 $activePage = 'companies';
+$stripePublishableKey = defined('STRIPE_PUBLISHABLE_KEY') ? STRIPE_PUBLISHABLE_KEY : '';
+$extraHead = '<script src="https://js.stripe.com/v3/" defer></script>'
+           . '<script src="https://maps.googleapis.com/maps/api/js?key=' . (defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '') . '&libraries=places" defer></script>';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
@@ -216,6 +153,14 @@ $activePage = 'companies';
                     </div>
                 </div>
                 <div class="mt-2 mt-md-0">
+                    <?php if ($primaryContactToken): ?>
+                        <button class="btn btn-outline-secondary mr-1" onclick="copyCombinedPortalLink()"
+                                title="Copy combined personal + business portal link for this client">
+                            <i data-feather="link" class="align-middle mr-1" style="width:14px;height:14px;"></i> Combined Portal
+                        </button>
+                        <input type="hidden" id="mw-combined-portal-url"
+                               value="https://mowology.ca/customer/combined-portal.php?token=<?= htmlspecialchars($primaryContactToken, ENT_QUOTES) ?>">
+                    <?php endif; ?>
                     <a href="edit.php?id=<?= $companyId ?>" class="btn btn-outline-primary mr-1">
                         <i data-feather="edit-2" class="align-middle mr-1" style="width:14px;height:14px;"></i> Edit
                     </a>
@@ -234,58 +179,87 @@ $activePage = 'companies';
                 </div>
             </div>
 
-            <!-- Section Jump Nav — sticky at top while scrolling. Replaces
-                 the old Bootstrap nav-tabs with plain anchor links so every
-                 section renders inline on the page. -->
-            <div class="mw-company-jumpnav mb-4" style="position:sticky; top:0; z-index:10; background:#fff; padding:12px 0; border-bottom:1px solid #e5e7eb; display:flex; flex-wrap:wrap; gap:8px;">
-                <a href="#overview"   class="btn btn-sm btn-outline-secondary">Overview</a>
-                <a href="#contacts"   class="btn btn-sm btn-outline-secondary">Contacts <span class="badge badge-light ml-1"><?= count($companyContacts) ?></span></a>
-                <a href="#properties" class="btn btn-sm btn-outline-secondary">Properties <span class="badge badge-light ml-1"><?= count($companyProperties) ?></span></a>
-                <a href="#quotes"     class="btn btn-sm btn-outline-secondary">Quotes <span class="badge badge-light ml-1"><?= count($quotes) ?></span></a>
-                <a href="#jobs"       class="btn btn-sm btn-outline-secondary">Jobs <span class="badge badge-light ml-1"><?= count($jobs) ?></span></a>
-                <a href="#invoices"   class="btn btn-sm btn-outline-secondary">Invoices <span class="badge badge-light ml-1"><?= count($invoices) ?></span></a>
-                <a href="#activity"   class="btn btn-sm btn-outline-secondary">Activity</a>
-            </div>
+            <!-- Tabs -->
+            <ul class="nav nav-tabs mw-company-tabs mb-4" id="companyTabs" role="tablist">
+                <li class="nav-item">
+                    <a class="nav-link active" id="overview-tab" data-toggle="tab" href="#overview" role="tab">Overview</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" id="contacts-tab" data-toggle="tab" href="#contacts" role="tab">
+                        Contacts <span class="badge badge-light ml-1"><?= count($companyContacts) ?></span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" id="properties-tab" data-toggle="tab" href="#properties" role="tab">
+                        Properties <span class="badge badge-light ml-1"><?= count($companyProperties) ?></span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" id="quotes-tab" data-toggle="tab" href="#quotes" role="tab">
+                        Quotes <span class="badge badge-light ml-1"><?= count($quotes) ?></span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" id="jobs-tab" data-toggle="tab" href="#jobs" role="tab">
+                        Jobs <span class="badge badge-light ml-1"><?= count($jobs) ?></span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" id="invoices-tab" data-toggle="tab" href="#invoices" role="tab">
+                        Invoices <span class="badge badge-light ml-1"><?= count($invoices) ?></span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" id="activity-tab" data-toggle="tab" href="#activity" role="tab">Activity</a>
+                </li>
+            </ul>
 
-            <style>
-                /* Section wrapper — gives each block enough scroll margin
-                   so sticky-nav anchor jumps don't hide the section title
-                   behind the jump bar. */
-                .mw-company-section { scroll-margin-top: 84px; margin-bottom: 32px; }
-                .mw-company-section-title {
-                    font-size: 13px;
-                    font-weight: 700;
-                    text-transform: uppercase;
-                    letter-spacing: 0.8px;
-                    color: var(--mw-green, #2D8659);
-                    margin-bottom: 12px;
-                    padding-bottom: 8px;
-                    border-bottom: 2px solid var(--mw-light, #E8F3F0);
-                }
-                .mw-company-section-title .count {
-                    color: #9ca3af;
-                    font-weight: 500;
-                    margin-left: 6px;
-                }
-            </style>
+            <div class="tab-content" id="companyTabContent">
 
-            <div id="companyContent">
+                <!-- Overview Tab -->
+                <div class="tab-pane fade show active" id="overview" role="tabpanel">
 
-                <!-- Overview Section -->
-                <section class="mw-company-section" id="overview">
-                    <div class="mw-company-section-title">Overview</div>
+                    <!-- Summary stats -->
+                    <div class="mw-stats-row mw-company-stats mb-4">
+                        <div class="mw-stat-card properties">
+                            <h4>Properties</h4>
+                            <div class="value"><?= count($companyProperties) ?></div>
+                            <?php if (count($companyProperties) > 0): ?>
+                                <div class="mw-stat-sub"><?= $geocodedCount ?>/<?= count($companyProperties) ?> geocoded</div>
+                            <?php endif; ?>
+                        </div>
+                        <div class="mw-stat-card scheduled">
+                            <h4>Quotes</h4>
+                            <div class="value"><?= count($quotes) ?></div>
+                        </div>
+                        <div class="mw-stat-card in-progress">
+                            <h4>Active Jobs</h4>
+                            <div class="value"><?= $activeJobCount ?></div>
+                            <?php if (count($jobs) > $activeJobCount): ?>
+                                <div class="mw-stat-sub"><?= count($jobs) ?> total</div>
+                            <?php endif; ?>
+                        </div>
+                        <div class="mw-stat-card revenue">
+                            <h4>Total Invoiced</h4>
+                            <div class="value mw-stat-currency"><?= formatCurrency($totalInvoiced) ?></div>
+                            <?php if ($outstandingBalance > 0): ?>
+                                <div class="mw-stat-sub text-warning"><?= formatCurrency($outstandingBalance) ?> outstanding</div>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+
                     <div class="row">
                         <div class="col-lg-6">
                             <div class="card mb-4">
                                 <div class="card-header"><h5 class="card-title mb-0">Company Details</h5></div>
                                 <div class="card-body p-0">
                                     <table class="table table-sm mb-0">
-                                        <tr><td class="font-weight-bold text-muted" style="width:40%;">Name</td><td><?= htmlspecialchars($company['company_name']) ?></td></tr>
-                                        <tr><td class="font-weight-bold text-muted">Type</td><td><?= htmlspecialchars($typeLabels[$company['company_type']] ?? 'Individual') ?></td></tr>
-                                        <tr><td class="font-weight-bold text-muted">Status</td><td><span class="badge badge-<?= $statusColor ?>"><?= htmlspecialchars(ucfirst($company['account_status'])) ?></span></td></tr>
-                                        <tr><td class="font-weight-bold text-muted">Lifecycle Stage</td><td><?= htmlspecialchars(ucfirst($company['lifecycle_stage'] ?? 'prospect')) ?></td></tr>
+                                        <tr><td class="font-weight-bold text-muted" style="width:40%;"><span class="mw-icon-box"><i data-feather="briefcase" class="mw-detail-icon"></i></span> Name</td><td><?= htmlspecialchars($company['company_name']) ?></td></tr>
+                                        <tr><td class="font-weight-bold text-muted"><span class="mw-icon-box"><i data-feather="tag" class="mw-detail-icon"></i></span> Type</td><td><?= htmlspecialchars($typeLabels[$company['company_type']] ?? 'Individual') ?></td></tr>
+                                        <tr><td class="font-weight-bold text-muted"><span class="mw-icon-box"><i data-feather="activity" class="mw-detail-icon"></i></span> Status</td><td><span class="badge badge-<?= $statusColor ?>"><?= htmlspecialchars(ucfirst($company['account_status'])) ?></span></td></tr>
+                                        <tr><td class="font-weight-bold text-muted"><span class="mw-icon-box"><i data-feather="trending-up" class="mw-detail-icon"></i></span> Lifecycle Stage</td><td><?= htmlspecialchars(ucfirst($company['lifecycle_stage'] ?? 'prospect')) ?></td></tr>
                                         <tr>
-                                            <td class="font-weight-bold text-muted">Primary Contact</td>
+                                            <td class="font-weight-bold text-muted"><span class="mw-icon-box"><i data-feather="user" class="mw-detail-icon"></i></span> Primary Contact</td>
                                             <td>
                                                 <?php if ($company['primary_first_name']): ?>
                                                     <a href="/crm/clients_appstack.php?action=view_contact&id=<?= $company['primary_contact_id'] ?>">
@@ -297,7 +271,7 @@ $activePage = 'companies';
                                             </td>
                                         </tr>
                                         <tr>
-                                            <td class="font-weight-bold text-muted">Billing Contact</td>
+                                            <td class="font-weight-bold text-muted"><span class="mw-icon-box"><i data-feather="user" class="mw-detail-icon"></i></span> Billing Contact</td>
                                             <td>
                                                 <?php if ($company['billing_first_name']): ?>
                                                     <a href="/crm/clients_appstack.php?action=view_contact&id=<?= $company['billing_contact_id'] ?>">
@@ -309,7 +283,10 @@ $activePage = 'companies';
                                             </td>
                                         </tr>
                                         <?php if ($company['notes']): ?>
-                                            <tr><td class="font-weight-bold text-muted">Notes</td><td><?= nl2br(htmlspecialchars($company['notes'])) ?></td></tr>
+                                            <tr><td class="font-weight-bold text-muted"><span class="mw-icon-box"><i data-feather="message-square" class="mw-detail-icon"></i></span> Notes</td><td><?= nl2br(htmlspecialchars($company['notes'])) ?></td></tr>
+                                        <?php endif; ?>
+                                        <?php if (!empty($company['created_at'])): ?>
+                                            <tr><td class="font-weight-bold text-muted"><span class="mw-icon-box"><i data-feather="calendar" class="mw-detail-icon"></i></span> Member Since</td><td class="text-muted small"><?= formatDate($company['created_at']) ?></td></tr>
                                         <?php endif; ?>
                                     </table>
                                 </div>
@@ -321,7 +298,7 @@ $activePage = 'companies';
                                 <div class="card-body p-0">
                                     <table class="table table-sm mb-0">
                                         <tr>
-                                            <td class="font-weight-bold text-muted" style="width:40%;">Billing Address</td>
+                                            <td class="font-weight-bold text-muted" style="width:40%;"><span class="mw-icon-box"><i data-feather="map-pin" class="mw-detail-icon"></i></span> Billing Address</td>
                                             <td>
                                                 <?php
                                                 $addrParts = array_filter([
@@ -334,11 +311,34 @@ $activePage = 'companies';
                                                 ?>
                                             </td>
                                         </tr>
-                                        <tr><td class="font-weight-bold text-muted">Billing Email</td><td><?= $company['billing_email'] ? htmlspecialchars($company['billing_email']) : '<span class="text-muted">—</span>' ?></td></tr>
-                                        <tr><td class="font-weight-bold text-muted">Billing Phone</td><td><?= $company['billing_phone'] ? htmlspecialchars($company['billing_phone']) : '<span class="text-muted">—</span>' ?></td></tr>
-                                        <tr><td class="font-weight-bold text-muted">Payment Terms</td><td><?= htmlspecialchars($company['payment_terms'] ?? 'Net 30') ?></td></tr>
-                                        <tr><td class="font-weight-bold text-muted">Payment Method</td><td><?= htmlspecialchars(ucfirst(str_replace('_', ' ', $company['payment_method'] ?? 'invoice'))) ?></td></tr>
-                                        <tr><td class="font-weight-bold text-muted">Invoice Routing</td><td><?= htmlspecialchars(ucfirst(str_replace('_', ' ', $company['invoice_routing_method'] ?? 'primary contact'))) ?></td></tr>
+                                        <tr><td class="font-weight-bold text-muted"><span class="mw-icon-box"><i data-feather="mail" class="mw-detail-icon"></i></span> Billing Email</td><td><?= $company['billing_email'] ? htmlspecialchars($company['billing_email']) : '<span class="text-muted">—</span>' ?></td></tr>
+                                        <tr><td class="font-weight-bold text-muted"><span class="mw-icon-box"><i data-feather="phone" class="mw-detail-icon"></i></span> Billing Phone</td><td><?= $company['billing_phone'] ? htmlspecialchars($company['billing_phone']) : '<span class="text-muted">—</span>' ?></td></tr>
+                                        <tr><td class="font-weight-bold text-muted"><span class="mw-icon-box"><i data-feather="clock" class="mw-detail-icon"></i></span> Payment Terms</td><td><?= htmlspecialchars($company['payment_terms'] ?? 'Net 30') ?></td></tr>
+                                        <tr><td class="font-weight-bold text-muted"><span class="mw-icon-box"><i data-feather="credit-card" class="mw-detail-icon"></i></span> Payment Method</td><td><?= htmlspecialchars(ucfirst(str_replace('_', ' ', $company['payment_method'] ?? 'invoice'))) ?></td></tr>
+                                        <tr><td class="font-weight-bold text-muted"><span class="mw-icon-box"><i data-feather="send" class="mw-detail-icon"></i></span> Invoice Routing</td><td><?= htmlspecialchars(ucfirst(str_replace('_', ' ', $company['invoice_routing_method'] ?? 'primary contact'))) ?></td></tr>
+                                        <tr>
+                                            <td class="font-weight-bold text-muted"><span class="mw-icon-box"><i data-feather="credit-card" class="mw-detail-icon"></i></span> Autopay Card</td>
+                                            <td id="mw-company-card-cell">
+                                                <?php if (!empty($company['stripe_card_last4'])): ?>
+                                                    <span class="text-dark">
+                                                        <?= htmlspecialchars(ucfirst($company['stripe_card_brand'] ?? 'Card')) ?>
+                                                        &middot;&middot;&middot;&middot; <?= htmlspecialchars($company['stripe_card_last4']) ?>
+                                                        &nbsp;<span class="text-muted small">exp <?= htmlspecialchars($company['stripe_card_exp'] ?? '') ?></span>
+                                                    </span>
+                                                    <button type="button" class="btn btn-sm btn-link text-danger p-0 ml-2" onclick="removeCompanyCard()" title="Remove card">
+                                                        <i data-feather="x" style="width:13px;height:13px;"></i>
+                                                    </button>
+                                                    <button type="button" class="btn btn-sm btn-link text-primary p-0 ml-1" onclick="openCardModal()" title="Replace card">
+                                                        <i data-feather="refresh-cw" style="width:13px;height:13px;"></i>
+                                                    </button>
+                                                <?php else: ?>
+                                                    <span class="text-muted">No card on file</span>
+                                                    <button type="button" class="btn btn-sm btn-outline-success ml-2" onclick="openCardModal()">
+                                                        <i data-feather="plus" style="width:12px;height:12px;"></i> Set Up Card
+                                                    </button>
+                                                <?php endif; ?>
+                                            </td>
+                                        </tr>
                                     </table>
                                 </div>
                             </div>
@@ -351,11 +351,10 @@ $activePage = 'companies';
                             <?php endif; ?>
                         </div>
                     </div>
-                </section>
+                </div>
 
-                <!-- Contacts Section -->
-                <section class="mw-company-section" id="contacts">
-                    <div class="mw-company-section-title">Contacts <span class="count">(<?= count($companyContacts) ?>)</span></div>
+                <!-- Contacts Tab -->
+                <div class="tab-pane fade" id="contacts" role="tabpanel">
                     <div class="card">
                         <div class="card-body">
                             <?php if (empty($companyContacts)): ?>
@@ -396,112 +395,49 @@ $activePage = 'companies';
                             <?php endif; ?>
                         </div>
                     </div>
-                </section>
+                </div>
 
-                <!-- Properties Section -->
-                <section class="mw-company-section" id="properties">
-                    <div class="mw-company-section-title">Properties <span class="count">(<?= count($companyProperties) ?>)</span></div>
+                <!-- Properties Tab -->
+                <div class="tab-pane fade" id="properties" role="tabpanel">
                     <div class="card">
                         <div class="card-body">
-                            <?php if ($linkFlash === '1'): ?>
-                                <div class="alert alert-success py-2 mb-3">Property link updated.</div>
-                            <?php endif; ?>
-                            <?php if ($linkError): ?>
-                                <div class="alert alert-danger py-2 mb-3"><?= htmlspecialchars($linkError) ?></div>
-                            <?php endif; ?>
-
-                            <div class="d-flex justify-content-between align-items-center mb-3">
-                                <h5 class="mb-0">Linked Properties <span class="text-muted">(<?= count($companyProperties) ?>)</span></h5>
-                                <?php if (userHasPermission('billing.edit')): ?>
-                                <button type="button" class="btn btn-sm btn-primary" data-toggle="modal" data-target="#linkPropertyModal">
-                                    <i data-feather="plus" class="mr-1"></i> Link Property
-                                </button>
-                                <?php endif; ?>
-                            </div>
-
                             <?php if (empty($companyProperties)): ?>
                                 <div class="text-center py-4 text-muted">
                                     <i data-feather="map-pin" style="width:32px;height:32px;" class="mb-2"></i>
-                                    <p class="mb-1">No properties linked to this company yet.</p>
-                                    <p class="mb-0" style="font-size:.85rem;">
-                                        Properties appear here automatically when their on-site contact is this
-                                        company's primary or billing contact. Use <strong>Link Property</strong>
-                                        above only if you need to attach a property whose on-site contact is
-                                        someone else.
-                                    </p>
+                                    <p>No properties linked to this company.</p>
                                 </div>
                             <?php else: ?>
-                                <?php
-                                    $inferredCount = 0;
-                                    foreach ($companyProperties as $__p) {
-                                        if (($__p['link_source'] ?? '') === 'inferred') $inferredCount++;
-                                    }
-                                ?>
-                                <?php if ($inferredCount > 0): ?>
-                                <p class="text-muted mb-3" style="font-size:.85rem;">
-                                    <i data-feather="info" style="width:13px;height:13px;vertical-align:-2px;"></i>
-                                    <strong><?= $inferredCount ?></strong> propert<?= $inferredCount === 1 ? 'y is' : 'ies are' ?>
-                                    linked automatically because <?= $inferredCount === 1 ? 'its' : 'their' ?>
-                                    on-site contact is this company's primary or billing contact.
-                                    Rows marked <span class="badge badge-light">Inferred</span> don't have an
-                                    explicit link — they'll disappear if you change the on-site contact.
-                                </p>
-                                <?php endif; ?>
-
                                 <div class="table-responsive">
                                     <table class="table table-hover mb-0">
                                         <thead>
-                                            <tr>
-                                                <th>Property</th>
-                                                <th>City</th>
-                                                <th>Relationship</th>
-                                                <th>Primary</th>
-                                                <th></th>
-                                            </tr>
+                                            <tr><th>Address</th><th>City</th><th>Relationship</th><th>Primary</th><th>Location</th></tr>
                                         </thead>
                                         <tbody>
-                                            <?php foreach ($companyProperties as $prop):
-                                                $isInferred = ($prop['link_source'] ?? '') === 'inferred';
-                                                $propHref   = '/crm/properties/view.php?id=' . (int)$prop['id']
-                                                            . '&return_to=' . urlencode('/crm/companies/view.php?id=' . $companyId . '#properties');
-                                            ?>
-                                                <tr class="mw-row-link" data-href="<?= htmlspecialchars($propHref) ?>" style="cursor:pointer;">
-                                                    <td>
-                                                        <a href="<?= htmlspecialchars($propHref) ?>" class="text-dark" style="text-decoration:none;">
-                                                        <?php if (!empty($prop['property_name'])): ?>
-                                                            <div style="font-weight:600;"><?= htmlspecialchars($prop['property_name']) ?></div>
-                                                            <div class="text-muted" style="font-size:.85rem;"><?= htmlspecialchars($prop['address'] ?? '—') ?></div>
-                                                        <?php else: ?>
-                                                            <?= htmlspecialchars($prop['address'] ?? '—') ?>
-                                                        <?php endif; ?>
-                                                        <?php if ($isInferred && !empty($prop['linked_via_name'])): ?>
-                                                            <div class="text-muted" style="font-size:.78rem;margin-top:2px;">
-                                                                <i data-feather="link" style="width:11px;height:11px;vertical-align:-1px;"></i>
-                                                                Linked via <?= htmlspecialchars($prop['linked_via_name']) ?>
-                                                            </div>
-                                                        <?php endif; ?>
-                                                        </a>
-                                                    </td>
+                                            <?php foreach ($companyProperties as $prop): ?>
+                                                <tr>
+                                                    <td><?= htmlspecialchars($prop['address'] ?? '—') ?></td>
                                                     <td><?= htmlspecialchars($prop['city'] ?? '—') ?></td>
                                                     <td>
                                                         <span class="badge badge-light">
                                                             <?= htmlspecialchars(ucfirst($prop['relationship_type'] ?? 'owner')) ?>
                                                         </span>
-                                                        <?php if ($isInferred): ?>
-                                                        <span class="badge badge-info" title="Auto-linked via contact chain — not an explicit junction row">Inferred</span>
-                                                        <?php endif; ?>
                                                     </td>
                                                     <td><?= $prop['is_primary'] ? '<span class="text-success">Yes</span>' : '—' ?></td>
-                                                    <td class="text-right">
-                                                        <?php if (!$isInferred && userHasPermission('billing.edit')): ?>
-                                                        <form method="POST" style="display:inline;" onsubmit="return confirm('Unlink this property from <?= htmlspecialchars(addslashes($company['company_name'])) ?>?');">
-                                                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
-                                                            <input type="hidden" name="action" value="unlink_property">
-                                                            <input type="hidden" name="property_id" value="<?= (int)$prop['id'] ?>">
-                                                            <button type="submit" class="btn btn-sm btn-outline-danger" title="Unlink">
-                                                                <i data-feather="x" style="width:14px;height:14px;"></i>
+                                                    <td>
+                                                        <?php if (!empty($prop['latitude']) && !empty($prop['longitude'])): ?>
+                                                            <span class="mw-geocoded-yes" title="<?= htmlspecialchars($prop['latitude'] . ', ' . $prop['longitude']) ?>">
+                                                                <i data-feather="map-pin" class="mw-geo-icon"></i> Geocoded
+                                                            </span>
+                                                            <a href="https://maps.google.com/?q=<?= urlencode($prop['latitude'] . ',' . $prop['longitude']) ?>" target="_blank" rel="noopener" class="mw-geo-map-link ml-1" title="Open in Google Maps">
+                                                                <i data-feather="external-link" class="mw-geo-icon"></i>
+                                                            </a>
+                                                        <?php else: ?>
+                                                            <button type="button"
+                                                                    class="btn btn-sm btn-outline-secondary mw-geocode-btn"
+                                                                    onclick="geocodeCompanyProp(<?= (int)$prop['id'] ?>, this)"
+                                                                    title="Geocode this address">
+                                                                <i data-feather="map-pin" style="width:13px;height:13px;"></i> Geocode
                                                             </button>
-                                                        </form>
                                                         <?php endif; ?>
                                                     </td>
                                                 </tr>
@@ -514,102 +450,8 @@ $activePage = 'companies';
                     </div>
                 </div>
 
-                <!-- Link Property Modal -->
-                <?php if (userHasPermission('billing.edit')): ?>
-                <div class="modal fade" id="linkPropertyModal" tabindex="-1" role="dialog" aria-labelledby="linkPropertyTitle" aria-hidden="true">
-                    <div class="modal-dialog modal-dialog-centered" role="document">
-                        <form method="POST" class="modal-content">
-                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
-                            <input type="hidden" name="action" value="link_property">
-                            <div class="modal-header">
-                                <h5 class="modal-title" id="linkPropertyTitle">Link a property to <?= htmlspecialchars($company['company_name']) ?></h5>
-                                <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span>&times;</span></button>
-                            </div>
-                            <div class="modal-body">
-                                <?php if (empty($unlinkedProps)): ?>
-                                    <p class="text-muted mb-0">Every active property in the system is already linked to this company, or no properties exist yet.</p>
-                                <?php else: ?>
-                                <div class="form-group">
-                                    <label for="linkPropertyPicker">Property</label>
-                                    <input type="text" class="form-control mb-2" id="linkPropertyFilter" placeholder="Filter by address or name&hellip;" autocomplete="off">
-                                    <select name="property_id" id="linkPropertyPicker" class="form-control" size="8" required style="font-family:ui-monospace,SFMono-Regular,monospace;">
-                                        <?php foreach ($unlinkedProps as $p):
-                                            $label = $p['address'] ?? '';
-                                            if (!empty($p['city'])) $label .= ', ' . $p['city'];
-                                            if (!empty($p['property_name'])) $label = $p['property_name'] . ' — ' . $label;
-                                        ?>
-                                        <option value="<?= (int)$p['id'] ?>" data-search="<?= htmlspecialchars(strtolower(($p['property_name'] ?? '') . ' ' . ($p['address'] ?? '') . ' ' . ($p['city'] ?? ''))) ?>">
-                                            <?= htmlspecialchars($label) ?>
-                                        </option>
-                                        <?php endforeach; ?>
-                                    </select>
-                                    <small class="text-muted">
-                                        Don't see it? The property needs to exist first — create it from the Client page or Schedule.
-                                        Tip: you can set a <strong>Property Name</strong> like "VR14-50" on the property itself so it's easier to recognise here.
-                                    </small>
-                                </div>
-                                <div class="form-row">
-                                    <div class="form-group col-md-6">
-                                        <label for="linkRelType">Relationship</label>
-                                        <select name="relationship_type" id="linkRelType" class="form-control">
-                                            <option value="owner">Owner (strata / numbered company)</option>
-                                            <option value="manager" selected>Manager (property management firm)</option>
-                                            <option value="billing">Billing party only</option>
-                                            <option value="tenant">Tenant</option>
-                                        </select>
-                                    </div>
-                                    <div class="form-group col-md-6 d-flex align-items-end">
-                                        <div class="custom-control custom-checkbox">
-                                            <input type="checkbox" class="custom-control-input" id="linkIsPrimary" name="is_primary" value="1">
-                                            <label class="custom-control-label" for="linkIsPrimary">Mark as primary</label>
-                                        </div>
-                                    </div>
-                                </div>
-                                <?php endif; ?>
-                            </div>
-                            <div class="modal-footer">
-                                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
-                                <?php if (!empty($unlinkedProps)): ?>
-                                <button type="submit" class="btn btn-primary">Link Property</button>
-                                <?php endif; ?>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-                <script>
-                (function () {
-                    var filter = document.getElementById('linkPropertyFilter');
-                    var picker = document.getElementById('linkPropertyPicker');
-                    if (filter && picker) {
-                        filter.addEventListener('input', function () {
-                            var q = filter.value.trim().toLowerCase();
-                            Array.from(picker.options).forEach(function (opt) {
-                                var hay = opt.getAttribute('data-search') || '';
-                                opt.hidden = q !== '' && hay.indexOf(q) === -1;
-                            });
-                            // Auto-select first visible option for Enter-key friendliness
-                            var firstVisible = Array.from(picker.options).find(function (o) { return !o.hidden; });
-                            if (firstVisible) picker.value = firstVisible.value;
-                        });
-                    }
-                    // Whole-row click → property page, but ignore clicks on
-                    // the Unlink form (button / icon) so those still POST
-                    // instead of navigating away.
-                    document.querySelectorAll('.mw-row-link').forEach(function (row) {
-                        row.addEventListener('click', function (e) {
-                            if (e.target.closest('form, button, a')) return;
-                            var href = row.getAttribute('data-href');
-                            if (href) window.location.href = href;
-                        });
-                    });
-                }());
-                </script>
-                <?php endif; ?>
-                </section>
-
-                <!-- Quotes Section -->
-                <section class="mw-company-section" id="quotes">
-                    <div class="mw-company-section-title">Quotes <span class="count">(<?= count($quotes) ?>)</span></div>
+                <!-- Quotes Tab -->
+                <div class="tab-pane fade" id="quotes" role="tabpanel">
                     <div class="card">
                         <div class="card-body">
                             <?php if (empty($quotes)): ?>
@@ -642,11 +484,10 @@ $activePage = 'companies';
                             <?php endif; ?>
                         </div>
                     </div>
-                </section>
+                </div>
 
-                <!-- Jobs Section -->
-                <section class="mw-company-section" id="jobs">
-                    <div class="mw-company-section-title">Jobs <span class="count">(<?= count($jobs) ?>)</span></div>
+                <!-- Jobs Tab -->
+                <div class="tab-pane fade" id="jobs" role="tabpanel">
                     <div class="card">
                         <div class="card-body">
                             <?php if (empty($jobs)): ?>
@@ -679,11 +520,10 @@ $activePage = 'companies';
                             <?php endif; ?>
                         </div>
                     </div>
-                </section>
+                </div>
 
-                <!-- Invoices Section -->
-                <section class="mw-company-section" id="invoices">
-                    <div class="mw-company-section-title">Invoices <span class="count">(<?= count($invoices) ?>)</span></div>
+                <!-- Invoices Tab -->
+                <div class="tab-pane fade" id="invoices" role="tabpanel">
                     <?php if ($outstandingBalance > 0): ?>
                         <div class="mw-outstanding-balance mb-3">
                             <div class="small text-muted mb-1">Outstanding Balance</div>
@@ -722,11 +562,10 @@ $activePage = 'companies';
                             <?php endif; ?>
                         </div>
                     </div>
-                </section>
+                </div>
 
-                <!-- Activity Section -->
-                <section class="mw-company-section" id="activity">
-                    <div class="mw-company-section-title">Activity</div>
+                <!-- Activity Tab -->
+                <div class="tab-pane fade" id="activity" role="tabpanel">
                     <div class="card">
                         <div class="card-body">
                             <?php if (empty($activities)): ?>
@@ -759,11 +598,193 @@ $activePage = 'companies';
                             <?php endif; ?>
                         </div>
                     </div>
-                </section>
+                </div>
 
             </div>
 
+            <!-- Card Setup Modal -->
+            <div class="modal fade" id="companyCardModal" tabindex="-1" role="dialog" aria-labelledby="companyCardModalLabel" aria-hidden="true">
+                <div class="modal-dialog modal-dialog-centered" role="document">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title" id="companyCardModalLabel">
+                                <i data-feather="credit-card" style="width:16px;height:16px;" class="mr-1"></i>
+                                Business Card — <?= htmlspecialchars($company['company_name']) ?>
+                            </h5>
+                            <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+                        </div>
+                        <div class="modal-body">
+                            <p class="text-muted small mb-3">
+                                This card will be charged automatically for all invoices linked to
+                                <strong><?= htmlspecialchars($company['company_name']) ?></strong>.
+                                Personal invoices will continue to use <?= !empty($company['primary_first_name']) ? htmlspecialchars($company['primary_first_name']) . "'s " : 'the contact\'s ' ?>card on file.
+                            </p>
+                            <div id="mw-card-element" style="padding:10px;border:1px solid #dee2e6;border-radius:4px;background:#fff;min-height:40px;"></div>
+                            <div id="mw-card-errors" class="text-danger small mt-2" role="alert"></div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                            <button type="button" class="btn btn-success" id="mw-save-card-btn" onclick="saveCompanyCard()">
+                                <i data-feather="lock" style="width:13px;height:13px;" class="mr-1"></i>
+                                Save Card
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <script>
+            var mwStripe, mwCardElement;
+            var mwCompanyId  = <?= $companyId ?>;
+            var mwCsrfToken  = '<?= generateCSRFToken() ?>';
+            var mwStripeKey  = '<?= htmlspecialchars($stripePublishableKey ?? '', ENT_QUOTES) ?>';
+
+            // Property data for geocoder
+            var mwCompanyProps = <?= json_encode(array_map(function($p) {
+                return [
+                    'id'          => (int)$p['id'],
+                    'address'     => $p['address'] ?? '',
+                    'city'        => $p['city'] ?? '',
+                    'province'    => $p['province'] ?? 'BC',
+                    'postal_code' => $p['postal_code'] ?? '',
+                ];
+            }, $companyProperties)) ?>;
+
+            function geocodeCompanyProp(propId, btn) {
+                var prop = mwCompanyProps.find(function(p) { return p.id === propId; });
+                if (!prop) { alert('Property data not found.'); return; }
+                var origHtml = btn.innerHTML;
+                btn.disabled = true;
+                btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span>';
+                var fullAddr = [prop.address, prop.city, prop.province, prop.postal_code, 'Canada']
+                    .filter(Boolean).join(', ');
+                var geocoder = new google.maps.Geocoder();
+                geocoder.geocode({ address: fullAddr }, function(results, status) {
+                    if (status === 'OK' && results[0]) {
+                        var loc = results[0].geometry.location;
+                        fetch('/crm/api/geocode-save.php', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                property_id: propId,
+                                lat: loc.lat(),
+                                lng: loc.lng(),
+                                csrf_token: mwCsrfToken
+                            })
+                        })
+                        .then(function(r) { return r.json(); })
+                        .then(function(data) {
+                            if (data.success) { location.reload(); }
+                            else { btn.disabled = false; btn.innerHTML = origHtml; alert(data.error || 'Save failed'); }
+                        })
+                        .catch(function() { btn.disabled = false; btn.innerHTML = origHtml; alert('Request failed'); });
+                    } else {
+                        btn.disabled = false;
+                        btn.innerHTML = origHtml;
+                        alert('Could not geocode: ' + status + '\nAddress tried: ' + fullAddr);
+                    }
+                });
+            }
+
+            function openCardModal() {
+                $('#companyCardModal').modal('show');
+                if (!mwStripe && mwStripeKey) {
+                    mwStripe = Stripe(mwStripeKey);
+                    var elements = mwStripe.elements();
+                    mwCardElement = elements.create('card', {
+                        style: {
+                            base: { fontSize: '15px', color: '#343a40', '::placeholder': { color: '#adb5bd' } },
+                            invalid: { color: '#dc3545' }
+                        }
+                    });
+                    mwCardElement.mount('#mw-card-element');
+                    mwCardElement.on('change', function(e) {
+                        document.getElementById('mw-card-errors').textContent = e.error ? e.error.message : '';
+                    });
+                    if (window.feather) feather.replace();
+                }
+            }
+
+            function saveCompanyCard() {
+                if (!mwStripe || !mwCardElement) return;
+                var btn = document.getElementById('mw-save-card-btn');
+                btn.disabled = true;
+                btn.textContent = 'Saving…';
+
+                mwStripe.createPaymentMethod({ type: 'card', card: mwCardElement })
+                .then(function(result) {
+                    if (result.error) {
+                        document.getElementById('mw-card-errors').textContent = result.error.message;
+                        btn.disabled = false;
+                        btn.textContent = 'Save Card';
+                        return;
+                    }
+                    var fd = new FormData();
+                    fd.append('company_id', mwCompanyId);
+                    fd.append('payment_method_id', result.paymentMethod.id);
+                    fd.append('csrf_token', mwCsrfToken);
+
+                    fetch('api-save-company-card.php', { method: 'POST', body: fd })
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        if (data.success) {
+                            $('#companyCardModal').modal('hide');
+                            var brand = data.card_brand ? data.card_brand.charAt(0).toUpperCase() + data.card_brand.slice(1) : 'Card';
+                            document.getElementById('mw-company-card-cell').innerHTML =
+                                '<span class="text-dark">' + brand + ' &middot;&middot;&middot;&middot; ' + data.card_last4 +
+                                ' &nbsp;<span class="text-muted small">exp ' + data.card_exp + '</span></span>' +
+                                ' <button type="button" class="btn btn-sm btn-link text-danger p-0 ml-2" onclick="removeCompanyCard()" title="Remove card">' +
+                                '<i data-feather="x" style="width:13px;height:13px;"></i></button>' +
+                                ' <button type="button" class="btn btn-sm btn-link text-primary p-0 ml-1" onclick="openCardModal()" title="Replace card">' +
+                                '<i data-feather="refresh-cw" style="width:13px;height:13px;"></i></button>';
+                            if (window.feather) feather.replace();
+                        } else {
+                            document.getElementById('mw-card-errors').textContent = data.error || 'Save failed. Please try again.';
+                            btn.disabled = false;
+                            btn.textContent = 'Save Card';
+                        }
+                    })
+                    .catch(function() {
+                        document.getElementById('mw-card-errors').textContent = 'Network error. Please try again.';
+                        btn.disabled = false;
+                        btn.textContent = 'Save Card';
+                    });
+                });
+            }
+
+            function removeCompanyCard() {
+                if (!confirm('Remove the business card on file for <?= htmlspecialchars(addslashes($company['company_name'])) ?>? Autopay will be disabled until a new card is added.')) return;
+                var fd = new FormData();
+                fd.append('company_id', mwCompanyId);
+                fd.append('csrf_token', mwCsrfToken);
+                fetch('api-save-company-card.php?action=remove', { method: 'POST', body: fd })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.success) location.reload();
+                    else alert(data.error || 'Remove failed');
+                })
+                .catch(function() { alert('Network error'); });
+            }
+
+            function copyCombinedPortalLink() {
+                var url = document.getElementById('mw-combined-portal-url');
+                if (!url) return;
+                navigator.clipboard.writeText(url.value).then(function() {
+                    var btn = event.currentTarget;
+                    var orig = btn.innerHTML;
+                    btn.innerHTML = '<i data-feather="check" style="width:14px;height:14px;" class="align-middle mr-1"></i> Copied!';
+                    btn.classList.remove('btn-outline-secondary');
+                    btn.classList.add('btn-outline-success');
+                    if (window.feather) feather.replace();
+                    setTimeout(function() {
+                        btn.innerHTML = orig;
+                        btn.classList.remove('btn-outline-success');
+                        btn.classList.add('btn-outline-secondary');
+                        if (window.feather) feather.replace();
+                    }, 2500);
+                });
+            }
+
             function archiveCompany(id) {
                 if (!confirm('Archive this company? It will be hidden from the default list but can be restored.')) return;
                 fetch('api.php', {
