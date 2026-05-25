@@ -13,6 +13,32 @@ $db = getDB();
 $error = '';
 $prefill = [];
 
+// If stop_id is given instead of visit_id, find the first visit for that stop
+// and redirect — the visit_id path handles all the prefill logic.
+if (!isset($_GET['visit_id']) && isset($_GET['stop_id'])) {
+    $stopId = intval($_GET['stop_id']);
+    if ($stopId > 0) {
+        $stvStmt = $db->prepare("
+            SELECT jv.id AS visit_id
+            FROM job_visits jv
+            WHERE jv.stop_id = ?
+            ORDER BY
+                CASE jv.status WHEN 'completed' THEN 0 WHEN 'in_progress' THEN 1 ELSE 2 END,
+                jv.id ASC
+            LIMIT 1
+        ");
+        $stvStmt->execute([$stopId]);
+        $stvRow = $stvStmt->fetch(PDO::FETCH_ASSOC);
+        if ($stvRow) {
+            $params = $_GET;
+            unset($params['stop_id']);
+            $params['visit_id'] = $stvRow['visit_id'];
+            header('Location: create.php?' . http_build_query($params));
+            exit;
+        }
+    }
+}
+
 // Check if creating from a completed visit
 $visitId = isset($_GET['visit_id']) ? intval($_GET['visit_id']) : 0;
 
@@ -91,6 +117,80 @@ if ($visitId) {
             'extras_amount'     => round(floatval($visit['extras_amount'] ?? 0), 2),
             'extras_note'       => trim($visit['extras_note'] ?? ''),
         ];
+    }
+}
+
+// Prefill from plan (contract upfront billing — no completed visit required)
+if (!$visitId && isset($_GET['plan_id'])) {
+    $planId = intval($_GET['plan_id']);
+    if ($planId) {
+        $pStmt = $db->prepare("
+            SELECT jp.id, jp.plan_number, jp.title, jp.service_type,
+                   jp.estimated_amount, jp.plan_start_date, jp.property_id,
+                   p.address, p.city, p.province, p.postal_code,
+                   p.site_contact_id,
+                   COALESCE(con.first_name, '') AS contact_first,
+                   COALESCE(con.last_name,  '') AS contact_last,
+                   con.email  AS contact_email,
+                   con.mobile AS contact_mobile,
+                   con.receive_sms AS contact_receive_sms,
+                   ctr.billing_amount, ctr.start_date AS contract_start_date
+            FROM job_plans jp
+            LEFT JOIN properties p  ON jp.property_id = p.id
+            LEFT JOIN contacts con  ON p.site_contact_id = con.id
+            LEFT JOIN contracts ctr ON jp.contract_id = ctr.id
+            WHERE jp.id = ?
+        ");
+        $pStmt->execute([$planId]);
+        $planRow = $pStmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($planRow) {
+            $prefillLineItems = [];
+            try {
+                $pliStmt = $db->prepare("
+                    SELECT service_type, description, quantity, unit_type, unit_price, line_total, sort_order
+                    FROM plan_line_items WHERE plan_id = ? ORDER BY sort_order, id
+                ");
+                $pliStmt->execute([$planId]);
+                $prefillLineItems = $pliStmt->fetchAll(PDO::FETCH_ASSOC);
+            } catch (PDOException $e) {}
+
+            // When plan line items have $0 prices (billing managed at contract level),
+            // clear them so the form falls back to the single description+amount field
+            // pre-filled with billing_amount — avoids showing a $0.00 line item table.
+            $lineTotal = array_sum(array_column($prefillLineItems, 'line_total'));
+            if ($lineTotal == 0 && !empty($prefillLineItems)) {
+                $prefillLineItems = [];
+            }
+
+            $amount      = !empty($planRow['billing_amount']) ? $planRow['billing_amount'] : $planRow['estimated_amount'];
+            $contactName = trim($planRow['contact_first'] . ' ' . $planRow['contact_last']) ?: null;
+            $baseDate    = !empty($planRow['contract_start_date']) ? $planRow['contract_start_date'] : ($planRow['plan_start_date'] ?? date('Y-m-d'));
+            $billMonth   = date('F Y', strtotime($baseDate));
+            $svcLabel    = $planRow['title'] ?: ucwords(str_replace('_', ' ', $planRow['service_type'] ?? 'Service'));
+
+            $prefill = [
+                'property_id'         => $planRow['property_id'],
+                'contact_id'          => $planRow['site_contact_id'],
+                'plan_id'             => $planId,
+                'amount'              => $amount,
+                'contact_name'        => $contactName,
+                'contact_email'       => $planRow['contact_email'],
+                'contact_mobile'      => $planRow['contact_mobile'],
+                'contact_receive_sms' => $planRow['contact_receive_sms'],
+                'service_address'     => $planRow['address'] ?? '',
+                'service_city'        => $planRow['city'] ?? '',
+                'service_province'    => $planRow['province'] ?? 'BC',
+                'service_postal'      => $planRow['postal_code'] ?? '',
+                'plan_number'         => $planRow['plan_number'],
+                'description'         => $svcLabel . ' — ' . $billMonth,
+                'plan_line_items'     => $prefillLineItems,
+                'extras_minutes'      => 0,
+                'extras_amount'       => 0.0,
+                'extras_note'         => '',
+                'issue_date'          => $baseDate,
+            ];
+        }
     }
 }
 
@@ -402,6 +502,9 @@ if ($apiKey) {
                             <?php if ($visitId && !empty($prefill['company_name'])): ?>
                                 <!-- Pre-filled from visit — read only -->
                                 <input type="text" class="form-control" value="<?php echo htmlspecialchars($prefill['company_name']); ?>" readonly>
+                            <?php elseif (!$visitId && !empty($prefill['contact_name'])): ?>
+                                <!-- Pre-filled from plan — read only -->
+                                <input type="text" class="form-control" value="<?php echo htmlspecialchars($prefill['contact_name']); ?>" readonly>
                             <?php else: ?>
                                 <div class="mw-customer-search-wrap" id="customerSearchWrap">
                                     <div id="customerInputRow">
@@ -460,7 +563,7 @@ if ($apiKey) {
                             <div class="mw-form-group">
                                 <label class="form-label">Issue Date</label>
                                 <input type="date" name="issue_date" class="form-control"
-                                       value="<?php echo htmlspecialchars($prefill['scheduled_date'] ?? date('Y-m-d')); ?>">
+                                       value="<?php echo htmlspecialchars($prefill['issue_date'] ?? $prefill['scheduled_date'] ?? date('Y-m-d')); ?>">
                             </div>
                             <div class="mw-form-group">
                                 <label class="form-label">Due Date</label>
@@ -1082,6 +1185,20 @@ function escHtml(str) {
         recipientSection.style.display = 'block';
     });
     <?php endif; ?>
+})();
+<?php endif; ?>
+
+// ── Auto-load recipients from plan prefill ──
+<?php if (!$visitId && !empty($prefill['contact_id'])): ?>
+(function () {
+    propertyIdInput.value = <?php echo (int)($prefill['property_id'] ?? 0); ?>;
+    renderRecipientTable([{
+        contact_id:    <?php echo (int)$prefill['contact_id']; ?>,
+        contact_name:  <?php echo json_encode($prefill['contact_name'] ?? ''); ?>,
+        email_address: <?php echo json_encode($prefill['contact_email'] ?? ''); ?>,
+        receive_sms:   <?php echo !empty($prefill['contact_receive_sms']) ? 'true' : 'false'; ?>,
+    }]);
+    recipientSection.style.display = 'block';
 })();
 <?php endif; ?>
 
