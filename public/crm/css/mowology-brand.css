@@ -24884,20 +24884,50 @@ a.mw-clock-timer-nav:hover {
 /* Contact header (name + action buttons) */
 .mw-contact-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   margin-bottom: 1.25rem;
   gap: 1rem;
   flex-wrap: wrap;
+  border: none !important;
 }
-.mw-contact-name {
-  font-size: var(--mw-text-xl);
-  font-weight: var(--mw-weight-bold);
-  color: var(--mw-ink-900);
-  margin: 0;
+.mw-contact-name-wrap {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 14px;
+}
+.mw-contact-avatar {
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--mw-green), var(--mw-dark));
+  color: #fff;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(45, 134, 89, 0.3);
+}
+.mw-contact-name {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #1a202c;
+  margin: 0 0 3px;
+  line-height: 1.2;
+  border: none !important;
+}
+.mw-contact-stage-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 20px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 .mw-contact-actions {
   display: flex;
@@ -33924,3 +33954,526 @@ a.mw-clock-timer-nav:hover {
   background: #f59e0b;
 }
 .mw-irt-rec-key { font-weight: 700; color: #334155; }
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   ICON BOX — Global component. Works on any page that uses Feather icons.
+
+   Usage:
+     <span class="mw-icon-box">            <!-- plain, no interaction -->
+     <a href="..." class="mw-icon-box">    <!-- auto link/hover state -->
+     <span class="mw-icon-box mw-icon-box--missing"> <!-- missing data, red -->
+
+   The icon inside can be any <i data-feather="..."> — size is set by the box.
+   New pages: just use this wrapper. feather.replace() in appstack_footer
+   handles icon rendering automatically on every page.
+═══════════════════════════════════════════════════════════════════════════════ */
+.mw-icon-box,
+a.mw-icon-box,
+span.mw-icon-box {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 36px !important;
+  height: 36px !important;
+  min-width: 36px !important;
+  border-radius: 8px !important;
+  background: #e8f3f0 !important;
+  border: 1.5px solid rgba(45, 134, 89, 0.3) !important;
+  color: var(--mw-green) !important;
+  flex-shrink: 0 !important;
+  transition: background 0.15s, border-color 0.15s, color 0.15s,
+              box-shadow 0.15s, transform 0.1s;
+  text-decoration: none !important;
+  box-sizing: border-box !important;
+  line-height: 1 !important;
+  vertical-align: middle;
+}
+.mw-icon-box svg,
+.mw-icon-box i[data-feather],
+a.mw-icon-box svg,
+span.mw-icon-box svg {
+  width: 18px !important;
+  height: 18px !important;
+  stroke-width: 2 !important;
+  display: block !important;
+}
+
+/* Clickable: any <a> gets hover lift + deeper green */
+a.mw-icon-box:hover,
+.mw-icon-box.is-link:hover {
+  background: #d0ebe3 !important;
+  border-color: var(--mw-green) !important;
+  color: var(--mw-dark) !important;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 10px rgba(45, 134, 89, 0.25);
+  text-decoration: none !important;
+}
+a.mw-icon-box:active { transform: translateY(0); box-shadow: none; }
+
+/* Missing data — red box */
+.mw-icon-box--missing,
+a.mw-icon-box--missing,
+span.mw-icon-box--missing {
+  background: #fef2f2 !important;
+  border-color: rgba(220, 38, 38, 0.35) !important;
+  color: #dc2626 !important;
+}
+.mw-icon-box--missing:hover {
+  background: #fee2e2 !important;
+}
+
+/* Contact field row — the flex wrapper used in contact cards */
+.mw-contact-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 0;
+}
+.mw-contact-field-body {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  line-height: 1.4;
+}
+.mw-contact-field-body a {
+  color: var(--mw-green);
+  text-decoration: none;
+  font-weight: 500;
+}
+.mw-contact-field-body a:hover { text-decoration: underline; }
+.mw-contact-field-missing {
+  color: #dc2626;
+  font-size: 13px;
+  font-style: italic;
+}
+.mw-contact-field + .mw-contact-field {
+  border-top: 1px solid rgba(0,0,0,0.04);
+}
+
+/* ─── Clients Page — Stats Banner + Last Activity ────────────────────────────── */
+.mw-clients-stats-banner {
+  display: flex;
+  align-items: center;
+  background: #fff;
+  border: 1px solid rgba(45, 134, 89, 0.15);
+  border-radius: 12px;
+  padding: 0 8px;
+  margin-bottom: 18px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+  overflow: hidden;
+}
+.mw-cs-stat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px 12px;
+  min-width: 0;
+}
+.mw-cs-stat-divider {
+  width: 1px;
+  height: 40px;
+  background: rgba(45, 134, 89, 0.12);
+  flex-shrink: 0;
+}
+.mw-cs-stat-value {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--mw-forest);
+  letter-spacing: -0.02em;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+.mw-cs-stat-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  white-space: nowrap;
+}
+.mw-cs-accent-lime { color: var(--mw-green); }
+.mw-cs-accent-red  { color: #dc2626; }
+
+.mw-last-activity-col { white-space: nowrap; min-width: 100px; }
+.mw-last-activity {
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+/* ─── Payment Modal v2 — Executive Dark ─────────────────────────────────────── */
+.mw-pm-overlay-v2 {
+  position: fixed;
+  inset: 0;
+  background: rgba(13, 59, 46, 0.72);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1060;
+  padding: 20px;
+  animation: mw-pm-fade-in 0.18s ease;
+}
+@keyframes mw-pm-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.mw-pm-shell {
+  background: #0D3B2E;
+  border-radius: 16px;
+  width: 100%;
+  max-width: 480px;
+  box-shadow:
+    0 0 0 1px rgba(127, 216, 88, 0.18),
+    0 24px 60px rgba(0, 0, 0, 0.55),
+    0 8px 20px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+  animation: mw-pm-slide-up 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transform-origin: bottom center;
+}
+@keyframes mw-pm-slide-up {
+  from { opacity: 0; transform: translateY(24px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0)    scale(1); }
+}
+
+/* Header strip */
+.mw-pm-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 20px 20px 0;
+}
+.mw-pm-inv-ref {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.mw-pm-inv-id {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--mw-lime);
+  opacity: 0.9;
+}
+.mw-pm-client {
+  font-size: 13px;
+  color: rgba(255,255,255,0.65);
+  font-weight: 500;
+}
+.mw-pm-close {
+  background: rgba(255,255,255,0.08);
+  border: none;
+  color: rgba(255,255,255,0.55);
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  transition: background 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+.mw-pm-close:hover {
+  background: rgba(255,255,255,0.16);
+  color: #fff;
+}
+
+/* Hero balance section */
+.mw-pm-hero {
+  padding: 16px 20px 20px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.mw-pm-balance-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.45);
+  margin-bottom: 4px;
+}
+.mw-pm-balance-amount {
+  font-size: 42px;
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+.mw-pm-balance-amount.mw-pm-partial-mode {
+  color: #f59e0b;
+}
+
+/* Body form area */
+.mw-pm-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Amount + Date row */
+.mw-pm-fields-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.mw-pm-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.mw-pm-field label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.5);
+  margin: 0;
+}
+.mw-pm-field .mw-pm-input-wrap {
+  display: flex;
+  align-items: center;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 8px;
+  transition: border-color 0.15s, background 0.15s;
+  overflow: hidden;
+}
+.mw-pm-field .mw-pm-input-wrap:focus-within {
+  border-color: var(--mw-lime);
+  background: rgba(127, 216, 88, 0.06);
+}
+.mw-pm-field .mw-pm-prefix {
+  padding: 0 10px;
+  color: rgba(255,255,255,0.4);
+  font-size: 15px;
+  font-weight: 600;
+  border-right: 1px solid rgba(255,255,255,0.1);
+  height: 40px;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.mw-pm-field input[type="number"],
+.mw-pm-field input[type="date"],
+.mw-pm-field input[type="text"],
+.mw-pm-field select {
+  background: transparent;
+  border: none;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  padding: 0 12px;
+  height: 40px;
+  width: 100%;
+  outline: none;
+  -webkit-appearance: none;
+  color-scheme: dark;
+}
+.mw-pm-field input::placeholder { color: rgba(255,255,255,0.25); }
+.mw-pm-field input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(1) opacity(0.4);
+  cursor: pointer;
+}
+
+/* Payment method pills */
+.mw-pm-method-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.5);
+  margin-bottom: 2px;
+}
+.mw-pm-method-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+}
+.mw-pm-pill {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 10px 4px;
+  border-radius: 10px;
+  border: 1.5px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.05);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, transform 0.1s;
+  user-select: none;
+}
+.mw-pm-pill:hover {
+  border-color: rgba(255,255,255,0.22);
+  background: rgba(255,255,255,0.09);
+}
+.mw-pm-pill input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.mw-pm-pill.active {
+  border-color: var(--mw-lime);
+  background: rgba(127, 216, 88, 0.12);
+}
+.mw-pm-pill.active:hover { transform: scale(1.02); }
+.mw-pm-pill-icon {
+  width: 22px;
+  height: 22px;
+  color: rgba(255,255,255,0.45);
+  transition: color 0.15s;
+  flex-shrink: 0;
+}
+.mw-pm-pill.active .mw-pm-pill-icon { color: var(--mw-lime); }
+.mw-pm-pill-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: rgba(255,255,255,0.45);
+  text-align: center;
+  line-height: 1.2;
+  transition: color 0.15s;
+}
+.mw-pm-pill.active .mw-pm-pill-label { color: var(--mw-lime); }
+
+/* Reference field */
+.mw-pm-ref-wrap {
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  transition: max-height 0.25s ease, opacity 0.2s ease, margin 0.2s ease;
+  margin-top: 0;
+}
+.mw-pm-ref-wrap.visible {
+  max-height: 80px;
+  opacity: 1;
+}
+.mw-pm-ref-wrap .mw-pm-field { gap: 5px; }
+
+/* Partial payment notice */
+.mw-pm-partial-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 8px;
+  color: #f59e0b;
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0;
+  max-height: 0;
+  overflow: hidden;
+  transition: opacity 0.2s ease, max-height 0.25s ease;
+}
+.mw-pm-partial-notice.visible {
+  opacity: 1;
+  max-height: 60px;
+}
+.mw-pm-partial-notice svg { flex-shrink: 0; }
+
+/* Footer */
+.mw-pm-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+.mw-pm-cancel {
+  background: transparent;
+  border: 1.5px solid rgba(255,255,255,0.15);
+  color: rgba(255,255,255,0.6);
+  border-radius: 8px;
+  padding: 9px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.mw-pm-cancel:hover {
+  border-color: rgba(255,255,255,0.3);
+  color: #fff;
+}
+.mw-pm-submit {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--mw-lime);
+  color: #0D3B2E;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 22px;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+  box-shadow: 0 2px 12px rgba(127, 216, 88, 0.3);
+}
+.mw-pm-submit:hover {
+  background: #91e862;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 18px rgba(127, 216, 88, 0.45);
+}
+.mw-pm-submit:active { transform: translateY(0); }
+
+/* ─── Card Title Icons — Auto-boxed section headers ─────────────────────────
+   Any <i data-feather="..."> or <svg class="feather"> that is the first child
+   inside a .card-title automatically gets the mw-icon-box visual treatment.
+   No markup changes needed — works globally on every AppStack page.
+────────────────────────────────────────────────────────────────────────────── */
+.card-title > svg.feather:first-child,
+.card-title > i[data-feather]:first-child {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  border-radius: 8px !important;
+  background: #e8f3f0 !important;
+  border: 1.5px solid rgba(45, 134, 89, 0.28) !important;
+  color: var(--mw-green) !important;
+  padding: 6px !important;
+  vertical-align: middle !important;
+  margin-right: 8px !important;
+  flex-shrink: 0 !important;
+  box-sizing: border-box !important;
+  stroke: var(--mw-green) !important;
+}
+
+/* Keep the SVG stroke from inheriting non-green parent color */
+.card-title > svg.feather:first-child path,
+.card-title > svg.feather:first-child circle,
+.card-title > svg.feather:first-child line,
+.card-title > svg.feather:first-child polyline,
+.card-title > svg.feather:first-child rect,
+.card-title > svg.feather:first-child polygon {
+  stroke: var(--mw-green) !important;
+}
+.mw-pm-submit svg { width: 15px; height: 15px; }
+
+/* ══ Route Clusters ════════════════════════════════════════════════════════ */
+.mw-cluster-card {
+  border: 1px solid var(--mw-light);
+  border-radius: 8px;
+  transition: box-shadow 0.15s;
+}
+.mw-cluster-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+.mw-cluster-card .card-footer { border-top: 1px solid var(--mw-light); }
+
+.mw-cluster-property-list label.mw-prop-row {
+  cursor: pointer;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  transition: background 0.1s;
+}
+.mw-cluster-property-list label.mw-prop-row:hover { background: var(--mw-light); }
+.mw-cluster-property-list input[type=checkbox]:checked + span { color: var(--mw-green); font-weight: 500; }

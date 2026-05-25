@@ -72,6 +72,7 @@ $navItems = [
     ['key' => 'live-map',    'label' => 'Map',         'icon' => 'map',      'href' => '/crm/map.php',                    'perm' => 'team.view'],
     ['key' => 'timeclock',   'label' => 'Time Clock',  'icon' => 'clock',    'href' => '/crm/timeclock/my-schedule.php',  'perm' => 'schedule.view'],
     ['key' => 'work-zones',  'label' => 'Work Zones',  'icon' => 'map-pin',  'href' => '/crm/zone-report_appstack.php',   'perm' => 'jobs.view'],
+    ['key' => 'clusters',    'label' => 'Route Clusters', 'icon' => 'layers',  'href' => '/crm/jobs/clusters_appstack.php', 'perm' => 'jobs.view'],
 
     // ── Financials ────────────────────────────────────────────────────────────
     ['type' => 'header', 'label' => 'Financials'],

@@ -88,6 +88,7 @@ $actionAliases = [
         'reschedule-stop'    => 'reschedule-stop',
         'weather'            => 'weather-actions',
         'list'               => 'api-jobs',
+        'clusters'           => 'clusters',
     ],
     'quotes' => [
         'list'               => 'api-quotes',
@@ -158,6 +159,7 @@ $actionAliases = [
         'job-photo'          => 'job-photo',   // Mobile before/after photo upload (JWT)
         'crew-trails'        => 'crew-trails', // Mobile crew GPS trail playback (JWT)
         'visit-flag'         => 'visit-flag',  // Mobile visit endorsement heart toggle (JWT)
+        'quiz'               => 'quiz',        // Mobile pre-shift quiz (JWT)
     ],
 ];
 
