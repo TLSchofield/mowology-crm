@@ -288,15 +288,28 @@ function loginUser(string $email, string $password): bool {
             // this script exits, causing a race that shows the user as not-logged-in.
             session_write_close();
 
-            // Update last login
-            $upd = $db->prepare("UPDATE users SET last_login = NOW() WHERE id = ? LIMIT 1");
-            $upd->execute([(int)$user['id']]);
+            // ── Post-auth cleanup: non-critical. Session is already committed above.
+            // Any DB error here (e.g. MySQL 1615 "Prepared statement needs to be
+            // re-prepared" on cPanel shared hosting) must NOT cause a false login
+            // failure — the user is already authenticated.
+            try {
+                $upd = $db->prepare("UPDATE users SET last_login = NOW() WHERE id = ? LIMIT 1");
+                $upd->execute([(int)$user['id']]);
+            } catch (Throwable $e) {
+                _loginDebugLog("loginUser() last_login update failed (non-fatal): " . $e->getMessage());
+            }
 
-            // Clear rate-limit records on success
-            clearLoginAttempts($email);
+            try {
+                clearLoginAttempts($email);
+            } catch (Throwable $e) {
+                _loginDebugLog("loginUser() clearLoginAttempts failed (non-fatal): " . $e->getMessage());
+            }
 
-            // Log
-            logActivity((int)$user['id'], null, 'User logged in', 'IP: ' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown'));
+            try {
+                logActivity((int)$user['id'], null, 'User logged in', 'IP: ' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown'));
+            } catch (Throwable $e) {
+                _loginDebugLog("loginUser() logActivity failed (non-fatal): " . $e->getMessage());
+            }
 
             return true;
         }
@@ -306,13 +319,17 @@ function loginUser(string $email, string $password): bool {
 
         // Also log to activity_log if the user account exists
         if ($user && isset($user['id'])) {
-            logActivity((int)$user['id'], null, 'Failed login attempt', 'IP: ' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown'));
+            try {
+                logActivity((int)$user['id'], null, 'Failed login attempt', 'IP: ' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown'));
+            } catch (Throwable $e) { /* non-critical */ }
         }
 
         return false;
     } catch (Throwable $e) {
         _loginDebugLog("loginUser() error: " . $e->getMessage());
-        return false;
+        // If session was already written (session_write_close was called), the user
+        // IS authenticated — return true so they're not falsely rejected.
+        return isset($_SESSION['user_id']) && (int)$_SESSION['user_id'] > 0;
     }
 }
 

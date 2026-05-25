@@ -20,9 +20,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $email = trim($_POST['email'] ?? '');
         $password = $_POST['password'] ?? '';
 
-        // Normalize email: lowercase, strip invisible chars
+        // Normalize email: lowercase, strip invisible chars and spaces
+        // (Android autocorrect can replace dots with spaces in email addresses)
         $email = strtolower($email);
-        $email = preg_replace('/[\x00-\x1F\x7F\xC2\xA0]/u', '', $email);
+        $email = preg_replace('/[\x00-\x1F\x7F\xC2\xA0\x20]/u', '', $email);
 
         if (empty($email) || empty($password)) {
             $error = 'Please enter both email and password.';
@@ -431,6 +432,9 @@ $csrf_token = generateCSRFToken();
                     class="form-input"
                     required
                     autocomplete="username"
+                    autocorrect="off"
+                    autocapitalize="none"
+                    spellcheck="false"
                     placeholder="your@email.com or username"
                     value="<?php echo isset($_POST['email']) ? htmlspecialchars($_POST['email']) : ''; ?>"
                 >
