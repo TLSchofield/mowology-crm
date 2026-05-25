@@ -56,6 +56,10 @@ function parseReceiptText(string $ocrText, ?array $rawResponse = null): array
     // GST (5% — BC standard; also catches generic "TAX" labels)
     $result['gst'] = extractGST($ocrText);
 
+    // PST (BC 7%, SK 6%, MB 7%, QC TVQ 9.975%)
+    // Must run before subtotal/total so column-fallback only fires when truly missing.
+    $result['pst'] = extractPST($ocrText);
+
     // Subtotal
     $result['subtotal'] = extractSubtotal($ocrText);
 
@@ -110,7 +114,7 @@ function parseReceiptText(string $ocrText, ?array $rawResponse = null): array
         if ($result['total'] === null && $columnParsed['total'] !== null) {
             $result['total'] = $columnParsed['total'];
         }
-        if ($columnParsed['pst'] !== null) {
+        if ($result['pst'] === null && $columnParsed['pst'] !== null) {
             $result['pst'] = $columnParsed['pst'];
         }
     }
@@ -1478,6 +1482,62 @@ function extractHST(string $text): ?string
                 return number_format((float)str_replace(',', '.', $m[1]), 2, '.', '');
             }
             // Three-line format: "HST\n$\n13.00"
+            if ($nextLine === '$' && $i + 2 < $lineCount) {
+                $amtLine = trim($lines[$i + 2]);
+                if (preg_match('/^\$?(\d{1,6}[.,]\d{2})\s*$/', $amtLine, $m)) {
+                    return number_format((float)str_replace(',', '.', $m[1]), 2, '.', '');
+                }
+            }
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Extract a standalone PST (Provincial Sales Tax) amount from receipt text.
+ *
+ * Handles BC (7%), SK (6%), MB (7%), and QC (TVQ / QST 9.975%) labels:
+ *   "PST 16.10"   "PST 7%  $16.10"   "PST (7%)  $16.10"
+ *   "PST\n16.10"  "PST 7%\n$\n16.10"
+ *   "TVQ 9.975%  $11.50"   "QST  $11.50"   (Quebec equivalents)
+ *
+ * Mirrors the proven extractHST() pattern. Was previously missing — the only PST
+ * path was extractColumnSeparatedAmounts(), which only fires when subtotal/GST/total
+ * are all absent. Receipts where those three are extractable same-line (e.g. Coe
+ * Lumber) silently lost PST.
+ *
+ * @param string $text Raw OCR text
+ * @return string|null Formatted amount ("16.10") or null if not found
+ */
+function extractPST(string $text): ?string
+{
+    // Same-line patterns (horizontal whitespace only — [^\S\n] prevents cross-line grabs)
+    $patterns = [
+        // "PST (7%) $16.10", "PST 7% $16.10", "TVQ 9.975% $11.50" — with explicit dollar sign
+        '/\b(?:PST|TVQ|QST)\b[^\S\n]*(?:\([\d.]+%\)|[\d.]+%)?[^\S\n]*:?[^\S\n]*\$[^\S\n]*(\d{1,6}[.,]\d{2})/i',
+        // "PST $16.10" or "PST: 16.10" — without explicit dollar sign; trailing %-guard avoids matching the rate
+        '/\b(?:PST|TVQ|QST)\b[^\S\n]*(?:\([\d.]+%\)|[\d.]+%)?[^\S\n]*:?[^\S\n]*(\d{1,6}[.,]\d{2})(?!\d*%)/i',
+    ];
+
+    foreach ($patterns as $pattern) {
+        if (preg_match($pattern, $text, $m)) {
+            return number_format((float)str_replace(',', '.', $m[1]), 2, '.', '');
+        }
+    }
+
+    // Split-line fallback: "PST\n16.10" or "PST (7%)\n16.10" or "PST\n$\n16.10"
+    $lines     = preg_split('/\r?\n/', $text);
+    $lineCount = count($lines);
+    for ($i = 0; $i < $lineCount - 1; $i++) {
+        $line = trim($lines[$i]);
+        // Match a line that is just a PST/TVQ/QST label (optional percentage)
+        if (preg_match('/^\b(?:PST|TVQ|QST)\b(?:\s*\([\d.]+%\)|\s*[\d.]+%)?\s*:?\s*$/i', $line)) {
+            $nextLine = trim($lines[$i + 1]);
+            if (preg_match('/^\$?(\d{1,6}[.,]\d{2})\s*$/', $nextLine, $m)) {
+                return number_format((float)str_replace(',', '.', $m[1]), 2, '.', '');
+            }
+            // Three-line format: "PST\n$\n16.10"
             if ($nextLine === '$' && $i + 2 < $lineCount) {
                 $amtLine = trim($lines[$i + 2]);
                 if (preg_match('/^\$?(\d{1,6}[.,]\d{2})\s*$/', $amtLine, $m)) {
