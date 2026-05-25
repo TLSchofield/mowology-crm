@@ -395,6 +395,37 @@ function formatPhone(?string $phone): string {
 }
 
 /**
+ * Sanitize a phone/mobile field value.
+ *
+ * Returns empty string if the value is clearly not a phone number
+ * (URLs, email addresses, long free-text). Otherwise trims and returns it.
+ * Use before saving contact phone / mobile to the database.
+ */
+function sanitizePhone(?string $value): string {
+    $value = trim((string)($value ?? ''));
+    if ($value === '') return '';
+
+    // Reject obvious URLs and web paths
+    if (preg_match('/https?:\/\/|ftp:\/\/|www\.|\.php|\.html?|\.com|\.ca|\.org|\.net/i', $value)) {
+        return '';
+    }
+    // Reject email addresses
+    if (strpos($value, '@') !== false) {
+        return '';
+    }
+    // Reject values that are implausibly long (real phone numbers ≤ 20 chars)
+    if (strlen($value) > 20) {
+        return '';
+    }
+    // Must contain at least 7 digits to be a valid phone number
+    $digits = preg_replace('/\D/', '', $value);
+    if (strlen($digits) < 7) {
+        return '';
+    }
+    return $value;
+}
+
+/**
  * Get status badge HTML
  */
 function getStatusBadge($status, $type = 'quote') {

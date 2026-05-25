@@ -543,8 +543,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $firstName = trim($_POST['first_name'] ?? '');
             $lastName = trim($_POST['last_name'] ?? '');
             $email = trim($_POST['email'] ?? '');
-            $phone = trim($_POST['phone'] ?? '');
-            $mobile = trim($_POST['mobile'] ?? '');
+            $phone = sanitizePhone($_POST['phone'] ?? '');
+            $mobile = sanitizePhone($_POST['mobile'] ?? '');
             $preferredContact = $_POST['preferred_contact_method'] ?? 'phone';
             $receiveSms = isset($_POST['receive_sms']) ? 1 : 0;
             $receiveMarketing = isset($_POST['receive_marketing']) ? 1 : 0;
@@ -703,9 +703,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($contactId) {
                 $firstName = trim($_POST['first_name'] ?? '');
                 $lastName = trim($_POST['last_name'] ?? '');
-                $email = trim($_POST['email'] ?? '');
-                $phone = trim($_POST['phone'] ?? '');
-                $mobile = trim($_POST['mobile'] ?? '');
+                $email     = trim($_POST['email'] ?? '');
+                $rawPhone  = trim($_POST['phone'] ?? '');
+                $rawMobile = trim($_POST['mobile'] ?? '');
+                $phone     = sanitizePhone($rawPhone);
+                $mobile    = sanitizePhone($rawMobile);
                 $preferredContact = $_POST['preferred_contact_method'] ?? 'phone';
                 $receiveSms = isset($_POST['receive_sms']) ? 1 : 0;
                 $receiveMarketing = isset($_POST['receive_marketing']) ? 1 : 0;
@@ -757,6 +759,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
 
                         $message = 'Contact updated successfully!';
+                        // Warn if an invalid phone value was silently cleared
+                        $sanitizeWarnings = [];
+                        if ($rawPhone !== '' && $phone === '') $sanitizeWarnings[] = 'Phone';
+                        if ($rawMobile !== '' && $mobile === '') $sanitizeWarnings[] = 'Cell / Mobile';
+                        if ($sanitizeWarnings) {
+                            $message .= ' Note: ' . implode(' and ', $sanitizeWarnings) . ' contained an invalid value and was cleared.';
+                        }
                         $messageType = 'success';
                         $action = null;
                     } catch (PDOException $e) {
@@ -2001,7 +2010,8 @@ $unconvertedRequests = $db->query("
                             <label>Phone</label>
                             <input type="tel" class="form-control" name="phone"
                               value="<?php echo h($_POST['phone'] ?? ''); ?>"
-                              placeholder="604-555-1234">
+                              placeholder="604-555-1234"
+                              oninput="mwValidatePhone(this)">
                           </div>
                         </div>
                       </div>
@@ -2011,7 +2021,8 @@ $unconvertedRequests = $db->query("
                             <label>Cell / Mobile</label>
                             <input type="tel" class="form-control" name="mobile"
                               value="<?php echo h($_POST['mobile'] ?? ''); ?>"
-                              placeholder="604-555-5678">
+                              placeholder="604-555-5678"
+                              oninput="mwValidatePhone(this)">
                             <small class="form-text text-muted">Used for SMS notifications</small>
                           </div>
                         </div>
@@ -2291,7 +2302,8 @@ $unconvertedRequests = $db->query("
                           <div class="form-group">
                             <label>Phone</label>
                             <input type="tel" class="form-control" name="phone"
-                              value="<?php echo h($_POST['phone'] ?? $contact['phone'] ?? ''); ?>">
+                              value="<?php echo h($_POST['phone'] ?? $contact['phone'] ?? ''); ?>"
+                              oninput="mwValidatePhone(this)">
                           </div>
                         </div>
                       </div>
@@ -2300,7 +2312,8 @@ $unconvertedRequests = $db->query("
                           <div class="form-group mb-0">
                             <label>Cell / Mobile</label>
                             <input type="tel" class="form-control" name="mobile"
-                              value="<?php echo h($_POST['mobile'] ?? $contact['mobile'] ?? ''); ?>">
+                              value="<?php echo h($_POST['mobile'] ?? $contact['mobile'] ?? ''); ?>"
+                              oninput="mwValidatePhone(this)">
                             <small class="form-text text-muted">Used for SMS notifications</small>
                           </div>
                         </div>
@@ -7190,5 +7203,32 @@ $unconvertedRequests = $db->query("
 </script>
 
 <?php endif; ?>
+
+<script>
+// ── Phone / mobile field validation ───────────────────────────────────────
+// Flags inputs that contain URLs or clearly non-phone content with a red border
+// and inline message. Server-side sanitizePhone() strips them on save anyway,
+// but this gives instant feedback before the form is submitted.
+function mwValidatePhone(input) {
+    var v = input.value;
+    var looksInvalid = /https?:\/\/|ftp:\/\/|www\.|\.php|\.html?|@/.test(v)
+                    || (v.replace(/\D/g, '').length < 7 && v.trim().length > 4);
+    if (looksInvalid) {
+        input.classList.add('is-invalid');
+        if (!input.parentNode.querySelector('.mw-phone-invalid-feedback')) {
+            var fb = document.createElement('div');
+            fb.className = 'invalid-feedback mw-phone-invalid-feedback';
+            fb.textContent = "This doesn’t look like a phone number — it will be cleared on save.";
+            input.insertAdjacentElement('afterend', fb);
+        }
+    } else {
+        input.classList.remove('is-invalid');
+        var fb2 = input.parentNode.querySelector('.mw-phone-invalid-feedback');
+        if (fb2) fb2.remove();
+    }
+}
+// Run on load to flag any bad values already in the form
+document.querySelectorAll('input[name="phone"], input[name="mobile"]').forEach(mwValidatePhone);
+</script>
 
 <?php include 'includes/appstack_footer.php'; ?>
