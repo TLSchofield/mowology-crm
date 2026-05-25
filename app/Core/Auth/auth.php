@@ -450,6 +450,42 @@ if (!function_exists('clear_login_attempts')) {
     function clear_login_attempts(string $email, ?string $ip = null): void { clearLoginAttempts($email, $ip); }
 }
 
+// ── Dual-mode authentication ─────────────────────────────────────────────────
+// Used by API endpoints that accept BOTH session-based (CRM web) AND JWT Bearer
+// (iOS / Capacitor native) requests.
+//
+// If an "Authorization: Bearer <token>" header is present, the JWT is validated
+// and the decoded payload is returned as the user array.
+// Otherwise, falls back to requireLogin() + getCurrentUser() (session auth).
+//
+// Returns an array with at least ['id' => int, 'email' => string, 'role' => string].
+if (!function_exists('requireLoginOrJwt')) {
+    function requireLoginOrJwt(): array
+    {
+        $authHeader = $_SERVER['HTTP_AUTHORIZATION']
+                   ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION']
+                   ?? '';
+
+        if (str_starts_with($authHeader, 'Bearer ')) {
+            // JWT path — load JwtAuth.php if not already loaded
+            if (!function_exists('requireJwt')) {
+                require_once __DIR__ . '/JwtAuth.php';
+            }
+            return requireJwt(); // exits with 401 JSON if token invalid/missing
+        }
+
+        // Session path
+        requireLogin();
+        $u = getCurrentUser();
+        if ($u === null) {
+            http_response_code(401);
+            echo json_encode(['success' => false, 'error' => 'Not authenticated']);
+            exit;
+        }
+        return $u;
+    }
+}
+
 // ── Global exception handler ──────────────────────────────────────────────────
 // Catches any unhandled Throwable (DB errors, require failures, etc.) across
 // the entire CRM.  Logs a structured entry via error_log() and — for API

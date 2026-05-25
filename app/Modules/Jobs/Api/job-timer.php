@@ -34,8 +34,7 @@ try {
         require_once $locFuncsPath;
     }
 
-    requireLogin();
-    $user = getCurrentUser();
+    $user = requireLoginOrJwt();
     requirePermission('timer.start');
 
     // Idempotency key — sent by iOS/Capacitor clients as a UUID per action attempt.
