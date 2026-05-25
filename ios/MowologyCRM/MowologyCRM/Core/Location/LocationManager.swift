@@ -80,14 +80,25 @@ final class LocationManager: NSObject {
     /// Enable background location delivery and begin streaming fixes.
     /// Must be called after the user has granted Always authorization;
     /// calling before authorization is granted has no effect.
+    ///
+    /// Registers BOTH continuous location updates AND Significant Location
+    /// Changes (SLC). Continuous updates give us the fine-grained 10m fixes we
+    /// need for accurate visit trails when the app is active. SLC is the
+    /// background-survival path: when iOS suspends the app during a stationary
+    /// period, SLC will wake the suspended process on the next ~500m of
+    /// movement and deliver a fix via the delegate — restarting the ping
+    /// stream automatically. Without SLC, a suspended app stays asleep
+    /// indefinitely because continuous updates require a running process.
     func startBackgroundTracking() {
         manager.allowsBackgroundLocationUpdates  = true
         manager.showsBackgroundLocationIndicator = true
         manager.startUpdatingLocation()
+        manager.startMonitoringSignificantLocationChanges()
     }
 
     /// Stop the location stream and disable background delivery.
     func stopBackgroundTracking() {
+        manager.stopMonitoringSignificantLocationChanges()
         manager.stopUpdatingLocation()
         manager.allowsBackgroundLocationUpdates  = false
         manager.showsBackgroundLocationIndicator = false
