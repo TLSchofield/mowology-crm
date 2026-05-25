@@ -19,7 +19,7 @@
  * URL so the WebView can use a service worker just like a browser can).
  */
 
-var CACHE_VERSION = 'mw-v43';
+var CACHE_VERSION = 'mw-v44';
 var SHELL_CACHE  = 'mw-shell-' + CACHE_VERSION;
 var PAGE_CACHE   = 'mw-pages-' + CACHE_VERSION;
 var IMG_CACHE    = 'mw-images-' + CACHE_VERSION;
@@ -156,24 +156,23 @@ self.addEventListener('fetch', function(event) {
   if (url.origin !== self.location.origin) return;
 
   // ── Navigation requests ──
-  // Android Chrome/WebView enforces a hard ~5s timeout on SW navigation responses,
-  // so when online we bypass the SW entirely — the browser handles the request
-  // and shows its normal loading spinner on slow PHP pages. However, when we
-  // know we're offline (navigator.onLine === false), we serve the branded
-  // /crm/offline.html from the shell cache instead of the browser's default
-  // "no internet" error page. This is the common field scenario for crews.
+  // Never intercept navigate requests via event.respondWith().
+  //
+  // WHY: The browser sets redirect:'manual' on navigate-mode fetch events.
+  // If the server returns a 302 and the SW's fetch() (using redirect:'follow')
+  // returns a response with response.redirected=true, Chrome throws:
+  //   "a redirected response was used for a request whose redirect mode is not 'follow'"
+  // → ERR_FAILED in the tab.
+  //
+  // The browser handles auth redirects (302 → login) perfectly on its own.
+  // Android WebView also enforces a ~5s timeout on SW navigation responses,
+  // so bypassing the SW for navigations is correct for performance too.
+  //
+  // Offline handling: the 'online' → 'offline' transition fires the SW 'message'
+  // event from the page layer (offline-receipts.js) which displays the offline UI.
+  // We don't need to intercept navigate requests to show an offline page.
   if (request.mode === 'navigate') {
-    if (self.navigator && self.navigator.onLine === false) {
-      event.respondWith(
-        caches.match('/crm/offline.html').then(function (cached) {
-          return cached || fetch('/crm/offline.html').catch(function () {
-            return new Response('Offline', { status: 503, statusText: 'Offline' });
-          });
-        })
-      );
-      return;
-    }
-    return;
+    return; // Let the browser handle all navigations natively.
   }
 
   var pathname = url.pathname;
@@ -338,13 +337,28 @@ function latLngToTile(lat, lng, zoom) {
   return { x: x, y: y };
 }
 
-// ── Background Sync: retry failed uploads ──
+// ── Background Sync: retry failed uploads + action queue ──
 self.addEventListener('sync', function(event) {
   if (event.tag === 'receipt-upload') {
     event.waitUntil(syncPendingReceipts());
   }
   if (event.tag === 'photo-queue-sync') {
     event.waitUntil(syncPendingPhotos());
+  }
+  // Action queue (time-clock, pow-actions, job-timer) — registered by offline-queue.js.
+  // The SW can't call the page's fetch wrapper directly, so we message all open
+  // CRM clients to flush the queue from their own context (where cookies/auth live).
+  // If no clients are open, the online/visibilitychange listeners in offline-queue.js
+  // handle replay on next page load.
+  if (event.tag === 'action-queue-sync') {
+    event.waitUntil(
+      self.clients.matchAll({ includeUncontrolled: true, type: 'window' }).then(function(clients) {
+        var crmClients = clients.filter(function(c) { return c.url.indexOf('/crm/') !== -1; });
+        crmClients.forEach(function(c) {
+          c.postMessage({ type: 'action-queue-flush' });
+        });
+      })
+    );
   }
 });
 
@@ -631,9 +645,18 @@ function staleWhileRevalidate(request, cacheName) {
  * PAGE_CACHE writes also trigger the LRU trimmer below.
  */
 function networkFirst(request, cacheName) {
-  // Use redirect:'follow' — navigation requests have redirect:'manual' by spec,
-  // which would return an opaque redirect response and cause ERR_FAILED in Chrome.
   return fetch(request, { redirect: 'follow' }).then(function(response) {
+    // Never cache or return a redirected response — it would store the final
+    // destination's HTML under the wrong (pre-redirect) cache key, and passing
+    // a redirected response back to a navigate request causes ERR_FAILED in
+    // Chrome ("a redirected response was used for a request whose redirect mode
+    // is not 'follow'"). If a redirect occurred, fall through to cache fallback
+    // so the browser's own redirect-following takes over for the next request.
+    if (response.redirected) {
+      return caches.match(request).then(function(cached) {
+        return cached || offlinePage();
+      });
+    }
     if (response.ok) {
       var clone = response.clone();
       caches.open(cacheName).then(function(cache) {
