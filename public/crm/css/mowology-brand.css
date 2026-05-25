@@ -3011,6 +3011,86 @@ a.mw-clock-timer-nav:hover {
 .mw-mc-kpi-margin.is-red .mw-mc-kpi-value {
   color:#F87171
 }
+/* ── Labor Panel (expanded, separated from revenue/ops tiles) ── */
+.mw-mc-labor-panel {
+  flex:0 0 auto;
+  min-width:195px;
+  padding:0 16px;
+  border-right:1px solid rgb(255 255 255 / .12);
+  margin-right:14px;
+  border-left:2px solid rgb(245 158 11 / .45);
+  padding-left:12px
+}
+.mw-mc-labor-header {
+  display:flex;
+  align-items:center;
+  gap:6px;
+  margin-bottom:2px
+}
+.mw-mc-labor-mode {
+  font-size:9px;
+  font-weight:600;
+  color:rgb(255 255 255 / .6);
+  text-transform:uppercase;
+  letter-spacing:.06em
+}
+.mw-mc-labor-pct {
+  font-size:10px;
+  font-weight:700;
+  padding:1px 6px;
+  border-radius:10px;
+  margin-left:auto;
+  white-space:nowrap
+}
+.mw-mc-labor-pct.is-ok {
+  background:rgb(127 216 88 / .15);
+  color:#7FD858
+}
+.mw-mc-labor-pct.is-amber {
+  background:rgb(245 158 11 / .18);
+  color:#F59E0B
+}
+.mw-mc-labor-pct.is-red {
+  background:rgb(239 68 68 / .18);
+  color:#F87171
+}
+.mw-mc-labor-total {
+  font-size:22px;
+  font-weight:800;
+  color:var(--mw-ink-0);
+  line-height:1;
+  letter-spacing:-.02em;
+  font-variant-numeric:tabular-nums;
+  margin-bottom:5px
+}
+.mw-mc-labor-crew {
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+  border-top:1px solid rgb(255 255 255 / .1);
+  padding-top:5px
+}
+.mw-mc-labor-row {
+  display:flex;
+  align-items:center;
+  gap:6px;
+  font-size:10px;
+  color:rgb(255 255 255 / .85)
+}
+.mw-mc-labor-name {
+  font-weight:700;
+  color:#fff;
+  min-width:42px
+}
+.mw-mc-labor-hrs {
+  color:rgb(255 255 255 / .65);
+  flex:1
+}
+.mw-mc-labor-cost {
+  font-weight:700;
+  color:#fff;
+  font-variant-numeric:tabular-nums
+}
 .mw-mc-gamification {
   display:flex;
   flex-direction:column;
@@ -33786,10 +33866,10 @@ a.mw-clock-timer-nav:hover {
   .mw-irt-grid { grid-template-columns: 1fr; }
 }
 .mw-irt-chart {
-  background: linear-gradient(135deg, #f0f7f4 0%, #f8fbf9 100%);
+  background: linear-gradient(160deg, #f2f8f5 0%, #fafcfb 100%);
   border-radius: 0 0 0 4px;
-  border-right: 1px solid #e5eeea;
-  padding: 12px 8px;
+  border-right: 1px solid #eaf2ee;
+  padding: 16px 12px;
   display: flex;
   align-items: center;
   justify-content: center;
