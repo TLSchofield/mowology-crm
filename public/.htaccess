@@ -78,6 +78,16 @@ RewriteRule ^api/ - [L]
 # 1. Pass all real files/dirs inside /bluemoon/ through untouched
 RewriteRule ^bluemoon/ - [L]
 
+# ── Service Worker — must NEVER be cached (SW spec requirement) ──────────────
+# LiteSpeed adds its own Cache-Control: max-age=31536000 for PHP files,
+# which overrides the PHP header() call and stops the SW from ever updating.
+# "Header always set" replaces any previously set Cache-Control (incl. LiteSpeed).
+<Files "service-worker.php">
+    Header always set Cache-Control "no-store, no-cache, must-revalidate, max-age=0"
+    Header always set Pragma "no-cache"
+    Header always set X-LiteSpeed-Cache-Control "no-store, no-cache"
+</Files>
+
 # Security: allow JS workers to be fetched with correct MIME and COOP headers
 <FilesMatch "\.worker\.js$">
     Header set Content-Type "application/javascript"
