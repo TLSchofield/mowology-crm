@@ -274,6 +274,10 @@ struct VisitDetailView: View {
                 .clipShape(Capsule())
             }
 
+            // MARK: Action CTA — Start Job / Mark Complete
+            Divider()
+            actionButtons(for: visit, currentStatus: currentStatus)
+
             // MARK: Before/After Photo Proof + Heart Endorsement
             if ["scheduled", "in_progress"].contains(visit.visitStatus.lowercased()) {
                 let isVisitFlagged  = viewModel.isFlagged(for: visit)
@@ -316,12 +320,24 @@ struct VisitDetailView: View {
             }
         }
         .padding(14)
-        .background(Color(.systemBackground))
+        .background(
+            currentStatus.lowercased() == "in_progress"
+                ? Color.MW.green.opacity(0.03)
+                : Color(.systemBackground)
+        )
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .overlay(
             RoundedRectangle(cornerRadius: 12)
                 .stroke(statusColor.opacity(0.2), lineWidth: 1)
         )
+        .overlay(alignment: .leading) {
+            if currentStatus.lowercased() == "in_progress" {
+                RoundedRectangle(cornerRadius: 2)
+                    .frame(width: 4)
+                    .foregroundStyle(Color.MW.green)
+                    .padding(.vertical, 4)
+            }
+        }
     }
 
     @ViewBuilder
@@ -333,13 +349,22 @@ struct VisitDetailView: View {
             Button {
                 Task { await viewModel.startJob(visitId: visit.visitId) }
             } label: {
-                Label("Start Job", systemImage: "play.fill")
-                    .font(.subheadline.bold())
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(Color.MW.green)
-                    .foregroundStyle(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                Group {
+                    if isThisLoading {
+                        HStack(spacing: 8) {
+                            ProgressView().tint(.white)
+                            Text("Starting…").font(.subheadline.bold())
+                        }
+                    } else {
+                        Label("Start Job", systemImage: "play.fill")
+                            .font(.subheadline.bold())
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(Color.MW.green)
+                .foregroundStyle(.white)
+                .clipShape(Capsule())
             }
             .disabled(isThisLoading)
 
@@ -347,13 +372,22 @@ struct VisitDetailView: View {
             Button {
                 Task { await viewModel.completeJob(visitId: visit.visitId) }
             } label: {
-                Label("Mark Complete", systemImage: "checkmark.circle.fill")
-                    .font(.subheadline.bold())
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(Color.green)
-                    .foregroundStyle(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                Group {
+                    if isThisLoading {
+                        HStack(spacing: 8) {
+                            ProgressView().tint(.white)
+                            Text("Completing…").font(.subheadline.bold())
+                        }
+                    } else {
+                        Label("Mark Complete", systemImage: "checkmark.circle.fill")
+                            .font(.subheadline.bold())
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(Color.MW.green)
+                .foregroundStyle(.white)
+                .clipShape(Capsule())
             }
             .disabled(isThisLoading)
 
