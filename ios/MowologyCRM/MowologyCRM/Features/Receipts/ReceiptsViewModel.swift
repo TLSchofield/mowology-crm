@@ -65,6 +65,16 @@ final class ReceiptsViewModel: ObservableObject {
         }
     }
 
+    /// Drain pending receipts whenever the receipts view appears or the app foregrounds.
+    /// NWPathMonitor only fires on network status *changes*; this covers the case where
+    /// the network was up the whole time but a single upload timed out and was enqueued.
+    func drainPendingQueue() async {
+        await ReceiptQueue.shared.drain { [weak self] data, lat, lng, jobId in
+            guard let self else { throw APIError.invalidURL }
+            return try await self.apiClient.uploadReceipt(imageData: data, lat: lat, lng: lng, jobId: jobId)
+        }
+    }
+
     // MARK: - Upload
 
     func uploadImage(_ imageData: Data, lat: Double?, lng: Double?) async {
@@ -74,10 +84,20 @@ final class ReceiptsViewModel: ObservableObject {
         do {
             intakeResponse = try await apiClient.uploadReceipt(imageData: imageData, lat: lat, lng: lng, jobId: nil)
         } catch let err as APIError {
-            if case .networkError = err {
+            // Queue the receipt on any transient/server-side failure so it isn't lost:
+            // - .networkError covers offline + URLError.timedOut (our 45s client cap)
+            // - .serverError covers 5xx / 504 / hosting PHP kill — same OCR-too-slow story
+            // - .decodingError covers a truncated/garbled response from a killed PHP process
+            // Only .unauthorized (needs re-login) and .invalidURL (programmer error) skip the queue.
+            switch err {
+            case .networkError, .serverError, .decodingError:
                 ReceiptQueue.shared.enqueue(imageData: imageData, lat: lat, lng: lng, jobId: nil)
-                uploadError = "No connection — receipt queued and will upload automatically."
-            } else {
+                if case .networkError = err {
+                    uploadError = "No connection — receipt queued and will upload automatically."
+                } else {
+                    uploadError = "Upload took too long — receipt saved and will retry automatically."
+                }
+            case .unauthorized, .invalidURL:
                 uploadError = err.errorDescription
             }
         } catch {

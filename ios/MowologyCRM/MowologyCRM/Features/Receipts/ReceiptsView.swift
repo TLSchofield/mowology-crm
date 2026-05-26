@@ -12,6 +12,7 @@ struct ReceiptsView: View {
 
     @EnvironmentObject private var authSession: AuthSession
     @StateObject private var viewModel: ReceiptsViewModel
+    @Environment(\.scenePhase) private var scenePhase
 
     // Camera as fullScreenCover — must be on the root view, not inside a sheet.
     @State private var showCamera   = false
@@ -42,6 +43,16 @@ struct ReceiptsView: View {
             await viewModel.loadExpenses()
             // Wire up auto-drain for receipts that were queued while offline.
             viewModel.startReceiptQueueMonitor()
+            // Also drain on view appear — covers timed-out uploads enqueued while
+            // network status never actually changed (so NWPathMonitor never re-fired).
+            await viewModel.drainPendingQueue()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            // App foregrounded — retry any receipts queued by a previous timeout.
+            // NWPathMonitor only fires on connectivity *changes*; this is the catch-all.
+            if phase == .active {
+                Task { await viewModel.drainPendingQueue() }
+            }
         }
         // Camera opens as fullScreenCover directly on this view — no intermediate sheet.
         .fullScreenCover(isPresented: $showCamera) {

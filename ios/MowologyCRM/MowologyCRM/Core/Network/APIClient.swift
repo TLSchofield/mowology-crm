@@ -142,6 +142,11 @@ final class APIClient: ObservableObject {
         let boundary = "MwBoundary-\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
         var request  = URLRequest(url: url)
         request.httpMethod = "POST"
+        // 45s per-request ceiling so the upload spinner can't sit forever when the
+        // server's OCR pipeline (Tesseract 15s + Vision 30s) outlives the hosting
+        // PHP cap. On timeout, URLError.timedOut surfaces as APIError.networkError
+        // and ReceiptsViewModel enqueues to ReceiptQueue for automatic retry.
+        request.timeoutInterval = 45
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         if let token = authSession?.token {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
