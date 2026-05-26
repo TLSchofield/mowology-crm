@@ -1562,13 +1562,15 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
                 // Hard ceiling so the "Analyzing receipt" spinner can't get stuck if PHP is
                 // killed mid-response or the connection stalls — Capacitor WebView doesn't
-                // surface a fetch rejection in that case. Tesseract (15s) + Vision (30s) +
-                // upload + parsing comfortably fits in 75s; anything past that is a hang.
+                // surface a fetch rejection in that case. Matches the iOS 45s upload timeout
+                // and server-side set_time_limit(60). On abort, the photo is already in IndexedDB
+                // (saved pre-fetch) and OfflineReceipts will retry on next reconnect /
+                // visibilitychange / focus event — no work is lost.
                 var fetchAborter = (typeof AbortController === 'function') ? new AbortController() : null;
                 var fetchTimedOut = false;
                 var fetchTimer = setTimeout(function() {
                     if (fetchAborter) { fetchTimedOut = true; fetchAborter.abort(); }
-                }, 75000);
+                }, 45000);
 
                 fetch('/crm/api/receipt-intake.php', {
                     method: 'POST',

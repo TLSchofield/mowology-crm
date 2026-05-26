@@ -41,6 +41,11 @@ if (!defined('APP_ROOT')) {
 
 header('Content-Type: application/json');
 
+// Cap total runtime — Tesseract (15s) + Vision (30s) + parsing should fit comfortably
+// in 60s. Bounding it here prevents the script outliving the iOS client's 45s upload
+// timeout and leaving the upload spinner stuck with no response.
+@set_time_limit(60);
+
 try {
     require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
