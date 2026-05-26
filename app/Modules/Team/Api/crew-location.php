@@ -23,6 +23,7 @@ try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
     require_once CRM_INCLUDES . '/functions.php';
     require_once CRM_INCLUDES . '/timeclock-functions.php';
+    require_once APP_ROOT . '/Modules/Team/Services/GeofenceService.php';
 
     // API endpoint — return 401 JSON instead of redirecting, so the JS widget
     // and Android WorkManager can detect session expiry rather than silently
@@ -228,6 +229,15 @@ try {
         $lastRow = $rateStmt->fetch(PDO::FETCH_ASSOC);
         if ($lastRow && (int)$lastRow['seconds_ago'] < 10) {
             echo json_encode(['success' => true, 'skipped' => true, 'reason' => 'rate_limited']);
+            exit;
+        }
+
+        // Home-geofence filter: drop idle heartbeats from inside user's home radius
+        // unless they have an active visit (clock-in pings come from clockIn() and
+        // bypass this endpoint entirely, so they're never dropped).
+        $geofence = new GeofenceService($db);
+        if ($geofence->shouldSuppressHomePing((int)$user['id'], $lat, $lng)) {
+            echo json_encode(['success' => true, 'skipped' => true, 'reason' => 'home_geofence']);
             exit;
         }
 

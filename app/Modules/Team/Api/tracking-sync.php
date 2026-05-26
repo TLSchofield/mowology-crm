@@ -30,6 +30,7 @@ if (!defined('APP_ROOT')) {
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
     require_once CRM_INCLUDES . '/functions.php';
+    require_once APP_ROOT . '/Modules/Team/Services/GeofenceService.php';
 
     // API endpoint — return 401 JSON instead of redirecting so Android WorkManager
     // can detect session expiry and keep unsynced points in Room DB rather than
@@ -99,6 +100,15 @@ function syncLocationPoints(PDO $db, array $user, array $points): array
     $inserted = 0;
     $skipped = 0;
 
+    // Resolve home geofence + active-visit state once per batch. Points within
+    // a single batch are typically minutes apart, so a per-batch active-visit
+    // snapshot is accurate enough; the alternative (recheck per point) costs
+    // ~100x more queries for the common forgetting-at-home case.
+    $geofence    = new GeofenceService($db);
+    $home        = $geofence->getHomeLocation($userId);
+    $hasVisit    = $home !== null ? $geofence->hasActiveVisit($userId) : false;
+    $suppressNow = $home !== null && !$hasVisit;
+
     // Prepare insert statement
     $stmt = $db->prepare("
         INSERT INTO crew_location_history
@@ -124,6 +134,16 @@ function syncLocationPoints(PDO $db, array $user, array $points): array
         if (!$lat || !$lng || !$timestamp) {
             $skipped++;
             continue;
+        }
+
+        // Home-geofence suppression — drop idle heartbeats from inside the
+        // user's home radius when no visit is active.
+        if ($suppressNow) {
+            $dist = GeofenceService::distanceMeters($lat, $lng, $home['lat'], $home['lng']);
+            if ($dist <= $home['radius_m']) {
+                $skipped++;
+                continue;
+            }
         }
 
         // Convert epoch millis to MySQL datetime

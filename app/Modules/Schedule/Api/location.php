@@ -38,6 +38,7 @@ try {
     require_once CRM_INCLUDES . '/functions.php';
     require_once CRM_INCLUDES . '/timeclock-functions.php';
     require_once CRM_INCLUDES . '/plan-functions.php';
+    require_once APP_ROOT . '/Modules/Team/Services/GeofenceService.php';
 
     $jwtUser = requireJwt();
     $userId  = (int)$jwtUser['id'];
@@ -81,6 +82,17 @@ try {
     if ($lastRow && (int)$lastRow['seconds_ago'] < 10) {
         echo json_encode(['success' => true, 'skipped' => true, 'reason' => 'rate_limited']);
         exit;
+    }
+
+    // Home-geofence filter: drop idle heartbeats from inside user's home radius
+    // unless they have an active visit. Pings with an explicit visit_id (i.e. an
+    // active job) bypass the filter — the visit could be at the home address.
+    if ($visitId === null) {
+        $geofence = new GeofenceService($db);
+        if ($geofence->shouldSuppressHomePing($userId, $lat, $lng)) {
+            echo json_encode(['success' => true, 'skipped' => true, 'reason' => 'home_geofence']);
+            exit;
+        }
     }
 
     // Store the ping
