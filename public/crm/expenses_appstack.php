@@ -1560,9 +1560,20 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 if (currentGpsLat !== null) formData.append('lat', currentGpsLat);
                 if (currentGpsLng !== null) formData.append('lng', currentGpsLng);
 
+                // Hard ceiling so the "Analyzing receipt" spinner can't get stuck if PHP is
+                // killed mid-response or the connection stalls — Capacitor WebView doesn't
+                // surface a fetch rejection in that case. Tesseract (15s) + Vision (30s) +
+                // upload + parsing comfortably fits in 75s; anything past that is a hang.
+                var fetchAborter = (typeof AbortController === 'function') ? new AbortController() : null;
+                var fetchTimedOut = false;
+                var fetchTimer = setTimeout(function() {
+                    if (fetchAborter) { fetchTimedOut = true; fetchAborter.abort(); }
+                }, 75000);
+
                 fetch('/crm/api/receipt-intake.php', {
                     method: 'POST',
                     body: formData,
+                    signal: fetchAborter ? fetchAborter.signal : undefined,
                 })
                 .then(function(r) {
                     return r.json().catch(function() {
@@ -1570,6 +1581,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     });
                 })
                 .then(function(data) {
+                    clearTimeout(fetchTimer);
                     if (!data.success) throw new Error(data.error || 'Upload failed');
 
                     // Server confirmed — remove local IDB backup (no longer needed)
@@ -1585,10 +1597,22 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     } else {
                         // Synchronous response (OCR complete or not available) — show immediately
                         if (typeof haptic === 'function') haptic('save');
-                        showReviewPanel(data, uploadFile, previewDataUrl);
+                        // Wrap so a DOM error in the panel can't leave the spinner stuck —
+                        // we'd rather show a manual-entry fallback than spin forever.
+                        try {
+                            showReviewPanel(data, uploadFile, previewDataUrl);
+                        } catch (panelErr) {
+                            try { console.error('showReviewPanel failed:', panelErr); } catch (_) {}
+                            alert('Receipt uploaded, but the review form failed to load. Please try again.');
+                            resetCapture();
+                            mobileResetReview();
+                        }
                     }
                 })
                 .catch(function(err) {
+                    clearTimeout(fetchTimer);
+                    var isAbort = fetchTimedOut || (err && (err.name === 'AbortError' || err.code === 20));
+
                     // Upload failed — photo is already saved in IDB if available
                     if (idbId !== null && window.OfflineReceipts) {
                         if (typeof haptic === 'function') haptic('save');
@@ -1596,15 +1620,22 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         var _online = (window.MwNative && window.MwNative.network)
                             ? window.MwNative.network.isOnline !== false
                             : navigator.onLine !== false;
-                        var msg = _online
-                            ? 'Upload failed. Photo saved locally — tap "Retry" when ready.'
-                            : 'You\'re offline. Receipt saved locally and will upload automatically when you reconnect.';
+                        var msg;
+                        if (isAbort) {
+                            msg = 'Upload took too long and was cancelled. Photo saved locally — tap "Retry" when ready.';
+                        } else if (_online) {
+                            msg = 'Upload failed. Photo saved locally — tap "Retry" when ready.';
+                        } else {
+                            msg = 'You\'re offline. Receipt saved locally and will upload automatically when you reconnect.';
+                        }
                         alert(msg);
                         resetCapture();
                         mobileResetReview();
                     } else {
                         if (typeof haptic === 'function') haptic('error');
-                        alert('Error: ' + err.message);
+                        alert(isAbort
+                            ? 'Upload took too long and was cancelled. Please try again.'
+                            : 'Error: ' + err.message);
                         resetCapture();
                         mobileResetReview();
                     }

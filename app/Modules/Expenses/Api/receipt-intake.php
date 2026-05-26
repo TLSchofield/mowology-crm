@@ -33,6 +33,11 @@ if (!defined('APP_ROOT')) {
 
 header('Content-Type: application/json');
 
+// Cap total runtime — Tesseract (15s) + Vision (30s) + parsing should fit comfortably
+// in 60s. Bounding it here prevents the script outliving the client's 75s fetch timeout
+// and leaving the mobile spinner stuck on "Analyzing receipt..." with no response.
+@set_time_limit(60);
+
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
     require_once CRM_INCLUDES . '/functions.php';
