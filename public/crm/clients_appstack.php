@@ -1717,6 +1717,13 @@ if ($action === 'view_contact' || $action === 'new') {
 
 // Get all clients and prospects
 // Prospects are created from quote_requests
+// Stats for the metrics banner
+$statsTotalActive  = (int)$db->query("SELECT COUNT(*) FROM companies WHERE account_status = 'active'")->fetchColumn();
+$statsNewThisMonth = (int)$db->query("SELECT COUNT(*) FROM companies WHERE account_status = 'active' AND YEAR(created_at) = YEAR(NOW()) AND MONTH(created_at) = MONTH(NOW())")->fetchColumn();
+$statsOverdueAmt   = (float)$db->query("SELECT COALESCE(SUM(balance_due), 0) FROM invoices WHERE status IN ('overdue', 'sent', 'viewed') AND balance_due > 0")->fetchColumn();
+$statsOverdueCount = (int)$db->query("SELECT COUNT(*) FROM invoices WHERE status = 'overdue' AND balance_due > 0")->fetchColumn();
+$statsContactsTotal = (int)$db->query("SELECT COUNT(*) FROM contacts WHERE is_active = 1")->fetchColumn();
+
 $clients = $db->query("
     SELECT
         c.id,
@@ -1729,11 +1736,12 @@ $clients = $db->query("
         qr.urgency,
         qr.status as qr_status,
         TRIM(CONCAT(COALESCE(pc.first_name, ''), ' ', COALESCE(pc.last_name, ''))) AS primary_contact_name,
-        pc.phone as primary_contact_phone
+        pc.phone as primary_contact_phone,
+        (SELECT MAX(al.created_at) FROM activity_log al WHERE al.company_id = c.id) as last_activity_at
     FROM companies c
     LEFT JOIN quote_requests qr ON c.id = qr.company_id AND qr.status IN ('new', 'reviewing')
     LEFT JOIN contacts pc ON c.primary_contact_id = pc.id
-    ORDER BY c.company_name
+    ORDER BY last_activity_at DESC, c.company_name
 ")->fetchAll(PDO::FETCH_ASSOC);
 
 // Get standalone contacts (not linked to any company as primary or billing contact)
@@ -2429,47 +2437,39 @@ $unconvertedRequests = $db->query("
             ?>
 
             <!-- Header -->
-            <div class="mw-contact-header">
-              <div>
-                <h3 class="mw-contact-name">
-                  <i data-feather="user" style="width: 24px; height: 24px;"></i>
-                  <?php echo $contactName; ?>
-                </h3>
-                <?php
-                  // Use lifecycle_stage (exact key) with prospect_status as fallback
-                  $stageKey   = $viewContact['lifecycle_stage'] ?? $viewContact['prospect_status'] ?? 'prospect';
-                  $stageLabel = ucfirst($stageKey);
-                  $stageColor = '#6B7280';
-                  // Look up label + color from lifecycle_stages table if available
-                  try {
-                      $vsStages = getLifecycleStages();
-                      foreach ($vsStages as $vs) {
-                          if ($vs['stage_key'] === $stageKey) {
-                              $stageLabel = $vs['stage_label'];
-                              $stageColor = $vs['stage_color'];
-                              break;
-                          }
+            <?php
+              $stageKey   = $viewContact['lifecycle_stage'] ?? $viewContact['prospect_status'] ?? 'prospect';
+              $stageLabel = ucfirst($stageKey);
+              $stageColor = '#6B7280';
+              try {
+                  $vsStages = getLifecycleStages();
+                  foreach ($vsStages as $vs) {
+                      if ($vs['stage_key'] === $stageKey) {
+                          $stageLabel = $vs['stage_label'];
+                          $stageColor = $vs['stage_color'];
+                          break;
                       }
-                  } catch (Exception $ignore) {
-                      $fallbackColors = ['prospect' => '#3B82F6', 'client' => '#2D8659', 'inactive' => '#6B7280'];
-                      $stageColor = $fallbackColors[$stageKey] ?? '#6B7280';
                   }
-                ?>
-                <span class="badge ml-2" style="background: <?php echo h($stageColor); ?>; color: #fff; font-size: 0.75rem;">
-                  <?php echo h($stageLabel); ?>
-                </span>
+              } catch (Exception $ignore) {
+                  $fallbackColors = ['prospect' => '#3B82F6', 'client' => '#2D8659', 'inactive' => '#6B7280'];
+                  $stageColor = $fallbackColors[$stageKey] ?? '#6B7280';
+              }
+              // Initials for avatar
+              $initials = strtoupper(substr($viewContact['first_name'] ?? 'C', 0, 1) . substr($viewContact['last_name'] ?? '', 0, 1));
+            ?>
+            <div class="mw-contact-header">
+              <div class="mw-contact-name-wrap">
+                <div class="mw-contact-avatar"><?php echo h($initials); ?></div>
+                <div>
+                  <h3 class="mw-contact-name"><?php echo $contactName; ?></h3>
+                  <span class="mw-contact-stage-badge" style="background: <?php echo h($stageColor); ?>;">
+                    <?php echo h($stageLabel); ?>
+                  </span>
+                </div>
               </div>
-              <div class="mw-contact-actions">
-                <a href="/customer/portal.php?contact_id=<?php echo (int)$viewContact['id']; ?>" class="btn btn-outline-primary" target="_blank">
-                  <i data-feather="external-link"></i> Client Portal
-                </a>
-                <a href="?action=edit_contact&id=<?php echo (int)$viewContact['id']; ?>" class="btn btn-primary">
-                  <i data-feather="edit-2"></i> Edit
-                </a>
-                <a href="clients_appstack.php" class="btn btn-secondary">
-                  <i data-feather="arrow-left"></i> Back
-                </a>
-              </div>
+              <a href="clients_appstack.php" class="btn btn-outline-secondary btn-sm">
+                <i data-feather="arrow-left"></i> Back
+              </a>
             </div>
 
             <div class="row">
@@ -2478,37 +2478,90 @@ $unconvertedRequests = $db->query("
 
                 <!-- Contact Details Card -->
                 <div class="card mb-3">
-                  <div class="card-header">
-                    <h5 class="card-title mb-0"><i data-feather="user"></i> <?php echo $contactName; ?></h5>
+                  <div class="card-header d-flex align-items-center justify-content-between">
+                    <h5 class="card-title mb-0"><?php echo $contactName; ?></h5>
+                    <div class="d-flex" style="gap:6px;">
+                      <a href="/customer/portal.php?contact_id=<?php echo (int)$viewContact['id']; ?>" class="btn btn-sm btn-outline-primary" target="_blank" title="Open client portal">
+                        <i data-feather="external-link" style="width:14px;height:14px;"></i> Client Portal
+                      </a>
+                      <a href="?action=edit_contact&id=<?php echo (int)$viewContact['id']; ?>" class="btn btn-sm btn-success" title="Edit contact">
+                        <i data-feather="edit-2" style="width:14px;height:14px;"></i> Edit
+                      </a>
+                    </div>
                   </div>
                   <div class="card-body">
-                    <?php if (!empty($viewContact['email'])): ?>
-                    <div class="row mb-2 align-items-center">
-                      <div class="col-sm-1 text-muted" title="Email"><i data-feather="mail" style="width: 16px; height: 16px;"></i></div>
-                      <div class="col-sm-11"><a href="mailto:<?php echo h($viewContact['email']); ?>"><?php echo h($viewContact['email']); ?></a></div>
-                    </div>
-                    <?php endif; ?>
-                    <?php if (!empty($viewContact['phone'])): ?>
-                    <div class="row mb-2 align-items-center">
-                      <div class="col-sm-1 text-muted" title="Phone"><i data-feather="phone" style="width: 16px; height: 16px;"></i></div>
-                      <div class="col-sm-11"><a href="tel:<?php echo h($viewContact['phone']); ?>"><?php echo formatPhone($viewContact['phone']); ?></a></div>
-                    </div>
-                    <?php endif; ?>
-                    <?php if (!empty($viewContact['mobile'])): ?>
-                    <div class="row mb-2 align-items-center">
-                      <div class="col-sm-1 text-muted" title="Mobile"><i data-feather="smartphone" style="width: 16px; height: 16px;"></i></div>
-                      <div class="col-sm-11"><a href="tel:<?php echo h($viewContact['mobile']); ?>"><?php echo formatPhone($viewContact['mobile']); ?></a></div>
-                    </div>
-                    <?php endif; ?>
-                    <div class="row mb-2 align-items-center">
-                      <div class="col-sm-1 text-muted" title="Preferred contact method"><i data-feather="star" style="width: 16px; height: 16px;"></i></div>
-                      <div class="col-sm-11"><?php echo ucfirst(h($viewContact['preferred_contact_method'] ?? 'phone')); ?></div>
+
+                    <?php
+                      $hasEmail  = !empty($viewContact['email']);
+                      $hasPhone  = !empty($viewContact['phone']);
+                      $hasMobile = !empty($viewContact['mobile']);
+                    ?>
+
+                    <!-- Email -->
+                    <div class="mw-contact-field">
+                      <?php if ($hasEmail): ?>
+                        <a href="mailto:<?php echo h($viewContact['email']); ?>" class="mw-icon-box" title="Send email">
+                          <i data-feather="mail"></i>
+                        </a>
+                        <div class="mw-contact-field-body">
+                          <a href="mailto:<?php echo h($viewContact['email']); ?>"><?php echo h($viewContact['email']); ?></a>
+                        </div>
+                      <?php else: ?>
+                        <span class="mw-icon-box mw-icon-box--missing" title="No email address">
+                          <i data-feather="mail"></i>
+                        </span>
+                        <div class="mw-contact-field-body mw-contact-field-missing">No email address</div>
+                      <?php endif; ?>
                     </div>
 
-                    <!-- Communication Preferences -->
-                    <div class="row mb-2 align-items-center">
-                      <div class="col-sm-1 text-muted" title="Preferences"><i data-feather="settings" style="width: 16px; height: 16px;"></i></div>
-                      <div class="col-sm-11">
+                    <!-- Phone -->
+                    <div class="mw-contact-field">
+                      <?php if ($hasPhone): ?>
+                        <a href="tel:<?php echo h($viewContact['phone']); ?>" class="mw-icon-box" title="Call">
+                          <i data-feather="phone"></i>
+                        </a>
+                        <div class="mw-contact-field-body">
+                          <a href="tel:<?php echo h($viewContact['phone']); ?>"><?php echo formatPhone($viewContact['phone']); ?></a>
+                        </div>
+                      <?php else: ?>
+                        <span class="mw-icon-box mw-icon-box--missing" title="No phone number">
+                          <i data-feather="phone"></i>
+                        </span>
+                        <div class="mw-contact-field-body mw-contact-field-missing">No phone number</div>
+                      <?php endif; ?>
+                    </div>
+
+                    <!-- Mobile (only if present) -->
+                    <?php if ($hasMobile): ?>
+                    <div class="mw-contact-field">
+                      <a href="tel:<?php echo h($viewContact['mobile']); ?>" class="mw-icon-box" title="Call mobile">
+                        <i data-feather="smartphone"></i>
+                      </a>
+                      <div class="mw-contact-field-body">
+                        <a href="tel:<?php echo h($viewContact['mobile']); ?>"><?php echo formatPhone($viewContact['mobile']); ?></a>
+                        <span style="font-size:11px;color:#94a3b8;margin-left:5px;">mobile</span>
+                      </div>
+                    </div>
+                    <?php endif; ?>
+
+                    <!-- Preferred contact method -->
+                    <?php $pref = $viewContact['preferred_contact_method'] ?? 'phone'; ?>
+                    <div class="mw-contact-field">
+                      <span class="mw-icon-box" title="Preferred contact method">
+                        <i data-feather="star"></i>
+                      </span>
+                      <div class="mw-contact-field-body">
+                        <?php echo ucfirst(h($pref)); ?>
+                        <span style="font-size:11px;color:#94a3b8;margin-left:5px;">preferred</span>
+                      </div>
+                    </div>
+
+                    <!-- Communication preferences -->
+                    <div class="mw-contact-field">
+                      <span class="mw-icon-box" title="Communication preferences">
+                        <i data-feather="settings"></i>
+                      </span>
+                      <div class="mw-contact-field-body">
                         <span class="mw-contact-pref-badge <?php echo !empty($viewContact['receive_sms']) ? 'active' : 'inactive'; ?>">
                           <i data-feather="message-square" style="width: 12px; height: 12px;"></i> SMS
                         </span>
@@ -2521,12 +2574,14 @@ $unconvertedRequests = $db->query("
                       </div>
                     </div>
 
+                    <!-- Card on file -->
                     <?php if (!empty($viewContact['stripe_card_last4'])): ?>
-                    <div class="row mb-2 align-items-center">
-                      <div class="col-sm-1 text-muted" title="Card on File"><i data-feather="credit-card" style="width: 16px; height: 16px;"></i></div>
-                      <div class="col-sm-11">
+                    <div class="mw-contact-field">
+                      <span class="mw-icon-box" title="Card on file">
+                        <i data-feather="credit-card"></i>
+                      </span>
+                      <div class="mw-contact-field-body">
                         <span class="mw-card-on-file-badge">
-                          <i data-feather="credit-card"></i>
                           <?php echo h(ucfirst($viewContact['stripe_card_brand'] ?? 'Card')); ?> ••••<?php echo h($viewContact['stripe_card_last4']); ?>
                           <?php if (!empty($viewContact['stripe_card_exp'])): ?>
                             &middot; exp <?php echo h($viewContact['stripe_card_exp']); ?>
@@ -2535,12 +2590,19 @@ $unconvertedRequests = $db->query("
                       </div>
                     </div>
                     <?php endif; ?>
+
+                    <!-- Notes -->
                     <?php if (!empty($viewContact['notes'])): ?>
-                    <div class="row mb-0 align-items-center">
-                      <div class="col-sm-1 text-muted" title="Notes"><i data-feather="file-text" style="width: 16px; height: 16px;"></i></div>
-                      <div class="col-sm-11"><span class="text-muted"><?php echo nl2br(h($viewContact['notes'])); ?></span></div>
+                    <div class="mw-contact-field">
+                      <span class="mw-icon-box" title="Notes">
+                        <i data-feather="file-text"></i>
+                      </span>
+                      <div class="mw-contact-field-body text-muted" style="font-size:13px;">
+                        <?php echo nl2br(h($viewContact['notes'])); ?>
+                      </div>
                     </div>
                     <?php endif; ?>
+
                   </div>
                 </div>
 
@@ -4821,18 +4883,36 @@ $unconvertedRequests = $db->query("
                         <span class="badge badge-<?php echo $statusColor; ?>"><?php echo ucfirst(h($viewCompany['account_status'] ?? 'active')); ?></span>
                       </div>
                     </div>
-                    <?php if (!empty($viewCompany['billing_email'])): ?>
-                    <div class="row mb-2">
-                      <div class="col-sm-4 text-muted">Billing Email</div>
-                      <div class="col-sm-8"><a href="mailto:<?php echo h($viewCompany['billing_email']); ?>"><?php echo h($viewCompany['billing_email']); ?></a></div>
+                    <div class="mw-contact-field mt-2 mb-1">
+                      <?php if (!empty($viewCompany['billing_email'])): ?>
+                        <a href="mailto:<?php echo h($viewCompany['billing_email']); ?>" class="mw-icon-box" title="Send email">
+                          <i data-feather="mail"></i>
+                        </a>
+                        <div class="mw-contact-field-body">
+                          <a href="mailto:<?php echo h($viewCompany['billing_email']); ?>"><?php echo h($viewCompany['billing_email']); ?></a>
+                        </div>
+                      <?php else: ?>
+                        <span class="mw-icon-box mw-icon-box--missing" title="No billing email">
+                          <i data-feather="mail"></i>
+                        </span>
+                        <div class="mw-contact-field-body mw-contact-field-missing">No billing email</div>
+                      <?php endif; ?>
                     </div>
-                    <?php endif; ?>
-                    <?php if (!empty($viewCompany['billing_phone'])): ?>
-                    <div class="row mb-2">
-                      <div class="col-sm-4 text-muted">Billing Phone</div>
-                      <div class="col-sm-8"><a href="tel:<?php echo h($viewCompany['billing_phone']); ?>"><?php echo formatPhone($viewCompany['billing_phone']); ?></a></div>
+                    <div class="mw-contact-field mb-2">
+                      <?php if (!empty($viewCompany['billing_phone'])): ?>
+                        <a href="tel:<?php echo h($viewCompany['billing_phone']); ?>" class="mw-icon-box" title="Call">
+                          <i data-feather="phone"></i>
+                        </a>
+                        <div class="mw-contact-field-body">
+                          <a href="tel:<?php echo h($viewCompany['billing_phone']); ?>"><?php echo formatPhone($viewCompany['billing_phone']); ?></a>
+                        </div>
+                      <?php else: ?>
+                        <span class="mw-icon-box mw-icon-box--missing" title="No billing phone">
+                          <i data-feather="phone"></i>
+                        </span>
+                        <div class="mw-contact-field-body mw-contact-field-missing">No billing phone</div>
+                      <?php endif; ?>
                     </div>
-                    <?php endif; ?>
                     <div class="row mb-2">
                       <div class="col-sm-4 text-muted">Payment</div>
                       <div class="col-sm-8"><?php echo h($viewCompany['payment_terms'] ?? 'Net 30'); ?> &middot; <?php echo ucwords(str_replace('_', ' ', $viewCompany['payment_method'] ?? 'invoice')); ?></div>
@@ -5626,6 +5706,34 @@ $unconvertedRequests = $db->query("
               <small class="text-muted mt-1 d-none" id="mw-search-count"></small>
             </div>
 
+            <!-- Stats Banner -->
+            <div class="mw-clients-stats-banner">
+              <div class="mw-cs-stat">
+                <div class="mw-cs-stat-value"><?php echo number_format($statsTotalActive); ?></div>
+                <div class="mw-cs-stat-label">Active Clients</div>
+              </div>
+              <div class="mw-cs-stat-divider"></div>
+              <div class="mw-cs-stat">
+                <div class="mw-cs-stat-value"><?php echo $statsContactsTotal; ?></div>
+                <div class="mw-cs-stat-label">Total Contacts</div>
+              </div>
+              <div class="mw-cs-stat-divider"></div>
+              <div class="mw-cs-stat">
+                <div class="mw-cs-stat-value mw-cs-accent-lime">+<?php echo $statsNewThisMonth; ?></div>
+                <div class="mw-cs-stat-label">New This Month</div>
+              </div>
+              <div class="mw-cs-stat-divider"></div>
+              <div class="mw-cs-stat">
+                <?php if ($statsOverdueCount > 0): ?>
+                  <div class="mw-cs-stat-value mw-cs-accent-red">$<?php echo number_format($statsOverdueAmt, 0); ?></div>
+                  <div class="mw-cs-stat-label"><?php echo $statsOverdueCount; ?> Overdue Invoice<?php echo $statsOverdueCount !== 1 ? 's' : ''; ?></div>
+                <?php else: ?>
+                  <div class="mw-cs-stat-value mw-cs-accent-lime">$0</div>
+                  <div class="mw-cs-stat-label">Overdue</div>
+                <?php endif; ?>
+              </div>
+            </div>
+
             <!-- View Toggle -->
             <div class="mb-3 d-flex justify-content-between align-items-center">
               <div class="btn-group" role="group">
@@ -5823,6 +5931,7 @@ $unconvertedRequests = $db->query("
                             <th>Type</th>
                             <th>Contact</th>
                             <th>Status</th>
+                            <th class="mw-last-activity-col">Last Activity</th>
                             <th>Actions</th>
                           </tr>
                         </thead>
@@ -5864,6 +5973,15 @@ $unconvertedRequests = $db->query("
                               <span class="badge badge-<?php echo $statusColor; ?>">
                                 <?php echo $statusText; ?>
                               </span>
+                            </td>
+                            <td class="mw-last-activity-col">
+                              <?php if (!empty($c['last_activity_at'])): ?>
+                                <span class="mw-last-activity" title="<?php echo h(date('M j, Y g:i A', strtotime($c['last_activity_at']))); ?>">
+                                  <?php echo timeAgo($c['last_activity_at']); ?>
+                                </span>
+                              <?php else: ?>
+                                <span class="text-muted" style="font-size:12px;">—</span>
+                              <?php endif; ?>
                             </td>
                             <td>
                               <a href="?action=view_company&id=<?php echo (int)$c['id']; ?>" class="mw-action-btn mw-action-btn-view">View</a>
@@ -6958,7 +7076,7 @@ $unconvertedRequests = $db->query("
   </div>
 </div>
 
-<script src="/crm/js/geofence/geofence-manager.js?v=2"></script>
+<script src="/crm/js/geofence/geofence-manager.js?v=3"></script>
 <script>
 (function() {
   // ── PHP data ─────────────────────────────────────────────────────────────

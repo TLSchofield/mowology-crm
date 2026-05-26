@@ -150,6 +150,43 @@ class GeofenceManager {
                 }
             });
         }
+
+        // Orange pin showing where this property is — visible before any zone is drawn
+        this._addPropertyMarker();
+    }
+
+    _addPropertyMarker() {
+        if (!this._map) return;
+        const [lat, lng] = this._opts.center;
+        if (!lat || !lng) return;
+
+        // Outer ring (white halo)
+        L.circleMarker([lat, lng], {
+            radius:      13,
+            color:       '#ffffff',
+            weight:      3,
+            fillColor:   '#e85d04',
+            fillOpacity: 0,
+            interactive: false,
+            pane:        'shadowPane',
+        }).addTo(this._map);
+
+        // Inner filled dot
+        this._propertyMarker = L.circleMarker([lat, lng], {
+            radius:      7,
+            color:       '#ffffff',
+            weight:      2,
+            fillColor:   '#e85d04',
+            fillOpacity: 1,
+            interactive: false,
+            pane:        'markerPane',
+        }).addTo(this._map);
+
+        this._propertyMarker.bindTooltip('📍 This Property', {
+            permanent:  false,
+            direction:  'top',
+            offset:     [0, -8],
+        });
     }
 
     // ──────────────────────────────────────────────────────────────────────────
