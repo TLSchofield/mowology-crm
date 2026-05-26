@@ -413,12 +413,14 @@ private struct StopBottomCard: View {
                     propertyId: 1, propertyAddress: "3304 West 12th Avenue",
                     propertyCity: "Vancouver", propertyName: nil,
                     latitude: 49.2604, longitude: -123.1625,
-                    contactId: 1, contactName: "Gary Hudson", companyName: nil,
+                    contactId: 1, contactName: "Gary Hudson", contactPhone: nil,
+                    companyName: nil,
                     lawnSqft: nil, crewNames: ["Tim SCH"],
                     visitCount: 1,
                     visits: [Visit(visitId: 1, visitNumber: "V-001", serviceType: "lawn_care",
                                    planTitle: nil, planNumber: nil, visitStatus: "scheduled",
-                                   estimatedDuration: 60, pricePerVisit: 120, scheduledStart: "09:00")]
+                                   estimatedDuration: 60, pricePerVisit: 120, scheduledStart: "09:00")],
+                    propertyNotes: nil, stopNotes: nil
                 )
             ],
             isLoading: false,

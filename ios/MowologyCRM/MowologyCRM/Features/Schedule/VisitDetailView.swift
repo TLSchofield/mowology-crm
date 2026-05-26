@@ -43,7 +43,7 @@ struct VisitDetailView: View {
 
                 propertySection
                 mapSection
-
+                accessNotesSection
                 visitsSection
 
                 if isAdmin && !stop.crewNames.isEmpty {
@@ -195,6 +195,66 @@ struct VisitDetailView: View {
         .frame(height: 100)
         .background(Color(.systemGray6))
         .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    // MARK: - Access Notes Section
+
+    @ViewBuilder
+    private var accessNotesSection: some View {
+        let hasPropertyNotes = !(stop.propertyNotes ?? "").isEmpty
+        let hasStopNotes     = !(stop.stopNotes ?? "").isEmpty
+
+        if hasPropertyNotes || hasStopNotes {
+            VStack(alignment: .leading, spacing: 8) {
+                sectionHeader("Access Info", icon: "key.fill")
+
+                VStack(spacing: 8) {
+                    if let notes = stop.propertyNotes, !notes.isEmpty {
+                        noteStrip(
+                            icon:        "exclamationmark.triangle.fill",
+                            label:       "SITE NOTES",
+                            text:        notes,
+                            tint:        Color.MW.orange
+                        )
+                    }
+
+                    if let notes = stop.stopNotes, !notes.isEmpty {
+                        noteStrip(
+                            icon:        "note.text",
+                            label:       "TODAY",
+                            text:        notes,
+                            tint:        Color.blue
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private func noteStrip(icon: String, label: String, text: String, tint: Color) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: icon)
+                .foregroundStyle(tint)
+                .font(.subheadline)
+                .padding(.top, 1)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(label)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(tint)
+                    .tracking(0.5)
+                Text(text)
+                    .font(.subheadline)
+                    .foregroundStyle(Color.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .background(tint.opacity(0.07))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(tint.opacity(0.22), lineWidth: 1))
     }
 
     // MARK: - Visits Section

@@ -21,11 +21,16 @@ struct Stop: Codable, Identifiable, Hashable {
     let longitude: Double?
     let contactId: Int?
     let contactName: String?
+    let contactPhone: String?
     let companyName: String?
     let lawnSqft: Int?
     let crewNames: [String]
     let visitCount: Int
     let visits: [Visit]
+    /// Permanent site instructions: gate code, dog, parking, access pin, etc.
+    let propertyNotes: String?
+    /// Today-specific instructions added when this stop was scheduled.
+    let stopNotes: String?
 
     var id: Int { stopId }
 
@@ -43,11 +48,14 @@ struct Stop: Codable, Identifiable, Hashable {
         case longitude
         case contactId        = "contact_id"
         case contactName      = "contact_name"
+        case contactPhone     = "contact_phone"
         case companyName      = "company_name"
         case lawnSqft         = "lawn_sqft"
         case crewNames        = "crew_names"
         case visitCount       = "visit_count"
         case visits
+        case propertyNotes    = "property_notes"
+        case stopNotes        = "stop_notes"
     }
 
     /// Full single-line address for display.

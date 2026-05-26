@@ -634,6 +634,10 @@ function generateVisits(?int $planId = null, ?int $horizonDays = null): array {
 
         foreach ($plans as $plan) {
             try {
+                // Remove visits that predate the plan's start date — orphaned when
+                // a plan is edited to start later or change its recurrence day.
+                cleanupOrphanedVisits((int)$plan['id']);
+
                 $horizon = $horizonDays ?? (int)$plan['horizon_days'];
                 $today = new DateTime('today');
                 $toDate = (clone $today)->modify("+{$horizon} days");
@@ -647,16 +651,28 @@ function generateVisits(?int $planId = null, ?int $horizonDays = null): array {
                 }
 
                 if ($plan['is_recurring']) {
-                    // Determine start: max(today, plan_start_date, visits_generated_through+1day)
-                    $fromDate = clone $today;
-                    if ($plan['plan_start_date']) {
-                        $planStart = new DateTime($plan['plan_start_date']);
-                        if ($planStart > $fromDate) $fromDate = $planStart;
-                    }
+                    // Determine the from-date for this generation pass.
+                    //
+                    // Incremental mode (visits_generated_through is set): start from
+                    // where we last left off, never before today.
+                    //
+                    // Fresh/reset mode (visits_generated_through is NULL, e.g. after a
+                    // recurrence edit): start from plan_start_date so that visits between
+                    // the new start date and today are not silently skipped. Cap the
+                    // lookback at 90 days to avoid rebuilding years of history.
                     if ($plan['visits_generated_through']) {
+                        $fromDate = clone $today;
                         $genThrough = new DateTime($plan['visits_generated_through']);
                         $genThrough->modify('+1 day');
                         if ($genThrough > $fromDate) $fromDate = $genThrough;
+                    } else {
+                        $ninetyDaysAgo = (clone $today)->modify('-90 days');
+                        if ($plan['plan_start_date']) {
+                            $planStart = new DateTime($plan['plan_start_date']);
+                            $fromDate  = $planStart < $ninetyDaysAgo ? $ninetyDaysAgo : $planStart;
+                        } else {
+                            $fromDate = clone $today;
+                        }
                     }
 
                     if ($fromDate > $toDate) {
@@ -1070,7 +1086,9 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
             p.longitude,
             p.property_name,
             p.total_lawn_sqft,
-            p.lawn_size_sqft
+            p.lawn_size_sqft,
+            p.notes AS property_notes,
+            cs.notes AS stop_notes
             {$orStatusSelect},
             co.company_name,
             ct.id AS contact_id,
@@ -1081,6 +1099,8 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
             jv.id AS visit_id,
             jv.visit_number,
             jv.status AS visit_status,
+            jv.is_invoiced,
+            jv.invoice_id,
             jv.scheduled_time_start,
             jv.scheduled_time_end,
             jv.assigned_crew_id,
@@ -1089,6 +1109,7 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
             jp.title AS plan_title,
             jp.plan_number,
             jp.service_type,
+            jp.pricing_model,
             jp.price_per_visit,
             jp.estimated_duration_minutes,
             COALESCE(jv.is_flagged, 0) AS is_flagged,
@@ -1229,7 +1250,10 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
                 'company_name'  => $row['company_name'],
                 'contact_id'    => $row['contact_id'] ? (int)$row['contact_id'] : null,
                 'contact_name'  => $row['contact_name'],
+                'contact_phone' => $row['contact_mobile'] ?: ($row['contact_phone'] ?? null),
                 'property_name' => $row['property_name'],
+                'property_notes' => !empty($row['property_notes']) ? trim($row['property_notes']) : null,
+                'stop_notes'     => !empty($row['stop_notes'])     ? trim($row['stop_notes'])     : null,
                 'or_status'     => $row['or_status'] ?? 'none',
                 // Replaces the correlated COALESCE subquery that
                 // previously ran once per row. Same semantic: prefer
@@ -1259,10 +1283,13 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
                 'visit_id'       => (int)$row['visit_id'],
                 'visit_number'   => $row['visit_number'],
                 'visit_status'   => $row['visit_status'],
+                'is_invoiced'    => (int)($row['is_invoiced'] ?? 0),
+                'invoice_id'     => $row['invoice_id'] ? (int)$row['invoice_id'] : null,
                 'plan_id'        => (int)$row['plan_id'],
                 'plan_title'     => $row['plan_title'],
                 'plan_number'    => $row['plan_number'],
                 'service_type'   => $row['service_type'],
+                'pricing_model'  => $row['pricing_model'] ?? 'per_visit',
                 'price_per_visit' => $row['price_per_visit'],
                 'estimated_duration' => $row['estimated_duration_minutes'],
                 'scheduled_time_start' => $row['scheduled_time_start'],
@@ -1457,6 +1484,7 @@ function getPlanDetails(int $planId): ?array {
                p.address AS property_address, p.city AS property_city,
                p.latitude, p.longitude,
                co.company_name,
+               COALESCE(ct.id, pc.id) AS contact_id,
                COALESCE(ct.first_name, pc.first_name) AS first_name,
                COALESCE(ct.last_name, pc.last_name) AS last_name,
                COALESCE(ct.email, pc.email) AS contact_email,
@@ -2324,8 +2352,31 @@ function getStopProfitabilityBatch(array $planIds): array {
 
 
 // ============================================================================
+// ============================================================================
 // PLAN EDITING
 // ============================================================================
+
+/**
+ * Cancel any skipped/scheduled visits that predate the plan's start date.
+ * Orphaned visits accumulate when a plan is edited to start later or change
+ * its recurrence day — the old visits never get cleaned up by the normal
+ * future-visit cancellation (which only touches scheduled visits >= today).
+ */
+function cleanupOrphanedVisits(int $planId): void {
+    $db = getDB();
+    $stmt = $db->prepare("SELECT plan_start_date FROM job_plans WHERE id = ?");
+    $stmt->execute([$planId]);
+    $planStartDate = $stmt->fetchColumn();
+    if (!$planStartDate) return;
+
+    $db->prepare("
+        UPDATE job_visits
+        SET status = 'cancelled', status_changed_at = NOW()
+        WHERE plan_id = ?
+          AND status IN ('scheduled', 'skipped')
+          AND scheduled_date < ?
+    ")->execute([$planId, $planStartDate]);
+}
 
 /**
  * Update an existing job plan's details.
@@ -2475,6 +2526,11 @@ function updateJobPlan(int $planId, array $data, int $userId): array {
                 WHERE plan_id = ? AND status = 'scheduled' AND scheduled_date >= CURDATE()
             ");
             $stmt->execute([$planId]);
+
+            // Cancel skipped/scheduled visits that now predate the new start date.
+            // These are orphaned from the previous schedule and would show up with
+            // the wrong day-of-week or before the plan's effective start.
+            cleanupOrphanedVisits($planId);
 
             // Reset generation tracker so visits regenerate from scratch
             $stmt = $db->prepare("UPDATE job_plans SET visits_generated_through = NULL WHERE id = ?");

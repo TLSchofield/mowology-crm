@@ -175,11 +175,14 @@ private struct ServiceBadge: View {
         longitude: -123.1207,
         contactId: 1,
         contactName: "Bob Jones",
+        contactPhone: nil,
         companyName: nil,
         lawnSqft: nil,
         crewNames: ["John Doe"],
         visitCount: 1,
-        visits: [sampleVisit]
+        visits: [sampleVisit],
+        propertyNotes: nil,
+        stopNotes: nil
     )
 
     return StopCardView(stop: sampleStop, isAdmin: true)
