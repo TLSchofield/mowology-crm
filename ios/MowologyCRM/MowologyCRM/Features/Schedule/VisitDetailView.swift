@@ -13,6 +13,7 @@ struct VisitDetailView: View {
     private let authSession: AuthSession
 
     @StateObject private var viewModel: VisitDetailViewModel
+    @Environment(\.openURL) private var openURL
 
 
     // MARK: - Init
@@ -41,8 +42,7 @@ struct VisitDetailView: View {
                     errorBanner(error)
                 }
 
-                propertySection
-                mapSection
+                compactPropertySection
                 accessNotesSection
                 visitsSection
 
@@ -104,97 +104,101 @@ struct VisitDetailView: View {
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.MW.orange.opacity(0.25), lineWidth: 1))
     }
 
-    // MARK: - Property Section
+    // MARK: - Compact Property Header
 
-    private var propertySection: some View {
-        VStack(alignment: .leading, spacing: 0) {
+    private var compactPropertySection: some View {
+        VStack(alignment: .leading, spacing: 8) {
             sectionHeader("Property", icon: "house.fill")
 
             VStack(spacing: 0) {
-                detailRow(label: "Address", value: stop.propertyAddress)
-                Divider().padding(.leading, 16)
-                detailRow(label: "City", value: stop.propertyCity)
 
-                if let contact = stop.contactName {
-                    Divider().padding(.leading, 16)
-                    detailRow(label: "Contact", value: contact)
+                // Row 1: map-pin icon (tappable) + address/city + arrival + Maps pill
+                HStack(spacing: 12) {
+                    Button { openInMaps() } label: {
+                        Image(systemName: "mappin.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(Color.MW.green)
+                    }
+                    .buttonStyle(.plain)
+
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(stop.propertyAddress)
+                            .font(.subheadline.bold())
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                        Text(stop.propertyCity)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    if let arrival = stop.estimatedArrival {
+                        Text(arrival)
+                            .font(.subheadline.monospacedDigit().bold())
+                            .foregroundStyle(Color.MW.green)
+                    }
+
+                    Button { openInMaps() } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.triangle.turn.up.right.circle.fill")
+                            Text("Maps")
+                        }
+                        .font(.caption.bold())
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Color.MW.green.opacity(0.1))
+                        .foregroundStyle(Color.MW.green)
+                        .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
                 }
-                if let company = stop.companyName, !company.isEmpty {
-                    Divider().padding(.leading, 16)
-                    detailRow(label: "Company", value: company)
-                }
-                if let arrival = stop.estimatedArrival {
-                    Divider().padding(.leading, 16)
-                    detailRow(label: "Est. Arrival", value: arrival)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+
+                // Row 2: contact name + optional Call pill
+                let displayName = stop.contactName ?? stop.companyName
+                if let name = displayName {
+                    Divider().padding(.leading, 52)
+
+                    HStack(spacing: 12) {
+                        Image(systemName: "person.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(Color(.systemGray3))
+
+                        Text(name)
+                            .font(.subheadline.bold())
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+
+                        Spacer()
+
+                        if let phone = stop.contactPhone, !phone.isEmpty {
+                            let digits = phone.filter { $0.isNumber || $0 == "+" }
+                            Button {
+                                if let url = URL(string: "tel:\(digits)") { openURL(url) }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "phone.fill")
+                                    Text("Call")
+                                }
+                                .font(.caption.bold())
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(Color.MW.green.opacity(0.1))
+                                .foregroundStyle(Color.MW.green)
+                                .clipShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
                 }
             }
             .background(Color(.systemBackground))
             .clipShape(RoundedRectangle(cornerRadius: 12))
         }
-    }
-
-    // MARK: - Map Section
-
-    private var mapSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            sectionHeader("Location", icon: "map.fill")
-
-            if let lat = stop.latitude, let lon = stop.longitude {
-                let coordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
-                mapView(coordinate: coordinate)
-            } else {
-                noLocationPlaceholder
-            }
-        }
-    }
-
-    private func mapView(coordinate: CLLocationCoordinate2D) -> some View {
-        ZStack(alignment: .bottomTrailing) {
-            Map(initialPosition: .region(
-                MKCoordinateRegion(
-                    center: coordinate,
-                    span: MKCoordinateSpan(latitudeDelta: 0.005, longitudeDelta: 0.005)
-                )
-            )) {
-                Annotation(stop.propertyAddress, coordinate: coordinate) {
-                    Image(systemName: "mappin.circle.fill")
-                        .font(.title)
-                        .foregroundStyle(Color.MW.green)
-                }
-            }
-            .frame(height: 200)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .disabled(true)
-
-            Button { openInMaps(coordinate: coordinate) } label: {
-                Label("Open in Maps", systemImage: "arrow.triangle.turn.up.right.circle.fill")
-                    .font(.caption.bold())
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(.ultraThinMaterial)
-                    .clipShape(Capsule())
-                    .foregroundStyle(Color.MW.green)
-            }
-            .padding(10)
-        }
-    }
-
-    private var noLocationPlaceholder: some View {
-        HStack {
-            Spacer()
-            VStack(spacing: 8) {
-                Image(systemName: "mappin.slash")
-                    .font(.title2)
-                    .foregroundStyle(Color(.systemGray3))
-                Text("No coordinates available")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-            }
-            Spacer()
-        }
-        .frame(height: 100)
-        .background(Color(.systemGray6))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
     // MARK: - Access Notes Section
@@ -495,20 +499,6 @@ struct VisitDetailView: View {
             .padding(.leading, 4)
     }
 
-    private func detailRow(label: String, value: String) -> some View {
-        HStack {
-            Text(label)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .frame(width: 110, alignment: .leading)
-            Text(value)
-                .font(.subheadline)
-            Spacer()
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-    }
-
     // MARK: - Status Helpers
 
     private func statusColorFor(_ status: String) -> Color {
@@ -536,16 +526,25 @@ struct VisitDetailView: View {
 
     // MARK: - Actions
 
-    private func openInMaps(coordinate: CLLocationCoordinate2D) {
-        let mapItem = MKMapItem(
-            placemark: MKPlacemark(
-                coordinate: coordinate,
-                addressDictionary: ["Street": stop.propertyAddress, "City": stop.propertyCity]
+    private func openInMaps() {
+        if let lat = stop.latitude, let lon = stop.longitude {
+            let mapItem = MKMapItem(
+                placemark: MKPlacemark(
+                    coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon),
+                    addressDictionary: ["Street": stop.propertyAddress, "City": stop.propertyCity]
+                )
             )
-        )
-        mapItem.name = stop.propertyAddress
-        mapItem.openInMaps(launchOptions: [
-            MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving
-        ])
+            mapItem.name = stop.propertyAddress
+            mapItem.openInMaps(launchOptions: [
+                MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving
+            ])
+        } else {
+            // No coordinates — fall back to address search
+            let query = "\(stop.propertyAddress), \(stop.propertyCity)"
+            if let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+               let url = URL(string: "maps://?q=\(encoded)") {
+                openURL(url)
+            }
+        }
     }
 }
