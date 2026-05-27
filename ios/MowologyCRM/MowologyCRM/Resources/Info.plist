@@ -34,9 +34,9 @@
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Used to select receipt photos from your library.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>Used to send your location to dispatch every 30–120 seconds while you have an active job, even when the app is in the background.</string>
+	<string>Used to send your location to dispatch every 30–120 seconds while you are clocked in, even when the app is in the background.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Used to log your GPS location when starting and completing jobs.</string>
+	<string>Used to log your GPS location when clocking in, starting, and completing jobs.</string>
 	<key>NSMotionUsageDescription</key>
 	<string>Used to detect whether you are walking, driving, or stationary so the app can adjust GPS frequency and save battery during your shift.</string>
 	<key>UIBackgroundModes</key>
