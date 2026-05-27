@@ -42,14 +42,17 @@ final class VisitDetailViewModel: ObservableObject {
 
     // MARK: - Init
 
-    init(stop: Stop, apiClient: APIClient) {
+    nonisolated init(stop: Stop, apiClient: APIClient) {
         self.stop      = stop
         self.apiClient = apiClient
-
-        for visit in stop.visits {
-            visitStatuses[visit.visitId] = visit.visitStatus
-        }
-        gps.locationManager.requestWhenInUsePermission()
+        // visitStatuses intentionally starts empty.
+        // status(for:) returns visitStatuses[id] ?? visit.visitStatus, so the
+        // initial state is always correct without a pre-population loop.
+        //
+        // Do NOT write @Published properties here — StateObject(wrappedValue:)
+        // may be called during SwiftUI view diffing on a background thread.
+        // Any @Published mutation off the main actor corrupts objectWillChange's
+        // NSString-backed retain counts → EXC_BAD_ACCESS.
 
         // On reconnect: retry any failed job transitions.
         // GPS ping drain is handled centrally by GPSTrackingService.
@@ -66,6 +69,11 @@ final class VisitDetailViewModel: ObservableObject {
     func startJob(visitId: Int) async {
         isLoading    = true
         errorMessage = nil
+
+        // Prompt for location permission now that the user has explicitly
+        // chosen to start a job (previously done in init, which runs before
+        // the main actor takes over and caused EXC_BAD_ACCESS).
+        gps.locationManager.requestWhenInUsePermission()
 
         // Give ArrivalMonitor the job-site coordinate so it can detect arrival.
         // resetSessionMetrics is called by GPSTrackingService.setActiveVisit().
