@@ -42,17 +42,16 @@ final class VisitDetailViewModel: ObservableObject {
 
     // MARK: - Init
 
-    nonisolated init(stop: Stop, apiClient: APIClient) {
+    init(stop: Stop, apiClient: APIClient) {
         self.stop      = stop
         self.apiClient = apiClient
-        // visitStatuses intentionally starts empty.
+        // visitStatuses intentionally starts empty — no @Published writes here.
         // status(for:) returns visitStatuses[id] ?? visit.visitStatus, so the
         // initial state is always correct without a pre-population loop.
-        //
-        // Do NOT write @Published properties here — StateObject(wrappedValue:)
-        // may be called during SwiftUI view diffing on a background thread.
-        // Any @Published mutation off the main actor corrupts objectWillChange's
-        // NSString-backed retain counts → EXC_BAD_ACCESS.
+        // The pre-population loop was removed because StateObject(wrappedValue:)
+        // can be called during SwiftUI view diffing on a background thread;
+        // any @Published mutation off the main actor corrupts objectWillChange's
+        // retain counts → EXC_BAD_ACCESS.
 
         // On reconnect: retry any failed job transitions.
         // GPS ping drain is handled centrally by GPSTrackingService.
