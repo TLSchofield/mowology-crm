@@ -54,6 +54,9 @@ struct StopCardView: View {
                         }
                     }
                 }
+                // Disable hit testing so the scroll view's gesture recognizer
+                // doesn't block the parent List row's NavigationLink tap.
+                .allowsHitTesting(false)
             }
 
             Divider()
