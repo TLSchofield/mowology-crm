@@ -29,13 +29,16 @@ $stmt = $db->prepare(
             home_radius_meters = ?
       WHERE email = ?"
 );
+// Coordinates corrected May 28 2026: the originally-supplied (49.2635, -123.1565)
+// was ~1km off. The real geocode of 2845 W 15th Ave matches the empirical idle-ping
+// cluster at (49.258759, -123.169341) — 90% of home pings fall within 13m of it.
 $stmt->execute([
     '2845 W 15th Avenue',
     'Vancouver',
     'BC',
     'V6K 3A1',
-    49.2635,
-    -123.1565,
+    49.258759,
+    -123.169341,
     100,
     $email,
 ]);
