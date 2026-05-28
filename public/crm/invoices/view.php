@@ -27,7 +27,7 @@ $stmt = $db->prepare("
         i.*,
         c.company_name,
         COALESCE(NULLIF(c.billing_email,''), NULLIF(dc.email,''), NULLIF(ct.email,'')) as billing_email,
-        COALESCE(NULLIF(c.billing_phone,''), NULLIF(dc.phone,''), NULLIF(ct.phone,'')) as billing_phone,
+        COALESCE(NULLIF(c.billing_phone,''), NULLIF(dc.mobile,''), NULLIF(dc.phone,''), NULLIF(ct.mobile,''), NULLIF(ct.phone,'')) as billing_phone,
         COALESCE(NULLIF(i.billing_address,''), NULLIF(c.billing_address,''))       as billing_address,
         COALESCE(NULLIF(i.billing_city,''),    NULLIF(c.billing_city,''))           as billing_city,
         COALESCE(NULLIF(i.billing_province,''),NULLIF(c.billing_province,''))       as billing_province,
@@ -35,7 +35,7 @@ $stmt = $db->prepare("
         COALESCE(ct.first_name, dc.first_name) as contact_first,
         COALESCE(ct.last_name, dc.last_name) as contact_last,
         COALESCE(ct.email, dc.email) as contact_email,
-        COALESCE(ct.phone, dc.phone) as contact_phone,
+        COALESCE(NULLIF(ct.mobile,''), NULLIF(ct.phone,''), NULLIF(dc.mobile,''), NULLIF(dc.phone,'')) as contact_phone,
         p.address as property_address,
         p.city as property_city,
         p.postal_code as property_postal,
@@ -66,9 +66,13 @@ $stmt = $db->prepare("SELECT * FROM invoice_line_items WHERE invoice_id = ? ORDE
 $stmt->execute([$invoiceId]);
 $lineItems = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-// Phase 2-3: Get invoice recipients
+// Phase 2-3: Get invoice recipients.
+// Resolve a blank snapshot email against the contact's live email so the table
+// shows where the invoice will actually go (matches the send-path fallback).
 $stmt = $db->prepare("
-    SELECT ic.id, ic.contact_id, ic.email_address, ic.contact_role,
+    SELECT ic.id, ic.contact_id,
+           COALESCE(NULLIF(ic.email_address, ''), c.email) AS email_address,
+           ic.contact_role,
            ic.invoice_sent_at, ic.invoice_opened_at, ic.bounced,
            c.first_name, c.last_name, c.receive_sms
     FROM invoice_contacts ic
@@ -118,9 +122,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
     $action = $_POST['action'] ?? '';
 
     if ($action === 'send') {
-        // Load recipients FIRST — status only updates if emails actually go out
+        // Load recipients FIRST — status only updates if emails actually go out.
+        // Fall back to the contact's live email when the invoice_contacts snapshot
+        // is blank (e.g. recipient added before the contact had an email, or via a
+        // path that didn't capture it) so a valid contact is never silently skipped.
         $stmt = $db->prepare("
-            SELECT ic.id, ic.contact_id, ic.email_address, ic.contact_role,
+            SELECT ic.id, ic.contact_id,
+                   COALESCE(NULLIF(ic.email_address, ''), c.email) AS email_address,
+                   ic.contact_role,
                    c.first_name, c.last_name, c.receive_sms,
                    COALESCE(NULLIF(c.mobile,''), NULLIF(c.phone,'')) as sms_phone
             FROM invoice_contacts ic
@@ -241,12 +250,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
             if ($emailResult) {
                 $sentTo[] = $recipientName;
 
-                // Update invoice_contacts with send timestamp
+                // Update invoice_contacts with send timestamp and persist the
+                // resolved email back into the snapshot so the recipients table
+                // reflects exactly where it went (self-heals blank rows).
                 $updateStmt = $db->prepare("
-                    UPDATE invoice_contacts SET invoice_sent_at = NOW()
+                    UPDATE invoice_contacts
+                    SET invoice_sent_at = NOW(), email_address = ?
                     WHERE id = ?
                 ");
-                $updateStmt->execute([$recipient['id']]);
+                $updateStmt->execute([$recipient['email_address'], $recipient['id']]);
 
                 // Track SMS recipients (those who have consent and a phone number)
                 if ($recipient['receive_sms'] && !empty($recipient['sms_phone'])) {
@@ -524,7 +536,7 @@ $extraHead = $isPayable
                       <button type="button" class="btn btn-primary" onclick="openStripeModal()">
                           <i data-feather="credit-card" class="mr-1"></i> Pay Online
                       </button>
-                      <button type="button" class="btn btn-success" onclick="document.getElementById('paymentModal').style.display='flex'">
+                      <button type="button" class="btn btn-success" onclick="openPaymentModal()">
                           <i data-feather="check-circle" class="mr-1"></i> Record Payment
                       </button>
                   <?php endif; ?>
@@ -548,24 +560,37 @@ $extraHead = $isPayable
                                   ? $invoice['bill_to_name']
                                   : ($displayCompany ?: $contactFullName);
                           ?>
+                          <?php
+                              $clientContactId = (int)($invoice['contact_id'] ?? 0);
+                              $clientCompanyId = (int)($invoice['company_id'] ?? 0);
+                              $clientUrl = $clientContactId
+                                  ? '/crm/clients_appstack.php?action=view_contact&id=' . $clientContactId
+                                  : ($clientCompanyId ? '/crm/companies/view.php?id=' . $clientCompanyId : '');
+                          ?>
                           <?php if ($billToHeading): ?>
                           <div class="mw-detail-row">
                               <span class="mw-detail-label"><?php echo !empty($invoice['bill_to_name']) ? 'Billed To' : ($displayCompany ? 'Company' : 'Bill To'); ?></span>
-                              <span class="mw-detail-value" style="font-weight:600;"><?php echo htmlspecialchars($billToHeading); ?></span>
+                              <span class="mw-detail-value" style="font-weight:600;">
+                                  <?php if ($clientUrl): ?>
+                                      <a href="<?php echo $clientUrl; ?>" style="color:var(--mw-green);text-decoration:none;font-weight:600;" title="View client"><?php echo htmlspecialchars($billToHeading); ?></a>
+                                  <?php else: ?>
+                                      <?php echo htmlspecialchars($billToHeading); ?>
+                                  <?php endif; ?>
+                              </span>
                           </div>
                           <?php endif; ?>
                           <?php
-                              // Show the contact as Attn: only when it's a
-                              // different string from what's already rendered
-                              // as the Bill To (avoids "Contact: Monica Nicule"
-                              // appearing twice when Monica IS the billing entity).
                               $showContactLine = $contactFullName !== '' && strcasecmp($billToHeading, $contactFullName) !== 0;
                           ?>
                           <?php if ($showContactLine): ?>
                           <div class="mw-detail-row">
                               <span class="mw-detail-label">Attn</span>
                               <span class="mw-detail-value">
-                                  <?php echo htmlspecialchars($contactFullName); ?>
+                                  <?php if ($clientUrl): ?>
+                                      <a href="<?php echo $clientUrl; ?>" style="color:var(--mw-green);text-decoration:none;" title="View client"><?php echo htmlspecialchars($contactFullName); ?></a>
+                                  <?php else: ?>
+                                      <?php echo htmlspecialchars($contactFullName); ?>
+                                  <?php endif; ?>
                               </span>
                           </div>
                           <?php elseif ($contactFullName === '' && empty($invoice['bill_to_name'])): ?>
@@ -1042,98 +1067,202 @@ $extraHead = $isPayable
           <?php endif; ?>
 
           <!-- ═══════════════════════════════════════════════════════════════ -->
-          <!-- Manual Record Payment Modal                                       -->
+          <!-- Manual Record Payment Modal v2 — Executive Dark               -->
           <!-- ═══════════════════════════════════════════════════════════════ -->
-          <div id="paymentModal" class="mw-modal-overlay" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="paymentModalTitle">
-              <div class="mw-modal mw-payment-modal-content">
-                  <div class="mw-modal-header">
-                      <h5 class="mb-0" id="paymentModalTitle">
-                          <i data-feather="check-circle" style="width:18px;height:18px;vertical-align:middle;margin-right:6px;"></i>
-                          Record Payment
-                      </h5>
-                      <button type="button" class="mw-modal-close" onclick="document.getElementById('paymentModal').style.display='none'" aria-label="Close">&times;</button>
+          <?php
+            $pmBalanceFmt  = h(formatCurrency($invoice['balance_due']));
+            $pmBalanceRaw  = number_format(floatval($invoice['balance_due']), 2, '.', '');
+            $pmClientLabel = h(trim(($invoice['company_name'] ?: '') . ' ' . ($invoice['contact_first'] ?? '') . ' ' . ($invoice['contact_last'] ?? '')));
+          ?>
+          <div id="paymentModal" class="mw-pm-overlay-v2" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="paymentModalTitle">
+              <div class="mw-pm-shell">
+
+                  <!-- Top: invoice ref + close -->
+                  <div class="mw-pm-top">
+                      <div class="mw-pm-inv-ref">
+                          <span class="mw-pm-inv-id"><?php echo h($invoice['invoice_number']); ?></span>
+                          <span class="mw-pm-client"><?php echo $pmClientLabel; ?></span>
+                      </div>
+                      <button type="button" class="mw-pm-close" id="pmCloseBtn" aria-label="Close">&times;</button>
                   </div>
+
+                  <!-- Hero balance -->
+                  <div class="mw-pm-hero">
+                      <div class="mw-pm-balance-label">Balance Due</div>
+                      <div class="mw-pm-balance-amount" id="pmHeroAmount"><?php echo $pmBalanceFmt; ?></div>
+                  </div>
+
+                  <!-- Form -->
                   <form id="paymentForm" method="POST">
                       <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
                       <input type="hidden" name="action" value="mark_paid">
-                      <div class="mw-modal-body">
+                      <input type="hidden" id="vm-pay-method-hidden" name="payment_method" value="e_transfer">
 
-                          <!-- Invoice summary -->
-                          <div class="mw-payment-invoice-list">
-                              <div class="mw-payment-inv-row">
-                                  <div class="mw-payment-inv-info">
-                                      <span class="mw-payment-inv-number"><?php echo h($invoice['invoice_number']); ?></span>
-                                      <span class="mw-payment-inv-client">
-                                          <?php echo h(trim(($invoice['company_name'] ?: '') . ' ' . ($invoice['contact_first'] ?? '') . ' ' . ($invoice['contact_last'] ?? ''))); ?>
-                                      </span>
-                                  </div>
-                                  <div class="mw-payment-inv-amount"><?php echo h(formatCurrency($invoice['balance_due'])); ?></div>
-                              </div>
-                          </div>
-                          <div class="mw-payment-total-row">
-                              <span>Balance Due</span>
-                              <strong><?php echo h(formatCurrency($invoice['balance_due'])); ?></strong>
-                          </div>
+                      <div class="mw-pm-body">
 
-                          <div class="mw-form-row" style="margin-top:16px;">
-                              <div class="mw-form-group">
-                                  <label class="form-label" for="vm-pay-amount">Amount</label>
-                                  <div class="input-group">
-                                      <div class="input-group-prepend">
-                                          <span class="input-group-text">$</span>
-                                      </div>
-                                      <input type="number" id="vm-pay-amount" name="payment_amount" class="form-control"
+                          <!-- Amount + Date -->
+                          <div class="mw-pm-fields-row">
+                              <div class="mw-pm-field">
+                                  <label for="vm-pay-amount">Amount</label>
+                                  <div class="mw-pm-input-wrap">
+                                      <span class="mw-pm-prefix">$</span>
+                                      <input type="number" id="vm-pay-amount" name="payment_amount"
                                              step="0.01" min="0.01"
-                                             value="<?php echo number_format(floatval($invoice['balance_due']), 2, '.', ''); ?>">
+                                             value="<?php echo $pmBalanceRaw; ?>">
                                   </div>
                               </div>
-                              <div class="mw-form-group">
-                                  <label class="form-label" for="vm-pay-date">Payment Date</label>
-                                  <input type="date" id="vm-pay-date" name="payment_date" class="form-control"
-                                         value="<?php echo date('Y-m-d'); ?>">
+                              <div class="mw-pm-field">
+                                  <label for="vm-pay-date">Payment Date</label>
+                                  <div class="mw-pm-input-wrap">
+                                      <input type="date" id="vm-pay-date" name="payment_date"
+                                             value="<?php echo date('Y-m-d'); ?>">
+                                  </div>
                               </div>
                           </div>
 
-                          <div class="mw-form-group">
-                              <label class="form-label" for="vm-pay-method">Payment Method</label>
-                              <select id="vm-pay-method" name="payment_method" class="form-control" onchange="vmToggleRef()">
-                                  <option value="e_transfer">e-Transfer</option>
-                                  <option value="cash">Cash</option>
-                                  <option value="cheque">Cheque</option>
-                                  <option value="credit_card">Credit Card</option>
-                                  <option value="other">Other</option>
-                              </select>
+                          <!-- Payment method pills -->
+                          <div>
+                              <div class="mw-pm-method-label">Payment Method</div>
+                              <div class="mw-pm-method-grid" id="pmMethodGrid">
+
+                                  <label class="mw-pm-pill active" data-method="e_transfer">
+                                      <input type="radio" name="_pm_pill" value="e_transfer" checked>
+                                      <svg class="mw-pm-pill-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                          <polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>
+                                      </svg>
+                                      <span class="mw-pm-pill-label">e-Transfer</span>
+                                  </label>
+
+                                  <label class="mw-pm-pill" data-method="cash">
+                                      <input type="radio" name="_pm_pill" value="cash">
+                                      <svg class="mw-pm-pill-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                          <line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+                                      </svg>
+                                      <span class="mw-pm-pill-label">Cash</span>
+                                  </label>
+
+                                  <label class="mw-pm-pill" data-method="cheque">
+                                      <input type="radio" name="_pm_pill" value="cheque">
+                                      <svg class="mw-pm-pill-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+                                      </svg>
+                                      <span class="mw-pm-pill-label">Cheque</span>
+                                  </label>
+
+                                  <label class="mw-pm-pill" data-method="credit_card">
+                                      <input type="radio" name="_pm_pill" value="credit_card">
+                                      <svg class="mw-pm-pill-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                          <rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/>
+                                      </svg>
+                                      <span class="mw-pm-pill-label">Card</span>
+                                  </label>
+
+                                  <label class="mw-pm-pill" data-method="other">
+                                      <input type="radio" name="_pm_pill" value="other">
+                                      <svg class="mw-pm-pill-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                          <circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>
+                                      </svg>
+                                      <span class="mw-pm-pill-label">Other</span>
+                                  </label>
+
+                              </div>
                           </div>
 
-                          <div class="mw-form-group">
-                              <label class="form-label" id="vm-ref-label" for="vm-pay-ref">e-Transfer Confirmation #</label>
-                              <input type="text" id="vm-pay-ref" name="payment_reference" class="form-control"
-                                     placeholder="e.g., 123456789">
+                          <!-- Reference field (contextual reveal) -->
+                          <div class="mw-pm-ref-wrap visible" id="vmRefWrap">
+                              <div class="mw-pm-field">
+                                  <label id="vm-ref-label" for="vm-pay-ref">e-Transfer Confirmation #</label>
+                                  <div class="mw-pm-input-wrap">
+                                      <input type="text" id="vm-pay-ref" name="payment_reference"
+                                             placeholder="e.g., 123456789">
+                                  </div>
+                              </div>
+                          </div>
+
+                          <!-- Partial payment notice -->
+                          <div class="mw-pm-partial-notice" id="vmPartialNotice">
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                              Partial payment — remaining balance stays open
                           </div>
 
                       </div>
-                      <div class="mw-modal-footer">
-                          <button type="button" class="btn btn-secondary" onclick="document.getElementById('paymentModal').style.display='none'">Cancel</button>
-                          <button type="submit" class="btn btn-success">
-                              <i data-feather="check" style="width:14px;height:14px;margin-right:4px;vertical-align:middle;"></i>
+
+                      <div class="mw-pm-footer">
+                          <button type="button" class="mw-pm-cancel" id="pmCancelBtn">Cancel</button>
+                          <button type="submit" class="mw-pm-submit" id="paymentModalTitle">
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                               Record Payment
                           </button>
                       </div>
                   </form>
+
               </div>
           </div>
+
           <script>
-          function vmToggleRef() {
-              var m = document.getElementById('vm-pay-method').value;
-              var l = document.getElementById('vm-ref-label');
-              var i = document.getElementById('vm-pay-ref');
-              var labels = {e_transfer:'e-Transfer Confirmation #', cheque:'Cheque Number', cash:'Receipt / Notes', credit_card:'Authorization Code', other:'Reference / Notes'};
-              var phs    = {e_transfer:'e.g., 123456789', cheque:'e.g., #1042', cash:'e.g., cash received', credit_card:'e.g., auth code', other:''};
-              l.textContent = labels[m] || 'Reference';
-              i.placeholder = phs[m] || '';
-          }
-          // Close on overlay click
-          document.getElementById('paymentModal').addEventListener('click', function(e){ if(e.target===this) this.style.display='none'; });
+          (function () {
+              var balanceFull = <?php echo floatval($invoice['balance_due']); ?>;
+              var modal       = document.getElementById('paymentModal');
+              var amtInput    = document.getElementById('vm-pay-amount');
+              var heroAmt     = document.getElementById('pmHeroAmount');
+              var refWrap     = document.getElementById('vmRefWrap');
+              var refLabel    = document.getElementById('vm-ref-label');
+              var refInput    = document.getElementById('vm-pay-ref');
+              var partNotice  = document.getElementById('vmPartialNotice');
+              var hiddenMethod = document.getElementById('vm-pay-method-hidden');
+
+              var refConfig = {
+                  e_transfer : { label: 'e-Transfer Confirmation #', ph: 'e.g., 123456789', show: true  },
+                  cheque     : { label: 'Cheque Number',              ph: 'e.g., 1042',      show: true  },
+                  cash       : { label: 'Receipt / Notes',            ph: '',                show: false },
+                  credit_card: { label: 'Authorization Code',         ph: 'e.g., auth code', show: true  },
+                  other      : { label: 'Reference / Notes',          ph: '',                show: false },
+              };
+
+              // Method pill selection
+              document.getElementById('pmMethodGrid').addEventListener('click', function (e) {
+                  var pill = e.target.closest('.mw-pm-pill');
+                  if (!pill) return;
+                  document.querySelectorAll('.mw-pm-pill').forEach(function(p){ p.classList.remove('active'); });
+                  pill.classList.add('active');
+                  pill.querySelector('input[type="radio"]').checked = true;
+                  var method = pill.dataset.method;
+                  hiddenMethod.value = method;
+                  var cfg = refConfig[method] || refConfig.other;
+                  refLabel.textContent = cfg.label;
+                  refInput.placeholder = cfg.ph;
+                  if (cfg.show) {
+                      refWrap.classList.add('visible');
+                  } else {
+                      refWrap.classList.remove('visible');
+                      refInput.value = '';
+                  }
+              });
+
+              // Amount change — update hero + partial notice
+              amtInput.addEventListener('input', function () {
+                  var val = parseFloat(this.value) || 0;
+                  var fmt = '$' + val.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+                  heroAmt.textContent = fmt;
+                  if (val > 0 && val < balanceFull - 0.005) {
+                      heroAmt.classList.add('mw-pm-partial-mode');
+                      partNotice.classList.add('visible');
+                  } else {
+                      heroAmt.classList.remove('mw-pm-partial-mode');
+                      partNotice.classList.remove('visible');
+                  }
+              });
+
+              // Open / close
+              window.openPaymentModal = function () {
+                  modal.style.display = 'flex';
+                  amtInput.focus();
+              };
+              function closePaymentModal() { modal.style.display = 'none'; }
+              document.getElementById('pmCloseBtn').addEventListener('click', closePaymentModal);
+              document.getElementById('pmCancelBtn').addEventListener('click', closePaymentModal);
+              modal.addEventListener('click', function (e) { if (e.target === this) closePaymentModal(); });
+          })();
           </script>
 
 <?php if ($isPayable): ?>
