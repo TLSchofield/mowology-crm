@@ -58,6 +58,7 @@ struct VisitDetailView: View {
         .background(Color(.systemGroupedBackground))
         .navigationTitle(stop.propertyAddress)
         .navigationBarTitleDisplayMode(.inline)
+        .task { await viewModel.checkClockStatus() }
     }
 
     // MARK: - Notice Banner (green — informational)
@@ -410,27 +411,47 @@ struct VisitDetailView: View {
 
         switch currentStatus.lowercased() {
         case "scheduled":
-            Button {
-                Task { await viewModel.startJob(visitId: visit.visitId) }
-            } label: {
-                Group {
-                    if isThisLoading {
-                        HStack(spacing: 8) {
-                            ProgressView().tint(.white)
-                            Text("Starting…").font(.subheadline.bold())
+            VStack(spacing: 8) {
+                Button {
+                    Task { await viewModel.startJob(visitId: visit.visitId) }
+                } label: {
+                    Group {
+                        if isThisLoading {
+                            HStack(spacing: 8) {
+                                ProgressView().tint(.white)
+                                Text("Starting…").font(.subheadline.bold())
+                            }
+                        } else {
+                            Label("Start Job", systemImage: "play.fill")
+                                .font(.subheadline.bold())
                         }
-                    } else {
-                        Label("Start Job", systemImage: "play.fill")
-                            .font(.subheadline.bold())
                     }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(Color.MW.green)
+                    .foregroundStyle(.white)
+                    .clipShape(Capsule())
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(Color.MW.green)
-                .foregroundStyle(.white)
-                .clipShape(Capsule())
+                .disabled(isThisLoading)
+
+                // Clock warning — shown only when we know the clock is off.
+                if viewModel.isClockedIn == false {
+                    HStack(spacing: 6) {
+                        Image(systemName: "clock.badge.exclamationmark.fill")
+                            .font(.caption)
+                            .foregroundStyle(Color.MW.orange)
+                        Text("Not clocked in — starting this job will clock you in automatically.")
+                            .font(.caption)
+                            .foregroundStyle(Color.MW.orange)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(Color.MW.orange.opacity(0.08))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.MW.orange.opacity(0.2), lineWidth: 1))
+                }
             }
-            .disabled(isThisLoading)
 
         case "in_progress":
             Button {

@@ -24,6 +24,10 @@ final class VisitDetailViewModel: ObservableObject {
     @Published var errorMessage: String?
     @Published var autoClockInNotice: String?
 
+    /// nil = status not yet fetched; false = definitely not clocked in; true = clocked in.
+    /// Drives the "not clocked in" warning on the Start Job button.
+    @Published private(set) var isClockedIn: Bool? = nil
+
     /// Local override for flag state: [visitId: isFlagged]. Wins over Visit.isFlagged once set.
     @Published private(set) var flagOverrides:  [Int: Bool] = [:]
     /// Visit IDs with an in-flight flag toggle request — drives the heart loading indicator.
@@ -61,6 +65,20 @@ final class VisitDetailViewModel: ObservableObject {
                 guard let self else { return }
                 Task { await self.drainPendingTransitions() }
             }
+    }
+
+    // MARK: - Clock Status
+
+    /// Fetches whether the crew member is currently clocked in.
+    /// Called once when the detail view appears. Lightweight GET — does not block the UI.
+    func checkClockStatus() async {
+        do {
+            let response: ClockStatusResponse = try await apiClient.request(.scheduleClockStatus)
+            isClockedIn = response.clockedIn
+        } catch {
+            // Non-critical — if the check fails, stay silent (nil = unknown).
+            isClockedIn = nil
+        }
     }
 
     // MARK: - Job Lifecycle
@@ -108,6 +126,7 @@ final class VisitDetailViewModel: ObservableObject {
                 ArrivalMonitor.shared.jobStarted()
                 gps.setActiveVisit(visitId)
 
+                isClockedIn = true   // job started → clock is definitely running now
                 if response.autoClockIn == true {
                     autoClockInNotice = "You've been automatically clocked in."
                 }
