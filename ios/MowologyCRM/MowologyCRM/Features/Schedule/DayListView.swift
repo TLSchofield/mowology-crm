@@ -16,6 +16,17 @@ struct DayListView: View {
     let isAdmin: Bool
     let onRefresh: () async -> Void
 
+    /// Tracks whether the one-time initial scroll has already fired.
+    @State private var hasAutoScrolled = false
+
+    /// The stop ID to scroll to on first load.
+    /// Priority: in-progress → first non-complete → nil (stay at top).
+    private var autoScrollTargetId: Int? {
+        if let active = stops.first(where: { $0.isInProgress }) { return active.id }
+        if let next   = stops.first(where: { !$0.isComplete })  { return next.id   }
+        return nil
+    }
+
     var body: some View {
         Group {
             if isLoading && stops.isEmpty {
@@ -33,39 +44,53 @@ struct DayListView: View {
     // MARK: - Stop List
 
     private var stopList: some View {
-        List {
-            // Offline banner — shown above the cached stop list.
-            if isOffline {
-                Section {
-                    offlineBanner
-                        .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+        ScrollViewReader { proxy in
+            List {
+                // Offline banner — shown above the cached stop list.
+                if isOffline {
+                    Section {
+                        offlineBanner
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                    }
+                }
+
+                // Inline error banner above the list when we have stale data + an error.
+                if let message = errorMessage {
+                    Section {
+                        errorBanner(message: message)
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                    }
+                }
+
+                ForEach(stops) { stop in
+                    NavigationLink(value: stop) {
+                        StopCardView(stop: stop, isAdmin: isAdmin)
+                            .padding(.vertical, 4)
+                    }
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                    .id(stop.id)
                 }
             }
-
-            // Inline error banner above the list when we have stale data + an error.
-            if let message = errorMessage {
-                Section {
-                    errorBanner(message: message)
-                        .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(Color(.systemGroupedBackground))
+            .refreshable { await onRefresh() }
+            .onChange(of: stops) { _, newStops in
+                guard !hasAutoScrolled, !newStops.isEmpty else { return }
+                hasAutoScrolled = true
+                guard let targetId = autoScrollTargetId else { return }
+                // Brief delay lets the List finish its layout pass before scrolling.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    withAnimation(.easeInOut(duration: 0.35)) {
+                        proxy.scrollTo(targetId, anchor: .top)
+                    }
                 }
-            }
-
-            ForEach(stops) { stop in
-                NavigationLink(value: stop) {
-                    StopCardView(stop: stop, isAdmin: isAdmin)
-                        .padding(.vertical, 4)
-                }
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
             }
         }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .background(Color(.systemGroupedBackground))
-        .refreshable { await onRefresh() }
     }
 
     // MARK: - Loading Skeleton
