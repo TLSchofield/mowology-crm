@@ -3097,14 +3097,22 @@ $unconvertedRequests = $db->query("
                                   <?php endforeach; ?>
                                 </td>
                                 <td class="text-right text-nowrap" onclick="event.stopPropagation();">
-                                  <a href="quote-workflow.php?contact_id=<?php echo (int)$clientId; ?>&property_id=<?php echo $propId; ?>" class="btn btn-sm btn-outline-success py-0 px-1 mr-1" title="Quote & Measure">
-                                    <i data-feather="file-text" class="mw-icon-xs"></i>
+                                  <a href="quote-workflow.php?contact_id=<?php echo (int)$clientId; ?>&property_id=<?php echo $propId; ?>" class="mw-prop-hdr-btn btn btn-sm btn-outline-success mr-1" title="Quote & Measure">
+                                    <i data-feather="file-text" class="mw-icon-sm"></i>
+                                    <span class="mw-prop-btn-label">Quote</span>
                                   </a>
-                                  <a href="jobs/create.php?contact_id=<?php echo (int)$clientId; ?>&property_id=<?php echo $propId; ?>" class="btn btn-sm btn-outline-secondary py-0 px-1 mr-1" title="Create Plan">
-                                    <i data-feather="clipboard" class="mw-icon-xs"></i>
+                                  <a href="jobs/create.php?contact_id=<?php echo (int)$clientId; ?>&property_id=<?php echo $propId; ?>" class="mw-prop-hdr-btn btn btn-sm btn-outline-secondary mr-1" title="Create Plan">
+                                    <i data-feather="clipboard" class="mw-icon-sm"></i>
+                                    <span class="mw-prop-btn-label">Plan</span>
                                   </a>
-                                  <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1" title="Work Zone" onclick="openWorkZoneModal(<?php echo $propId; ?>, <?php echo floatval($prop['latitude'] ?? 0); ?>, <?php echo floatval($prop['longitude'] ?? 0); ?>)">
-                                    <i data-feather="map-pin" class="mw-icon-xs"></i>
+                                  <button type="button" class="mw-prop-hdr-btn btn btn-sm btn-outline-secondary mr-1" title="Work Zone" onclick="openWorkZoneModal(<?php echo $propId; ?>, <?php echo floatval($prop['latitude'] ?? 0); ?>, <?php echo floatval($prop['longitude'] ?? 0); ?>)">
+                                    <i data-feather="map-pin" class="mw-icon-sm"></i>
+                                    <span class="mw-prop-btn-label">Zone</span>
+                                  </button>
+                                  <button type="button" class="mw-prop-hdr-btn mw-property-edit-btn" title="Edit property"
+                                          onclick="showEditProperty(<?php echo $propId; ?>, '<?php echo addslashes(h($prop['address'])); ?>', '<?php echo addslashes(h($prop['city'] ?? '')); ?>', '<?php echo addslashes(h($prop['province'] ?? '')); ?>', '<?php echo addslashes(h($prop['postal_code'] ?? '')); ?>', '<?php echo addslashes(h($prop['property_name'] ?? '')); ?>')">
+                                    <i data-feather="edit-2" class="mw-icon-sm"></i>
+                                    <span class="mw-prop-btn-label">Edit</span>
                                   </button>
                                 </td>
                               </tr>
