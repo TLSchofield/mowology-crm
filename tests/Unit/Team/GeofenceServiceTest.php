@@ -13,25 +13,25 @@ class GeofenceServiceTest extends TestCase
         return $s;
     }
 
-    private function makeVisitStmt(bool $hasActive): PDOStatement
+    private function makeColStmt(bool $truthy): PDOStatement
     {
         $s = $this->createMock(PDOStatement::class);
         $s->method('execute')->willReturn(true);
-        $s->method('fetchColumn')->willReturn($hasActive ? 1 : false);
+        $s->method('fetchColumn')->willReturn($truthy ? 1 : false);
         return $s;
     }
 
     /**
-     * Returns a PDO mock whose `prepare` returns the user-home statement first
-     * and the active-visit statement second (matching the call order inside
-     * shouldSuppressHomePing).
+     * Returns a PDO mock whose `prepare` returns statements in the call order
+     * inside shouldSuppressHomePing: home → isClockedIn → hasActiveVisit.
      */
-    private function makeDb(?array $home, bool $hasActive): PDO
+    private function makeDb(?array $home, bool $clockedIn = false, bool $hasActive = false): PDO
     {
         $db = $this->createMock(PDO::class);
         $db->method('prepare')->willReturnOnConsecutiveCalls(
             $this->makeUserStmt($home),
-            $this->makeVisitStmt($hasActive)
+            $this->makeColStmt($clockedIn),
+            $this->makeColStmt($hasActive)
         );
         return $db;
     }
@@ -54,18 +54,27 @@ class GeofenceServiceTest extends TestCase
         $this->assertFalse($svc->shouldSuppressHomePing(1, self::TIM_LAT, self::TIM_LNG));
     }
 
-    public function test_ping_inside_radius_with_no_active_visit_is_suppressed(): void
+    public function test_ping_inside_radius_offshift_no_visit_is_suppressed(): void
     {
         $home = ['home_lat' => self::TIM_LAT, 'home_lng' => self::TIM_LNG, 'home_radius_meters' => 100];
-        $svc  = new GeofenceService($this->makeDb($home, false));
-        // ~10m offset — well inside 100m radius
+        // off the clock, no active visit, ~10m from home → suppress
+        $svc  = new GeofenceService($this->makeDb($home, false, false));
         $this->assertTrue($svc->shouldSuppressHomePing(1, self::TIM_LAT + 0.00009, self::TIM_LNG));
+    }
+
+    public function test_ping_inside_radius_while_clocked_in_is_kept(): void
+    {
+        $home = ['home_lat' => self::TIM_LAT, 'home_lng' => self::TIM_LNG, 'home_radius_meters' => 100];
+        // clocked in (on shift) → keep the ping even at home
+        $svc  = new GeofenceService($this->makeDb($home, true, false));
+        $this->assertFalse($svc->shouldSuppressHomePing(1, self::TIM_LAT + 0.00009, self::TIM_LNG));
     }
 
     public function test_ping_inside_radius_with_active_visit_is_kept(): void
     {
         $home = ['home_lat' => self::TIM_LAT, 'home_lng' => self::TIM_LNG, 'home_radius_meters' => 100];
-        $svc  = new GeofenceService($this->makeDb($home, true));
+        // off clock but a job is in progress → keep
+        $svc  = new GeofenceService($this->makeDb($home, false, true));
         $this->assertFalse($svc->shouldSuppressHomePing(1, self::TIM_LAT + 0.00009, self::TIM_LNG));
     }
 
@@ -73,7 +82,7 @@ class GeofenceServiceTest extends TestCase
     {
         $home = ['home_lat' => self::TIM_LAT, 'home_lng' => self::TIM_LNG, 'home_radius_meters' => 100];
         // 0.005° latitude ≈ 555m — well outside 100m radius
-        $svc  = new GeofenceService($this->makeDb($home, false));
+        $svc  = new GeofenceService($this->makeDb($home, false, false));
         $this->assertFalse($svc->shouldSuppressHomePing(1, self::TIM_LAT + 0.005, self::TIM_LNG));
     }
 }

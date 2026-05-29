@@ -71,9 +71,24 @@ class GeofenceService
         return (bool)$stmt->fetchColumn();
     }
 
+    public function isClockedIn(int $userId): bool
+    {
+        $stmt = $this->db->prepare(
+            "SELECT 1
+               FROM time_clock_entries
+              WHERE user_id = ?
+                AND status = 'active'
+                AND clock_out IS NULL
+              LIMIT 1"
+        );
+        $stmt->execute([$userId]);
+        return (bool)$stmt->fetchColumn();
+    }
+
     /**
-     * True when this ping is an idle heartbeat from inside the user's home
-     * geofence and the user has no active visit — i.e. safe to drop.
+     * True when this ping is an idle OFF-SHIFT heartbeat from inside the user's
+     * home geofence — i.e. safe to drop. A clocked-in worker is always tracked
+     * (even at home), and an active visit also keeps the ping.
      */
     public function shouldSuppressHomePing(int $userId, float $lat, float $lng): bool
     {
@@ -87,6 +102,12 @@ class GeofenceService
             return false;
         }
 
+        // On shift → keep the ping (worker is working, even if from home).
+        if ($this->isClockedIn($userId)) {
+            return false;
+        }
+
+        // Off shift but a job is somehow in progress → keep.
         return !$this->hasActiveVisit($userId);
     }
 }
