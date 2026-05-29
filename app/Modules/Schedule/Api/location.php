@@ -69,6 +69,10 @@ try {
 
     $db = getDB();
 
+    // TEMP DIAGNOSTIC (remove after debugging missing iOS pings) — logs every
+    // inbound ping so we can confirm whether the device is reaching the server.
+    error_log("[PINGDIAG] uid={$userId} lat={$lat} lng={$lng} visit=" . ($visitId === null ? 'null' : $visitId) . " acc={$accuracy}");
+
     // Rate limit: reject if last entry < 10 seconds ago
     $rateStmt = $db->prepare("
         SELECT (UNIX_TIMESTAMP() - UNIX_TIMESTAMP(timestamp)) AS seconds_ago
@@ -90,6 +94,7 @@ try {
     if ($visitId === null) {
         $geofence = new GeofenceService($db);
         if ($geofence->shouldSuppressHomePing($userId, $lat, $lng)) {
+            error_log("[PINGDIAG] uid={$userId} SUPPRESSED by home_geofence");
             echo json_encode(['success' => true, 'skipped' => true, 'reason' => 'home_geofence']);
             exit;
         }
