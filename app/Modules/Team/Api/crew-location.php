@@ -127,6 +127,7 @@ try {
                 INNER JOIN users u ON u.id = clh.crew_id
                 WHERE u.is_active = 1
                   AND u.location_tracking_enabled = 1
+                  AND clh.is_office = 0
                   AND UNIX_TIMESTAMP(clh.timestamp) >= ?
                   AND UNIX_TIMESTAMP(clh.timestamp) <= ?
                 ORDER BY clh.crew_id ASC, clh.timestamp ASC
@@ -158,10 +159,45 @@ try {
                 ];
             }
 
+            // Office summary — one entry per crew with office-tagged pings that
+            // day. Rendered as a single muted "Office" marker (never joined to
+            // the route polyline). Located at the user's saved home coordinates.
+            $offStmt = $db->prepare("
+                SELECT clh.crew_id AS user_id, u.full_name, u.home_lat, u.home_lng,
+                       COUNT(*) AS cnt,
+                       MIN(UNIX_TIMESTAMP(clh.timestamp)) AS first_epoch,
+                       MAX(UNIX_TIMESTAMP(clh.timestamp)) AS last_epoch
+                FROM crew_location_history clh
+                INNER JOIN users u ON u.id = clh.crew_id
+                WHERE u.is_active = 1
+                  AND u.location_tracking_enabled = 1
+                  AND clh.is_office = 1
+                  AND UNIX_TIMESTAMP(clh.timestamp) >= ?
+                  AND UNIX_TIMESTAMP(clh.timestamp) <= ?
+                GROUP BY clh.crew_id, u.full_name, u.home_lat, u.home_lng
+            ");
+            $offStmt->execute([$dayStart, $dayEnd]);
+            $office = [];
+            foreach ($offStmt->fetchAll(PDO::FETCH_ASSOC) as $o) {
+                if ($o['home_lat'] === null || $o['home_lng'] === null) continue;
+                $first = (int)$o['first_epoch']; $last = (int)$o['last_epoch'];
+                $office[] = [
+                    'user_id'   => (int)$o['user_id'],
+                    'full_name' => $o['full_name'],
+                    'lat'       => (float)$o['home_lat'],
+                    'lng'       => (float)$o['home_lng'],
+                    'count'     => (int)$o['cnt'],
+                    'first'     => (new DateTime('@' . $first))->setTimezone($tz)->format('g:i A'),
+                    'last'      => (new DateTime('@' . $last))->setTimezone($tz)->format('g:i A'),
+                    'minutes'   => (int)round(($last - $first) / 60),
+                ];
+            }
+
             echo json_encode([
                 'success' => true,
                 'date' => $date,
-                'routes' => array_values($routes)
+                'routes' => array_values($routes),
+                'office' => $office
             ]);
 
         } else {

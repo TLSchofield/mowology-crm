@@ -172,6 +172,8 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
     var routePolylines = {}; // keyed by user_id
     var routeStartMarkers = {}; // keyed by user_id
     var routeStopMarkers = []; // stop markers (>5 min in one spot)
+    var officeMarkers = {}; // keyed by user_id — single "Office" marker, not on the route line
+    var officeData = []; // raw office summary from API
     var routeData = []; // raw route data from API
     var routeVisible = {}; // user_id -> boolean (toggle per crew)
     var routesEnabled = false;
@@ -549,6 +551,7 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
         .then(function(data) {
             if (!data.success) return;
             routeData = data.routes || [];
+            officeData = data.office || [];
 
             // Initialize visibility for all crew (default: visible)
             routeData.forEach(function(route) {
@@ -580,6 +583,10 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
 
         routeStopMarkers.forEach(function(m) { m.setMap(null); });
         routeStopMarkers = [];
+
+        Object.keys(officeMarkers).forEach(function(uid) { officeMarkers[uid].marker.setMap(null); });
+        officeMarkers = {};
+        officeData = [];
 
         routeData = [];
         document.getElementById('routeCrewFilters').innerHTML = '';
@@ -700,6 +707,44 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
 
                 routeStopMarkers.push(stopMarker);
             });
+        });
+        drawOfficeMarkers();
+    }
+
+    // Single muted "Office" marker per crew at their home — recorded office
+    // presence, deliberately NOT joined to the travel route polyline.
+    function drawOfficeMarkers() {
+        Object.keys(officeMarkers).forEach(function(uid) { officeMarkers[uid].marker.setMap(null); });
+        officeMarkers = {};
+        officeData.forEach(function(o) {
+            if (!routeVisible[o.user_id]) return;
+            if (o.lat == null || o.lng == null) return;
+            var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 30 30">' +
+                '<circle cx="15" cy="15" r="13" fill="#6B7280" stroke="white" stroke-width="2"/>' +
+                '<path d="M9 16 L15 10 L21 16" fill="none" stroke="white" stroke-width="1.8" stroke-linejoin="round"/>' +
+                '<rect x="11" y="15" width="8" height="6" fill="none" stroke="white" stroke-width="1.6"/>' +
+                '</svg>';
+            var marker = new google.maps.Marker({
+                position: { lat: o.lat, lng: o.lng },
+                map: gmap,
+                icon: {
+                    url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
+                    scaledSize: new google.maps.Size(30, 30),
+                    anchor: new google.maps.Point(15, 15)
+                },
+                title: escapeHtml(o.full_name) + ' — Office',
+                zIndex: 400
+            });
+            var info = new google.maps.InfoWindow({
+                content: '<div style="padding:6px;font-size:12px;">' +
+                    '<strong>' + escapeHtml(o.full_name) + '</strong><br>' +
+                    '<span style="color:#6B7280;">&#9632;</span> Office (home)<br>' +
+                    o.first + ' &mdash; ' + o.last + '<br>' +
+                    o.minutes + ' min · ' + o.count + ' pings' +
+                    '</div>'
+            });
+            marker.addListener('click', function() { info.open(gmap, marker); });
+            officeMarkers[o.user_id] = { marker: marker, infoWindow: info };
         });
     }
 
