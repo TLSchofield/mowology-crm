@@ -130,6 +130,9 @@
 				CE716DE714937E2614370F75 /* PingQueue.swift */,
 				F33171690DA9721C3D67B8E9 /* TransitionQueue.swift */,
 				20334B98F42E1FA61C896430 /* ReceiptQueue.swift */,
+				C38B412AFB12D52D9679198C /* ClockQueue.swift */,
+				020780B1CE91FCD6C5F342B3 /* JobPhotoQueue.swift */,
+				AD1CBB45AF36E4DCB8B81C51 /* ScheduleCache.swift */,
 			);
 			path = Offline;
 			sourceTree = "<group>";
@@ -139,9 +142,6 @@
 			children = (
 				51F215642B22B1FCC54B663F /* MowologyCRM */,
 				636F64D13F9CF99C7CCAD7EA /* Products */,
-							C38B412AFB12D52D9679198C /* ClockQueue.swift */,
-				020780B1CE91FCD6C5F342B3 /* JobPhotoQueue.swift */,
-				AD1CBB45AF36E4DCB8B81C51 /* ScheduleCache.swift */,
 );
 			sourceTree = "<group>";
 		};
@@ -437,6 +437,9 @@
 				BB1234567890ABCDEF123401 /* QuizModels.swift in Sources */,
 				BB1234567890ABCDEF123402 /* QuizView.swift in Sources */,
 				BB1234567890ABCDEF123403 /* QuizViewModel.swift in Sources */,
+				6CB330DA9E770330F8DBB500 /* ClockQueue.swift in Sources */,
+				FEE6F4240C835E02425E19BD /* JobPhotoQueue.swift in Sources */,
+				9123154214A57C98D697E9A0 /* ScheduleCache.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -27,6 +27,9 @@
   const feedbackEl = document.getElementById('dragFeedback');
   const feedbackMsg = document.getElementById('dragMessage');
 
+  // Tracks the active auto-hide timer so stale timers can be cancelled
+  let autoHideTimer = null;
+
   // ── Initialization ─────────────────────────────────────────────────────
 
   /**
@@ -452,17 +455,38 @@
   function showCapacityWarning(card, newDate, newRouteOrder, message) {
     if (!feedbackEl || !feedbackMsg) return;
 
+    // Cancel any pending auto-hide (e.g. the 'loading' timer) so this warning persists
+    clearTimeout(autoHideTimer);
+    autoHideTimer = null;
+
     feedbackMsg.textContent = message || 'Crew day is over capacity — continue?';
     feedbackEl.className = 'mw-drag-feedback warning';
     feedbackEl.style.display = 'block';
+
+    // Remove any leftover buttons from a previous warning
+    feedbackEl.querySelectorAll('.mw-cap-confirm-btn, .mw-cap-cancel-btn').forEach(function (el) { el.remove(); });
+
+    var cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.className = 'mw-cap-cancel-btn';
+    cancelBtn.style.cssText = 'margin-left:8px;padding:2px 10px;font-size:11px;cursor:pointer;background:transparent;color:#fff;border:1px solid rgba(255,255,255,0.4);border-radius:4px;';
+    feedbackEl.appendChild(cancelBtn);
 
     // Inject a "Continue anyway" button (removed after use)
     var btn = document.createElement('button');
     btn.type = 'button';
     btn.textContent = 'Continue anyway';
     btn.className = 'mw-cap-confirm-btn';
-    btn.style.cssText = 'margin-left:10px;padding:2px 10px;font-size:11px;cursor:pointer;background:#e85d04;color:#fff;border:none;border-radius:4px;';
+    btn.style.cssText = 'margin-left:6px;padding:2px 10px;font-size:11px;cursor:pointer;background:#e85d04;color:#fff;border:none;border-radius:4px;';
     feedbackEl.appendChild(btn);
+
+    cancelBtn.addEventListener('click', function () {
+      cancelBtn.remove();
+      btn.remove();
+      feedbackEl.style.display = 'none';
+      draggedCard = null;
+    });
 
     btn.addEventListener('click', function () {
       btn.remove();
@@ -507,10 +531,16 @@
   function showFeedback(message, type) {
     if (!feedbackEl || !feedbackMsg) return;
 
+    // Cancel any previous auto-hide timer before showing new state
+    clearTimeout(autoHideTimer);
+    autoHideTimer = null;
+
+    // Remove any capacity warning buttons left over from a previous state
+    feedbackEl.querySelectorAll('.mw-cap-confirm-btn, .mw-cap-cancel-btn').forEach(function (el) { el.remove(); });
+
     type = type || 'info';
     feedbackMsg.textContent = message;
 
-    // Reset classes then apply type-specific class
     feedbackEl.className = 'mw-drag-feedback';
     if (type === 'error') {
       feedbackEl.classList.add('error');
@@ -525,24 +555,16 @@
     // Auto-hide timings
     var timeout;
     switch (type) {
-      case 'error':
-        timeout = 10000; // 10s — long enough to read the message
-        break;
-      case 'loading':
-        timeout = 10000;
-        break;
-      case 'success':
-        timeout = 3000;
-        break;
-      case 'warning':
-        timeout = 4000;
-        break;
-      default:
-        timeout = 3000;
+      case 'error':   timeout = 10000; break;
+      case 'loading': timeout = 30000; break; // long enough for slow API responses
+      case 'success': timeout = 3000;  break;
+      case 'warning': timeout = 6000;  break;
+      default:        timeout = 3000;
     }
 
-    setTimeout(function () {
+    autoHideTimer = setTimeout(function () {
       feedbackEl.style.display = 'none';
+      autoHideTimer = null;
     }, timeout);
   }
 

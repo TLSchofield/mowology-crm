@@ -572,8 +572,8 @@ var MwDayViewMap = (function() {
     function placeMarker(position, stop, index, isActive, isUnassigned) {
         var color, size, completed = false;
 
-        if (stop.status === 'completed') {
-            color = '#86EFAC';  // pale green
+        if (stop.status === 'completed' || stop.isInvoiced) {
+            color = '#9CA3AF';  // pale green
             size = 34;
             completed = true;
         } else if (isUnassigned) {
@@ -829,12 +829,12 @@ var MwDayViewMap = (function() {
         stopMarkers.forEach(function(sm) {
             if (sm.stopId === stopId) {
                 // Enlarge the highlighted marker
-                var color = sm.isCompleted ? '#86EFAC' : (sm.stopId === pinnedStopId ? '#e85d04' : (serviceColors[sm.serviceType] || '#2D8659'));
+                var color = sm.isCompleted ? '#9CA3AF' : (sm.stopId === pinnedStopId ? '#e85d04' : (serviceColors[sm.serviceType] || '#2D8659'));
                 sm.marker.setIcon(createPinIcon(color, sm.label || '\u2022', 44, sm.isCompleted));
                 sm.marker.setZIndex(200);
             } else {
                 // Dim others slightly via smaller size
-                var c = sm.isCompleted ? '#86EFAC' : (sm.isUnassigned ? '#9CA3AF' : (sm.stopId === pinnedStopId ? '#e85d04' : (serviceColors[sm.serviceType] || '#2D8659')));
+                var c = sm.isCompleted ? '#9CA3AF' : (sm.isUnassigned ? '#9CA3AF' : (sm.stopId === pinnedStopId ? '#e85d04' : (serviceColors[sm.serviceType] || '#2D8659')));
                 sm.marker.setIcon(createPinIcon(c, sm.label || '\u2022', sm.isUnassigned ? 26 : 30, sm.isCompleted));
                 sm.marker.setZIndex(10);
             }
@@ -845,7 +845,7 @@ var MwDayViewMap = (function() {
         stopMarkers.forEach(function(sm) {
             var color, size;
             if (sm.isCompleted) {
-                color = '#86EFAC'; size = 34;
+                color = '#9CA3AF'; size = 34;
             } else if (sm.isUnassigned) {
                 color = '#9CA3AF'; size = 30;
             } else if (sm.stopId === pinnedStopId) {
@@ -1007,7 +1007,7 @@ var MwDayViewMap = (function() {
         .catch(function(err) { onError('Network error. Please try again.'); });
     }
 
-    function setCardDoneState(card, invoiceId, invoiceNumber) {
+    function setCardDoneState(card, invoiceId, invoiceNumber, withInvoice) {
         // Swap stop-status class
         card.className = card.className.replace(/mw-stop-status-\w+/g, '') + ' mw-stop-status-done';
 
@@ -1021,8 +1021,13 @@ var MwDayViewMap = (function() {
 
         var invoiceHtml = '';
         if (invoiceId && invoiceNumber) {
+            // Invoice was created — show link to view it
             invoiceHtml = '<a class="mw-dv-invoice-link" href="/crm/invoices/view.php?id=' + invoiceId + '">'
                         + escapeHtml(invoiceNumber) + ' &rarr;</a>';
+        } else if (withInvoice) {
+            // "Complete & Invoice" was requested but invoice creation failed — offer manual fallback
+            invoiceHtml = '<a class="mw-dv-create-invoice-link" href="/crm/invoices/create.php?stop_id=' + escapeHtml(stopId) + '">'
+                        + '+ Create Invoice</a>';
         }
         var reopenVisitIds = visitIds || stopId;
 
@@ -1062,7 +1067,7 @@ var MwDayViewMap = (function() {
         dvPost(
             { action: 'complete_stop', stop_id: stopId, invoice: withInvoice ? 1 : 0 },
             function(data) {
-                setCardDoneState(card, data.invoice_id, data.invoice_number);
+                setCardDoneState(card, data.invoice_id, data.invoice_number, withInvoice);
                 if (data.invoice_number) {
                     showDvToast(
                         'Stop completed.',

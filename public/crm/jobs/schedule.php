@@ -429,6 +429,86 @@ $mcProgressPct = $mcWeekStops > 0 ? (int)round(($mcCompletedStops / $mcWeekStops
 // Revenue progress vs weekly target
 $mcRevenueProgressPct = $MC_WEEKLY_TARGET > 0 ? (int)round(min(100, ($mcWeekRevenue / $MC_WEEKLY_TARGET) * 100)) : 0;
 
+// ── Day-view display values ─────────────────────────────────────────────
+// In day view the MC header shows a SINGLE DAY, not a week. Labour is
+// sourced from actual time_clock_entries for that date when available,
+// because the per-plan estimated_duration_minutes can be wildly inaccurate.
+// Falls back to estimated if no clock data exists yet.
+$mcIsDay         = ($view === 'day');
+$mcDisplayRev    = $mcWeekRevenue;  // for day view this is already just 1 day
+$mcDisplayTarget = $mcIsDay ? $MC_DAILY_TARGET : $MC_WEEKLY_TARGET;
+$mcDisplayPeriod = $mcIsDay ? 'Day' : 'Week';
+
+$mcActualLaborMinutes = 0;
+$mcActualLaborCost    = null;  // null = no clock data yet
+$mcActualCrewNames    = [];
+$mcActualCrewRows     = [];    // [{first_name, full_name, minutes, cost, rate}]
+if ($mcIsDay) {
+    try {
+        // Exclude truck-type profiles (e.g. DODGE RAM) — they are vehicles,
+        // not billable labor. Only count human users (device_type != 'truck').
+        $clockStmt = $db->prepare("
+            SELECT u.id, u.full_name, u.hourly_rate,
+                   SUM(tce.total_minutes) AS worked_minutes
+            FROM time_clock_entries tce
+            JOIN users u ON tce.user_id = u.id
+            WHERE DATE(tce.clock_in) = ?
+              AND tce.status = 'completed'
+              AND tce.total_minutes > 0
+              AND IFNULL(u.device_type, 'personal') != 'truck'
+            GROUP BY u.id, u.full_name, u.hourly_rate
+        ");
+        $clockStmt->execute([$dayDate]);
+        $clockRows = $clockStmt->fetchAll(PDO::FETCH_ASSOC);
+        if (!empty($clockRows)) {
+            $mcActualLaborCost = 0.0;
+            foreach ($clockRows as $cr) {
+                $rate = !empty($cr['hourly_rate']) && $cr['hourly_rate'] > 0
+                    ? (float)$cr['hourly_rate']
+                    : $MC_LABOR_RATE_DEFAULT;
+                $mins = (int)$cr['worked_minutes'];
+                $cost = ($mins / 60.0) * $rate;
+                $mcActualLaborMinutes += $mins;
+                $mcActualLaborCost    += $cost;
+                $mcActualCrewNames[]   = $cr['full_name'];
+                $mcActualCrewRows[]    = [
+                    'first_name' => explode(' ', trim($cr['full_name']))[0],
+                    'full_name'  => $cr['full_name'],
+                    'minutes'    => $mins,
+                    'cost'       => $cost,
+                    'rate'       => $rate,
+                ];
+            }
+        }
+    } catch (Exception $e) {
+        // time_clock_entries may be empty or query fails — keep null
+    }
+}
+
+// Pick the labour figure to show
+$mcDisplayLabor         = ($mcActualLaborCost !== null) ? $mcActualLaborCost : $mcWeekLabor;
+$mcDisplayLaborIsActual = ($mcActualLaborCost !== null);
+
+// Labor as % of revenue — drives the color badge on the panel
+$mcLaborPct      = $mcDisplayRev > 0 ? (int)round(($mcDisplayLabor / $mcDisplayRev) * 100) : 0;
+$mcLaborPctClass = $mcLaborPct >= 80 ? 'is-red' : ($mcLaborPct >= 60 ? 'is-amber' : 'is-ok');
+
+// Recalculate margin with the chosen labour figure
+$mcDisplayOverhead   = $mcDisplayLabor * 0.30;
+$mcDisplayTotalCost  = $mcDisplayLabor + $mcDisplayOverhead;
+$mcDisplayMargin     = $mcDisplayRev > 0
+    ? (int)round((($mcDisplayRev - $mcDisplayTotalCost) / $mcDisplayRev) * 100)
+    : 0;
+
+// Total time: use actual clock minutes in day view if available
+$mcDisplayTotalMin  = ($mcIsDay && $mcActualLaborMinutes > 0)
+    ? $mcActualLaborMinutes + $mcDriveTimeMin
+    : $mcTotalTimeMin;
+$mcDisplayWorkMin   = ($mcIsDay && $mcActualLaborMinutes > 0) ? $mcActualLaborMinutes : $mcWeekDuration;
+
+$mcDisplayStretch   = $mcDisplayRev * 1.15;
+$mcDisplayRevPct    = $mcDisplayTarget > 0 ? (int)round(min(100, ($mcDisplayRev / $mcDisplayTarget) * 100)) : 0;
+
 // Per-day battle card data
 $mcBattleCards = [];
 $currentDate2 = new DateTime($startDate);
@@ -765,6 +845,7 @@ if ($view === 'day') {
             'assigned'    => $isAssigned,
             'crewNames'   => !empty($stop['crew_names']) ? $stop['crew_names'] : ($stop['crew_name'] ? [$stop['crew_name']] : []),
             'status'      => $stop['stop_status'] ?? 'scheduled',
+            'isInvoiced'  => !empty($stop['visits']) && array_reduce($stop['visits'], fn($carry, $v) => $carry || !empty($v['invoice_id']), false),
         ];
     }
 }
@@ -1259,6 +1340,12 @@ if ($apiKey) {
                          class="mw-dv-toggle-btn <?php echo $view === 'day' ? 'active' : ''; ?>">Day</a>
                   </div>
                   <a href="index.php" class="btn btn-secondary btn-sm">List View</a>
+                  <?php if (in_array($user['role'] ?? '', ['admin', 'manager'])): ?>
+                  <button type="button" class="btn btn-outline-warning btn-sm" onclick="openLogLaborModal()"
+                          title="Log a day's clock-in/out for crew members">
+                      ⏱ Log Labor
+                  </button>
+                  <?php endif; ?>
               </div>
           </div>
 
@@ -1274,27 +1361,53 @@ if ($apiKey) {
               <div class="mw-mc-kpi-row">
 
                   <div class="mw-mc-kpi mw-mc-kpi-revenue">
-                      <div class="mw-mc-kpi-label">Projected Revenue</div>
-                      <div class="mw-mc-kpi-value">$<?php echo number_format($mcWeekRevenue, 0); ?></div>
-                      <div class="mw-mc-kpi-sub">Target $<?php echo number_format($MC_WEEKLY_TARGET, 0); ?></div>
+                      <div class="mw-mc-kpi-label"><?php echo $mcIsDay ? 'Day Revenue' : 'Projected Revenue'; ?></div>
+                      <div class="mw-mc-kpi-value">$<?php echo number_format($mcDisplayRev, 0); ?></div>
+                      <div class="mw-mc-kpi-sub"><?php echo $mcIsDay ? 'Day' : 'Week'; ?> target $<?php echo number_format($mcDisplayTarget, 0); ?></div>
                   </div>
 
-                  <div class="mw-mc-kpi mw-mc-kpi-labor">
-                      <div class="mw-mc-kpi-label">Labor Cost</div>
-                      <div class="mw-mc-kpi-value">$<?php echo number_format($mcWeekLabor, 0); ?></div>
-                      <div class="mw-mc-kpi-sub"><?php echo number_format(($mcWeekRevenue > 0 ? ($mcWeekLabor / $mcWeekRevenue) * 100 : 0), 0); ?>% of revenue</div>
+                  <!-- ── Labor Panel: wider, highlighted ── -->
+                  <div class="mw-mc-labor-panel <?php echo $mcDisplayLaborIsActual ? 'is-actual' : 'is-estimated'; ?>">
+                      <div class="mw-mc-labor-header">
+                          <span class="mw-mc-kpi-label">Labor Cost</span>
+                          <?php if ($mcIsDay): ?>
+                          <span class="mw-mc-labor-mode"><?php echo $mcDisplayLaborIsActual ? 'actual' : 'est.'; ?></span>
+                          <?php endif; ?>
+                          <span class="mw-mc-labor-pct mw-mc-labor-pct-<?php echo $mcLaborPctClass; ?>"><?php echo $mcLaborPct; ?>% of rev</span>
+                      </div>
+                      <div class="mw-mc-labor-total">$<?php echo number_format($mcDisplayLabor, 0); ?></div>
+                      <?php if ($mcIsDay && $mcDisplayLaborIsActual && !empty($mcActualCrewRows)): ?>
+                      <div class="mw-mc-labor-crew">
+                          <?php foreach ($mcActualCrewRows as $cr): ?>
+                          <div class="mw-mc-labor-row">
+                              <span class="mw-mc-labor-name"><?php echo htmlspecialchars($cr['first_name']); ?></span>
+                              <span class="mw-mc-labor-hrs"><?php echo number_format($cr['minutes'] / 60, 1); ?>h · $<?php echo number_format($cr['rate'], 0); ?>/h</span>
+                              <span class="mw-mc-labor-cost">$<?php echo number_format($cr['cost'], 0); ?></span>
+                          </div>
+                          <?php endforeach; ?>
+                      </div>
+                      <?php else: ?>
+                      <div class="mw-mc-kpi-sub"><?php echo $mcIsDay ? 'No clock data yet' : 'Est. · based on schedule'; ?></div>
+                      <?php endif; ?>
+                  </div>
+                  <!-- ── / Labor Panel ── -->
+
+                  <div class="mw-mc-kpi mw-mc-kpi-overhead">
+                      <div class="mw-mc-kpi-label">Overhead</div>
+                      <div class="mw-mc-kpi-value">$<?php echo number_format($mcDisplayOverhead, 0); ?></div>
+                      <div class="mw-mc-kpi-sub">30% burden on labor</div>
                   </div>
 
-                  <div class="mw-mc-kpi mw-mc-kpi-margin <?php echo $mcWeekMargin >= 40 ? 'is-green' : ($mcWeekMargin >= 20 ? 'is-amber' : 'is-red'); ?>">
+                  <div class="mw-mc-kpi mw-mc-kpi-margin <?php echo $mcDisplayMargin >= 40 ? 'is-green' : ($mcDisplayMargin >= 20 ? 'is-amber' : 'is-red'); ?>">
                       <div class="mw-mc-kpi-label">Margin</div>
-                      <div class="mw-mc-kpi-value"><?php echo $mcWeekMargin; ?>%</div>
-                      <div class="mw-mc-kpi-sub"><?php echo $mcWeekMargin >= 40 ? 'Healthy' : ($mcWeekMargin >= 20 ? 'Watch' : 'Critical'); ?></div>
+                      <div class="mw-mc-kpi-value"><?php echo $mcDisplayMargin; ?>%</div>
+                      <div class="mw-mc-kpi-sub"><?php echo $mcDisplayMargin >= 40 ? 'Healthy' : ($mcDisplayMargin >= 20 ? 'Watch' : 'Critical'); ?></div>
                   </div>
 
                   <div class="mw-mc-kpi mw-mc-kpi-drive">
                       <div class="mw-mc-kpi-label">Total Time</div>
-                      <div class="mw-mc-kpi-value"><?php echo round($mcTotalTimeMin / 60, 1); ?>h</div>
-                      <div class="mw-mc-kpi-sub"><?php echo $mcWeekDuration; ?> work + <?php echo $mcDriveTimeMin; ?> drive</div>
+                      <div class="mw-mc-kpi-value"><?php echo round($mcDisplayTotalMin / 60, 1); ?>h</div>
+                      <div class="mw-mc-kpi-sub"><?php echo round($mcDisplayWorkMin / 60, 1); ?>h work + <?php echo round($mcDriveTimeMin / 60, 1); ?>h drive</div>
                   </div>
 
                   <div class="mw-mc-kpi mw-mc-kpi-efficiency">
@@ -1306,13 +1419,13 @@ if ($apiKey) {
                   <div class="mw-mc-kpi mw-mc-kpi-density">
                       <div class="mw-mc-kpi-label">Density Score</div>
                       <div class="mw-mc-kpi-value"><?php echo $mcDensity; ?></div>
-                      <div class="mw-mc-kpi-sub"><?php echo number_format($mcAvgStopsPerDay, 1); ?> stops/day</div>
+                      <div class="mw-mc-kpi-sub"><?php echo $mcIsDay ? $mcWeekStops : number_format($mcAvgStopsPerDay, 1); ?> stops<?php echo $mcIsDay ? '' : '/day'; ?></div>
                   </div>
 
                   <div class="mw-mc-kpi mw-mc-kpi-stretch">
                       <div class="mw-mc-kpi-label">Stretch Target</div>
-                      <div class="mw-mc-kpi-value">$<?php echo number_format($mcStretchTarget, 0); ?></div>
-                      <div class="mw-mc-kpi-sub">+15% of projected</div>
+                      <div class="mw-mc-kpi-value">$<?php echo number_format($mcDisplayStretch, 0); ?></div>
+                      <div class="mw-mc-kpi-sub">+15% of <?php echo $mcIsDay ? 'day' : 'projected'; ?></div>
                   </div>
 
                   <!-- Gamification panel -->
@@ -1341,7 +1454,7 @@ if ($apiKey) {
               <div class="mw-mc-progress-row">
                   <div class="mw-mc-prog-block">
                       <div class="mw-mc-prog-label">
-                          <span>Weekly Completion</span>
+                          <span><?php echo $mcDisplayPeriod; ?> Completion</span>
                           <span><?php echo $mcProgressPct; ?>% · <?php echo $mcCompletedStops; ?>/<?php echo $mcWeekStops; ?> stops</span>
                       </div>
                       <div class="mw-mc-prog-track">
@@ -1351,12 +1464,12 @@ if ($apiKey) {
                   </div>
                   <div class="mw-mc-prog-block">
                       <div class="mw-mc-prog-label">
-                          <span>Revenue vs Target</span>
-                          <span>$<?php echo number_format($mcWeekRevenue, 0); ?> / $<?php echo number_format($MC_WEEKLY_TARGET, 0); ?></span>
+                          <span>Revenue vs <?php echo $mcDisplayPeriod; ?> Target</span>
+                          <span>$<?php echo number_format($mcDisplayRev, 0); ?> / $<?php echo number_format($mcDisplayTarget, 0); ?></span>
                       </div>
                       <div class="mw-mc-prog-track">
-                          <div class="mw-mc-prog-fill mw-mc-prog-revenue" style="width: <?php echo $mcRevenueProgressPct; ?>%"
-                               data-target="<?php echo $mcRevenueProgressPct; ?>"></div>
+                          <div class="mw-mc-prog-fill mw-mc-prog-revenue" style="width: <?php echo $mcDisplayRevPct; ?>%"
+                               data-target="<?php echo $mcDisplayRevPct; ?>"></div>
                       </div>
                   </div>
                   <div class="mw-mc-prog-block mw-mc-prog-block-efficiency">
@@ -2096,7 +2209,12 @@ if ($apiKey) {
                                   break;
                               }
                           }
-                          $dvStopDone = ($stop['stop_status'] ?? 'scheduled') === 'completed';
+                          $dvStopDone = ($stop['stop_status'] ?? 'scheduled') === 'completed' || $dvInvoiceId > 0;
+                          // Pricing model check applies to both done + pending states.
+                          $dvPerVisit = true;
+                          foreach ($stop['visits'] ?? [] as $_v) {
+                              if (($_v['pricing_model'] ?? 'per_visit') !== 'per_visit') { $dvPerVisit = false; break; }
+                          }
                           ?>
                           <?php if ($dvStopDone): ?>
                           <div class="mw-dv-card-footer mw-dv-footer-done">
@@ -2108,6 +2226,10 @@ if ($apiKey) {
                               <a class="mw-dv-invoice-link" href="/crm/invoices/view.php?id=<?php echo $dvInvoiceId; ?>">
                                   <?php echo htmlspecialchars($dvInvoiceNumber); ?> &rarr;
                               </a>
+                              <?php elseif ($dvPerVisit): ?>
+                              <a class="mw-dv-create-invoice-link" href="/crm/invoices/create.php?stop_id=<?php echo (int)$stop['stop_id']; ?>">
+                                  + Create Invoice
+                              </a>
                               <?php endif; ?>
                               <?php if (!empty($dvFooterVisitIds)): ?>
                               <button class="mw-dv-btn-reopen"
@@ -2117,7 +2239,11 @@ if ($apiKey) {
                               <?php endif; ?>
                           </div>
                           <?php else: ?>
+                          <?php
+                          // $dvPerVisit already computed above (used in both done + pending states).
+                          ?>
                           <div class="mw-dv-card-footer mw-dv-footer-pending">
+                              <?php if ($dvPerVisit): ?>
                               <button class="mw-dv-btn-complete mw-dv-btn-complete-invoice"
                                       data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
                                       data-invoice="1">
@@ -2129,6 +2255,14 @@ if ($apiKey) {
                                       data-invoice="0">
                                   Complete &#8212; No Invoice
                               </button>
+                              <?php else: ?>
+                              <button class="mw-dv-btn-complete mw-dv-btn-complete-noinvoice"
+                                      data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
+                                      data-invoice="0">
+                                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                                  Complete
+                              </button>
+                              <?php endif; ?>
                           </div>
                           <?php endif; ?>
                       </div>
@@ -2215,7 +2349,12 @@ if ($apiKey) {
                                   break;
                               }
                           }
-                          $dvStopDone = ($stop['stop_status'] ?? 'scheduled') === 'completed';
+                          $dvStopDone = ($stop['stop_status'] ?? 'scheduled') === 'completed' || $dvInvoiceId > 0;
+                          // Pricing model check for done + pending states.
+                          $dvPerVisit2 = true;
+                          foreach ($stop['visits'] ?? [] as $_v) {
+                              if (($_v['pricing_model'] ?? 'per_visit') !== 'per_visit') { $dvPerVisit2 = false; break; }
+                          }
                           ?>
                           <?php if ($dvStopDone): ?>
                           <div class="mw-dv-card-footer mw-dv-footer-done">
@@ -2227,6 +2366,10 @@ if ($apiKey) {
                               <a class="mw-dv-invoice-link" href="/crm/invoices/view.php?id=<?php echo $dvInvoiceId; ?>">
                                   <?php echo htmlspecialchars($dvInvoiceNumber); ?> &rarr;
                               </a>
+                              <?php elseif ($dvPerVisit2): ?>
+                              <a class="mw-dv-create-invoice-link" href="/crm/invoices/create.php?stop_id=<?php echo (int)$stop['stop_id']; ?>">
+                                  + Create Invoice
+                              </a>
                               <?php endif; ?>
                               <?php if (!empty($dvFooterVisitIds)): ?>
                               <button class="mw-dv-btn-reopen"
@@ -2237,6 +2380,7 @@ if ($apiKey) {
                           </div>
                           <?php else: ?>
                           <div class="mw-dv-card-footer mw-dv-footer-pending">
+                              <?php if ($dvPerVisit2): ?>
                               <button class="mw-dv-btn-complete mw-dv-btn-complete-invoice"
                                       data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
                                       data-invoice="1">
@@ -2248,6 +2392,14 @@ if ($apiKey) {
                                       data-invoice="0">
                                   Complete &#8212; No Invoice
                               </button>
+                              <?php else: ?>
+                              <button class="mw-dv-btn-complete mw-dv-btn-complete-noinvoice"
+                                      data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
+                                      data-invoice="0">
+                                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                                  Complete
+                              </button>
+                              <?php endif; ?>
                           </div>
                           <?php endif; ?>
                       </div>
@@ -3012,8 +3164,9 @@ function getServiceLabel(type) {
 
     document.querySelectorAll('.mw-stop-card, .mw-dv-card').forEach(function(card) {
         card.addEventListener('mousedown', function(e) {
-            // Don't track pin button clicks as modal openers
+            // Don't track pin button clicks or complete buttons as modal openers
             if (e.target.closest('.mw-dv-pin-btn')) return;
+            if (e.target.closest('.mw-dv-btn-complete')) return;
             downX = e.clientX;
             downY = e.clientY;
         });
@@ -3022,6 +3175,7 @@ function getServiceLabel(type) {
             // Don't open modal on pin button clicks or risk octagon trigger
             if (e.target.closest('.mw-dv-pin-btn')) return;
             if (e.target.closest('.mw-pro-trigger')) return;
+            if (e.target.closest('.mw-dv-btn-complete')) return;
             // If mouse moved more than 5px, it was a drag — don't open modal
             var dx = Math.abs(e.clientX - downX);
             var dy = Math.abs(e.clientY - downY);
@@ -3624,7 +3778,7 @@ function mwTogglePurchaseItem(checkbox) {
 <script>
 var MW_DAY_VIEW_STOPS = <?php echo json_encode($dayViewMapStops); ?>;
 </script>
-<script src="../js/schedule-day-map.js?v=20260426b" defer></script>
+<script src="<?= _av('/crm/js/schedule-day-map.js') ?>" defer></script>
 <script src="../js/schedule-team-layer.js?v=20260418b" defer></script>
 <?php endif; ?>
 <?php if ($view === 'week'): ?>
@@ -5075,5 +5229,128 @@ if (startBtn) {
 })();
 </script>
 <?php endif; ?>
+
+<!-- ── Log Labor Modal ───────────────────────────────────────── -->
+<div class="mw-modal-overlay" id="logLaborModal" style="display:none">
+    <div class="mw-modal" style="max-width:480px">
+        <h3 class="mw-modal-title">Log Day's Labor</h3>
+        <p class="text-muted small mb-3">Manually record clock-in/out for crew members who didn't clock in digitally.</p>
+
+        <div id="logLaborError" class="alert alert-danger d-none mb-3"></div>
+        <div id="logLaborSuccess" class="alert alert-success d-none mb-3"></div>
+
+        <div class="form-group">
+            <label class="form-label">Date</label>
+            <input type="date" id="llDate" class="form-control"
+                   value="<?php echo htmlspecialchars($view === 'day' ? $dayDate : date('Y-m-d')); ?>"
+                   max="<?php echo date('Y-m-d'); ?>">
+        </div>
+        <div class="form-row">
+            <div class="form-group col-6">
+                <label class="form-label">Clock In</label>
+                <input type="time" id="llClockIn" class="form-control" value="08:00">
+            </div>
+            <div class="form-group col-6">
+                <label class="form-label">Clock Out</label>
+                <input type="time" id="llClockOut" class="form-control" value="16:00">
+            </div>
+        </div>
+        <div class="form-group">
+            <label class="form-label">Crew Members</label>
+            <div id="llCrewList" class="border rounded p-2" style="max-height:180px;overflow-y:auto">
+                <?php foreach ($staff as $member): ?>
+                <label class="d-flex align-items-center gap-2 mb-1" style="cursor:pointer;font-weight:normal">
+                    <input type="checkbox" class="ll-crew-checkbox" value="<?php echo (int)$member['id']; ?>"
+                           data-name="<?php echo htmlspecialchars($member['full_name'], ENT_QUOTES); ?>">
+                    <span><?php echo htmlspecialchars($member['full_name']); ?></span>
+                </label>
+                <?php endforeach; ?>
+            </div>
+        </div>
+        <div class="form-group">
+            <label class="form-label">Notes (optional)</label>
+            <input type="text" id="llNotes" class="form-control" placeholder="e.g., May 21 route — forgot to clock in">
+        </div>
+
+        <div class="mw-modal-actions">
+            <button type="button" class="btn btn-warning" id="llSubmitBtn" onclick="submitLogLabor()">Log Hours</button>
+            <button type="button" class="btn btn-secondary" onclick="closeLogLaborModal()">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<script>
+function openLogLaborModal() {
+    document.getElementById('logLaborError').classList.add('d-none');
+    document.getElementById('logLaborSuccess').classList.add('d-none');
+    document.getElementById('logLaborModal').style.display = 'flex';
+}
+function closeLogLaborModal() {
+    document.getElementById('logLaborModal').style.display = 'none';
+}
+document.getElementById('logLaborModal').addEventListener('click', function(e) {
+    if (e.target === this) closeLogLaborModal();
+});
+
+function submitLogLabor() {
+    var date      = document.getElementById('llDate').value;
+    var clockIn   = document.getElementById('llClockIn').value;
+    var clockOut  = document.getElementById('llClockOut').value;
+    var notes     = document.getElementById('llNotes').value;
+    var errEl     = document.getElementById('logLaborError');
+    var okEl      = document.getElementById('logLaborSuccess');
+    var btn       = document.getElementById('llSubmitBtn');
+
+    var checked = Array.from(document.querySelectorAll('.ll-crew-checkbox:checked'));
+    if (!date || !clockIn || !clockOut) {
+        errEl.textContent = 'Date, clock-in and clock-out are required.';
+        errEl.classList.remove('d-none'); return;
+    }
+    if (checked.length === 0) {
+        errEl.textContent = 'Select at least one crew member.';
+        errEl.classList.remove('d-none'); return;
+    }
+    errEl.classList.add('d-none');
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+
+    var names = checked.map(function(cb) { return cb.dataset.name; });
+    var promises = checked.map(function(cb) {
+        return fetch('/crm/api/time-clock.php', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                action: 'admin_add_entry',
+                user_id: parseInt(cb.value),
+                date: date,
+                clock_in_time: clockIn,
+                clock_out_time: clockOut,
+                notes: notes
+            })
+        }).then(function(r) { return r.json(); });
+    });
+
+    Promise.all(promises).then(function(results) {
+        var errors = results.filter(function(r) { return r.error; });
+        btn.disabled = false;
+        btn.textContent = 'Log Hours';
+        if (errors.length) {
+            errEl.textContent = errors.map(function(r) { return r.error; }).join('; ');
+            errEl.classList.remove('d-none');
+        } else {
+            var hrs = ((new Date('1970-01-01T'+clockOut+':00') - new Date('1970-01-01T'+clockIn+':00')) / 3600000).toFixed(1);
+            okEl.textContent = '✓ Logged ' + hrs + 'h for: ' + names.join(', ');
+            okEl.classList.remove('d-none');
+            document.querySelectorAll('.ll-crew-checkbox:checked').forEach(function(cb) { cb.checked = false; });
+            setTimeout(closeLogLaborModal, 2500);
+        }
+    }).catch(function(e) {
+        btn.disabled = false;
+        btn.textContent = 'Log Hours';
+        errEl.textContent = 'Network error. Try again.';
+        errEl.classList.remove('d-none');
+    });
+}
+</script>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

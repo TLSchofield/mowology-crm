@@ -45,19 +45,36 @@ if (isset($_GET['action']) && $_GET['action'] === 'search_contacts' && $_SERVER[
     $stmt->execute([$searchTerm, $searchTerm, $searchTerm, $searchTerm, $searchTerm]);
     $contacts = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+    // Track company IDs already surfaced via contact expansion so we don't duplicate
+    $seenCompanyIds = [];
+
     foreach ($contacts as $ct) {
         $name = trim(($ct['first_name'] ?? '') . ' ' . ($ct['last_name'] ?? ''));
-        $subtitle = $ct['email'] ?: ($ct['phone'] ?: '');
-        if ($ct['company_name']) {
-            $subtitle = $ct['company_name'] . ($subtitle ? ' · ' . $subtitle : '');
-        }
+
+        // Personal entry — show email/phone, drop company name from subtitle here
+        // (the company shows up as its own entry below)
+        $personalSub = $ct['email'] ?: ($ct['phone'] ?: '');
         $results[] = [
             'contact_id' => (int)$ct['id'],
             'company_id' => $ct['company_id'] ? (int)$ct['company_id'] : null,
             'label'      => $name ?: ($ct['email'] ?: 'Contact #' . $ct['id']),
-            'subtitle'   => $subtitle,
+            'subtitle'   => $personalSub,
             'type'       => 'contact',
+            'entity_tag' => $ct['company_name'] ? 'personal' : '',
         ];
+
+        // If this contact has an associated company, surface it as a separate result
+        if ($ct['company_id'] && $ct['company_name']) {
+            $seenCompanyIds[] = (int)$ct['company_id'];
+            $results[] = [
+                'contact_id' => null,
+                'company_id' => (int)$ct['company_id'],
+                'label'      => $ct['company_name'],
+                'subtitle'   => 'via ' . $name,
+                'type'       => 'company',
+                'entity_tag' => 'corporate',
+            ];
+        }
     }
 
     // Also search companies by name (if any exist)
@@ -75,7 +92,8 @@ if (isset($_GET['action']) && $_GET['action'] === 'search_contacts' && $_SERVER[
     $companies = $stmt2->fetchAll(PDO::FETCH_ASSOC);
 
     foreach ($companies as $co) {
-        // Avoid duplicating if we already have this company's contact
+        // Skip if already surfaced via contact expansion above
+        if (in_array((int)$co['id'], $seenCompanyIds, true)) continue;
         $contactName = trim(($co['first_name'] ?? '') . ' ' . ($co['last_name'] ?? ''));
         $results[] = [
             'contact_id' => null,
@@ -83,6 +101,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'search_contacts' && $_SERVER[
             'label'      => $co['company_name'],
             'subtitle'   => $contactName ?: ($co['company_type'] ?? ''),
             'type'       => 'company',
+            'entity_tag' => 'corporate',
         ];
     }
 
@@ -211,8 +230,9 @@ if ($quoteId) {
             'title'            => $quote['title'] ?: 'Plan from ' . $quote['quote_number'],
             'description'      => $quote['description'],
             'service_type'     => $quote['service_type'],
-            'price_per_visit'  => $quote['amount'],
-            'estimated_amount' => $quote['amount'],
+            // price_per_visit is NET (pre-GST): prefer the quote subtotal, else back GST out of gross.
+            'price_per_visit'  => ($quote['subtotal'] ?? null) !== null ? (float)$quote['subtotal'] : round((float)($quote['amount'] ?? 0) / 1.05, 2),
+            'estimated_amount' => ($quote['subtotal'] ?? null) !== null ? (float)$quote['subtotal'] : round((float)($quote['amount'] ?? 0) / 1.05, 2),
             'quote_id'         => $quoteId,
         ];
     }
@@ -799,12 +819,24 @@ $activePage = 'jobs';
 
                               var html = '';
                               data.results.forEach(function(item) {
+                                  var tagColor = item.entity_tag === 'corporate'
+                                      ? 'background:#EFF6FF;color:#1D4ED8;border:1px solid #BFDBFE'
+                                      : item.entity_tag === 'personal'
+                                      ? 'background:#F0FDF4;color:#166534;border:1px solid #BBF7D0'
+                                      : '';
                                   html += '<div class="mw-search-item"'
                                       + ' data-contact-id="' + (item.contact_id || '') + '"'
                                       + ' data-company-id="' + (item.company_id || '') + '"'
                                       + ' data-label="' + escapeAttr(item.label) + '"'
                                       + ' data-type="' + (item.type || '') + '">';
-                                  html += '<div class="mw-search-item-name">' + escapeHtml(item.label) + '</div>';
+                                  html += '<div class="mw-search-item-name" style="display:flex;align-items:center;gap:6px">'
+                                      + escapeHtml(item.label);
+                                  if (item.entity_tag) {
+                                      html += '<span style="font-size:.7rem;font-weight:600;padding:1px 6px;border-radius:10px;'
+                                          + tagColor + ';text-transform:uppercase;letter-spacing:.03em">'
+                                          + escapeHtml(item.entity_tag) + '</span>';
+                                  }
+                                  html += '</div>';
                                   if (item.subtitle) {
                                       html += '<div class="mw-search-item-sub">' + escapeHtml(item.subtitle) + '</div>';
                                   }

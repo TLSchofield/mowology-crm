@@ -25,8 +25,9 @@ $fullTitle  = $adminTitle ? h($adminTitle) . ' — ' . h($siteName) : h($siteNam
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-  <!-- Icons (Feather via CDN) -->
-  <script src="https://unpkg.com/feather-icons/dist/feather.min.js"></script>
+  <!-- Icons (Feather — local, same as CRM) -->
+  <script src="/crm/js/feather.min.js"></script>
+  <script src="/crm/js/feather-helper.js"></script>
 
   <!-- Admin styles -->
   <link rel="stylesheet" href="/site-admin/css/admin.css">

@@ -1743,7 +1743,7 @@ function moveVisit(int $visitId, string $newDate, ?string $newTimeStart, int $us
     $db = getDB();
     try {
         // Get current visit
-        $stmt = $db->prepare("SELECT * FROM job_visits WHERE id = ? AND status = 'scheduled'");
+        $stmt = $db->prepare("SELECT * FROM job_visits WHERE id = ? AND status IN ('scheduled', 'skipped')");
         $stmt->execute([$visitId]);
         $visit = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$visit) return false;

@@ -51,18 +51,6 @@ struct ScheduleView: View {
                         }
                 )
 
-                // MARK: View Mode Toggle
-                Picker("View", selection: $viewMode) {
-                    Label("List", systemImage: "list.bullet").tag(ViewMode.list)
-                    Label("Map",  systemImage: "map").tag(ViewMode.map)
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(Color(.systemBackground))
-
-                Divider()
-
                 // MARK: Content
                 if viewMode == .list {
                     DayListView(
@@ -175,16 +163,21 @@ struct ScheduleView: View {
                 pickerDate = viewModel.selectedDate
                 showDatePicker = true
             } label: {
-                HStack(spacing: 5) {
-                    Text(viewModel.weekRangeLabel)
-                        .font(.headline.weight(.semibold))
-                        .foregroundStyle(.primary)
-                    Image(systemName: "calendar")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color.MW.green)
-                }
+                Text(viewModel.selectedDate.formatted(.dateTime.month(.wide)))
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(.primary)
             }
             .buttonStyle(.plain)
+        }
+
+        ToolbarItem(placement: .navigationBarTrailing) {
+            Button {
+                impactLight.impactOccurred()
+                viewMode = viewMode == .list ? .map : .list
+            } label: {
+                Image(systemName: viewMode == .list ? "map" : "list.bullet")
+                    .foregroundStyle(Color.MW.green)
+            }
         }
 
         ToolbarItem(placement: .navigationBarTrailing) {

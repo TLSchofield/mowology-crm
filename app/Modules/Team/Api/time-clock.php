@@ -345,9 +345,74 @@ try {
             echo json_encode(['success' => true, 'message' => 'Clock entry voided']);
             break;
 
+        case 'admin_add_entry':
+            // Admin/manager: manually add a completed clock entry for a past date.
+            // Useful when crew worked but forgot to clock in, or admin is backfilling.
+            if (!in_array($user['role'], ['admin', 'manager'])) {
+                http_response_code(403);
+                echo json_encode(['error' => 'Admin or manager role required']);
+                exit;
+            }
+            $targetUserId  = (int)($input['user_id'] ?? 0);
+            $entryDate     = trim($input['date'] ?? '');          // YYYY-MM-DD
+            $clockInTime   = trim($input['clock_in_time'] ?? ''); // HH:MM
+            $clockOutTime  = trim($input['clock_out_time'] ?? '');// HH:MM
+            $entryNotes    = trim($input['notes'] ?? '');
+
+            if (!$targetUserId || !$entryDate || !$clockInTime || !$clockOutTime) {
+                http_response_code(400);
+                echo json_encode(['error' => 'user_id, date, clock_in_time and clock_out_time are required']);
+                exit;
+            }
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $entryDate)) {
+                http_response_code(400);
+                echo json_encode(['error' => 'date must be YYYY-MM-DD']);
+                exit;
+            }
+            if (!preg_match('/^\d{2}:\d{2}$/', $clockInTime) || !preg_match('/^\d{2}:\d{2}$/', $clockOutTime)) {
+                http_response_code(400);
+                echo json_encode(['error' => 'clock_in_time and clock_out_time must be HH:MM']);
+                exit;
+            }
+
+            $clockInDt  = $entryDate . ' ' . $clockInTime . ':00';
+            $clockOutDt = $entryDate . ' ' . $clockOutTime . ':00';
+
+            if ($clockOutDt <= $clockInDt) {
+                http_response_code(400);
+                echo json_encode(['error' => 'clock_out_time must be after clock_in_time']);
+                exit;
+            }
+
+            $noteText = 'Manual entry by admin #' . $user['id'];
+            if ($entryNotes) $noteText .= ': ' . $entryNotes;
+
+            $db->prepare("
+                INSERT INTO time_clock_entries
+                    (user_id, clock_in, clock_out, total_minutes, status, notes)
+                VALUES (?, ?, ?,
+                    TIMESTAMPDIFF(MINUTE, ?, ?),
+                    'completed', ?)
+            ")->execute([
+                $targetUserId, $clockInDt, $clockOutDt,
+                $clockInDt, $clockOutDt,
+                $noteText,
+            ]);
+
+            ensureTimesheetExists($targetUserId, $entryDate);
+            logActivity($user['id'], null, 'Admin added manual clock entry for user #' . $targetUserId . ' on ' . $entryDate, $noteText);
+
+            $minutes = (strtotime($clockOutDt) - strtotime($clockInDt)) / 60;
+            echo json_encode([
+                'success'       => true,
+                'message'       => 'Clock entry added',
+                'total_minutes' => $minutes,
+            ]);
+            break;
+
         default:
             http_response_code(400);
-            echo json_encode(['error' => 'Invalid action. Use: status, clock_in, clock_out, admin_void']);
+            echo json_encode(['error' => 'Invalid action. Use: status, clock_in, clock_out, admin_void, admin_add_entry']);
     }
 
 } catch (Exception $e) {

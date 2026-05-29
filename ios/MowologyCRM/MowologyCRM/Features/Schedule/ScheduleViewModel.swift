@@ -105,7 +105,7 @@ final class ScheduleViewModel: ObservableObject {
     /// Also gates on the daily pre-shift quiz.
     func refresh() async {
         ScheduleCache.shared.evictOlderThan()
-        quizRequired = !QuizViewModel.hasPassedToday()
+        quizRequired = !QuizViewModel.hasAttemptedToday()
         guard !quizRequired else { return }
         await loadSchedule(for: selectedDate, reloadWeek: true)
     }

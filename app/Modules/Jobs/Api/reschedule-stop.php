@@ -27,6 +27,7 @@ try {
 
     requireLogin();
     $user = getCurrentUser();
+    session_write_close(); // release session lock — no session writes needed beyond this point
 
     // Get input
     $input = json_decode(file_get_contents('php://input'), true);

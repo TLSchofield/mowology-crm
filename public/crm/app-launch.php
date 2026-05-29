@@ -58,6 +58,7 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
             }
         })();
     </script>
+    <link rel="manifest" href="/assets/favicon/site.webmanifest">
     <link rel="icon" href="/assets/favicon/favicon.ico">
     <link rel="apple-touch-icon" href="/assets/favicon/apple-touch-icon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">

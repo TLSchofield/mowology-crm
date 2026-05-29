@@ -73,43 +73,43 @@
     ProfitRiskOctagon.prototype._build = function (data) {
         var o   = this.opts;
         var cx  = this.cx, cy = this.cy;
-        var R   = o.maxR, LR = o.labelR, CR = o.centerR;
+        var R   = o.maxR, CR = o.centerR;
         var factors = (data && data.factors) ? data.factors : [];
+
+        // ── Overall risk score ───────────────────────────────────────────────
+        var avgScore = factors.length > 0
+            ? factors.reduce(function (s, f) { return s + (f.score_0_1 || 0); }, 0) / factors.length
+            : 0;
+        var riskLevel = avgScore >= 0.75 ? 'CRITICAL' : avgScore >= 0.5 ? 'HIGH' : avgScore >= 0.25 ? 'MEDIUM' : 'LOW';
+        var riskColor = scoreColor(avgScore);
 
         var buf = [];
 
         // ── Defs ────────────────────────────────────────────────────────────
-        buf.push('<defs>');
-        buf.push(
-            '<filter id="mwProGlowA" x="-60%" y="-60%" width="220%" height="220%">',
-            '  <feGaussianBlur stdDeviation="4" result="b"/>',
-            '  <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>',
+        buf.push('<defs>',
+            '<filter id="mwProShadow" x="-20%" y="-20%" width="140%" height="140%">',
+            '  <feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="#000" flood-opacity="0.12"/>',
             '</filter>',
-            '<filter id="mwProGlowB" x="-80%" y="-80%" width="260%" height="260%">',
-            '  <feGaussianBlur stdDeviation="6" result="b"/>',
-            '  <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>',
-            '</filter>',
-            '<radialGradient id="mwProBg" cx="50%" cy="50%" r="50%">',
-            '  <stop offset="0%"   stop-color="#0f172a"/>',
-            '  <stop offset="100%" stop-color="#060d1a"/>',
-            '</radialGradient>'
-        );
-        buf.push('</defs>');
+            '</defs>');
 
-        // ── Background ──────────────────────────────────────────────────────
-        buf.push(
-            '<rect width="' + o.size + '" height="' + o.size + '" fill="url(#mwProBg)" rx="14"/>',
-            // subtle outer ring
-            '<circle cx="' + cx + '" cy="' + cy + '" r="' + (R + 18) + '" fill="none" stroke="#1e293b" stroke-width="0.5" stroke-dasharray="3 4"/>'
-        );
+        // ── Octagon area fill (very subtle brand tint) ───────────────────────
+        var bgPts = [];
+        for (var bi = 0; bi < N; bi++) {
+            var ba = START_A + bi * SEG_A;
+            bgPts.push((cx + R * Math.cos(ba)).toFixed(1) + ',' + (cy + R * Math.sin(ba)).toFixed(1));
+        }
+        buf.push('<polygon points="' + bgPts.join(' ') + '" fill="rgba(45,134,89,0.04)" stroke="none"/>');
+
+        // ── Outer guide ring ─────────────────────────────────────────────────
+        buf.push('<circle cx="' + cx + '" cy="' + cy + '" r="' + (R + 14) + '" fill="none" stroke="#cce0d6" stroke-width="0.5" stroke-dasharray="3 4"/>');
 
         // ── Grid rings (25 / 50 / 75 / 100 %) ──────────────────────────────
         [0.25, 0.5, 0.75, 1.0].forEach(function (f, i) {
-            var r   = R * f;
-            var da  = i < 3 ? ' stroke-dasharray="2 4"' : '';
-            var sw  = i === 3 ? '1' : '0.7';
+            var r  = R * f;
+            var da = i < 3 ? ' stroke-dasharray="2 4"' : '';
+            var sw = i === 3 ? '1' : '0.7';
             buf.push('<circle cx="' + cx + '" cy="' + cy + '" r="' + r.toFixed(1) +
-                '" fill="none" stroke="#1e293b" stroke-width="' + sw + '"' + da + '/>');
+                '" fill="none" stroke="#d4e6de" stroke-width="' + sw + '"' + da + '/>');
         });
 
         // ── Radial grid lines ────────────────────────────────────────────────
@@ -118,7 +118,7 @@
             buf.push('<line x1="' + cx + '" y1="' + cy +
                 '" x2="' + (cx + R * Math.cos(la)).toFixed(2) +
                 '" y2="' + (cy + R * Math.sin(la)).toFixed(2) +
-                '" stroke="#1e293b" stroke-width="0.7"/>');
+                '" stroke="#d4e6de" stroke-width="0.7"/>');
         }
 
         // ── Octagon outline ──────────────────────────────────────────────────
@@ -127,7 +127,7 @@
             var oa = START_A + oi * SEG_A;
             pts.push((cx + R * Math.cos(oa)).toFixed(1) + ',' + (cy + R * Math.sin(oa)).toFixed(1));
         }
-        buf.push('<polygon points="' + pts.join(' ') + '" fill="none" stroke="#334155" stroke-width="1.2"/>');
+        buf.push('<polygon points="' + pts.join(' ') + '" fill="none" stroke="#a8c9bb" stroke-width="1.2"/>');
 
         // ── Risk wedges ──────────────────────────────────────────────────────
         for (var fi = 0; fi < Math.min(N, factors.length); fi++) {
@@ -135,24 +135,24 @@
             var score = Math.max(0, Math.min(1, f.score_0_1 || 0));
             var sR    = Math.max(3, score * R);
 
-            var a1  = START_A + fi * SEG_A - SEG_A / 2;
-            var a2  = START_A + fi * SEG_A + SEG_A / 2;
-            var x1  = (cx + sR * Math.cos(a1)).toFixed(2);
-            var y1  = (cy + sR * Math.sin(a1)).toFixed(2);
-            var x2  = (cx + sR * Math.cos(a2)).toFixed(2);
-            var y2  = (cy + sR * Math.sin(a2)).toFixed(2);
+            var a1 = START_A + fi * SEG_A - SEG_A / 2;
+            var a2 = START_A + fi * SEG_A + SEG_A / 2;
+            var x1 = (cx + sR * Math.cos(a1)).toFixed(2);
+            var y1 = (cy + sR * Math.sin(a1)).toFixed(2);
+            var x2 = (cx + sR * Math.cos(a2)).toFixed(2);
+            var y2 = (cy + sR * Math.sin(a2)).toFixed(2);
 
-            var color  = scoreColor(score);
-            var glow   = score >= 0.75 ? ' filter="url(#mwProGlowB)"'
-                       : score >= 0.50 ? ' filter="url(#mwProGlowA)"' : '';
-            var delay  = (fi * 90) + 'ms';
+            var color = scoreColor(score);
+            var delay = (fi * 80) + 'ms';
 
             var d = 'M' + cx.toFixed(2) + ',' + cy.toFixed(2) +
                     ' L' + x1 + ',' + y1 +
                     ' A' + sR.toFixed(2) + ',' + sR.toFixed(2) + ' 0 0,1 ' + x2 + ',' + y2 + ' Z';
 
             buf.push(
-                '<path d="' + d + '" fill="' + color + '" opacity="0.9"' + glow +
+                '<path d="' + d + '" fill="' + color + '" opacity="0.72"' +
+                ' stroke="rgba(255,255,255,0.85)" stroke-width="1.2"' +
+                ' filter="url(#mwProShadow)"' +
                 ' class="mw-pro-seg" style="animation-delay:' + delay + '"' +
                 ' tabindex="0" role="img"' +
                 ' aria-label="' + esc(f.label) + ': ' + esc(f.raw_value) + ' — ' + esc(f.explanation) + '">' +
@@ -161,41 +161,33 @@
             );
         }
 
-        // ── Centre circle ────────────────────────────────────────────────────
-        var netProfit  = (data && data.net_profit  !== undefined) ? data.net_profit  : 0;
-        var netMargin  = (data && data.net_margin  !== undefined) ? data.net_margin  : 0;
-        var pc         = netProfit >= 0 ? '#22c55e' : '#ef4444';
-        var profStr    = fmtCurrency(netProfit);
-        var margStr    = netMargin.toFixed(1) + '%';
-
+        // ── Overall risk halo ring (outside center, inside wedges) ────────────
         buf.push(
-            '<circle cx="' + cx + '" cy="' + cy + '" r="' + (CR + 5) + '" fill="#0f172a" stroke="' + pc + '" stroke-width="1.5" opacity="0.85"/>',
-            '<circle cx="' + cx + '" cy="' + cy + '" r="' + CR + '" fill="#060d1a"/>',
-            '<text x="' + cx + '" y="' + (cy - 15) + '" font-size="6" fill="#475569" text-anchor="middle" letter-spacing="1" font-family="system-ui,sans-serif">NET PROFIT</text>',
-            '<text x="' + cx + '" y="' + (cy + 2)  + '" font-size="15" font-weight="800" fill="' + pc + '" text-anchor="middle" font-family="system-ui,sans-serif">' + esc(profStr) + '</text>',
-            '<text x="' + cx + '" y="' + (cy + 16) + '" font-size="10" font-weight="700" fill="' + pc + '" text-anchor="middle" font-family="system-ui,sans-serif">' + esc(margStr) + '</text>',
-            '<text x="' + cx + '" y="' + (cy + 27) + '" font-size="6" fill="#475569" text-anchor="middle" letter-spacing="0.8" font-family="system-ui,sans-serif">MARGIN</text>'
+            '<circle cx="' + cx + '" cy="' + cy + '" r="' + (CR + 11) + '" fill="none" stroke="' + riskColor + '" stroke-width="2.5" opacity="0.18"/>',
+            '<circle cx="' + cx + '" cy="' + cy + '" r="' + (CR + 11) + '" fill="none" stroke="' + riskColor + '" stroke-width="0.8" opacity="0.55" stroke-dasharray="4 3"/>'
         );
 
-        // ── Perimeter labels ─────────────────────────────────────────────────
-        for (var lbi = 0; lbi < Math.min(N, factors.length); lbi++) {
-            var lf     = factors[lbi];
-            var ls     = Math.max(0, Math.min(1, lf.score_0_1 || 0));
-            var la2    = START_A + lbi * SEG_A;
-            var lx     = cx + LR * Math.cos(la2);
-            var ly     = cy + LR * Math.sin(la2);
-            var anchor = lx > cx + 6 ? 'start' : (lx < cx - 6 ? 'end' : 'middle');
-            var lc     = ls >= 0.50 ? '#fb923c' : (ls >= 0.25 ? '#fbbf24' : '#94a3b8');
+        // ── Centre circle ────────────────────────────────────────────────────
+        var netProfit = (data && data.net_profit !== undefined) ? data.net_profit : 0;
+        var netMargin = (data && data.net_margin !== undefined) ? data.net_margin : 0;
+        var pc        = netProfit >= 0 ? '#16a34a' : '#dc2626';
+        var profStr   = fmtCurrency(netProfit);
+        var margStr   = netMargin.toFixed(1) + '%';
 
-            buf.push(
-                '<text x="' + lx.toFixed(1) + '" y="' + (ly - 3).toFixed(1) +
-                '" font-size="7.5" font-weight="600" fill="' + lc +
-                '" text-anchor="' + anchor + '" font-family="system-ui,sans-serif">' + esc(lf.label) + '</text>',
-                '<text x="' + lx.toFixed(1) + '" y="' + (ly + 8).toFixed(1) +
-                '" font-size="6.5" fill="#64748b" text-anchor="' + anchor +
-                '" font-family="system-ui,sans-serif">' + esc(lf.raw_value) + '</text>'
-            );
-        }
+        buf.push(
+            '<circle cx="' + cx + '" cy="' + cy + '" r="' + (CR + 5) + '" fill="white" stroke="' + riskColor + '" stroke-width="1.5"/>',
+            '<circle cx="' + cx + '" cy="' + cy + '" r="' + CR + '" fill="white"/>',
+            // Risk level
+            '<text x="' + cx + '" y="' + (cy - 18) + '" font-size="5.5" fill="#94a3b8" text-anchor="middle" letter-spacing="1.5" font-family="system-ui,sans-serif">RISK</text>',
+            '<text x="' + cx + '" y="' + (cy - 7) + '" font-size="9" font-weight="800" fill="' + riskColor + '" text-anchor="middle" letter-spacing="0.2" font-family="system-ui,sans-serif">' + esc(riskLevel) + '</text>',
+            // Separator
+            '<line x1="' + (cx - 16) + '" y1="' + (cy - 1) + '" x2="' + (cx + 16) + '" y2="' + (cy - 1) + '" stroke="#e2e8f0" stroke-width="0.8"/>',
+            // Net profit + margin
+            '<text x="' + cx + '" y="' + (cy + 11) + '" font-size="13" font-weight="800" fill="' + pc + '" text-anchor="middle" font-family="system-ui,sans-serif">' + esc(profStr) + '</text>',
+            '<text x="' + cx + '" y="' + (cy + 23) + '" font-size="8.5" font-weight="700" fill="' + pc + '" text-anchor="middle" font-family="system-ui,sans-serif">' + esc(margStr) + '</text>'
+        );
+
+        // Labels omitted — the factor table on the right provides all context.
 
         this.svg.innerHTML = buf.join('\n');
     };

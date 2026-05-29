@@ -193,6 +193,7 @@ function selectSeasonalQuestions(PDO $db, int $userId, ?int $categoryId, int $se
          WHERE q.is_active = 1 $catWhere $hasText
            AND FIND_IN_SET(?, IFNULL(q.relevant_months,'1,2,3,4,5,6,7,8,9,10,11,12')) > 0
            AND COALESCE(m.mastery_level, 0) < 5
+           AND (m.last_seen_at IS NULL OR m.last_seen_at < DATE_SUB(NOW(), INTERVAL 20 HOUR))
          ORDER BY COALESCE(q.seasonal_priority, 5) DESC, COALESCE(m.mastery_level, 0) ASC, RAND()
          LIMIT {$targets['current']}"
     );
@@ -239,6 +240,7 @@ function selectSeasonalQuestions(PDO $db, int $userId, ?int $categoryId, int $se
              LEFT JOIN quiz_user_mastery m ON m.question_id = q.id AND m.user_id = ?
              WHERE q.is_active = 1 $catWhere $hasText
                AND q.id NOT IN ($excl)
+               AND (m.last_seen_at IS NULL OR m.last_seen_at < DATE_SUB(NOW(), INTERVAL 20 HOUR))
              ORDER BY COALESCE(m.mastery_level, 0) ASC, RAND()
              LIMIT $needed"
         );

@@ -44,7 +44,6 @@ try {
     requireLogin();
     $user = getCurrentUser();
     $db   = getDB();
-    session_write_close(); // Release session lock — photo uploads + GD processing can take several seconds
 
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
         http_response_code(405);
@@ -60,7 +59,8 @@ try {
         $input = $_POST;
     }
 
-    // CSRF verification — token stale after session expiry; retry after reload
+    // CSRF verification must happen before session_write_close() — closing the
+    // session clears $_SESSION from memory, making verifyCSRFToken() always fail.
     $token = $input['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
     if (!verifyCSRFToken($token)) {
         http_response_code(403);
@@ -72,6 +72,9 @@ try {
         ]);
         exit;
     }
+
+    // Release session lock after CSRF is verified — photo uploads + GD processing can take several seconds.
+    session_write_close();
 
     $action  = $input['action'] ?? '';
     $visitId = isset($input['visit_id']) ? (int)$input['visit_id'] : 0;
@@ -110,6 +113,7 @@ try {
         // Fetch all completable visits for this stop
         $vsStmt = $db->prepare("
             SELECT jv.id AS visit_id, jv.plan_id, jv.assigned_crew_id,
+                   jv.invoice_id,
                    jp.price_per_visit, jp.title AS plan_title, jp.service_type,
                    p.address AS service_address, p.city AS service_city,
                    p.province AS service_province, p.postal_code AS service_postal,
@@ -173,6 +177,23 @@ try {
 
         if ($withInvoice && !empty($completableVisits)) {
             require_once APP_ROOT . '/Services/CrmFunctions.php';
+
+            // Idempotency: if any visit already has an invoice (created via a
+            // different path), return that invoice instead of creating a duplicate.
+            $existingInvoiceIds = array_filter(array_column($completableVisits, 'invoice_id'));
+            if (!empty($existingInvoiceIds)) {
+                $existingInvoiceId = (int)reset($existingInvoiceIds);
+                $existingInvStmt = $db->prepare("SELECT invoice_number FROM invoices WHERE id = ?");
+                $existingInvStmt->execute([$existingInvoiceId]);
+                $existingInvData = $existingInvStmt->fetch(PDO::FETCH_ASSOC);
+                echo json_encode([
+                    'success'        => true,
+                    'invoice_id'     => $existingInvoiceId,
+                    'invoice_number' => $existingInvData['invoice_number'] ?? '',
+                ]);
+                exit;
+            }
+
             $firstVisit = $completableVisits[0];
             $contactId  = (int)($firstVisit['contact_id'] ?? 0);
             $propertyId = (int)($firstVisit['property_id'] ?? 0);

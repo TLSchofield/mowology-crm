@@ -91,6 +91,7 @@ session_write_close();
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#0D3B2E">
     <title>Pre-Trip Log — Mowology</title>
+    <link rel="manifest" href="/assets/favicon/site.webmanifest">
     <link rel="icon" href="/assets/favicon/favicon.ico">
     <link rel="apple-touch-icon" href="/assets/favicon/apple-touch-icon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -98,6 +99,8 @@ session_write_close();
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link href="/crm/css/tokens.css?v=20260410a" rel="stylesheet">
     <link href="/crm/css/mw-sync-status.css?v=20260410a" rel="stylesheet">
+    <script src="/crm/js/feather.min.js"></script>
+    <script src="/crm/js/feather-helper.js"></script>
     <script src="/crm/js/sw-register.js?v=20260410a" defer></script>
     <script src="/crm/js/mw-sync-status.js?v=20260410a" defer></script>
     <script src="/crm/js/mw-haptics.js?v=20260410a" defer></script>
@@ -197,6 +200,7 @@ session_write_close();
             transition: background 0.15s, border-color 0.15s;
         }
         .dl-check-box svg { display: none; stroke: #fff; }
+        .dl-ack-indicator svg { stroke: #fff; }
         .dl-check-item input:checked ~ .dl-check-box {
             background: var(--dl-green); border-color: var(--dl-green);
         }
@@ -361,7 +365,7 @@ session_write_close();
     <!-- ── Header ──────────────────────────────────────────────────────────── -->
     <div class="dl-header">
         <button class="dl-header-back" onclick="history.back()" aria-label="Back">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+            <i data-feather="arrow-left" width="20" height="20"></i>
         </button>
         <div class="dl-header-info">
             <div class="dl-header-title">Pre-Trip Inspection</div>
@@ -402,7 +406,7 @@ session_write_close();
                 <label class="dl-check-item">
                     <input type="checkbox" name="<?php echo htmlspecialchars($name); ?>" aria-label="<?php echo htmlspecialchars($label); ?>" <?php echo $checked; ?>>
                     <div class="dl-check-box" aria-hidden="true">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                        <i data-feather="check" width="14" height="14"></i>
                     </div>
                     <span class="dl-check-label"><?php echo htmlspecialchars($label); ?></span>
                 </label>
@@ -444,7 +448,7 @@ session_write_close();
                         <input type="checkbox" name="defect_unhitch"
                                <?php echo ($tripReport && !empty($tripReport['defect_unhitch'])) ? 'checked' : ''; ?>>
                         <div class="dl-check-box">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                            <i data-feather="check" width="14" height="14"></i>
                         </div>
                         <span class="dl-check-label">Unhitch trailer</span>
                     </label>
@@ -471,7 +475,7 @@ session_write_close();
                         </div>
                         <div class="dl-ack-confirm">
                             <div class="dl-ack-indicator" id="dlAckIndicator">
-                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" id="dlAckCheck" style="display:none"><polyline points="20 6 9 17 4 12"/></svg>
+                                <i data-feather="check" id="dlAckCheck" style="display:none" width="13" height="13"></i>
                             </div>
                             <span class="dl-ack-confirm-label" id="dlAckLabel">Safe to Drive — I confirm</span>
                         </div>
@@ -495,7 +499,7 @@ session_write_close();
     <!-- ── Submit Button (outside scroll to stay visible) ──────────────────── -->
     <div class="dl-submit-wrap">
         <button class="dl-submit-btn" id="dlSubmitBtn" onclick="dlSubmit(event)" type="button" disabled>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            <i data-feather="check" width="20" height="20"></i>
             Save & Continue to Home Base
         </button>
         <div class="dl-submit-hint" id="dlSubmitHint"></div>
@@ -617,7 +621,7 @@ session_write_close();
 
         var btn = document.getElementById('dlSubmitBtn');
         btn.disabled = true;
-        btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg> Saving…';
+        btn.innerHTML = feather.icons['loader'].toSvg({width: 18, height: 18}) + ' Saving…';
 
         var form = document.getElementById('dlPreTripForm');
         var data = new FormData(form);
@@ -636,14 +640,14 @@ session_write_close();
             } else {
                 dlToast(res.error || 'Save failed — try again', true);
                 btn.disabled = false;
-                btn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Save & Continue to Home Base';
+                btn.innerHTML = feather.icons['check'].toSvg({width: 20, height: 20}) + ' Save & Continue to Home Base';
                 dlValidate();
             }
         })
         .catch(function () {
             dlToast('Network error — check connection', true);
             btn.disabled = false;
-            btn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Save & Continue to Home Base';
+            btn.innerHTML = feather.icons['check'].toSvg({width: 20, height: 20}) + ' Save & Continue to Home Base';
             dlValidate();
         });
     };

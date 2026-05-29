@@ -94,6 +94,7 @@ session_write_close();
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#0D3B2E">
     <title>Post-Trip Log — Mowology</title>
+    <link rel="manifest" href="/assets/favicon/site.webmanifest">
     <link rel="icon" href="/assets/favicon/favicon.ico">
     <link rel="apple-touch-icon" href="/assets/favicon/apple-touch-icon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">

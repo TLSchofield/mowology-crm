@@ -174,6 +174,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         $messageType = 'error';
     }
 
+    // Restore a skipped visit and mark it completed (so it can be invoiced).
+    // For visits the system auto-skipped (rollover) but were actually serviced.
+    if ($action === 'complete_skipped_visit') {
+        requirePermission('jobs.edit');
+        $visitId = intval($_POST['visit_id'] ?? 0);
+        $vChk = $db->prepare("SELECT id FROM job_visits WHERE id = ? AND plan_id = ? AND status = 'skipped'");
+        $vChk->execute([$visitId, $planId]);
+        if ($vChk->fetch() && updateVisitStatus($visitId, 'completed', $user['id'], 'Restored from skipped → completed')) {
+            header("Location: view.php?id={$planId}&visit_restored=1");
+            exit;
+        }
+        $message = 'Could not restore visit. It may no longer be skipped.';
+        $messageType = 'error';
+    }
+
     // Weather visit
     if ($action === 'weather_visit') {
         $visitId = intval($_POST['visit_id'] ?? 0);
@@ -530,12 +545,87 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         $message = 'Could not update visit.';
         $messageType = 'error';
     }
+
+    // Regenerate visits — resets the watermark and reruns generateVisits(),
+    // which now backfills from plan_start_date (up to 90 days back).
+    if ($action === 'regenerate_visits') {
+        requirePermission('jobs.edit');
+        $db->prepare("UPDATE job_plans SET visits_generated_through = NULL WHERE id = ?")
+           ->execute([$planId]);
+        generateVisits($planId);
+        header("Location: view.php?id={$planId}&visits_regenerated=1");
+        exit;
+    }
+
+    // Log a past completed visit (e.g., a service that was done but not recorded)
+    if ($action === 'log_past_visit') {
+        requirePermission('jobs.edit');
+        $visitDate  = trim($_POST['lv_date'] ?? '');
+        $timeStart  = !empty($_POST['lv_time_start']) ? trim($_POST['lv_time_start']) : null;
+        $timeEnd    = !empty($_POST['lv_time_end'])   ? trim($_POST['lv_time_end'])   : null;
+        $amount     = !empty($_POST['lv_amount'])     ? floatval($_POST['lv_amount']) : null;
+        $lvNotes    = trim($_POST['lv_notes'] ?? '');
+
+        if ($visitDate) {
+            // Get the plan's number and default crew for this insert
+            $planStmt = $db->prepare("SELECT plan_number, default_crew_id FROM job_plans WHERE id = ?");
+            $planStmt->execute([$planId]);
+            $planMeta = $planStmt->fetch(PDO::FETCH_ASSOC);
+
+            // Next sequence index
+            $seqStmt = $db->prepare("SELECT MAX(sequence_index) FROM job_visits WHERE plan_id = ?");
+            $seqStmt->execute([$planId]);
+            $nextSeq = ((int)$seqStmt->fetchColumn()) + 1;
+
+            $visitNumber = generateVisitNumber($planMeta['plan_number'], $nextSeq);
+            $crewId      = $planMeta['default_crew_id'] ?: null;
+
+            // Ensure a calendar stop exists for this date/property so the visit
+            // appears on the schedule page correctly
+            $propStmt = $db->prepare("SELECT property_id FROM job_plans WHERE id = ?");
+            $propStmt->execute([$planId]);
+            $propId = (int)$propStmt->fetchColumn();
+            $stopId = ensureCalendarStop($propId, $visitDate, $crewId, $timeStart, $timeEnd);
+
+            $db->prepare("
+                INSERT INTO job_visits
+                    (visit_number, plan_id, stop_id, scheduled_date,
+                     scheduled_time_start, scheduled_time_end,
+                     sequence_index, assigned_crew_id,
+                     status, status_changed_at, actual_amount, completion_notes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'completed', NOW(), ?, ?)
+            ")->execute([
+                $visitNumber, $planId, $stopId > 0 ? $stopId : null, $visitDate,
+                $timeStart, $timeEnd,
+                $nextSeq, $crewId,
+                $amount, $lvNotes ?: null,
+            ]);
+
+            header("Location: view.php?id={$planId}&visit_logged=1");
+            exit;
+        }
+        $message = 'Could not log visit — date is required.';
+        $messageType = 'error';
+    }
 }
 
 // ── Load Plan Data ───────────────────────────────────────────────────
 
+// Silently clean up any skipped visits that predate the plan's start date.
+// These accumulate when a plan is edited to start later or change its recurrence day.
+cleanupOrphanedVisits($planId);
+
+// If the plan's visit generation was reset (visits_generated_through = NULL),
+// regenerate now so past visits since plan_start_date are created immediately
+// rather than waiting for the next cron run.
+$genCheckStmt = $db->prepare("SELECT visits_generated_through FROM job_plans WHERE id = ?");
+$genCheckStmt->execute([$planId]);
+if ($genCheckStmt->fetchColumn() === null) {
+    generateVisits($planId);
+}
+
 $plan = getPlanDetails($planId);
-$TAX_RATE = 0.05;   // BC GST — price_per_visit is stored gross (incl. tax)
+$TAX_RATE = 0.05;   // BC GST — price_per_visit is stored NET (excl. tax); GST is added on top at invoice time
 
 if (!$plan) {
     header('Location: index.php');
@@ -640,6 +730,7 @@ if (isset($_GET['time_moved']))   { $message = 'Time entry moved!'; $messageType
 if (isset($_GET['time_deleted']))   { $message = 'Time entry deleted.'; $messageType = 'success'; }
 if (isset($_GET['visit_deleted']))  { $message = 'Visit deleted.'; $messageType = 'success'; }
 if (isset($_GET['time_edited']))  { $message = 'Time entry updated!'; $messageType = 'success'; }
+if (isset($_GET['visit_logged']))  { $message = 'Past visit logged and ready to invoice.'; $messageType = 'success'; }
 
 // ── Delete Plan eligibility ───────────────────────────────────────────
 $canDeletePlan = false;
@@ -760,6 +851,9 @@ if ($hasPropCoords) {
                     </div>
                 </div>
                 <div class="mw-header-actions">
+                    <a href="/crm/invoices/create.php?plan_id=<?php echo (int)$planId; ?>" class="btn btn-success" title="Raise an invoice for this plan">
+                        <i data-feather="file-plus" style="width:14px;height:14px;"></i> Create Invoice
+                    </a>
                     <?php if ($hasPropCoords): ?>
                         <button type="button" class="btn btn-outline-secondary"
                                 onclick="$('#planWorkZoneModal').modal('show')">
@@ -770,6 +864,14 @@ if ($hasPropCoords) {
                         <button type="button" class="btn btn-outline-primary" onclick="showModal('editPlanModal')">
                             <i data-feather="edit-2" style="width:14px;height:14px;"></i> Edit Plan
                         </button>
+                    <?php endif; ?>
+                    <?php if ($plan['status'] === 'active' && $plan['is_recurring']): ?>
+                        <form method="POST" style="display:inline;" title="Regenerate visits from the plan start date (backfills any missed past visits)">
+                            <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                            <button type="submit" name="action" value="regenerate_visits" class="btn btn-outline-secondary">
+                                <i data-feather="refresh-cw" style="width:14px;height:14px;"></i> Regenerate Visits
+                            </button>
+                        </form>
                     <?php endif; ?>
                     <?php if ($plan['status'] === 'active'): ?>
                         <button type="button" class="btn btn-warning" onclick="showModal('pauseModal')">
@@ -946,7 +1048,7 @@ if ($hasPropCoords) {
                             <div class="mw-detail-row">
                                 <span class="mw-detail-label">Price / Visit <small class="text-muted">(excl. GST)</small></span>
                                 <span class="mw-detail-value">
-                                    <?php echo $plan['price_per_visit'] ? formatCurrency($plan['price_per_visit'] / (1 + $TAX_RATE)) : 'N/A'; ?>
+                                    <?php echo $plan['price_per_visit'] ? formatCurrency($plan['price_per_visit']) : 'N/A'; ?>
                                 </span>
                             </div>
                             <div class="mw-detail-row">
@@ -1256,10 +1358,16 @@ if ($hasPropCoords) {
                         Visits
                         <small class="text-muted">(<?php echo count($visits); ?> total)</small>
                     </h5>
-                    <div>
+                    <div class="d-flex align-items-center gap-2">
                         <button type="button" class="btn btn-sm btn-outline-secondary mw-visit-filter active" data-filter="all">All</button>
                         <button type="button" class="btn btn-sm btn-outline-primary mw-visit-filter" data-filter="upcoming">Upcoming</button>
                         <button type="button" class="btn btn-sm btn-outline-success mw-visit-filter" data-filter="completed">Completed</button>
+                        <?php if ($plan['status'] === 'active'): ?>
+                        <button type="button" class="btn btn-sm btn-warning ml-2" onclick="openLogPastVisitModal()"
+                                title="Record a service that was done but not logged">
+                            + Log Past Visit
+                        </button>
+                        <?php endif; ?>
                     </div>
                 </div>
                 <div class="card-body p-0">
@@ -1354,7 +1462,7 @@ if ($hasPropCoords) {
                                                 <?php if ($visit['actual_amount']): ?>
                                                     <?php echo formatCurrency($visit['actual_amount']); ?>
                                                 <?php elseif ($plan['price_per_visit']): ?>
-                                                    <span class="text-muted"><?php echo formatCurrency($plan['price_per_visit'] / (1 + $TAX_RATE)); ?></span>
+                                                    <span class="text-muted"><?php echo formatCurrency($plan['price_per_visit']); ?></span>
                                                 <?php else: ?>
                                                     <span class="text-muted">-</span>
                                                 <?php endif; ?>
@@ -1414,7 +1522,22 @@ if ($hasPropCoords) {
                                                         </a>
                                                     <?php endif; ?>
                                                 <?php elseif ($visit['status'] === 'skipped'): ?>
-                                                    <span class="text-muted small">Skipped</span>
+                                                    <span class="text-muted small mr-2">Skipped</span>
+                                                    <?php if (userHasPermission('jobs.edit')): ?>
+                                                    <button type="button" class="btn btn-sm btn-outline-secondary mr-1"
+                                                            onclick="openEditVisitModal(<?php echo (int)$visit['id']; ?>, '<?php echo htmlspecialchars($visit['visit_number'], ENT_QUOTES); ?>', '<?php echo $visit['scheduled_date']; ?>', '<?php echo $visit['scheduled_time_start'] ?? ''; ?>', '<?php echo $visit['scheduled_time_end'] ?? ''; ?>')"
+                                                            title="Edit visit date/time">
+                                                        <i data-feather="edit-2" style="width: 12px; height: 12px;"></i>
+                                                    </button>
+                                                    <form method="POST" style="display:inline;" onsubmit="return confirm('Mark this skipped visit as completed? You can then invoice it.');">
+                                                        <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                                                        <input type="hidden" name="visit_id" value="<?php echo (int)$visit['id']; ?>">
+                                                        <button type="submit" name="action" value="complete_skipped_visit"
+                                                                class="btn btn-sm btn-outline-success" title="Restore this visit and mark it completed">
+                                                            Mark Completed
+                                                        </button>
+                                                    </form>
+                                                    <?php endif; ?>
                                                 <?php elseif ($visit['status'] === 'weather'): ?>
                                                     <span class="text-muted small">Weather</span>
                                                 <?php endif; ?>
@@ -1932,6 +2055,54 @@ if ($hasPropCoords) {
                 <div class="mw-modal-actions">
                     <button type="submit" class="btn btn-info">Mark Weather Delay</button>
                     <button type="button" class="btn btn-secondary" onclick="hideModal('weatherModal')">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Log Past Visit Modal -->
+    <div class="mw-modal-overlay" id="logPastVisitModal">
+        <div class="mw-modal">
+            <h3 class="mw-modal-title">Log Past Visit</h3>
+            <p class="text-muted small mb-3">Record a service that was completed but not logged. The visit will be marked as <strong>completed</strong> and can be invoiced immediately.</p>
+            <form method="POST">
+                <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                <input type="hidden" name="action" value="log_past_visit">
+
+                <div class="form-group">
+                    <label class="form-label">Date <span class="text-danger">*</span></label>
+                    <input type="date" name="lv_date" id="lvDate" class="form-control" required
+                           max="<?php echo date('Y-m-d'); ?>"
+                           value="<?php echo date('Y-m-d'); ?>">
+                </div>
+                <div class="form-row">
+                    <div class="form-group col-6">
+                        <label class="form-label">Start Time</label>
+                        <input type="time" name="lv_time_start" class="form-control"
+                               value="<?php echo htmlspecialchars($plan['default_time_start'] ?? ''); ?>">
+                    </div>
+                    <div class="form-group col-6">
+                        <label class="form-label">End Time</label>
+                        <input type="time" name="lv_time_end" class="form-control"
+                               value="<?php echo htmlspecialchars($plan['default_time_end'] ?? ''); ?>">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Amount ($)</label>
+                    <input type="number" name="lv_amount" class="form-control" step="0.01" min="0"
+                           value="<?php echo htmlspecialchars($plan['price_per_visit'] ?? ''); ?>"
+                           placeholder="Leave blank to use plan default">
+                    <small class="form-text text-muted">Plan default: $<?php echo number_format(floatval($plan['price_per_visit'] ?? 0), 2); ?> excl. GST</small>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Notes (optional)</label>
+                    <textarea name="lv_notes" class="form-control" rows="2"
+                              placeholder="e.g., Service completed — not recorded at the time"></textarea>
+                </div>
+
+                <div class="mw-modal-actions">
+                    <button type="submit" class="btn btn-warning">Log Completed Visit</button>
+                    <button type="button" class="btn btn-secondary" onclick="hideModal('logPastVisitModal')">Cancel</button>
                 </div>
             </form>
         </div>
@@ -2484,6 +2655,17 @@ if ($hasPropCoords) {
         });
 
         // ── Visit action modals ───────────────────────────────
+        function openLogPastVisitModal() {
+            // Default to yesterday
+            var yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            var y = yesterday.getFullYear();
+            var m = String(yesterday.getMonth()+1).padStart(2,'0');
+            var d = String(yesterday.getDate()).padStart(2,'0');
+            document.getElementById('lvDate').value = y + '-' + m + '-' + d;
+            showModal('logPastVisitModal');
+        }
+
         function openCompleteModal(visitId, visitNumber, defaultAmount) {
             document.getElementById('completeVisitId').value = visitId;
             document.getElementById('completeVisitNumber').textContent = visitNumber;

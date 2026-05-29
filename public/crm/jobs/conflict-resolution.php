@@ -61,10 +61,12 @@ $visitStmt = $db->prepare("
         p.city AS property_city,
         p.latitude AS prop_lat,
         p.longitude AS prop_lng,
-        u.full_name AS crew_name
+        u.full_name AS crew_name,
+        CONCAT(c.first_name, ' ', c.last_name) AS client_name
     FROM job_visits jv
     JOIN job_plans jp ON jv.plan_id = jp.id
     LEFT JOIN properties p ON jp.property_id = p.id
+    LEFT JOIN contacts c ON p.site_contact_id = c.id
     LEFT JOIN users u ON jv.assigned_crew_id = u.id
     WHERE jv.id = ?
 ");
@@ -173,32 +175,62 @@ if ($propLat && $propLng) {
 }
 
 // --- Load crew GPS pings for the date ---
+// Collect pings for: (a) assigned crew member, and (b) the logged-in admin/manager
+// so that when an admin clocked in via iOS their own pings are also visible.
 $crewPings = [];
-$crewPingUserId = $visit['assigned_crew_id'] ? (int)$visit['assigned_crew_id'] : 0;
-if ($crewPingUserId && $propLat && $propLng) {
+$crewPingsByUser = []; // user_id => [pings]
+
+// Build the set of user IDs to query — assigned crew + logged-in user (if different)
+$crewPingUserIds = [];
+$assignedCrewId = $visit['assigned_crew_id'] ? (int)$visit['assigned_crew_id'] : 0;
+if ($assignedCrewId) {
+    $crewPingUserIds[] = $assignedCrewId;
+}
+if ((int)$user['id'] !== $assignedCrewId) {
+    $crewPingUserIds[] = (int)$user['id'];
+}
+
+if (!empty($crewPingUserIds) && $propLat && $propLng) {
     if (!isset($dayStart)) {
         $dayStart = (new DateTime($date . ' 00:00:00', $tz))->getTimestamp();
         $dayEnd   = (new DateTime($date . ' 23:59:59', $tz))->getTimestamp();
     }
+
+    // Load names for each user we'll query
+    $crewPingNames = [];
+    $ph = implode(',', array_fill(0, count($crewPingUserIds), '?'));
+    $nameStmt = $db->prepare("SELECT id, full_name FROM users WHERE id IN ({$ph})");
+    $nameStmt->execute($crewPingUserIds);
+    foreach ($nameStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $crewPingNames[(int)$row['id']] = $row['full_name'];
+    }
+
     $crewPingStmt = $db->prepare("
-        SELECT clh.latitude AS lat, clh.longitude AS lng, UNIX_TIMESTAMP(clh.timestamp) AS epoch
+        SELECT clh.crew_id, clh.latitude AS lat, clh.longitude AS lng, UNIX_TIMESTAMP(clh.timestamp) AS epoch
         FROM crew_location_history clh
-        WHERE clh.crew_id = ?
+        WHERE clh.crew_id IN ({$ph})
           AND UNIX_TIMESTAMP(clh.timestamp) >= ?
           AND UNIX_TIMESTAMP(clh.timestamp) <= ?
         ORDER BY clh.timestamp ASC
     ");
-    $crewPingStmt->execute([$crewPingUserId, $dayStart, $dayEnd]);
+    $crewPingStmt->execute(array_merge($crewPingUserIds, [$dayStart, $dayEnd]));
     foreach ($crewPingStmt->fetchAll(PDO::FETCH_ASSOC) as $cp) {
         $dist = haversineDistance($propLat, $propLng, (float)$cp['lat'], (float)$cp['lng']);
-        $crewPings[] = [
-            'lat'    => (float)$cp['lat'],
-            'lng'    => (float)$cp['lng'],
-            'epoch'  => (int)$cp['epoch'],
-            'time'   => (new DateTime('@' . $cp['epoch']))->setTimezone($tz)->format('g:i a'),
-            'dist_m' => (int)round($dist),
-            'nearby' => $dist <= 150,
+        $ping = [
+            'user_id' => (int)$cp['crew_id'],
+            'lat'     => (float)$cp['lat'],
+            'lng'     => (float)$cp['lng'],
+            'epoch'   => (int)$cp['epoch'],
+            'time'    => (new DateTime('@' . $cp['epoch']))->setTimezone($tz)->format('g:i a'),
+            'dist_m'  => (int)round($dist),
+            'nearby'  => $dist <= 150,
         ];
+        $crewPings[] = $ping;
+        $uid = (int)$cp['crew_id'];
+        if (!isset($crewPingsByUser[$uid])) {
+            $crewPingsByUser[$uid] = ['name' => $crewPingNames[$uid] ?? 'User #' . $uid, 'pings' => []];
+        }
+        $crewPingsByUser[$uid]['pings'][] = $ping;
     }
 }
 $crewNearbyCount = count(array_filter($crewPings, fn($p) => $p['nearby']));
@@ -257,7 +289,7 @@ $photoStmt = $db->prepare("
            COALESCE(ml.category, 'other') AS photo_type,
            ma.file_path AS filename,
            ma.alt_text AS caption,
-           mv_t.file_path AS thumb_path,
+           COALESCE(mv_t.file_path, ma.file_path) AS thumb_path,
            ma.file_path AS view_path,
            ma.created_at AS uploaded_at,
            u.full_name AS uploader
@@ -365,10 +397,13 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
                 <span class="badge badge-info ml-2" style="font-size:0.5em; vertical-align:middle;">No Truck GPS</span>
             <?php endif; ?>
         </h1>
+        <?php if (!empty($visit['client_name']) && trim($visit['client_name']) !== ''): ?>
+            <div class="font-weight-600 mb-1"><?= htmlspecialchars(trim($visit['client_name'])) ?></div>
+        <?php endif; ?>
         <p class="text-muted mb-0">
-            <?= htmlspecialchars($visit['visit_number']) ?> &middot;
             <?= htmlspecialchars($visit['property_address'] ?? '') ?>, <?= htmlspecialchars($visit['property_city'] ?? '') ?>
             &middot; <?= date('D M j, Y', strtotime($date)) ?>
+            &middot; <?= htmlspecialchars($visit['visit_number']) ?>
         </p>
     </div>
     <?php if ($existingResolution): ?>
@@ -444,6 +479,14 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
                         <span class="text-danger">(no GPS tracking)</span>
                     <?php endif; ?>
                 </div>
+                <?php if (!empty($crewPingsByUser)): ?>
+                    <div class="small text-muted mt-1">
+                        <?php foreach ($crewPingsByUser as $uid => $ud): ?>
+                            <?php $nearby = count(array_filter($ud['pings'], fn($p) => $p['nearby'])); ?>
+                            <div><?= htmlspecialchars($ud['name']) ?>: <?= count($ud['pings']) ?> pings, <?= $nearby ?> on-site</div>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
             </div>
         </div>
 

@@ -3,7 +3,7 @@
 </div><!-- /.sa-layout -->
 
 <script>
-  feather.replace();
+  hydrateFeatherIcons();
 
   // Mobile sidebar toggle
   document.querySelector('.sa-menu-toggle')?.addEventListener('click', () => {
