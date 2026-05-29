@@ -2734,7 +2734,7 @@ $unconvertedRequests = $db->query("
                                   <span class="mw-prop-btn-label">Geocoded</span>
                                 </span>
                               <?php endif; ?>
-                              <button type="button" class="mw-prop-hdr-btn mw-property-edit-btn"
+                              <button type="button" class="mw-prop-hdr-btn btn btn-sm btn-outline-secondary mw-property-edit-btn"
                                       onclick="showEditProperty(<?php echo $propId; ?>, '<?php echo addslashes(h($prop['address'])); ?>', '<?php echo addslashes(h($prop['city'] ?? '')); ?>', '<?php echo addslashes(h($prop['province'] ?? '')); ?>', '<?php echo addslashes(h($prop['postal_code'] ?? '')); ?>', '<?php echo addslashes(h($prop['property_name'] ?? '')); ?>')"
                                       title="Edit property">
                                 <i data-feather="edit-2" class="mw-icon-sm"></i>
@@ -2900,7 +2900,7 @@ $unconvertedRequests = $db->query("
                                   <span class="mw-prop-btn-label">Geocoded</span>
                                 </span>
                               <?php endif; ?>
-                              <button type="button" class="mw-prop-hdr-btn mw-property-edit-btn"
+                              <button type="button" class="mw-prop-hdr-btn btn btn-sm btn-outline-secondary mw-property-edit-btn"
                                       onclick="showEditProperty(<?php echo $propId; ?>, '<?php echo addslashes(h($prop['address'])); ?>', '<?php echo addslashes(h($prop['city'] ?? '')); ?>', '<?php echo addslashes(h($prop['province'] ?? '')); ?>', '<?php echo addslashes(h($prop['postal_code'] ?? '')); ?>', '<?php echo addslashes(h($prop['property_name'] ?? '')); ?>')"
                                       title="Edit property">
                                 <i data-feather="edit-2" class="mw-icon-sm"></i>
@@ -3109,7 +3109,7 @@ $unconvertedRequests = $db->query("
                                     <i data-feather="map-pin" class="mw-icon-sm"></i>
                                     <span class="mw-prop-btn-label">Zone</span>
                                   </button>
-                                  <button type="button" class="mw-prop-hdr-btn mw-property-edit-btn" title="Edit property"
+                                  <button type="button" class="mw-prop-hdr-btn btn btn-sm btn-outline-secondary mw-property-edit-btn" title="Edit property"
                                           onclick="showEditProperty(<?php echo $propId; ?>, '<?php echo addslashes(h($prop['address'])); ?>', '<?php echo addslashes(h($prop['city'] ?? '')); ?>', '<?php echo addslashes(h($prop['province'] ?? '')); ?>', '<?php echo addslashes(h($prop['postal_code'] ?? '')); ?>', '<?php echo addslashes(h($prop['property_name'] ?? '')); ?>')">
                                     <i data-feather="edit-2" class="mw-icon-sm"></i>
                                     <span class="mw-prop-btn-label">Edit</span>
