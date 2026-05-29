@@ -2722,21 +2722,27 @@ $unconvertedRequests = $db->query("
                                 <?php if ($pCount > 0): ?><span class="mw-lifecycle-count-badge"><?php echo $pCount; ?> plan<?php echo $pCount !== 1 ? 's' : ''; ?></span><?php endif; ?>
                               </span>
                             </div>
-                            <div class="d-flex align-items-center" onclick="event.stopPropagation();">
+                            <div class="d-flex align-items-center gap-1" onclick="event.stopPropagation();">
                               <?php if (floatval($prop['latitude'] ?? 0) == 0 || floatval($prop['longitude'] ?? 0) == 0): ?>
-                                <button type="button" class="btn btn-sm btn-outline-secondary mr-1" onclick="geocodeProperty(<?php echo $propId; ?>, this)" title="Geocode">
-                                  <i data-feather="crosshair" class="mw-icon-xs"></i>
+                                <button type="button" class="mw-prop-hdr-btn btn btn-sm btn-outline-secondary" onclick="geocodeProperty(<?php echo $propId; ?>, this)" title="Geocode">
+                                  <i data-feather="crosshair" class="mw-icon-sm"></i>
+                                  <span class="mw-prop-btn-label">Geocode</span>
                                 </button>
                               <?php else: ?>
-                                <span class="text-success mr-1" title="Geocoded"><i data-feather="check-circle" class="mw-icon-xs"></i></span>
+                                <span class="text-success mw-prop-hdr-geocoded" title="Geocoded">
+                                  <i data-feather="check-circle" class="mw-icon-sm"></i>
+                                  <span class="mw-prop-btn-label">Geocoded</span>
+                                </span>
                               <?php endif; ?>
-                              <button type="button" class="mw-property-edit-btn mr-1"
+                              <button type="button" class="mw-prop-hdr-btn mw-property-edit-btn"
                                       onclick="showEditProperty(<?php echo $propId; ?>, '<?php echo addslashes(h($prop['address'])); ?>', '<?php echo addslashes(h($prop['city'] ?? '')); ?>', '<?php echo addslashes(h($prop['province'] ?? '')); ?>', '<?php echo addslashes(h($prop['postal_code'] ?? '')); ?>', '<?php echo addslashes(h($prop['property_name'] ?? '')); ?>')"
                                       title="Edit property">
-                                <i data-feather="edit-2" class="mw-icon-xs"></i>
+                                <i data-feather="edit-2" class="mw-icon-sm"></i>
+                                <span class="mw-prop-btn-label">Edit</span>
                               </button>
-                              <button type="button" class="mw-property-unlink-btn" onclick="showUnlinkProperty(<?php echo $propId; ?>, '<?php echo addslashes(h($prop['address'])); ?>')" title="Remove or reassign">
-                                <i data-feather="x-circle" class="mw-icon-xs"></i>
+                              <button type="button" class="mw-prop-hdr-btn mw-property-unlink-btn" onclick="showUnlinkProperty(<?php echo $propId; ?>, '<?php echo addslashes(h($prop['address'])); ?>')" title="Remove or reassign">
+                                <i data-feather="x-circle" class="mw-icon-sm"></i>
+                                <span class="mw-prop-btn-label">Remove</span>
                               </button>
                             </div>
                           </div>
@@ -2882,21 +2888,27 @@ $unconvertedRequests = $db->query("
                               <?php echo h($prop['address']); ?>
                               <span class="text-muted small ml-1"><?php echo h($prop['city'] ?? ''); ?><?php echo !empty($prop['province']) ? ', ' . h($prop['province']) : ''; ?></span>
                             </div>
-                            <div class="d-flex align-items-center" onclick="event.stopPropagation();">
+                            <div class="d-flex align-items-center gap-1" onclick="event.stopPropagation();">
                               <?php if (floatval($prop['latitude'] ?? 0) == 0 || floatval($prop['longitude'] ?? 0) == 0): ?>
-                                <button type="button" class="btn btn-sm btn-outline-secondary mr-1" onclick="geocodeProperty(<?php echo $propId; ?>, this)" title="Geocode">
-                                  <i data-feather="crosshair" class="mw-icon-xs"></i>
+                                <button type="button" class="mw-prop-hdr-btn btn btn-sm btn-outline-secondary" onclick="geocodeProperty(<?php echo $propId; ?>, this)" title="Geocode">
+                                  <i data-feather="crosshair" class="mw-icon-sm"></i>
+                                  <span class="mw-prop-btn-label">Geocode</span>
                                 </button>
                               <?php else: ?>
-                                <span class="text-success mr-1" title="Geocoded"><i data-feather="check-circle" class="mw-icon-xs"></i></span>
+                                <span class="text-success mw-prop-hdr-geocoded" title="Geocoded">
+                                  <i data-feather="check-circle" class="mw-icon-sm"></i>
+                                  <span class="mw-prop-btn-label">Geocoded</span>
+                                </span>
                               <?php endif; ?>
-                              <button type="button" class="mw-property-edit-btn mr-1"
+                              <button type="button" class="mw-prop-hdr-btn mw-property-edit-btn"
                                       onclick="showEditProperty(<?php echo $propId; ?>, '<?php echo addslashes(h($prop['address'])); ?>', '<?php echo addslashes(h($prop['city'] ?? '')); ?>', '<?php echo addslashes(h($prop['province'] ?? '')); ?>', '<?php echo addslashes(h($prop['postal_code'] ?? '')); ?>', '<?php echo addslashes(h($prop['property_name'] ?? '')); ?>')"
                                       title="Edit property">
-                                <i data-feather="edit-2" class="mw-icon-xs"></i>
+                                <i data-feather="edit-2" class="mw-icon-sm"></i>
+                                <span class="mw-prop-btn-label">Edit</span>
                               </button>
-                              <button type="button" class="mw-property-unlink-btn" onclick="showUnlinkProperty(<?php echo $propId; ?>, '<?php echo addslashes(h($prop['address'])); ?>')" title="Remove">
-                                <i data-feather="x-circle" class="mw-icon-xs"></i>
+                              <button type="button" class="mw-prop-hdr-btn mw-property-unlink-btn" onclick="showUnlinkProperty(<?php echo $propId; ?>, '<?php echo addslashes(h($prop['address'])); ?>')" title="Remove">
+                                <i data-feather="x-circle" class="mw-icon-sm"></i>
+                                <span class="mw-prop-btn-label">Remove</span>
                               </button>
                             </div>
                           </div>

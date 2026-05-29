@@ -10054,16 +10054,23 @@ a.mw-clock-timer-nav:hover {
   line-height:1;
 }
 .mw-property-edit-btn:hover { color:#2563eb; }
-/* Larger icon buttons in property card headers on desktop */
-.mw-lifecycle-prop-header .mw-icon-xs,
-.mw-lifecycle-tabbed-header .mw-icon-xs {
-  width: 16px !important;
-  height: 16px !important;
+/* Property card header action buttons — labelled on desktop, icon-only on mobile */
+.mw-prop-hdr-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: .78rem;
+  white-space: nowrap;
 }
-.mw-lifecycle-prop-header .btn-outline-secondary.mr-1,
-.mw-lifecycle-tabbed-header .btn-outline-secondary.mr-1 {
-  padding: 4px 7px;
-  font-size: .8rem;
+.mw-prop-hdr-geocoded {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: .78rem;
+  padding: 4px 2px;
+}
+@media (max-width: 767px) {
+  .mw-prop-btn-label { display: none; }
 }
 .mw-contact-property-addr {
   font-weight:600;
