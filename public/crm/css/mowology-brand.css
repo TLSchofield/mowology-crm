@@ -3808,7 +3808,7 @@ a.mw-clock-timer-nav:hover {
   border-left:3px solid var(--mw-orange)
 }
 .mw-jobs-panel .mw-stop-completed {
-  border-left:3px solid var(--mw-green);
+  border-left:3px solid var(--mw-ink-400, #9ca3af);
   opacity:.65
 }
 .mw-jobs-panel .mw-stop-skipped {
@@ -4648,8 +4648,8 @@ a.mw-clock-timer-nav:hover {
 }
 
 .mw-stop-status-done {
-  border-left-color:#10B981;
-  background:rgb(16 185 129 / .04);
+  border-left-color:var(--mw-ink-400, #9ca3af);
+  background:rgb(156 163 175 / .06);
   opacity:.7;
 }
 
@@ -5133,7 +5133,7 @@ a.mw-clock-timer-nav:hover {
 }
 
 .mw-dv-card.mw-stop-status-done {
-  border-left-color:#10B981;
+  border-left-color:var(--mw-ink-400, #9ca3af);
   opacity:.7;
 }
 
@@ -5600,7 +5600,7 @@ a.mw-clock-timer-nav:hover {
 }
 
 .mw-jobs-panel .mw-stop-completed {
-  border-left:3px solid var(--mw-green);
+  border-left:3px solid var(--mw-ink-400, #9ca3af);
   opacity:.65;
 }
 
@@ -5725,7 +5725,7 @@ a.mw-clock-timer-nav:hover {
 }
 
 .mw-stop-card.mw-stop-completed {
-  border-left:3px solid var(--mw-green);
+  border-left:3px solid var(--mw-ink-400, #9ca3af);
   opacity:.7;
 }
 
