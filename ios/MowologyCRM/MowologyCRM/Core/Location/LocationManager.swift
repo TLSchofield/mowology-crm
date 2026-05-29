@@ -100,6 +100,12 @@ final class LocationManager: NSObject, ObservableObject {
     @Published private(set) var currentActivity: ActivityState = .unknown
     @Published private(set) var accuracyBadge: AccuracyBadge  = .high
 
+    /// Called on the main actor each time a fix is accepted for continuous
+    /// tracking. GPSTrackingService uses this to POST pings driven by location
+    /// updates — which fire even when the app is backgrounded — instead of a
+    /// foreground-only timer.
+    var onAcceptedFix: ((CLLocation) -> Void)?
+
     // MARK: - Private
 
     private let clManager       = CLLocationManager()
@@ -305,6 +311,9 @@ extension LocationManager: CLLocationManagerDelegate {
                 self.lastAcceptedFix = fix
                 self.lastLocation    = fix
                 self.refreshBadge(accuracy: fix.horizontalAccuracy)
+                // Drive a ping off the location update so tracking keeps posting
+                // while the app is backgrounded (the timer loop is suspended then).
+                self.onAcceptedFix?(fix)
             }
         }
     }

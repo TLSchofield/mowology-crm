@@ -98,6 +98,12 @@ final class GPSTrackingService: ObservableObject {
         UserDefaults.standard.set(true, forKey: Self.kShiftActive)
         locationManager.requestAlwaysPermission()
         locationManager.startBackgroundTracking()
+        // Post a ping on every accepted location update (throttled). This fires
+        // in the background too, so tracking no longer requires the app to be
+        // foreground; the timer loop below is a stationary fallback.
+        locationManager.onAcceptedFix = { [weak self] _ in
+            Task { @MainActor in await self?.sendPingIfDue() }
+        }
         startPingLoop()
     }
 
@@ -106,6 +112,7 @@ final class GPSTrackingService: ObservableObject {
         activeVisitId = nil
         pingTask?.cancel()
         pingTask = nil
+        locationManager.onAcceptedFix = nil
         locationManager.stopBackgroundTracking()
         locationManager.resetSessionMetrics()
         UserDefaults.standard.set(false, forKey: Self.kShiftActive)
@@ -156,6 +163,10 @@ final class GPSTrackingService: ObservableObject {
                     autoStartedPayload = nil
                 }
             }
+            // Server is reachable — flush any pings queued during the outage.
+            if PingQueue.shared.pendingCount > 0 {
+                await PingQueue.shared.drain(using: client)
+            }
         } catch let error as APIError {
             if case .networkError = error {
                 PingQueue.shared.store(lat: lat, lng: lng, accuracy: accuracy, visitId: activeVisitId)
@@ -173,8 +184,23 @@ final class GPSTrackingService: ObservableObject {
                 let interval = locationManager.currentActivity.pingInterval
                 try? await Task.sleep(for: .seconds(interval))
                 guard !Task.isCancelled else { break }
-                await self.sendPing()
+                // Stationary fallback: when the device isn't moving, the location
+                // delegate may not fire, so the timer keeps pings alive (foreground).
+                await self.sendPingIfDue()
             }
+        }
+    }
+
+    /// Sends a ping only if at least the current activity's interval has elapsed
+    /// since the last one. Both the timer loop and the location-update delegate
+    /// call this, so the two paths can't double-send.
+    private func sendPingIfDue() async {
+        guard isTracking else { return }
+        let interval = Double(locationManager.currentActivity.pingInterval)
+        let last     = UserDefaults.standard.double(forKey: Self.kLastPingAt)
+        // last == 0 → never pinged this install; send immediately.
+        if last == 0 || (Date().timeIntervalSince1970 - last) >= interval - 2 {
+            await sendPing()
         }
     }
 }
