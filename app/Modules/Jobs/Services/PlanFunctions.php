@@ -309,6 +309,12 @@ function createPlanFromQuote(int $quoteId, int $userId): array {
         return ['success' => false, 'plan_id' => null, 'plan_number' => null, 'errors' => ['Quote not found or not accepted.']];
     }
 
+    // price_per_visit is stored NET (pre-GST). Quotes keep `subtotal` pre-GST and
+    // `amount`/`total` GST-inclusive, so prefer subtotal; otherwise back GST out of gross.
+    $quoteNet = ($quote['subtotal'] ?? null) !== null
+        ? (float)$quote['subtotal']
+        : round((float)($quote['amount'] ?? $quote['total'] ?? 0) / 1.05, 2);
+
     $planData = [
         'quote_id'         => $quoteId,
         'property_id'      => $quote['property_id'],
@@ -316,8 +322,8 @@ function createPlanFromQuote(int $quoteId, int $userId): array {
         'title'            => $quote['title'] ?: 'Plan from ' . $quote['quote_number'],
         'description'      => $quote['description'],
         'service_type'     => $quote['service_type'] ?? 'landscaping',
-        'estimated_amount' => $quote['amount'] ?? $quote['total'] ?? 0,
-        'price_per_visit'  => $quote['amount'] ?? $quote['total'] ?? 0,
+        'estimated_amount' => $quoteNet,
+        'price_per_visit'  => $quoteNet,
         'plan_start_date'  => date('Y-m-d'),
         'is_recurring'     => 0,
     ];
