@@ -2804,8 +2804,8 @@ a.mw-clock-timer-nav:hover {
   background:rgb(245 158 11 / .04)
 }
 .mw-stop-status-done {
-  border-left-color:#10B981;
-  background:rgb(16 185 129 / .04);
+  border-left-color:var(--mw-ink-400, #9ca3af);
+  background:rgb(156 163 175 / .06);
   opacity:.7
 }
 .mw-stop-status-skipped {
@@ -3423,7 +3423,7 @@ a.mw-clock-timer-nav:hover {
   border-left-color:#F59E0B
 }
 .mw-dv-card.mw-stop-status-done {
-  border-left-color:#10B981;
+  border-left-color:var(--mw-ink-400, #9ca3af);
   opacity:.7
 }
 .mw-dv-card.mw-stop-status-skipped {
@@ -3963,7 +3963,7 @@ a.mw-clock-timer-nav:hover {
   border-left:3px solid var(--mw-orange)
 }
 .mw-stop-card.mw-stop-completed {
-  border-left:3px solid var(--mw-green);
+  border-left:3px solid var(--mw-ink-400, #9ca3af);
   opacity:.7
 }
 .mw-stop-card.mw-stop-skipped {
