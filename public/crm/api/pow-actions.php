@@ -124,7 +124,7 @@ try {
             JOIN calendar_stops cs ON jv.stop_id = cs.id
             JOIN properties p ON cs.property_id = p.id
             LEFT JOIN contacts ct ON p.site_contact_id = ct.id
-            WHERE jv.stop_id = ? AND jv.status IN ('scheduled','in_progress')
+            WHERE jv.stop_id = ? AND jv.status IN ('scheduled','in_progress','skipped')
         ");
         $vsStmt->execute([$stopId]);
         $completableVisits = $vsStmt->fetchAll(PDO::FETCH_ASSOC);
