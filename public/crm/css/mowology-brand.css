@@ -10035,7 +10035,7 @@ a.mw-clock-timer-nav:hover {
 .mw-property-unlink-btn {
   background:none;
   border:none;
-  color:#cbd5e0;
+  color:#94a3b8;
   padding:4px;
   cursor:pointer;
   border-radius:4px;
@@ -10043,6 +10043,17 @@ a.mw-clock-timer-nav:hover {
   line-height:1;
 }
 .mw-property-unlink-btn:hover { color:#dc3545; }
+.mw-property-edit-btn {
+  background:none;
+  border:none;
+  color:#94a3b8;
+  padding:4px;
+  cursor:pointer;
+  border-radius:4px;
+  transition:color 0.2s ease;
+  line-height:1;
+}
+.mw-property-edit-btn:hover { color:#2563eb; }
 .mw-contact-property-addr {
   font-weight:600;
   font-size:.9rem;

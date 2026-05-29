@@ -449,6 +449,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
         }
         exit;
 
+    } elseif ($requestAction === 'edit_property') {
+        if (!verifyCSRFToken($jsonData['csrf_token'] ?? '')) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+            exit;
+        }
+
+        $propertyId = intval($jsonData['property_id'] ?? 0);
+        $address    = trim($jsonData['address'] ?? '');
+        $city       = trim($jsonData['city'] ?? '');
+        $province   = trim($jsonData['province'] ?? '');
+        $postalCode = trim($jsonData['postal_code'] ?? '');
+        $propName   = trim($jsonData['property_name'] ?? '');
+
+        if (!$propertyId || !$address) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Property ID and address are required']);
+            exit;
+        }
+
+        try {
+            $db->prepare("
+                UPDATE properties
+                SET address = ?, city = ?, province = ?, postal_code = ?,
+                    property_name = NULLIF(?, ''),
+                    latitude = NULL, longitude = NULL
+                WHERE id = ?
+            ")->execute([$address, $city, $province, $postalCode, $propName, $propertyId]);
+            echo json_encode(['success' => true, 'address' => $address, 'city' => $city, 'province' => $province]);
+        } catch (Exception $e) {
+            http_response_code(500);
+            echo json_encode(['success' => false, 'error' => 'Failed to update property']);
+        }
+        exit;
+
     } elseif ($requestAction === 'unlink_property') {
         if (!verifyCSRFToken($jsonData['csrf_token'] ?? '')) {
             http_response_code(400);
@@ -2695,6 +2730,11 @@ $unconvertedRequests = $db->query("
                               <?php else: ?>
                                 <span class="text-success mr-1" title="Geocoded"><i data-feather="check-circle" class="mw-icon-xs"></i></span>
                               <?php endif; ?>
+                              <button type="button" class="mw-property-edit-btn mr-1"
+                                      onclick="showEditProperty(<?php echo $propId; ?>, '<?php echo addslashes(h($prop['address'])); ?>', '<?php echo addslashes(h($prop['city'] ?? '')); ?>', '<?php echo addslashes(h($prop['province'] ?? '')); ?>', '<?php echo addslashes(h($prop['postal_code'] ?? '')); ?>', '<?php echo addslashes(h($prop['property_name'] ?? '')); ?>')"
+                                      title="Edit property">
+                                <i data-feather="edit-2" class="mw-icon-xs"></i>
+                              </button>
                               <button type="button" class="mw-property-unlink-btn" onclick="showUnlinkProperty(<?php echo $propId; ?>, '<?php echo addslashes(h($prop['address'])); ?>')" title="Remove or reassign">
                                 <i data-feather="x-circle" class="mw-icon-xs"></i>
                               </button>
@@ -2850,6 +2890,11 @@ $unconvertedRequests = $db->query("
                               <?php else: ?>
                                 <span class="text-success mr-1" title="Geocoded"><i data-feather="check-circle" class="mw-icon-xs"></i></span>
                               <?php endif; ?>
+                              <button type="button" class="mw-property-edit-btn mr-1"
+                                      onclick="showEditProperty(<?php echo $propId; ?>, '<?php echo addslashes(h($prop['address'])); ?>', '<?php echo addslashes(h($prop['city'] ?? '')); ?>', '<?php echo addslashes(h($prop['province'] ?? '')); ?>', '<?php echo addslashes(h($prop['postal_code'] ?? '')); ?>', '<?php echo addslashes(h($prop['property_name'] ?? '')); ?>')"
+                                      title="Edit property">
+                                <i data-feather="edit-2" class="mw-icon-xs"></i>
+                              </button>
                               <button type="button" class="mw-property-unlink-btn" onclick="showUnlinkProperty(<?php echo $propId; ?>, '<?php echo addslashes(h($prop['address'])); ?>')" title="Remove">
                                 <i data-feather="x-circle" class="mw-icon-xs"></i>
                               </button>
@@ -3872,6 +3917,48 @@ $unconvertedRequests = $db->query("
               </div>
             </div>
 
+            <!-- Edit Property Modal -->
+            <div class="modal fade" id="editPropertyModal" tabindex="-1" role="dialog">
+              <div class="modal-dialog" role="document">
+                <div class="modal-content">
+                  <div class="modal-header">
+                    <h5 class="modal-title"><i data-feather="edit-2" style="width:16px;height:16px;"></i> Edit Property</h5>
+                    <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+                  </div>
+                  <div class="modal-body">
+                    <input type="hidden" id="editPropId" value="">
+                    <div class="form-group">
+                      <label class="form-label font-weight-600">Street Address <span class="text-danger">*</span></label>
+                      <input type="text" id="editPropAddress" class="form-control" placeholder="e.g. 1690 West 63rd Avenue" required>
+                    </div>
+                    <div class="form-row">
+                      <div class="form-group col-7">
+                        <label class="form-label font-weight-600">City</label>
+                        <input type="text" id="editPropCity" class="form-control" placeholder="Vancouver">
+                      </div>
+                      <div class="form-group col-2">
+                        <label class="form-label font-weight-600">Prov.</label>
+                        <input type="text" id="editPropProvince" class="form-control" placeholder="BC" maxlength="3">
+                      </div>
+                      <div class="form-group col-3">
+                        <label class="form-label font-weight-600">Postal</label>
+                        <input type="text" id="editPropPostal" class="form-control" placeholder="V6P 5X5" maxlength="10">
+                      </div>
+                    </div>
+                    <div class="form-group">
+                      <label class="form-label font-weight-600">Property Name <small class="text-muted">(optional label)</small></label>
+                      <input type="text" id="editPropName" class="form-control" placeholder="e.g. Back yard only">
+                    </div>
+                    <p class="text-muted small mb-0"><i data-feather="info" style="width:12px;height:12px;"></i> Changing the address clears the map pin — re-geocode after saving.</p>
+                  </div>
+                  <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="saveEditProperty()">Save Changes</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <!-- Unlink/Reassign Property Modal -->
             <div class="modal fade" id="unlinkPropertyModal" tabindex="-1" role="dialog">
               <div class="modal-dialog" role="document">
@@ -4092,6 +4179,65 @@ $unconvertedRequests = $db->query("
                 gmap.panTo(marker.getPosition());
                 gmap.setZoom(16);
                 google.maps.event.trigger(marker, 'click');
+              };
+
+              // ── Edit Property ────────────────────────────────────
+              window.showEditProperty = function(propId, address, city, province, postalCode, propName) {
+                document.getElementById('editPropId').value = propId;
+                document.getElementById('editPropAddress').value = address;
+                document.getElementById('editPropCity').value = city;
+                document.getElementById('editPropProvince').value = province;
+                document.getElementById('editPropPostal').value = postalCode;
+                document.getElementById('editPropName').value = propName;
+                $('#editPropertyModal').modal('show');
+              };
+
+              window.saveEditProperty = function() {
+                var propId   = document.getElementById('editPropId').value;
+                var address  = document.getElementById('editPropAddress').value.trim();
+                var city     = document.getElementById('editPropCity').value.trim();
+                var province = document.getElementById('editPropProvince').value.trim();
+                var postal   = document.getElementById('editPropPostal').value.trim();
+                var name     = document.getElementById('editPropName').value.trim();
+
+                if (!address) {
+                  document.getElementById('editPropAddress').focus();
+                  return;
+                }
+
+                var btn = document.querySelector('#editPropertyModal .btn-primary');
+                btn.disabled = true;
+                btn.textContent = 'Saving…';
+
+                fetch('clients_appstack.php?action=edit_property', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    csrf_token:    '<?php echo generateCSRFToken(); ?>',
+                    property_id:   parseInt(propId),
+                    address:       address,
+                    city:          city,
+                    province:      province,
+                    postal_code:   postal,
+                    property_name: name
+                  })
+                })
+                .then(r => r.json())
+                .then(data => {
+                  if (data.success) {
+                    $('#editPropertyModal').modal('hide');
+                    location.reload();
+                  } else {
+                    alert('Could not save: ' + (data.error || 'Unknown error'));
+                    btn.disabled = false;
+                    btn.textContent = 'Save Changes';
+                  }
+                })
+                .catch(() => {
+                  alert('Network error — please try again.');
+                  btn.disabled = false;
+                  btn.textContent = 'Save Changes';
+                });
               };
 
               // ── Unlink / Reassign Property ───────────────────────
