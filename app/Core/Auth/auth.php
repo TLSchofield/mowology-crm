@@ -199,7 +199,7 @@ function purgeExpiredLoginAttempts(): int {
 
 // -------------------- Login / Logout --------------------
 
-function loginUser(string $email, string $password): bool {
+function loginUser(string $email, string $password, bool &$isDriver = false): bool {
     $db = getDB();
 
     $rawInput = $email;
@@ -281,6 +281,9 @@ function loginUser(string $email, string $password): bool {
             $_SESSION['user_is_driver']  = !empty($user['is_driver']);
             $_SESSION['login_time']      = time();
             $_SESSION['last_activity']   = time();
+
+            // Capture driver flag NOW before session_write_close() clears $_SESSION.
+            $isDriver = !empty($user['is_driver']);
 
             // Release the session file lock now — all session writes are done.
             // Without this the lock is held through the DB calls below, and the
@@ -373,6 +376,45 @@ function verifyCSRFToken(string $token): bool {
     return isset($_SESSION['csrf_token'])
         && is_string($_SESSION['csrf_token'])
         && hash_equals($_SESSION['csrf_token'], $token);
+}
+
+/**
+ * Stateless login-form CSRF — no session cookie required.
+ *
+ * Needed because the Capacitor Android WebView sometimes does not send the
+ * session cookie on the very first POST (cookie-store flush race), causing the
+ * standard session-based CSRF check to fail and force a re-attempt.
+ *
+ * The secret is derived from stable server-specific values so it is
+ * effectively per-installation without needing a dedicated secrets.php entry.
+ * Token is valid for the current and previous 5-minute window (up to 10 min).
+ */
+function _loginCSRFSecret(): string {
+    // session_save_path() and session_name() are set in session_config.php before
+    // this function is ever called, so they are stable across requests.
+    static $secret = null;
+    if ($secret === null) {
+        $secret = hash('sha256', session_save_path() . ':' . session_name() . ':mow-login-csrf-v1', true);
+    }
+    return $secret;
+}
+
+function generateLoginCSRFToken(): string {
+    $window = (int)floor(time() / 300);
+    return base64_encode(hash_hmac('sha256', 'login:' . $window, _loginCSRFSecret(), true));
+}
+
+function verifyLoginCSRFToken(string $token): bool {
+    if (empty($token)) return false;
+    $secret = _loginCSRFSecret();
+    $now    = (int)floor(time() / 300);
+    foreach ([$now, $now - 1] as $window) {
+        $expected = base64_encode(hash_hmac('sha256', 'login:' . $window, $secret, true));
+        if (hash_equals($expected, $token)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 // -------------------- RBAC authorization (permissions) --------------------

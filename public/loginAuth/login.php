@@ -16,7 +16,11 @@ $error = '';
 
 // Handle login form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (isset($_POST['csrf_token']) && verifyCSRFToken($_POST['csrf_token'])) {
+    // Use stateless HMAC CSRF for the login form — standard session-based CSRF
+    // requires the session cookie to be sent on the first POST, which the
+    // Capacitor Android WebView sometimes fails to do (cookie-store flush race).
+    // The stateless token is valid for up to 10 minutes and needs no session.
+    if (isset($_POST['csrf_token']) && verifyLoginCSRFToken($_POST['csrf_token'])) {
         $email = trim($_POST['email'] ?? '');
         $password = $_POST['password'] ?? '';
 
@@ -30,8 +34,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif (isLoginRateLimited($email)) {
             $error = 'Too many login attempts. Please try again in a few minutes.';
         } else {
-            if (loginUser($email, $password)) {
-                $dest = !empty($_SESSION['user_is_driver']) ? '/crm/driver-portal.php' : '/crm/app-launch.php';
+            $isDriver = false;
+            if (loginUser($email, $password, $isDriver)) {
+                // Use the $isDriver flag captured by loginUser() before session_write_close()
+                // cleared $_SESSION — reading $_SESSION here would always return empty.
+                $dest = $isDriver ? '/crm/driver-portal.php' : '/crm/app-launch.php';
                 header('Location: ' . $dest);
                 exit();
             } else {
@@ -43,7 +50,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$csrf_token = generateCSRFToken();
+$csrf_token = generateLoginCSRFToken();
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -601,29 +608,26 @@ $csrf_token = generateCSRFToken();
         });
     }
 
-    // ── Capacitor autofill defence ──────────────────────────────────────────
-    // Samsung Pass / Android WebView autofill silently fills the password field
-    // with a stored (possibly wrong) value. Clear it after 600 ms so the user
-    // always types their password intentionally. This only fires in the native
-    // Capacitor app — desktop browser autofill is left alone.
-    var isNative = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
-    if (isNative && pwField) {
-        setTimeout(function () {
-            pwField.value = '';
-            pwField.placeholder = 'Type your password';
-        }, 600);
-    }
-
     // ── Guard against phantom short-password submits ────────────────────────
     // Android autofill can trigger form submission before the password field
     // is fully populated, sending pwLen=1 attempts. Block any submit where
-    // the password is fewer than 4 characters.
+    // the password is fewer than 4 characters, and show a visible error so the
+    // user knows what happened.
     var form = document.querySelector('form');
+    var shortPwError = null;
     if (form && pwField) {
         form.addEventListener('submit', function (e) {
             if (pwField.value.length < 4) {
                 e.preventDefault();
                 e.stopImmediatePropagation();
+                // Show visible feedback instead of silently blocking.
+                if (!shortPwError) {
+                    shortPwError = document.createElement('div');
+                    shortPwError.className = 'error-message';
+                    shortPwError.style.marginBottom = '16px';
+                    form.insertBefore(shortPwError, form.querySelector('.form-group'));
+                }
+                shortPwError.textContent = 'Please enter your password.';
                 pwField.value = '';
                 pwField.focus();
             }
