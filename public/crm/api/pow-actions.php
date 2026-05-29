@@ -110,7 +110,7 @@ try {
             }
         }
 
-        // Fetch all completable visits for this stop
+        // Fetch all completable visits for this stop (matched by stop_id)
         $vsStmt = $db->prepare("
             SELECT jv.id AS visit_id, jv.plan_id, jv.assigned_crew_id,
                    jv.invoice_id,
@@ -128,6 +128,39 @@ try {
         ");
         $vsStmt->execute([$stopId]);
         $completableVisits = $vsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Fallback: if no visits found by stop_id (e.g. crew reassignment created a new stop
+        // but the visit is still linked to the old stop), find visits for the same
+        // property + date regardless of stop_id linkage.
+        if (empty($completableVisits)) {
+            $fbStmt = $db->prepare("
+                SELECT jv.id AS visit_id, jv.plan_id, jv.assigned_crew_id,
+                       jv.invoice_id,
+                       jp.price_per_visit, jp.title AS plan_title, jp.service_type,
+                       p.address AS service_address, p.city AS service_city,
+                       p.province AS service_province, p.postal_code AS service_postal,
+                       p.id AS property_id, ct.id AS contact_id,
+                       CONCAT(ct.first_name, ' ', ct.last_name) AS contact_name
+                FROM job_visits jv
+                JOIN job_plans jp ON jv.plan_id = jp.id
+                JOIN properties p ON jp.property_id = p.id
+                LEFT JOIN contacts ct ON p.site_contact_id = ct.id
+                WHERE jp.property_id = (SELECT property_id FROM calendar_stops WHERE id = ?)
+                  AND jv.scheduled_date = (SELECT stop_date FROM calendar_stops WHERE id = ?)
+                  AND jv.status IN ('scheduled','in_progress','skipped')
+                  AND jv.invoice_id IS NULL
+            ");
+            $fbStmt->execute([$stopId, $stopId]);
+            $completableVisits = $fbStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Re-link the found visits to this stop so future lookups work correctly
+            if (!empty($completableVisits)) {
+                $relinkStmt = $db->prepare("UPDATE job_visits SET stop_id = ? WHERE id = ?");
+                foreach ($completableVisits as $cv) {
+                    $relinkStmt->execute([$stopId, (int)$cv['visit_id']]);
+                }
+            }
+        }
 
         if (empty($completableVisits)) {
             echo json_encode(['success' => false, 'error' => 'No completable visits found for this stop.']);
