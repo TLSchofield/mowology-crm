@@ -84,23 +84,21 @@ try {
         exit;
     }
 
-    // Home-geofence filter: drop idle heartbeats from inside user's home radius
-    // unless they have an active visit. Pings with an explicit visit_id (i.e. an
-    // active job) bypass the filter — the visit could be at the home address.
+    // Office classification: a home-geofence heartbeat with no active job (no
+    // visit_id) is kept but flagged is_office=1 so route tracing can exclude it.
+    // A ping with a visit_id is an active job → always route.
+    $isOffice = 0;
     if ($visitId === null) {
         $geofence = new GeofenceService($db);
-        if ($geofence->shouldSuppressHomePing($userId, $lat, $lng)) {
-            echo json_encode(['success' => true, 'skipped' => true, 'reason' => 'home_geofence']);
-            exit;
-        }
+        $isOffice = $geofence->isOfficePing($userId, $lat, $lng) ? 1 : 0;
     }
 
     // Store the ping
     $stmt = $db->prepare("
-        INSERT INTO crew_location_history (crew_id, latitude, longitude, accuracy_meters, visit_id, timestamp)
-        VALUES (?, ?, ?, ?, ?, NOW())
+        INSERT INTO crew_location_history (crew_id, latitude, longitude, accuracy_meters, visit_id, is_office, timestamp)
+        VALUES (?, ?, ?, ?, ?, ?, NOW())
     ");
-    $stmt->execute([$userId, $lat, $lng, (int)round($accuracy), $visitId ?: null]);
+    $stmt->execute([$userId, $lat, $lng, (int)round($accuracy), $visitId ?: null, $isOffice]);
     $insertId = (int)$db->lastInsertId();
 
     // Proximity auto-start — uses existing CRM logic, session-free via $preloadedVisits.

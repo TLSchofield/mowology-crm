@@ -104,16 +104,18 @@ function syncLocationPoints(PDO $db, array $user, array $points): array
     // a single batch are typically minutes apart, so a per-batch active-visit
     // snapshot is accurate enough; the alternative (recheck per point) costs
     // ~100x more queries for the common forgetting-at-home case.
-    $geofence    = new GeofenceService($db);
-    $home        = $geofence->getHomeLocation($userId);
-    $hasVisit    = $home !== null ? $geofence->hasActiveVisit($userId) : false;
-    $suppressNow = $home !== null && !$hasVisit;
+    $geofence  = new GeofenceService($db);
+    $home      = $geofence->getHomeLocation($userId);
+    $hasVisit  = $home !== null ? $geofence->hasActiveVisit($userId) : false;
+    // Office-eligible: a home is set and no job is in progress. Per-point we then
+    // check the radius and flag is_office (kept, not dropped).
+    $officeEligible = $home !== null && !$hasVisit;
 
     // Prepare insert statement
     $stmt = $db->prepare("
         INSERT INTO crew_location_history
-            (crew_id, latitude, longitude, accuracy_meters, visit_id, timestamp)
-        VALUES (?, ?, ?, ?, NULL, ?)
+            (crew_id, latitude, longitude, accuracy_meters, visit_id, is_office, timestamp)
+        VALUES (?, ?, ?, ?, NULL, ?, ?)
     ");
 
     // Prepare dedup check — check if point already exists within 1 second
@@ -136,13 +138,13 @@ function syncLocationPoints(PDO $db, array $user, array $points): array
             continue;
         }
 
-        // Home-geofence suppression — drop idle heartbeats from inside the
-        // user's home radius when no visit is active.
-        if ($suppressNow) {
+        // Office classification — a home-radius heartbeat with no active job is
+        // kept but flagged is_office=1 so route tracing can exclude it.
+        $isOffice = 0;
+        if ($officeEligible) {
             $dist = GeofenceService::distanceMeters($lat, $lng, $home['lat'], $home['lng']);
             if ($dist <= $home['radius_m']) {
-                $skipped++;
-                continue;
+                $isOffice = 1;
             }
         }
 
@@ -157,7 +159,7 @@ function syncLocationPoints(PDO $db, array $user, array $points): array
         }
 
         // Insert
-        $stmt->execute([$userId, $lat, $lng, $accuracy, $mysqlTimestamp]);
+        $stmt->execute([$userId, $lat, $lng, $accuracy, $isOffice, $mysqlTimestamp]);
         $inserted++;
     }
 

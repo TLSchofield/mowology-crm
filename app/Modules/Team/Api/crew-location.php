@@ -232,21 +232,18 @@ try {
             exit;
         }
 
-        // Home-geofence filter: drop idle heartbeats from inside user's home radius
-        // unless they have an active visit (clock-in pings come from clockIn() and
-        // bypass this endpoint entirely, so they're never dropped).
+        // Office classification: a home-geofence heartbeat with no active job is
+        // kept but flagged is_office=1 so route-tracing can exclude it (the marker
+        // shows separately). A job in progress counts as route work.
         $geofence = new GeofenceService($db);
-        if ($geofence->shouldSuppressHomePing((int)$user['id'], $lat, $lng)) {
-            echo json_encode(['success' => true, 'skipped' => true, 'reason' => 'home_geofence']);
-            exit;
-        }
+        $isOffice = $geofence->isOfficePing((int)$user['id'], $lat, $lng) ? 1 : 0;
 
         // Insert location — MySQL NOW() is Pacific (session TZ set in Database::pdo()).
         $stmt = $db->prepare("
-            INSERT INTO crew_location_history (crew_id, latitude, longitude, accuracy_meters, visit_id, timestamp)
-            VALUES (?, ?, ?, ?, NULL, NOW())
+            INSERT INTO crew_location_history (crew_id, latitude, longitude, accuracy_meters, visit_id, is_office, timestamp)
+            VALUES (?, ?, ?, ?, NULL, ?, NOW())
         ");
-        $stmt->execute([$user['id'], $lat, $lng, $accuracy]);
+        $stmt->execute([$user['id'], $lat, $lng, $accuracy, $isOffice]);
         $insertId = (int)$db->lastInsertId();
 
         // Proximity auto-start check (skip for stale offline-queued pings)

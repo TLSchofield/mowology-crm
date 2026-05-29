@@ -71,26 +71,13 @@ class GeofenceService
         return (bool)$stmt->fetchColumn();
     }
 
-    public function isClockedIn(int $userId): bool
-    {
-        $stmt = $this->db->prepare(
-            "SELECT 1
-               FROM time_clock_entries
-              WHERE user_id = ?
-                AND status = 'active'
-                AND clock_out IS NULL
-              LIMIT 1"
-        );
-        $stmt->execute([$userId]);
-        return (bool)$stmt->fetchColumn();
-    }
-
     /**
-     * True when this ping is an idle OFF-SHIFT heartbeat from inside the user's
-     * home geofence — i.e. safe to drop. A clocked-in worker is always tracked
-     * (even at home), and an active visit also keeps the ping.
+     * True when this ping is a home-geofence heartbeat with no active job —
+     * i.e. "office" presence. Such pings are KEPT (not dropped) but flagged so
+     * route-tracing can exclude them from the travel polyline. When a job is in
+     * progress the ping counts as route work (a job at the property), so false.
      */
-    public function shouldSuppressHomePing(int $userId, float $lat, float $lng): bool
+    public function isOfficePing(int $userId, float $lat, float $lng): bool
     {
         $home = $this->getHomeLocation($userId);
         if ($home === null) {
@@ -102,12 +89,7 @@ class GeofenceService
             return false;
         }
 
-        // On shift → keep the ping (worker is working, even if from home).
-        if ($this->isClockedIn($userId)) {
-            return false;
-        }
-
-        // Off shift but a job is somehow in progress → keep.
+        // A job in progress → route ping (e.g. a job at the home property).
         return !$this->hasActiveVisit($userId);
     }
 }
