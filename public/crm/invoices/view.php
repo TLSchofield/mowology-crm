@@ -150,6 +150,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         $stmt->execute([$invoiceId]);
         $recipients = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+        // Fallback: manually-created invoices may have no invoice_contacts rows at all.
+        // Rather than fail with "No valid recipients", send to the invoice's own Bill To
+        // contact and persist it as a recipient row so tracking/resends work afterward.
+        $hasEmail = false;
+        foreach ($recipients as $r) { if (!empty($r['email_address'])) { $hasEmail = true; break; } }
+        if (!$hasEmail && !empty($invoice['contact_email'])) {
+            $newRid = null;
+            if (!empty($invoice['contact_id'])) {
+                try {
+                    $db->prepare("
+                        INSERT INTO invoice_contacts (invoice_id, contact_id, contact_role, email_address)
+                        VALUES (?, ?, 'primary_recipient', ?)
+                    ")->execute([$invoiceId, (int)$invoice['contact_id'], $invoice['contact_email']]);
+                    $newRid = (int)$db->lastInsertId();
+                } catch (Throwable $e) {
+                    error_log("Invoice {$invoiceId} recipient fallback insert failed: " . $e->getMessage());
+                }
+            }
+            $recipients[] = [
+                'id'            => $newRid ?: 0,
+                'contact_id'    => $invoice['contact_id'] ?? null,
+                'email_address' => $invoice['contact_email'],
+                'contact_role'  => 'primary_recipient',
+                'first_name'    => $invoice['contact_first'] ?? '',
+                'last_name'     => $invoice['contact_last'] ?? '',
+                'receive_sms'   => 0,
+                'sms_phone'     => null,
+            ];
+        }
+
         // Generate PDF once (used for all recipients).
         // We always regenerate on send so the PDF reflects the latest invoice state
         // (line items, totals, bill-to) — caching stale PDFs confuses customers.
