@@ -3949,7 +3949,7 @@ $unconvertedRequests = $db->query("
                     <input type="hidden" id="editPropId" value="">
                     <div class="form-group">
                       <label class="form-label font-weight-600">Street Address <span class="text-danger">*</span></label>
-                      <input type="text" id="editPropAddress" class="form-control" placeholder="e.g. 1690 West 63rd Avenue" required>
+                      <input type="text" id="editPropAddress" class="form-control" placeholder="Start typing an address..." autocomplete="off" required>
                     </div>
                     <div class="form-row">
                       <div class="form-group col-7">
@@ -6788,6 +6788,8 @@ $unconvertedRequests = $db->query("
               initAddressAutocomplete('billingAddress', 'billingCity', 'billingPostalCode', 'billingProvince', null, null);
               // For Add Property modal
               initAddressAutocomplete('propAddress', 'propCity', 'propPostalCode', null, null, null);
+              // For Edit Property modal
+              initAddressAutocomplete('editPropAddress', 'editPropCity', 'editPropPostal', 'editPropProvince', null, null);
 
               // Company link toggle
               const linkToggle = document.getElementById('linkCompanyToggle');
