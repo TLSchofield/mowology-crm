@@ -10036,7 +10036,7 @@ a.mw-clock-timer-nav:hover {
   background:none;
   border:none;
   color:#94a3b8;
-  padding:4px;
+  padding:6px 7px;
   cursor:pointer;
   border-radius:4px;
   transition:color 0.2s ease;
@@ -10047,13 +10047,24 @@ a.mw-clock-timer-nav:hover {
   background:none;
   border:none;
   color:#94a3b8;
-  padding:4px;
+  padding:6px 7px;
   cursor:pointer;
   border-radius:4px;
   transition:color 0.2s ease;
   line-height:1;
 }
 .mw-property-edit-btn:hover { color:#2563eb; }
+/* Larger icon buttons in property card headers on desktop */
+.mw-lifecycle-prop-header .mw-icon-xs,
+.mw-lifecycle-tabbed-header .mw-icon-xs {
+  width: 16px !important;
+  height: 16px !important;
+}
+.mw-lifecycle-prop-header .btn-outline-secondary.mr-1,
+.mw-lifecycle-tabbed-header .btn-outline-secondary.mr-1 {
+  padding: 4px 7px;
+  font-size: .8rem;
+}
 .mw-contact-property-addr {
   font-weight:600;
   font-size:.9rem;
