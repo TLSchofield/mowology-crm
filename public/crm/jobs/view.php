@@ -1537,6 +1537,11 @@ if ($hasPropCoords) {
                                                             Mark Completed
                                                         </button>
                                                     </form>
+                                                    <button type="button" class="btn btn-sm btn-outline-danger ml-1"
+                                                            onclick="openDeleteVisitModal(<?php echo (int)$visit['id']; ?>, '<?php echo htmlspecialchars($visit['visit_number'], ENT_QUOTES); ?>')"
+                                                            title="Delete this visit">
+                                                        <i data-feather="trash-2" style="width: 12px; height: 12px;"></i>
+                                                    </button>
                                                     <?php endif; ?>
                                                 <?php elseif ($visit['status'] === 'weather'): ?>
                                                     <span class="text-muted small">Weather</span>
