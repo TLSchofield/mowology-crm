@@ -2098,10 +2098,32 @@ if ($hasPropCoords) {
                 <input type="hidden" name="action" value="skip_visit">
                 <input type="hidden" name="visit_id" id="skipVisitId" value="">
 
+                <div class="form-group mb-2">
+                    <label class="form-label">Quick reason</label>
+                    <div id="skipReasonChips" style="display:flex;flex-wrap:wrap;gap:6px;">
+                        <?php foreach ([
+                            'No growth',
+                            'Street closed',
+                            'Customer request',
+                            'Weather',
+                            'Gate locked',
+                            'Dog in yard',
+                            'Property inaccessible',
+                            'Duplicate visit',
+                        ] as $chip): ?>
+                        <button type="button" class="btn btn-sm btn-outline-secondary mw-skip-chip"
+                                data-reason="<?php echo htmlspecialchars($chip); ?>"
+                                onclick="selectSkipChip(this)">
+                            <?php echo htmlspecialchars($chip); ?>
+                        </button>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+
                 <div class="form-group">
-                    <label class="form-label">Reason (optional)</label>
-                    <textarea name="skip_reason" class="form-control" rows="2"
-                              placeholder="Why is this visit being skipped?"></textarea>
+                    <label class="form-label">Notes <small class="text-muted">(optional — adds detail to the reason above)</small></label>
+                    <textarea id="skipReasonText" name="skip_reason" class="form-control" rows="2"
+                              placeholder="Any additional context…"></textarea>
                 </div>
 
                 <div class="mw-modal-actions">
@@ -2754,9 +2776,46 @@ if ($hasPropCoords) {
             showModal('markCompletedModal');
         }
 
+        function selectSkipChip(btn) {
+            // Toggle selection; prepend the chip reason to the textarea
+            var chips = document.querySelectorAll('.mw-skip-chip');
+            var textarea = document.getElementById('skipReasonText');
+            var wasActive = btn.classList.contains('mw-skip-chip-active');
+
+            // Deselect all chips
+            chips.forEach(function(c) {
+                c.classList.remove('mw-skip-chip-active', 'btn-secondary');
+                c.classList.add('btn-outline-secondary');
+            });
+
+            // Remove any previously selected chip prefix from textarea
+            var curVal = textarea.value;
+            chips.forEach(function(c) {
+                var prefix = c.dataset.reason + ': ';
+                var prefixPlain = c.dataset.reason;
+                if (curVal.startsWith(prefix)) curVal = curVal.slice(prefix.length).trim();
+                else if (curVal === prefixPlain) curVal = '';
+            });
+
+            if (!wasActive) {
+                btn.classList.add('mw-skip-chip-active', 'btn-secondary');
+                btn.classList.remove('btn-outline-secondary');
+                // Prepend chip label so the stored reason starts with it
+                textarea.value = btn.dataset.reason + (curVal ? ': ' + curVal : '');
+            } else {
+                textarea.value = curVal;
+            }
+        }
+
         function openSkipModal(visitId, visitNumber) {
             document.getElementById('skipVisitId').value = visitId;
             document.getElementById('skipVisitNumber').textContent = visitNumber;
+            // Reset chips and textarea each time the modal opens
+            document.querySelectorAll('.mw-skip-chip').forEach(function(c) {
+                c.classList.remove('mw-skip-chip-active', 'btn-secondary');
+                c.classList.add('btn-outline-secondary');
+            });
+            document.getElementById('skipReasonText').value = '';
             showModal('skipModal');
         }
 

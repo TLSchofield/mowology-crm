@@ -10054,6 +10054,9 @@ a.mw-clock-timer-nav:hover {
   line-height:1;
 }
 .mw-property-edit-btn:hover { color:#2563eb; }
+/* Skip visit reason chips */
+.mw-skip-chip { transition: background 0.15s, color 0.15s, border-color 0.15s; }
+.mw-skip-chip-active { background: #4B5563 !important; color: #fff !important; border-color: #4B5563 !important; }
 /* Property card header action buttons — labelled on desktop, icon-only on mobile */
 .mw-prop-hdr-btn {
   display: inline-flex;
