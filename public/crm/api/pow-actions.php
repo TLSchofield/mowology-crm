@@ -135,7 +135,7 @@ try {
         if (empty($completableVisits)) {
             $fbStmt = $db->prepare("
                 SELECT jv.id AS visit_id, jv.plan_id, jv.assigned_crew_id,
-                       jv.invoice_id,
+                       jv.invoice_id, jv.stop_id AS stop_id_old,
                        jp.price_per_visit, jp.title AS plan_title, jp.service_type,
                        p.address AS service_address, p.city AS service_city,
                        p.province AS service_province, p.postal_code AS service_postal,
@@ -153,11 +153,23 @@ try {
             $fbStmt->execute([$stopId, $stopId]);
             $completableVisits = $fbStmt->fetchAll(PDO::FETCH_ASSOC);
 
-            // Re-link the found visits to this stop so future lookups work correctly
+            // Re-link the found visits to this stop and retire orphaned old stops
             if (!empty($completableVisits)) {
+                $oldStopIds = [];
                 $relinkStmt = $db->prepare("UPDATE job_visits SET stop_id = ? WHERE id = ?");
                 foreach ($completableVisits as $cv) {
+                    // Collect the old stop_id before overwriting it
+                    if (!empty($cv['stop_id_old'])) {
+                        $oldStopIds[] = (int)$cv['stop_id_old'];
+                    }
                     $relinkStmt->execute([$stopId, (int)$cv['visit_id']]);
+                }
+                // Mark any orphaned stops (ones the visits were moved FROM) as completed
+                // so they stop showing as green/pending on the schedule
+                if (!empty($oldStopIds)) {
+                    $ph = implode(',', array_fill(0, count($oldStopIds), '?'));
+                    $db->prepare("UPDATE calendar_stops SET status = 'completed', updated_at = NOW() WHERE id IN ($ph) AND status = 'scheduled'")
+                       ->execute($oldStopIds);
                 }
             }
         }

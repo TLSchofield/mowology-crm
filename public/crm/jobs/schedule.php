@@ -845,7 +845,8 @@ if ($view === 'day') {
             'assigned'    => $isAssigned,
             'crewNames'   => !empty($stop['crew_names']) ? $stop['crew_names'] : ($stop['crew_name'] ? [$stop['crew_name']] : []),
             'status'      => $stop['stop_status'] ?? 'scheduled',
-            'isInvoiced'  => !empty($stop['visits']) && array_reduce($stop['visits'], fn($carry, $v) => $carry || !empty($v['invoice_id']), false),
+            'isInvoiced'  => empty($stop['visits']) /* orphaned stop → treat as done */
+                          || array_reduce($stop['visits'], fn($carry, $v) => $carry || !empty($v['invoice_id']), false),
         ];
     }
 }
@@ -2209,7 +2210,12 @@ if ($apiKey) {
                                   break;
                               }
                           }
-                          $dvStopDone = ($stop['stop_status'] ?? 'scheduled') === 'completed' || $dvInvoiceId > 0;
+                          // A stop with no linked visits has been orphaned (crew reassignment moved
+                          // the visit to a new stop). Treat it as done so it doesn't show green.
+                          $dvHasVisits = !empty($stop['visits']);
+                          $dvStopDone  = !$dvHasVisits
+                                      || ($stop['stop_status'] ?? 'scheduled') === 'completed'
+                                      || $dvInvoiceId > 0;
                           // Pricing model check applies to both done + pending states.
                           $dvPerVisit = true;
                           foreach ($stop['visits'] ?? [] as $_v) {
@@ -2349,7 +2355,10 @@ if ($apiKey) {
                                   break;
                               }
                           }
-                          $dvStopDone = ($stop['stop_status'] ?? 'scheduled') === 'completed' || $dvInvoiceId > 0;
+                          $dvHasVisits2 = !empty($stop['visits']);
+                          $dvStopDone   = !$dvHasVisits2
+                                       || ($stop['stop_status'] ?? 'scheduled') === 'completed'
+                                       || $dvInvoiceId > 0;
                           // Pricing model check for done + pending states.
                           $dvPerVisit2 = true;
                           foreach ($stop['visits'] ?? [] as $_v) {
