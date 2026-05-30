@@ -700,6 +700,47 @@ if (!empty($visits)) {
 // Get plan line items
 $planLineItems = getPlanLineItems($planId);
 
+// ── GPS Conflict Detection ───────────────────────────────────────────────────
+// For each past-scheduled visit, check whether GPS pings exist near the
+// property on that date. If so, the crew was likely there but didn't record
+// the visit — flag it as a GPS conflict.
+$gpsConflictDates = [];
+$propLat = (float)($plan['latitude']  ?? 0);
+$propLng = (float)($plan['longitude'] ?? 0);
+if ($propLat && $propLng) {
+    // Collect dates of past scheduled visits
+    $today = date('Y-m-d');
+    $pastScheduledDates = [];
+    foreach ($visits as $v) {
+        if ($v['status'] === 'scheduled' && !empty($v['scheduled_date']) && $v['scheduled_date'] < $today) {
+            $pastScheduledDates[] = $v['scheduled_date'];
+        }
+    }
+
+    if (!empty($pastScheduledDates)) {
+        // ~200 m bounding box
+        $latDelta = 0.0018;
+        $lngDelta = $propLng != 0 ? (0.0018 / max(0.001, cos(deg2rad($propLat)))) : 0.0018;
+
+        $ph = implode(',', array_fill(0, count($pastScheduledDates), '?'));
+        $gpsStmt = $db->prepare("
+            SELECT DISTINCT DATE(timestamp) AS ping_date
+            FROM crew_location_history
+            WHERE latitude  BETWEEN ? AND ?
+              AND longitude BETWEEN ? AND ?
+              AND DATE(timestamp) IN ($ph)
+        ");
+        $params = array_merge([
+            $propLat - $latDelta, $propLat + $latDelta,
+            $propLng - $lngDelta, $propLng + $lngDelta,
+        ], $pastScheduledDates);
+        $gpsStmt->execute($params);
+        foreach ($gpsStmt->fetchAll(PDO::FETCH_COLUMN) as $pingDate) {
+            $gpsConflictDates[$pingDate] = true;
+        }
+    }
+}
+
 // Count completed visits with actual timer data (used to label the averaged duration estimate)
 $durAvgCountStmt = $db->prepare("
     SELECT COUNT(DISTINCT jv.id)
@@ -1406,11 +1447,30 @@ if ($hasPropCoords) {
                     }
                 }
                 ?>
-                <?php if ($overdueCount > 0): ?>
+                <?php
+                $gpsConflictCount = 0;
+                foreach ($visits as $v) {
+                    if ($v['status'] === 'scheduled' && !empty($v['scheduled_date'])
+                        && $v['scheduled_date'] < $today && !empty($gpsConflictDates[$v['scheduled_date']])) {
+                        $gpsConflictCount++;
+                    }
+                }
+                ?>
+                <?php if ($gpsConflictCount > 0): ?>
+                <div class="alert alert-danger mb-0 rounded-0 border-left-0 border-right-0 d-flex align-items-center" style="border-radius:0!important;">
+                    <i data-feather="alert-octagon" style="width:16px;height:16px;margin-right:8px;flex-shrink:0;color:#dc3545;"></i>
+                    <span>
+                        <strong><?php echo $gpsConflictCount; ?> GPS conflict<?php echo $gpsConflictCount !== 1 ? 's' : ''; ?></strong>
+                        — GPS shows the crew stopped at this property on <?php echo $gpsConflictCount !== 1 ? 'these dates' : 'this date'; ?> but the visit<?php echo $gpsConflictCount !== 1 ? 's were' : ' was'; ?> never recorded.
+                        Use <strong>+ Log Past Visit</strong> to add the missing record.
+                    </span>
+                </div>
+                <?php endif; ?>
+                <?php if ($overdueCount > $gpsConflictCount): ?>
                 <div class="alert alert-warning mb-0 rounded-0 border-left-0 border-right-0 d-flex align-items-center" style="border-radius:0!important;">
                     <i data-feather="alert-triangle" style="width:16px;height:16px;margin-right:8px;flex-shrink:0;"></i>
                     <span>
-                        <strong><?php echo $overdueCount; ?> past-due visit<?php echo $overdueCount !== 1 ? 's' : ''; ?></strong>
+                        <strong><?php echo ($overdueCount - $gpsConflictCount); ?> past-due visit<?php echo ($overdueCount - $gpsConflictCount) !== 1 ? 's' : ''; ?></strong>
                         — scheduled but not yet recorded.
                         Use <strong>Start</strong> to complete them or <strong>+ Log Past Visit</strong> if they were done but not tracked.
                     </span>
@@ -1491,7 +1551,15 @@ if ($hasPropCoords) {
                                                 <?php else: ?>
                                                     <?php echo getStatusBadge($visit['status'], 'visit'); ?>
                                                     <?php if ($visit['status'] === 'scheduled' && !empty($visit['scheduled_date']) && $visit['scheduled_date'] < $today): ?>
-                                                        <span class="badge badge-warning ml-1" title="This visit is past its scheduled date and has not been recorded">Overdue</span>
+                                                        <?php if (!empty($gpsConflictDates[$visit['scheduled_date']])): ?>
+                                                            <span class="badge badge-danger ml-1"
+                                                                  title="GPS shows the crew stopped near this property on <?php echo htmlspecialchars($visit['scheduled_date']); ?> but the visit was never recorded">
+                                                                <i data-feather="map-pin" style="width:10px;height:10px;vertical-align:middle;"></i>
+                                                                GPS Conflict
+                                                            </span>
+                                                        <?php else: ?>
+                                                            <span class="badge badge-warning ml-1" title="This visit is past its scheduled date and has not been recorded">Overdue</span>
+                                                        <?php endif; ?>
                                                     <?php endif; ?>
                                                 <?php endif; ?>
                                                 <?php if ($visit['photo_count'] > 0): ?>
