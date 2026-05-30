@@ -398,29 +398,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         $messageType = 'error';
     }
 
-    // Delete a scheduled visit (only if no time entries, not completed/in_progress)
+    // Delete a visit — scheduled/skipped/weather: no time entries allowed.
+    // Completed (admin only): allowed if the linked invoice is not paid.
     if ($action === 'delete_visit') {
         requirePermission('jobs.edit');
         $delVisitId = intval($_POST['del_visit_id'] ?? 0);
         if ($delVisitId) {
-            // Verify visit belongs to this plan and is in a deletable state
             $vChk = $db->prepare("
-                SELECT id, status FROM job_visits
-                WHERE id = ? AND plan_id = ? AND status IN ('scheduled', 'skipped', 'weather')
+                SELECT jv.id, jv.status, jv.invoice_id,
+                       COALESCE(i.status, '') AS inv_status
+                FROM job_visits jv
+                LEFT JOIN invoices i ON i.id = jv.invoice_id
+                WHERE jv.id = ? AND jv.plan_id = ?
+                  AND jv.status IN ('scheduled','skipped','weather','completed')
             ");
             $vChk->execute([$delVisitId, $planId]);
             $vRow = $vChk->fetch(PDO::FETCH_ASSOC);
+
             if ($vRow) {
-                // Check no time entries exist
-                $teChk = $db->prepare("SELECT COUNT(*) FROM job_time_entries WHERE visit_id = ?");
-                $teChk->execute([$delVisitId]);
-                if ((int)$teChk->fetchColumn() === 0) {
-                    $db->prepare("DELETE FROM job_visits WHERE id = ?")->execute([$delVisitId]);
-                    header("Location: view.php?id={$planId}&visit_deleted=1");
-                    exit;
-                } else {
-                    $message = 'Cannot delete a visit that has time entries. Delete the time entries first.';
+                $isCompleted = ($vRow['status'] === 'completed');
+                $invPaid     = in_array($vRow['inv_status'], ['paid', 'partial']);
+
+                if ($isCompleted && !userHasPermission('admin')) {
+                    $message = 'Only admins can delete completed visits.';
                     $messageType = 'error';
+                } elseif ($isCompleted && $invPaid) {
+                    $message = 'Cannot delete a completed visit whose invoice has been paid. Void the invoice first.';
+                    $messageType = 'error';
+                } else {
+                    // For non-completed visits: block if time entries exist
+                    $teChk = $db->prepare("SELECT COUNT(*) FROM job_time_entries WHERE visit_id = ?");
+                    $teChk->execute([$delVisitId]);
+                    if (!$isCompleted && (int)$teChk->fetchColumn() > 0) {
+                        $message = 'Cannot delete a visit that has time entries. Delete the time entries first.';
+                        $messageType = 'error';
+                    } else {
+                        // Void the linked invoice if unpaid (set status to cancelled)
+                        if (!empty($vRow['invoice_id']) && !$invPaid) {
+                            $db->prepare("UPDATE invoices SET status = 'cancelled' WHERE id = ?")
+                               ->execute([$vRow['invoice_id']]);
+                        }
+                        $db->prepare("DELETE FROM job_visits WHERE id = ?")->execute([$delVisitId]);
+                        header("Location: view.php?id={$planId}&visit_deleted=1");
+                        exit;
+                    }
                 }
             } else {
                 $message = 'Visit cannot be deleted (wrong status or plan).';
@@ -1520,6 +1541,13 @@ if ($hasPropCoords) {
                                                             <i data-feather="file-text" style="width:12px;height:12px;"></i>
                                                             Invoiced
                                                         </a>
+                                                    <?php endif; ?>
+                                                    <?php if (userHasPermission('admin')): ?>
+                                                        <button type="button" class="btn btn-sm btn-outline-danger ml-1"
+                                                                onclick="openDeleteVisitModal(<?php echo (int)$visit['id']; ?>, '<?php echo htmlspecialchars($visit['visit_number'], ENT_QUOTES); ?>')"
+                                                                title="Delete completed visit (admin)">
+                                                            <i data-feather="trash-2" style="width: 12px; height: 12px;"></i>
+                                                        </button>
                                                     <?php endif; ?>
                                                 <?php elseif ($visit['status'] === 'skipped'): ?>
                                                     <span class="text-muted small mr-2">Skipped</span>

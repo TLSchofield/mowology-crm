@@ -149,9 +149,26 @@ try {
                   AND jv.scheduled_date = (SELECT stop_date FROM calendar_stops WHERE id = ?)
                   AND jv.status IN ('scheduled','in_progress','skipped')
                   AND jv.invoice_id IS NULL
+                  AND jv.plan_id NOT IN (
+                      -- Skip plans that already have a completed visit today (avoid double-completing)
+                      SELECT DISTINCT plan_id FROM job_visits
+                      WHERE scheduled_date = (SELECT stop_date FROM calendar_stops WHERE id = ?)
+                        AND status = 'completed'
+                  )
+                ORDER BY jv.plan_id, jv.sequence_index ASC
             ");
-            $fbStmt->execute([$stopId, $stopId]);
-            $completableVisits = $fbStmt->fetchAll(PDO::FETCH_ASSOC);
+            $fbStmt->execute([$stopId, $stopId, $stopId]);
+            $allFbVisits = $fbStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Deduplicate: keep only ONE visit per plan (lowest sequence_index wins)
+            $seenPlans = [];
+            $completableVisits = [];
+            foreach ($allFbVisits as $fbv) {
+                if (!isset($seenPlans[(int)$fbv['plan_id']])) {
+                    $seenPlans[(int)$fbv['plan_id']] = true;
+                    $completableVisits[] = $fbv;
+                }
+            }
 
             // Re-link the found visits to this stop and retire orphaned old stops
             if (!empty($completableVisits)) {
