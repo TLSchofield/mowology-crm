@@ -25,6 +25,15 @@ $clientId = isset($_GET['id']) ? intval($_GET['id']) : 0;
 $message = '';
 $messageType = '';
 
+// Flash messages passed via GET after a redirect
+if (isset($_GET['updated'])) {
+    $message = 'Contact updated successfully!';
+    if (!empty($_GET['warn'])) {
+        $message .= ' Note: ' . htmlspecialchars($_GET['warn']) . ' contained an invalid value and was cleared.';
+    }
+    $messageType = 'success';
+}
+
 // Handle JSON requests (AJAX)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'application/json') {
     $jsonData = json_decode(file_get_contents('php://input'), true);
@@ -793,16 +802,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             ], $user['id']);
                         }
 
-                        $message = 'Contact updated successfully!';
                         // Warn if an invalid phone value was silently cleared
                         $sanitizeWarnings = [];
                         if ($rawPhone !== '' && $phone === '') $sanitizeWarnings[] = 'Phone';
                         if ($rawMobile !== '' && $mobile === '') $sanitizeWarnings[] = 'Cell / Mobile';
-                        if ($sanitizeWarnings) {
-                            $message .= ' Note: ' . implode(' and ', $sanitizeWarnings) . ' contained an invalid value and was cleared.';
-                        }
-                        $messageType = 'success';
-                        $action = null;
+                        $warningParam = $sanitizeWarnings ? '&warn=' . urlencode(implode(',', $sanitizeWarnings)) : '';
+                        header("Location: clients_appstack.php?action=view_contact&id={$contactId}&updated=1{$warningParam}");
+                        exit;
                     } catch (PDOException $e) {
                         $errorHandler->logDatabaseError($e, '', [], 'Failed to update contact.');
                         $message = 'Failed to update contact. Please try again.';
