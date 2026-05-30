@@ -174,18 +174,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         $messageType = 'error';
     }
 
-    // Restore a skipped visit and mark it completed (so it can be invoiced).
-    // For visits the system auto-skipped (rollover) but were actually serviced.
+    // Restore a skipped/cancelled visit and mark it completed (so it can be invoiced).
+    // For visits the system auto-skipped (rollover) or auto-cancelled but were actually serviced.
     if ($action === 'complete_skipped_visit') {
         requirePermission('jobs.edit');
         $visitId = intval($_POST['visit_id'] ?? 0);
-        $vChk = $db->prepare("SELECT id FROM job_visits WHERE id = ? AND plan_id = ? AND status = 'skipped'");
+        $vChk = $db->prepare("SELECT id, status FROM job_visits WHERE id = ? AND plan_id = ? AND status IN ('skipped','cancelled')");
         $vChk->execute([$visitId, $planId]);
-        if ($vChk->fetch() && updateVisitStatus($visitId, 'completed', $user['id'], 'Restored from skipped → completed')) {
+        if ($vChk->fetch() && updateVisitStatus($visitId, 'completed', $user['id'], 'Restored from skipped/cancelled → completed')) {
             header("Location: view.php?id={$planId}&visit_restored=1");
             exit;
         }
-        $message = 'Could not restore visit. It may no longer be skipped.';
+        $message = 'Could not restore visit. Check that it has not already been completed or invoiced.';
         $messageType = 'error';
     }
 
@@ -1557,14 +1557,11 @@ if ($hasPropCoords) {
                                                             title="Edit visit date/time">
                                                         <i data-feather="edit-2" style="width: 12px; height: 12px;"></i>
                                                     </button>
-                                                    <form method="POST" style="display:inline;" onsubmit="return confirm('Mark this skipped visit as completed? You can then invoice it.');">
-                                                        <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
-                                                        <input type="hidden" name="visit_id" value="<?php echo (int)$visit['id']; ?>">
-                                                        <button type="submit" name="action" value="complete_skipped_visit"
-                                                                class="btn btn-sm btn-outline-success" title="Restore this visit and mark it completed">
-                                                            Mark Completed
-                                                        </button>
-                                                    </form>
+                                                    <button type="button" class="btn btn-sm btn-outline-success"
+                                                            onclick="openMarkCompletedModal(<?php echo (int)$visit['id']; ?>, '<?php echo htmlspecialchars($visit['visit_number'], ENT_QUOTES); ?>')"
+                                                            title="Restore this visit and mark it completed">
+                                                        Mark Completed
+                                                    </button>
                                                     <button type="button" class="btn btn-sm btn-outline-danger ml-1"
                                                             onclick="openDeleteVisitModal(<?php echo (int)$visit['id']; ?>, '<?php echo htmlspecialchars($visit['visit_number'], ENT_QUOTES); ?>')"
                                                             title="Delete this visit">
@@ -2042,6 +2039,23 @@ if ($hasPropCoords) {
                 <div class="mw-modal-actions">
                     <button type="submit" class="btn btn-success">Complete Visit</button>
                     <button type="button" class="btn btn-secondary" onclick="hideModal('completeModal')">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Mark Completed Modal (for skipped/cancelled visits) -->
+    <div class="mw-modal-overlay" id="markCompletedModal">
+        <div class="mw-modal">
+            <h3 class="mw-modal-title">Mark Visit Completed</h3>
+            <p>Mark <strong id="markCompletedVisitNumber"></strong> as completed? You can then invoice it.</p>
+            <form method="POST" id="markCompletedForm">
+                <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                <input type="hidden" name="action" value="complete_skipped_visit">
+                <input type="hidden" name="visit_id" id="markCompletedVisitId" value="">
+                <div class="mw-modal-actions">
+                    <button type="submit" class="btn btn-success">Mark Completed</button>
+                    <button type="button" class="btn btn-outline-secondary" onclick="hideModal('markCompletedModal')">Cancel</button>
                 </div>
             </form>
         </div>
@@ -2704,6 +2718,12 @@ if ($hasPropCoords) {
             document.getElementById('completeVisitNumber').textContent = visitNumber;
             document.getElementById('completeActualAmount').value = defaultAmount > 0 ? defaultAmount.toFixed(2) : '';
             showModal('completeModal');
+        }
+
+        function openMarkCompletedModal(visitId, visitNumber) {
+            document.getElementById('markCompletedVisitId').value = visitId;
+            document.getElementById('markCompletedVisitNumber').textContent = visitNumber;
+            showModal('markCompletedModal');
         }
 
         function openSkipModal(visitId, visitNumber) {
