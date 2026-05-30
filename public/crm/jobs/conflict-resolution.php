@@ -235,6 +235,18 @@ if (!empty($crewPingUserIds) && $propLat && $propLng) {
 }
 $crewNearbyCount = count(array_filter($crewPings, fn($p) => $p['nearby']));
 
+// --- Crew dwell pings — filter each user's pings to ≤500 m for cluster detection ---
+// Mirrors $allTruckDwellPings structure so the same JS algorithm can analyse both sources.
+$allCrewDwellPings = []; // keyed by user_id => [ pings within 500m ]
+$crewNameMap       = []; // user_id => name
+foreach ($crewPingsByUser as $uid => $row) {
+    $nearby500 = array_values(array_filter($row['pings'], fn($p) => ($p['dist_m'] ?? 9999) <= 500));
+    if (!empty($nearby500)) {
+        $allCrewDwellPings[(int)$uid] = $nearby500;
+        $crewNameMap[(int)$uid]       = $row['name'];
+    }
+}
+
 // --- Compute dwell stats from nearby pings ---
 $nearbyPings = array_filter($truckPings, fn($p) => $p['nearby']);
 $dwellMinutes = 0;
@@ -701,8 +713,33 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
     var arrivalBorder = <?= $arrivalBorder && !empty($arrivalBorder['polygon']) ? json_encode($arrivalBorder['polygon']) : 'null' ?>;
     var allTruckDwellPings = <?= json_encode((object)$allTruckDwellPings) ?>;
     var truckNameMap = <?= json_encode((object)$truckNameMap) ?>;
+    var allCrewDwellPings = <?= json_encode((object)$allCrewDwellPings) ?>;
+    var crewNameMap = <?= json_encode((object)$crewNameMap) ?>;
     var claimedStops = <?= json_encode($claimedStops) ?>;
     var currentVisitId = <?= (int)$visitId ?>;
+
+    // Safety nets — never let "Analyzing clusters…" persist silently.
+    // (a) If the property has no coordinates, the analysis block below is skipped
+    //     entirely. Resolve the widget right now so admins see actionable copy.
+    if (!propLat || !propLng) {
+        var dwellElEarly = document.getElementById('dwellAnalysis');
+        if (dwellElEarly) {
+            dwellElEarly.innerHTML = '<div class="small text-warning">'
+                + '<strong>Property not geocoded</strong> — cannot analyse on-site dwells. '
+                + 'Use Property Configuration to add coordinates.'
+                + '</div>';
+        }
+    }
+    // (b) Hard timeout: if the analysis hasn't replaced "Analyzing clusters…" within
+    //     6 s, something threw silently — surface it.
+    setTimeout(function() {
+        var el = document.getElementById('dwellAnalysis');
+        if (el && /Analyzing clusters/.test(el.textContent)) {
+            el.innerHTML = '<div class="small text-danger">'
+                + 'Cluster analysis did not complete. Check the browser console and reload.'
+                + '</div>';
+        }
+    }, 6000);
 
     // --- Haversine (JS) for cluster detection ---
     function jsHaversine(lat1, lng1, lat2, lng2) {
@@ -932,11 +969,32 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
             for (var ci2 = 0; ci2 < clusters.length; ci2++) {
                 clusters[ci2].truckId = parseInt(tid);
                 clusters[ci2].truckName = truckNameMap[tid] || 'Truck #' + tid;
+                clusters[ci2].source = 'truck';
                 // Check if this stop is already claimed by another visit
                 var claimed = isStopClaimed(clusters[ci2]);
                 clusters[ci2].claimed = claimed ? true : false;
                 clusters[ci2].claimedVisitId = claimed ? claimed.visit_id : null;
                 allDwellClusters.push(clusters[ci2]);
+            }
+        }
+
+        // --- Dwell cluster detection from CREW phones near property ---
+        // Independent corroboration — crew phone GPS proves on-site presence
+        // even when the truck wasn't tracking (no truck assigned, device off).
+        var crewIds = Object.keys(allCrewDwellPings);
+        for (var cri = 0; cri < crewIds.length; cri++) {
+            var cuid = crewIds[cri];
+            var cPings = allCrewDwellPings[cuid];
+            var cClusters = detectDwellClusters(cPings, 50);
+            for (var cci = 0; cci < cClusters.length; cci++) {
+                cClusters[cci].truckId   = 0;
+                cClusters[cci].crewId    = parseInt(cuid);
+                cClusters[cci].truckName = crewNameMap[cuid] || 'Crew #' + cuid;
+                cClusters[cci].source    = 'crew';
+                var cClaimed = isStopClaimed(cClusters[cci]);
+                cClusters[cci].claimed         = cClaimed ? true : false;
+                cClusters[cci].claimedVisitId  = cClaimed ? cClaimed.visit_id : null;
+                allDwellClusters.push(cClusters[cci]);
             }
         }
 
@@ -976,11 +1034,20 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
         // --- Populate sidebar Dwell Stops section ---
         var dwellEl = document.getElementById('dwellAnalysis');
         var nearbyDwells = allDwellClusters.filter(function(c) { return c.distM <= 150; });
+        // Sort: truck dwells first (higher signal), then crew, then chronological within each
+        nearbyDwells.sort(function(a, b) {
+            if (a.source !== b.source) return a.source === 'truck' ? -1 : 1;
+            return a.firstEpoch - b.firstEpoch;
+        });
         if (dwellEl && nearbyDwells.length > 0) {
             var html = '';
             for (var di = 0; di < nearbyDwells.length; di++) {
                 var d = nearbyDwells[di];
+                var srcBadge = d.source === 'truck'
+                    ? '<span class="badge badge-info mr-1" title="Truck GPS">Truck</span>'
+                    : '<span class="badge badge-secondary mr-1" title="Crew phone GPS">Crew</span>';
                 html += '<div class="small mb-1">'
+                    + srcBadge
                     + '<span class="badge badge-danger mr-1">' + d.durMin + ' min</span> '
                     + d.firstTime + ' — ' + d.lastTime
                     + ' <span class="text-muted">(' + d.count + ' pings, ' + d.distM + 'm, ' + d.truckName + ')</span>'
