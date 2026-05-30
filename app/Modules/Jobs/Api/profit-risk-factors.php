@@ -250,14 +250,32 @@ try {
     }
 
     if ($laborScore >= 0.25 && $completedVisits > 0) {
-        $targetPriceLabor = ($labor / $completedVisits) / 0.45;
-        $recs[] = [
-            'key'  => 'Labour',
-            'text' => sprintf(
-                'Labour is eating into margin. To keep it under 45%%, raise price to %s/visit, or reduce average job time.',
-                '$' . number_format($targetPriceLabor, 2)
-            ),
-        ];
+        $labourPerVisit   = $labor / $completedVisits;
+        $targetPriceLabor = $labourPerVisit / 0.45;
+
+        if ($targetPriceLabor > $pricePerVisit) {
+            // Current price is too low — labour is genuinely expensive relative to revenue
+            $recs[] = [
+                'key'  => 'Labour',
+                'text' => sprintf(
+                    'Labour (%s/visit) is eating into margin. To keep it under 45%%, raise price from %s → %s/visit, or reduce average crew time.',
+                    '$' . number_format($labourPerVisit, 2),
+                    '$' . number_format($pricePerVisit, 2),
+                    '$' . number_format($targetPriceLabor, 2)
+                ),
+            ];
+        } else {
+            // Price is fine — the ratio is slightly elevated due to few completed visits or crew time
+            $recs[] = [
+                'key'  => 'Labour',
+                'text' => sprintf(
+                    'Labour is %s%% of revenue (%s/visit at %s/visit price). Pricing is adequate — reducing crew time on site is the fastest way to improve this ratio.',
+                    number_format($laborRatioPct, 1),
+                    '$' . number_format($labourPerVisit, 2),
+                    '$' . number_format($pricePerVisit, 2)
+                ),
+            ];
+        }
     }
 
     if ($timeScore >= 0.25 && !$isEstimated && $completedVisits > 0) {
