@@ -524,47 +524,53 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
             $origStmt->execute([$visitId]);
             $origDate = $origStmt->fetchColumn();
 
-            moveVisit($visitId, $newDate, $newTimeStart, $user['id']);
+            $moved = moveVisit($visitId, $newDate, $newTimeStart, $user['id']);
 
-            if ($newTimeEnd !== null) {
-                $db->prepare("UPDATE job_visits SET scheduled_time_end = ? WHERE id = ?")->execute([$newTimeEnd, $visitId]);
-            }
-
-            setVisitCrewAssignments($visitId, $newCrewIds);
-
-            // Propagate changes to all future scheduled visits on this plan
-            if ($updateScope === 'this_and_future' && $origDate) {
-                $origDt   = new DateTime($origDate);
-                $targetDt = new DateTime($newDate);
-                $offsetDays = (int)$origDt->diff($targetDt)->format('%r%a');
-
-                $futureStmt = $db->prepare(
-                    "SELECT id, scheduled_date FROM job_visits
-                     WHERE plan_id = ? AND status = 'scheduled' AND scheduled_date > ? AND id != ?
-                     ORDER BY scheduled_date ASC"
-                );
-                $futureStmt->execute([$planId, $origDate, $visitId]);
-
-                foreach ($futureStmt->fetchAll(PDO::FETCH_ASSOC) as $fv) {
-                    if ($offsetDays !== 0) {
-                        $fDt = new DateTime($fv['scheduled_date']);
-                        $fDt->modify("{$offsetDays} days");
-                        moveVisit($fv['id'], $fDt->format('Y-m-d'), $newTimeStart, $user['id']);
-                    } elseif ($newTimeStart !== null) {
-                        $db->prepare("UPDATE job_visits SET scheduled_time_start = ? WHERE id = ?")->execute([$newTimeStart, $fv['id']]);
-                    }
-                    if ($newTimeEnd !== null) {
-                        $db->prepare("UPDATE job_visits SET scheduled_time_end = ? WHERE id = ?")->execute([$newTimeEnd, $fv['id']]);
-                    }
-                    setVisitCrewAssignments($fv['id'], $newCrewIds);
+            if (!$moved) {
+                $message = 'Could not update the visit date. The visit may be in a state that prevents editing.';
+                $messageType = 'error';
+            } else {
+                if ($newTimeEnd !== null) {
+                    $db->prepare("UPDATE job_visits SET scheduled_time_end = ? WHERE id = ?")->execute([$newTimeEnd, $visitId]);
                 }
-            }
 
-            header("Location: view.php?id={$planId}&visit_updated=1");
-            exit;
+                setVisitCrewAssignments($visitId, $newCrewIds);
+
+                // Propagate changes to all future scheduled visits on this plan
+                if ($updateScope === 'this_and_future' && $origDate) {
+                    $origDt   = new DateTime($origDate);
+                    $targetDt = new DateTime($newDate);
+                    $offsetDays = (int)$origDt->diff($targetDt)->format('%r%a');
+
+                    $futureStmt = $db->prepare(
+                        "SELECT id, scheduled_date FROM job_visits
+                         WHERE plan_id = ? AND status = 'scheduled' AND scheduled_date > ? AND id != ?
+                         ORDER BY scheduled_date ASC"
+                    );
+                    $futureStmt->execute([$planId, $origDate, $visitId]);
+
+                    foreach ($futureStmt->fetchAll(PDO::FETCH_ASSOC) as $fv) {
+                        if ($offsetDays !== 0) {
+                            $fDt = new DateTime($fv['scheduled_date']);
+                            $fDt->modify("{$offsetDays} days");
+                            moveVisit($fv['id'], $fDt->format('Y-m-d'), $newTimeStart, $user['id']);
+                        } elseif ($newTimeStart !== null) {
+                            $db->prepare("UPDATE job_visits SET scheduled_time_start = ? WHERE id = ?")->execute([$newTimeStart, $fv['id']]);
+                        }
+                        if ($newTimeEnd !== null) {
+                            $db->prepare("UPDATE job_visits SET scheduled_time_end = ? WHERE id = ?")->execute([$newTimeEnd, $fv['id']]);
+                        }
+                        setVisitCrewAssignments($fv['id'], $newCrewIds);
+                    }
+                }
+
+                header("Location: view.php?id={$planId}&visit_updated=1");
+                exit;
+            }
+        } else {
+            $message = 'Could not update visit.';
+            $messageType = 'error';
         }
-        $message = 'Could not update visit.';
-        $messageType = 'error';
     }
 
     // Regenerate visits — resets the watermark and reruns generateVisits(),

@@ -1758,9 +1758,13 @@ function moveVisit(int $visitId, string $newDate, ?string $newTimeStart, int $us
         $crewId = $visit['assigned_crew_id'] ?? $plan['default_crew_id'];
         $newStopId = ensureCalendarStop((int)$plan['property_id'], $newDate, $crewId ? (int)$crewId : null);
 
-        // Update visit
-        $setClauses = ["scheduled_date = ?", "stop_id = ?"];
-        $params = [$newDate, $newStopId];
+        // Update visit — always update scheduled_date; only update stop_id if a valid stop was found
+        $setClauses = ["scheduled_date = ?"];
+        $params = [$newDate];
+        if ($newStopId > 0) {
+            $setClauses[] = "stop_id = ?";
+            $params[] = $newStopId;
+        }
 
         if ($newTimeStart) {
             $setClauses[] = "scheduled_time_start = ?";
