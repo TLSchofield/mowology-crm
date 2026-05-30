@@ -332,12 +332,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
             $isResend = !empty($invoice['sent_at']);
 
             if ($isResend) {
-                $db->prepare("
-                    UPDATE invoices
-                    SET resend_count   = COALESCE(resend_count, 0) + 1,
-                        last_resent_at = NOW()
-                    WHERE id = ?
-                ")->execute([$invoiceId]);
+                // If status somehow regressed to draft (e.g. line items edited after send),
+                // restore it to 'sent' on resend so the list is accurate.
+                $resendSql = ($invoice['status'] === 'draft')
+                    ? "SET status = 'sent', resend_count = COALESCE(resend_count, 0) + 1, last_resent_at = NOW()"
+                    : "SET resend_count = COALESCE(resend_count, 0) + 1, last_resent_at = NOW()";
+                $db->prepare("UPDATE invoices {$resendSql} WHERE id = ?")->execute([$invoiceId]);
+                if ($invoice['status'] === 'draft') {
+                    trackFieldChange('invoice', $invoiceId, 'status', 'draft', 'sent', $user['id']);
+                    $invoice['status'] = 'sent';
+                }
                 // Refresh in-memory copy so the Engagement panel renders
                 // the new counter + timestamp without an extra round trip.
                 $invoice['resend_count']   = (int)($invoice['resend_count'] ?? 0) + 1;
@@ -369,9 +373,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
             }
             $messageType = 'success';
         } else {
-            $message = 'No valid recipients found. Please add recipients to this invoice first.';
+            // Distinguish "no recipients at all" from "recipients exist but email delivery failed"
+            $hasAnyRecipientWithEmail = false;
+            foreach ($recipients as $r) { if (!empty($r['email_address'])) { $hasAnyRecipientWithEmail = true; break; } }
+            if ($hasAnyRecipientWithEmail) {
+                $message = 'Email delivery failed for all recipients. Use "Mark as Sent" below to update the status manually.';
+            } else {
+                $message = 'No valid recipients found. Please add recipients to this invoice first, or use "Mark as Sent" to update the status without emailing.';
+            }
             $messageType = 'warning';
         }
+    }
+
+    // Mark invoice as sent without emailing (manual status override)
+    if ($action === 'mark_sent' && $invoice['status'] === 'draft') {
+        $oldStatus = $invoice['status'];
+        $db->prepare("UPDATE invoices SET status = 'sent', sent_at = COALESCE(sent_at, NOW()) WHERE id = ?")
+           ->execute([$invoiceId]);
+        trackFieldChange('invoice', $invoiceId, 'status', $oldStatus, 'sent', $user['id']);
+        logActivityExtended($user['id'], 'Invoice marked sent', 'Status manually set to sent (no email)', null, null, null, $invoiceId);
+        $invoice['status'] = 'sent';
+        $message     = 'Invoice marked as sent.';
+        $messageType = 'success';
     }
 
     if ($action === 'mark_paid') {
@@ -558,6 +581,18 @@ $extraHead = $isPayable
                           <input type="hidden" name="action" value="send">
                           <button type="submit" class="btn btn-<?php echo $invoice['status'] === 'draft' ? 'primary' : 'secondary'; ?>">
                               <i data-feather="send" class="mr-1"></i> <?php echo $invoice['status'] === 'draft' ? 'Send to Customer' : 'Resend'; ?>
+                          </button>
+                      </form>
+                  <?php endif; ?>
+
+                  <?php if ($invoice['status'] === 'draft'): ?>
+                      <form method="POST" class="d-inline">
+                          <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                          <input type="hidden" name="action" value="mark_sent">
+                          <button type="submit" class="btn btn-outline-secondary"
+                                  title="Update status to Sent without sending an email"
+                                  onclick="return confirm('Mark this invoice as Sent without emailing the customer?');">
+                              <i data-feather="check" class="mr-1"></i> Mark as Sent
                           </button>
                       </form>
                   <?php endif; ?>
