@@ -1397,6 +1397,25 @@ if ($hasPropCoords) {
                         <?php endif; ?>
                     </div>
                 </div>
+                <?php
+                $today = date('Y-m-d');
+                $overdueCount = 0;
+                foreach ($visits as $v) {
+                    if ($v['status'] === 'scheduled' && ($v['scheduled_date'] ?? '') < $today) {
+                        $overdueCount++;
+                    }
+                }
+                ?>
+                <?php if ($overdueCount > 0): ?>
+                <div class="alert alert-warning mb-0 rounded-0 border-left-0 border-right-0 d-flex align-items-center" style="border-radius:0!important;">
+                    <i data-feather="alert-triangle" style="width:16px;height:16px;margin-right:8px;flex-shrink:0;"></i>
+                    <span>
+                        <strong><?php echo $overdueCount; ?> past-due visit<?php echo $overdueCount !== 1 ? 's' : ''; ?></strong>
+                        — scheduled but not yet recorded.
+                        Use <strong>Start</strong> to complete them or <strong>+ Log Past Visit</strong> if they were done but not tracked.
+                    </span>
+                </div>
+                <?php endif; ?>
                 <div class="card-body p-0">
                     <?php if (empty($visits)): ?>
                         <div class="p-4 text-center text-muted">
@@ -1471,6 +1490,9 @@ if ($hasPropCoords) {
                                                     </a>
                                                 <?php else: ?>
                                                     <?php echo getStatusBadge($visit['status'], 'visit'); ?>
+                                                    <?php if ($visit['status'] === 'scheduled' && !empty($visit['scheduled_date']) && $visit['scheduled_date'] < $today): ?>
+                                                        <span class="badge badge-warning ml-1" title="This visit is past its scheduled date and has not been recorded">Overdue</span>
+                                                    <?php endif; ?>
                                                 <?php endif; ?>
                                                 <?php if ($visit['photo_count'] > 0): ?>
                                                     <small class="text-muted ml-1" title="<?php echo (int)$visit['photo_count']; ?> photos">
