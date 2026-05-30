@@ -718,25 +718,54 @@ if ($propLat && $propLng) {
     }
 
     if (!empty($pastScheduledDates)) {
-        // ~200 m bounding box
-        $latDelta = 0.0018;
-        $lngDelta = $propLng != 0 ? (0.0018 / max(0.001, cos(deg2rad($propLat)))) : 0.0018;
+        // ~150 m bounding box (matches route-reconciliation.php proximity radius)
+        $latDelta = 0.00135;
+        $lngDelta = $propLng != 0 ? (0.00135 / max(0.001, cos(deg2rad($propLat)))) : 0.00135;
 
         $ph = implode(',', array_fill(0, count($pastScheduledDates), '?'));
+
+        // Get dates where GPS pings show the crew dwelled at the property
+        // (require 2+ pings with 180s+ gap = same threshold as route-reconciliation.php)
         $gpsStmt = $db->prepare("
-            SELECT DISTINCT DATE(timestamp) AS ping_date
+            SELECT DATE(timestamp) AS ping_date,
+                   MIN(UNIX_TIMESTAMP(timestamp)) AS first_seen,
+                   MAX(UNIX_TIMESTAMP(timestamp)) AS last_seen,
+                   COUNT(*)                        AS ping_count
             FROM crew_location_history
             WHERE latitude  BETWEEN ? AND ?
               AND longitude BETWEEN ? AND ?
               AND DATE(timestamp) IN ($ph)
+            GROUP BY DATE(timestamp)
+            HAVING ping_count >= 2
+               AND (last_seen - first_seen) >= 180
         ");
         $params = array_merge([
             $propLat - $latDelta, $propLat + $latDelta,
             $propLng - $lngDelta, $propLng + $lngDelta,
         ], $pastScheduledDates);
         $gpsStmt->execute($params);
-        foreach ($gpsStmt->fetchAll(PDO::FETCH_COLUMN) as $pingDate) {
-            $gpsConflictDates[$pingDate] = true;
+        foreach ($gpsStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $gpsConflictDates[$row['ping_date']] = true;
+        }
+
+        // Exclude dates already resolved via the conflict-resolution system
+        if (!empty($gpsConflictDates)) {
+            $visitDateMap = [];
+            foreach ($visits as $v) {
+                if (!empty($v['scheduled_date'])) $visitDateMap[(int)$v['id']] = $v['scheduled_date'];
+            }
+            $resolvedStmt = $db->prepare("
+                SELECT visit_date FROM conflict_resolutions
+                WHERE visit_id IN (
+                    SELECT id FROM job_visits WHERE plan_id = ?
+                )
+                AND resolution_type IN ('time_entry_created','dismissed')
+                AND visit_date IN ($ph)
+            ");
+            $resolvedStmt->execute(array_merge([$planId], $pastScheduledDates));
+            foreach ($resolvedStmt->fetchAll(PDO::FETCH_COLUMN) as $resolvedDate) {
+                unset($gpsConflictDates[$resolvedDate]);
+            }
         }
     }
 }
@@ -1552,11 +1581,13 @@ if ($hasPropCoords) {
                                                     <?php echo getStatusBadge($visit['status'], 'visit'); ?>
                                                     <?php if ($visit['status'] === 'scheduled' && !empty($visit['scheduled_date']) && $visit['scheduled_date'] < $today): ?>
                                                         <?php if (!empty($gpsConflictDates[$visit['scheduled_date']])): ?>
-                                                            <span class="badge badge-danger ml-1"
-                                                                  title="GPS shows the crew stopped near this property on <?php echo htmlspecialchars($visit['scheduled_date']); ?> but the visit was never recorded">
+                                                            <a href="/crm/jobs/conflict-resolution.php?visit_id=<?php echo (int)$visit['id']; ?>&date=<?php echo htmlspecialchars($visit['scheduled_date']); ?>"
+                                                               class="badge badge-danger ml-1 text-white"
+                                                               style="text-decoration:none;"
+                                                               title="GPS shows the crew was at this property on <?php echo htmlspecialchars($visit['scheduled_date']); ?> but the visit was never recorded — click to resolve">
                                                                 <i data-feather="map-pin" style="width:10px;height:10px;vertical-align:middle;"></i>
                                                                 GPS Conflict
-                                                            </span>
+                                                            </a>
                                                         <?php else: ?>
                                                             <span class="badge badge-warning ml-1" title="This visit is past its scheduled date and has not been recorded">Overdue</span>
                                                         <?php endif; ?>
