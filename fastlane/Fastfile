@@ -1,0 +1,42 @@
+default_platform(:ios)
+
+PROJECT = "ios/MowologyCRM/MowologyCRM.xcodeproj"
+SCHEME  = "MowologyCRM"
+
+platform :ios do
+  desc "Build and upload Mowology CRM to TestFlight"
+  lane :beta do
+    api_key = app_store_connect_api_key(
+      key_id: ENV.fetch("ASC_KEY_ID"),
+      issuer_id: ENV.fetch("ASC_ISSUER_ID"),
+      key_content: ENV.fetch("ASC_KEY_P8"),
+      is_key_content_base64: true
+    )
+
+    build = ENV["GITHUB_RUN_NUMBER"] || "1"
+    team  = ENV["APPLE_TEAM_ID"]
+
+    build_app(
+      project: PROJECT,
+      scheme: SCHEME,
+      configuration: "Release",
+      export_method: "app-store",
+      clean: true,
+      output_directory: "build",
+      xcargs: "-allowProvisioningUpdates " \
+              "DEVELOPMENT_TEAM=#{team} " \
+              "CODE_SIGN_STYLE=Automatic " \
+              "CURRENT_PROJECT_VERSION=#{build}",
+      export_options: {
+        signingStyle: "automatic",
+        teamID: team
+      }
+    )
+
+    upload_to_testflight(
+      api_key: api_key,
+      skip_waiting_for_build_processing: true,
+      distribute_external: false
+    )
+  end
+end
