@@ -1,9 +1,9 @@
 default_platform(:ios)
 
-PROJECT    = "ios/MowologyCRM/MowologyCRM.xcodeproj"
+PROJECT    = "../ios/MowologyCRM/MowologyCRM.xcodeproj"
 SCHEME     = "MowologyCRM"
 ARCHIVE    = "/tmp/MowologyCRM.xcarchive"
-EXPORT_DIR = "build"
+EXPORT_DIR = "/tmp/MowologyCRM-export"
 
 platform :ios do
   desc "Build and upload Mowology CRM to TestFlight"
@@ -46,7 +46,7 @@ platform :ios do
     sh "xcodebuild " \
        "-exportArchive " \
        "-archivePath #{ARCHIVE} " \
-       "-exportOptionsPlist ios/ExportOptions.plist " \
+       "-exportOptionsPlist ../ios/ExportOptions.plist " \
        "-exportPath #{EXPORT_DIR} " \
        "#{auth}"
 
