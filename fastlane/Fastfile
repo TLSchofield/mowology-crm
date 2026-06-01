@@ -50,9 +50,13 @@ platform :ios do
        "-exportPath #{EXPORT_DIR} " \
        "#{auth}"
 
+    ipa_path = Dir.glob("#{EXPORT_DIR}/*.ipa").first
+    UI.user_error!("No IPA found in #{EXPORT_DIR}") unless ipa_path
+    UI.message("Uploading #{ipa_path}")
+
     upload_to_testflight(
       api_key: api_key,
-      ipa: "#{EXPORT_DIR}/MowologyCRM.ipa",
+      ipa: ipa_path,
       skip_waiting_for_build_processing: true,
       distribute_external: false
     )
