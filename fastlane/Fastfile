@@ -17,10 +17,6 @@ platform :ios do
     build = ENV["GITHUB_RUN_NUMBER"] || "1"
     team  = ENV["APPLE_TEAM_ID"]
 
-    # Write API key to disk so xcodebuild can authenticate for provisioning
-    key_path = "/tmp/asc_key.p8"
-    File.write(key_path, Base64.decode64(ENV.fetch("ASC_KEY_P8")))
-
     build_app(
       project: PROJECT,
       scheme: SCHEME,
@@ -29,13 +25,11 @@ platform :ios do
       clean: true,
       output_directory: "build",
       xcargs: "-allowProvisioningUpdates " \
-              "-authenticationKeyPath #{key_path} " \
-              "-authenticationKeyID #{ENV.fetch('ASC_KEY_ID')} " \
-              "-authenticationKeyIssuerID #{ENV.fetch('ASC_ISSUER_ID')} " \
               "DEVELOPMENT_TEAM=#{team} " \
               "CODE_SIGN_STYLE=Automatic " \
               "CURRENT_PROJECT_VERSION=#{build}",
       export_options: {
+        method: "app-store",
         signingStyle: "automatic",
         teamID: team
       }
