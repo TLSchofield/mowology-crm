@@ -2,7 +2,7 @@ name: iOS → TestFlight
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, feature/language ]
   workflow_dispatch:
 
 concurrency:

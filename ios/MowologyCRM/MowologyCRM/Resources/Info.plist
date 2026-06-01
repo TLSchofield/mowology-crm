@@ -16,6 +16,8 @@
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
+	<key>CFBundleIconName</key>
+	<string>AppIcon</string>
 	<key>CFBundleName</key>
 	<string>Mowology CRM</string>
 	<key>CFBundlePackageType</key>
@@ -44,8 +46,6 @@
 		<string>location</string>
 		<string>fetch</string>
 	</array>
-	<key>UILaunchStoryboardName</key>
-	<string></string>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>

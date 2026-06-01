@@ -1,7 +1,9 @@
 default_platform(:ios)
 
-PROJECT = "ios/MowologyCRM/MowologyCRM.xcodeproj"
-SCHEME  = "MowologyCRM"
+PROJECT    = "../ios/MowologyCRM/MowologyCRM.xcodeproj"
+SCHEME     = "MowologyCRM"
+ARCHIVE    = "/tmp/MowologyCRM.xcarchive"
+EXPORT_DIR = "/tmp/MowologyCRM-export"
 
 platform :ios do
   desc "Build and upload Mowology CRM to TestFlight"
@@ -10,31 +12,51 @@ platform :ios do
       key_id: ENV.fetch("ASC_KEY_ID"),
       issuer_id: ENV.fetch("ASC_ISSUER_ID"),
       key_content: ENV.fetch("ASC_KEY_P8"),
-      is_key_content_base64: true
+      is_key_content_base64: true,
+      in_house: false
     )
 
-    build = ENV["GITHUB_RUN_NUMBER"] || "1"
-    team  = ENV["APPLE_TEAM_ID"]
+    build     = ENV["GITHUB_RUN_NUMBER"] || "1"
+    team      = ENV.fetch("APPLE_TEAM_ID")
+    key_id    = ENV.fetch("ASC_KEY_ID")
+    issuer_id = ENV.fetch("ASC_ISSUER_ID")
+    key_path  = "/tmp/asc_key.p8"
 
-    build_app(
-      project: PROJECT,
-      scheme: SCHEME,
-      configuration: "Release",
-      export_method: "app-store",
-      clean: true,
-      output_directory: "build",
-      xcargs: "-allowProvisioningUpdates " \
-              "DEVELOPMENT_TEAM=#{team} " \
-              "CODE_SIGN_STYLE=Automatic " \
-              "CURRENT_PROJECT_VERSION=#{build}",
-      export_options: {
-        signingStyle: "automatic",
-        teamID: team
-      }
-    )
+    File.write(key_path, Base64.decode64(ENV.fetch("ASC_KEY_P8")))
+
+    auth = "-allowProvisioningUpdates " \
+           "-authenticationKeyPath #{key_path} " \
+           "-authenticationKeyID #{key_id} " \
+           "-authenticationKeyIssuerID #{issuer_id}"
+
+    # Archive
+    sh "xcodebuild " \
+       "-project #{PROJECT} " \
+       "-scheme #{SCHEME} " \
+       "-configuration Release " \
+       "-destination 'generic/platform=iOS' " \
+       "-archivePath #{ARCHIVE} " \
+       "#{auth} " \
+       "DEVELOPMENT_TEAM=#{team} " \
+       "CODE_SIGN_STYLE=Automatic " \
+       "CURRENT_PROJECT_VERSION=#{build} " \
+       "clean archive"
+
+    # Export
+    sh "xcodebuild " \
+       "-exportArchive " \
+       "-archivePath #{ARCHIVE} " \
+       "-exportOptionsPlist ../ios/ExportOptions.plist " \
+       "-exportPath #{EXPORT_DIR} " \
+       "#{auth}"
+
+    ipa_path = Dir.glob("#{EXPORT_DIR}/*.ipa").first
+    UI.user_error!("No IPA found in #{EXPORT_DIR}") unless ipa_path
+    UI.message("Uploading #{ipa_path}")
 
     upload_to_testflight(
       api_key: api_key,
+      ipa: ipa_path,
       skip_waiting_for_build_processing: true,
       distribute_external: false
     )
