@@ -29,17 +29,21 @@ $invoiceFooterText   = trim((string)($business['invoice_footer_text']         ??
 $contactName = trim(($invoice['contact_first'] ?? '') . ' ' . ($invoice['contact_last'] ?? ''));
 $companyName = $invoice['company_name'] ?? '';
 $propertyName = trim((string)($invoice['property_name'] ?? ''));
+$billingEntity = trim((string)($invoice['billing_entity_name'] ?? ''));
 
 // Bill-to priority (the heading names the PAYER, not the site):
-//   1. invoices.bill_to_name   — per-invoice manual override
-//   2. companies.company_name  — the linked paying company
-//   3. contact first + last    — private client / rep name
-//   4. properties.property_name — last-resort fallback when nothing else resolves
-// Previously property_name came before company/contact, which rendered
-// "OAKRIDGE GARDENS" in Bill To when the real payer was VML.
+//   1. invoices.bill_to_name          — per-invoice manual override
+//   2. billing_entity + company_name  — strata/property-management: "BCS4428 C/O OBSIDIAN..."
+//   3. companies.company_name         — the linked paying company
+//   4. contact first + last           — private client / rep name
+//   5. properties.property_name       — last-resort fallback
 $billToHeading = trim((string)($invoice['bill_to_name'] ?? ''));
 if ($billToHeading === '') {
-    $billToHeading = $companyName ?: $contactName ?: $propertyName;
+    if ($billingEntity !== '' && $companyName !== '') {
+        $billToHeading = $billingEntity . ' C/O ' . $companyName;
+    } else {
+        $billToHeading = $companyName ?: $contactName ?: $propertyName;
+    }
 }
 if ($billToHeading === '') {
     $billToHeading = 'Customer';

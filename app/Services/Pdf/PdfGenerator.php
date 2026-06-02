@@ -102,7 +102,7 @@ class PdfGenerator
             $quoteNumber = $quote['quote_number'] ?? 'QUOTE';
             return $this->savePdf($mpdf, 'quote', $quoteId, $quoteNumber);
 
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             error_log("PdfGenerator::generateQuotePdf error: " . $e->getMessage());
             return ['success' => false, 'error' => $e->getMessage()];
         }
@@ -136,11 +136,14 @@ class PdfGenerator
             $stmt = $this->db->prepare("
                 SELECT
                     i.*,
-                    COALESCE(c.company_name, cp.company_name, cc.company_name) as company_name,
-                    COALESCE(c.payment_terms, cp.payment_terms, cc.payment_terms) as payment_terms,
+                    i.bill_to_name as bill_to_name,
+                    p.billing_entity_name,
+                    COALESCE(c.company_name, cb.company_name, cp.company_name, cc.company_name) as company_name,
+                    COALESCE(c.payment_terms, cb.payment_terms, cp.payment_terms, cc.payment_terms) as payment_terms,
                     COALESCE(
                         NULLIF(IF(i.billing_address = i.service_address, '', i.billing_address), ''),
                         NULLIF(c.billing_address, ''),
+                        NULLIF(cb.billing_address, ''),
                         NULLIF(cp.billing_address, ''),
                         NULLIF(cc.billing_address, ''),
                         NULLIF(i.service_address, ''),
@@ -149,6 +152,7 @@ class PdfGenerator
                     COALESCE(
                         NULLIF(IF(i.billing_city = i.service_city, '', i.billing_city), ''),
                         NULLIF(c.billing_city, ''),
+                        NULLIF(cb.billing_city, ''),
                         NULLIF(cp.billing_city, ''),
                         NULLIF(cc.billing_city, ''),
                         NULLIF(i.service_city, ''),
@@ -157,6 +161,7 @@ class PdfGenerator
                     COALESCE(
                         NULLIF(IF(i.billing_province = i.service_province, '', i.billing_province), ''),
                         NULLIF(c.billing_province, ''),
+                        NULLIF(cb.billing_province, ''),
                         NULLIF(cp.billing_province, ''),
                         NULLIF(cc.billing_province, ''),
                         NULLIF(i.service_province, '')
@@ -164,6 +169,7 @@ class PdfGenerator
                     COALESCE(
                         NULLIF(IF(i.billing_postal_code = i.service_postal_code, '', i.billing_postal_code), ''),
                         NULLIF(c.billing_postal_code, ''),
+                        NULLIF(cb.billing_postal_code, ''),
                         NULLIF(cp.billing_postal_code, ''),
                         NULLIF(cc.billing_postal_code, ''),
                         NULLIF(i.service_postal_code, ''),
@@ -184,6 +190,7 @@ class PdfGenerator
                 LEFT JOIN contacts ct  ON c.primary_contact_id = ct.id
                 LEFT JOIN contacts dc  ON i.contact_id = dc.id
                 LEFT JOIN properties p ON i.property_id = p.id
+                LEFT JOIN companies cb ON p.billing_company_id = cb.id
                 LEFT JOIN companies cp ON p.company_id = cp.id
                 LEFT JOIN companies cc ON dc.company_id = cc.id
                 LEFT JOIN users u      ON i.created_by = u.id
@@ -249,7 +256,7 @@ class PdfGenerator
             $invoiceNumber = $invoice['invoice_number'] ?? 'INVOICE';
             return $this->savePdf($mpdf, 'invoice', $invoiceId, $invoiceNumber);
 
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             error_log("PdfGenerator::generateInvoicePdf error: " . $e->getMessage());
             return ['success' => false, 'error' => $e->getMessage()];
         }
@@ -334,9 +341,19 @@ class PdfGenerator
      */
     private function createMpdf(): \Mpdf\Mpdf
     {
-        $tmpDir = sys_get_temp_dir() . '/mpdf';
+        // Prefer a project-controlled temp dir that we know PHP can write to
+        // (same directory tree as the generated PDFs themselves).
+        // sys_get_temp_dir() can be /tmp which is restricted on cPanel shared hosting.
+        $tmpDir = $this->storagePath . '/tmp';
         if (!is_dir($tmpDir)) {
             @mkdir($tmpDir, 0755, true);
+        }
+        // Fallback to system temp dir if storage temp isn't writable
+        if (!is_writable($tmpDir)) {
+            $tmpDir = sys_get_temp_dir() . '/mpdf';
+            if (!is_dir($tmpDir)) {
+                @mkdir($tmpDir, 0755, true);
+            }
         }
 
         return new \Mpdf\Mpdf([
