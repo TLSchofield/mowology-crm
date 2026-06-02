@@ -29,7 +29,18 @@ platform :ios do
            "-authenticationKeyID #{key_id} " \
            "-authenticationKeyIssuerID #{issuer_id}"
 
-    # Archive
+    # Download/reuse the App Store distribution cert + profile via API key.
+    # This avoids CI creating development certificates (which have a 2-cert limit).
+    cert(api_key: api_key, development: false, output_path: "/tmp")
+    profile = sigh(
+      api_key: api_key,
+      app_identifier: "ca.mowology.crm-field",
+      provisioning_name: "MowologyCRM AppStore",
+      ignore_profiles_with_different_name: true,
+      output_path: "/tmp"
+    )
+
+    # Archive using manual signing with the distribution cert + profile
     sh "xcodebuild " \
        "-project #{PROJECT} " \
        "-scheme #{SCHEME} " \
@@ -38,7 +49,9 @@ platform :ios do
        "-archivePath #{ARCHIVE} " \
        "#{auth} " \
        "DEVELOPMENT_TEAM=#{team} " \
-       "CODE_SIGN_STYLE=Automatic " \
+       "CODE_SIGN_STYLE=Manual " \
+       "CODE_SIGN_IDENTITY='Apple Distribution' " \
+       "PROVISIONING_PROFILE_SPECIFIER='MowologyCRM AppStore' " \
        "CURRENT_PROJECT_VERSION=#{build} " \
        "clean archive"
 
