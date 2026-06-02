@@ -121,6 +121,67 @@ $messageType = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'] ?? '')) {
     $action = $_POST['action'] ?? '';
 
+    if ($action === 'delete_invoice') {
+        if (!userHasPermission('billing.edit')) {
+            $message = 'You do not have permission to delete invoices.';
+            $messageType = 'danger';
+        } elseif (!in_array($invoice['status'], ['draft', 'cancelled'])) {
+            $message = 'Only draft or cancelled invoices can be deleted.';
+            $messageType = 'danger';
+        } else {
+            try {
+                $db->beginTransaction();
+                $db->prepare("DELETE FROM invoice_line_items WHERE invoice_id = ?")->execute([$invoiceId]);
+                $db->prepare("DELETE FROM invoice_contacts   WHERE invoice_id = ?")->execute([$invoiceId]);
+                $db->prepare("DELETE FROM invoices           WHERE id = ?")->execute([$invoiceId]);
+                $db->commit();
+                header('Location: index.php?deleted=1');
+                exit;
+            } catch (Throwable $e) {
+                $db->rollBack();
+                error_log('Invoice delete error: ' . $e->getMessage());
+                $message = 'Error deleting invoice. Please try again.';
+                $messageType = 'danger';
+            }
+        }
+    }
+
+    if ($action === 'cancel_invoice') {
+        if (!userHasPermission('billing.edit')) {
+            $message = 'You do not have permission to cancel invoices.';
+            $messageType = 'danger';
+        } elseif ($invoice['status'] === 'paid') {
+            $message = 'Paid invoices cannot be cancelled. Issue a credit note instead.';
+            $messageType = 'danger';
+        } elseif ($invoice['status'] === 'cancelled') {
+            $message = 'Invoice is already cancelled.';
+            $messageType = 'warning';
+        } else {
+            $reason = trim($_POST['cancellation_reason'] ?? '');
+            if (empty($reason)) {
+                $message = 'A reason is required to cancel this invoice.';
+                $messageType = 'danger';
+            } else {
+                try {
+                    $oldStatus = $invoice['status'];
+                    $db->prepare("UPDATE invoices SET status = 'cancelled' WHERE id = ?")
+                       ->execute([$invoiceId]);
+                    trackFieldChange('invoice', $invoiceId, 'status', $oldStatus, 'cancelled', $user['id']);
+                    logActivityExtended($user['id'], 'Invoice cancelled',
+                        "Cancelled (was {$oldStatus}). Reason: {$reason}",
+                        null, null, null, $invoiceId);
+                    $invoice['status'] = 'cancelled';
+                    $message     = 'Invoice cancelled. You can now delete it if needed.';
+                    $messageType = 'success';
+                } catch (Throwable $e) {
+                    error_log('Invoice cancel error: ' . $e->getMessage());
+                    $message     = 'Error cancelling invoice. Please try again.';
+                    $messageType = 'danger';
+                }
+            }
+        }
+    }
+
     if ($action === 'send') {
         // Load recipients FIRST — status only updates if emails actually go out.
         // Fall back to the contact's live email when the invoice_contacts snapshot
@@ -153,31 +214,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         // Fallback: manually-created invoices may have no invoice_contacts rows at all.
         // Rather than fail with "No valid recipients", send to the invoice's own Bill To
         // contact and persist it as a recipient row so tracking/resends work afterward.
+        // When a company is linked and has a billing_email, use that — not the primary
+        // contact's personal email — so property-managed / strata invoices route to the
+        // management company (e.g. BCS4428@opml.ca) rather than the on-site rep.
         $hasEmail = false;
         foreach ($recipients as $r) { if (!empty($r['email_address'])) { $hasEmail = true; break; } }
-        if (!$hasEmail && !empty($invoice['contact_email'])) {
-            $newRid = null;
-            if (!empty($invoice['contact_id'])) {
+        if (!$hasEmail) {
+            $useCompanyBilling = !empty($invoice['company_id']) && !empty($invoice['billing_email']);
+            $fallbackEmail     = $useCompanyBilling ? $invoice['billing_email'] : ($invoice['contact_email'] ?? '');
+            $fallbackContactId = $useCompanyBilling ? null : ($invoice['contact_id'] ?? null);
+            $fallbackRole      = $useCompanyBilling ? 'billing_contact' : 'primary_recipient';
+            $fallbackFirst     = $useCompanyBilling ? ($invoice['company_name'] ?? '') : ($invoice['contact_first'] ?? '');
+            $fallbackLast      = $useCompanyBilling ? '' : ($invoice['contact_last'] ?? '');
+
+            if (!empty($fallbackEmail)) {
+                $newRid = null;
                 try {
                     $db->prepare("
                         INSERT INTO invoice_contacts (invoice_id, contact_id, contact_role, email_address)
-                        VALUES (?, ?, 'primary_recipient', ?)
-                    ")->execute([$invoiceId, (int)$invoice['contact_id'], $invoice['contact_email']]);
+                        VALUES (?, ?, ?, ?)
+                    ")->execute([$invoiceId, $fallbackContactId, $fallbackRole, $fallbackEmail]);
                     $newRid = (int)$db->lastInsertId();
                 } catch (Throwable $e) {
                     error_log("Invoice {$invoiceId} recipient fallback insert failed: " . $e->getMessage());
                 }
+                $recipients[] = [
+                    'id'            => $newRid ?: 0,
+                    'contact_id'    => $fallbackContactId,
+                    'email_address' => $fallbackEmail,
+                    'contact_role'  => $fallbackRole,
+                    'first_name'    => $fallbackFirst,
+                    'last_name'     => $fallbackLast,
+                    'receive_sms'   => 0,
+                    'sms_phone'     => null,
+                ];
             }
-            $recipients[] = [
-                'id'            => $newRid ?: 0,
-                'contact_id'    => $invoice['contact_id'] ?? null,
-                'email_address' => $invoice['contact_email'],
-                'contact_role'  => 'primary_recipient',
-                'first_name'    => $invoice['contact_first'] ?? '',
-                'last_name'     => $invoice['contact_last'] ?? '',
-                'receive_sms'   => 0,
-                'sms_phone'     => null,
-            ];
         }
 
         // Generate PDF once (used for all recipients).
@@ -575,7 +646,24 @@ $extraHead = $isPayable
                       </a>
                   <?php endif; ?>
 
-                  <?php if ($invoice['status'] !== 'paid'): ?>
+                  <?php if (in_array($invoice['status'], ['draft', 'cancelled']) && userHasPermission('billing.edit')): ?>
+                      <form method="POST" class="d-inline"
+                            onsubmit="return confirm('Permanently delete <?php echo htmlspecialchars($invoice['invoice_number']); ?>? This cannot be undone.');">
+                          <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                          <input type="hidden" name="action" value="delete_invoice">
+                          <button type="submit" class="btn btn-outline-danger" title="Delete this invoice">
+                              <i data-feather="trash-2" class="mr-1"></i> Delete
+                          </button>
+                      </form>
+                  <?php endif; ?>
+
+                  <?php if (in_array($invoice['status'], ['sent', 'viewed', 'overdue', 'partial']) && userHasPermission('billing.edit')): ?>
+                      <button type="button" class="btn btn-outline-warning" onclick="openCancelModal()" title="Cancel this invoice (CRA-compliant — keeps the audit trail)">
+                          <i data-feather="x-circle" class="mr-1"></i> Cancel Invoice
+                      </button>
+                  <?php endif; ?>
+
+                  <?php if ($invoice['status'] !== 'paid' && $invoice['status'] !== 'cancelled'): ?>
                       <form method="POST" class="d-inline">
                           <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
                           <input type="hidden" name="action" value="send">
@@ -794,7 +882,12 @@ $extraHead = $isPayable
                               <tbody>
                                   <?php foreach ($lineItems as $item): ?>
                                       <tr>
-                                          <td><?php echo htmlspecialchars($item['description'] ?: 'Services rendered'); ?></td>
+                                          <td>
+                                              <?php echo htmlspecialchars($item['description'] ?: 'Services rendered'); ?>
+                                              <?php if (!empty($item['service_date'])): ?>
+                                                  <br><span class="mw-service-date">Service date: <?php echo date('M j, Y', strtotime($item['service_date'])); ?></span>
+                                              <?php endif; ?>
+                                          </td>
                                           <td><?php echo $item['quantity']; ?></td>
                                           <td class="text-right mw-amount"><?php echo formatCurrency($item['unit_price']); ?></td>
                                           <td class="text-right mw-amount"><?php echo formatCurrency($item['line_total']); ?></td>
@@ -1518,6 +1611,41 @@ function mwCopyInvoiceLink(btn) {
     <?php endif; ?>
 
 }());
+</script>
+<?php endif; ?>
+
+<!-- Cancel Invoice Modal -->
+<?php if (in_array($invoice['status'], ['sent', 'viewed', 'overdue', 'partial'])): ?>
+<div id="cancelModal" class="mw-modal-overlay" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="cancelModalTitle">
+    <div class="mw-modal" style="max-width:480px;">
+        <div class="mw-modal-header">
+            <h5 class="mb-0" id="cancelModalTitle">Cancel Invoice <?php echo htmlspecialchars($invoice['invoice_number']); ?></h5>
+            <button type="button" class="mw-modal-close" onclick="closeCancelModal()" aria-label="Close">&times;</button>
+        </div>
+        <form method="POST">
+            <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+            <input type="hidden" name="action" value="cancel_invoice">
+            <div class="mw-modal-body">
+                <div class="alert alert-warning" style="font-size:13px;margin-bottom:16px;">
+                    <strong>CRA note:</strong> Cancelling keeps a full audit trail. Once cancelled you can delete the invoice if it was raised in error. Paid invoices cannot be cancelled.
+                </div>
+                <div class="mw-form-group">
+                    <label class="form-label" for="cancellation_reason">Reason for cancellation <span style="color:#dc2626;">*</span></label>
+                    <textarea id="cancellation_reason" name="cancellation_reason" class="form-control" rows="3"
+                              placeholder="e.g. Raised in error — duplicate of INV-2026-0090" required></textarea>
+                </div>
+            </div>
+            <div class="mw-modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeCancelModal()">Keep Invoice</button>
+                <button type="submit" class="btn btn-danger">Cancel Invoice</button>
+            </div>
+        </form>
+    </div>
+</div>
+<script>
+function openCancelModal()  { document.getElementById('cancelModal').style.display = 'flex'; document.getElementById('cancellation_reason').focus(); }
+function closeCancelModal() { document.getElementById('cancelModal').style.display = 'none'; }
+document.getElementById('cancelModal').addEventListener('click', function(e) { if (e.target === this) closeCancelModal(); });
 </script>
 <?php endif; ?>
 
