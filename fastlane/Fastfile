@@ -39,7 +39,6 @@ platform :ios do
        "#{auth} " \
        "DEVELOPMENT_TEAM=#{team} " \
        "CODE_SIGN_STYLE=Automatic " \
-       "CODE_SIGN_IDENTITY='Apple Distribution' " \
        "CURRENT_PROJECT_VERSION=#{build} " \
        "clean archive"
 
