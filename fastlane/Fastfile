@@ -37,6 +37,7 @@ platform :ios do
       app_identifier: "ca.mowology.crm-field",
       provisioning_name: "MowologyCRM AppStore",
       ignore_profiles_with_different_name: true,
+      force: true,
       output_path: "/tmp"
     )
 
