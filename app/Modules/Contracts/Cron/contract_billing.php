@@ -119,17 +119,19 @@ try {
                con.email        AS contact_email,
                con.mobile       AS contact_mobile,
                con.receive_sms,
-               -- Billing email priority: companies.billing_email (direct
-               -- override) → billing_contact.email → contact.email.
-               -- Matches public/crm/invoices/view.php's recipient lookup.
-               co.id            AS company_id,
-               co.company_name,
-               NULLIF(co.billing_email, '') AS company_billing_email,
-               NULLIF(bc.email, '')          AS billing_contact_email,
-               -- Property-level billing entity for the Bill To line.
-               -- E.g. \"VR14-50\" — gets formatted as
-               -- \"{billing_entity_name} C/O {company_name}\" at invoice time.
+               -- Company resolution priority:
+               --   1. p.billing_company_id  — explicitly set on the property (most reliable)
+               --   2. contact's company_id  — fallback via primary/billing contact join
+               COALESCE(cb.id,  co.id)            AS company_id,
+               COALESCE(cb.company_name, co.company_name) AS company_name,
+               COALESCE(NULLIF(cb.billing_email,''), NULLIF(co.billing_email,'')) AS company_billing_email,
+               NULLIF(bc.email, '')                AS billing_contact_email,
+               -- Billing entity for the Bill To line.
+               -- Priority: property.billing_entity_name → contract.title (when it
+               -- looks like a strata/entity, not a service description).
+               -- Formatted as "{entity} C/O {company_name}" when a company is set.
                {$propertyBillingEntitySelect}
+               c.title          AS contract_title,
                p.address        AS service_address,
                p.city           AS service_city,
                p.province       AS service_province,
@@ -137,12 +139,12 @@ try {
         FROM contracts c
         JOIN contacts   con ON con.id = c.contact_id
         LEFT JOIN properties p  ON p.id  = c.property_id
-        -- Join companies via the contract's contact as either
-        -- primary or billing contact. If the same contact is linked
-        -- to multiple companies (rare), take the first by company id.
+        -- Priority 1: explicit billing company on the property
+        LEFT JOIN companies cb ON cb.id = p.billing_company_id
+        -- Priority 2: company linked via contact (primary or billing contact)
         LEFT JOIN companies co ON (co.primary_contact_id = con.id
                                  OR co.billing_contact_id = con.id)
-        LEFT JOIN contacts  bc ON bc.id = co.billing_contact_id
+        LEFT JOIN contacts  bc ON bc.id = COALESCE(cb.billing_contact_id, co.billing_contact_id)
         WHERE c.status        = 'active'
           AND c.billing_cycle = 'monthly'
         GROUP BY c.id
@@ -190,17 +192,25 @@ foreach ($contracts as $ctr) {
         }
 
         // ── 3b.2 Resolve the Bill To heading ──────────────────────────────────
-        // Priority: "{property.billing_entity_name} C/O {company.company_name}"
-        //           → property.billing_entity_name alone
-        //           → company.company_name
-        //           → null (view.php falls back to contact full name).
+        // Priority:
+        //   1. property.billing_entity_name  — explicit strata/entity set on property
+        //   2. contract.title                — used as entity when a company is also
+        //                                      present (e.g. "VR15-40" on a strata contract)
+        //   3. company.company_name alone    — commercial / PM company, no strata entity
+        //   4. null                          — view.php falls back to contact full name
         $propertyEntity = $ctr['property_billing_entity'] ?? null;
-        $companyName    = $ctr['company_name']           ?? null;
-        $billToName     = null;
-        if (!empty($propertyEntity) && !empty($companyName)) {
-            $billToName = $propertyEntity . ' C/O ' . $companyName;
-        } elseif (!empty($propertyEntity)) {
-            $billToName = $propertyEntity;
+        $contractTitle  = trim((string)($ctr['contract_title'] ?? ''));
+        $companyName    = $ctr['company_name']             ?? null;
+
+        // Use contract title as entity only when a billing company is present
+        // (otherwise it's a service description like "Full Service", not an entity name)
+        $entity = $propertyEntity ?: (!empty($companyName) ? $contractTitle : null) ?: null;
+
+        $billToName = null;
+        if (!empty($entity) && !empty($companyName)) {
+            $billToName = $entity . ' C/O ' . $companyName;
+        } elseif (!empty($entity)) {
+            $billToName = $entity;
         } elseif (!empty($companyName)) {
             $billToName = $companyName;
         }

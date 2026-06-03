@@ -48,8 +48,11 @@ if ($visitId) {
                jv.plan_id, jv.scheduled_date, jv.invoice_id as existing_invoice_id,
                jv.extras_minutes, jv.extras_amount, jv.extras_note,
                jp.plan_number, jp.title, jp.price_per_visit, jp.estimated_amount,
-               jp.property_id, jp.company_id,
-               c.company_name,
+               jp.property_id,
+               COALESCE(jp.company_id, cb.id, cc.id) AS company_id,
+               COALESCE(c.company_name, cb.company_name, cc.company_name) AS company_name,
+               NULLIF(p.billing_entity_name, '') AS property_billing_entity,
+               ctr.title AS contract_title,
                p.address, p.city, p.province, p.postal_code,
                p.site_contact_id,
                COALESCE(con.first_name, '') as contact_first,
@@ -59,9 +62,12 @@ if ($visitId) {
                con.receive_sms as contact_receive_sms
         FROM job_visits jv
         JOIN job_plans jp ON jv.plan_id = jp.id
-        LEFT JOIN companies c ON jp.company_id = c.id
+        LEFT JOIN contracts ctr ON jp.contract_id = ctr.id
+        LEFT JOIN companies c  ON jp.company_id = c.id
         LEFT JOIN properties p ON jp.property_id = p.id
+        LEFT JOIN companies cb ON p.billing_company_id = cb.id
         LEFT JOIN contacts con ON p.site_contact_id = con.id
+        LEFT JOIN companies cc ON (cc.primary_contact_id = con.id OR cc.billing_contact_id = con.id)
         WHERE jv.id = ? AND jv.status = 'completed'
     ");
     $stmt->execute([$visitId]);
@@ -74,6 +80,20 @@ if ($visitId) {
         }
         $visitAmount  = $visit['actual_amount'] ?: $visit['price_per_visit'] ?: $visit['estimated_amount'];
         $contactName  = trim($visit['contact_first'] . ' ' . $visit['contact_last']) ?: null;
+
+        // Resolve bill_to_name: property entity → contract title (when company present) → company name
+        $visitEntity      = $visit['property_billing_entity'] ?? null;
+        $visitContractTitle = trim((string)($visit['contract_title'] ?? ''));
+        $visitCompany     = $visit['company_name'] ?? null;
+        $visitEntity      = $visitEntity ?: (!empty($visitCompany) ? $visitContractTitle : null) ?: null;
+        $visitBillToName  = null;
+        if (!empty($visitEntity) && !empty($visitCompany)) {
+            $visitBillToName = $visitEntity . ' C/O ' . $visitCompany;
+        } elseif (!empty($visitEntity)) {
+            $visitBillToName = $visitEntity;
+        } elseif (!empty($visitCompany)) {
+            $visitBillToName = $visitCompany;
+        }
 
         // Fetch plan line items so the invoice can be generated with zero re-entry
         $prefillLineItems = [];
@@ -101,6 +121,7 @@ if ($visitId) {
             'scheduled_date'    => $visit['scheduled_date'],
             'description'       => $visit['title'] . ' — ' . date('M j, Y', strtotime($visit['scheduled_date'])),
             'amount'            => $visitAmount,
+            'bill_to_name'      => $visitBillToName,
             'company_name'      => $visit['company_name'] ?: $contactName,
             'contact_name'      => $contactName,
             'contact_email'     => $visit['contact_email'],
@@ -127,6 +148,9 @@ if (!$visitId && isset($_GET['plan_id'])) {
         $pStmt = $db->prepare("
             SELECT jp.id, jp.plan_number, jp.title, jp.service_type,
                    jp.estimated_amount, jp.plan_start_date, jp.property_id,
+                   COALESCE(jp.company_id, cb.id) AS company_id,
+                   NULLIF(TRIM(COALESCE(p.billing_entity_name, '')), '') AS property_billing_entity,
+                   ctr.title AS contract_title,
                    p.address, p.city, p.province, p.postal_code,
                    p.site_contact_id,
                    COALESCE(con.first_name, '') AS contact_first,
@@ -134,11 +158,18 @@ if (!$visitId && isset($_GET['plan_id'])) {
                    con.email  AS contact_email,
                    con.mobile AS contact_mobile,
                    con.receive_sms AS contact_receive_sms,
+                   COALESCE(c.company_name, cb.company_name) AS company_name,
+                   COALESCE(c.billing_address, cb.billing_address) AS billing_address,
+                   COALESCE(c.billing_city,    cb.billing_city)    AS billing_city,
+                   COALESCE(c.billing_province, cb.billing_province) AS billing_province,
+                   COALESCE(c.billing_postal_code, cb.billing_postal_code) AS billing_postal_code,
                    ctr.billing_amount, ctr.start_date AS contract_start_date
             FROM job_plans jp
             LEFT JOIN properties p  ON jp.property_id = p.id
             LEFT JOIN contacts con  ON p.site_contact_id = con.id
             LEFT JOIN contracts ctr ON jp.contract_id = ctr.id
+            LEFT JOIN companies c   ON jp.company_id = c.id
+            LEFT JOIN companies cb  ON p.billing_company_id = cb.id
             WHERE jp.id = ?
         ");
         $pStmt->execute([$planId]);
@@ -169,11 +200,28 @@ if (!$visitId && isset($_GET['plan_id'])) {
             $billMonth   = date('F Y', strtotime($baseDate));
             $svcLabel    = $planRow['title'] ?: ucwords(str_replace('_', ' ', $planRow['service_type'] ?? 'Service'));
 
+            // Compute bill_to_name: strata entity + C/O company, mirroring the cron billing logic
+            // Priority: property.billing_entity_name → contract.title (when company present) → company name
+            $propertyEntity = $planRow['property_billing_entity'] ?? null;
+            $planContractTitle = trim((string)($planRow['contract_title'] ?? ''));
+            $companyNameVal = !empty($planRow['company_name']) ? trim($planRow['company_name']) : null;
+            $entity = $propertyEntity ?: (!empty($companyNameVal) ? $planContractTitle : null) ?: null;
+            $billToName = null;
+            if (!empty($entity) && !empty($companyNameVal)) {
+                $billToName = $entity . ' C/O ' . $companyNameVal;
+            } elseif (!empty($entity)) {
+                $billToName = $entity;
+            } elseif (!empty($companyNameVal)) {
+                $billToName = $companyNameVal;
+            }
+
             $prefill = [
                 'property_id'         => $planRow['property_id'],
+                'company_id'          => $planRow['company_id'],
                 'contact_id'          => $planRow['site_contact_id'],
                 'plan_id'             => $planId,
                 'amount'              => $amount,
+                'bill_to_name'        => $billToName,
                 'contact_name'        => $contactName,
                 'contact_email'       => $planRow['contact_email'],
                 'contact_mobile'      => $planRow['contact_mobile'],
@@ -182,6 +230,10 @@ if (!$visitId && isset($_GET['plan_id'])) {
                 'service_city'        => $planRow['city'] ?? '',
                 'service_province'    => $planRow['province'] ?? 'BC',
                 'service_postal'      => $planRow['postal_code'] ?? '',
+                'billing_address'     => $planRow['billing_address'] ?? '',
+                'billing_city'        => $planRow['billing_city'] ?? '',
+                'billing_province'    => $planRow['billing_province'] ?? '',
+                'billing_postal'      => $planRow['billing_postal_code'] ?? '',
                 'plan_number'         => $planRow['plan_number'],
                 'description'         => $svcLabel . ' — ' . $billMonth,
                 'plan_line_items'     => $prefillLineItems,
@@ -205,6 +257,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $linkedPlanId     = intval($_POST['plan_id'] ?? 0);
         $usePlanLineItems = !empty($_POST['use_plan_line_items']) && $linkedPlanId;
         $propertyId    = intval($_POST['property_id'] ?? 0);
+        $billToName    = trim($_POST['bill_to_name'] ?? '') ?: null;
         $issueDate     = $_POST['issue_date'] ?? date('Y-m-d');
         $dueDate       = $_POST['due_date'] ?? date('Y-m-d', strtotime('+30 days'));
         $description   = trim($_POST['description'] ?? '');
@@ -215,6 +268,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $notes         = trim($_POST['notes'] ?? '');
         $extrasMinutes = max(0, intval($_POST['extras_minutes'] ?? 0));
         $extrasAmount  = round(max(0.0, floatval($_POST['extras_amount'] ?? 0)), 2);
+
+        $serviceDate = null;
+        if (!empty($_POST['service_date'])) {
+            $sd = $_POST['service_date'];
+            $serviceDate = preg_match('/^\d{4}-\d{2}-\d{2}$/', $sd) ? $sd : null;
+        }
 
         $serviceAddress    = trim($_POST['service_address'] ?? '');
         $serviceCity       = trim($_POST['service_city'] ?? '');
@@ -262,9 +321,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         notes, access_token, token_expires_at,
                         service_address, service_city, service_province, service_postal_code,
                         billing_address, billing_city, billing_province, billing_postal_code,
-                        address_differs,
+                        address_differs, bill_to_name,
                         status, created_by
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 90 DAY), ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 90 DAY), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)
                 ");
                 $stmt->execute([
                     $invoiceNumber,
@@ -293,6 +352,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $billingProvince,
                     $billingPostalCode,
                     $addressDiffers,
+                    $billToName,
                     $user['id']
                 ]);
 
@@ -322,8 +382,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                         $liStmt = $db->prepare("
                             INSERT INTO invoice_line_items
-                                (invoice_id, description, quantity, unit_price, line_total, visit_id, sort_order)
-                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                                (invoice_id, description, quantity, unit_price, line_total, visit_id, service_date, sort_order)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                         ");
                         foreach ($planLineItems as $i => $pli) {
                             $liStmt->execute([
@@ -333,6 +393,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 $pli['unit_price'],
                                 $pli['line_total'],
                                 $linkedVisitId ?: null,
+                                $serviceDate,
                                 (int)($pli['sort_order'] ?? $i),
                             ]);
                         }
@@ -344,14 +405,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 if (!$usePlanLineItems) {
                     $db->prepare("
-                        INSERT INTO invoice_line_items (invoice_id, description, quantity, unit_price, line_total, visit_id)
-                        VALUES (?, ?, 1, ?, ?, ?)
+                        INSERT INTO invoice_line_items (invoice_id, description, quantity, unit_price, line_total, visit_id, service_date)
+                        VALUES (?, ?, 1, ?, ?, ?, ?)
                     ")->execute([
                         $invoiceId,
                         $description ?: 'Services rendered',
                         $subtotal,
                         $subtotal,
                         $linkedVisitId ?: null,
+                        $serviceDate,
                     ]);
                 }
 
@@ -359,14 +421,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($extrasAmount > 0 && $extrasMinutes > 0 && $linkedVisitId) {
                     $db->prepare("
                         INSERT INTO invoice_line_items
-                            (invoice_id, description, quantity, unit_price, line_total, visit_id, sort_order)
-                        VALUES (?, ?, 1, ?, ?, ?, 999)
+                            (invoice_id, description, quantity, unit_price, line_total, visit_id, service_date, sort_order)
+                        VALUES (?, ?, 1, ?, ?, ?, ?, 999)
                     ")->execute([
                         $invoiceId,
                         'Additional services (' . $extrasMinutes . ' min)',
                         $extrasAmount,
                         $extrasAmount,
                         $linkedVisitId,
+                        $serviceDate,
                     ]);
 
                     // Recalculate invoice totals to include extras
@@ -395,16 +458,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $recipientNames = [];
                 $smsRecipients  = [];
 
+                // Resolve company billing email for fallback when a contact has no email
+                $companyBillingEmail = null;
+                if ($companyId) {
+                    $cbStmt = $db->prepare("SELECT billing_email FROM companies WHERE id = ?");
+                    $cbStmt->execute([$companyId]);
+                    $cbRow = $cbStmt->fetch(PDO::FETCH_ASSOC);
+                    $companyBillingEmail = $cbRow['billing_email'] ?? null;
+                }
+
                 foreach ($selectedRecipients as $rcptContactId) {
                     $recipientContacts->execute([$rcptContactId]);
                     $contact = $recipientContacts->fetch(PDO::FETCH_ASSOC);
 
                     if ($contact) {
+                        // Use contact's own email, fall back to company billing email
+                        $recipientEmail = !empty($contact['email'])
+                            ? $contact['email']
+                            : $companyBillingEmail;
+
+                        // Skip entirely if no email can be resolved — a recipient
+                        // row with a null email cannot be sent and would block saving later.
+                        if (empty($recipientEmail)) {
+                            continue;
+                        }
+
                         $insertRecipient->execute([
                             $invoiceId,
                             $rcptContactId,
                             'primary_recipient',
-                            $contact['email']
+                            $recipientEmail,
                         ]);
 
                         $recipientNames[] = "{$contact['first_name']} {$contact['last_name']}";
@@ -488,9 +571,11 @@ if ($apiKey) {
                 <input type="hidden" name="property_id"         id="propertyIdInput"    value="<?php echo $prefill['property_id'] ?? ''; ?>">
                 <input type="hidden" name="company_id"          id="companyIdInput"     value="<?php echo (int)($prefill['company_id'] ?? 0); ?>">
                 <input type="hidden" name="contact_id"          id="contactIdInput"     value="<?php echo (int)($prefill['contact_id'] ?? 0); ?>">
+                <input type="hidden" name="bill_to_name"        value="<?php echo htmlspecialchars($prefill['bill_to_name'] ?? '', ENT_QUOTES, 'UTF-8'); ?>">
                 <input type="hidden" name="selected_recipients" id="selectedRecipientsInput" value="[]">
                 <input type="hidden" name="extras_minutes" value="<?php echo (int)($prefill['extras_minutes'] ?? 0); ?>">
                 <input type="hidden" name="extras_amount"  value="<?php echo htmlspecialchars((string)($prefill['extras_amount'] ?? '0')); ?>">
+                <input type="hidden" name="service_date"   value="<?php echo htmlspecialchars($prefill['scheduled_date'] ?? ''); ?>">
 
                 <div class="card">
                     <div class="card-body">
