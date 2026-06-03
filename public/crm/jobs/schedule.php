@@ -2616,6 +2616,26 @@ if ($apiKey) {
               <!-- ── Scrollable Card Area ── -->
               <div class="mw-mc-scroll-area">
 
+              <!-- Pre-shift quiz gate — shown for ALL users (drivers and non-drivers) -->
+              <?php if ($preshiftEnabled && !$preshiftDone): ?>
+              <div class="mw-preshift-card" id="preshiftCard">
+                  <div class="mw-preshift-icon">⚡</div>
+                  <div class="mw-preshift-body">
+                      <div class="mw-preshift-title">Pre-Shift Check</div>
+                      <div class="mw-preshift-sub"><?php echo (int)$preshiftLen; ?> quick questions before you start</div>
+                  </div>
+                  <button class="btn btn-sm mw-preshift-start-btn" id="preshiftStartBtn" type="button">Start Quiz</button>
+              </div>
+              <?php elseif ($preshiftEnabled && $preshiftDone): ?>
+              <div class="mw-preshift-card mw-preshift-done" id="preshiftCard">
+                  <div class="mw-preshift-icon">✅</div>
+                  <div class="mw-preshift-body">
+                      <div class="mw-preshift-title">Pre-Shift Done</div>
+                      <div class="mw-preshift-sub">Good work — you're all set for today</div>
+                  </div>
+              </div>
+              <?php endif; ?>
+
               <!-- ════════════════════════════════════════════
                    DAY SUMMARY CARD — metrics, weather, clock
                    Hidden for drivers (they see it on the portal before clocking in)
@@ -2684,26 +2704,6 @@ if ($apiKey) {
                           <?php endif; ?>
                       </div>
                       <?php endif; ?>
-                  </div>
-                  <?php endif; ?>
-
-                  <!-- Pre-shift quiz gate card -->
-                  <?php if ($preshiftEnabled && !$preshiftDone): ?>
-                  <div class="mw-preshift-card" id="preshiftCard">
-                      <div class="mw-preshift-icon">⚡</div>
-                      <div class="mw-preshift-body">
-                          <div class="mw-preshift-title">Pre-Shift Check</div>
-                          <div class="mw-preshift-sub"><?php echo (int)$preshiftLen; ?> quick questions before you start</div>
-                      </div>
-                      <button class="btn btn-sm mw-preshift-start-btn" id="preshiftStartBtn" type="button">Start Quiz</button>
-                  </div>
-                  <?php elseif ($preshiftEnabled && $preshiftDone): ?>
-                  <div class="mw-preshift-card mw-preshift-done" id="preshiftCard">
-                      <div class="mw-preshift-icon">✅</div>
-                      <div class="mw-preshift-body">
-                          <div class="mw-preshift-title">Pre-Shift Done</div>
-                          <div class="mw-preshift-sub">Good work — you're all set for today</div>
-                      </div>
                   </div>
                   <?php endif; ?>
 
