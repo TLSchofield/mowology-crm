@@ -591,6 +591,13 @@ function statusBadge(string $status, bool $overdue = false): string {
                       &#8634; Book again
                     </button>
                   <?php endif; ?>
+                  <?php
+                    $rptToken = $adminMode ? ($contact['portal_token'] ?? '') : ($contact['portal_token'] ?? '');
+                    if ($rptToken):
+                  ?>
+                    <a href="/customer/visit-report.php?token=<?php echo urlencode($rptToken); ?>&amp;visit_id=<?php echo (int)$v['id']; ?>"
+                       class="portal-visit-report-link">View Report &#8594;</a>
+                  <?php endif; ?>
                 </div>
                 <?php
                   $vPhotos = $visitPhotos[$v['id']] ?? [];
@@ -623,28 +630,20 @@ function statusBadge(string $status, bool $overdue = false): string {
                 <?php endif; ?>
                 <?php if (!empty($visitPings[$v['id']])): ?>
                   <?php
-                    $pings      = $visitPings[$v['id']];
-                    $startTime  = date('g:i a', strtotime($pings[0]['timestamp']));
-
-                    // Sample down to ≤ 60 points so the URL stays short
-                    $sampled = $pings;
+                    $pings     = $visitPings[$v['id']];
+                    $startTime = date('g:i a', strtotime($pings[0]['timestamp']));
+                    $sampled   = $pings;
                     if (count($pings) > 60) {
-                        $step    = ceil(count($pings) / 60);
+                        $step = ceil(count($pings) / 60);
                         $sampled = [];
-                        for ($si = 0; $si < count($pings); $si += $step) {
-                            $sampled[] = $pings[$si];
-                        }
-                        if (end($sampled) !== end($pings)) {
-                            $sampled[] = end($pings);
-                        }
+                        for ($si = 0; $si < count($pings); $si += $step) $sampled[] = $pings[$si];
+                        if (end($sampled) !== end($pings)) $sampled[] = end($pings);
                     }
-
-                    $coords    = array_map(fn($p) => $p['latitude'].','.$p['longitude'], $sampled);
-                    $avgLat    = array_sum(array_column($pings, 'latitude'))  / count($pings);
-                    $avgLng    = array_sum(array_column($pings, 'longitude')) / count($pings);
+                    $coords     = array_map(fn($p) => $p['latitude'].','.$p['longitude'], $sampled);
+                    $avgLat     = array_sum(array_column($pings, 'latitude'))  / count($pings);
+                    $avgLng     = array_sum(array_column($pings, 'longitude')) / count($pings);
                     $startCoord = $pings[0]['latitude'].','.$pings[0]['longitude'];
-
-                    $gmapUrl = 'https://maps.googleapis.com/maps/api/staticmap'
+                    $gmapUrl    = 'https://maps.googleapis.com/maps/api/staticmap'
                         . '?size=640x200&scale=2&zoom=18&maptype=roadmap'
                         . '&center=' . $avgLat . ',' . $avgLng
                         . '&path=color:0x2D865988|weight:4|' . implode('|', $coords)
@@ -657,7 +656,10 @@ function statusBadge(string $status, bool $overdue = false): string {
                          alt="Service location map"
                          class="portal-visit-map-img"
                          loading="lazy">
-                    <div class="portal-visit-map-label">Started <?php echo htmlspecialchars($startTime); ?></div>
+                    <div class="portal-visit-map-label">
+                      <span class="portal-visit-map-pings"><?php echo count($pings); ?> GPS pings</span>
+                      <?php if ($startTime): ?>&middot; Started <?php echo htmlspecialchars($startTime); ?><?php endif; ?>
+                    </div>
                   </div>
                 <?php endif; ?>
               </div>
@@ -819,6 +821,7 @@ function mwRebookVisit(visitId, serviceLabel) {
     });
 }
 </script>
+
 
 </body>
 </html>
