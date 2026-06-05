@@ -1400,12 +1400,16 @@ a:hover { text-decoration: underline; }
 /* GPS card specifics */
 .pvr-gps-card { }
 .pvr-gps-title { color: var(--p-dark); }
+/* used for both <img> fallback and Leaflet <div> */
 .pvr-gps-img {
     display: block;
     width: 100%;
-    height: auto;
+    height: 280px;
     border-bottom: 1px solid var(--p-border);
+    background: var(--p-bg-gray);
 }
+/* <img> variant: let height be auto */
+img.pvr-gps-img { height: auto; }
 
 /* GPS data block — stamp + rows */
 .pvr-gps-data-block {
@@ -2187,25 +2191,20 @@ a:hover { text-decoration: underline; }
   flex-shrink: 0;
 }
 
-/* ─── Visit GPS Pings Map (Google Static Maps) ───────────────────────────── */
-.portal-visit-map-wrap {
-  position: relative;
+/* ─── Visit GPS Pings Map ────────────────────────────────────────────────── */
+.portal-visit-map {
   margin-top: 12px;
+  height: 220px;
   border-radius: var(--p-radius-sm);
   border: 1px solid var(--p-border);
   overflow: hidden;
   background: var(--p-bg-gray);
-  line-height: 0;
 }
-.portal-visit-map-img {
-  width: 100%;
-  height: auto;
-  display: block;
+.portal-map-label-icon {
+  background: transparent !important;
+  border: none !important;
 }
-.portal-visit-map-label {
-  position: absolute;
-  bottom: 8px;
-  left: 8px;
+.portal-map-start-bubble {
   background: var(--p-forest);
   color: #fff;
   font-size: 0.62rem;

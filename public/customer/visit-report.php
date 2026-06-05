@@ -64,25 +64,21 @@ if (!$error && $contact) {
                 jv.id,
                 jv.visit_number,
                 jv.scheduled_date,
-                jv.scheduled_time_start,
-                jv.scheduled_time_end,
                 jv.completed_at,
                 jv.actual_duration_minutes,
                 jv.actual_amount,
+                jv.actual_crew_count,
                 jv.status,
                 jv.plan_id,
                 jv.sequence_index,
                 jp.title          AS plan_title,
                 jp.service_type,
                 jp.is_prepaid_bundle,
-                jp.crew_count,
                 p.id              AS property_id,
                 p.address         AS property_address,
                 p.city            AS property_city,
                 p.province        AS property_province,
                 p.postal_code     AS property_postal,
-                p.latitude        AS property_lat,
-                p.longitude       AS property_lng,
                 p.site_contact_id
             FROM job_visits jv
             JOIN job_plans jp  ON jp.id = jv.plan_id
@@ -156,15 +152,15 @@ if (!$error && $visit) {
         $stmt = $db->prepare("
             SELECT pli.quantity,
                    pli.unit,
-                   pli.application_notes,
-                   pli.application_rate,
-                   pr.name        AS product_name,
-                   pr.description AS product_description
+                   pr.name              AS product_name,
+                   pr.description       AS product_description,
+                   pr.application_notes AS application_notes,
+                   pr.application_rate  AS application_rate
             FROM plan_line_items pli
             JOIN products pr ON pr.id = pli.product_id
             WHERE pli.plan_id = ?
               AND pli.product_id IS NOT NULL
-            ORDER BY pr.name ASC
+            ORDER BY pli.sort_order ASC
         ");
         $stmt->execute([$visit['plan_id']]);
         $productLines = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -238,23 +234,23 @@ if ($pingCount > 0) {
     $avgLat = array_sum(array_column($pings, 'latitude'))  / $pingCount;
     $avgLng = array_sum(array_column($pings, 'longitude')) / $pingCount;
 
-    $gmapUrl = 'https://maps.googleapis.com/maps/api/staticmap'
-        . '?size=640x300&scale=2&zoom=18&maptype=roadmap'
-        . '&center=' . $avgLat . ',' . $avgLng
-        . '&path=color:0x2D8659AA|weight:4|' . implode('|', $coords)
-        . '&markers=label:A|color:0x2D8659|' . $startCoord
-        . '&markers=label:B|color:0x1A5F4A|' . $endCoord
-        . '&key=' . GOOGLE_MAPS_API_KEY;
+    // Bounding box from ping extents + padding
+    $lats   = array_column($pings, 'latitude');
+    $lngs   = array_column($pings, 'longitude');
+    $minLat = (float)min($lats); $maxLat = (float)max($lats);
+    $minLng = (float)min($lngs); $maxLng = (float)max($lngs);
+    $padLat = max(0.002, ($maxLat - $minLat) * 0.6);
+    $padLng = max(0.003, ($maxLng - $minLng) * 0.6);
+    $bbox   = ($minLng - $padLng) . ',' . ($minLat - $padLat) . ','
+            . ($maxLng + $padLng) . ',' . ($maxLat + $padLat);
 
-} elseif (!$error && $visit && !empty($visit['property_lat']) && !empty($visit['property_lng'])) {
-    // No pings — show static map centred on property
-    $propCenter = $visit['property_lat'] . ',' . $visit['property_lng'];
-    $gmapUrl = 'https://maps.googleapis.com/maps/api/staticmap'
-        . '?size=640x300&scale=2&zoom=17&maptype=roadmap'
-        . '&center=' . $propCenter
-        . '&markers=color:0x2D8659|' . $propCenter
-        . '&key=' . GOOGLE_MAPS_API_KEY;
+    // ArcGIS World Street Map — no API key, already in CSP
+    $gmapUrl = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/export'
+        . '?bbox=' . $bbox
+        . '&bboxSR=4326&size=680,300&imageSR=4326&format=png&transparent=false&f=image';
+
 }
+// (No pings + no property coords → $gmapUrl stays empty, map section is skipped)
 
 // ── Computed display values ────────────────────────────────────────────────
 $contactName = $contact
@@ -272,7 +268,7 @@ if ($visit) {
     $serviceLabel = htmlspecialchars($visit['plan_title'] ?: ucwords(str_replace('_', ' ', $visit['service_type'] ?? '')));
     $visitDate    = date('F j, Y', strtotime($visit['scheduled_date']));
     $visitNumStr  = htmlspecialchars($visit['visit_number'] ?? ('#' . $visit['id']));
-    $crewCount    = (int)($visit['crew_count'] ?? 1);
+    $crewCount    = (int)($visit['actual_crew_count'] ?? 1);
 
     $durMins = (int)($visit['actual_duration_minutes'] ?? 0);
     if ($durMins > 0) {
@@ -326,6 +322,9 @@ $pageTitle  = 'Service Visit Report' . ($visit ? ' — ' . $visitDate : '');
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title><?php echo htmlspecialchars($pageTitle); ?></title>
   <link rel="stylesheet" href="/customer/portal.css">
+  <?php if ($pingCount > 0): ?>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+  <?php endif; ?>
 </head>
 <body>
 
@@ -427,9 +426,21 @@ $pageTitle  = 'Service Visit Report' . ($visit ? ' — ' . $visitDate : '');
         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
         GPS Verified Service Route
       </div>
-      <?php if ($gmapUrl): ?>
+      <?php if ($pingCount > 0): ?>
+        <?php
+          $pingLatLngs = json_encode(array_map(
+              fn($p) => [(float)$p['latitude'], (float)$p['longitude']],
+              $pings
+          ));
+        ?>
+        <div id="pvr-map"
+             class="pvr-gps-img"
+             data-pings="<?php echo htmlspecialchars($pingLatLngs, ENT_QUOTES); ?>"
+             data-arrival="<?php echo htmlspecialchars($arrivalTime ?? ''); ?>">
+        </div>
+      <?php elseif ($gmapUrl): ?>
         <img src="<?php echo htmlspecialchars($gmapUrl); ?>"
-             alt="GPS service route map for <?php echo $serviceLabel; ?>"
+             alt="Service location map"
              class="pvr-gps-img"
              loading="lazy">
         <?php if ($pingCount > 0): ?>
@@ -618,6 +629,60 @@ $pageTitle  = 'Service Visit Report' . ($visit ? ' — ' . $visitDate : '');
   &#128438; Save / Print
 </button>
 
+<?php endif; ?>
+
+<?php if ($pingCount > 0): ?>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<script>
+(function() {
+  var el = document.getElementById('pvr-map');
+  if (!el) return;
+  var pings = JSON.parse(el.dataset.pings || '[]');
+  if (!pings.length) return;
+
+  var map = L.map(el, { zoomControl: true, scrollWheelZoom: false, attributionControl: false });
+
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 19,
+  }).addTo(map);
+
+  var latlngs = pings.map(function(p) { return [p[0], p[1]]; });
+
+  if (latlngs.length > 1) {
+    L.polyline(latlngs, { color: '#2D8659', weight: 3, opacity: 0.8 }).addTo(map);
+  }
+
+  pings.forEach(function(p, i) {
+    L.circleMarker([p[0], p[1]], {
+      radius:      i === 0 ? 8 : 4,
+      fillColor:   i === 0 ? '#2D8659' : '#7FD858',
+      color:       '#fff',
+      weight:      2,
+      fillOpacity: 1,
+    }).addTo(map);
+  });
+
+  // Start label
+  var arrival = el.dataset.arrival || '';
+  if (arrival) {
+    var icon = L.divIcon({
+      className: 'portal-map-label-icon',
+      html: '<div class="portal-map-start-bubble">Started ' + arrival + '</div>',
+      iconAnchor: [-8, 6],
+    });
+    L.marker(latlngs[0], { icon: icon, interactive: false }).addTo(map);
+  }
+
+  // Always zoom 19 (house-number level), centre on centroid of all pings
+  var sumLat = 0, sumLng = 0;
+  latlngs.forEach(function(p) { sumLat += p[0]; sumLng += p[1]; });
+  map.setView([sumLat / latlngs.length, sumLng / latlngs.length], 19);
+
+  requestAnimationFrame(function() {
+    setTimeout(function() { map.invalidateSize(true); }, 80);
+  });
+})();
+</script>
 <?php endif; ?>
 
 </body>

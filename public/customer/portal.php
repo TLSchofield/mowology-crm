@@ -6,6 +6,26 @@
  *   2. Client access  — ?token=XXXX     (no login, uses contacts.portal_token)
  *
  * Shows all portal-accessible quotes and invoices for a contact.
+ *
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │  ⚠️  GPS MAP — DO NOT CHANGE THE TILE SOURCE                            │
+ * │                                                                         │
+ * │  The service history cards use Leaflet + OpenStreetMap tiles.           │
+ * │  OSM is the ONLY tile source that shows house numbers in Vancouver.     │
+ * │                                                                         │
+ * │  Things tried that did NOT work:                                        │
+ * │  • Leaflet + OSM (wildcard CSP only)  → tiles gray, no house numbers   │
+ * │  • Google Static Maps API             → Static Maps API not enabled     │
+ * │  • ArcGIS static export               → no house numbers in Vancouver   │
+ * │  • Leaflet + ArcGIS tiles             → no house numbers in Vancouver   │
+ * │                                                                         │
+ * │  What DOES work:                                                        │
+ * │  • Leaflet + OSM tiles, zoom 19, centred on ping centroid               │
+ * │  • CSP in .htaccess explicitly lists a/b/c.tile.openstreetmap.org      │
+ * │    (wildcard *.tile.openstreetmap.org alone was not matching)           │
+ * │                                                                         │
+ * │  If you need to change map behaviour, update this file AND .htaccess.  │
+ * └─────────────────────────────────────────────────────────────────────────┘
  */
 
 header('X-Content-Type-Options: nosniff');
@@ -294,6 +314,9 @@ function statusBadge(string $status, bool $overdue = false): string {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Client Portal<?php if ($contact): ?> — <?php echo $contactName; ?><?php endif; ?></title>
   <link rel="stylesheet" href="/customer/portal.css">
+  <?php if ($hasAnyPings): ?>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+  <?php endif; ?>
 </head>
 <body>
 
@@ -632,34 +655,17 @@ function statusBadge(string $status, bool $overdue = false): string {
                   <?php
                     $pings     = $visitPings[$v['id']];
                     $startTime = date('g:i a', strtotime($pings[0]['timestamp']));
-                    $sampled   = $pings;
-                    if (count($pings) > 60) {
-                        $step = ceil(count($pings) / 60);
-                        $sampled = [];
-                        for ($si = 0; $si < count($pings); $si += $step) $sampled[] = $pings[$si];
-                        if (end($sampled) !== end($pings)) $sampled[] = end($pings);
-                    }
-                    $coords     = array_map(fn($p) => $p['latitude'].','.$p['longitude'], $sampled);
-                    $avgLat     = array_sum(array_column($pings, 'latitude'))  / count($pings);
-                    $avgLng     = array_sum(array_column($pings, 'longitude')) / count($pings);
-                    $startCoord = $pings[0]['latitude'].','.$pings[0]['longitude'];
-                    $gmapUrl    = 'https://maps.googleapis.com/maps/api/staticmap'
-                        . '?size=640x200&scale=2&zoom=18&maptype=roadmap'
-                        . '&center=' . $avgLat . ',' . $avgLng
-                        . '&path=color:0x2D865988|weight:4|' . implode('|', $coords)
-                        . '&markers=color:0x2D8659|size:tiny|' . implode('|', $coords)
-                        . '&markers=icon:https://maps.google.com/mapfiles/ms/icons/green-dot.png|' . $startCoord
-                        . '&key=' . GOOGLE_MAPS_API_KEY;
+                    $pingCount = count($pings);
+                    $pingJson  = json_encode(array_map(
+                        fn($p) => [(float)$p['latitude'], (float)$p['longitude']],
+                        $pings
+                    ));
                   ?>
-                  <div class="portal-visit-map-wrap">
-                    <img src="<?php echo htmlspecialchars($gmapUrl); ?>"
-                         alt="Service location map"
-                         class="portal-visit-map-img"
-                         loading="lazy">
-                    <div class="portal-visit-map-label">
-                      <span class="portal-visit-map-pings"><?php echo count($pings); ?> GPS pings</span>
-                      <?php if ($startTime): ?>&middot; Started <?php echo htmlspecialchars($startTime); ?><?php endif; ?>
-                    </div>
+                  <div class="portal-visit-map"
+                       id="vmap-<?php echo (int)$v['id']; ?>"
+                       data-pings="<?php echo htmlspecialchars($pingJson, ENT_QUOTES); ?>"
+                       data-start="<?php echo htmlspecialchars($startTime); ?>"
+                       data-count="<?php echo $pingCount; ?>">
                   </div>
                 <?php endif; ?>
               </div>
@@ -823,5 +829,60 @@ function mwRebookVisit(visitId, serviceLabel) {
 </script>
 
 
+
+<?php if ($hasAnyPings): ?>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<script>
+(function() {
+  document.querySelectorAll('.portal-visit-map[data-pings]').forEach(function(el) {
+    var pings  = JSON.parse(el.dataset.pings || '[]');
+    var start  = el.dataset.start || '';
+    var count  = el.dataset.count || '';
+    if (!pings.length) return;
+
+    var map = L.map(el, { zoomControl: false, scrollWheelZoom: false, attributionControl: false });
+
+    // OpenStreetMap — shows house numbers at zoom 18-19
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      subdomains: ['a','b','c'],
+    }).addTo(map);
+
+    var latlngs = pings.map(function(p) { return [p[0], p[1]]; });
+
+    if (latlngs.length > 1) {
+      L.polyline(latlngs, { color: '#2D8659', weight: 3, opacity: 0.85 }).addTo(map);
+    }
+    pings.forEach(function(p, i) {
+      L.circleMarker([p[0], p[1]], {
+        radius: i === 0 ? 8 : 4,
+        fillColor: i === 0 ? '#2D8659' : '#7FD858',
+        color: '#fff', weight: 2, fillOpacity: 1,
+      }).addTo(map);
+    });
+
+    if (start) {
+      var icon = L.divIcon({
+        className: 'portal-map-label-icon',
+        html: '<div class="portal-map-start-bubble">'
+            + (count ? count + ' GPS pings &middot; ' : '')
+            + 'Started ' + start + '</div>',
+        iconAnchor: [-8, 6],
+      });
+      L.marker(latlngs[0], { icon: icon, interactive: false }).addTo(map);
+    }
+
+    // Centre on ping centroid, zoom 19 for house-number detail
+    var sLat = 0, sLng = 0;
+    latlngs.forEach(function(p) { sLat += p[0]; sLng += p[1]; });
+    map.setView([sLat / latlngs.length, sLng / latlngs.length], 19);
+
+    requestAnimationFrame(function() {
+      setTimeout(function() { map.invalidateSize(true); }, 80);
+    });
+  });
+})();
+</script>
+<?php endif; ?>
 </body>
 </html>
