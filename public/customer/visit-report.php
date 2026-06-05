@@ -445,8 +445,12 @@ $pageTitle  = 'Service Visit Report' . ($visit ? ' — ' . $visitDate : '');
              alt="Service location map"
              class="pvr-gps-img"
              loading="lazy">
-        <?php if ($pingCount > 0): ?>
-        <!-- GPS data block -->
+      <?php else: ?>
+        <div class="pvr-gps-unavailable">GPS data not available for this visit.</div>
+      <?php endif; ?>
+
+      <?php if ($pingCount > 0): ?>
+        <!-- GPS verification stamp + data rows -->
         <div class="pvr-gps-data-block">
           <div class="pvr-gps-stamp">
             <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.93 4.93A10 10 0 1 0 19.07 19.07"/><path d="M12 8a4 4 0 0 1 4 4"/><path d="M12 2a10 10 0 0 1 10 10"/><circle cx="12" cy="12" r="2" fill="currentColor" stroke="none"/></svg>
@@ -475,8 +479,8 @@ $pageTitle  = 'Service Visit Report' . ($visit ? ' — ' . $visitDate : '');
               <span class="pvr-gps-row-val pvr-gps-coords"><?php
                 $lat = (float)$pings[0]['latitude'];
                 $lng = (float)$pings[0]['longitude'];
-                echo number_format(abs($lat), 5) . '° ' . ($lat >= 0 ? 'N' : 'S') . ', '
-                   . number_format(abs($lng), 5) . '° ' . ($lng <= 0 ? 'W' : 'E');
+                echo number_format(abs($lat), 5) . '&deg;&nbsp;' . ($lat >= 0 ? 'N' : 'S') . '&ensp;'
+                   . number_format(abs($lng), 5) . '&deg;&nbsp;' . ($lng <= 0 ? 'W' : 'E');
               ?></span>
             </div>
             <?php endif; ?>
@@ -488,13 +492,23 @@ $pageTitle  = 'Service Visit Report' . ($visit ? ' — ' . $visitDate : '');
             <?php endif; ?>
           </div>
         </div>
-        <?php else: ?>
-        <div class="pvr-gps-verify-row pvr-gps-no-pings">
-          Property location shown &mdash; GPS tracking was not active for this visit.
+        <!-- GPS ping coordinate log -->
+        <div class="pvr-ping-log">
+          <div class="pvr-ping-log-head">
+            <span class="pvr-ping-log-col-num">#</span>
+            <span class="pvr-ping-log-col-time">Time</span>
+            <span class="pvr-ping-log-col-lat">Latitude</span>
+            <span class="pvr-ping-log-col-lng">Longitude</span>
+          </div>
+          <?php foreach ($pings as $pi => $pg): ?>
+          <div class="pvr-ping-log-row<?php echo $pi === 0 ? ' pvr-ping-first' : ($pi === $pingCount - 1 ? ' pvr-ping-last' : ''); ?>">
+            <span class="pvr-ping-log-col-num"><?php echo $pi + 1; ?></span>
+            <span class="pvr-ping-log-col-time"><?php echo date('g:i:s a', strtotime($pg['timestamp'])); ?></span>
+            <span class="pvr-ping-log-col-lat"><?php echo number_format(abs((float)$pg['latitude']), 6); ?>&deg;&nbsp;<?php echo (float)$pg['latitude'] >= 0 ? 'N' : 'S'; ?></span>
+            <span class="pvr-ping-log-col-lng"><?php echo number_format(abs((float)$pg['longitude']), 6); ?>&deg;&nbsp;<?php echo (float)$pg['longitude'] <= 0 ? 'W' : 'E'; ?></span>
+          </div>
+          <?php endforeach; ?>
         </div>
-        <?php endif; ?>
-      <?php else: ?>
-        <div class="pvr-gps-unavailable">GPS data not available for this visit.</div>
       <?php endif; ?>
     </div>
 
@@ -513,7 +527,7 @@ $pageTitle  = 'Service Visit Report' . ($visit ? ' — ' . $visitDate : '');
             $caption   = $ph['caption'] ?: ucfirst(str_replace('_', ' ', $ph['photo_type'] ?? 'photo'));
             // Use EXIF captured_at if available, fall back to upload time
             $photoTs   = !empty($ph['captured_at']) ? $ph['captured_at'] : ($ph['uploaded_at'] ?? '');
-            $photoDate = $photoTs ? date('M j, Y g:i a', strtotime($photoTs)) : '';
+            $photoDate = $photoTs ? date('M j, Y · g:i a', strtotime($photoTs)) : '';
           ?>
           <a href="<?php echo htmlspecialchars($fullSrc); ?>" target="_blank" class="pvr-photo-item">
             <img src="<?php echo htmlspecialchars($thumbSrc); ?>"

@@ -28,10 +28,24 @@ struct MowologyCRMApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(authSession)
+                // Wire the global transition drain once the crew is authenticated.
+                // The drain fires on reconnect (mwPingQueueOnline) to retry any
+                // persisted stop/start calls that failed when offline — regardless
+                // of which screen is currently visible.
+                .onReceive(authSession.$token.compactMap { $0 }) { _ in
+                    let client = APIClient(authSession: authSession)
+                    AppTransitionDrainService.shared.configure(apiClient: client)
+                    Task { await AppTransitionDrainService.shared.drain() }
+                }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .background {
                 scheduleGPSRefreshIfNeeded()
+            }
+            if phase == .active {
+                // Drain on every foreground transition — catches the case where
+                // connectivity restored while the app was backgrounded.
+                Task { await AppTransitionDrainService.shared.drain() }
             }
         }
     }

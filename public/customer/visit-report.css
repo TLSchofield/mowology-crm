@@ -257,6 +257,52 @@ img.pvr-gps-img { height: auto; }
     text-align: center;
 }
 
+/* GPS ping coordinate log */
+.pvr-ping-log {
+    border-top: 1px solid var(--p-border);
+    font-size: 0.7rem;
+    font-family: 'Courier New', 'Lucida Console', monospace;
+}
+.pvr-ping-log-head {
+    display: grid;
+    grid-template-columns: 28px 90px 1fr 1fr;
+    gap: 0;
+    background: var(--p-bg-subtle);
+    border-bottom: 1px solid var(--p-border);
+    padding: 5px 14px;
+    font-size: 0.6rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--p-text-light);
+    font-family: 'Montserrat', sans-serif;
+}
+.pvr-ping-log-row {
+    display: grid;
+    grid-template-columns: 28px 90px 1fr 1fr;
+    gap: 0;
+    padding: 4px 14px;
+    border-bottom: 1px solid var(--p-bg-subtle);
+    color: var(--p-text-mid);
+    transition: background 0.1s;
+}
+.pvr-ping-log-row:last-child { border-bottom: none; }
+.pvr-ping-log-row:hover { background: var(--p-bg-subtle); }
+.pvr-ping-first {
+    color: var(--p-dark);
+    font-weight: 700;
+    background: #f0fdf4;
+}
+.pvr-ping-first:hover { background: #e8faf0; }
+.pvr-ping-last {
+    color: var(--p-text-mid);
+    background: #f9f9f9;
+}
+.pvr-ping-log-col-num  { color: var(--p-text-muted); font-size: 0.62rem; padding-top: 1px; }
+.pvr-ping-log-col-time { }
+.pvr-ping-log-col-lat,
+.pvr-ping-log-col-lng  { letter-spacing: -0.01em; }
+
 /* Portal map label — ping count badge */
 .portal-visit-map-pings {
     font-weight: 800;

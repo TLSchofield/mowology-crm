@@ -61,6 +61,7 @@
 		6CB330DA9E770330F8DBB500 /* ClockQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = C38B412AFB12D52D9679198C /* ClockQueue.swift */; };
 		FEE6F4240C835E02425E19BD /* JobPhotoQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020780B1CE91FCD6C5F342B3 /* JobPhotoQueue.swift */; };
 		9123154214A57C98D697E9A0 /* ScheduleCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD1CBB45AF36E4DCB8B81C51 /* ScheduleCache.swift */; };
+		34AB0F00E7B692E81E5392EC /* AppTransitionDrainService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04649C7082A9C0FC920D58AD /* AppTransitionDrainService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -120,6 +121,7 @@
 		C38B412AFB12D52D9679198C /* ClockQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClockQueue.swift; sourceTree = "<group>"; };
 		020780B1CE91FCD6C5F342B3 /* JobPhotoQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobPhotoQueue.swift; sourceTree = "<group>"; };
 		AD1CBB45AF36E4DCB8B81C51 /* ScheduleCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleCache.swift; sourceTree = "<group>"; };
+		04649C7082A9C0FC920D58AD /* AppTransitionDrainService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTransitionDrainService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -133,6 +135,7 @@
 				C38B412AFB12D52D9679198C /* ClockQueue.swift */,
 				020780B1CE91FCD6C5F342B3 /* JobPhotoQueue.swift */,
 				AD1CBB45AF36E4DCB8B81C51 /* ScheduleCache.swift */,
+				04649C7082A9C0FC920D58AD /* AppTransitionDrainService.swift */,
 			);
 			path = Offline;
 			sourceTree = "<group>";
@@ -142,7 +145,7 @@
 			children = (
 				51F215642B22B1FCC54B663F /* MowologyCRM */,
 				636F64D13F9CF99C7CCAD7EA /* Products */,
-);
+			);
 			sourceTree = "<group>";
 		};
 		3CAC498CFC84EC47A1CECC6B /* Network */ = {
@@ -438,6 +441,7 @@
 				BB1234567890ABCDEF123402 /* QuizView.swift in Sources */,
 				BB1234567890ABCDEF123403 /* QuizViewModel.swift in Sources */,
 				6CB330DA9E770330F8DBB500 /* ClockQueue.swift in Sources */,
+				34AB0F00E7B692E81E5392EC /* AppTransitionDrainService.swift in Sources */,
 				FEE6F4240C835E02425E19BD /* JobPhotoQueue.swift in Sources */,
 				9123154214A57C98D697E9A0 /* ScheduleCache.swift in Sources */,
 			);
