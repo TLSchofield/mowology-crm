@@ -107,10 +107,11 @@ if (!$error && $visit) {
         $stmt = $db->prepare("
             SELECT ma.id,
                    ma.file_path,
-                   ml.category   AS photo_type,
+                   ml.category    AS photo_type,
                    ma.caption,
-                   mv.file_path  AS thumb_path,
-                   ma.created_at AS uploaded_at
+                   mv.file_path   AS thumb_path,
+                   ma.created_at  AS uploaded_at,
+                   ma.captured_at
             FROM media_links ml
             JOIN media_assets ma ON ma.id = ml.media_id
                       AND ma.status != 'deleted'
@@ -322,6 +323,7 @@ $pageTitle  = 'Service Visit Report' . ($visit ? ' — ' . $visitDate : '');
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title><?php echo htmlspecialchars($pageTitle); ?></title>
   <link rel="stylesheet" href="/customer/portal.css">
+  <link rel="stylesheet" href="/customer/visit-report.css">
   <?php if ($pingCount > 0): ?>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <?php endif; ?>
@@ -509,12 +511,20 @@ $pageTitle  = 'Service Visit Report' . ($visit ? ' — ' . $visitDate : '');
             $thumbSrc  = !empty($ph['thumb_path']) ? $ph['thumb_path'] : $ph['file_path'];
             $fullSrc   = $ph['file_path'];
             $caption   = $ph['caption'] ?: ucfirst(str_replace('_', ' ', $ph['photo_type'] ?? 'photo'));
+            // Use EXIF captured_at if available, fall back to upload time
+            $photoTs   = !empty($ph['captured_at']) ? $ph['captured_at'] : ($ph['uploaded_at'] ?? '');
+            $photoDate = $photoTs ? date('M j, Y g:i a', strtotime($photoTs)) : '';
           ?>
           <a href="<?php echo htmlspecialchars($fullSrc); ?>" target="_blank" class="pvr-photo-item">
             <img src="<?php echo htmlspecialchars($thumbSrc); ?>"
                  alt="<?php echo htmlspecialchars($caption); ?>"
                  loading="lazy">
-            <div class="pvr-photo-caption"><?php echo htmlspecialchars($caption); ?></div>
+            <div class="pvr-photo-caption">
+              <?php echo htmlspecialchars($caption); ?>
+              <?php if ($photoDate): ?>
+                <span class="pvr-photo-ts"><?php echo htmlspecialchars($photoDate); ?></span>
+              <?php endif; ?>
+            </div>
           </a>
         <?php endforeach; ?>
       </div>
