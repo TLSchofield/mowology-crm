@@ -170,35 +170,68 @@ if ($contact && !$error) {
         $completedVisits = [];
     }
 
-    // Photos for all completed visits (+ soft-delete exclusion + thumb/view paths)
+    // Photos for all completed visits — queried from the unified media system
+    // (media_assets + media_links; visit_photos is the legacy table with 0 new rows)
     $visitPhotos  = [];
-    $recentPhotos = []; // flat, most recent first, for top-level card
+    $recentPhotos = [];
     $photoTotal   = 0;
     if (!empty($completedVisits)) {
-        $visitIds = array_column($completedVisits, 'id');
+        $visitIds     = array_column($completedVisits, 'id');
         $placeholders = implode(',', array_fill(0, count($visitIds), '?'));
         try {
             $stmt = $db->prepare("
-                SELECT visit_id, id, filename, photo_type, caption,
-                       thumb_path, grid_path, view_path, uploaded_at
-                FROM visit_photos
-                WHERE visit_id IN ($placeholders)
-                  AND deleted_at IS NULL
-                ORDER BY uploaded_at DESC
+                SELECT ml.context_id AS visit_id,
+                       ma.id,
+                       ma.file_path,
+                       ml.category      AS photo_type,
+                       ma.caption,
+                       mv.file_path     AS thumb_path,
+                       ma.created_at    AS uploaded_at
+                FROM media_links ml
+                JOIN media_assets ma ON ma.id = ml.media_id
+                          AND ma.status != 'deleted'
+                LEFT JOIN media_variants mv ON mv.media_id = ma.id
+                          AND mv.variant_type = 'thumb_square'
+                          AND mv.format = 'jpeg'
+                WHERE ml.context_type = 'job_visit'
+                  AND ml.context_id IN ($placeholders)
+                ORDER BY ml.context_id ASC, ma.created_at DESC
             ");
             $stmt->execute($visitIds);
-            $allRows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $allRows    = $stmt->fetchAll(PDO::FETCH_ASSOC);
             $photoTotal = count($allRows);
-            $recentPhotos = array_slice($allRows, 0, 4); // 4 most recent for the summary card
+            $recentPhotos = array_slice($allRows, 0, 4);
             foreach ($allRows as $photo) {
-                $visitPhotos[$photo['visit_id']][] = $photo;
+                $visitPhotos[(int)$photo['visit_id']][] = $photo;
             }
         } catch (Exception $e) {
             // photos unavailable — silently skip
         }
     }
+
+    // GPS pings for completed visits (crew_location_history linked by visit_id)
+    $visitPings = [];
+    if (!empty($completedVisits)) {
+        $pingIds = array_column($completedVisits, 'id');
+        $pingPH  = implode(',', array_fill(0, count($pingIds), '?'));
+        try {
+            $stmt = $db->prepare("
+                SELECT visit_id, latitude, longitude, timestamp
+                FROM crew_location_history
+                WHERE visit_id IN ($pingPH)
+                ORDER BY visit_id ASC, timestamp ASC
+            ");
+            $stmt->execute($pingIds);
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $ping) {
+                $visitPings[(int)$ping['visit_id']][] = $ping;
+            }
+        } catch (Exception $e) {
+            // pings unavailable
+        }
+    }
 }
 
+$hasAnyPings = !empty($visitPings);
 $firstName   = $contact ? htmlspecialchars($contact['first_name']) : 'there';
 $contactName = $contact ? trim(htmlspecialchars($contact['first_name'] . ' ' . ($contact['last_name'] ?? ''))) : 'Client';
 $hasAnything = !empty($quotes) || !empty($invoices) || !empty($completedVisits);
@@ -347,7 +380,7 @@ function statusBadge(string $status, bool $overdue = false): string {
     <a href="<?php echo htmlspecialchars($galleryUrl); ?>" class="portal-photos-summary">
       <div class="portal-photos-thumbs">
         <?php foreach ($recentPhotos as $rp):
-            $url = $rp['thumb_path'] ?: $rp['grid_path'] ?: ('/uploads/photos/' . $rp['filename']);
+            $url = $rp['thumb_path'] ?: $rp['file_path'];
         ?>
           <img src="<?php echo htmlspecialchars($url); ?>" alt="" loading="lazy">
         <?php endforeach; ?>
@@ -567,16 +600,17 @@ function statusBadge(string $status, bool $overdue = false): string {
                 <?php if (!empty($vPhotos)): ?>
                   <?php
                     $photoUrls = array_map(fn($p) => [
-                        'src'     => '/uploads/photos/' . $p['filename'],
-                        'caption' => $p['caption'] ?? ucfirst($p['photo_type']),
+                        'src'     => $p['file_path'],
+                        'caption' => $p['caption'] ?? ucfirst($p['photo_type'] ?? 'photo'),
                     ], $vPhotos);
                     $photoJson = htmlspecialchars(json_encode($photoUrls), ENT_QUOTES);
                   ?>
                   <div class="portal-photo-grid">
                     <?php foreach (array_slice($vPhotos, 0, $showMax) as $pi => $ph): ?>
+                      <?php $thumbSrc = $ph['thumb_path'] ?: $ph['file_path']; ?>
                       <div class="portal-photo-thumb" onclick="openLightbox(<?php echo htmlspecialchars($photoJson, ENT_QUOTES); ?>, <?php echo $pi; ?>)">
-                        <img src="/uploads/photos/<?php echo htmlspecialchars($ph['filename']); ?>"
-                             alt="<?php echo htmlspecialchars($ph['photo_type']); ?>"
+                        <img src="<?php echo htmlspecialchars($thumbSrc); ?>"
+                             alt="<?php echo htmlspecialchars($ph['photo_type'] ?? ''); ?>"
                              loading="lazy">
                       </div>
                     <?php endforeach; ?>
@@ -585,6 +619,45 @@ function statusBadge(string $status, bool $overdue = false): string {
                         +<?php echo $extra; ?>
                       </div>
                     <?php endif; ?>
+                  </div>
+                <?php endif; ?>
+                <?php if (!empty($visitPings[$v['id']])): ?>
+                  <?php
+                    $pings      = $visitPings[$v['id']];
+                    $startTime  = date('g:i a', strtotime($pings[0]['timestamp']));
+
+                    // Sample down to ≤ 60 points so the URL stays short
+                    $sampled = $pings;
+                    if (count($pings) > 60) {
+                        $step    = ceil(count($pings) / 60);
+                        $sampled = [];
+                        for ($si = 0; $si < count($pings); $si += $step) {
+                            $sampled[] = $pings[$si];
+                        }
+                        if (end($sampled) !== end($pings)) {
+                            $sampled[] = end($pings);
+                        }
+                    }
+
+                    $coords    = array_map(fn($p) => $p['latitude'].','.$p['longitude'], $sampled);
+                    $avgLat    = array_sum(array_column($pings, 'latitude'))  / count($pings);
+                    $avgLng    = array_sum(array_column($pings, 'longitude')) / count($pings);
+                    $startCoord = $pings[0]['latitude'].','.$pings[0]['longitude'];
+
+                    $gmapUrl = 'https://maps.googleapis.com/maps/api/staticmap'
+                        . '?size=640x200&scale=2&zoom=18&maptype=roadmap'
+                        . '&center=' . $avgLat . ',' . $avgLng
+                        . '&path=color:0x2D865988|weight:4|' . implode('|', $coords)
+                        . '&markers=color:0x2D8659|size:tiny|' . implode('|', $coords)
+                        . '&markers=icon:https://maps.google.com/mapfiles/ms/icons/green-dot.png|' . $startCoord
+                        . '&key=' . GOOGLE_MAPS_API_KEY;
+                  ?>
+                  <div class="portal-visit-map-wrap">
+                    <img src="<?php echo htmlspecialchars($gmapUrl); ?>"
+                         alt="Service location map"
+                         class="portal-visit-map-img"
+                         loading="lazy">
+                    <div class="portal-visit-map-label">Started <?php echo htmlspecialchars($startTime); ?></div>
                   </div>
                 <?php endif; ?>
               </div>

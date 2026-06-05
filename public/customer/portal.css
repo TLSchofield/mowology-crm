@@ -412,6 +412,40 @@ a:hover { text-decoration: underline; }
   text-decoration: none;
 }
 
+/* Green-outline variant — used for PDF / doc actions */
+.portal-btn-green-outline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 18px;
+  background: var(--p-bg);
+  color: var(--p-green);
+  border: 1.5px solid var(--p-green);
+  border-radius: var(--p-radius-sm);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  font-family: inherit;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+.portal-btn-green-outline:hover {
+  background: var(--p-green);
+  color: #fff;
+  text-decoration: none;
+}
+
+/* PDF / doc action row */
+.portal-doc-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 10px 0 20px;
+}
+
 /* ─── Visit History Cards ────────────────────────────────────────────────── */
 .portal-visit-list {
   list-style: none;
@@ -1629,6 +1663,38 @@ a:hover { text-decoration: underline; }
   font-size: 0.75rem;
   padding: 4px 10px;
   flex-shrink: 0;
+}
+
+/* ─── Visit GPS Pings Map (Google Static Maps) ───────────────────────────── */
+.portal-visit-map-wrap {
+  position: relative;
+  margin-top: 12px;
+  border-radius: var(--p-radius-sm);
+  border: 1px solid var(--p-border);
+  overflow: hidden;
+  background: var(--p-bg-gray);
+  line-height: 0;
+}
+.portal-visit-map-img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.portal-visit-map-label {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  background: var(--p-forest);
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 3px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  font-family: 'Montserrat', sans-serif;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.28);
+  pointer-events: none;
 }
 
 /* ─── Responsive ─────────────────────────────────────────────────────────── */
