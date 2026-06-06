@@ -1,18 +1,39 @@
 # Phase 1 Runbook — Client/Account Model
 
 Companion to [client-account-model.md](client-account-model.md). Everything you
-need to **review, run, verify, and roll back** Phase 1. Nothing here runs
-automatically — migrations are applied one at a time via
-**Settings → Database → Migrations** (admin), which logs each to `migrations_log`.
+need to **review, run, verify, and roll back** Phase 1.
 
-Migrations (apply in this exact order):
+## ⚠️ How migrations actually run on this project
 
-| # | File | Effect | Reversible |
-|---|------|--------|-----------|
-| 1 | `1046_sites_table.sql` | `sites` stub + seed Mowology (id=1) | drop table |
-| 2 | `1047_clients_tables.sql` | `clients` + `client_contacts` | drop tables |
-| 3 | `1048_entities_client_id.sql` | nullable `client_id` on properties/job_plans/quotes/invoices | drop columns |
-| 4 | `1049_backfill_client_account_model.sql` | populate clients + stamp client_id (idempotent) | data-only; re-runnable |
+There are **two** migration paths, and they've diverged — the 10xx line (incl.
+this one) does **not** use the file-based Migrations Manager:
+
+- **Migrations Manager** (Settings → Database → Migrations) reads
+  `public_html/database/migrations`. That dir tops out before the 10xx series,
+  so it will **not** list 1046–1049. Ignore it for this phase.
+- **URL runner scripts** — `public/crm/api/run-migration-XXXX.php` — the proven
+  path for every recent 10xx migration. Each is admin-only, self-contained, and
+  idempotent. **This is how you run Phase 1.**
+
+The canonical `.sql` files live in repo-root `database/migrations/` (not
+deployed). The runner scripts in `public/crm/api/` carry the same SQL inline and
+ARE deployed (cPanel ships `public/`). Both must stay on `main` to be reachable.
+
+Run **in this exact order** by visiting each URL as a logged-in admin:
+
+| # | Runner URL | `.sql` mirror | Effect | Reversible |
+|---|-----------|---------------|--------|-----------|
+| 1 | `/crm/api/run-migration-1046.php` | `1046_sites_table.sql` | `sites` stub + seed Mowology | drop table |
+| 2 | `/crm/api/run-migration-1047.php` | `1047_clients_tables.sql` | `clients` + `client_contacts` | drop tables |
+| 3 | `/crm/api/run-migration-1048.php` | `1048_entities_client_id.sql` | nullable `client_id` on 4 tables | drop columns |
+| 4 | `/crm/api/run-migration-1049.php` | `1049_backfill_*.sql` | populate + stamp client_id (idempotent) | data-only; re-runnable |
+
+**Dry-run the backfill first:** `/crm/api/run-migration-1049.php?dry=1` runs every
+INSERT/UPDATE inside a transaction and **rolls back**, returning the row counts
+it *would* write — preview without committing. Drop `?dry=1` to apply for real.
+
+Each runner returns JSON: `{ok, results:[{step,status,rows...}]}`. A `status` of
+`already_exists` (1046–1048) means that step was applied on a prior run — fine.
 
 All four are **additive and non-breaking** — no existing column is changed or
 dropped, so the app keeps running on the old columns throughout Phase 1.
@@ -112,15 +133,12 @@ DROP TABLE IF EXISTS clients;
 
 -- 1046 — tenant stub
 DROP TABLE IF EXISTS sites;
-
--- clear the log so the migrations can be re-applied later
-DELETE FROM migrations_log WHERE migration_filename IN
-  ('1046_sites_table.sql','1047_clients_tables.sql',
-   '1048_entities_client_id.sql','1049_backfill_client_account_model.sql');
 ```
 
-To re-run ONLY the backfill after fixing data, you don't need rollback — 1049 is
-idempotent. Delete its `migrations_log` row and apply it again.
+The URL runners do **not** write to `migrations_log`, so there's nothing to
+clear — just re-visit the runner URLs to re-apply. To re-run ONLY the backfill
+after fixing data, you don't need rollback at all: 1049 is idempotent, so visit
+`/crm/api/run-migration-1049.php` again.
 
 ---
 
