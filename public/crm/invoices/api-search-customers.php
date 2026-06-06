@@ -58,23 +58,40 @@ foreach ($contacts as $row) {
     ];
 }
 
-// Also search companies (future-proof)
+// Also search companies — match name, email, billing address, notes,
+// and linked primary/billing contact names so stratas are findable by
+// any identifier the user remembers (e.g. plan number "VR15/40" stored
+// in notes or address).
 $stmt2 = $db->prepare("
-    SELECT id, company_name, billing_email
-    FROM companies
-    WHERE company_name LIKE ? OR billing_email LIKE ?
-    ORDER BY company_name
-    LIMIT 10
+    SELECT DISTINCT co.id, co.company_name, co.company_type, co.billing_email,
+           co.billing_address, co.billing_city
+    FROM companies co
+    LEFT JOIN contacts pc ON pc.id = co.primary_contact_id
+    LEFT JOIN contacts bc ON bc.id = co.billing_contact_id
+    WHERE co.company_name    LIKE ?
+       OR co.billing_email   LIKE ?
+       OR co.billing_address LIKE ?
+       OR co.notes           LIKE ?
+       OR CONCAT(COALESCE(pc.first_name,''), ' ', COALESCE(pc.last_name,'')) LIKE ?
+       OR CONCAT(COALESCE(bc.first_name,''), ' ', COALESCE(bc.last_name,'')) LIKE ?
+    ORDER BY co.company_name
+    LIMIT 20
 ");
-$stmt2->execute([$like, $like]);
+$stmt2->execute([$like, $like, $like, $like, $like, $like]);
 $companies = $stmt2->fetchAll(PDO::FETCH_ASSOC);
 
 foreach ($companies as $row) {
+    $typeLabel = ucwords(str_replace('_', ' ', (string)($row['company_type'] ?? '')));
+    $addr = trim(($row['billing_address'] ?? '') . (!empty($row['billing_city']) ? ', ' . $row['billing_city'] : ''));
+    $sub = $row['billing_email'] ?: $addr;
+    if ($typeLabel) {
+        $sub = $sub ? ($typeLabel . ' · ' . $sub) : $typeLabel;
+    }
     $results[] = [
         'type'    => 'company',
         'id'      => (int)$row['id'],
         'label'   => $row['company_name'],
-        'sublabel' => $row['billing_email'] ?: '',
+        'sublabel' => $sub,
         'email'   => $row['billing_email'],
     ];
 }
