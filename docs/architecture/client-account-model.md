@@ -155,11 +155,40 @@ COALESCE joins, and the contacts-vs-companies split in the UI.
 
 ---
 
-## 5. Open questions (revisit before Phase 1)
+## 5. Resolved decisions (2026-06-06)
 
-- Do individuals get an auto-created `client` of `client_type=individual`, or is
-  the contact promoted lazily on first invoice? (Lean: auto-create on backfill.)
-- Invoice routing roles vs. the existing `invoice_routing_method` enum on
-  `companies` — reconcile into `client_contacts.receives_invoices`.
-- Multi-tenant `site_id` placement — add to `clients` now (nullable) or in the
-  tenancy phase.
+### D1 — Every contact auto-creates one `individual` client
+
+`client_id` is a **hard invariant: never null on a billable entity.** At
+backfill, every `contacts` row gets exactly one `clients` row
+(`client_type=individual`), linked via `client_contacts` (role `owner`,
+`is_primary=1`). New contacts auto-create their personal client in
+`ContactService`. No lazy promotion — that would reintroduce null-handling and
+force the picker to union two tables. The extra rows (one per contact, incl.
+prospects) are trivial; uniformity is worth more.
+
+### D2 — Per-contact routing flags are authoritative; the enum is retired
+
+`client_contacts.receives_invoices` and `receives_notifications` (booleans, per
+linked person) are the source of truth. `companies.invoice_routing_method` is
+**backfilled from, then dropped** (Phase 4) — it can't express "these N specific
+people" (its own `custom_contacts` value proves the gap). Routing rule:
+
+> recipients = `client_contacts WHERE receives_invoices=1`
+> → else the `is_primary` contact
+> → else `clients.billing_email`.
+> For managed accounts, walk `managed_by_client_id` to the managing firm's
+> recipients.
+
+No enum branching; any recipient set is expressible. `InvoiceRouting.php` is
+rewritten behind `BillToResolver` to use this rule.
+
+### D3 — `site_id` lands on `clients` now; everything else inherits it
+
+Phase 1 adds nullable `site_id` to `clients` (FK → a one-row `sites` stub =
+Mowology), backfilled. The ~20 existing tables are **not** retrofitted — their
+tenant resolves through `client_id → clients.site_id`. Retrofitting a tenant
+discriminator onto a populated core table later is high-risk (every query +
+unique index + leak surface); doing it on the table we're already rewriting is
+nearly free and sits dormant like `client_id`. New unique constraints (e.g.
+client display_name) are designed **tenant-scoped** from the start.
