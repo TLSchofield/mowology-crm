@@ -117,12 +117,15 @@ collapses the COALESCE-ladder logic into one place. New code calls the resolver;
 old code is untouched. Recipient routing delegates to the existing
 `determineInvoiceRecipients()` in `Invoices/Services/InvoiceRouting.php`.
 
-### Phase 1 — Expand
+### Phase 1 — Expand  *(migrations drafted — awaiting review/run)*
 
 Create `clients` + `client_contacts`. Backfill: every contact → a
 client(individual); every company → a client(organization); link them via the
 junction. Add **nullable** `client_id` to properties / jobs / quotes / invoices
 *alongside* the existing columns. Dual-write. Old code still works.
+
+Migrations `1046`–`1049`; run order, pre-flight checks, verification queries,
+and rollback are in **[client-account-model-phase1-runbook.md](client-account-model-phase1-runbook.md)**.
 
 ### Phase 2 — Migrate reads
 
