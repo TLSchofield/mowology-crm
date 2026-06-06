@@ -452,6 +452,7 @@ function getAllJobsForDate($date) {
         SELECT jv.id, jv.visit_number as job_number, jv.status, jv.scheduled_date,
                jv.scheduled_time_start, jv.scheduled_time_end, jv.assigned_crew_id,
                jp.title, jp.service_type, jp.estimated_duration_minutes,
+               jp.property_id,
                p.address as property_address, p.city as property_city,
                p.latitude as property_lat, p.longitude as property_lng,
                c.company_name
@@ -638,13 +639,14 @@ function checkProximityAutoStart(int $userId, float $lat, float $lng, float $acc
     foreach ($allVisits as $visit) {
         if ($visit['status'] !== 'scheduled') continue;
 
-        $vLat      = $visit['property_lat'] ?? null;
-        $vLng      = $visit['property_lng'] ?? null;
+        $vLat       = $visit['property_lat'] ?? null;
+        $vLng       = $visit['property_lng'] ?? null;
         $propertyId = isset($visit['property_id']) ? (int)$visit['property_id'] : 0;
 
-        if (!$vLat || !$vLng) continue;
-
-        // Check arrival border polygon if one exists for this property
+        // Try arrival border polygon first — more accurate than haversine and works
+        // even when the property has no geocoded centre point.
+        // NOTE: $propertyId is only populated when getAllJobsForDate() includes jp.property_id
+        // in its SELECT (which it now does — see fix below).
         $insideBorder = false;
         if ($propertyId && $geofenceModelPath && function_exists('geofenceGetArrivalBorder')) {
             if (!array_key_exists($propertyId, $arrivalBorderCache)) {
@@ -663,7 +665,11 @@ function checkProximityAutoStart(int $userId, float $lat, float $lng, float $acc
             break; // first polygon match wins (already inside the site)
         }
 
-        // Fallback: haversine distance check (no arrival border drawn yet)
+        // Haversine fallback — only possible when the property has geocoded coordinates.
+        // Guard moved here (after polygon attempt) so a drawn border can still match
+        // even when lat/lng is missing/null.
+        if (!$vLat || !$vLng) continue;
+
         $dist = haversineDistance($lat, $lng, (float)$vLat, (float)$vLng);
         if ($dist < $nearestDist) {
             $nearestDist = $dist;
