@@ -20,6 +20,9 @@ require_once __DIR__ . '/../app/Modules/Quotes/Services/QuoteService.php';
 // Contacts
 require_once __DIR__ . '/../app/Modules/Contacts/Services/ContactService.php';
 
+// Clients (Client/Account model — Phase 0)
+require_once __DIR__ . '/../app/Modules/Clients/Services/BillToResolver.php';
+
 // Contracts
 require_once __DIR__ . '/../app/Modules/Contracts/Services/ContractService.php';
 
