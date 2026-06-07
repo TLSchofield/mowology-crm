@@ -1514,6 +1514,7 @@ function getPlanDetails(int $planId): ?array {
         SELECT jp.*,
                p.address AS property_address, p.city AS property_city,
                p.latitude, p.longitude,
+               p.billing_entity_name,
                co.company_name,
                cl.display_name  AS client_display_name,
                cl.client_type   AS client_type,

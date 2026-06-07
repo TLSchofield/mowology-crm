@@ -577,11 +577,16 @@ if ($hasPropCoords && !$hasBorder) {
                                       // Prefer the account spine: client display name, with "C/O firm"
                                       // for a managed account (strata via PM firm). Fall back to contact.
                                       $ctrClientName = '';
-                                      if (!empty($contract['client_display_name'])) {
+                                      $ctrEntity = trim((string)($contract['billing_entity_name'] ?? ''));
+                                      if ($ctrEntity && !empty($contract['client_display_name'])) {
+                                          $ctrClientName = $ctrEntity . ' C/O ' . $contract['client_display_name'];
+                                      } elseif (!empty($contract['client_display_name'])) {
                                           $ctrClientName = $contract['client_display_name'];
                                           if (!empty($contract['client_manager_name'])) {
                                               $ctrClientName .= ' C/O ' . $contract['client_manager_name'];
                                           }
+                                      } elseif ($ctrEntity) {
+                                          $ctrClientName = $ctrEntity;
                                       }
                                       if (!$ctrClientName) $ctrClientName = $ctrContactName;
                                   ?>

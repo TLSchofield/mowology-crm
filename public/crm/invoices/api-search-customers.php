@@ -137,6 +137,55 @@ if ($hasClients) {
         ];
     }
 
+    // ── Billing entities (Option B): a labelled property (strata #, building,
+    // corporation, or owner name) billed C/O its PM-firm account. Lets you find
+    // "VR15-40" / "Oakridge Gardens" directly and resolve to (firm + property).
+    try {
+        $beStmt = $db->prepare("
+            SELECT p.id AS property_id, p.billing_entity_name, p.address, p.city,
+                   cl.id AS firm_client_id, cl.display_name AS firm_name,
+                   cl.legacy_company_id AS firm_legacy_company_id,
+                   cl.billing_address AS firm_billing_address, cl.billing_city AS firm_billing_city,
+                   cl.billing_province AS firm_billing_province, cl.billing_postal_code AS firm_billing_postal,
+                   cl.billing_email AS firm_billing_email
+            FROM properties p
+            LEFT JOIN clients cl ON cl.id = p.client_id
+            WHERE p.billing_entity_name IS NOT NULL AND p.billing_entity_name <> ''
+              AND ( p.billing_entity_name LIKE ? OR p.address LIKE ? OR cl.display_name LIKE ? )
+            ORDER BY p.billing_entity_name
+            LIMIT 30
+        ");
+        $beStmt->execute([$like, $like, $like]);
+        $beResults = [];
+        foreach ($beStmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $firm = $r['firm_name'] ?? '';
+            $sub  = trim(($firm ? 'C/O ' . $firm : '') . ($r['address'] ? ' · ' . $r['address'] : ''), ' ·');
+            $beResults[] = [
+                'type'                => 'billing_entity',
+                'id'                  => (int)($r['firm_legacy_company_id'] ?? 0),
+                'client_id'           => (int)($r['firm_client_id'] ?? 0),
+                'label'               => $r['billing_entity_name'],
+                'sublabel'            => $sub,
+                'email'               => $r['firm_billing_email'],
+                'billing_entity_name' => $r['billing_entity_name'],
+                'firm_name'           => $firm,
+                'property_id'         => (int)$r['property_id'],
+                'property_address'    => $r['address'],
+                'property_city'       => $r['city'],
+                // Firm's own address → billing auto-fill (reuses the manager_* path).
+                'manager_name'             => $firm,
+                'manager_billing_address'  => $r['firm_billing_address'],
+                'manager_billing_city'     => $r['firm_billing_city'],
+                'manager_billing_province' => $r['firm_billing_province'],
+                'manager_billing_postal'   => $r['firm_billing_postal'],
+            ];
+        }
+        // Billing entities first (most specific), then clients.
+        $results = array_merge($beResults, $results);
+    } catch (PDOException $e) {
+        // billing_entity_name column absent — skip silently.
+    }
+
     echo json_encode(['results' => $results]);
     exit;
 }

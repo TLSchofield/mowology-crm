@@ -189,11 +189,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
-        // Bill-to name for the invoice header/PDF. A managed account (e.g. a
-        // strata managed by a property-management firm) must print as
-        // "STRATA C/O MANAGEMENT FIRM". Otherwise the account's own name.
-        // A POST'd bill_to_name (prefill/manual override) wins if present.
-        $billToName = trim((string)($_POST['bill_to_name'] ?? '')) ?: null;
+        // Bill-to name for the invoice header/PDF. Precedence:
+        //   1. POST'd bill_to_name (prefill / manual override)
+        //   2. Option B: "{billing_entity_name} C/O {firm account}" — a labelled
+        //      property (strata #, building, corp, owner) billed via its PM firm
+        //   3. Option A: "{account} C/O {managing firm}" — a managed account
+        //   4. the account's own name
+        $billToName        = trim((string)($_POST['bill_to_name'] ?? '')) ?: null;
+        $billingEntityName = trim((string)($_POST['billing_entity_name'] ?? '')) ?: null;
         if (!$billToName && $clientId) {
             try {
                 $bnStmt = $db->prepare("
@@ -204,13 +207,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ");
                 $bnStmt->execute([$clientId]);
                 if ($bn = $bnStmt->fetch(PDO::FETCH_ASSOC)) {
-                    $billToName = !empty($bn['manager_name'])
-                        ? $bn['display_name'] . ' C/O ' . $bn['manager_name']
-                        : ($bn['display_name'] ?: null);
+                    if ($billingEntityName) {
+                        $billToName = $billingEntityName . ' C/O ' . $bn['display_name'];
+                    } elseif (!empty($bn['manager_name'])) {
+                        $billToName = $bn['display_name'] . ' C/O ' . $bn['manager_name'];
+                    } else {
+                        $billToName = $bn['display_name'] ?: null;
+                    }
                 }
             } catch (PDOException $e) {
                 $billToName = null;
             }
+        } elseif (!$billToName && $billingEntityName) {
+            $billToName = $billingEntityName;
         }
         $linkedPlanId     = intval($_POST['plan_id'] ?? 0);
         $usePlanLineItems = !empty($_POST['use_plan_line_items']) && $linkedPlanId;
@@ -534,6 +543,7 @@ if ($apiKey) {
                 <input type="hidden" name="company_id"          id="companyIdInput"     value="<?php echo (int)($prefill['company_id'] ?? 0); ?>">
                 <input type="hidden" name="contact_id"          id="contactIdInput"     value="<?php echo (int)($prefill['contact_id'] ?? 0); ?>">
                 <input type="hidden" name="client_id"           id="clientIdInput"      value="<?php echo (int)($prefill['client_id'] ?? 0); ?>">
+                <input type="hidden" name="billing_entity_name" id="billingEntityNameInput" value="<?php echo htmlspecialchars($prefill['billing_entity_name'] ?? ''); ?>">
                 <input type="hidden" name="selected_recipients" id="selectedRecipientsInput" value="[]">
                 <input type="hidden" name="extras_minutes" value="<?php echo (int)($prefill['extras_minutes'] ?? 0); ?>">
                 <input type="hidden" name="extras_amount"  value="<?php echo htmlspecialchars((string)($prefill['extras_amount'] ?? '0')); ?>">
@@ -847,6 +857,7 @@ const customerClearBtn       = document.getElementById('customerClearBtn');
 const companyIdInput         = document.getElementById('companyIdInput');
 const contactIdInput         = document.getElementById('contactIdInput');
 const clientIdInput          = document.getElementById('clientIdInput');
+const billingEntityNameInput = document.getElementById('billingEntityNameInput');
 const propertyIdInput        = document.getElementById('propertyIdInput');
 const propertySection        = document.getElementById('propertySection');
 const propertySelect         = document.getElementById('propertySelect');
@@ -950,6 +961,9 @@ function selectCustomer(item) {
     }
     // Client/Account model: the unified account id is the new source of truth.
     if (clientIdInput) clientIdInput.value = item.client_id || 0;
+    // Option B: a billing entity carries a label (e.g. "VR15-40") billed C/O its
+    // firm. Stash the label so the invoice header becomes "label C/O firm".
+    if (billingEntityNameInput) billingEntityNameInput.value = item.billing_entity_name || '';
 
     // Show selected card, hide input row
     customerInputRow.style.display = 'none';
@@ -984,6 +998,7 @@ function clearCustomer() {
     contactIdInput.value  = 0;
     companyIdInput.value  = 0;
     if (clientIdInput) clientIdInput.value = 0;
+    if (billingEntityNameInput) billingEntityNameInput.value = '';
     propertyIdInput.value = '';
 
     customerSearchInput.value          = '';
@@ -1009,6 +1024,22 @@ if (customerClearBtn) {
 }
 
 function loadCustomerContext(item) {
+    // Option B billing entity: recipients come from its firm account; the
+    // service address is the labelled property itself.
+    if (item.type === 'billing_entity') {
+        if (item.client_id) loadRecipientsByClient(item.client_id);
+        if (item.property_id) propertyIdInput.value = item.property_id;
+        if (item.property_address) {
+            prefillServiceAddress({
+                address:     item.property_address,
+                city:        item.property_city || '',
+                province:    'BC',
+                postal_code: '',
+            });
+        }
+        return;
+    }
+
     // For contacts: auto-add them as recipient immediately, also fetch their properties
     if (item.type === 'contact') {
         // Immediately populate them as recipient (no property required)

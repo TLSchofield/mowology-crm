@@ -281,6 +281,7 @@ function getContractById(int $id): ?array {
         SELECT c.*,
                p.address AS property_address, p.city AS property_city,
                p.latitude, p.longitude,
+               p.billing_entity_name,
                ct.first_name, ct.last_name,
                ct.email AS contact_email, ct.phone AS contact_phone,
                cl.display_name  AS client_display_name,

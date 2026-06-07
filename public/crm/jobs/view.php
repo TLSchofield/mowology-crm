@@ -986,14 +986,21 @@ if ($hasPropCoords) {
                         <div class="card-body">
                             <?php
                                 $contactName = trim(($plan['first_name'] ?? '') . ' ' . ($plan['last_name'] ?? ''));
-                                // Prefer the account spine: client display name, with
-                                // "C/O firm" for a managed account (strata via PM firm).
+                                // Bill-to label precedence:
+                                //  B) "{billing_entity_name} C/O {firm}" — labelled property via PM firm
+                                //  A) "{account} C/O {managing firm}" — a managed account
+                                //  else the account name, company, or contact.
                                 $clientDisplay = '';
-                                if (!empty($plan['client_display_name'])) {
+                                $planEntity = trim((string)($plan['billing_entity_name'] ?? ''));
+                                if ($planEntity && !empty($plan['client_display_name'])) {
+                                    $clientDisplay = $planEntity . ' C/O ' . $plan['client_display_name'];
+                                } elseif (!empty($plan['client_display_name'])) {
                                     $clientDisplay = $plan['client_display_name'];
                                     if (!empty($plan['client_manager_name'])) {
                                         $clientDisplay .= ' C/O ' . $plan['client_manager_name'];
                                     }
+                                } elseif ($planEntity) {
+                                    $clientDisplay = $planEntity;
                                 }
                                 if (!$clientDisplay) $clientDisplay = $plan['company_name'] ?? '';
                                 if (!$clientDisplay) $clientDisplay = $contactName;
