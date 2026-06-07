@@ -1,8 +1,15 @@
 name: iOS → TestFlight
 
 on:
+<<<<<<< HEAD
   push:
     branches: [ main ]
+=======
+  # Auto-build on push is disabled to conserve GitHub Actions minutes
+  # (macos-15 = 10x multiplier). Side-load locally via `dev-connect.sh`
+  # + Xcode while iOS is in pre-release. Re-enable when shipping to
+  # external TestFlight testers — and add `paths: ['ios/**']` first.
+>>>>>>> cdca0973 (ci(ios): disable push-triggered TestFlight builds (workflow_dispatch only))
   workflow_dispatch:
 
 concurrency:
