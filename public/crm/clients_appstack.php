@@ -3271,6 +3271,10 @@ $unconvertedRequests = $db->query("
                         <span class="badge badge-primary ml-1"><?php echo count($contactInvoices); ?></span>
                       <?php endif; ?>
                     </h5>
+                    <a href="invoices/create.php?contact_id=<?php echo (int)$clientId; ?>"
+                       class="btn btn-sm btn-mowology">
+                      <i data-feather="plus" style="width:14px;height:14px;vertical-align:-2px;"></i> Raise Invoice
+                    </a>
                   </div>
                   <div class="card-body p-0">
                     <?php if (empty($contactInvoices)): ?>

@@ -160,6 +160,46 @@ if (!$visitId && isset($_GET['plan_id'])) {
     }
 }
 
+// Prefill from a contact (Raise Invoice button on the client page).
+if (!$visitId && empty($prefill) && isset($_GET['contact_id'])) {
+    $cId = intval($_GET['contact_id']);
+    if ($cId) {
+        try {
+            $cStmt = $db->prepare("
+                SELECT con.id, con.first_name, con.last_name, con.email, con.mobile, con.receive_sms,
+                       cl.id AS client_id,
+                       p.id AS property_id, p.address, p.city, p.province, p.postal_code
+                FROM contacts con
+                LEFT JOIN clients    cl ON cl.legacy_contact_id = con.id
+                LEFT JOIN properties p  ON p.site_contact_id = con.id
+                WHERE con.id = ?
+                ORDER BY p.id ASC
+                LIMIT 1
+            ");
+            $cStmt->execute([$cId]);
+            if ($c = $cStmt->fetch(PDO::FETCH_ASSOC)) {
+                $cName = trim(($c['first_name'] ?? '') . ' ' . ($c['last_name'] ?? '')) ?: null;
+                $prefill = [
+                    'contact_id'          => $cId,
+                    'client_id'           => (int)($c['client_id'] ?? 0),
+                    'company_id'          => 0,
+                    'property_id'         => (int)($c['property_id'] ?? 0),
+                    'contact_name'        => $cName,
+                    'company_name'        => $cName,
+                    'contact_email'       => $c['email'] ?? '',
+                    'contact_mobile'      => $c['mobile'] ?? '',
+                    'contact_receive_sms' => $c['receive_sms'] ?? 0,
+                    'service_address'     => $c['address'] ?? '',
+                    'service_city'        => $c['city'] ?? '',
+                    'service_province'    => $c['province'] ?? 'BC',
+                    'service_postal'      => $c['postal_code'] ?? '',
+                    'from_contact'        => true,
+                ];
+            }
+        } catch (PDOException $e) { /* leave customer empty */ }
+    }
+}
+
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verifyCSRFToken($_POST['csrf_token'] ?? '')) {
@@ -1328,6 +1368,25 @@ function escHtml(str) {
         recipientSection.style.display = 'block';
     });
     <?php endif; ?>
+})();
+<?php endif; ?>
+
+<?php if (!empty($prefill['from_contact'])): ?>
+// Prefilled from the Raise Invoice button on a client page — auto-select them,
+// reusing the normal selection logic (recipient + service address + billing).
+(function () {
+    selectCustomer({
+        type:             'contact',
+        id:               <?php echo (int)$prefill['contact_id']; ?>,
+        client_id:        <?php echo (int)($prefill['client_id'] ?? 0); ?>,
+        label:            <?php echo json_encode($prefill['contact_name'] ?? 'Customer'); ?>,
+        sublabel:         <?php echo json_encode($prefill['contact_email'] ?? ''); ?>,
+        email:            <?php echo json_encode($prefill['contact_email'] ?? ''); ?>,
+        receive_sms:      <?php echo !empty($prefill['contact_receive_sms']) ? 'true' : 'false'; ?>,
+        property_address: <?php echo json_encode($prefill['service_address'] ?? ''); ?>,
+        property_city:    <?php echo json_encode($prefill['service_city'] ?? ''); ?>,
+        property_id:      <?php echo (int)($prefill['property_id'] ?? 0); ?>,
+    });
 })();
 <?php endif; ?>
 
