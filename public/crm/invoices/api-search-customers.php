@@ -97,7 +97,12 @@ if ($hasClients) {
             : (int)($row['legacy_company_id'] ?? 0);
 
         $typeBadge = ucwords(str_replace('_', ' ', (string)$row['client_type']));
-        $addr = trim(($row['billing_address'] ?? '') . (!empty($row['billing_city']) ? ', ' . $row['billing_city'] : ''));
+        // Join only the non-empty address parts so an empty street doesn't
+        // produce a leading ", City".
+        $addr = implode(', ', array_filter([
+            trim((string)($row['billing_address'] ?? '')),
+            trim((string)($row['billing_city'] ?? '')),
+        ]));
         $email = $isIndividual ? ($row['contact_email'] ?: $row['billing_email']) : $row['billing_email'];
         $sub = $email ?: $addr;
         if (!$isIndividual && $typeBadge) {
