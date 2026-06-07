@@ -188,6 +188,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $clientId = 0; // pre-Phase-1 environment — leave unset
             }
         }
+
+        // Bill-to name for the invoice header/PDF. A managed account (e.g. a
+        // strata managed by a property-management firm) must print as
+        // "STRATA C/O MANAGEMENT FIRM". Otherwise the account's own name.
+        // A POST'd bill_to_name (prefill/manual override) wins if present.
+        $billToName = trim((string)($_POST['bill_to_name'] ?? '')) ?: null;
+        if (!$billToName && $clientId) {
+            try {
+                $bnStmt = $db->prepare("
+                    SELECT cl.display_name, m.display_name AS manager_name
+                    FROM clients cl
+                    LEFT JOIN clients m ON m.id = cl.managed_by_client_id
+                    WHERE cl.id = ?
+                ");
+                $bnStmt->execute([$clientId]);
+                if ($bn = $bnStmt->fetch(PDO::FETCH_ASSOC)) {
+                    $billToName = !empty($bn['manager_name'])
+                        ? $bn['display_name'] . ' C/O ' . $bn['manager_name']
+                        : ($bn['display_name'] ?: null);
+                }
+            } catch (PDOException $e) {
+                $billToName = null;
+            }
+        }
         $linkedPlanId     = intval($_POST['plan_id'] ?? 0);
         $usePlanLineItems = !empty($_POST['use_plan_line_items']) && $linkedPlanId;
         $propertyId    = intval($_POST['property_id'] ?? 0);
@@ -258,9 +282,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         notes, access_token, token_expires_at,
                         service_address, service_city, service_province, service_postal_code,
                         billing_address, billing_city, billing_province, billing_postal_code,
-                        address_differs,
+                        address_differs, bill_to_name,
                         status, created_by
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 90 DAY), ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 90 DAY), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)
                 ");
                 $stmt->execute([
                     $invoiceNumber,
@@ -291,6 +315,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $billingProvince,
                     $billingPostalCode,
                     $addressDiffers,
+                    $billToName,
                     $user['id']
                 ]);
 

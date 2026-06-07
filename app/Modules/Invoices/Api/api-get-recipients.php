@@ -75,25 +75,36 @@ try {
     if ($clientId) {
         $db = getDB();
         try {
+            // Resolve from the account's own people AND, when the account is
+            // managed by a firm (e.g. a strata managed by a PM company), the
+            // managing firm's people too — so invoices route to the manager's
+            // accounts contact. Manager contacts are listed first.
             $ccStmt = $db->prepare("
                 SELECT con.id                                     AS contact_id,
                        CONCAT(con.first_name, ' ', con.last_name) AS contact_name,
                        con.email, con.mobile, con.receive_sms,
                        cc.role         AS contact_role,
-                       cc.is_primary, cc.receives_invoices
+                       cc.is_primary, cc.receives_invoices,
+                       (cc.client_id <> ?) AS via_manager
                 FROM client_contacts cc
                 JOIN contacts con ON con.id = cc.contact_id
                 WHERE cc.client_id = ?
-                ORDER BY cc.receives_invoices DESC, cc.is_primary DESC, con.first_name
+                   OR cc.client_id = (SELECT managed_by_client_id FROM clients WHERE id = ?)
+                ORDER BY via_manager DESC, cc.receives_invoices DESC, cc.is_primary DESC, con.first_name
             ");
-            $ccStmt->execute([$clientId]);
+            $ccStmt->execute([$clientId, $clientId, $clientId]);
+            $seenContact = [];
             foreach ($ccStmt->fetchAll(PDO::FETCH_ASSOC) as $cc) {
                 if (empty($cc['email'])) {
                     continue; // can't send an invoice without an email
                 }
+                if (isset($seenContact[(int)$cc['contact_id']])) {
+                    continue; // a person linked to both account and manager — once
+                }
+                $seenContact[(int)$cc['contact_id']] = true;
                 $recipients[] = [
                     'contact_id'    => (int)$cc['contact_id'],
-                    'contact_name'  => $cc['contact_name'],
+                    'contact_name'  => $cc['contact_name'] . (!empty($cc['via_manager']) ? ' (Manager)' : ''),
                     'contact_role'  => $cc['contact_role'] ?: 'primary_recipient',
                     'email_address' => $cc['email'],
                     'receive_sms'   => (bool)$cc['receive_sms'],

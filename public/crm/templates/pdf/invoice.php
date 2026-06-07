@@ -11,7 +11,13 @@ $fmt = function($amount) { return '$' . number_format(floatval($amount), 2); };
 $esc = function($str) { return htmlspecialchars($str ?? '', ENT_QUOTES, 'UTF-8'); };
 
 $contactName = trim(($invoice['contact_first'] ?? '') . ' ' . ($invoice['contact_last'] ?? ''));
-$companyName = $invoice['company_name'] ?? '';
+// Prefer the stored bill-to name (e.g. "STRATA C/O MANAGEMENT FIRM") as the
+// primary line; fall back to the company name. Contact stays the secondary line.
+$companyName = trim((string)($invoice['bill_to_name'] ?? '')) ?: ($invoice['company_name'] ?? '');
+// Avoid repeating the contact line when it's identical to the heading.
+if ($contactName !== '' && $companyName !== '' && strcasecmp($contactName, $companyName) === 0) {
+    $contactName = '';
+}
 // Display company name as primary if present; contact name as secondary (or primary if no company)
 if (empty($contactName) && empty($companyName)) {
     $contactName = 'Customer';
