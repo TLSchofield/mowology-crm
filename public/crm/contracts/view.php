@@ -572,7 +572,19 @@ if ($hasPropCoords && !$hasBorder) {
                               </dd>
                               <dt class="col-sm-4"><span class="mw-icon-box"><i data-feather="briefcase" class="mw-detail-icon"></i></span> Client</dt>
                               <dd class="col-sm-8">
-                                  <?php $ctrClientName = trim($contract['first_name'] . ' ' . $contract['last_name']); ?>
+                                  <?php
+                                      $ctrContactName = trim($contract['first_name'] . ' ' . $contract['last_name']);
+                                      // Prefer the account spine: client display name, with "C/O firm"
+                                      // for a managed account (strata via PM firm). Fall back to contact.
+                                      $ctrClientName = '';
+                                      if (!empty($contract['client_display_name'])) {
+                                          $ctrClientName = $contract['client_display_name'];
+                                          if (!empty($contract['client_manager_name'])) {
+                                              $ctrClientName .= ' C/O ' . $contract['client_manager_name'];
+                                          }
+                                      }
+                                      if (!$ctrClientName) $ctrClientName = $ctrContactName;
+                                  ?>
                                   <?php if (!empty($contract['contact_id']) && $ctrClientName): ?>
                                       <a href="/crm/clients_appstack.php?action=view_contact&id=<?php echo (int)$contract['contact_id']; ?>"><?php echo htmlspecialchars($ctrClientName); ?></a>
                                   <?php else: ?>

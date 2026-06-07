@@ -283,11 +283,16 @@ function getContractById(int $id): ?array {
                p.latitude, p.longitude,
                ct.first_name, ct.last_name,
                ct.email AS contact_email, ct.phone AS contact_phone,
+               cl.display_name  AS client_display_name,
+               cl.client_type   AS client_type,
+               mgr.display_name AS client_manager_name,
                q.quote_number,
                u.full_name AS created_by_name
         FROM contracts c
         JOIN  properties p  ON c.property_id = p.id
         JOIN  contacts ct   ON c.contact_id  = ct.id
+        LEFT JOIN clients cl  ON c.client_id = cl.id
+        LEFT JOIN clients mgr ON cl.managed_by_client_id = mgr.id
         LEFT JOIN quotes q  ON c.quote_id    = q.id
         LEFT JOIN users u   ON c.created_by  = u.id
         WHERE c.id = ?
