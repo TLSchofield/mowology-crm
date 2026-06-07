@@ -1699,13 +1699,54 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
         var ageLabel = ageMin < 1 ? 'just now' : ageMin + ' min ago';
         var speed = (loc.speed_kph != null) ? Math.round(loc.speed_kph) + ' km/h' : '—';
         var batt  = (loc.battery_pct != null) ? loc.battery_pct + '%' : '—';
-        return '<div style="font-family:sans-serif;font-size:13px;min-width:160px;line-height:1.5">' +
+        return '<div style="font-family:sans-serif;font-size:13px;min-width:200px;line-height:1.5">' +
                '<strong style="color:#e85d04">🛻 Truck</strong><br>' +
                '<span style="color:#666">Last seen ' + ageLabel + '</span><br>' +
                'Speed: ' + speed + '<br>' +
-               'Battery: ' + batt +
+               'Battery: ' + batt + '<br>' +
+               '<button type="button" id="mwTruckPingBtn" ' +
+                       'style="margin-top:8px;padding:4px 10px;font-size:12px;' +
+                              'background:#e85d04;color:#fff;border:none;border-radius:3px;' +
+                              'cursor:pointer;font-weight:500;">' +
+                   '📍 Wake device' +
+               '</button>' +
+               '<div id="mwTruckPingStatus" style="margin-top:4px;font-size:11px;color:#666;"></div>' +
                '</div>';
     }
+
+    // Delegate click for the wake-device button — InfoWindow recreates DOM on
+    // every open, so we can't bind directly. Listen on the document instead.
+    document.addEventListener('click', function(e) {
+        var btn = e.target && e.target.id === 'mwTruckPingBtn' ? e.target : null;
+        if (!btn) return;
+        var status = document.getElementById('mwTruckPingStatus');
+        btn.disabled = true;
+        btn.style.opacity = '0.6';
+        if (status) status.textContent = 'Asking device for a fresh fix…';
+        fetch('/crm/api/truck-ping.php', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' }
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data && data.ok) {
+                if (status) status.textContent = '✓ Request sent — position will update if the device gets a signal.';
+                // Re-poll soon so a quick fix updates the marker without waiting 30s.
+                setTimeout(fetchTruck, 8000);
+                setTimeout(fetchTruck, 20000);
+            } else {
+                if (status) status.textContent = (data && data.error) ? data.error : 'Wake request failed.';
+                btn.disabled = false;
+                btn.style.opacity = '';
+            }
+        })
+        .catch(function() {
+            if (status) status.textContent = 'Network error.';
+            btn.disabled = false;
+            btn.style.opacity = '';
+        });
+    });
 
     /**
      * Wire the Dispatch / Planning / Review preset buttons. Planning
