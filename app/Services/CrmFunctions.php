@@ -222,9 +222,12 @@ function updateContract(int $contractId, array $data, int $userId): array {
         ? (float)$data['billing_amount']
         : null;
 
+    $newContactId = !empty($data['contact_id']) ? (int)$data['contact_id'] : null;
+
     $db = getDB();
     try {
-        $stmt = $db->prepare("
+        $contactClause = $newContactId ? 'contact_id = ?,' : '';
+        $sql = "
             UPDATE contracts
             SET title                = ?,
                 billing_cycle        = ?,
@@ -235,10 +238,13 @@ function updateContract(int $contractId, array $data, int $userId): array {
                 auto_renew           = ?,
                 renewal_increase_pct = ?,
                 notes                = ?,
+                {$contactClause}
                 updated_at           = NOW()
             WHERE id = ?
-        ");
-        $stmt->execute([
+        ";
+        // Remove double-comma if contact clause is empty
+        $sql = preg_replace('/,\s*updated_at/', ', updated_at', $sql);
+        $params = [
             !empty($data['title'])          ? trim($data['title'])           : null,
             $data['billing_cycle'],
             $billingAmount,
@@ -248,8 +254,13 @@ function updateContract(int $contractId, array $data, int $userId): array {
             !empty($data['auto_renew'])         ? 1                           : 0,
             isset($data['renewal_increase_pct']) ? (float)$data['renewal_increase_pct'] : 0.00,
             !empty($data['notes'])              ? trim($data['notes'])        : null,
-            $contractId,
-        ]);
+        ];
+        if ($newContactId) {
+            $params[] = $newContactId;
+        }
+        $params[] = $contractId;
+        $stmt = $db->prepare($sql);
+        $stmt->execute($params);
 
         // Recalculate plan prices when billing_amount is set
         if ($billingAmount !== null) {
@@ -280,10 +291,14 @@ function getContractById(int $id): ?array {
     $stmt = $db->prepare("
         SELECT c.*,
                p.address AS property_address, p.city AS property_city,
+               p.province AS property_province, p.postal_code AS property_postal,
                p.latitude, p.longitude,
                p.billing_entity_name,
+               p.billing_company_id  AS property_billing_company_id,
                ct.first_name, ct.last_name,
-               ct.email AS contact_email, ct.phone AS contact_phone,
+               ct.email AS contact_email, ct.phone AS contact_phone, ct.mobile AS contact_mobile,
+               ct.preferred_contact_method AS contact_preferred_method,
+               bc.company_name AS billing_company_name,
                cl.display_name  AS client_display_name,
                cl.client_type   AS client_type,
                mgr.display_name AS client_manager_name,
@@ -292,8 +307,9 @@ function getContractById(int $id): ?array {
         FROM contracts c
         JOIN  properties p  ON c.property_id = p.id
         JOIN  contacts ct   ON c.contact_id  = ct.id
-        LEFT JOIN clients cl  ON c.client_id = cl.id
-        LEFT JOIN clients mgr ON cl.managed_by_client_id = mgr.id
+        LEFT JOIN companies bc ON p.billing_company_id = bc.id
+        LEFT JOIN clients cl   ON c.client_id = cl.id
+        LEFT JOIN clients mgr  ON cl.managed_by_client_id = mgr.id
         LEFT JOIN quotes q  ON c.quote_id    = q.id
         LEFT JOIN users u   ON c.created_by  = u.id
         WHERE c.id = ?
