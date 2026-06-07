@@ -276,6 +276,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $linkedPlanId     = intval($_POST['plan_id'] ?? 0);
         $usePlanLineItems = !empty($_POST['use_plan_line_items']) && $linkedPlanId;
+
+        // Resolve contract_id from the linked plan so the invoice ties back to the contract
+        // even if billing was generated from a single visit.
+        $linkedContractId = 0;
+        if ($linkedPlanId) {
+            $cidStmt = $db->prepare("SELECT contract_id FROM job_plans WHERE id = ?");
+            $cidStmt->execute([$linkedPlanId]);
+            $linkedContractId = (int)($cidStmt->fetchColumn() ?: 0);
+        }
         $propertyId    = intval($_POST['property_id'] ?? 0);
         $billToName    = trim($_POST['bill_to_name'] ?? '') ?: null;
         $issueDate     = $_POST['issue_date'] ?? date('Y-m-d');
@@ -334,7 +343,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt = $db->prepare("
                     INSERT INTO invoices (
                         invoice_number, company_id, contact_id, client_id, property_id,
-                        plan_id, visit_id,
+                        plan_id, visit_id, contract_id,
                         invoice_date, issue_date, due_date,
                         subtotal, tax_rate, tax_amount,
                         total_amount, total, balance_due,
@@ -343,7 +352,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         billing_address, billing_city, billing_province, billing_postal_code,
                         address_differs, bill_to_name,
                         status, created_by
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 90 DAY), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 90 DAY), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)
                 ");
                 $stmt->execute([
                     $invoiceNumber,
@@ -353,6 +362,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $propertyId ?: null,
                     $linkedPlanId ?: null,
                     $linkedVisitId ?: null,
+                    $linkedContractId ?: null,
                     $issueDate,
                     $issueDate,
                     $dueDate,

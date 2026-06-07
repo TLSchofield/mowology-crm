@@ -67,6 +67,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
             'auto_renew'           => !empty($_POST['auto_renew']) ? 1 : 0,
             'renewal_increase_pct' => $_POST['renewal_increase_pct'] ?? '0',
             'notes'                => trim($_POST['notes'] ?? ''),
+            'contact_id'           => !empty($_POST['contact_id']) ? (int)$_POST['contact_id'] : null,
         ];
         $result = updateContract($contractId, $data, (int)$user['id']);
         if ($result['success']) {
@@ -88,7 +89,7 @@ if (isset($_GET['from']) && $_GET['from'] === 'quote') { $message = 'Contract al
 
 $plans = getContractPlans($contractId);
 
-// ── Billing stats (invoices via plan_id → job_plans.contract_id) ─────────
+// ── Billing stats (invoices linked directly via contract_id OR via plan_id → job_plans.contract_id) ─────────
 $billingStmt = $db->prepare("
     SELECT
         COALESCE(SUM(i.total), 0)                                                      AS total_billed,
@@ -97,11 +98,11 @@ $billingStmt = $db->prepare("
         COUNT(*)                                                                        AS invoice_count,
         SUM(CASE WHEN i.status NOT IN ('paid','cancelled') THEN 1 ELSE 0 END)          AS open_count
     FROM invoices i
-    JOIN job_plans jp ON i.plan_id = jp.id
-    WHERE jp.contract_id = ?
+    LEFT JOIN job_plans jp ON i.plan_id = jp.id
+    WHERE (i.contract_id = ? OR jp.contract_id = ?)
     AND i.status != 'cancelled'
 ");
-$billingStmt->execute([$contractId]);
+$billingStmt->execute([$contractId, $contractId]);
 $billing = $billingStmt->fetch(PDO::FETCH_ASSOC) ?: [
     'total_billed' => 0, 'total_collected' => 0, 'total_outstanding' => 0,
     'invoice_count' => 0, 'open_count' => 0,
@@ -110,13 +111,13 @@ $billing = $billingStmt->fetch(PDO::FETCH_ASSOC) ?: [
 $recentInvStmt = $db->prepare("
     SELECT i.id, i.invoice_number, i.issue_date, i.total, i.status
     FROM invoices i
-    JOIN job_plans jp ON i.plan_id = jp.id
-    WHERE jp.contract_id = ?
+    LEFT JOIN job_plans jp ON i.plan_id = jp.id
+    WHERE (i.contract_id = ? OR jp.contract_id = ?)
     AND i.status != 'cancelled'
     ORDER BY i.issue_date DESC
     LIMIT 5
 ");
-$recentInvStmt->execute([$contractId]);
+$recentInvStmt->execute([$contractId, $contractId]);
 $recentInvoices = $recentInvStmt->fetchAll(PDO::FETCH_ASSOC);
 
 // ── Next service date across all plans ───────────────────────────────────
@@ -129,8 +130,49 @@ foreach ($plans as $plan) {
     }
 }
 
-// Reconciliation: sum of plan estimated_amounts vs contract billing_amount
-$plansAllocated  = array_sum(array_map(fn($p) => (float)($p['estimated_amount'] ?? 0), $plans));
+// Reconciliation: plans store per-visit pricing, the contract bills on a cycle
+// (monthly / annual / etc.). Normalise each plan's per-visit estimated_amount
+// to the contract's billing cycle so the comparison is apples-to-apples.
+//
+// One-time plans contribute their full estimated_amount once (the contract
+// reconcile is informational for those — they don't recur).
+$DAYS_PER_MONTH = 30.4375;
+$DAYS_PER_YEAR  = 365.25;
+
+$cycleDays = [
+    'monthly'   => $DAYS_PER_MONTH,
+    'per_visit' => 0, // handled separately
+    'seasonal'  => $DAYS_PER_MONTH * 6, // ~ 6 month season
+    'annual'    => $DAYS_PER_YEAR,
+    'custom'    => $DAYS_PER_MONTH, // assume monthly for custom
+];
+
+$contractCycle = $contract['billing_cycle'] ?? 'monthly';
+$cycleDayCount = $cycleDays[$contractCycle] ?? $DAYS_PER_MONTH;
+
+$visitsPerCycle = function(array $p) use ($cycleDayCount): float {
+    if (empty($p['is_recurring'])) {
+        // One-time plan — counts once at full value
+        return 1.0;
+    }
+    $interval = max(1, (int)($p['recurrence_interval'] ?? 1));
+    $unit     = $p['recurrence_interval_unit'] ?? 'weeks';
+    switch ($unit) {
+        case 'days':   $intervalDays = $interval;           break;
+        case 'weeks':  $intervalDays = $interval * 7;       break;
+        case 'months': $intervalDays = $interval * 30.4375; break;
+        case 'years':  $intervalDays = $interval * 365.25;  break;
+        default:       $intervalDays = $interval * 7;
+    }
+    return $intervalDays > 0 ? ($cycleDayCount / $intervalDays) : 0.0;
+};
+
+$plansAllocated = 0.0;
+foreach ($plans as $p) {
+    $perVisit = (float)($p['estimated_amount'] ?? 0);
+    $plansAllocated += $perVisit * $visitsPerCycle($p);
+}
+
 $contractBilling = (float)($contract['billing_amount'] ?? 0);
 $reconcileDiff   = $contractBilling - $plansAllocated;
 
@@ -437,14 +479,15 @@ if ($hasPropCoords && !$hasBorder) {
                   <?php endif; ?>
               </div>
               <?php if ($contractBilling > 0): ?>
+              <?php $cycleLabel = $billingCycleLabels[$contractCycle] ?? 'Monthly'; ?>
               <div class="mw-contract-reconcile">
                   <div class="mw-reconcile-item">
-                      <span class="mw-reconcile-label">Plans allocated</span>
+                      <span class="mw-reconcile-label">Plans allocated (<?php echo strtolower($cycleLabel); ?>)</span>
                       <span class="mw-reconcile-value">$<?php echo number_format($plansAllocated, 2); ?></span>
                   </div>
                   <div class="mw-reconcile-sep"></div>
                   <div class="mw-reconcile-item">
-                      <span class="mw-reconcile-label">Contract <?php echo htmlspecialchars($billingCycleLabels[$contract['billing_cycle']] ?? ''); ?></span>
+                      <span class="mw-reconcile-label">Contract <?php echo htmlspecialchars($cycleLabel); ?></span>
                       <span class="mw-reconcile-value">$<?php echo number_format($contractBilling, 2); ?></span>
                   </div>
                   <div class="mw-reconcile-sep"></div>
@@ -476,66 +519,65 @@ if ($hasPropCoords && !$hasBorder) {
                       </span>
                   </div>
                   <div class="card-body">
-                      <div class="mw-billing-stat">
-                          <div class="mw-billing-stat-label">Total Billed</div>
-                          <div class="mw-billing-stat-value">
-                              $<?php echo number_format((float)$billing['total_billed'], 2); ?>
-                          </div>
-                      </div>
-                      <div class="mw-billing-stat">
-                          <div class="mw-billing-stat-label">Collected</div>
-                          <div class="mw-billing-stat-value is-green">
-                              $<?php echo number_format((float)$billing['total_collected'], 2); ?>
-                          </div>
-                      </div>
-                      <div class="mw-billing-stat">
-                          <div class="mw-billing-stat-label">Outstanding</div>
-                          <div class="mw-billing-stat-value <?php echo (float)$billing['total_outstanding'] > 0 ? 'is-orange' : ''; ?>">
-                              $<?php echo number_format((float)$billing['total_outstanding'], 2); ?>
-                          </div>
-                      </div>
                       <?php
-                      $pctCollected = (float)$billing['total_billed'] > 0
-                          ? round(((float)$billing['total_collected'] / (float)$billing['total_billed']) * 100)
-                          : 0;
+                      $totalBilled       = (float)$billing['total_billed'];
+                      $totalCollected    = (float)$billing['total_collected'];
+                      $totalOutstanding  = (float)$billing['total_outstanding'];
+                      $pctCollected      = $totalBilled > 0 ? round(($totalCollected / $totalBilled) * 100) : 0;
                       ?>
-                      <div class="mw-billing-meta">
-                          <?php echo $pctCollected; ?>% collected
-                          &middot;
-                          <?php echo (int)$billing['open_count']; ?> open
-                          <?php echo (int)$billing['invoice_count']; ?> total
+                      <div class="mw-billing-stats">
+                          <div class="mw-billing-stat">
+                              <div class="mw-billing-stat-label">Total Billed</div>
+                              <div class="mw-billing-stat-value">$<?php echo number_format($totalBilled, 2); ?></div>
+                          </div>
+                          <div class="mw-billing-stat">
+                              <div class="mw-billing-stat-label">Collected</div>
+                              <div class="mw-billing-stat-value is-green">$<?php echo number_format($totalCollected, 2); ?></div>
+                          </div>
+                          <div class="mw-billing-stat">
+                              <div class="mw-billing-stat-label">Outstanding</div>
+                              <div class="mw-billing-stat-value <?php echo $totalOutstanding > 0 ? 'is-orange' : ''; ?>">$<?php echo number_format($totalOutstanding, 2); ?></div>
+                          </div>
                       </div>
-                      <?php if ($nextService): ?>
-                      <div class="mw-billing-meta" style="border-top:none;margin-top:4px;padding-top:0;">
-                          Next service <?php echo date('M j, Y', strtotime($nextService)); ?>
-                      </div>
+
+                      <?php if ($totalBilled > 0): ?>
+                          <div class="mw-billing-progress" aria-label="<?php echo $pctCollected; ?>% collected">
+                              <div class="mw-billing-progress-fill" style="width: <?php echo (int)$pctCollected; ?>%;"></div>
+                          </div>
                       <?php endif; ?>
+
+                      <div class="mw-billing-meta">
+                          <span><strong><?php echo $pctCollected; ?>%</strong> collected</span>
+                          <span class="mw-billing-meta-sep"></span>
+                          <span><strong><?php echo (int)$billing['open_count']; ?></strong> open</span>
+                          <span class="mw-billing-meta-sep"></span>
+                          <span><strong><?php echo (int)$billing['invoice_count']; ?></strong> total</span>
+                      </div>
 
                       <?php if (!empty($recentInvoices)): ?>
                           <div class="mw-billing-section-label">Recent Invoices</div>
-                          <?php foreach ($recentInvoices as $inv): ?>
-                              <div class="mw-billing-invoice-row">
-                                  <div>
-                                      <a href="../invoices/view.php?id=<?php echo (int)$inv['id']; ?>"
-                                         class="mw-billing-invoice-num">
-                                          <?php echo htmlspecialchars($inv['invoice_number']); ?>
-                                      </a>
-                                      <div class="mw-billing-invoice-date">
-                                          <?php echo date('M j, Y', strtotime($inv['issue_date'])); ?>
+                          <div class="mw-billing-invoice-list">
+                              <?php foreach ($recentInvoices as $inv): ?>
+                                  <a href="../invoices/view.php?id=<?php echo (int)$inv['id']; ?>" class="mw-billing-invoice-row">
+                                      <div class="mw-billing-invoice-left">
+                                          <div class="mw-billing-invoice-num"><?php echo htmlspecialchars($inv['invoice_number']); ?></div>
+                                          <div class="mw-billing-invoice-date"><?php echo date('M j, Y', strtotime($inv['issue_date'])); ?></div>
                                       </div>
-                                  </div>
-                                  <div class="mw-billing-invoice-right">
-                                      <div class="mw-billing-invoice-amount">
-                                          $<?php echo number_format((float)$inv['total'], 2); ?>
+                                      <div class="mw-billing-invoice-right">
+                                          <div class="mw-billing-invoice-amount">$<?php echo number_format((float)$inv['total'], 2); ?></div>
+                                          <div><?php echo getStatusBadge($inv['status'], 'invoice'); ?></div>
                                       </div>
-                                      <div><?php echo getStatusBadge($inv['status'], 'invoice'); ?></div>
-                                  </div>
-                              </div>
-                          <?php endforeach; ?>
-                          <a href="../invoices/index.php?contract=<?php echo $contractId; ?>"
-                             class="mw-billing-view-all">View all invoices &rarr;</a>
+                                  </a>
+                              <?php endforeach; ?>
+                          </div>
+                          <a href="../invoices/index.php?contract=<?php echo $contractId; ?>" class="mw-billing-view-all">
+                              View all invoices <i data-feather="arrow-right" style="width:12px;height:12px;vertical-align:-1px;"></i>
+                          </a>
                       <?php else: ?>
-                          <div class="mw-billing-empty">No invoices yet</div>
+                          <div class="mw-billing-empty">
+                              <i data-feather="file-text" style="width:24px;height:24px;opacity:.3;"></i>
+                              <div>No invoices yet</div>
+                          </div>
                       <?php endif; ?>
                   </div>
               </div>
@@ -548,32 +590,131 @@ if ($hasPropCoords && !$hasBorder) {
                   <div class="card mb-4">
                       <div class="card-header"><h5 class="card-title mb-0">Property &amp; Client</h5></div>
                       <div class="card-body">
-                          <dl class="row mb-0">
-                              <dt class="col-sm-4"><span class="mw-icon-box"><i data-feather="map-pin" class="mw-detail-icon"></i></span> Property</dt>
-                              <dd class="col-sm-8">
-                                  <?php echo htmlspecialchars($contract['property_address']); ?><br>
-                                  <span class="text-muted"><?php echo htmlspecialchars($contract['property_city']); ?></span>
-                              </dd>
-                              <dt class="col-sm-4"><span class="mw-icon-box"><i data-feather="briefcase" class="mw-detail-icon"></i></span> Client</dt>
-                              <dd class="col-sm-8">
-                                  <?php $ctrClientName = trim($contract['first_name'] . ' ' . $contract['last_name']); ?>
+                          <?php
+                          $ctrClientName  = trim(($contract['first_name'] ?? '') . ' ' . ($contract['last_name'] ?? ''));
+                          $clientInitials = strtoupper(substr($contract['first_name'] ?? '', 0, 1) . substr($contract['last_name'] ?? '', 0, 1));
+                          $fullAddress    = trim(
+                              ($contract['property_address'] ?? '') . ', ' .
+                              ($contract['property_city'] ?? '') . ', ' .
+                              ($contract['property_province'] ?? '') . ' ' .
+                              ($contract['property_postal'] ?? '')
+                          );
+                          $mapsUrl        = 'https://maps.google.com/?q=' . urlencode($fullAddress);
+                          $preferredLabels = [
+                              'email'  => ['label' => 'Prefers email', 'icon' => 'mail'],
+                              'phone'  => ['label' => 'Prefers phone', 'icon' => 'phone'],
+                              'sms'    => ['label' => 'Prefers SMS',   'icon' => 'message-circle'],
+                              'mobile' => ['label' => 'Prefers SMS',   'icon' => 'message-circle'],
+                          ];
+                          $preferredKey = strtolower((string)($contract['contact_preferred_method'] ?? ''));
+                          $preferred    = $preferredLabels[$preferredKey] ?? null;
+                          ?>
+
+                          <!-- Property block -->
+                          <div class="mw-info-block">
+                              <div class="mw-info-block-header">
+                                  <span class="mw-info-block-icon"><i data-feather="map-pin"></i></span>
+                                  <span class="mw-info-block-label">Property</span>
+                                  <?php if ($contract['property_id']): ?>
+                                      <a href="/crm/properties/view.php?id=<?php echo (int)$contract['property_id']; ?>"
+                                         class="mw-info-block-link">View →</a>
+                                  <?php endif; ?>
+                              </div>
+                              <div class="mw-info-block-body">
+                                  <div class="mw-info-primary"><?php echo htmlspecialchars($contract['property_address']); ?></div>
+                                  <div class="mw-info-secondary">
+                                      <?php echo htmlspecialchars(trim(
+                                          ($contract['property_city'] ?? '') .
+                                          ($contract['property_province'] ? ', ' . $contract['property_province'] : '') .
+                                          ($contract['property_postal'] ? '  ' . $contract['property_postal'] : '')
+                                      )); ?>
+                                  </div>
+                                  <?php if (!empty($contract['property_billing_entity'])): ?>
+                                      <div class="mw-info-tag">
+                                          <i data-feather="tag" style="width:11px;height:11px;vertical-align:-1px;"></i>
+                                          <?php echo htmlspecialchars($contract['property_billing_entity']); ?>
+                                      </div>
+                                  <?php endif; ?>
+                                  <div class="mw-info-actions">
+                                      <a href="<?php echo htmlspecialchars($mapsUrl); ?>" target="_blank" rel="noopener" class="mw-info-action">
+                                          <i data-feather="navigation" style="width:12px;height:12px;"></i> Map
+                                      </a>
+                                  </div>
+                              </div>
+                          </div>
+
+                          <!-- Client block -->
+                          <div class="mw-info-block">
+                              <div class="mw-info-block-header">
+                                  <span class="mw-info-block-icon"><i data-feather="user"></i></span>
+                                  <span class="mw-info-block-label">Client</span>
                                   <?php if (!empty($contract['contact_id']) && $ctrClientName): ?>
-                                      <a href="/crm/clients_appstack.php?action=view_contact&id=<?php echo (int)$contract['contact_id']; ?>"><?php echo htmlspecialchars($ctrClientName); ?></a>
-                                  <?php else: ?>
-                                      <?php echo htmlspecialchars($ctrClientName); ?>
+                                      <a href="/crm/clients_appstack.php?action=view_contact&id=<?php echo (int)$contract['contact_id']; ?>"
+                                         class="mw-info-block-link">View →</a>
                                   <?php endif; ?>
-                                  <?php if ($contract['contact_email']): ?>
-                                      <div class="text-muted small"><a href="mailto:<?php echo htmlspecialchars($contract['contact_email']); ?>"><?php echo htmlspecialchars($contract['contact_email']); ?></a></div>
+                              </div>
+                              <div class="mw-info-block-body">
+                                  <div class="mw-client-row">
+                                      <div class="mw-client-avatar"><?php echo htmlspecialchars($clientInitials ?: '?'); ?></div>
+                                      <div>
+                                          <div class="mw-info-primary">
+                                              <?php if (!empty($contract['contact_id']) && $ctrClientName): ?>
+                                                  <a href="/crm/clients_appstack.php?action=view_contact&id=<?php echo (int)$contract['contact_id']; ?>"><?php echo htmlspecialchars($ctrClientName); ?></a>
+                                              <?php else: ?>
+                                                  <?php echo htmlspecialchars($ctrClientName ?: '—'); ?>
+                                              <?php endif; ?>
+                                          </div>
+                                          <?php if (!empty($contract['billing_company_name'])): ?>
+                                              <div class="mw-info-secondary">
+                                                  <i data-feather="briefcase" style="width:11px;height:11px;vertical-align:-1px;"></i>
+                                                  <?php echo htmlspecialchars($contract['billing_company_name']); ?>
+                                              </div>
+                                          <?php endif; ?>
+                                      </div>
+                                  </div>
+
+                                  <?php if ($preferred): ?>
+                                      <div class="mw-info-tag mw-info-tag--preferred">
+                                          <i data-feather="<?php echo $preferred['icon']; ?>" style="width:11px;height:11px;vertical-align:-1px;"></i>
+                                          <?php echo htmlspecialchars($preferred['label']); ?>
+                                      </div>
                                   <?php endif; ?>
-                                  <?php if ($contract['contact_phone']): ?>
-                                      <div class="text-muted small"><a href="tel:<?php echo htmlspecialchars(preg_replace('/[^\d+]/', '', $contract['contact_phone'])); ?>"><?php echo htmlspecialchars($contract['contact_phone']); ?></a></div>
-                                  <?php endif; ?>
-                              </dd>
-                              <?php if ($contract['notes']): ?>
-                                  <dt class="col-sm-4"><span class="mw-icon-box"><i data-feather="message-square" class="mw-detail-icon"></i></span> Notes</dt>
-                                  <dd class="col-sm-8"><?php echo nl2br(htmlspecialchars($contract['notes'])); ?></dd>
-                              <?php endif; ?>
-                          </dl>
+
+                                  <div class="mw-contact-links">
+                                      <?php if ($contract['contact_email']): ?>
+                                          <a href="mailto:<?php echo htmlspecialchars($contract['contact_email']); ?>" class="mw-contact-link">
+                                              <i data-feather="mail" style="width:12px;height:12px;"></i>
+                                              <?php echo htmlspecialchars($contract['contact_email']); ?>
+                                          </a>
+                                      <?php endif; ?>
+                                      <?php if (!empty($contract['contact_mobile'])): ?>
+                                          <a href="tel:<?php echo htmlspecialchars(preg_replace('/[^\d+]/', '', $contract['contact_mobile'])); ?>" class="mw-contact-link">
+                                              <i data-feather="smartphone" style="width:12px;height:12px;"></i>
+                                              <?php echo htmlspecialchars($contract['contact_mobile']); ?>
+                                              <span class="mw-contact-link-tag">mobile</span>
+                                          </a>
+                                      <?php endif; ?>
+                                      <?php if ($contract['contact_phone'] && $contract['contact_phone'] !== ($contract['contact_mobile'] ?? '')): ?>
+                                          <a href="tel:<?php echo htmlspecialchars(preg_replace('/[^\d+]/', '', $contract['contact_phone'])); ?>" class="mw-contact-link">
+                                              <i data-feather="phone" style="width:12px;height:12px;"></i>
+                                              <?php echo htmlspecialchars($contract['contact_phone']); ?>
+                                          </a>
+                                      <?php endif; ?>
+                                  </div>
+                              </div>
+                          </div>
+
+                          <?php if ($contract['notes']): ?>
+                              <div class="mw-info-block">
+                                  <div class="mw-info-block-header">
+                                      <span class="mw-info-block-icon"><i data-feather="message-square"></i></span>
+                                      <span class="mw-info-block-label">Notes</span>
+                                  </div>
+                                  <div class="mw-info-block-body">
+                                      <div class="mw-info-notes"><?php echo nl2br(htmlspecialchars($contract['notes'])); ?></div>
+                                  </div>
+                              </div>
+                          <?php endif; ?>
                       </div>
                   </div>
               </div>
@@ -632,6 +773,21 @@ if ($hasPropCoords && !$hasBorder) {
                     <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
                 </div>
                 <div class="modal-body">
+
+                    <!-- Client / Contact -->
+                    <div class="form-group">
+                        <label class="form-label">Client <small class="text-muted">(reassign contract holder)</small></label>
+                        <input type="hidden" name="contact_id" id="editCtrContactId"
+                               value="<?php echo (int)($contract['contact_id'] ?? 0); ?>">
+                        <div style="position:relative;">
+                            <input type="text" id="editCtrContactSearch" class="form-control"
+                                   autocomplete="off"
+                                   placeholder="Search by name or email…"
+                                   value="<?php echo htmlspecialchars(trim(($contract['first_name'] ?? '') . ' ' . ($contract['last_name'] ?? ''))); ?>">
+                            <div id="editCtrContactResults" class="mw-client-search-results"
+                                 style="display:none;position:absolute;z-index:1060;width:100%;background:#fff;border:1px solid #dee2e6;border-radius:4px;max-height:200px;overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,.1);"></div>
+                        </div>
+                    </div>
 
                     <!-- Row 1: Title + Billing Cycle -->
                     <div class="row">
@@ -953,5 +1109,55 @@ if ($hasPropCoords && !$hasBorder) {
 })();
 </script>
 <?php endif; ?>
+
+<script>
+(function () {
+    var searchInput  = document.getElementById('editCtrContactSearch');
+    var hiddenId     = document.getElementById('editCtrContactId');
+    var resultsBox   = document.getElementById('editCtrContactResults');
+    if (!searchInput) return;
+
+    var debounceTimer;
+    searchInput.addEventListener('input', function () {
+        clearTimeout(debounceTimer);
+        var q = this.value.trim();
+        hiddenId.value = '';
+        if (q.length < 2) { resultsBox.style.display = 'none'; return; }
+        debounceTimer = setTimeout(function () {
+            fetch('/crm/api/client-search.php?action=search&type=contact&q=' + encodeURIComponent(q))
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    resultsBox.innerHTML = '';
+                    var items = (data && data.results) ? data.results : [];
+                    if (!items.length) {
+                        resultsBox.innerHTML = '<div style="padding:8px 12px;color:#6c757d;font-size:13px;">No results</div>';
+                        resultsBox.style.display = 'block';
+                        return;
+                    }
+                    items.forEach(function (c) {
+                        var item = document.createElement('div');
+                        item.style.cssText = 'padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid #f0f0f0;';
+                        item.textContent = c.label + (c.sublabel ? ' — ' + c.sublabel : '');
+                        item.addEventListener('mousedown', function (e) {
+                            e.preventDefault();
+                            searchInput.value = c.label;
+                            hiddenId.value    = c.id;
+                            resultsBox.style.display = 'none';
+                        });
+                        item.addEventListener('mouseover',  function () { this.style.background = '#f8f9fa'; });
+                        item.addEventListener('mouseout',   function () { this.style.background = ''; });
+                        resultsBox.appendChild(item);
+                    });
+                    resultsBox.style.display = 'block';
+                })
+                .catch(function () { resultsBox.style.display = 'none'; });
+        }, 250);
+    });
+
+    searchInput.addEventListener('blur', function () {
+        setTimeout(function () { resultsBox.style.display = 'none'; }, 150);
+    });
+})();
+</script>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

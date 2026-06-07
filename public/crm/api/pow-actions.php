@@ -191,8 +191,80 @@ try {
             }
         }
 
+        // Third path: visit was completed via mobile PoW (end_visit) but invoice not yet created.
+        // The first two queries only look for non-completed statuses, so they return nothing
+        // even though the visit exists and is done. Check for completed+uninvoiced visits.
+        $alreadyCompletedByField = false;
         if (empty($completableVisits)) {
-            echo json_encode(['success' => false, 'error' => 'No completable visits found for this stop.']);
+            $cdStmt = $db->prepare("
+                SELECT jv.id AS visit_id, jv.plan_id, jv.assigned_crew_id,
+                       jv.invoice_id,
+                       jp.price_per_visit, jp.title AS plan_title, jp.service_type,
+                       p.address AS service_address, p.city AS service_city,
+                       p.province AS service_province, p.postal_code AS service_postal,
+                       p.id AS property_id, ct.id AS contact_id,
+                       CONCAT(ct.first_name, ' ', ct.last_name) AS contact_name
+                FROM job_visits jv
+                JOIN job_plans jp ON jv.plan_id = jp.id
+                JOIN calendar_stops cs ON jv.stop_id = cs.id
+                JOIN properties p ON cs.property_id = p.id
+                LEFT JOIN contacts ct ON p.site_contact_id = ct.id
+                WHERE jv.stop_id = ? AND jv.status = 'completed' AND jv.invoice_id IS NULL
+            ");
+            $cdStmt->execute([$stopId]);
+            $cdVisits = $cdStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Also try property+date fallback for already-completed visits
+            if (empty($cdVisits)) {
+                $cdFbStmt = $db->prepare("
+                    SELECT jv.id AS visit_id, jv.plan_id, jv.assigned_crew_id,
+                           jv.invoice_id,
+                           jp.price_per_visit, jp.title AS plan_title, jp.service_type,
+                           p.address AS service_address, p.city AS service_city,
+                           p.province AS service_province, p.postal_code AS service_postal,
+                           p.id AS property_id, ct.id AS contact_id,
+                           CONCAT(ct.first_name, ' ', ct.last_name) AS contact_name
+                    FROM job_visits jv
+                    JOIN job_plans jp ON jv.plan_id = jp.id
+                    JOIN properties p ON jp.property_id = p.id
+                    LEFT JOIN contacts ct ON p.site_contact_id = ct.id
+                    WHERE jp.property_id = (SELECT property_id FROM calendar_stops WHERE id = ?)
+                      AND jv.scheduled_date = (SELECT stop_date FROM calendar_stops WHERE id = ?)
+                      AND jv.status = 'completed'
+                      AND jv.invoice_id IS NULL
+                ");
+                $cdFbStmt->execute([$stopId, $stopId]);
+                $cdVisits = $cdFbStmt->fetchAll(PDO::FETCH_ASSOC);
+            }
+
+            if (!empty($cdVisits)) {
+                $completableVisits = $cdVisits;
+                $alreadyCompletedByField = true;
+            }
+        }
+
+        // Nothing found at all — check if stop is truly done+invoiced already
+        if (empty($completableVisits)) {
+            $doneCheckStmt = $db->prepare("
+                SELECT COUNT(*) FROM job_visits jv
+                JOIN calendar_stops cs ON jv.stop_id = cs.id
+                WHERE cs.id = ? AND jv.status = 'completed' AND jv.invoice_id IS NOT NULL
+            ");
+            $doneCheckStmt->execute([$stopId]);
+            $alreadyFullyDone = (int)$doneCheckStmt->fetchColumn() > 0;
+
+            $errMsg = $alreadyFullyDone
+                ? 'This stop was already completed and invoiced.'
+                : 'No completable visits found for this stop.';
+            echo json_encode(['success' => false, 'error' => $errMsg]);
+            exit;
+        }
+
+        // If the visit is already done by field crew with no invoice requested, just confirm success
+        if ($alreadyCompletedByField && !$withInvoice) {
+            $db->prepare("UPDATE calendar_stops SET status = 'completed', updated_at = NOW() WHERE id = ?")
+               ->execute([$stopId]);
+            echo json_encode(['success' => true, 'already_completed' => true]);
             exit;
         }
 
@@ -210,22 +282,25 @@ try {
         $completedVisitIds = [];
         foreach ($completableVisits as $cv) {
             $cvId = (int)$cv['visit_id'];
-            $db->prepare("
-                UPDATE job_visits SET
-                    status = 'completed',
-                    completed_at = NOW(),
-                    gps_confirmed_at = NOW(),
-                    completion_notes = CASE WHEN ? != '' THEN ? ELSE completion_notes END,
-                    extras_minutes = ?,
-                    extras_amount  = ?
-                WHERE id = ?
-            ")->execute([$notes, $notes, $extrasMins, $extrasAmount, $cvId]);
-            addAuditLog($db, $cvId, (int)$user['id'], 'complete', null, $ip);
+            if (!$alreadyCompletedByField) {
+                // Visit not yet completed — mark it done now
+                $db->prepare("
+                    UPDATE job_visits SET
+                        status = 'completed',
+                        completed_at = NOW(),
+                        gps_confirmed_at = NOW(),
+                        completion_notes = CASE WHEN ? != '' THEN ? ELSE completion_notes END,
+                        extras_minutes = ?,
+                        extras_amount  = ?
+                    WHERE id = ?
+                ")->execute([$notes, $notes, $extrasMins, $extrasAmount, $cvId]);
+                addAuditLog($db, $cvId, (int)$user['id'], 'complete', null, $ip);
 
-            $vcService = APP_ROOT . '/Modules/Jobs/Services/VisitCompletionService.php';
-            if (file_exists($vcService)) {
-                require_once $vcService;
-                VisitCompletionService::capture($cvId, (int)$user['id']);
+                $vcService = APP_ROOT . '/Modules/Jobs/Services/VisitCompletionService.php';
+                if (file_exists($vcService)) {
+                    require_once $vcService;
+                    VisitCompletionService::capture($cvId, (int)$user['id']);
+                }
             }
             $completedVisitIds[] = $cvId;
         }
@@ -274,19 +349,34 @@ try {
             $accToken   = generateAccessToken();
             $dueDate    = date('Y-m-d', strtotime('+14 days'));
 
+            // Link the invoice back to its plan + contract so the contract view
+            // billing summary can find it. plan_id comes from the visit; contract_id
+            // is looked up from job_plans.
+            $invPlanId     = (int)($firstVisit['plan_id'] ?? 0);
+            $invContractId = 0;
+            if ($invPlanId) {
+                $cidStmt = $db->prepare("SELECT contract_id FROM job_plans WHERE id = ?");
+                $cidStmt->execute([$invPlanId]);
+                $invContractId = (int)($cidStmt->fetchColumn() ?: 0);
+            }
+
             $db->prepare("
                 INSERT INTO invoices
-                    (invoice_number, contact_id, property_id, invoice_date, issue_date, due_date,
+                    (invoice_number, contact_id, property_id, plan_id, contract_id,
+                     invoice_date, issue_date, due_date,
                      subtotal, tax_rate, tax_amount, total_amount, total, balance_due,
                      status, access_token, token_expires_at,
                      service_address, service_city, service_province, service_postal_code, created_by)
                 VALUES
-                    (?, ?, ?, CURDATE(), CURDATE(), ?,
+                    (?, ?, ?, ?, ?,
+                     CURDATE(), CURDATE(), ?,
                      ?, ?, ?, ?, ?, ?,
                      'draft', ?, DATE_ADD(NOW(), INTERVAL 90 DAY),
                      ?, ?, ?, ?, ?)
             ")->execute([
-                $invNumber, $contactId, $propertyId ?: null, $dueDate,
+                $invNumber, $contactId, $propertyId ?: null,
+                $invPlanId ?: null, $invContractId ?: null,
+                $dueDate,
                 $subtotal, $taxRate, $taxAmount, $total, $total, $total,
                 $accToken,
                 $firstVisit['service_address'] ?? '', $firstVisit['service_city'] ?? '',
