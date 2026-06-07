@@ -1515,6 +1515,9 @@ function getPlanDetails(int $planId): ?array {
                p.address AS property_address, p.city AS property_city,
                p.latitude, p.longitude,
                co.company_name,
+               cl.display_name  AS client_display_name,
+               cl.client_type   AS client_type,
+               mgr.display_name AS client_manager_name,
                COALESCE(ct.id, pc.id) AS contact_id,
                COALESCE(ct.first_name, pc.first_name) AS first_name,
                COALESCE(ct.last_name, pc.last_name) AS last_name,
@@ -1532,6 +1535,8 @@ function getPlanDetails(int $planId): ?array {
         FROM job_plans jp
         LEFT JOIN properties p ON jp.property_id = p.id
         LEFT JOIN companies co ON jp.company_id = co.id
+        LEFT JOIN clients  cl  ON jp.client_id = cl.id
+        LEFT JOIN clients  mgr ON cl.managed_by_client_id = mgr.id
         LEFT JOIN contacts ct ON co.primary_contact_id = ct.id
         LEFT JOIN contacts pc ON p.site_contact_id = pc.id
         LEFT JOIN users u ON jp.default_crew_id = u.id

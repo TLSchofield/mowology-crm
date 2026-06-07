@@ -986,7 +986,16 @@ if ($hasPropCoords) {
                         <div class="card-body">
                             <?php
                                 $contactName = trim(($plan['first_name'] ?? '') . ' ' . ($plan['last_name'] ?? ''));
-                                $clientDisplay = $plan['company_name'] ?? '';
+                                // Prefer the account spine: client display name, with
+                                // "C/O firm" for a managed account (strata via PM firm).
+                                $clientDisplay = '';
+                                if (!empty($plan['client_display_name'])) {
+                                    $clientDisplay = $plan['client_display_name'];
+                                    if (!empty($plan['client_manager_name'])) {
+                                        $clientDisplay .= ' C/O ' . $plan['client_manager_name'];
+                                    }
+                                }
+                                if (!$clientDisplay) $clientDisplay = $plan['company_name'] ?? '';
                                 if (!$clientDisplay) $clientDisplay = $contactName;
                             ?>
                             <div class="mw-detail-row">
