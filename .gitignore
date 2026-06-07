@@ -27,6 +27,11 @@ crm/backup/
 /storage/weather/
 /storage/geocode/
 
+# Tracking module — cached OAuth token + last-position file (transient)
+/app/Storage/cache/trackimo_token.json
+/app/Storage/cache/trackimo_last_position.json
+/app/Storage/logs/trackimo.log
+
 # OS files
 .DS_Store
 Thumbs.db

@@ -2342,6 +2342,11 @@ if ($apiKey) {
                       <button type="button" class="mw-dv-map-team-toggle" id="mwDvMapTeamToggle" title="Toggle live team positions">
                           <i data-feather="users"></i>
                       </button>
+                      <button type="button" class="mw-dv-map-team-toggle" id="mwDvMapTruckTrailToggle"
+                              title="Show today's truck trail" aria-pressed="false">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 3h15v13H1z"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+                          <span class="mw-dv-map-team-toggle-label">Trail</span>
+                      </button>
                       <button type="button" class="mw-dv-map-external" id="mwDvMapExternal" title="Open in Google Maps">
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                       </button>
