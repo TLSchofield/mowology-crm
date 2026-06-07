@@ -29406,3 +29406,40 @@ body.mw-no-scroll {
 .mw-clock-queue-badge.mw-queue-has-items {
   display: block;
 }
+
+/* Debug Panel Toggle (topbar) — restored to main 2026-06-06 */
+.mw-debug-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  padding: 6px 8px;
+  cursor: pointer;
+  border-radius: 4px;
+  color: var(--mw-ink-400, #999);
+  opacity: 0.4;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+  line-height: 1;
+}
+.mw-debug-toggle:hover { opacity: 0.75; background: rgba(0,0,0,0.06); }
+.mw-debug-toggle--on { opacity: 1; color: var(--mw-orange); }
+.mw-debug-toggle--on:hover { opacity: 1; background: rgba(232,93,4,0.1); }
+.mw-debug-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  background: #dc2626;
+  color: #fff;
+  border-radius: 50%;
+  font-size: 8px;
+  font-weight: 700;
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  pointer-events: none;
+}
