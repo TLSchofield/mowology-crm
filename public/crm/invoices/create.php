@@ -1147,8 +1147,12 @@ function renderRecipientTable(recipients) {
         row.dataset.contactId = r.contact_id;
         const name = r.contact_name || ((r.first_name || '') + ' ' + (r.last_name || '')).trim();
         const smsLabel = r.receive_sms ? '<span class="badge badge-success">SMS</span>' : '<span class="text-muted">—</span>';
+        // Honor the server's preselect flag (receives_invoices). When it's
+        // explicitly false (e.g. a strata rep who shouldn't be billed), leave
+        // unchecked. Undefined (legacy/contact paths) defaults to checked.
+        const isChecked = (r.preselect === false) ? '' : 'checked';
         row.innerHTML = `
-            <td><input type="checkbox" class="recipient-checkbox" value="${r.contact_id}" checked></td>
+            <td><input type="checkbox" class="recipient-checkbox" value="${r.contact_id}" ${isChecked}></td>
             <td>${escHtml(name)}</td>
             <td><small class="text-muted">${escHtml(r.email_address || '')}</small></td>
             <td>${smsLabel}</td>
