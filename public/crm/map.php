@@ -1740,8 +1740,13 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
     }
 
     /**
-     * Flat truck badge SVG — rectangular pill with downward pointer + white
-     * pickup-truck silhouette across its width. Returns a string for innerHTML.
+     * Flat truck badge SVG — rectangular pill with downward pointer + a
+     * bold white pickup-truck silhouette across its width. Returns a
+     * string for innerHTML.
+     *
+     * Silhouette is deliberately chunky — a thin silhouette reads as a
+     * white slit at the actual map render size. Tall cab on the left,
+     * low flatbed extending right, prominent wheels with dark hubs.
      */
     function truckBadgeSvg() {
         return '<svg width="56" height="34" viewBox="-3 -1 56 34" xmlns="http://www.w3.org/2000/svg">' +
@@ -1754,14 +1759,17 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                  '<path d="M2 0 L46 0 Q50 0 50 4 L50 18 Q50 22 46 22 L28 22 L24 26 L20 22 L2 22 ' +
                        'Q-2 22 -2 18 L-2 4 Q-2 0 2 0 Z" ' +
                        'fill="currentColor" stroke="white" stroke-width="1.5" filter="url(#mwTruckShadow)"/>' +
-                 // Truck silhouette
-                 '<g transform="translate(7, 5)" fill="white">' +
-                   '<path d="M0 11 L0 7 L7 7 L9 3 L19 3 L19 7 L34 7 L34 11 Z"/>' +
-                   '<circle cx="9"  cy="13" r="2.8"/>' +
-                   '<circle cx="27" cy="13" r="2.8"/>' +
-                   // Wheel hubs darken into a slightly contrasting tint of the body color
-                   '<circle cx="9"  cy="13" r="1.1" fill="rgba(0,0,0,0.35)"/>' +
-                   '<circle cx="27" cy="13" r="1.1" fill="rgba(0,0,0,0.35)"/>' +
+                 // Bolder truck silhouette
+                 '<g fill="white">' +
+                   // Cab — tall chunky box, sloped front
+                   '<path d="M4 16 L4 9 L8 9 L10 5 L17 5 L17 16 Z"/>' +
+                   // Flatbed — thick rectangle extending right of the cab
+                   '<rect x="17" y="10" width="24" height="6" rx="0.6"/>' +
+                   // Wheels (larger) + dark hubs
+                   '<circle cx="10" cy="17.5" r="3"/>' +
+                   '<circle cx="34" cy="17.5" r="3"/>' +
+                   '<circle cx="10" cy="17.5" r="1.2" fill="rgba(0,0,0,0.45)"/>' +
+                   '<circle cx="34" cy="17.5" r="1.2" fill="rgba(0,0,0,0.45)"/>' +
                  '</g>' +
                '</svg>';
     }
