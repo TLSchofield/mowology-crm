@@ -1137,7 +1137,9 @@ var MwDayViewMap = (function() {
     var POLL_INTERVAL_MS = 30000;
     var STALE_THRESHOLD_S = 600; // 10 min — show warning badge above this
 
-    var truckMarker = null;
+    var truckOverlay = null;
+    var truckInfoWindow = null;
+    var truckLastLoc = null;
     var trailPolyline = null;
     var pollTimer = null;
     var trailShown = false;
@@ -1187,63 +1189,96 @@ var MwDayViewMap = (function() {
         if (!map || typeof google === 'undefined') return;
         if (typeof loc.lat !== 'number' || typeof loc.lng !== 'number') return;
 
+        truckLastLoc = loc;
         var pos = new google.maps.LatLng(loc.lat, loc.lng);
         var isStale = (loc.age_seconds || 0) > STALE_THRESHOLD_S;
 
-        if (!truckMarker) {
-            truckMarker = new google.maps.Marker({
-                position: pos,
-                map: map,
-                icon: truckIcon(isStale),
-                title: formatTruckTitle(loc),
-                zIndex: 1500 // Above stop markers (≤999), below user marker (999)
-            });
-            truckMarker._infoWindow = new google.maps.InfoWindow();
-            truckMarker.addListener('click', function() {
-                truckMarker._infoWindow.setContent(formatInfoBubble(loc));
-                truckMarker._infoWindow.open(map, truckMarker);
-            });
+        if (!truckOverlay) {
+            truckOverlay = createTruckOverlay(pos, isStale);
+            truckOverlay.setMap(map);
+            truckInfoWindow = new google.maps.InfoWindow();
+            truckOverlay.onDivClick = function() {
+                truckInfoWindow.setContent(formatInfoBubble(truckLastLoc || loc));
+                truckInfoWindow.setPosition(truckOverlay.getPosition());
+                truckInfoWindow.open(map);
+            };
         } else {
-            truckMarker.setPosition(pos);
-            truckMarker.setIcon(truckIcon(isStale));
-            truckMarker.setTitle(formatTruckTitle(loc));
-            if (truckMarker._infoWindow) {
-                truckMarker._infoWindow.setContent(formatInfoBubble(loc));
+            truckOverlay.setPosition(pos);
+            truckOverlay.setStale(isStale);
+            truckOverlay.setTitle(formatTruckTitle(loc));
+            if (truckInfoWindow && truckInfoWindow.getMap()) {
+                truckInfoWindow.setContent(formatInfoBubble(loc));
             }
         }
     }
 
-    function truckIcon(isStale) {
-        // Teardrop pin with a pickup-truck silhouette, matching the dispatch
-        // map's createTruckIcon() so both views read the same visual language.
-        var color = isStale ? '#9E9E9E' : '#e85d04';
-        var dark  = isStale ? '#6B6B6B' : '#B84504';
-        var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="36" height="44" viewBox="0 0 36 44">' +
-            '<defs>' +
-              '<linearGradient id="tg2" x1="0" y1="0" x2="0" y2="1">' +
-                '<stop offset="0%" stop-color="' + color + '"/>' +
-                '<stop offset="100%" stop-color="' + dark + '"/>' +
-              '</linearGradient>' +
-              '<filter id="ts2" x="-20%" y="-20%" width="140%" height="140%">' +
-                '<feDropShadow dx="0" dy="1.5" stdDeviation="1.2" flood-opacity="0.35"/>' +
-              '</filter>' +
-            '</defs>' +
-            '<path d="M18 0C8.06 0 0 8.06 0 18c0 11.25 18 26 18 26s18-14.75 18-26C36 8.06 27.94 0 18 0z" ' +
-                  'fill="url(#tg2)" stroke="white" stroke-width="2" filter="url(#ts2)"/>' +
-            '<g transform="translate(6.5, 10.5)" fill="white">' +
-              '<path d="M2 7 L2 5 L5.5 5 L6.8 2.5 L11.5 2.5 L11.5 5 L21 5 L21 7 Z"/>' +
-              '<path d="M7.4 4.4 L7.4 3.2 L10.6 3.2 L10.6 4.4 Z" fill="' + dark + '" opacity="0.55"/>' +
-              '<circle cx="6.5" cy="8.4" r="1.7"/>' +
-              '<circle cx="17"  cy="8.4" r="1.7"/>' +
-              '<circle cx="6.5" cy="8.4" r="0.7" fill="' + dark + '"/>' +
-              '<circle cx="17"  cy="8.4" r="0.7" fill="' + dark + '"/>' +
-            '</g>' +
-            '</svg>';
-        return {
-            url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
-            scaledSize: new google.maps.Size(36, 44),
-            anchor: new google.maps.Point(18, 44)
+    /**
+     * Build a google.maps.OverlayView that renders the truck badge as an
+     * HTML element so the surrounding CSS pulse ring (.mw-truck-overlay)
+     * can actually animate — static Marker icons can't. Pointer-tip of the
+     * badge sits exactly at the supplied LatLng (same anchor as a Marker).
+     */
+    function createTruckOverlay(position, isStale) {
+        var ov = new google.maps.OverlayView();
+        ov._position = position;
+        ov._div = null;
+
+        ov.onAdd = function() {
+            var div = document.createElement('div');
+            div.className = 'mw-truck-overlay' + (isStale ? ' is-stale' : '');
+            div.innerHTML = truckBadgeSvg();
+            div.title = formatTruckTitle(truckLastLoc || {});
+            div.addEventListener('click', function() {
+                if (typeof ov.onDivClick === 'function') ov.onDivClick();
+            });
+            ov._div = div;
+            this.getPanes().overlayMouseTarget.appendChild(div);
         };
+
+        ov.draw = function() {
+            if (!ov._div) return;
+            var pos = this.getProjection().fromLatLngToDivPixel(ov._position);
+            if (!pos) return;
+            // Anchor at the badge pointer tip — half-width across, full height down.
+            ov._div.style.left = (pos.x - 28) + 'px';
+            ov._div.style.top  = (pos.y - 30) + 'px';
+        };
+
+        ov.onRemove = function() {
+            if (ov._div && ov._div.parentNode) ov._div.parentNode.removeChild(ov._div);
+            ov._div = null;
+        };
+
+        ov.setPosition = function(p) { ov._position = p; ov.draw(); };
+        ov.getPosition = function()  { return ov._position; };
+        ov.setStale = function(stale) {
+            if (ov._div) ov._div.classList.toggle('is-stale', !!stale);
+        };
+        ov.setTitle = function(t) {
+            if (ov._div) ov._div.title = t;
+        };
+
+        return ov;
+    }
+
+    function truckBadgeSvg() {
+        return '<svg width="56" height="34" viewBox="-3 -1 56 34" xmlns="http://www.w3.org/2000/svg">' +
+                 '<defs>' +
+                   '<filter id="mwTruckShadow2" x="-20%" y="-20%" width="140%" height="140%">' +
+                     '<feDropShadow dx="0" dy="1.5" stdDeviation="1.5" flood-opacity="0.4"/>' +
+                   '</filter>' +
+                 '</defs>' +
+                 '<path d="M2 0 L46 0 Q50 0 50 4 L50 18 Q50 22 46 22 L28 22 L24 26 L20 22 L2 22 ' +
+                       'Q-2 22 -2 18 L-2 4 Q-2 0 2 0 Z" ' +
+                       'fill="currentColor" stroke="white" stroke-width="1.5" filter="url(#mwTruckShadow2)"/>' +
+                 '<g transform="translate(7, 5)" fill="white">' +
+                   '<path d="M0 11 L0 7 L7 7 L9 3 L19 3 L19 7 L34 7 L34 11 Z"/>' +
+                   '<circle cx="9"  cy="13" r="2.8"/>' +
+                   '<circle cx="27" cy="13" r="2.8"/>' +
+                   '<circle cx="9"  cy="13" r="1.1" fill="rgba(0,0,0,0.35)"/>' +
+                   '<circle cx="27" cy="13" r="1.1" fill="rgba(0,0,0,0.35)"/>' +
+                 '</g>' +
+               '</svg>';
     }
 
     function formatTruckTitle(loc) {

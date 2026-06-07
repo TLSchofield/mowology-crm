@@ -321,7 +321,8 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
     var TRUCK_POLL_MS = 30000;
     var TRUCK_STALE_S = 600;
     var truckEnabled = false;
-    var truckMarker = null;
+    var truckOverlay = null;        // google.maps.OverlayView instance
+    var truckLastLoc = null;        // last raw payload for InfoWindow content
     var truckInfoWindow = null;
     var truckPollTimer = null;
 
@@ -1654,75 +1655,115 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
 
     function placeTruckMarker(loc) {
         if (!gmap || typeof loc.lat !== 'number' || typeof loc.lng !== 'number') return;
+        truckLastLoc = loc;
         var pos = new google.maps.LatLng(loc.lat, loc.lng);
         var isStale = (loc.age_seconds || 0) > TRUCK_STALE_S;
-        var icon = createTruckIcon(isStale);
-        var title = truckTitleFor(loc);
-        if (!truckMarker) {
-            truckMarker = new google.maps.Marker({
-                position: pos, map: gmap, icon: icon, title: title,
-                zIndex: 1500  // Above crew markers (1000), above route trails
-            });
+
+        if (!truckOverlay) {
+            truckOverlay = createTruckOverlay(pos, isStale);
+            truckOverlay.setMap(gmap);
             truckInfoWindow = new google.maps.InfoWindow();
-            truckMarker.addListener('click', function() {
-                truckInfoWindow.setContent(truckInfoBubble(loc));
-                truckInfoWindow.open(gmap, truckMarker);
-            });
+            truckOverlay.onDivClick = function() {
+                truckInfoWindow.setContent(truckInfoBubble(truckLastLoc || loc));
+                truckInfoWindow.setPosition(truckOverlay.getPosition());
+                truckInfoWindow.open(gmap);
+            };
         } else {
-            truckMarker.setPosition(pos);
-            truckMarker.setIcon(icon);
-            truckMarker.setTitle(title);
-            if (truckInfoWindow) truckInfoWindow.setContent(truckInfoBubble(loc));
+            truckOverlay.setPosition(pos);
+            truckOverlay.setStale(isStale);
+            truckOverlay.setTitle(truckTitleFor(loc));
+            // If the info window is open, refresh its contents with the new ping.
+            if (truckInfoWindow && truckInfoWindow.getMap()) {
+                truckInfoWindow.setContent(truckInfoBubble(loc));
+            }
         }
     }
 
     function clearTruckMarker() {
-        if (truckMarker) { truckMarker.setMap(null); truckMarker = null; }
+        if (truckOverlay) { truckOverlay.setMap(null); truckOverlay = null; }
         if (truckInfoWindow) { truckInfoWindow.close(); truckInfoWindow = null; }
+        truckLastLoc = null;
     }
 
     /**
-     * Teardrop pin matching the crew marker style, with a pickup-truck
-     * silhouette inside the round top instead of a letter initial.
-     * `isStale` swaps the brand orange for grey when the last ping is >10 min old.
+     * Build a google.maps.OverlayView that renders an HTML element on the map
+     * — required because the pulse ring animation can't run inside a static
+     * Marker icon. The element holds the badge SVG; the surrounding CSS
+     * (.mw-truck-overlay) provides the pulse via ::before/::after.
+     *
+     * The "pointer tip" of the badge (bottom-center) sits exactly at the
+     * supplied LatLng — same anchoring contract as a regular Marker.
      */
-    function createTruckIcon(isStale) {
-        var color = isStale ? '#9E9E9E' : '#e85d04';
-        var dark  = isStale ? '#6B6B6B' : '#B84504';
-        // 36x44 viewBox, same as createCrewIcon, anchored bottom-center.
-        var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="36" height="44" viewBox="0 0 36 44">' +
-            '<defs>' +
-              '<linearGradient id="tg" x1="0" y1="0" x2="0" y2="1">' +
-                '<stop offset="0%" stop-color="' + color + '"/>' +
-                '<stop offset="100%" stop-color="' + dark + '"/>' +
-              '</linearGradient>' +
-              '<filter id="ts" x="-20%" y="-20%" width="140%" height="140%">' +
-                '<feDropShadow dx="0" dy="1.5" stdDeviation="1.2" flood-opacity="0.35"/>' +
-              '</filter>' +
-            '</defs>' +
-            // Teardrop pin
-            '<path d="M18 0C8.06 0 0 8.06 0 18c0 11.25 18 26 18 26s18-14.75 18-26C36 8.06 27.94 0 18 0z" ' +
-                  'fill="url(#tg)" stroke="white" stroke-width="2" filter="url(#ts)"/>' +
-            // Pickup truck silhouette — cab + bed + 2 wheels, centered ~ (18, 17)
-            '<g transform="translate(6.5, 10.5)" fill="white">' +
-              // Body: cab on left, bed on right
-              '<path d="M2 7 L2 5 L5.5 5 L6.8 2.5 L11.5 2.5 L11.5 5 L21 5 L21 7 Z"/>' +
-              // Cab window cut-out for depth
-              '<path d="M7.4 4.4 L7.4 3.2 L10.6 3.2 L10.6 4.4 Z" fill="' + dark + '" opacity="0.55"/>' +
-              // Wheels
-              '<circle cx="6.5" cy="8.4" r="1.7"/>' +
-              '<circle cx="17"  cy="8.4" r="1.7"/>' +
-              // Wheel hubs (color-of-pin showing through)
-              '<circle cx="6.5" cy="8.4" r="0.7" fill="' + dark + '"/>' +
-              '<circle cx="17"  cy="8.4" r="0.7" fill="' + dark + '"/>' +
-            '</g>' +
-            '</svg>';
+    function createTruckOverlay(position, isStale) {
+        var ov = new google.maps.OverlayView();
+        ov._position = position;
+        ov._div = null;
 
-        return {
-            url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
-            scaledSize: new google.maps.Size(36, 44),
-            anchor: new google.maps.Point(18, 44)
+        ov.onAdd = function() {
+            var div = document.createElement('div');
+            div.className = 'mw-truck-overlay' + (isStale ? ' is-stale' : '');
+            div.innerHTML = truckBadgeSvg();
+            div.title = truckTitleFor(truckLastLoc || {});
+            div.addEventListener('click', function() {
+                if (typeof ov.onDivClick === 'function') ov.onDivClick();
+            });
+            ov._div = div;
+            this.getPanes().overlayMouseTarget.appendChild(div);
         };
+
+        ov.draw = function() {
+            if (!ov._div) return;
+            var pos = this.getProjection().fromLatLngToDivPixel(ov._position);
+            if (!pos) return;
+            // Badge is 56×34; pointer tip is at viewBox (24, 26) in a -3,-1
+            // 56×34 box. The padding I add to overlay height (none) means the
+            // tip sits at (28, 30) within the 56-wide overlay. Anchor at tip.
+            ov._div.style.left = (pos.x - 28) + 'px';
+            ov._div.style.top  = (pos.y - 30) + 'px';
+        };
+
+        ov.onRemove = function() {
+            if (ov._div && ov._div.parentNode) ov._div.parentNode.removeChild(ov._div);
+            ov._div = null;
+        };
+
+        ov.setPosition = function(p) { ov._position = p; ov.draw(); };
+        ov.getPosition = function()  { return ov._position; };
+        ov.setStale = function(stale) {
+            if (ov._div) ov._div.classList.toggle('is-stale', !!stale);
+        };
+        ov.setTitle = function(t) {
+            if (ov._div) ov._div.title = t;
+        };
+
+        return ov;
+    }
+
+    /**
+     * Flat truck badge SVG — rectangular pill with downward pointer + white
+     * pickup-truck silhouette across its width. Returns a string for innerHTML.
+     */
+    function truckBadgeSvg() {
+        return '<svg width="56" height="34" viewBox="-3 -1 56 34" xmlns="http://www.w3.org/2000/svg">' +
+                 '<defs>' +
+                   '<filter id="mwTruckShadow" x="-20%" y="-20%" width="140%" height="140%">' +
+                     '<feDropShadow dx="0" dy="1.5" stdDeviation="1.5" flood-opacity="0.4"/>' +
+                   '</filter>' +
+                 '</defs>' +
+                 // Pill body with downward pointer at bottom-center
+                 '<path d="M2 0 L46 0 Q50 0 50 4 L50 18 Q50 22 46 22 L28 22 L24 26 L20 22 L2 22 ' +
+                       'Q-2 22 -2 18 L-2 4 Q-2 0 2 0 Z" ' +
+                       'fill="currentColor" stroke="white" stroke-width="1.5" filter="url(#mwTruckShadow)"/>' +
+                 // Truck silhouette
+                 '<g transform="translate(7, 5)" fill="white">' +
+                   '<path d="M0 11 L0 7 L7 7 L9 3 L19 3 L19 7 L34 7 L34 11 Z"/>' +
+                   '<circle cx="9"  cy="13" r="2.8"/>' +
+                   '<circle cx="27" cy="13" r="2.8"/>' +
+                   // Wheel hubs darken into a slightly contrasting tint of the body color
+                   '<circle cx="9"  cy="13" r="1.1" fill="rgba(0,0,0,0.35)"/>' +
+                   '<circle cx="27" cy="13" r="1.1" fill="rgba(0,0,0,0.35)"/>' +
+                 '</g>' +
+               '</svg>';
     }
 
     function truckTitleFor(loc) {
