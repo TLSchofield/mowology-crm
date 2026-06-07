@@ -70,6 +70,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
             'contact_id'           => !empty($_POST['contact_id']) ? (int)$_POST['contact_id'] : null,
         ];
         $result = updateContract($contractId, $data, (int)$user['id']);
+
+        // PM-billing write-through: set the property's billing entity, management
+        // company, and property-manager person from this one screen, and derive
+        // the canonical client_id. One place to configure PM-managed billing.
+        $propId = (int)($contract['property_id'] ?? 0);
+        if ($result['success'] && $propId) {
+            try {
+                $pcols = [];
+                foreach ($db->query("SHOW COLUMNS FROM properties")->fetchAll(PDO::FETCH_COLUMN) as $c) { $pcols[$c] = true; }
+                $beName    = trim($_POST['billing_entity_name'] ?? '');
+                $pmCompany = !empty($_POST['property_manager_id']) ? (int)$_POST['property_manager_id'] : null;
+                $pmPerson  = !empty($_POST['site_contact_id'])     ? (int)$_POST['site_contact_id']     : null;
+                $pset = []; $ppar = [];
+                if (array_key_exists('site_contact_id', $pcols))     { $pset[] = 'site_contact_id = ?';     $ppar[] = $pmPerson; }
+                if (array_key_exists('billing_entity_name', $pcols)) { $pset[] = 'billing_entity_name = ?'; $ppar[] = ($beName !== '' ? $beName : null); }
+                if (array_key_exists('property_manager_id', $pcols)) { $pset[] = 'property_manager_id = ?'; $ppar[] = $pmCompany; }
+                // Canonical account link, derived from the management company.
+                if (array_key_exists('client_id', $pcols) && $pmCompany) {
+                    $cs = $db->prepare("SELECT id FROM clients WHERE legacy_company_id = ? ORDER BY id LIMIT 1");
+                    $cs->execute([$pmCompany]);
+                    $cid = (int)$cs->fetchColumn();
+                    if ($cid) { $pset[] = 'client_id = ?'; $ppar[] = $cid; }
+                }
+                if ($pset) { $ppar[] = $propId; $db->prepare("UPDATE properties SET " . implode(', ', $pset) . " WHERE id = ?")->execute($ppar); }
+            } catch (Throwable $e) { /* non-critical — contract still saved */ }
+        }
+
         if ($result['success']) {
             $contract    = getContractById($contractId);
             $plans       = getContractPlans($contractId);
@@ -183,6 +210,24 @@ $billingCycleLabels = [
     'annual'    => 'Annual',
     'custom'    => 'Custom',
 ];
+
+// ── PM-billing config for the Edit Contract modal (set it from one screen) ──
+$propBilling   = ['billing_entity_name' => '', 'property_manager_id' => 0, 'site_contact_id' => 0];
+$pmCompanies   = [];
+$pmContacts    = [];
+if (!empty($contract['property_id'])) {
+    try {
+        $pb = $db->prepare("SELECT billing_entity_name, property_manager_id, site_contact_id FROM properties WHERE id = ?");
+        $pb->execute([(int)$contract['property_id']]);
+        if ($row = $pb->fetch(PDO::FETCH_ASSOC)) { $propBilling = array_merge($propBilling, $row); }
+    } catch (Throwable $e) { /* columns may be absent on this build */ }
+    try {
+        $pmCompanies = $db->query("SELECT id, company_name FROM companies WHERE account_status = 'active' ORDER BY company_name")->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Throwable $e) { $pmCompanies = []; }
+    try {
+        $pmContacts = $db->query("SELECT id, first_name, last_name, email FROM contacts WHERE COALESCE(is_active,1)=1 ORDER BY last_name, first_name")->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Throwable $e) { $pmContacts = []; }
+}
 
 // ── Property border check ─────────────────────────────────────────────────
 $hasPropCoords = !empty($contract['latitude']) && !empty($contract['longitude']);
@@ -514,9 +559,18 @@ if ($hasPropCoords && !$hasBorder) {
                       $timingLabels = ['after_visit' => 'After Visit', 'end_of_month' => 'End of Month', 'upfront' => 'Upfront'];
                       $timing = $contract['invoice_timing'] ?? 'after_visit';
                       ?>
-                      <span class="mw-invoice-timing-badge mw-timing-<?php echo htmlspecialchars($timing); ?>">
-                          <?php echo htmlspecialchars($timingLabels[$timing] ?? $timing); ?>
-                      </span>
+                      <div class="d-flex align-items-center" style="gap:8px;">
+                          <span class="mw-invoice-timing-badge mw-timing-<?php echo htmlspecialchars($timing); ?>">
+                              <?php echo htmlspecialchars($timingLabels[$timing] ?? $timing); ?>
+                          </span>
+                          <?php if ($contract['status'] === 'active' && !empty($plans) && userHasPermission('billing.edit')): ?>
+                          <a href="../invoices/create.php?plan_id=<?php echo (int)$plans[0]['id']; ?>"
+                             class="btn btn-sm mw-btn-primary">
+                              <i data-feather="file-plus" style="width:12px;height:12px;"></i>
+                              Raise Invoice
+                          </a>
+                          <?php endif; ?>
+                      </div>
                   </div>
                   <div class="card-body">
                       <?php
@@ -578,6 +632,13 @@ if ($hasPropCoords && !$hasBorder) {
                               <i data-feather="file-text" style="width:24px;height:24px;opacity:.3;"></i>
                               <div>No invoices yet</div>
                           </div>
+                          <?php if ($contract['status'] === 'active' && !empty($plans) && userHasPermission('billing.edit')): ?>
+                          <a href="../invoices/create.php?plan_id=<?php echo (int)$plans[0]['id']; ?>"
+                             class="btn btn-sm mw-btn-primary w-100 mt-2">
+                              <i data-feather="file-plus" style="width:12px;height:12px;margin-right:4px;"></i>
+                              Raise First Invoice
+                          </a>
+                          <?php endif; ?>
                       <?php endif; ?>
                   </div>
               </div>
@@ -590,8 +651,25 @@ if ($hasPropCoords && !$hasBorder) {
                   <div class="card mb-4">
                       <div class="card-header"><h5 class="card-title mb-0">Property &amp; Client</h5></div>
                       <div class="card-body">
-                          <?php
-                          $ctrClientName  = trim(($contract['first_name'] ?? '') . ' ' . ($contract['last_name'] ?? ''));
+<?php
+                          // Resolve display name using the Client/Account spine first:
+                          // client_display_name + "C/O" managing firm if managed, else the
+                          // billing entity, else the contact's personal name.
+                          $ctrContactName = trim(($contract['first_name'] ?? '') . ' ' . ($contract['last_name'] ?? ''));
+                          $ctrEntity      = trim((string)($contract['billing_entity_name'] ?? ''));
+                          $ctrClientName  = '';
+                          if ($ctrEntity && !empty($contract['client_display_name'])) {
+                              $ctrClientName = $ctrEntity . ' C/O ' . $contract['client_display_name'];
+                          } elseif (!empty($contract['client_display_name'])) {
+                              $ctrClientName = $contract['client_display_name'];
+                              if (!empty($contract['client_manager_name'])) {
+                                  $ctrClientName .= ' C/O ' . $contract['client_manager_name'];
+                              }
+                          } elseif ($ctrEntity) {
+                              $ctrClientName = $ctrEntity;
+                          }
+                          if (!$ctrClientName) $ctrClientName = $ctrContactName;
+
                           $clientInitials = strtoupper(substr($contract['first_name'] ?? '', 0, 1) . substr($contract['last_name'] ?? '', 0, 1));
                           $fullAddress    = trim(
                               ($contract['property_address'] ?? '') . ', ' .
@@ -629,10 +707,10 @@ if ($hasPropCoords && !$hasBorder) {
                                           ($contract['property_postal'] ? '  ' . $contract['property_postal'] : '')
                                       )); ?>
                                   </div>
-                                  <?php if (!empty($contract['property_billing_entity'])): ?>
+                                  <?php if (!empty($contract['billing_entity_name'])): ?>
                                       <div class="mw-info-tag">
                                           <i data-feather="tag" style="width:11px;height:11px;vertical-align:-1px;"></i>
-                                          <?php echo htmlspecialchars($contract['property_billing_entity']); ?>
+                                          <?php echo htmlspecialchars($contract['billing_entity_name']); ?>
                                       </div>
                                   <?php endif; ?>
                                   <div class="mw-info-actions">
@@ -815,6 +893,51 @@ if ($hasPropCoords && !$hasBorder) {
                             </div>
                         </div>
                     </div>
+
+                    <?php if (!empty($contract['property_id'])): ?>
+                    <!-- PM-managed billing — set it here, writes through to the property -->
+                    <div class="form-group" style="background:var(--mw-light,#E8F3F0);border-radius:8px;padding:12px 14px;margin-bottom:1rem;">
+                        <div class="mb-2" style="font-weight:600;font-size:.85rem;color:var(--mw-forest,#0D3B2E);">
+                            <i data-feather="briefcase" style="width:14px;height:14px;vertical-align:-2px;margin-right:5px;"></i>
+                            PM-Managed Billing <span class="text-muted" style="font-weight:400;">(prints “Entity C/O Management Company” on invoices)</span>
+                        </div>
+                        <div class="row">
+                            <div class="col-sm-6">
+                                <label class="form-label">Billing Entity <small class="text-muted">(strata / building name)</small></label>
+                                <input type="text" name="billing_entity_name" class="form-control"
+                                       value="<?php echo htmlspecialchars($propBilling['billing_entity_name'] ?? ''); ?>"
+                                       placeholder="e.g. Oakridge Gardens">
+                            </div>
+                            <div class="col-sm-6">
+                                <label class="form-label">Management Company</label>
+                                <select name="property_manager_id" class="form-control">
+                                    <option value="">— none —</option>
+                                    <?php foreach ($pmCompanies as $co):
+                                        $sel = (int)($propBilling['property_manager_id'] ?? 0) === (int)$co['id'] ? ' selected' : '';
+                                    ?>
+                                    <option value="<?php echo (int)$co['id']; ?>"<?php echo $sel; ?>><?php echo htmlspecialchars($co['company_name']); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="row mt-2">
+                            <div class="col-sm-6">
+                                <label class="form-label">Property Manager <small class="text-muted">(person)</small></label>
+                                <select name="site_contact_id" class="form-control">
+                                    <option value="">— none —</option>
+                                    <?php foreach ($pmContacts as $c):
+                                        $cl = trim(($c['first_name'] ?? '') . ' ' . ($c['last_name'] ?? ''));
+                                        if (!empty($c['email'])) $cl .= ' · ' . $c['email'];
+                                        $sel = (int)($propBilling['site_contact_id'] ?? 0) === (int)$c['id'] ? ' selected' : '';
+                                    ?>
+                                    <option value="<?php echo (int)$c['id']; ?>"<?php echo $sel; ?>><?php echo htmlspecialchars($cl); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                        </div>
+                        <small class="text-muted d-block mt-2">Saved to the property — invoices to this building bill the management company’s accounts.</small>
+                    </div>
+                    <?php endif; ?>
 
                     <!-- Row 2: Contract Value + Start Date + End Date -->
                     <div class="row">
@@ -1003,17 +1126,6 @@ if ($hasPropCoords && !$hasBorder) {
             },
         });
         ctrMgr.init();
-
-        // Green dot marks the exact property coordinates so the user knows which lot to trace
-        if (typeof L !== 'undefined' && ctrMgr._map) {
-            L.circleMarker([CTR_PROP_LAT, CTR_PROP_LNG], {
-                radius: 10,
-                color: '#0D3B2E',
-                weight: 2,
-                fillColor: '#2D8659',
-                fillOpacity: 0.9,
-            }).addTo(ctrMgr._map).bindTooltip('Property location', { permanent: false, direction: 'top' });
-        }
 
         // Track vertices so we can enable Finish button after 3+
         if (ctrMgr._map) {

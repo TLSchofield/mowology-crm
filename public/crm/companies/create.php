@@ -26,7 +26,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errors[] = 'Invalid form submission. Please try again.';
     } else {
         $companyName = trim($_POST['company_name'] ?? '');
-        $companyType = $_POST['company_type'] ?? 'individual';
+        $companyType = $_POST['company_type'] ?? 'business';
         $lifecycleStage = $_POST['lifecycle_stage'] ?? 'prospect';
         $notes = trim($_POST['notes'] ?? '');
 
@@ -215,9 +215,11 @@ if ($apiKey) {
                                             <label for="company_type">Company Type</label>
                                             <select id="company_type" name="company_type" class="form-control">
                                                 <?php
-                                                $types = ['individual' => 'Individual', 'business' => 'Business', 'strata' => 'Strata', 'property_manager' => 'Property Manager'];
+                                                // Companies are real organizations only. Stratas and individuals
+                                                // are modelled as clients/accounts, not company types.
+                                                $types = ['business' => 'Business', 'property_manager' => 'Property Manager'];
                                                 foreach ($types as $val => $label): ?>
-                                                    <option value="<?= $val ?>" <?= ($_POST['company_type'] ?? 'individual') === $val ? 'selected' : '' ?>>
+                                                    <option value="<?= $val ?>" <?= ($_POST['company_type'] ?? 'business') === $val ? 'selected' : '' ?>>
                                                         <?= $label ?>
                                                     </option>
                                                 <?php endforeach; ?>

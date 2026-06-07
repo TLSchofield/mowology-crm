@@ -13,32 +13,6 @@ $db = getDB();
 $error = '';
 $prefill = [];
 
-// If stop_id is given instead of visit_id, find the first visit for that stop
-// and redirect — the visit_id path handles all the prefill logic.
-if (!isset($_GET['visit_id']) && isset($_GET['stop_id'])) {
-    $stopId = intval($_GET['stop_id']);
-    if ($stopId > 0) {
-        $stvStmt = $db->prepare("
-            SELECT jv.id AS visit_id
-            FROM job_visits jv
-            WHERE jv.stop_id = ?
-            ORDER BY
-                CASE jv.status WHEN 'completed' THEN 0 WHEN 'in_progress' THEN 1 ELSE 2 END,
-                jv.id ASC
-            LIMIT 1
-        ");
-        $stvStmt->execute([$stopId]);
-        $stvRow = $stvStmt->fetch(PDO::FETCH_ASSOC);
-        if ($stvRow) {
-            $params = $_GET;
-            unset($params['stop_id']);
-            $params['visit_id'] = $stvRow['visit_id'];
-            header('Location: create.php?' . http_build_query($params));
-            exit;
-        }
-    }
-}
-
 // Check if creating from a completed visit
 $visitId = isset($_GET['visit_id']) ? intval($_GET['visit_id']) : 0;
 
@@ -48,11 +22,8 @@ if ($visitId) {
                jv.plan_id, jv.scheduled_date, jv.invoice_id as existing_invoice_id,
                jv.extras_minutes, jv.extras_amount, jv.extras_note,
                jp.plan_number, jp.title, jp.price_per_visit, jp.estimated_amount,
-               jp.property_id,
-               COALESCE(jp.company_id, cb.id, cc.id) AS company_id,
-               COALESCE(c.company_name, cb.company_name, cc.company_name) AS company_name,
-               NULLIF(p.billing_entity_name, '') AS property_billing_entity,
-               ctr.title AS contract_title,
+               jp.property_id, jp.company_id,
+               c.company_name,
                p.address, p.city, p.province, p.postal_code,
                p.site_contact_id,
                COALESCE(con.first_name, '') as contact_first,
@@ -62,12 +33,9 @@ if ($visitId) {
                con.receive_sms as contact_receive_sms
         FROM job_visits jv
         JOIN job_plans jp ON jv.plan_id = jp.id
-        LEFT JOIN contracts ctr ON jp.contract_id = ctr.id
-        LEFT JOIN companies c  ON jp.company_id = c.id
+        LEFT JOIN companies c ON jp.company_id = c.id
         LEFT JOIN properties p ON jp.property_id = p.id
-        LEFT JOIN companies cb ON p.billing_company_id = cb.id
         LEFT JOIN contacts con ON p.site_contact_id = con.id
-        LEFT JOIN companies cc ON (cc.primary_contact_id = con.id OR cc.billing_contact_id = con.id)
         WHERE jv.id = ? AND jv.status = 'completed'
     ");
     $stmt->execute([$visitId]);
@@ -80,20 +48,6 @@ if ($visitId) {
         }
         $visitAmount  = $visit['actual_amount'] ?: $visit['price_per_visit'] ?: $visit['estimated_amount'];
         $contactName  = trim($visit['contact_first'] . ' ' . $visit['contact_last']) ?: null;
-
-        // Resolve bill_to_name: property entity → contract title (when company present) → company name
-        $visitEntity      = $visit['property_billing_entity'] ?? null;
-        $visitContractTitle = trim((string)($visit['contract_title'] ?? ''));
-        $visitCompany     = $visit['company_name'] ?? null;
-        $visitEntity      = $visitEntity ?: (!empty($visitCompany) ? $visitContractTitle : null) ?: null;
-        $visitBillToName  = null;
-        if (!empty($visitEntity) && !empty($visitCompany)) {
-            $visitBillToName = $visitEntity . ' C/O ' . $visitCompany;
-        } elseif (!empty($visitEntity)) {
-            $visitBillToName = $visitEntity;
-        } elseif (!empty($visitCompany)) {
-            $visitBillToName = $visitCompany;
-        }
 
         // Fetch plan line items so the invoice can be generated with zero re-entry
         $prefillLineItems = [];
@@ -121,7 +75,6 @@ if ($visitId) {
             'scheduled_date'    => $visit['scheduled_date'],
             'description'       => $visit['title'] . ' — ' . date('M j, Y', strtotime($visit['scheduled_date'])),
             'amount'            => $visitAmount,
-            'bill_to_name'      => $visitBillToName,
             'company_name'      => $visit['company_name'] ?: $contactName,
             'contact_name'      => $contactName,
             'contact_email'     => $visit['contact_email'],
@@ -141,16 +94,13 @@ if ($visitId) {
     }
 }
 
-// Prefill from plan (contract upfront billing — no completed visit required)
+// Prefill from plan (contract upfront/manual billing — no visit required)
 if (!$visitId && isset($_GET['plan_id'])) {
     $planId = intval($_GET['plan_id']);
     if ($planId) {
         $pStmt = $db->prepare("
-            SELECT jp.id, jp.plan_number, jp.title, jp.service_type,
-                   jp.estimated_amount, jp.plan_start_date, jp.property_id,
-                   COALESCE(jp.company_id, cb.id) AS company_id,
-                   NULLIF(TRIM(COALESCE(p.billing_entity_name, '')), '') AS property_billing_entity,
-                   ctr.title AS contract_title,
+            SELECT jp.*, jp.plan_number, jp.title, jp.service_type,
+                   jp.estimated_amount, jp.plan_start_date,
                    p.address, p.city, p.province, p.postal_code,
                    p.site_contact_id,
                    COALESCE(con.first_name, '') AS contact_first,
@@ -158,18 +108,11 @@ if (!$visitId && isset($_GET['plan_id'])) {
                    con.email  AS contact_email,
                    con.mobile AS contact_mobile,
                    con.receive_sms AS contact_receive_sms,
-                   COALESCE(c.company_name, cb.company_name) AS company_name,
-                   COALESCE(c.billing_address, cb.billing_address) AS billing_address,
-                   COALESCE(c.billing_city,    cb.billing_city)    AS billing_city,
-                   COALESCE(c.billing_province, cb.billing_province) AS billing_province,
-                   COALESCE(c.billing_postal_code, cb.billing_postal_code) AS billing_postal_code,
-                   ctr.billing_amount, ctr.start_date AS contract_start_date
+                   ctr.billing_amount, ctr.billing_cycle, ctr.start_date AS contract_start_date
             FROM job_plans jp
             LEFT JOIN properties p  ON jp.property_id = p.id
             LEFT JOIN contacts con  ON p.site_contact_id = con.id
             LEFT JOIN contracts ctr ON jp.contract_id = ctr.id
-            LEFT JOIN companies c   ON jp.company_id = c.id
-            LEFT JOIN companies cb  ON p.billing_company_id = cb.id
             WHERE jp.id = ?
         ");
         $pStmt->execute([$planId]);
@@ -186,42 +129,17 @@ if (!$visitId && isset($_GET['plan_id'])) {
                 $prefillLineItems = $pliStmt->fetchAll(PDO::FETCH_ASSOC);
             } catch (PDOException $e) {}
 
-            // When plan line items have $0 prices (billing managed at contract level),
-            // clear them so the form falls back to the single description+amount field
-            // pre-filled with billing_amount — avoids showing a $0.00 line item table.
-            $lineTotal = array_sum(array_column($prefillLineItems, 'line_total'));
-            if ($lineTotal == 0 && !empty($prefillLineItems)) {
-                $prefillLineItems = [];
-            }
-
             $amount      = !empty($planRow['billing_amount']) ? $planRow['billing_amount'] : $planRow['estimated_amount'];
             $contactName = trim($planRow['contact_first'] . ' ' . $planRow['contact_last']) ?: null;
             $baseDate    = !empty($planRow['contract_start_date']) ? $planRow['contract_start_date'] : ($planRow['plan_start_date'] ?? date('Y-m-d'));
             $billMonth   = date('F Y', strtotime($baseDate));
             $svcLabel    = $planRow['title'] ?: ucwords(str_replace('_', ' ', $planRow['service_type'] ?? 'Service'));
 
-            // Compute bill_to_name: strata entity + C/O company, mirroring the cron billing logic
-            // Priority: property.billing_entity_name → contract.title (when company present) → company name
-            $propertyEntity = $planRow['property_billing_entity'] ?? null;
-            $planContractTitle = trim((string)($planRow['contract_title'] ?? ''));
-            $companyNameVal = !empty($planRow['company_name']) ? trim($planRow['company_name']) : null;
-            $entity = $propertyEntity ?: (!empty($companyNameVal) ? $planContractTitle : null) ?: null;
-            $billToName = null;
-            if (!empty($entity) && !empty($companyNameVal)) {
-                $billToName = $entity . ' C/O ' . $companyNameVal;
-            } elseif (!empty($entity)) {
-                $billToName = $entity;
-            } elseif (!empty($companyNameVal)) {
-                $billToName = $companyNameVal;
-            }
-
             $prefill = [
                 'property_id'         => $planRow['property_id'],
-                'company_id'          => $planRow['company_id'],
                 'contact_id'          => $planRow['site_contact_id'],
                 'plan_id'             => $planId,
                 'amount'              => $amount,
-                'bill_to_name'        => $billToName,
                 'contact_name'        => $contactName,
                 'contact_email'       => $planRow['contact_email'],
                 'contact_mobile'      => $planRow['contact_mobile'],
@@ -230,10 +148,6 @@ if (!$visitId && isset($_GET['plan_id'])) {
                 'service_city'        => $planRow['city'] ?? '',
                 'service_province'    => $planRow['province'] ?? 'BC',
                 'service_postal'      => $planRow['postal_code'] ?? '',
-                'billing_address'     => $planRow['billing_address'] ?? '',
-                'billing_city'        => $planRow['billing_city'] ?? '',
-                'billing_province'    => $planRow['billing_province'] ?? '',
-                'billing_postal'      => $planRow['billing_postal_code'] ?? '',
                 'plan_number'         => $planRow['plan_number'],
                 'description'         => $svcLabel . ' — ' . $billMonth,
                 'plan_line_items'     => $prefillLineItems,
@@ -274,6 +188,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $clientId = 0; // pre-Phase-1 environment — leave unset
             }
         }
+
+        // Bill-to name for the invoice header/PDF. Precedence:
+        //   1. POST'd bill_to_name (prefill / manual override)
+        //   2. Option B: "{billing_entity_name} C/O {firm account}" — a labelled
+        //      property (strata #, building, corp, owner) billed via its PM firm
+        //   3. Option A: "{account} C/O {managing firm}" — a managed account
+        //   4. the account's own name
+        $billToName        = trim((string)($_POST['bill_to_name'] ?? '')) ?: null;
+        $billingEntityName = trim((string)($_POST['billing_entity_name'] ?? '')) ?: null;
+        if (!$billToName && $clientId) {
+            try {
+                $bnStmt = $db->prepare("
+                    SELECT cl.display_name, m.display_name AS manager_name
+                    FROM clients cl
+                    LEFT JOIN clients m ON m.id = cl.managed_by_client_id
+                    WHERE cl.id = ?
+                ");
+                $bnStmt->execute([$clientId]);
+                if ($bn = $bnStmt->fetch(PDO::FETCH_ASSOC)) {
+                    if ($billingEntityName) {
+                        $billToName = $billingEntityName . ' C/O ' . $bn['display_name'];
+                    } elseif (!empty($bn['manager_name'])) {
+                        $billToName = $bn['display_name'] . ' C/O ' . $bn['manager_name'];
+                    } else {
+                        $billToName = $bn['display_name'] ?: null;
+                    }
+                }
+            } catch (PDOException $e) {
+                $billToName = null;
+            }
+        } elseif (!$billToName && $billingEntityName) {
+            $billToName = $billingEntityName;
+        }
         $linkedPlanId     = intval($_POST['plan_id'] ?? 0);
         $usePlanLineItems = !empty($_POST['use_plan_line_items']) && $linkedPlanId;
 
@@ -286,14 +233,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $linkedContractId = (int)($cidStmt->fetchColumn() ?: 0);
         }
         $propertyId    = intval($_POST['property_id'] ?? 0);
-        $billToName    = trim($_POST['bill_to_name'] ?? '') ?: null;
         $issueDate     = $_POST['issue_date'] ?? date('Y-m-d');
         $dueDate       = $_POST['due_date'] ?? date('Y-m-d', strtotime('+30 days'));
         $description   = trim($_POST['description'] ?? '');
         $subtotal      = floatval($_POST['subtotal'] ?? 0);
-        $taxRate       = 0.05;
-        $taxAmount     = round($subtotal * $taxRate, 2);
-        $total         = $subtotal + $taxAmount;
+        // Read GST rate from business settings (falls back to 5% if not configured)
+        $bsStmt = $db->query("SELECT gst_rate, gst_registration FROM business_settings LIMIT 1");
+        $bs = $bsStmt ? $bsStmt->fetch(PDO::FETCH_ASSOC) : [];
+        $taxRate   = round(floatval($bs['gst_rate'] ?? 5.00) / 100, 4);
+        $gstNumber = trim($bs['gst_registration'] ?? '');
+        $taxAmount = round($subtotal * $taxRate, 2);
+        $total     = $subtotal + $taxAmount;
         $notes         = trim($_POST['notes'] ?? '');
         $extrasMinutes = max(0, intval($_POST['extras_minutes'] ?? 0));
         $extrasAmount  = round(max(0.0, floatval($_POST['extras_amount'] ?? 0)), 2);
@@ -345,14 +295,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         invoice_number, company_id, contact_id, client_id, property_id,
                         plan_id, visit_id, contract_id,
                         invoice_date, issue_date, due_date,
-                        subtotal, tax_rate, tax_amount,
+                        subtotal, tax_rate, tax_amount, gst_number,
                         total_amount, total, balance_due,
                         notes, access_token, token_expires_at,
                         service_address, service_city, service_province, service_postal_code,
                         billing_address, billing_city, billing_province, billing_postal_code,
                         address_differs, bill_to_name,
                         status, created_by
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 90 DAY), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 90 DAY), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)
                 ");
                 $stmt->execute([
                     $invoiceNumber,
@@ -369,6 +319,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $subtotal,
                     $taxRate,
                     $taxAmount,
+                    $gstNumber ?: null,
                     $total,
                     $total,
                     $total,
@@ -489,36 +440,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $recipientNames = [];
                 $smsRecipients  = [];
 
-                // Resolve company billing email for fallback when a contact has no email
-                $companyBillingEmail = null;
-                if ($companyId) {
-                    $cbStmt = $db->prepare("SELECT billing_email FROM companies WHERE id = ?");
-                    $cbStmt->execute([$companyId]);
-                    $cbRow = $cbStmt->fetch(PDO::FETCH_ASSOC);
-                    $companyBillingEmail = $cbRow['billing_email'] ?? null;
-                }
-
                 foreach ($selectedRecipients as $rcptContactId) {
                     $recipientContacts->execute([$rcptContactId]);
                     $contact = $recipientContacts->fetch(PDO::FETCH_ASSOC);
 
                     if ($contact) {
-                        // Use contact's own email, fall back to company billing email
-                        $recipientEmail = !empty($contact['email'])
-                            ? $contact['email']
-                            : $companyBillingEmail;
-
-                        // Skip entirely if no email can be resolved — a recipient
-                        // row with a null email cannot be sent and would block saving later.
-                        if (empty($recipientEmail)) {
-                            continue;
-                        }
-
                         $insertRecipient->execute([
                             $invoiceId,
                             $rcptContactId,
                             'primary_recipient',
-                            $recipientEmail,
+                            $contact['email']
                         ]);
 
                         $recipientNames[] = "{$contact['first_name']} {$contact['last_name']}";
@@ -544,6 +475,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($linkedVisitId) {
                     $db->prepare("UPDATE job_visits SET is_invoiced = 1, invoice_id = ? WHERE id = ?")
                        ->execute([$invoiceId, $linkedVisitId]);
+
+                    // Auto-attach salt/winter service report if one exists for this visit
+                    $srCheck = $db->prepare("SELECT id, pdf_path, report_number FROM salt_run_reports WHERE visit_id = ? AND pdf_path IS NOT NULL LIMIT 1");
+                    $srCheck->execute([$linkedVisitId]);
+                    $srRow = $srCheck->fetch(PDO::FETCH_ASSOC);
+                    if ($srRow) {
+                        $db->prepare("
+                            INSERT INTO invoice_attachments (invoice_id, document_type, document_id, pdf_path, label, attached_by)
+                            VALUES (?, 'salt_report', ?, ?, ?, ?)
+                        ")->execute([
+                            $invoiceId,
+                            (int)$srRow['id'],
+                            $srRow['pdf_path'],
+                            'Winter Service Record (' . ($srRow['report_number'] ?? 'Salt Report') . ')',
+                            (int)($user['id'] ?? 0),
+                        ]);
+                        $db->prepare("UPDATE salt_run_reports SET invoice_id = ?, invoice_attached_at = NOW() WHERE id = ?")
+                           ->execute([$invoiceId, (int)$srRow['id']]);
+                    }
                 }
 
                 $db->commit();
@@ -551,8 +501,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 header("Location: view.php?id={$invoiceId}&created=1");
                 exit;
 
-            } catch (Exception $e) {
-                $db->rollBack();
+            } catch (\Throwable $e) {
+                if ($db->inTransaction()) $db->rollBack();
                 error_log("Invoice creation error: " . $e->getMessage());
                 $error = 'Error creating invoice. Please try again.';
             }
@@ -603,7 +553,7 @@ if ($apiKey) {
                 <input type="hidden" name="company_id"          id="companyIdInput"     value="<?php echo (int)($prefill['company_id'] ?? 0); ?>">
                 <input type="hidden" name="contact_id"          id="contactIdInput"     value="<?php echo (int)($prefill['contact_id'] ?? 0); ?>">
                 <input type="hidden" name="client_id"           id="clientIdInput"      value="<?php echo (int)($prefill['client_id'] ?? 0); ?>">
-                <input type="hidden" name="bill_to_name"        value="<?php echo htmlspecialchars($prefill['bill_to_name'] ?? '', ENT_QUOTES, 'UTF-8'); ?>">
+                <input type="hidden" name="billing_entity_name" id="billingEntityNameInput" value="<?php echo htmlspecialchars($prefill['billing_entity_name'] ?? ''); ?>">
                 <input type="hidden" name="selected_recipients" id="selectedRecipientsInput" value="[]">
                 <input type="hidden" name="extras_minutes" value="<?php echo (int)($prefill['extras_minutes'] ?? 0); ?>">
                 <input type="hidden" name="extras_amount"  value="<?php echo htmlspecialchars((string)($prefill['extras_amount'] ?? '0')); ?>">
@@ -619,9 +569,6 @@ if ($apiKey) {
                             <?php if ($visitId && !empty($prefill['company_name'])): ?>
                                 <!-- Pre-filled from visit — read only -->
                                 <input type="text" class="form-control" value="<?php echo htmlspecialchars($prefill['company_name']); ?>" readonly>
-                            <?php elseif (!$visitId && !empty($prefill['contact_name'])): ?>
-                                <!-- Pre-filled from plan — read only -->
-                                <input type="text" class="form-control" value="<?php echo htmlspecialchars($prefill['contact_name']); ?>" readonly>
                             <?php else: ?>
                                 <div class="mw-customer-search-wrap" id="customerSearchWrap">
                                     <div id="customerInputRow">
@@ -842,6 +789,12 @@ if ($apiKey) {
                                    oninput="calculateTotals()">
                         </div>
 
+                        <div class="mw-form-group" style="max-width:260px;">
+                            <label class="form-label">Service Date <span class="text-muted">(optional)</span></label>
+                            <input type="date" name="service_date" class="form-control"
+                                   value="<?php echo htmlspecialchars(date('Y-m-d')); ?>">
+                        </div>
+
                         <div class="mw-totals-box">
                             <div class="mw-totals-row">
                                 <span>Subtotal</span>
@@ -914,6 +867,7 @@ const customerClearBtn       = document.getElementById('customerClearBtn');
 const companyIdInput         = document.getElementById('companyIdInput');
 const contactIdInput         = document.getElementById('contactIdInput');
 const clientIdInput          = document.getElementById('clientIdInput');
+const billingEntityNameInput = document.getElementById('billingEntityNameInput');
 const propertyIdInput        = document.getElementById('propertyIdInput');
 const propertySection        = document.getElementById('propertySection');
 const propertySelect         = document.getElementById('propertySelect');
@@ -1017,6 +971,9 @@ function selectCustomer(item) {
     }
     // Client/Account model: the unified account id is the new source of truth.
     if (clientIdInput) clientIdInput.value = item.client_id || 0;
+    // Option B: a billing entity carries a label (e.g. "VR15-40") billed C/O its
+    // firm. Stash the label so the invoice header becomes "label C/O firm".
+    if (billingEntityNameInput) billingEntityNameInput.value = item.billing_entity_name || '';
 
     // Show selected card, hide input row
     customerInputRow.style.display = 'none';
@@ -1024,8 +981,26 @@ function selectCustomer(item) {
     selectedAvatar.textContent = item.label.charAt(0).toUpperCase();
     selectedInfo.innerHTML = `<strong>${escHtml(item.label)}</strong>${item.sublabel ? `<span>${escHtml(item.sublabel)}</span>` : ''}`;
 
+    // Managed account (e.g. strata managed by a PM firm): the BILL goes to the
+    // managing firm's address, while service stays the strata's property. Auto-
+    // fill the billing address from the manager and reveal the billing section.
+    applyManagerBilling(item);
+
     // Load properties / recipients
     loadCustomerContext(item);
+}
+
+function applyManagerBilling(item) {
+    if (!item || !item.manager_billing_address) return;
+    if (differentBillingCheckbox) {
+        differentBillingCheckbox.checked = true;
+        if (billingAddressSection) billingAddressSection.style.display = 'block';
+    }
+    const set = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val; };
+    set('invBillingAddress',    item.manager_billing_address);
+    set('invBillingCity',       item.manager_billing_city);
+    set('invBillingProvince',   item.manager_billing_province);
+    set('invBillingPostalCode', item.manager_billing_postal);
 }
 
 function clearCustomer() {
@@ -1033,6 +1008,7 @@ function clearCustomer() {
     contactIdInput.value  = 0;
     companyIdInput.value  = 0;
     if (clientIdInput) clientIdInput.value = 0;
+    if (billingEntityNameInput) billingEntityNameInput.value = '';
     propertyIdInput.value = '';
 
     customerSearchInput.value          = '';
@@ -1040,6 +1016,12 @@ function clearCustomer() {
     customerSelectedCard.style.display = 'none';
     selectedAvatar.textContent         = '';
     selectedInfo.innerHTML             = '';
+
+    // Reset any auto-filled manager billing address.
+    if (differentBillingCheckbox) differentBillingCheckbox.checked = false;
+    if (billingAddressSection) billingAddressSection.style.display = 'none';
+    ['invBillingAddress','invBillingCity','invBillingProvince','invBillingPostalCode']
+        .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
 
     propertySection.style.display   = 'none';
     recipientSection.style.display  = 'none';
@@ -1052,6 +1034,22 @@ if (customerClearBtn) {
 }
 
 function loadCustomerContext(item) {
+    // Option B billing entity: recipients come from its firm account; the
+    // service address is the labelled property itself.
+    if (item.type === 'billing_entity') {
+        if (item.client_id) loadRecipientsByClient(item.client_id);
+        if (item.property_id) propertyIdInput.value = item.property_id;
+        if (item.property_address) {
+            prefillServiceAddress({
+                address:     item.property_address,
+                city:        item.property_city || '',
+                province:    'BC',
+                postal_code: '',
+            });
+        }
+        return;
+    }
+
     // For contacts: auto-add them as recipient immediately, also fetch their properties
     if (item.type === 'contact') {
         // Immediately populate them as recipient (no property required)
@@ -1069,19 +1067,10 @@ function loadCustomerContext(item) {
             .then(r => r.json())
             .then(data => {
                 const props = data.properties || [];
-                // Auto-link the paying company if the contact (or their sole property) has one.
-                // This is how ad-hoc invoices get a proper Bill To address when a contact pays
-                // on behalf of a management company.
-                if (data.contact_company_id) {
-                    companyIdInput.value = data.contact_company_id;
-                }
                 if (props.length === 1) {
                     // Auto-select single property
                     propertyIdInput.value = props[0].id;
                     prefillServiceAddress(props[0]);
-                    if (props[0].company_id && !companyIdInput.value) {
-                        companyIdInput.value = props[0].company_id;
-                    }
                 } else if (props.length > 1) {
                     // Show property selector
                     propertySelect.innerHTML = '<option value="">Select property…</option>';
@@ -1089,7 +1078,6 @@ function loadCustomerContext(item) {
                         const o = document.createElement('option');
                         o.value = p.id;
                         o.textContent = `${p.address}, ${p.city}`;
-                        if (p.company_id) o.dataset.companyId = p.company_id;
                         propertySelect.appendChild(o);
                     });
                     propertySection.style.display = 'block';
@@ -1098,32 +1086,60 @@ function loadCustomerContext(item) {
             .catch(() => {});
 
     } else {
-        // Company: load properties to pick recipients
+        // Organization account (strata, PM firm, business): recipients come from
+        // the account's people (client_contacts), NOT from a property. This makes
+        // an account invoiceable even with no property linked.
+        if (item.client_id) {
+            loadRecipientsByClient(item.client_id);
+        }
+        // Still load properties to pre-fill the service address (optional).
         fetch(`/crm/invoices/api-get-properties.php?company_id=${item.id}`)
             .then(r => r.json())
             .then(data => {
                 const props = data.properties || [];
-                if (props.length === 0) {
-                    recipientTableBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">No properties found for this company.</td></tr>';
-                    recipientSection.style.display = 'block';
-                } else if (props.length === 1) {
+                if (props.length === 1) {
                     propertyIdInput.value = props[0].id;
                     prefillServiceAddress(props[0]);
-                    loadRecipientsByProperty(props[0].id, item.id, 0);
-                } else {
+                    if (!item.client_id) loadRecipientsByProperty(props[0].id, item.id, 0);
+                } else if (props.length > 1) {
                     propertySelect.innerHTML = '<option value="">Select property…</option>';
                     props.forEach(p => {
                         const o = document.createElement('option');
                         o.value = p.id;
                         o.textContent = `${p.address}, ${p.city}`;
-                        if (p.company_id) o.dataset.companyId = p.company_id;
                         propertySelect.appendChild(o);
                     });
                     propertySection.style.display = 'block';
+                } else if (!item.client_id) {
+                    // No client and no property — nothing to resolve recipients from.
+                    recipientTableBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">No properties found for this company.</td></tr>';
+                    recipientSection.style.display = 'block';
                 }
             })
             .catch(() => {});
     }
+}
+
+function loadRecipientsByClient(clientId) {
+    recipientTableBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">Loading recipients…</td></tr>';
+    recipientSection.style.display = 'block';
+
+    fetch('/crm/invoices/api-get-recipients.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client_id: parseInt(clientId) })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success && data.recipients && data.recipients.length > 0) {
+            renderRecipientTable(data.recipients);
+        } else {
+            recipientTableBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">This account has no billing contact yet — add one to the account to send an invoice.</td></tr>';
+        }
+    })
+    .catch(() => {
+        recipientTableBody.innerHTML = '<tr><td colspan="4" class="text-center text-danger py-3">Error loading recipients.</td></tr>';
+    });
 }
 
 // Property selector change
@@ -1141,10 +1157,6 @@ if (propertySelect) {
             if (parts.length >= 2) {
                 document.getElementById('serviceAddress').value = parts.slice(0, -1).join(', ');
                 document.getElementById('serviceCity').value    = parts[parts.length - 1];
-            }
-            // Auto-link the paying company if this property has one on file
-            if (option.dataset.companyId && (!companyIdInput.value || parseInt(companyIdInput.value) === 0)) {
-                companyIdInput.value = option.dataset.companyId;
             }
         }
 
@@ -1200,8 +1212,12 @@ function renderRecipientTable(recipients) {
         row.dataset.contactId = r.contact_id;
         const name = r.contact_name || ((r.first_name || '') + ' ' + (r.last_name || '')).trim();
         const smsLabel = r.receive_sms ? '<span class="badge badge-success">SMS</span>' : '<span class="text-muted">—</span>';
+        // Honor the server's preselect flag (receives_invoices). When it's
+        // explicitly false (e.g. a strata rep who shouldn't be billed), leave
+        // unchecked. Undefined (legacy/contact paths) defaults to checked.
+        const isChecked = (r.preselect === false) ? '' : 'checked';
         row.innerHTML = `
-            <td><input type="checkbox" class="recipient-checkbox" value="${r.contact_id}" checked></td>
+            <td><input type="checkbox" class="recipient-checkbox" value="${r.contact_id}" ${isChecked}></td>
             <td>${escHtml(name)}</td>
             <td><small class="text-muted">${escHtml(r.email_address || '')}</small></td>
             <td>${smsLabel}</td>
@@ -1248,6 +1264,12 @@ document.getElementById('invoiceForm').addEventListener('submit', function (e) {
     if (selected === 0) {
         e.preventDefault();
         alert('Please select at least one invoice recipient.');
+        return;
+    }
+    const btn = this.querySelector('[type="submit"]');
+    if (btn && !btn.disabled) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:14px;height:14px;margin-right:4px;vertical-align:middle;"></span> Creating…';
     }
 });
 
@@ -1306,20 +1328,6 @@ function escHtml(str) {
         recipientSection.style.display = 'block';
     });
     <?php endif; ?>
-})();
-<?php endif; ?>
-
-// ── Auto-load recipients from plan prefill ──
-<?php if (!$visitId && !empty($prefill['contact_id'])): ?>
-(function () {
-    propertyIdInput.value = <?php echo (int)($prefill['property_id'] ?? 0); ?>;
-    renderRecipientTable([{
-        contact_id:    <?php echo (int)$prefill['contact_id']; ?>,
-        contact_name:  <?php echo json_encode($prefill['contact_name'] ?? ''); ?>,
-        email_address: <?php echo json_encode($prefill['contact_email'] ?? ''); ?>,
-        receive_sms:   <?php echo !empty($prefill['contact_receive_sms']) ? 'true' : 'false'; ?>,
-    }]);
-    recipientSection.style.display = 'block';
 })();
 <?php endif; ?>
 
