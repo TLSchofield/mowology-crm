@@ -57,24 +57,62 @@ if (!$json) {
 $propertyId = intval($json['property_id'] ?? 0);
 $companyId  = intval($json['company_id'] ?? 0);
 $contactId  = intval($json['contact_id'] ?? 0);
+$clientId   = intval($json['client_id'] ?? 0);
 
-// Validate input
-if (!$propertyId) {
+// Validate input: need at least one anchor to resolve recipients from.
+if (!$propertyId && !$companyId && !$clientId) {
     http_response_code(400);
-    echo json_encode(['error' => 'property_id required']);
+    echo json_encode(['error' => 'property_id, company_id, or client_id required']);
     exit;
 }
 
 try {
     $recipients = [];
 
-    if ($companyId) {
-        // Standard path: company-based routing
+    // ── Client/Account model path: recipients are the account's people ──
+    // Pull from client_contacts so an account is invoiceable without a property
+    // (e.g. a strata billed via its council member / property manager).
+    if ($clientId) {
+        $db = getDB();
+        try {
+            $ccStmt = $db->prepare("
+                SELECT con.id                                     AS contact_id,
+                       CONCAT(con.first_name, ' ', con.last_name) AS contact_name,
+                       con.email, con.mobile, con.receive_sms,
+                       cc.role         AS contact_role,
+                       cc.is_primary, cc.receives_invoices
+                FROM client_contacts cc
+                JOIN contacts con ON con.id = cc.contact_id
+                WHERE cc.client_id = ?
+                ORDER BY cc.receives_invoices DESC, cc.is_primary DESC, con.first_name
+            ");
+            $ccStmt->execute([$clientId]);
+            foreach ($ccStmt->fetchAll(PDO::FETCH_ASSOC) as $cc) {
+                if (empty($cc['email'])) {
+                    continue; // can't send an invoice without an email
+                }
+                $recipients[] = [
+                    'contact_id'    => (int)$cc['contact_id'],
+                    'contact_name'  => $cc['contact_name'],
+                    'contact_role'  => $cc['contact_role'] ?: 'primary_recipient',
+                    'email_address' => $cc['email'],
+                    'receive_sms'   => (bool)$cc['receive_sms'],
+                    'phone'         => $cc['mobile'] ?? null,
+                    'preselect'     => (bool)$cc['receives_invoices'],
+                ];
+            }
+        } catch (PDOException $e) {
+            // clients/client_contacts absent (pre-Phase-1) — fall through to legacy.
+        }
+    }
+
+    if (empty($recipients) && $companyId && $propertyId) {
+        // Legacy path: company-based routing (needs a property).
         $recipients = determineInvoiceRecipients($propertyId, $companyId);
     }
 
     // Fallback: load the property's site contact directly (contacts-based plans)
-    if (empty($recipients)) {
+    if (empty($recipients) && $propertyId) {
         $db = getDB();
         // Try property's site_contact_id, then the passed contact_id
         $fallbackStmt = $db->prepare("

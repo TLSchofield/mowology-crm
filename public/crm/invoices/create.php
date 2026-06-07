@@ -996,19 +996,22 @@ function loadCustomerContext(item) {
             .catch(() => {});
 
     } else {
-        // Company: load properties to pick recipients
+        // Organization account (strata, PM firm, business): recipients come from
+        // the account's people (client_contacts), NOT from a property. This makes
+        // an account invoiceable even with no property linked.
+        if (item.client_id) {
+            loadRecipientsByClient(item.client_id);
+        }
+        // Still load properties to pre-fill the service address (optional).
         fetch(`/crm/invoices/api-get-properties.php?company_id=${item.id}`)
             .then(r => r.json())
             .then(data => {
                 const props = data.properties || [];
-                if (props.length === 0) {
-                    recipientTableBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">No properties found for this company.</td></tr>';
-                    recipientSection.style.display = 'block';
-                } else if (props.length === 1) {
+                if (props.length === 1) {
                     propertyIdInput.value = props[0].id;
                     prefillServiceAddress(props[0]);
-                    loadRecipientsByProperty(props[0].id, item.id, 0);
-                } else {
+                    if (!item.client_id) loadRecipientsByProperty(props[0].id, item.id, 0);
+                } else if (props.length > 1) {
                     propertySelect.innerHTML = '<option value="">Select property…</option>';
                     props.forEach(p => {
                         const o = document.createElement('option');
@@ -1017,10 +1020,36 @@ function loadCustomerContext(item) {
                         propertySelect.appendChild(o);
                     });
                     propertySection.style.display = 'block';
+                } else if (!item.client_id) {
+                    // No client and no property — nothing to resolve recipients from.
+                    recipientTableBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">No properties found for this company.</td></tr>';
+                    recipientSection.style.display = 'block';
                 }
             })
             .catch(() => {});
     }
+}
+
+function loadRecipientsByClient(clientId) {
+    recipientTableBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">Loading recipients…</td></tr>';
+    recipientSection.style.display = 'block';
+
+    fetch('/crm/invoices/api-get-recipients.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client_id: parseInt(clientId) })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success && data.recipients && data.recipients.length > 0) {
+            renderRecipientTable(data.recipients);
+        } else {
+            recipientTableBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">This account has no billing contact yet — add one to the account to send an invoice.</td></tr>';
+        }
+    })
+    .catch(() => {
+        recipientTableBody.innerHTML = '<tr><td colspan="4" class="text-center text-danger py-3">Error loading recipients.</td></tr>';
+    });
 }
 
 // Property selector change
