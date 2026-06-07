@@ -36,5 +36,9 @@ require_once __DIR__ . '/../app/Modules/Quiz/Services/VariantQuestionService.php
 // Team
 require_once __DIR__ . '/../app/Modules/Team/Services/GeofenceService.php';
 
+// Tracking (Trackimo truck GPS)
+require_once __DIR__ . '/../app/Modules/Tracking/Services/TrackimoService.php';
+require_once __DIR__ . '/../app/Modules/Tracking/Services/TruckLocationService.php';
+
 // Integration test base class (needed when --testsuite Integration is run)
 require_once __DIR__ . '/Integration/ApiTestCase.php';

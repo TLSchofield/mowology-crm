@@ -1120,3 +1120,183 @@ var MwDayViewMap = (function() {
     });
 
 }());
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  Truck Location Layer
+//  ─────────────────────
+//  Renders the Trackimo-tracked truck on the day-view map. Polls
+//  /crm/api/truck-location.php every 30s for the current position; trail
+//  fetched on demand when the user clicks the Trail toggle button.
+//
+//  Depends on MwDayViewMap.getMap() being available. Gracefully no-ops if
+//  the map isn't on the page or if the API reports no tracker configured.
+// ═══════════════════════════════════════════════════════════════════════════
+(function() {
+    'use strict';
+
+    var POLL_INTERVAL_MS = 30000;
+    var STALE_THRESHOLD_S = 600; // 10 min — show warning badge above this
+
+    var truckMarker = null;
+    var trailPolyline = null;
+    var pollTimer = null;
+    var trailShown = false;
+    var trailButton = null;
+
+    function init() {
+        trailButton = document.getElementById('mwDvMapTruckTrailToggle');
+        if (trailButton) {
+            trailButton.addEventListener('click', toggleTrail);
+        }
+        waitForMap(function() {
+            poll();
+            pollTimer = setInterval(poll, POLL_INTERVAL_MS);
+        });
+    }
+
+    function waitForMap(cb) {
+        if (window.MwDayViewMap && MwDayViewMap.getMap && MwDayViewMap.getMap()) {
+            cb();
+            return;
+        }
+        var attempts = 0;
+        var check = setInterval(function() {
+            attempts++;
+            if (window.MwDayViewMap && MwDayViewMap.getMap && MwDayViewMap.getMap()) {
+                clearInterval(check);
+                cb();
+            } else if (attempts > 60) {
+                clearInterval(check); // Give up after ~30s
+            }
+        }, 500);
+    }
+
+    function poll() {
+        fetch('/crm/api/truck-location.php', { credentials: 'same-origin' })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data || !data.ok) return;
+                if (!data.location) return; // No ping yet
+                placeTruck(data.location);
+            })
+            .catch(function() { /* silently ignore — next poll will retry */ });
+    }
+
+    function placeTruck(loc) {
+        var map = MwDayViewMap.getMap();
+        if (!map || typeof google === 'undefined') return;
+        if (typeof loc.lat !== 'number' || typeof loc.lng !== 'number') return;
+
+        var pos = new google.maps.LatLng(loc.lat, loc.lng);
+        var isStale = (loc.age_seconds || 0) > STALE_THRESHOLD_S;
+
+        if (!truckMarker) {
+            truckMarker = new google.maps.Marker({
+                position: pos,
+                map: map,
+                icon: truckIcon(isStale),
+                title: formatTruckTitle(loc),
+                zIndex: 1500 // Above stop markers (≤999), below user marker (999)
+            });
+            truckMarker._infoWindow = new google.maps.InfoWindow();
+            truckMarker.addListener('click', function() {
+                truckMarker._infoWindow.setContent(formatInfoBubble(loc));
+                truckMarker._infoWindow.open(map, truckMarker);
+            });
+        } else {
+            truckMarker.setPosition(pos);
+            truckMarker.setIcon(truckIcon(isStale));
+            truckMarker.setTitle(formatTruckTitle(loc));
+            if (truckMarker._infoWindow) {
+                truckMarker._infoWindow.setContent(formatInfoBubble(loc));
+            }
+        }
+    }
+
+    function truckIcon(isStale) {
+        var color = isStale ? '#9E9E9E' : '#e85d04';
+        return {
+            path: 'M -10,-6 L 10,-6 L 10,6 L -10,6 Z',
+            scale: 1.2,
+            fillColor: color,
+            fillOpacity: 0.95,
+            strokeColor: '#FFFFFF',
+            strokeWeight: 2,
+            anchor: new google.maps.Point(0, 0)
+        };
+    }
+
+    function formatTruckTitle(loc) {
+        var ageMin = Math.round((loc.age_seconds || 0) / 60);
+        var ageLabel = ageMin < 1 ? 'just now' : ageMin + ' min ago';
+        return 'Truck — last seen ' + ageLabel;
+    }
+
+    function formatInfoBubble(loc) {
+        var ageMin = Math.round((loc.age_seconds || 0) / 60);
+        var ageLabel = ageMin < 1 ? 'just now' : ageMin + ' min ago';
+        var speed = (loc.speed_kph != null) ? Math.round(loc.speed_kph) + ' km/h' : '—';
+        var batt  = (loc.battery_pct != null) ? loc.battery_pct + '%' : '—';
+        return '<div style="font-family:sans-serif;font-size:13px;min-width:160px;line-height:1.5">' +
+               '<strong style="color:#e85d04">🛻 Truck</strong><br>' +
+               '<span style="color:#666">Last seen ' + ageLabel + '</span><br>' +
+               'Speed: ' + speed + '<br>' +
+               'Battery: ' + batt +
+               '</div>';
+    }
+
+    function toggleTrail() {
+        if (!trailButton) return;
+        if (trailShown) {
+            hideTrail();
+            return;
+        }
+        trailButton.setAttribute('aria-pressed', 'true');
+        fetch('/crm/api/truck-trail.php', { credentials: 'same-origin' })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data || !data.ok || !data.trail || !data.trail.length) {
+                    hideTrail();
+                    return;
+                }
+                drawTrail(data.trail);
+            })
+            .catch(function() { hideTrail(); });
+    }
+
+    function drawTrail(points) {
+        var map = MwDayViewMap.getMap();
+        if (!map || typeof google === 'undefined') return;
+
+        var path = points.map(function(p) {
+            return new google.maps.LatLng(p.lat, p.lng);
+        });
+
+        if (trailPolyline) trailPolyline.setMap(null);
+        trailPolyline = new google.maps.Polyline({
+            path: path,
+            geodesic: false,
+            strokeColor: '#e85d04',
+            strokeOpacity: 0.6,
+            strokeWeight: 3,
+            map: map,
+            zIndex: 100
+        });
+        trailShown = true;
+    }
+
+    function hideTrail() {
+        if (trailPolyline) {
+            trailPolyline.setMap(null);
+            trailPolyline = null;
+        }
+        trailShown = false;
+        if (trailButton) trailButton.setAttribute('aria-pressed', 'false');
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+}());
