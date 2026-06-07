@@ -37,7 +37,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errors[] = 'Invalid form submission. Please try again.';
     } else {
         $companyName = trim($_POST['company_name'] ?? '');
-        $companyType = $_POST['company_type'] ?? 'individual';
+        $companyType = $_POST['company_type'] ?? 'business';
         $accountStatus = $_POST['account_status'] ?? 'active';
         $lifecycleStage = $_POST['lifecycle_stage'] ?? 'prospect';
         $notes = trim($_POST['notes'] ?? '');
@@ -180,9 +180,17 @@ if ($apiKey) {
                                             <label for="company_type">Company Type</label>
                                             <select id="company_type" name="company_type" class="form-control">
                                                 <?php
-                                                $types = ['individual' => 'Individual', 'business' => 'Business', 'strata' => 'Strata', 'property_manager' => 'Property Manager'];
+                                                // Companies are real organizations only (Business / Property
+                                                // Manager). Stratas and individuals live in the clients model.
+                                                $types = ['business' => 'Business', 'property_manager' => 'Property Manager'];
+                                                $currentType = $formData['company_type'] ?? 'business';
+                                                // Preserve a legacy type on an existing record so editing the
+                                                // form never silently changes it — just don't offer it for new ones.
+                                                if (!isset($types[$currentType])) {
+                                                    $types = [$currentType => ucwords(str_replace('_', ' ', $currentType))] + $types;
+                                                }
                                                 foreach ($types as $val => $label): ?>
-                                                    <option value="<?= $val ?>" <?= ($formData['company_type'] ?? 'individual') === $val ? 'selected' : '' ?>>
+                                                    <option value="<?= $val ?>" <?= $currentType === $val ? 'selected' : '' ?>>
                                                         <?= $label ?>
                                                     </option>
                                                 <?php endforeach; ?>
