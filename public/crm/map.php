@@ -1715,11 +1715,9 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
             if (!ov._div) return;
             var pos = this.getProjection().fromLatLngToDivPixel(ov._position);
             if (!pos) return;
-            // Badge is 56×34; pointer tip is at viewBox (24, 26) in a -3,-1
-            // 56×34 box. The padding I add to overlay height (none) means the
-            // tip sits at (28, 30) within the 56-wide overlay. Anchor at tip.
-            ov._div.style.left = (pos.x - 28) + 'px';
-            ov._div.style.top  = (pos.y - 30) + 'px';
+            // Circle is 44×44 — anchor at centre so the badge sits exactly on the GPS point.
+            ov._div.style.left = (pos.x - 22) + 'px';
+            ov._div.style.top  = (pos.y - 22) + 'px';
         };
 
         ov.onRemove = function() {
@@ -1740,38 +1738,22 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
     }
 
     /**
-     * Flat truck badge SVG — rectangular pill with downward pointer + a
-     * bold white pickup-truck silhouette across its width. Returns a
-     * string for innerHTML.
-     *
-     * Silhouette is deliberately chunky — a thin silhouette reads as a
-     * white slit at the actual map render size. Tall cab on the left,
-     * low flatbed extending right, prominent wheels with dark hubs.
+     * Circular orange badge with the Feather "truck" line-art icon (white
+     * stroke) inside. The outer .mw-truck-overlay CSS wraps this with two
+     * pulse rings. Feather is the same icon library used throughout the
+     * CRM topbar / nav, so this stays visually consistent.
      */
     function truckBadgeSvg() {
-        return '<svg width="56" height="34" viewBox="-3 -1 56 34" xmlns="http://www.w3.org/2000/svg">' +
-                 '<defs>' +
-                   '<filter id="mwTruckShadow" x="-20%" y="-20%" width="140%" height="140%">' +
-                     '<feDropShadow dx="0" dy="1.5" stdDeviation="1.5" flood-opacity="0.4"/>' +
-                   '</filter>' +
-                 '</defs>' +
-                 // Pill body with downward pointer at bottom-center
-                 '<path d="M2 0 L46 0 Q50 0 50 4 L50 18 Q50 22 46 22 L28 22 L24 26 L20 22 L2 22 ' +
-                       'Q-2 22 -2 18 L-2 4 Q-2 0 2 0 Z" ' +
-                       'fill="currentColor" stroke="white" stroke-width="1.5" filter="url(#mwTruckShadow)"/>' +
-                 // Bolder truck silhouette
-                 '<g fill="white">' +
-                   // Cab — tall chunky box, sloped front
-                   '<path d="M4 16 L4 9 L8 9 L10 5 L17 5 L17 16 Z"/>' +
-                   // Flatbed — thick rectangle extending right of the cab
-                   '<rect x="17" y="10" width="24" height="6" rx="0.6"/>' +
-                   // Wheels (larger) + dark hubs
-                   '<circle cx="10" cy="17.5" r="3"/>' +
-                   '<circle cx="34" cy="17.5" r="3"/>' +
-                   '<circle cx="10" cy="17.5" r="1.2" fill="rgba(0,0,0,0.45)"/>' +
-                   '<circle cx="34" cy="17.5" r="1.2" fill="rgba(0,0,0,0.45)"/>' +
-                 '</g>' +
-               '</svg>';
+        return '<div class="mw-truck-badge">' +
+                 '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" ' +
+                      'stroke="white" stroke-width="2.4" stroke-linecap="round" ' +
+                      'stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg">' +
+                   '<rect x="1" y="3" width="15" height="13"/>' +
+                   '<polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/>' +
+                   '<circle cx="5.5"  cy="18.5" r="2.5"/>' +
+                   '<circle cx="18.5" cy="18.5" r="2.5"/>' +
+                 '</svg>' +
+               '</div>';
     }
 
     function truckTitleFor(loc) {

@@ -34830,28 +34830,25 @@ span.mw-icon-box--missing {
 
 
 /* ─── Truck (Trackimo) overlay — live position marker on map.php / day-map ───
-   Used by google.maps.OverlayView to render an HTML element instead of a
-   static marker icon, so the pulse ring can actually animate. Sized to
-   match the badge SVG inside (56×34) with the pointer tip as the anchor. */
+   Rendered as a google.maps.OverlayView so the pulse ring can animate.
+   Circular orange badge with the Feather "truck" line-art icon inside.
+   Anchor = centre of the circle, so the badge sits exactly on the GPS point. */
 .mw-truck-overlay {
   position: absolute;
-  width: 56px;
-  height: 34px;
-  color: #e85d04;            /* drives pulse color via currentColor */
+  width: 44px;
+  height: 44px;
+  color: #e85d04;             /* drives pulse + badge fill via currentColor */
   cursor: pointer;
   pointer-events: auto;
 }
 .mw-truck-overlay.is-stale { color: #9E9E9E; }
 
+/* Two pulse rings emanating from the circle centre, staggered for rhythm. */
 .mw-truck-overlay::before,
 .mw-truck-overlay::after {
   content: "";
   position: absolute;
-  left: 50%;
-  top: 30px;                  /* anchored at the badge's pointer tip */
-  width: 22px;
-  height: 22px;
-  margin: -11px 0 0 -11px;
+  inset: 0;
   border-radius: 50%;
   background: currentColor;
   opacity: 0;
@@ -34860,17 +34857,28 @@ span.mw-icon-box--missing {
 }
 .mw-truck-overlay::after { animation-delay: 1.1s; }
 
-/* Stale = no pulse (signal is dead, don't lie about it) */
+/* Stale = no pulse (signal is dead, don't lie about it). */
 .mw-truck-overlay.is-stale::before,
 .mw-truck-overlay.is-stale::after { display: none; }
 
-.mw-truck-overlay svg {
+/* Solid badge sits above the pulse rings. */
+.mw-truck-overlay .mw-truck-badge {
   position: relative;
-  display: block;
+  width: 44px;
+  height: 44px;
+  background: currentColor;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
 }
+.mw-truck-overlay svg { display: block; }
 
 @keyframes mw-truck-pulse {
-  0%   { transform: scale(0.5); opacity: 0.55; }
-  70%  { opacity: 0.05; }
-  100% { transform: scale(3.2); opacity: 0; }
+  0%   { transform: scale(0.55); opacity: 0.55; }
+  70%  { opacity: 0.08; }
+  100% { transform: scale(2.2);  opacity: 0; }
 }
