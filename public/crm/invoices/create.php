@@ -167,7 +167,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         $companyId        = intval($_POST['company_id'] ?? 0);
         $contactId        = intval($_POST['contact_id'] ?? 0);
+        $clientId         = intval($_POST['client_id'] ?? 0);
         $linkedVisitId    = intval($_POST['visit_id'] ?? 0);
+
+        // Client/Account model: resolve the unified account id when the form
+        // didn't carry one (e.g. prefilled-from-visit invoices). Maps the
+        // legacy company/contact to its backfilled client. Best-effort: if the
+        // clients table is absent or no match, client_id stays null.
+        if (!$clientId && ($companyId || $contactId)) {
+            try {
+                if ($companyId) {
+                    $cstmt = $db->prepare("SELECT id FROM clients WHERE legacy_company_id = ? LIMIT 1");
+                    $cstmt->execute([$companyId]);
+                } else {
+                    $cstmt = $db->prepare("SELECT id FROM clients WHERE legacy_contact_id = ? LIMIT 1");
+                    $cstmt->execute([$contactId]);
+                }
+                $clientId = (int)($cstmt->fetchColumn() ?: 0);
+            } catch (PDOException $e) {
+                $clientId = 0; // pre-Phase-1 environment — leave unset
+            }
+        }
         $linkedPlanId     = intval($_POST['plan_id'] ?? 0);
         $usePlanLineItems = !empty($_POST['use_plan_line_items']) && $linkedPlanId;
         $propertyId    = intval($_POST['property_id'] ?? 0);
@@ -230,7 +250,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 $stmt = $db->prepare("
                     INSERT INTO invoices (
-                        invoice_number, company_id, contact_id, property_id,
+                        invoice_number, company_id, contact_id, client_id, property_id,
                         plan_id, visit_id,
                         invoice_date, issue_date, due_date,
                         subtotal, tax_rate, tax_amount, gst_number,
@@ -240,12 +260,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         billing_address, billing_city, billing_province, billing_postal_code,
                         address_differs,
                         status, created_by
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 90 DAY), ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 90 DAY), ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)
                 ");
                 $stmt->execute([
                     $invoiceNumber,
                     $companyId ?: null,
                     $contactId ?: null,
+                    $clientId ?: null,
                     $propertyId ?: null,
                     $linkedPlanId ?: null,
                     $linkedVisitId ?: null,
@@ -487,6 +508,7 @@ if ($apiKey) {
                 <input type="hidden" name="property_id"         id="propertyIdInput"    value="<?php echo $prefill['property_id'] ?? ''; ?>">
                 <input type="hidden" name="company_id"          id="companyIdInput"     value="<?php echo (int)($prefill['company_id'] ?? 0); ?>">
                 <input type="hidden" name="contact_id"          id="contactIdInput"     value="<?php echo (int)($prefill['contact_id'] ?? 0); ?>">
+                <input type="hidden" name="client_id"           id="clientIdInput"      value="<?php echo (int)($prefill['client_id'] ?? 0); ?>">
                 <input type="hidden" name="selected_recipients" id="selectedRecipientsInput" value="[]">
                 <input type="hidden" name="extras_minutes" value="<?php echo (int)($prefill['extras_minutes'] ?? 0); ?>">
                 <input type="hidden" name="extras_amount"  value="<?php echo htmlspecialchars((string)($prefill['extras_amount'] ?? '0')); ?>">
@@ -799,6 +821,7 @@ const selectedInfo           = document.getElementById('selectedInfo');
 const customerClearBtn       = document.getElementById('customerClearBtn');
 const companyIdInput         = document.getElementById('companyIdInput');
 const contactIdInput         = document.getElementById('contactIdInput');
+const clientIdInput          = document.getElementById('clientIdInput');
 const propertyIdInput        = document.getElementById('propertyIdInput');
 const propertySection        = document.getElementById('propertySection');
 const propertySelect         = document.getElementById('propertySelect');
@@ -900,6 +923,8 @@ function selectCustomer(item) {
         companyIdInput.value = item.id;
         contactIdInput.value = 0;
     }
+    // Client/Account model: the unified account id is the new source of truth.
+    if (clientIdInput) clientIdInput.value = item.client_id || 0;
 
     // Show selected card, hide input row
     customerInputRow.style.display = 'none';
@@ -915,6 +940,7 @@ function clearCustomer() {
     selectedCustomer = null;
     contactIdInput.value  = 0;
     companyIdInput.value  = 0;
+    if (clientIdInput) clientIdInput.value = 0;
     propertyIdInput.value = '';
 
     customerSearchInput.value          = '';
