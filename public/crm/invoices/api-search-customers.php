@@ -57,10 +57,16 @@ if ($hasClients) {
             oc.receive_sms                          AS contact_receive_sms,
             COALESCE(pr.address, '')                AS property_address,
             COALESCE(pr.city, '')                   AS property_city,
-            COALESCE(pr.id, 0)                      AS property_id
+            COALESCE(pr.id, 0)                      AS property_id,
+            m.display_name                          AS manager_name,
+            m.billing_address                       AS manager_billing_address,
+            m.billing_city                          AS manager_billing_city,
+            m.billing_province                      AS manager_billing_province,
+            m.billing_postal_code                   AS manager_billing_postal
         FROM clients cl
         LEFT JOIN contacts   oc ON oc.id = cl.legacy_contact_id
         LEFT JOIN properties pr ON pr.site_contact_id = cl.legacy_contact_id
+        LEFT JOIN clients    m  ON m.id = cl.managed_by_client_id
         LEFT JOIN client_contacts cc ON cc.client_id = cl.id
         LEFT JOIN contacts   sc ON sc.id = cc.contact_id
         WHERE cl.status <> 'inactive'
@@ -122,6 +128,12 @@ if ($hasClients) {
             'property_address' => $row['property_address'],
             'property_city'    => $row['property_city'],
             'property_id'      => (int)$row['property_id'],
+            // Managing firm (for managed accounts) → bill-to address auto-fill.
+            'manager_name'             => $row['manager_name'] ?? null,
+            'manager_billing_address'  => $row['manager_billing_address'] ?? null,
+            'manager_billing_city'     => $row['manager_billing_city'] ?? null,
+            'manager_billing_province' => $row['manager_billing_province'] ?? null,
+            'manager_billing_postal'   => $row['manager_billing_postal'] ?? null,
         ];
     }
 

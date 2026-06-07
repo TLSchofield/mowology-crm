@@ -957,8 +957,26 @@ function selectCustomer(item) {
     selectedAvatar.textContent = item.label.charAt(0).toUpperCase();
     selectedInfo.innerHTML = `<strong>${escHtml(item.label)}</strong>${item.sublabel ? `<span>${escHtml(item.sublabel)}</span>` : ''}`;
 
+    // Managed account (e.g. strata managed by a PM firm): the BILL goes to the
+    // managing firm's address, while service stays the strata's property. Auto-
+    // fill the billing address from the manager and reveal the billing section.
+    applyManagerBilling(item);
+
     // Load properties / recipients
     loadCustomerContext(item);
+}
+
+function applyManagerBilling(item) {
+    if (!item || !item.manager_billing_address) return;
+    if (differentBillingCheckbox) {
+        differentBillingCheckbox.checked = true;
+        if (billingAddressSection) billingAddressSection.style.display = 'block';
+    }
+    const set = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val; };
+    set('invBillingAddress',    item.manager_billing_address);
+    set('invBillingCity',       item.manager_billing_city);
+    set('invBillingProvince',   item.manager_billing_province);
+    set('invBillingPostalCode', item.manager_billing_postal);
 }
 
 function clearCustomer() {
@@ -973,6 +991,12 @@ function clearCustomer() {
     customerSelectedCard.style.display = 'none';
     selectedAvatar.textContent         = '';
     selectedInfo.innerHTML             = '';
+
+    // Reset any auto-filled manager billing address.
+    if (differentBillingCheckbox) differentBillingCheckbox.checked = false;
+    if (billingAddressSection) billingAddressSection.style.display = 'none';
+    ['invBillingAddress','invBillingCity','invBillingProvince','invBillingPostalCode']
+        .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
 
     propertySection.style.display   = 'none';
     recipientSection.style.display  = 'none';
