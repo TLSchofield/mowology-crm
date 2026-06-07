@@ -1067,17 +1067,17 @@ var MwDayViewMap = (function() {
         dvPost(
             { action: 'complete_stop', stop_id: stopId, invoice: withInvoice ? 1 : 0 },
             function(data) {
-                setCardDoneState(card, data.invoice_id, data.invoice_number, withInvoice);
-                if (data.invoice_number) {
-                    showDvToast(
-                        'Stop completed.',
-                        'success',
-                        '/crm/invoices/view.php?id=' + data.invoice_id,
-                        'View invoice ' + data.invoice_number
-                    );
-                } else {
-                    showDvToast('Stop marked complete.', 'success');
+                if (data.already_completed && !data.invoice_id) {
+                    setCardDoneState(card, null, null, false);
+                    showDvToast('Visit was completed in the field — stop marked done.', 'info');
+                    return;
                 }
+                if (withInvoice && data.invoice_id) {
+                    window.location.href = '/crm/invoices/view.php?id=' + data.invoice_id;
+                    return;
+                }
+                setCardDoneState(card, data.invoice_id, data.invoice_number, withInvoice);
+                showDvToast('Stop marked complete.', 'success');
             },
             function(errMsg) {
                 btns.forEach(function(b) { b.disabled = false; b.style.opacity = ''; });
@@ -1214,15 +1214,35 @@ var MwDayViewMap = (function() {
     }
 
     function truckIcon(isStale) {
+        // Teardrop pin with a pickup-truck silhouette, matching the dispatch
+        // map's createTruckIcon() so both views read the same visual language.
         var color = isStale ? '#9E9E9E' : '#e85d04';
+        var dark  = isStale ? '#6B6B6B' : '#B84504';
+        var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="36" height="44" viewBox="0 0 36 44">' +
+            '<defs>' +
+              '<linearGradient id="tg2" x1="0" y1="0" x2="0" y2="1">' +
+                '<stop offset="0%" stop-color="' + color + '"/>' +
+                '<stop offset="100%" stop-color="' + dark + '"/>' +
+              '</linearGradient>' +
+              '<filter id="ts2" x="-20%" y="-20%" width="140%" height="140%">' +
+                '<feDropShadow dx="0" dy="1.5" stdDeviation="1.2" flood-opacity="0.35"/>' +
+              '</filter>' +
+            '</defs>' +
+            '<path d="M18 0C8.06 0 0 8.06 0 18c0 11.25 18 26 18 26s18-14.75 18-26C36 8.06 27.94 0 18 0z" ' +
+                  'fill="url(#tg2)" stroke="white" stroke-width="2" filter="url(#ts2)"/>' +
+            '<g transform="translate(6.5, 10.5)" fill="white">' +
+              '<path d="M2 7 L2 5 L5.5 5 L6.8 2.5 L11.5 2.5 L11.5 5 L21 5 L21 7 Z"/>' +
+              '<path d="M7.4 4.4 L7.4 3.2 L10.6 3.2 L10.6 4.4 Z" fill="' + dark + '" opacity="0.55"/>' +
+              '<circle cx="6.5" cy="8.4" r="1.7"/>' +
+              '<circle cx="17"  cy="8.4" r="1.7"/>' +
+              '<circle cx="6.5" cy="8.4" r="0.7" fill="' + dark + '"/>' +
+              '<circle cx="17"  cy="8.4" r="0.7" fill="' + dark + '"/>' +
+            '</g>' +
+            '</svg>';
         return {
-            path: 'M -10,-6 L 10,-6 L 10,6 L -10,6 Z',
-            scale: 1.2,
-            fillColor: color,
-            fillOpacity: 0.95,
-            strokeColor: '#FFFFFF',
-            strokeWeight: 2,
-            anchor: new google.maps.Point(0, 0)
+            url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
+            scaledSize: new google.maps.Size(36, 44),
+            anchor: new google.maps.Point(18, 44)
         };
     }
 

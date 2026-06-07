@@ -1656,15 +1656,7 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
         if (!gmap || typeof loc.lat !== 'number' || typeof loc.lng !== 'number') return;
         var pos = new google.maps.LatLng(loc.lat, loc.lng);
         var isStale = (loc.age_seconds || 0) > TRUCK_STALE_S;
-        var icon = {
-            path: 'M -10,-6 L 10,-6 L 10,6 L -10,6 Z',
-            scale: 1.2,
-            fillColor: isStale ? '#9E9E9E' : '#e85d04',
-            fillOpacity: 0.95,
-            strokeColor: '#FFFFFF',
-            strokeWeight: 2,
-            anchor: new google.maps.Point(0, 0)
-        };
+        var icon = createTruckIcon(isStale);
         var title = truckTitleFor(loc);
         if (!truckMarker) {
             truckMarker = new google.maps.Marker({
@@ -1687,6 +1679,50 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
     function clearTruckMarker() {
         if (truckMarker) { truckMarker.setMap(null); truckMarker = null; }
         if (truckInfoWindow) { truckInfoWindow.close(); truckInfoWindow = null; }
+    }
+
+    /**
+     * Teardrop pin matching the crew marker style, with a pickup-truck
+     * silhouette inside the round top instead of a letter initial.
+     * `isStale` swaps the brand orange for grey when the last ping is >10 min old.
+     */
+    function createTruckIcon(isStale) {
+        var color = isStale ? '#9E9E9E' : '#e85d04';
+        var dark  = isStale ? '#6B6B6B' : '#B84504';
+        // 36x44 viewBox, same as createCrewIcon, anchored bottom-center.
+        var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="36" height="44" viewBox="0 0 36 44">' +
+            '<defs>' +
+              '<linearGradient id="tg" x1="0" y1="0" x2="0" y2="1">' +
+                '<stop offset="0%" stop-color="' + color + '"/>' +
+                '<stop offset="100%" stop-color="' + dark + '"/>' +
+              '</linearGradient>' +
+              '<filter id="ts" x="-20%" y="-20%" width="140%" height="140%">' +
+                '<feDropShadow dx="0" dy="1.5" stdDeviation="1.2" flood-opacity="0.35"/>' +
+              '</filter>' +
+            '</defs>' +
+            // Teardrop pin
+            '<path d="M18 0C8.06 0 0 8.06 0 18c0 11.25 18 26 18 26s18-14.75 18-26C36 8.06 27.94 0 18 0z" ' +
+                  'fill="url(#tg)" stroke="white" stroke-width="2" filter="url(#ts)"/>' +
+            // Pickup truck silhouette — cab + bed + 2 wheels, centered ~ (18, 17)
+            '<g transform="translate(6.5, 10.5)" fill="white">' +
+              // Body: cab on left, bed on right
+              '<path d="M2 7 L2 5 L5.5 5 L6.8 2.5 L11.5 2.5 L11.5 5 L21 5 L21 7 Z"/>' +
+              // Cab window cut-out for depth
+              '<path d="M7.4 4.4 L7.4 3.2 L10.6 3.2 L10.6 4.4 Z" fill="' + dark + '" opacity="0.55"/>' +
+              // Wheels
+              '<circle cx="6.5" cy="8.4" r="1.7"/>' +
+              '<circle cx="17"  cy="8.4" r="1.7"/>' +
+              // Wheel hubs (color-of-pin showing through)
+              '<circle cx="6.5" cy="8.4" r="0.7" fill="' + dark + '"/>' +
+              '<circle cx="17"  cy="8.4" r="0.7" fill="' + dark + '"/>' +
+            '</g>' +
+            '</svg>';
+
+        return {
+            url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
+            scaledSize: new google.maps.Size(36, 44),
+            anchor: new google.maps.Point(18, 44)
+        };
     }
 
     function truckTitleFor(loc) {
