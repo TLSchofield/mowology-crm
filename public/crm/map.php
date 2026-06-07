@@ -100,6 +100,10 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                     <input type="checkbox" id="vendorsToggle">
                     <span class="mw-route-toggle-label">Vendors</span>
                 </label>
+                <label class="mw-route-toggle">
+                    <input type="checkbox" id="truckToggle">
+                    <span class="mw-route-toggle-label">Truck</span>
+                </label>
                 <div class="mw-route-date-wrap" id="routeDateWrap" style="display:none;">
                     <button type="button" class="btn btn-sm btn-outline-secondary mw-route-date-btn" id="routePrevDay">&lsaquo;</button>
                     <input type="date" id="routeDate" class="form-control form-control-sm mw-route-date-input">
@@ -167,6 +171,15 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                         <div class="mw-crew-legend-title">Vendors</div>
                         <div id="vendorsLegendItems">
                             <!-- Rendered by JS -->
+                        </div>
+                    </div>
+                    <div class="mw-crew-legend-section" id="truckLegend" style="display:none;">
+                        <div class="mw-crew-legend-title">Truck</div>
+                        <div class="mw-crew-legend-item">
+                            <span class="mw-crew-legend-dot" style="background:#e85d04;border-radius:2px;"></span> Active
+                        </div>
+                        <div class="mw-crew-legend-item">
+                            <span class="mw-crew-legend-dot" style="background:#9E9E9E;border-radius:2px;"></span> Stale (&gt;10 min)
                         </div>
                     </div>
                 </div>
@@ -304,12 +317,21 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
     var liveEnabled = false;          // controls 30s crew poll + marker drawing
     var scrubberMinute = null;        // null = "now", number = minute-of-day in Review
 
+    // ── Truck (Trackimo) layer state ──
+    var TRUCK_POLL_MS = 30000;
+    var TRUCK_STALE_S = 600;
+    var truckEnabled = false;
+    var truckMarker = null;
+    var truckInfoWindow = null;
+    var truckPollTimer = null;
+
     waitForMaps(function() {
         initMap();
         initRouteControls();
         initJobsControls();
         initVendorsControl();
         initLiveControl();
+        initTruckControl();
         initPresetBar();
         initScrubber();
 
@@ -1513,6 +1535,8 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
         setToggle('liveToggle',  liveOn);
         setToggle('jobsToggle',  jobsOn);
         setToggle('routeToggle', routesOn);
+        // Truck layer is live data — default on for dispatch, off for plan/review.
+        setToggle('truckToggle', preset === 'dispatch');
 
         // Scrubber UI visibility
         var scrubberEl = document.getElementById('mapScrubber');
@@ -1594,6 +1618,93 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
             if (crewMarkers[uid].infoWindow) crewMarkers[uid].infoWindow.close();
         });
         crewMarkers = {};
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  TRUCK LAYER  (Trackimo GPS — single fleet vehicle)
+    // ═══════════════════════════════════════════════════
+
+    function initTruckControl() {
+        var t = document.getElementById('truckToggle');
+        if (!t) return;
+        t.addEventListener('change', function() {
+            truckEnabled = this.checked;
+            var legend = document.getElementById('truckLegend');
+            if (legend) legend.style.display = truckEnabled ? '' : 'none';
+            if (truckEnabled) {
+                fetchTruck();
+                if (!truckPollTimer) truckPollTimer = setInterval(fetchTruck, TRUCK_POLL_MS);
+            } else {
+                if (truckPollTimer) { clearInterval(truckPollTimer); truckPollTimer = null; }
+                clearTruckMarker();
+            }
+        });
+    }
+
+    function fetchTruck() {
+        if (!truckEnabled) return;
+        fetch('/crm/api/truck-location.php', { credentials: 'same-origin' })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data || !data.ok || !data.location) return;
+                placeTruckMarker(data.location);
+            })
+            .catch(function() { /* silent — retry next interval */ });
+    }
+
+    function placeTruckMarker(loc) {
+        if (!gmap || typeof loc.lat !== 'number' || typeof loc.lng !== 'number') return;
+        var pos = new google.maps.LatLng(loc.lat, loc.lng);
+        var isStale = (loc.age_seconds || 0) > TRUCK_STALE_S;
+        var icon = {
+            path: 'M -10,-6 L 10,-6 L 10,6 L -10,6 Z',
+            scale: 1.2,
+            fillColor: isStale ? '#9E9E9E' : '#e85d04',
+            fillOpacity: 0.95,
+            strokeColor: '#FFFFFF',
+            strokeWeight: 2,
+            anchor: new google.maps.Point(0, 0)
+        };
+        var title = truckTitleFor(loc);
+        if (!truckMarker) {
+            truckMarker = new google.maps.Marker({
+                position: pos, map: gmap, icon: icon, title: title,
+                zIndex: 1500  // Above crew markers (1000), above route trails
+            });
+            truckInfoWindow = new google.maps.InfoWindow();
+            truckMarker.addListener('click', function() {
+                truckInfoWindow.setContent(truckInfoBubble(loc));
+                truckInfoWindow.open(gmap, truckMarker);
+            });
+        } else {
+            truckMarker.setPosition(pos);
+            truckMarker.setIcon(icon);
+            truckMarker.setTitle(title);
+            if (truckInfoWindow) truckInfoWindow.setContent(truckInfoBubble(loc));
+        }
+    }
+
+    function clearTruckMarker() {
+        if (truckMarker) { truckMarker.setMap(null); truckMarker = null; }
+        if (truckInfoWindow) { truckInfoWindow.close(); truckInfoWindow = null; }
+    }
+
+    function truckTitleFor(loc) {
+        var ageMin = Math.round((loc.age_seconds || 0) / 60);
+        return 'Truck — last seen ' + (ageMin < 1 ? 'just now' : ageMin + ' min ago');
+    }
+
+    function truckInfoBubble(loc) {
+        var ageMin = Math.round((loc.age_seconds || 0) / 60);
+        var ageLabel = ageMin < 1 ? 'just now' : ageMin + ' min ago';
+        var speed = (loc.speed_kph != null) ? Math.round(loc.speed_kph) + ' km/h' : '—';
+        var batt  = (loc.battery_pct != null) ? loc.battery_pct + '%' : '—';
+        return '<div style="font-family:sans-serif;font-size:13px;min-width:160px;line-height:1.5">' +
+               '<strong style="color:#e85d04">🛻 Truck</strong><br>' +
+               '<span style="color:#666">Last seen ' + ageLabel + '</span><br>' +
+               'Speed: ' + speed + '<br>' +
+               'Battery: ' + batt +
+               '</div>';
     }
 
     /**
