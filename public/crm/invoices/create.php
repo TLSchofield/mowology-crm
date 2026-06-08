@@ -108,10 +108,12 @@ if (!$visitId && isset($_GET['plan_id'])) {
                    con.email  AS contact_email,
                    con.mobile AS contact_mobile,
                    con.receive_sms AS contact_receive_sms,
+                   co.company_name,
                    ctr.billing_amount, ctr.billing_cycle, ctr.start_date AS contract_start_date
             FROM job_plans jp
             LEFT JOIN properties p  ON jp.property_id = p.id
             LEFT JOIN contacts con  ON p.site_contact_id = con.id
+            LEFT JOIN companies co  ON jp.company_id = co.id
             LEFT JOIN contracts ctr ON jp.contract_id = ctr.id
             WHERE jp.id = ?
         ");
@@ -135,9 +137,28 @@ if (!$visitId && isset($_GET['plan_id'])) {
             $billMonth   = date('F Y', strtotime($baseDate));
             $svcLabel    = $planRow['title'] ?: ucwords(str_replace('_', ' ', $planRow['service_type'] ?? 'Service'));
 
+            // Resolve unified client_id so the typeahead selection mirrors a
+            // real search-result item (company first, then contact fallback).
+            $planClientId = 0;
+            try {
+                if (!empty($planRow['company_id'])) {
+                    $cstmt = $db->prepare("SELECT id FROM clients WHERE legacy_company_id = ? LIMIT 1");
+                    $cstmt->execute([$planRow['company_id']]);
+                } elseif (!empty($planRow['site_contact_id'])) {
+                    $cstmt = $db->prepare("SELECT id FROM clients WHERE legacy_contact_id = ? LIMIT 1");
+                    $cstmt->execute([$planRow['site_contact_id']]);
+                }
+                if (isset($cstmt)) $planClientId = (int)($cstmt->fetchColumn() ?: 0);
+            } catch (PDOException $e) {
+                $planClientId = 0;
+            }
+
             $prefill = [
                 'property_id'         => $planRow['property_id'],
+                'company_id'          => (int)($planRow['company_id'] ?? 0),
+                'company_name'        => $planRow['company_name'] ?? null,
                 'contact_id'          => $planRow['site_contact_id'],
+                'client_id'           => $planClientId,
                 'plan_id'             => $planId,
                 'amount'              => $amount,
                 'contact_name'        => $contactName,
@@ -155,6 +176,7 @@ if (!$visitId && isset($_GET['plan_id'])) {
                 'extras_amount'       => 0.0,
                 'extras_note'         => '',
                 'issue_date'          => $baseDate,
+                'from_plan'           => true,
             ];
         }
     }
@@ -1328,6 +1350,27 @@ function escHtml(str) {
         recipientSection.style.display = 'block';
     });
     <?php endif; ?>
+})();
+<?php endif; ?>
+
+<?php if (!empty($prefill['from_plan']) && (!empty($prefill['contact_id']) || !empty($prefill['company_id']))): ?>
+// Prefilled from a plan (manual / upfront billing) — auto-select the customer
+// so the recipient list, property, and billing address populate without the user
+// having to re-search them.
+(function () {
+    var isCompany = <?php echo !empty($prefill['company_id']) ? 'true' : 'false'; ?>;
+    selectCustomer({
+        type:             isCompany ? 'company' : 'contact',
+        id:               <?php echo !empty($prefill['company_id']) ? (int)$prefill['company_id'] : (int)$prefill['contact_id']; ?>,
+        client_id:        <?php echo (int)($prefill['client_id'] ?? 0); ?>,
+        label:            <?php echo json_encode($prefill['company_name'] ?: ($prefill['contact_name'] ?? 'Customer')); ?>,
+        sublabel:         <?php echo json_encode($prefill['contact_email'] ?? ''); ?>,
+        email:            <?php echo json_encode($prefill['contact_email'] ?? ''); ?>,
+        receive_sms:      <?php echo !empty($prefill['contact_receive_sms']) ? 'true' : 'false'; ?>,
+        property_address: <?php echo json_encode($prefill['service_address'] ?? ''); ?>,
+        property_city:    <?php echo json_encode($prefill['service_city'] ?? ''); ?>,
+        property_id:      <?php echo (int)($prefill['property_id'] ?? 0); ?>,
+    });
 })();
 <?php endif; ?>
 
