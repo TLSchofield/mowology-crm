@@ -34831,13 +34831,14 @@ span.mw-icon-box--missing {
 
 /* ─── Truck (Trackimo) overlay — live position marker on map.php / day-map ───
    Rendered as a google.maps.OverlayView so the pulse ring can animate.
-   Circular orange badge with the Feather "truck" line-art icon inside.
-   Anchor = centre of the circle, so the badge sits exactly on the GPS point. */
+   White disc background with a purple→cyan gradient line-art truck inside,
+   cyan pulse rings emanating from the circle centre.
+   Anchor = centre of the circle, so the disc sits exactly on the GPS point. */
 .mw-truck-overlay {
   position: absolute;
-  width: 44px;
-  height: 44px;
-  color: #e85d04;             /* drives pulse + badge fill via currentColor */
+  width: 48px;
+  height: 48px;
+  color: #3eb5c9;             /* drives pulse colour (cyan gradient endpoint) */
   cursor: pointer;
   pointer-events: auto;
 }
@@ -34861,24 +34862,27 @@ span.mw-icon-box--missing {
 .mw-truck-overlay.is-stale::before,
 .mw-truck-overlay.is-stale::after { display: none; }
 
-/* Solid badge sits above the pulse rings. */
+/* White disc sits above the pulse rings, holds the gradient truck icon. */
 .mw-truck-overlay .mw-truck-badge {
   position: relative;
-  width: 44px;
-  height: 44px;
-  background: currentColor;
-  border: 3px solid #fff;
+  width: 48px;
+  height: 48px;
+  background: #fff;
   border-radius: 50%;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(0, 0, 0, 0.06);
   display: flex;
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
 }
-.mw-truck-overlay svg { display: block; }
+.mw-truck-overlay svg { width: 32px; height: 32px; display: block; }
+
+/* Stale state — flatten the icon to grey-on-white, drop the disc shadow. */
+.mw-truck-overlay.is-stale .mw-truck-badge { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2); }
+.mw-truck-overlay.is-stale svg { opacity: 0.55; }
 
 @keyframes mw-truck-pulse {
-  0%   { transform: scale(0.55); opacity: 0.55; }
-  70%  { opacity: 0.08; }
+  0%   { transform: scale(0.55); opacity: 0.5; }
+  70%  { opacity: 0.06; }
   100% { transform: scale(2.2);  opacity: 0; }
 }

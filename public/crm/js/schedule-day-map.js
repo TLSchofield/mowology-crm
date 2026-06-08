@@ -1239,9 +1239,9 @@ var MwDayViewMap = (function() {
             if (!ov._div) return;
             var pos = this.getProjection().fromLatLngToDivPixel(ov._position);
             if (!pos) return;
-            // Circle is 44×44 — anchor at centre so the badge sits on the GPS point.
-            ov._div.style.left = (pos.x - 22) + 'px';
-            ov._div.style.top  = (pos.y - 22) + 'px';
+            // Disc is 48×48 — anchor at centre so the badge sits on the GPS point.
+            ov._div.style.left = (pos.x - 24) + 'px';
+            ov._div.style.top  = (pos.y - 24) + 'px';
         };
 
         ov.onRemove = function() {
@@ -1262,16 +1262,22 @@ var MwDayViewMap = (function() {
     }
 
     function truckBadgeSvg() {
-        // Feather "truck" line-art inside a solid orange circle (CSS does the
-        // outer ring + pulse). Same icon library used in the CRM topbar.
+        // White disc with a purple→cyan gradient line-art truck (Tim's ref).
+        // Outer CSS provides the cyan pulse + disc.
         return '<div class="mw-truck-badge">' +
-                 '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" ' +
-                      'stroke="white" stroke-width="2.4" stroke-linecap="round" ' +
-                      'stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg">' +
-                   '<rect x="1" y="3" width="15" height="13"/>' +
-                   '<polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/>' +
-                   '<circle cx="5.5"  cy="18.5" r="2.5"/>' +
-                   '<circle cx="18.5" cy="18.5" r="2.5"/>' +
+                 '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" ' +
+                      'stroke-linecap="round" stroke-linejoin="round" ' +
+                      'xmlns="http://www.w3.org/2000/svg">' +
+                   '<defs>' +
+                     '<linearGradient id="mwTruckGrad2" x1="0" y1="0" x2="1" y2="1">' +
+                       '<stop offset="0%" stop-color="#553c9a"/>' +
+                       '<stop offset="100%" stop-color="#3eb5c9"/>' +
+                     '</linearGradient>' +
+                   '</defs>' +
+                   '<rect x="1" y="3" width="15" height="13" rx="2" stroke="url(#mwTruckGrad2)"/>' +
+                   '<path d="M16 8 L20 8 L23 11 L23 16 L16 16 Z" stroke="url(#mwTruckGrad2)"/>' +
+                   '<circle cx="5.5"  cy="18.5" r="2.5" stroke="url(#mwTruckGrad2)"/>' +
+                   '<circle cx="18.5" cy="18.5" r="2.5" stroke="url(#mwTruckGrad2)"/>' +
                  '</svg>' +
                '</div>';
     }
