@@ -352,6 +352,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Please select a property.';
         } elseif (empty($title)) {
             $error = 'Please enter a plan title.';
+        } elseif (empty($serviceType)) {
+            $error = 'Please pick a service type from the dropdown.';
         }
 
         if (empty($error)) {
@@ -368,6 +370,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $error = implode(' ', $result['errors']);
             }
         }
+
+        // Preserve user input on validation failure so the form re-renders with their selections.
+        $prefill = array_merge($prefill, [
+            'title'         => $title,
+            'description'   => $description,
+            'service_type'  => $serviceType,
+            'plan_type'     => $planType,
+        ]);
     }
 }
 
@@ -477,8 +487,8 @@ $activePage = 'jobs';
 
                       <div class="mw-form-row">
                           <div class="mw-form-group">
-                              <label class="form-label">Service Type</label>
-                              <select name="service_type" class="form-control">
+                              <label class="form-label">Service Type <span class="text-danger">*</span></label>
+                              <select name="service_type" class="form-control" required>
                                   <option value="">-- Select Service --</option>
                                   <?php
                                   $currentCat = '';
