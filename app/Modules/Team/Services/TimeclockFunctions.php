@@ -272,6 +272,27 @@ function getActiveJobTimer($userId) {
 /**
  * Start a job timer. Returns the new job_time_entries ID.
  */
+/**
+ * Ensure plan/visit helpers (updateVisitStatus, etc.) are loaded.
+ *
+ * Several timer endpoints load timeclock-functions.php but NOT plan-functions.php:
+ *   - app/Modules/Schedule/Api/timer.php   (JWT — iOS / field app)
+ *   - app/Modules/Team/Api/time-clock.php  (auto-stop on clock out)
+ * Without plan-functions, updateVisitStatus() is undefined, so a completed timer
+ * never propagates to job_visits.status / calendar_stops. The visit silently stays
+ * "scheduled" (reverting to Scheduled on reload, and getting rolled forward by
+ * auto_rollover), and map pins stay green. Lazy-load it here so EVERY timer caller
+ * persists visit status regardless of which endpoint invoked it.
+ */
+function ensurePlanFunctionsLoaded(): void {
+    if (function_exists('updateVisitStatus')) {
+        return;
+    }
+    if (defined('APP_ROOT') && is_file(APP_ROOT . '/Modules/Jobs/Services/PlanFunctions.php')) {
+        require_once APP_ROOT . '/Modules/Jobs/Services/PlanFunctions.php';
+    }
+}
+
 function startJobTimer($jobId, $userId, $lat = null, $lng = null, $autoStarted = false) {
     $db = getDB();
 
@@ -308,6 +329,7 @@ function startJobTimer($jobId, $userId, $lat = null, $lng = null, $autoStarted =
 
     // Update visit status to in_progress if currently scheduled
     if ($job['status'] === 'scheduled') {
+        ensurePlanFunctionsLoaded();
         if (function_exists('updateVisitStatus')) {
             updateVisitStatus($jobId, 'in_progress', $userId, $autoStarted ? 'Auto-started via GPS proximity' : 'Timer started manually');
         }
@@ -389,6 +411,7 @@ function stopJobTimer($jobId, $userId, $lat = null, $lng = null, $notes = null, 
 
     // Complete the visit if requested
     if ($completeJob) {
+        ensurePlanFunctionsLoaded();
         if (function_exists('updateVisitStatus')) {
             updateVisitStatus($jobId, 'completed', $userId, $notes);
         }
