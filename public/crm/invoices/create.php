@@ -619,7 +619,6 @@ if ($apiKey) {
                 <input type="hidden" name="selected_recipients" id="selectedRecipientsInput" value="[]">
                 <input type="hidden" name="extras_minutes" value="<?php echo (int)($prefill['extras_minutes'] ?? 0); ?>">
                 <input type="hidden" name="extras_amount"  value="<?php echo htmlspecialchars((string)($prefill['extras_amount'] ?? '0')); ?>">
-                <input type="hidden" name="service_date"   value="<?php echo htmlspecialchars($prefill['scheduled_date'] ?? ''); ?>">
 
                 <div class="card">
                     <div class="card-body">
@@ -788,6 +787,7 @@ if ($apiKey) {
                         <!-- Zero-re-entry: line items auto-populated from quote/plan -->
                         <input type="hidden" name="use_plan_line_items" value="1">
                         <input type="hidden" name="subtotal" value="<?php echo htmlspecialchars((string)$lineItemsSubtotal); ?>">
+                        <input type="hidden" name="service_date" value="<?php echo htmlspecialchars($prefill['scheduled_date'] ?? ''); ?>">
 
                         <div class="alert alert-success d-flex align-items-center gap-2 py-2 mb-3" style="font-size:.85rem;">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><polyline points="20 6 9 17 4 12"/></svg>
@@ -854,7 +854,7 @@ if ($apiKey) {
                         <div class="mw-form-group" style="max-width:260px;">
                             <label class="form-label">Service Date <span class="text-muted">(optional)</span></label>
                             <input type="date" name="service_date" class="form-control"
-                                   value="<?php echo htmlspecialchars(date('Y-m-d')); ?>">
+                                   value="<?php echo htmlspecialchars($prefill['scheduled_date'] ?? date('Y-m-d')); ?>">
                         </div>
 
                         <div class="mw-totals-box">
