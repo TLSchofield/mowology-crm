@@ -16,6 +16,29 @@ $prefill = [];
 // Check if creating from a completed visit
 $visitId = isset($_GET['visit_id']) ? intval($_GET['visit_id']) : 0;
 
+// Resolve stop_id → the completed (preferred) uninvoiced visit on that calendar
+// stop. The schedule "Complete & Invoice" manual fallback links to
+// create.php?stop_id=…; without this the invoice form opened with no client or
+// service-address data.
+if (!$visitId && isset($_GET['stop_id'])) {
+    $stopId = intval($_GET['stop_id']);
+    if ($stopId) {
+        $svStmt = $db->prepare("
+            SELECT id FROM job_visits
+            WHERE stop_id = ?
+            ORDER BY (status = 'completed') DESC,
+                     (invoice_id IS NULL) DESC,
+                     id ASC
+            LIMIT 1
+        ");
+        $svStmt->execute([$stopId]);
+        $resolvedVisit = $svStmt->fetchColumn();
+        if ($resolvedVisit) {
+            $visitId = (int)$resolvedVisit;
+        }
+    }
+}
+
 if ($visitId) {
     $stmt = $db->prepare("
         SELECT jv.id as visit_id, jv.visit_number, jv.actual_amount,
