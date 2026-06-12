@@ -496,9 +496,29 @@ $csrf_token = generateLoginCSRFToken();
 
     var _apkUrl = '/crm/downloads/mowology-crew.apk';
 
-    // Tap handler — only active on update-available and download banners
+    // Tap handler — only active on update-available and download banners.
+    // Strategy: App.openUrl is tried first (correct Capacitor path), but for
+    // same-domain URLs it may return {completed:false} without rejecting.
+    // Fallback: window.location.href triggers Android WebView's DownloadListener
+    // (requires Content-Disposition:attachment on the server — set in downloads/.htaccess).
     window.handleAppBannerClick = function() {
-        window.location.href = 'https://mowology.ca' + _apkUrl;
+        var url = 'https://mowology.ca' + _apkUrl;
+        var cap = window.Capacitor;
+        if (cap && cap.Plugins && cap.Plugins.App && cap.Plugins.App.openUrl) {
+            cap.Plugins.App.openUrl({ url: url })
+                .then(function(result) {
+                    // completed:false means Android found no handler — fall through
+                    if (!result || result.completed === false) {
+                        window.location.href = url;
+                    }
+                })
+                .catch(function() {
+                    window.location.href = url;
+                });
+        } else {
+            // No App plugin — direct navigation triggers WebView DownloadListener
+            window.location.href = url;
+        }
     };
 
     // State: up-to-date (non-interactive, reassuring)
@@ -551,22 +571,24 @@ $csrf_token = generateLoginCSRFToken();
         fetch('/crm/api/app-version.php', { credentials: 'same-origin' })
             .then(function(r) { return r.ok ? r.json() : null; })
             .then(function(data) {
-                if (!data || !data.version) return;
+                var android = data && (data.android || data);
+                if (!android || !android.version) return;
 
                 if (installedVersion === null) {
-                    // Android browser — no installed version, just offer download
+                    // Old APK / Android browser — no version interface, offer download
                     showDownloadBanner();
                     return;
                 }
 
-                var cmp = semverCmp(installedVersion, data.version);
-                if (cmp < 0) {
-                    // Installed is older than server — demand update
-                    showUpdateBanner(data.version, data.apk_url, data.release_notes);
-                } else {
-                    // Installed is same or newer — reassure
-                    showUpToDateBanner(installedVersion);
+                // Compare against min_version (mandatory floor), not latest version.
+                // Optional bumps (icon updates, minor fixes) should not keep triggering
+                // the banner — the force-update overlay in capacitor-bridge.js handles
+                // hard blocks once the crew is inside the app.
+                var minVersion = android.min_version || android.version;
+                if (semverCmp(installedVersion, minVersion) < 0) {
+                    showUpdateBanner(android.version, android.apk_url, android.release_notes);
                 }
+                // Meets minimum — banner stays hidden
             })
             .catch(function() {
                 if (!isCapacitor && isAndroid) showDownloadBanner();

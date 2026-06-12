@@ -1,12 +1,12 @@
 {
     "android": {
-        "version": "1.1.0",
-        "build": 5,
+        "version": "1.1.1",
+        "build": 6,
         "min_version": "1.1.0",
         "min_build": 5,
         "apk_url": "/crm/downloads/mowology-crew.apk",
-        "released": "2026-03-27",
-        "release_notes": "Fix: clock in/out now works reliably on Android — resolves confirm dialog and GPS timeout issues.",
+        "released": "2026-06-12",
+        "release_notes": "Updated app icon to Mowology logo.",
         "force_update": false
     },
     "ios": {

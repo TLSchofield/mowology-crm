@@ -3,3 +3,12 @@
 <IfModule mod_mime.c>
     AddType application/vnd.android.package-archive .apk
 </IfModule>
+
+# Force Content-Disposition: attachment for APK files.
+# This is required to reliably trigger Android WebView's DownloadListener —
+# without it, the WebView may attempt to render the file and silently fail.
+<IfModule mod_headers.c>
+    <FilesMatch "\.apk$">
+        Header set Content-Disposition "attachment"
+    </FilesMatch>
+</IfModule>
