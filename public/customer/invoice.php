@@ -380,6 +380,13 @@ function fmtDate(string $d): string {
                             <button class="portal-btn-text" onclick="showNewCardForm()">Use a different card</button>
                         </div>
                     </div>
+                    <div id="autopayWrap" class="portal-save-card-wrap" style="display:none;margin-top:10px;">
+                        <input type="checkbox" id="autopayCheck">
+                        <label for="autopayCheck">
+                            <strong>Enable autopay</strong>
+                            Automatically charge this card when future invoices are sent.
+                        </label>
+                    </div>
                 </div>
 
                 <div id="stripeLoading">
@@ -525,6 +532,10 @@ function fmtDate(string $d): string {
             document.getElementById('savedCardFooter').style.display  = 'flex';
             document.getElementById('savedCardPay').disabled          = false;
 
+            // Show autopay opt-in on the saved-card screen
+            var autopayWrapEl = document.getElementById('autopayWrap');
+            if (autopayWrapEl) autopayWrapEl.style.display = 'flex';
+
             // Hide new card elements
             document.getElementById('payment-element').style.display = 'none';
             document.getElementById('stripeFooter').style.display    = 'none';
@@ -638,6 +649,7 @@ function fmtDate(string $d): string {
             }
             clearError();
             setSavedCardLoading(true);
+            var wantsAutopay = (document.getElementById('autopayCheck') || {}).checked;
 
             // Use confirmPayment (modern API) — no Elements instance needed when
             // payment_method is passed directly in confirmParams.
@@ -658,7 +670,16 @@ function fmtDate(string $d): string {
                         showNewCardForm();
                     }
                 } else if (result.paymentIntent && (result.paymentIntent.status === 'succeeded' || result.paymentIntent.status === 'processing')) {
-                    showSuccess();
+                    if (wantsAutopay) {
+                        // Enroll the existing card in autopay (contact already has a saved PM)
+                        fetch('/customer/api/autopay-setup.php', {
+                            method : 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body   : JSON.stringify({ token: <?php echo json_encode($token); ?>, action: 'enable_existing_card' })
+                        }).then(function () { showSuccess(); }).catch(function () { showSuccess(); });
+                    } else {
+                        showSuccess();
+                    }
                 }
             })
             .catch(function () {
