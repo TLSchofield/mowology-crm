@@ -2197,6 +2197,10 @@ if ($apiKey) {
                                   Risk
                               </button>
                               <?php endif; ?>
+                              <span class="mw-gf-badge <?php echo ($stop['has_geofence'] ?? false) ? 'mw-gf-drawn' : 'mw-gf-missing'; ?>"
+                                    title="<?php echo ($stop['has_geofence'] ?? false) ? 'Geofence drawn' : 'No geofence drawn'; ?>">
+                                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"><polygon points="3 9 12 3 21 9 21 15 12 21 3 15"/></svg>
+                              </span>
                           </div>
                           <?php
                           // ── Per-card completion footer ──────────────────────
@@ -2342,6 +2346,10 @@ if ($apiKey) {
                               </div>
                               <?php endif; ?>
                               <div class="mw-dv-card-crew" style="color: #adb5bd;">Unassigned</div>
+                              <span class="mw-gf-badge <?php echo ($stop['has_geofence'] ?? false) ? 'mw-gf-drawn' : 'mw-gf-missing'; ?>"
+                                    title="<?php echo ($stop['has_geofence'] ?? false) ? 'Geofence drawn' : 'No geofence drawn'; ?>">
+                                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"><polygon points="3 9 12 3 21 9 21 15 12 21 3 15"/></svg>
+                              </span>
                           </div>
                           <?php
                           // ── Per-card completion footer (unassigned) ─────────

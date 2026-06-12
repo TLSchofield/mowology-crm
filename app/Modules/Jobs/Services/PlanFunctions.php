@@ -1205,6 +1205,21 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
         }
     }
 
+    // ── Batch 3: geofence drawn status per property ──
+    $geofenceByProperty = [];
+    if (!empty($propertyIds)) {
+        $ph = implode(',', array_fill(0, count($propertyIds), '?'));
+        $gfStmt = $db->prepare("
+            SELECT DISTINCT property_id
+            FROM job_geofences
+            WHERE property_id IN ({$ph})
+        ");
+        $gfStmt->execute($propertyIds);
+        foreach ($gfStmt->fetchAll(PDO::FETCH_ASSOC) as $gf) {
+            $geofenceByProperty[(int)$gf['property_id']] = true;
+        }
+    }
+
     // Load multi-crew assignments from junction table
     $crewByStop = []; // stop_id => [ ['id' => ..., 'name' => ...], ... ]
     if (!empty($stopIds)) {
@@ -1279,6 +1294,7 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
                     return null;
                 })(),
                 'last_completed_date' => $lastCompletedByProperty[(int)$row['property_id']] ?? null,
+                'has_geofence'  => isset($geofenceByProperty[(int)$row['property_id']]),
                 'visits'        => [],
             ];
         }
@@ -2430,6 +2446,7 @@ function updateJobPlan(int $planId, array $data, int $userId): array {
             'is_recurring', 'recurrence_pattern', 'recurrence_interval',
             'recurrence_interval_unit', 'recurrence_day_of_week',
             'horizon_days',
+            'company_id',
         ];
 
         $setClauses = [];
@@ -2445,6 +2462,7 @@ function updateJobPlan(int $planId, array $data, int $userId): array {
                 'description', 'plan_end_date', 'default_crew_id',
                 'default_time_start', 'default_time_end',
                 'recurrence_pattern', 'recurrence_day_of_week',
+                'company_id',
             ])) {
                 $newVal = null;
             }
