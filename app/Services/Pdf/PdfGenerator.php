@@ -205,8 +205,18 @@ class PdfGenerator
                 return ['success' => false, 'error' => 'Invoice not found'];
             }
 
-            // Fetch line items
-            $stmt = $this->db->prepare("SELECT * FROM invoice_line_items WHERE invoice_id = ? ORDER BY sort_order");
+            // Fetch line items — JOIN to job_visits/job_plans so we can show the plan
+            // title and fall back to the visit's scheduled_date if service_date wasn't stored.
+            $stmt = $this->db->prepare("
+                SELECT ili.*,
+                       COALESCE(ili.service_date, jv.scheduled_date) AS service_date,
+                       jp.title AS plan_title
+                FROM invoice_line_items ili
+                LEFT JOIN job_visits jv ON jv.id = ili.visit_id
+                LEFT JOIN job_plans  jp ON jp.id = jv.plan_id
+                WHERE ili.invoice_id = ?
+                ORDER BY ili.sort_order
+            ");
             $stmt->execute([$invoiceId]);
             $lineItems = $stmt->fetchAll(PDO::FETCH_ASSOC);
 

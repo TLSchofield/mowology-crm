@@ -416,7 +416,7 @@ $isOverdue = ($invoice['status'] === 'overdue');
     <tbody>
         <?php foreach ($lineItems as $item): ?>
         <tr>
-            <td class="desc-col"><?php echo $esc($item['description']); ?><?php if (!empty($item['service_date'])): ?><br><span style="color:#64748b; font-size:9pt; font-weight:normal;">Service date: <?php echo $esc(date('M j, Y', strtotime((string)$item['service_date']))); ?></span><?php endif; ?></td>
+            <td class="desc-col"><?php if (!empty($item['plan_title'])): ?><strong><?php echo $esc($item['plan_title']); ?></strong><br><?php endif; ?><?php echo $esc($item['description']); ?><?php if (!empty($item['service_date'])): ?><br><span style="color:#64748b; font-size:9pt; font-weight:normal;">Service date: <?php echo $esc(date('M j, Y', strtotime((string)$item['service_date']))); ?></span><?php endif; ?></td>
             <td class="right"><?php echo rtrim(rtrim(number_format(floatval($item['quantity']), 2), '0'), '.'); ?></td>
             <td class="right"><?php echo $fmt($item['unit_price']); ?></td>
             <td class="right"><?php echo $fmt($item['line_total']); ?></td>
