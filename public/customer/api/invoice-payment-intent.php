@@ -28,6 +28,7 @@ require_once dirname(__DIR__, 2) . '/crm/includes/functions.php';
 $input    = json_decode(file_get_contents('php://input'), true);
 $token    = trim($input['token'] ?? '');
 $saveCard = !empty($input['save_card']); // customer opted in to save card
+$enableAutopay = !empty($input['enable_autopay']); // opted in to autopay enrollment (requires save_card)
 
 if (empty($token)) {
     http_response_code(400);
@@ -146,13 +147,16 @@ if (!empty($invoice['stripe_payment_intent_id'])) {
             // If customer opts to save card, UPDATE the existing intent with
             // setup_future_usage so elements.fetchUpdates() picks up the change.
             // Stripe docs: setup_future_usage can be updated before confirmation.
-            if ($saveCard && $stripeCustomerId && !$existing->setup_future_usage) {
+            if ($saveCard && $stripeCustomerId) {
                 try {
-                    $existing = \Stripe\PaymentIntent::update($existing->id, [
-                        'setup_future_usage' => 'off_session',
-                    ]);
+                    // Metadata update MERGES on Stripe — preserves invoice_id/contact_id.
+                    $updateParams = ['metadata' => ['enable_autopay' => $enableAutopay ? '1' : '0']];
+                    if (!$existing->setup_future_usage) {
+                        $updateParams['setup_future_usage'] = 'off_session';
+                    }
+                    $existing = \Stripe\PaymentIntent::update($existing->id, $updateParams);
                 } catch (\Stripe\Exception\ApiErrorException $e) {
-                    writeSystemLog('warning', 'stripe', 'Could not update PaymentIntent setup_future_usage', ['pi_id' => $existing->id, 'error' => $e->getMessage()]);
+                    writeSystemLog('warning', 'stripe', 'Could not update PaymentIntent (autopay/setup_future_usage)', ['pi_id' => $existing->id, 'error' => $e->getMessage()]);
                 }
             }
             echo json_encode([
@@ -210,6 +214,7 @@ try {
             'invoice_number' => $invoice['invoice_number'],
             'contact_id'     => (string) $contactId,
             'source'         => 'customer_portal',
+            'enable_autopay' => ($saveCard && $enableAutopay) ? '1' : '0',
         ],
         'payment_method_types'        => ['card'],
     ];

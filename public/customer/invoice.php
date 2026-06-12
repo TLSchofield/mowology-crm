@@ -196,13 +196,13 @@ function fmtDate(string $d): string {
 
     <!-- Download / Print actions (always available as a paper-trail backup) -->
     <?php $pdfTokenUrl = '/customer/api/invoice-pdf.php?token=' . urlencode($token); ?>
-    <div class="mw-invoice-doc-actions" style="display:flex;flex-wrap:wrap;gap:10px;margin:10px 0 20px;">
-        <a href="<?php echo htmlspecialchars($pdfTokenUrl); ?>" style="text-decoration:none;display:inline-flex;align-items:center;gap:6px;padding:10px 18px;border:1px solid #2D8659;color:#2D8659;border-radius:6px;font-weight:600;font-size:14px;background:#fff;">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+    <div class="portal-doc-action-row">
+        <a href="<?php echo htmlspecialchars($pdfTokenUrl); ?>" class="portal-btn-green-outline">
+            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             Download PDF
         </a>
-        <a href="<?php echo htmlspecialchars($pdfTokenUrl . '&inline=1'); ?>" target="_blank" rel="noopener" style="text-decoration:none;display:inline-flex;align-items:center;gap:6px;padding:10px 18px;border:1px solid #2D8659;color:#2D8659;border-radius:6px;font-weight:600;font-size:14px;background:#fff;">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+        <a href="<?php echo htmlspecialchars($pdfTokenUrl . '&inline=1'); ?>" target="_blank" rel="noopener" class="portal-btn-green-outline">
+            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
             View &amp; Print
         </a>
     </div>
@@ -393,6 +393,13 @@ function fmtDate(string $d): string {
                         Securely store your card so you can pay future invoices with one click.
                     </label>
                 </div>
+                <div id="autopayNewWrap" class="portal-save-card-wrap" style="display:none;margin-top:4px;padding-left:28px;">
+                    <input type="checkbox" id="autopayNewCheck">
+                    <label for="autopayNewCheck" style="font-size:.85rem;">
+                        <strong>Enable autopay</strong>
+                        Automatically charge this card when future invoices are sent.
+                    </label>
+                </div>
                 <div id="stripeError" class="portal-stripe-error" style="display:none;"></div>
             </div>
             <div class="portal-modal-footer" id="stripeFooter" style="display:none;">
@@ -439,6 +446,21 @@ function fmtDate(string $d): string {
         document.getElementById('payModal').addEventListener('click', function (e) {
             if (e.target === this) closePayModal();
         });
+
+        // Autopay opt-in appears only when "save card" is checked (enrollment requires it)
+        var _saveCardCheck = document.getElementById('saveCardCheck');
+        if (_saveCardCheck) {
+            _saveCardCheck.addEventListener('change', function () {
+                var w = document.getElementById('autopayNewWrap');
+                if (w) {
+                    w.style.display = this.checked ? 'flex' : 'none';
+                    if (!this.checked) {
+                        var c = document.getElementById('autopayNewCheck');
+                        if (c) c.checked = false;
+                    }
+                }
+            });
+        }
 
         function initStripe() {
             fetch('/customer/api/invoice-payment-intent.php', {
@@ -564,6 +586,8 @@ function fmtDate(string $d): string {
 
             // If customer checked "save card", we need a fresh intent with setup_future_usage
             var wantsSaveCard = document.getElementById('saveCardCheck').checked;
+            var autopayBox    = document.getElementById('autopayNewCheck');
+            var wantsAutopay  = wantsSaveCard && autopayBox && autopayBox.checked;
             setLoading(true);
 
             var doConfirm = function () {
@@ -591,7 +615,7 @@ function fmtDate(string $d): string {
                 fetch('/customer/api/invoice-payment-intent.php', {
                     method : 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body   : JSON.stringify({ token: <?php echo json_encode($token); ?>, save_card: true })
+                    body   : JSON.stringify({ token: <?php echo json_encode($token); ?>, save_card: true, enable_autopay: wantsAutopay })
                 })
                 .then(function (r) { return r.json(); })
                 .then(function (newData) {
