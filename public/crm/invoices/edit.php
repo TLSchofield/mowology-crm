@@ -78,7 +78,7 @@ if ($invoice['status'] === 'paid') {
 }
 
 // Existing line items (pre-fill the editor)
-$stmt = $db->prepare("SELECT id, description, quantity, unit_price, line_total, sort_order, visit_id FROM invoice_line_items WHERE invoice_id = ? ORDER BY sort_order, id");
+$stmt = $db->prepare("SELECT id, description, quantity, unit_price, line_total, sort_order, visit_id, service_date, title FROM invoice_line_items WHERE invoice_id = ? ORDER BY sort_order, id");
 $stmt->execute([$invoiceId]);
 $lineItems = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -164,10 +164,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         // Line items
-        $postDescriptions = $_POST['li_description'] ?? [];
-        $postQuantities   = $_POST['li_quantity']    ?? [];
-        $postUnitPrices   = $_POST['li_unit_price']  ?? [];
-        $postSortOrders   = $_POST['li_sort_order']  ?? [];
+        $postDescriptions = $_POST['li_description']  ?? [];
+        $postQuantities   = $_POST['li_quantity']     ?? [];
+        $postUnitPrices   = $_POST['li_unit_price']   ?? [];
+        $postSortOrders   = $_POST['li_sort_order']   ?? [];
+        $postVisitIds     = $_POST['li_visit_id']     ?? [];
+        $postServiceDates = $_POST['li_service_date'] ?? [];
+        $postTitles       = $_POST['li_title']        ?? [];
 
         $cleanLineItems = [];
         $runningSubtotal = 0.0;
@@ -181,12 +184,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($qty <= 0) $qty = 1;
             $lineTotal = round($qty * $unit, 2);
             $runningSubtotal += $lineTotal;
+            $visitId     = intval($postVisitIds[$i] ?? 0);
+            $serviceDate = trim((string)($postServiceDates[$i] ?? ''));
+            $title       = trim((string)($postTitles[$i] ?? ''));
             $cleanLineItems[] = [
-                'description' => $desc !== '' ? $desc : 'Services rendered',
-                'quantity'    => $qty,
-                'unit_price'  => $unit,
-                'line_total'  => $lineTotal,
-                'sort_order'  => intval($postSortOrders[$i] ?? $i),
+                'description'  => $desc !== '' ? $desc : 'Services rendered',
+                'quantity'     => $qty,
+                'unit_price'   => $unit,
+                'line_total'   => $lineTotal,
+                'sort_order'   => intval($postSortOrders[$i] ?? $i),
+                'visit_id'     => $visitId > 0 ? $visitId : null,
+                'service_date' => $serviceDate !== '' ? $serviceDate : null,
+                'title'        => $title !== '' ? $title : null,
             ];
         }
 
@@ -265,9 +274,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($r['id'] > 0) {
                         $db->prepare("
                             UPDATE invoice_contacts
-                            SET email_address = ?
+                            SET email_address = ?,
+                                contact_id    = ?
                             WHERE id = ? AND invoice_id = ?
-                        ")->execute([$r['email'], $r['id'], $invoiceId]);
+                        ")->execute([
+                            $r['email'],
+                            $r['contact_id'] > 0 ? $r['contact_id'] : null,
+                            $r['id'],
+                            $invoiceId,
+                        ]);
                         $keptIds[] = $r['id'];
                     } else {
                         $db->prepare("
@@ -298,25 +313,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     throw new RuntimeException('Please keep at least one recipient.');
                 }
 
-                // Replace line items — simplest correct behaviour. A
-                // stable-diff version that UPDATEs existing rows can come
-                // later; for now this is one atomic transaction and the
-                // client-facing invoice_line_items IDs are not referenced
-                // anywhere else.
+                // Replace line items. title/visit_id/service_date are
+                // round-tripped via hidden inputs so they survive edits.
                 $db->prepare("DELETE FROM invoice_line_items WHERE invoice_id = ?")->execute([$invoiceId]);
 
                 $liStmt = $db->prepare("
                     INSERT INTO invoice_line_items
-                        (invoice_id, description, quantity, unit_price, line_total, sort_order)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                        (invoice_id, title, description, quantity, unit_price, line_total,
+                         visit_id, service_date, sort_order)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ");
                 foreach ($cleanLineItems as $idx => $li) {
                     $liStmt->execute([
                         $invoiceId,
+                        $li['title'],
                         $li['description'],
                         $li['quantity'],
                         $li['unit_price'],
                         $li['line_total'],
+                        $li['visit_id'],
+                        $li['service_date'],
                         $idx,
                     ]);
                 }
@@ -637,6 +653,9 @@ $activePage = 'invoices';
                                         <td class="mw-li-total text-right font-weight-600 pr-2">$0.00</td>
                                         <td><button type="button" class="btn btn-sm btn-outline-danger mw-li-remove" title="Remove">&times;</button></td>
                                         <input type="hidden" name="li_sort_order[]" value="0">
+                                        <input type="hidden" name="li_visit_id[]" value="0">
+                                        <input type="hidden" name="li_service_date[]" value="">
+                                        <input type="hidden" name="li_title[]" value="">
                                     </tr>
                                 <?php else: foreach ($lineItems as $idx => $li): ?>
                                     <tr class="mw-li-row">
@@ -646,6 +665,9 @@ $activePage = 'invoices';
                                         <td class="mw-li-total text-right font-weight-600 pr-2">$<?php echo number_format((float)$li['line_total'], 2); ?></td>
                                         <td><button type="button" class="btn btn-sm btn-outline-danger mw-li-remove" title="Remove">&times;</button></td>
                                         <input type="hidden" name="li_sort_order[]" value="<?php echo (int)($li['sort_order'] ?? $idx); ?>">
+                                        <input type="hidden" name="li_visit_id[]" value="<?php echo (int)($li['visit_id'] ?? 0); ?>">
+                                        <input type="hidden" name="li_service_date[]" value="<?php echo htmlspecialchars($li['service_date'] ?? ''); ?>">
+                                        <input type="hidden" name="li_title[]" value="<?php echo htmlspecialchars($li['title'] ?? ''); ?>">
                                     </tr>
                                 <?php endforeach; endif; ?>
                             </tbody>
@@ -777,7 +799,10 @@ $activePage = 'invoices';
             '<td><input type="number" step="0.01" min="0" name="li_unit_price[]" class="form-control form-control-sm mw-li-unit" value="0.00"></td>' +
             '<td class="mw-li-total text-right font-weight-600 pr-2">$0.00</td>' +
             '<td><button type="button" class="btn btn-sm btn-outline-danger mw-li-remove" title="Remove">&times;</button></td>' +
-            '<input type="hidden" name="li_sort_order[]" value="' + tbody.querySelectorAll('.mw-li-row').length + '">';
+            '<input type="hidden" name="li_sort_order[]" value="' + tbody.querySelectorAll('.mw-li-row').length + '">' +
+            '<input type="hidden" name="li_visit_id[]" value="0">' +
+            '<input type="hidden" name="li_service_date[]" value="">' +
+            '<input type="hidden" name="li_title[]" value="">';
         tbody.appendChild(row);
         wireRow(row);
         row.querySelector('.mw-li-desc').focus();
