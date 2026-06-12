@@ -61,6 +61,32 @@ if (!$invoice) {
     exit;
 }
 
+// When the invoice has no direct company_id but is linked to a plan that has a
+// billing company, pull that company so Bill To shows the right name/email.
+if (empty($invoice['company_name']) && !empty($invoice['plan_id'])) {
+    $cFallback = $db->prepare("
+        SELECT co.id, co.company_name,
+               co.billing_email, co.billing_phone,
+               co.billing_address, co.billing_city, co.billing_province, co.billing_postal_code
+        FROM job_plans jp
+        JOIN companies co ON jp.company_id = co.id
+        WHERE jp.id = ?
+        LIMIT 1
+    ");
+    $cFallback->execute([$invoice['plan_id']]);
+    $planCo = $cFallback->fetch(PDO::FETCH_ASSOC);
+    if ($planCo) {
+        $invoice['company_name']         = $planCo['company_name'];
+        $invoice['_plan_company_id']     = $planCo['id'];
+        $invoice['billing_email']        = $planCo['billing_email'] ?: $invoice['billing_email'];
+        $invoice['billing_phone']        = $planCo['billing_phone'] ?: $invoice['billing_phone'];
+        $invoice['billing_address']      = $invoice['billing_address'] ?: $planCo['billing_address'];
+        $invoice['billing_city']         = $invoice['billing_city']    ?: $planCo['billing_city'];
+        $invoice['billing_province']     = $invoice['billing_province'] ?: $planCo['billing_province'];
+        $invoice['billing_postal_code']  = $invoice['billing_postal_code'] ?: $planCo['billing_postal_code'];
+    }
+}
+
 // Get line items
 $stmt = $db->prepare("SELECT * FROM invoice_line_items WHERE invoice_id = ? ORDER BY sort_order");
 $stmt->execute([$invoiceId]);
@@ -426,6 +452,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                 ")->execute([$invoiceId]);
                 trackFieldChange('invoice', $invoiceId, 'status', $oldStatus, 'sent', $user['id']);
                 $invoice['status'] = 'sent';
+                $autopayJustSent   = true;   // first send → trigger autopay charge below
             }
 
             $recipientList = implode(', ', $sentTo);
@@ -464,8 +491,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         trackFieldChange('invoice', $invoiceId, 'status', $oldStatus, 'sent', $user['id']);
         logActivityExtended($user['id'], 'Invoice marked sent', 'Status manually set to sent (no email)', null, null, null, $invoiceId);
         $invoice['status'] = 'sent';
+        $autopayJustSent   = true;   // manual mark-sent → trigger autopay charge below
         $message     = 'Invoice marked as sent.';
         $messageType = 'success';
+    }
+
+    // ── Autopay: when an invoice first transitions to 'sent', immediately
+    //    attempt an off-session charge if the bill-to is enrolled. Mirrors the
+    //    schedule auto-invoice path (app/Modules/Schedule/Api/invoice-create-send.php).
+    //    AutopayService self-guards on live-mode, payable status, enrollment,
+    //    saved payment method, and balance > 0. The is_file() guard keeps this a
+    //    no-op anywhere the service is not deployed (e.g. local dev).
+    if (!empty($autopayJustSent)) {
+        $autopayServicePath = APP_ROOT . '/Services/Payments/AutopayService.php';
+        if (is_file($autopayServicePath)) {
+            try {
+                require_once $autopayServicePath;
+                $autopay = new AutopayService($db);
+                if ($autopay->isAutopayEligible($invoiceId)) {
+                    $apResult = $autopay->attemptCharge($invoiceId);
+                    error_log('[Autopay] view.php send invoice ' . $invoiceId . ' → '
+                        . ($apResult['status'] ?? '?') . ': ' . ($apResult['message'] ?? ''));
+                }
+            } catch (Throwable $e) {
+                error_log('[Autopay] view.php charge trigger failed for invoice ' . $invoiceId . ': ' . $e->getMessage());
+            }
+        }
     }
 
     if ($action === 'mark_paid') {
@@ -715,10 +766,11 @@ $extraHead = $isPayable
                           ?>
                           <?php
                               $clientContactId = (int)($invoice['contact_id'] ?? 0);
-                              $clientCompanyId = (int)($invoice['company_id'] ?? 0);
-                              $clientUrl = $clientContactId
-                                  ? '/crm/clients_appstack.php?action=view_contact&id=' . $clientContactId
-                                  : ($clientCompanyId ? '/crm/companies/view.php?id=' . $clientCompanyId : '');
+                              $clientCompanyId = (int)($invoice['company_id'] ?? $invoice['_plan_company_id'] ?? 0);
+                              // When a company is shown (directly or via plan), link to the company page.
+                              $clientUrl = $displayCompany
+                                  ? ($clientCompanyId ? '/crm/companies/view.php?id=' . $clientCompanyId : '')
+                                  : ($clientContactId ? '/crm/clients_appstack.php?action=view_contact&id=' . $clientContactId : '');
                           ?>
                           <?php if ($billToHeading): ?>
                           <div class="mw-detail-row">
@@ -771,7 +823,14 @@ $extraHead = $isPayable
                           <?php endif; ?>
                           <div class="mw-detail-row">
                               <span class="mw-detail-label">Email</span>
-                              <span class="mw-detail-value"><?php echo htmlspecialchars($invoice['contact_email'] ?: $invoice['billing_email'] ?: 'N/A'); ?></span>
+                              <?php
+                                  // When a company is on the bill, prefer the company billing_email
+                                  // (the accounts address) over the site contact's personal email.
+                                  $displayEmail = !empty($invoice['company_name'])
+                                      ? ($invoice['billing_email'] ?: $invoice['contact_email'] ?: 'N/A')
+                                      : ($invoice['contact_email'] ?: $invoice['billing_email'] ?: 'N/A');
+                              ?>
+                              <span class="mw-detail-value"><?php echo htmlspecialchars($displayEmail); ?></span>
                           </div>
                           <div class="mw-detail-row">
                               <span class="mw-detail-label">Phone</span>
