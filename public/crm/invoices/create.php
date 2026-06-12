@@ -199,6 +199,7 @@ if (!$visitId && isset($_GET['plan_id'])) {
                 'extras_amount'       => 0.0,
                 'extras_note'         => '',
                 'issue_date'          => $baseDate,
+                'scheduled_date'      => date('Y-m-d'),
                 'from_plan'           => true,
             ];
         }
