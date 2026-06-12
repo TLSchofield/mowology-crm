@@ -2197,10 +2197,22 @@ if ($apiKey) {
                                   Risk
                               </button>
                               <?php endif; ?>
-                              <span class="mw-gf-badge <?php echo ($stop['has_geofence'] ?? false) ? 'mw-gf-drawn' : 'mw-gf-missing'; ?>"
-                                    title="<?php echo ($stop['has_geofence'] ?? false) ? 'Geofence drawn' : 'No geofence drawn'; ?>">
-                                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"><polygon points="3 9 12 3 21 9 21 15 12 21 3 15"/></svg>
-                              </span>
+                              <?php
+                              $dvGfClass = ($stop['has_geofence'] ?? false) ? 'mw-gf-drawn' : 'mw-gf-missing';
+                              $dvGfTitle = ($stop['has_geofence'] ?? false) ? 'Geofence drawn — edit boundary' : 'No geofence — draw now';
+                              $dvGfUrl   = '/crm/jobs/zone-editor.php?property_id=' . (int)$stop['property_id']
+                                         . '&return_to=' . urlencode('/crm/jobs/schedule.php?view=day&date=' . $stop['stop_date']);
+                              ?>
+                              <a class="mw-gf-badge <?php echo $dvGfClass; ?>"
+                                 href="<?php echo htmlspecialchars($dvGfUrl); ?>"
+                                 title="<?php echo htmlspecialchars($dvGfTitle); ?>"
+                                 onclick="event.stopPropagation();">
+                                  <?php if ($stop['has_geofence'] ?? false): ?>
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                                  <?php else: ?>
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                                  <?php endif; ?>
+                              </a>
                           </div>
                           <?php
                           // ── Per-card completion footer ──────────────────────
@@ -2346,10 +2358,22 @@ if ($apiKey) {
                               </div>
                               <?php endif; ?>
                               <div class="mw-dv-card-crew" style="color: #adb5bd;">Unassigned</div>
-                              <span class="mw-gf-badge <?php echo ($stop['has_geofence'] ?? false) ? 'mw-gf-drawn' : 'mw-gf-missing'; ?>"
-                                    title="<?php echo ($stop['has_geofence'] ?? false) ? 'Geofence drawn' : 'No geofence drawn'; ?>">
-                                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"><polygon points="3 9 12 3 21 9 21 15 12 21 3 15"/></svg>
-                              </span>
+                              <?php
+                              $unGfClass = ($stop['has_geofence'] ?? false) ? 'mw-gf-drawn' : 'mw-gf-missing';
+                              $unGfTitle = ($stop['has_geofence'] ?? false) ? 'Geofence drawn — edit boundary' : 'No geofence — draw now';
+                              $unGfUrl   = '/crm/jobs/zone-editor.php?property_id=' . (int)$stop['property_id']
+                                         . '&return_to=' . urlencode('/crm/jobs/schedule.php?view=day&date=' . $stop['stop_date']);
+                              ?>
+                              <a class="mw-gf-badge <?php echo $unGfClass; ?>"
+                                 href="<?php echo htmlspecialchars($unGfUrl); ?>"
+                                 title="<?php echo htmlspecialchars($unGfTitle); ?>"
+                                 onclick="event.stopPropagation();">
+                                  <?php if ($stop['has_geofence'] ?? false): ?>
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                                  <?php else: ?>
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                                  <?php endif; ?>
+                              </a>
                           </div>
                           <?php
                           // ── Per-card completion footer (unassigned) ─────────

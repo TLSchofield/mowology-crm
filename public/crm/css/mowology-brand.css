@@ -5160,17 +5160,20 @@ a.mw-clock-timer-nav:hover {
   position:absolute;
   bottom:2px;
   right:0;
-  width:20px;
-  height:20px;
+  width:28px;
+  height:28px;
   display:flex;
   align-items:center;
   justify-content:center;
-  border-radius:50%;
-  opacity:.8;
-  pointer-events:none;
+  border-radius:4px;
+  border:1.5px solid currentColor;
+  text-decoration:none;
+  transition:opacity 0.15s,transform 0.1s;
+  z-index:2;
 }
-.mw-gf-badge.mw-gf-drawn  { color:var(--mw-color-success); }
-.mw-gf-badge.mw-gf-missing { color:var(--mw-color-danger); }
+.mw-gf-badge:hover { opacity:1 !important; transform:scale(1.1); }
+.mw-gf-badge.mw-gf-drawn   { color:var(--mw-color-success); background:var(--mw-color-success-bg); }
+.mw-gf-badge.mw-gf-missing { color:var(--mw-color-danger);  background:var(--mw-color-danger-bg); }
 
 .mw-dv-card-top {
   display:flex;
