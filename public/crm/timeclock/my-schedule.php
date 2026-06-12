@@ -59,10 +59,9 @@ $trackRow->execute([$user['id']]);
 $trackRow = $trackRow->fetch(PDO::FETCH_ASSOC);
 $deviceType       = $trackRow['device_type'] ?? 'personal';
 $trackingEnabled  = (bool)($trackRow['tracking_on'] ?? false);
-// Gate fires for: tracking-enabled, personal devices, non-admins.
-// Exempt: admin role (desk users), device_type='truck' (Trackimo-tracked tablets).
+// Gate fires for: tracking-enabled crew on any device type.
+// Exempt: admin role only. Truck tablets must use the app too — Trackimo is the backup, not the primary.
 $needsNativeApp = $trackingEnabled
-               && $deviceType !== 'truck'
                && !in_array($user['role'], ['admin']);
 
 // All jobs for today (any crew) — used for GPS proximity so ANY crew near a property can clock in
