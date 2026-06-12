@@ -638,6 +638,7 @@ $activePage = 'invoices';
                             <thead class="table-light">
                                 <tr>
                                     <th>Description</th>
+                                    <th style="width:150px;">Service Date</th>
                                     <th style="width:90px;">Qty</th>
                                     <th style="width:120px;">Unit Price</th>
                                     <th style="width:120px;">Line Total</th>
@@ -648,25 +649,25 @@ $activePage = 'invoices';
                                 <?php if (empty($lineItems)): ?>
                                     <tr class="mw-li-row">
                                         <td><input type="text" name="li_description[]" class="form-control form-control-sm mw-li-desc" value="Services rendered"></td>
+                                        <td><input type="date" name="li_service_date[]" class="form-control form-control-sm" value=""></td>
                                         <td><input type="number" step="0.01" min="0" name="li_quantity[]" class="form-control form-control-sm mw-li-qty" value="1"></td>
                                         <td><input type="number" step="0.01" min="0" name="li_unit_price[]" class="form-control form-control-sm mw-li-unit" value="0.00"></td>
                                         <td class="mw-li-total text-right font-weight-600 pr-2">$0.00</td>
                                         <td><button type="button" class="btn btn-sm btn-outline-danger mw-li-remove" title="Remove">&times;</button></td>
                                         <input type="hidden" name="li_sort_order[]" value="0">
                                         <input type="hidden" name="li_visit_id[]" value="0">
-                                        <input type="hidden" name="li_service_date[]" value="">
                                         <input type="hidden" name="li_title[]" value="">
                                     </tr>
                                 <?php else: foreach ($lineItems as $idx => $li): ?>
                                     <tr class="mw-li-row">
                                         <td><input type="text" name="li_description[]" class="form-control form-control-sm mw-li-desc" value="<?php echo htmlspecialchars($li['description']); ?>"></td>
+                                        <td><input type="date" name="li_service_date[]" class="form-control form-control-sm" value="<?php echo htmlspecialchars($li['service_date'] ?? ''); ?>"></td>
                                         <td><input type="number" step="0.01" min="0" name="li_quantity[]" class="form-control form-control-sm mw-li-qty" value="<?php echo htmlspecialchars((string)$li['quantity']); ?>"></td>
                                         <td><input type="number" step="0.01" min="0" name="li_unit_price[]" class="form-control form-control-sm mw-li-unit" value="<?php echo htmlspecialchars(number_format((float)$li['unit_price'], 2, '.', '')); ?>"></td>
                                         <td class="mw-li-total text-right font-weight-600 pr-2">$<?php echo number_format((float)$li['line_total'], 2); ?></td>
                                         <td><button type="button" class="btn btn-sm btn-outline-danger mw-li-remove" title="Remove">&times;</button></td>
                                         <input type="hidden" name="li_sort_order[]" value="<?php echo (int)($li['sort_order'] ?? $idx); ?>">
                                         <input type="hidden" name="li_visit_id[]" value="<?php echo (int)($li['visit_id'] ?? 0); ?>">
-                                        <input type="hidden" name="li_service_date[]" value="<?php echo htmlspecialchars($li['service_date'] ?? ''); ?>">
                                         <input type="hidden" name="li_title[]" value="<?php echo htmlspecialchars($li['title'] ?? ''); ?>">
                                     </tr>
                                 <?php endforeach; endif; ?>
@@ -795,13 +796,13 @@ $activePage = 'invoices';
         row.className = 'mw-li-row';
         row.innerHTML =
             '<td><input type="text" name="li_description[]" class="form-control form-control-sm mw-li-desc" value=""></td>' +
+            '<td><input type="date" name="li_service_date[]" class="form-control form-control-sm" value=""></td>' +
             '<td><input type="number" step="0.01" min="0" name="li_quantity[]" class="form-control form-control-sm mw-li-qty" value="1"></td>' +
             '<td><input type="number" step="0.01" min="0" name="li_unit_price[]" class="form-control form-control-sm mw-li-unit" value="0.00"></td>' +
             '<td class="mw-li-total text-right font-weight-600 pr-2">$0.00</td>' +
             '<td><button type="button" class="btn btn-sm btn-outline-danger mw-li-remove" title="Remove">&times;</button></td>' +
             '<input type="hidden" name="li_sort_order[]" value="' + tbody.querySelectorAll('.mw-li-row').length + '">' +
             '<input type="hidden" name="li_visit_id[]" value="0">' +
-            '<input type="hidden" name="li_service_date[]" value="">' +
             '<input type="hidden" name="li_title[]" value="">';
         tbody.appendChild(row);
         wireRow(row);
