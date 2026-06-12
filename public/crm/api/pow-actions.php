@@ -113,7 +113,7 @@ try {
         // Fetch all completable visits for this stop (matched by stop_id)
         $vsStmt = $db->prepare("
             SELECT jv.id AS visit_id, jv.plan_id, jv.assigned_crew_id,
-                   jv.invoice_id,
+                   jv.invoice_id, jv.scheduled_date,
                    jp.price_per_visit, jp.title AS plan_title, jp.service_type,
                    p.address AS service_address, p.city AS service_city,
                    p.province AS service_province, p.postal_code AS service_postal,
@@ -135,7 +135,7 @@ try {
         if (empty($completableVisits)) {
             $fbStmt = $db->prepare("
                 SELECT jv.id AS visit_id, jv.plan_id, jv.assigned_crew_id,
-                       jv.invoice_id, jv.stop_id AS stop_id_old,
+                       jv.invoice_id, jv.scheduled_date, jv.stop_id AS stop_id_old,
                        jp.price_per_visit, jp.title AS plan_title, jp.service_type,
                        p.address AS service_address, p.city AS service_city,
                        p.province AS service_province, p.postal_code AS service_postal,
@@ -198,7 +198,7 @@ try {
         if (empty($completableVisits)) {
             $cdStmt = $db->prepare("
                 SELECT jv.id AS visit_id, jv.plan_id, jv.assigned_crew_id,
-                       jv.invoice_id,
+                       jv.invoice_id, jv.scheduled_date,
                        jp.price_per_visit, jp.title AS plan_title, jp.service_type,
                        p.address AS service_address, p.city AS service_city,
                        p.province AS service_province, p.postal_code AS service_postal,
@@ -218,7 +218,7 @@ try {
             if (empty($cdVisits)) {
                 $cdFbStmt = $db->prepare("
                     SELECT jv.id AS visit_id, jv.plan_id, jv.assigned_crew_id,
-                           jv.invoice_id,
+                           jv.invoice_id, jv.scheduled_date,
                            jp.price_per_visit, jp.title AS plan_title, jp.service_type,
                            p.address AS service_address, p.city AS service_city,
                            p.province AS service_province, p.postal_code AS service_postal,
@@ -386,14 +386,20 @@ try {
             $invoiceId = (int)$db->lastInsertId();
             $invoiceNumber = $invNumber;
 
-            // Line items — one per visit
+            // Line items — one per visit. visit_id + service_date make the
+            // line a self-contained billing record (so the PDF/view can show
+            // when the work was performed without re-joining job_visits).
             foreach ($completableVisits as $cv) {
                 $lineDesc  = $cv['plan_title'] ?: ucfirst(str_replace('_', ' ', $cv['service_type'] ?? 'Service'));
                 $linePrice = round((float)($cv['price_per_visit'] ?? 0), 2);
                 $db->prepare("
-                    INSERT INTO invoice_line_items (invoice_id, description, quantity, unit_price, line_total)
-                    VALUES (?, ?, 1, ?, ?)
-                ")->execute([$invoiceId, $lineDesc, $linePrice, $linePrice]);
+                    INSERT INTO invoice_line_items (invoice_id, description, quantity, unit_price, line_total, visit_id, service_date)
+                    VALUES (?, ?, 1, ?, ?, ?, ?)
+                ")->execute([
+                    $invoiceId, $lineDesc, $linePrice, $linePrice,
+                    (int)$cv['visit_id'] ?: null,
+                    $cv['scheduled_date'] ?? null,
+                ]);
             }
 
             // Link visits to invoice
@@ -800,6 +806,13 @@ try {
                 'extras_minutes'=> $extrasMins,
                 'extras_amount' => $extrasAmount,
             ]);
+            break;
+
+        // ── Skip Visit ────────────────────────────────────────────────────
+        case 'skip_visit':
+            require_once CRM_INCLUDES . '/plan-functions.php';
+            $result = updateVisitStatus($visitId, 'skipped', (int)$user['id']);
+            echo json_encode(['success' => $result]);
             break;
 
         // ── Generate PDF ───────────────────────────────────────────────────
