@@ -67,6 +67,10 @@ switch ($event->type) {
         handlePaymentFailed($event->data->object);
         break;
 
+    case 'setup_intent.succeeded':
+        handleSetupIntentSucceeded($event->data->object);
+        break;
+
     default:
         // Acknowledge receipt of events we don't handle — Stripe expects 200
         error_log('[Stripe Webhook] Unhandled event type: ' . $event->type);
@@ -166,6 +170,10 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): void
                 if ($expMonth && $expYear) {
                     $cardExpiry = sprintf('%02d/%d', $expMonth, $expYear);
                 }
+            } else {
+                // Non-card PM type (e.g. link, us_bank_account) — skip card save.
+                // PIs should now use payment_method_types=['card'] so this is rare.
+                error_log(sprintf('[Stripe Webhook] PM %s is type "%s" — skipping card save for contact.', $paymentMethodId, $pm->type ?? 'unknown'));
             }
         } catch (\Stripe\Exception\ApiErrorException $e) {
             error_log('[Stripe Webhook] Could not retrieve PaymentMethod: ' . $e->getMessage());
@@ -230,39 +238,42 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): void
         }
 
         // ── Save card details to contact (if applicable) ──────────────────────
-        $contactId = (int) ($intent->metadata['contact_id'] ?? 0);
+        $contactId    = (int) ($intent->metadata['contact_id'] ?? 0);
+        $wantsAutopay = ($intent->metadata['enable_autopay'] ?? '0') === '1';
         if ($contactId > 0 && $cardLast4 && $stripeCustomerIdFromIntent) {
             // Persist card details whenever a Stripe customer is attached
             // (covers both save_card=true and subsequent payments with saved card)
             $updateContact = $db->prepare("
                 UPDATE contacts SET
-                    stripe_customer_id = COALESCE(stripe_customer_id, ?),
-                    stripe_card_brand  = ?,
-                    stripe_card_last4  = ?,
-                    stripe_card_exp    = ?
+                    stripe_customer_id       = COALESCE(stripe_customer_id, ?),
+                    stripe_payment_method_id = COALESCE(?, stripe_payment_method_id),
+                    stripe_card_brand        = ?,
+                    stripe_card_last4        = ?,
+                    stripe_card_exp          = ?,
+                    autopay_enabled          = IF(? = 1, 1, autopay_enabled),
+                    autopay_enrolled_at      = IF(? = 1 AND autopay_enrolled_at IS NULL, NOW(), autopay_enrolled_at)
                 WHERE id = ?
             ");
             $updateContact->execute([
                 $stripeCustomerIdFromIntent,
+                $paymentMethodId,
                 $cardBrand,
                 $cardLast4,
                 $cardExpiry,
+                (int) $wantsAutopay,
+                (int) $wantsAutopay,
                 $contactId,
             ]);
             error_log(sprintf(
-                '[Stripe Webhook] Saved card on file for contact %d: %s ••••%s exp %s',
-                $contactId, $cardBrand ?? 'unknown', $cardLast4, $cardExpiry ?? ''
+                '[Stripe Webhook] Saved card on file for contact %d: %s ••••%s exp %s autopay=%s',
+                $contactId, $cardBrand ?? 'unknown', $cardLast4, $cardExpiry ?? '', $wantsAutopay ? 'enabled' : 'no'
             ));
 
             // ── Set as default payment method on Stripe Customer ──────────────
-            // This is what enables one-click saved-card pay on future invoices.
+            // Enables one-click saved-card pay on future invoices.
             // invoice-payment-intent.php reads customer->invoice_settings->default_payment_method
             // to offer the saved card UI. Without this call that field is always null.
-            //
-            // Stripe requires the PM to be attached to the customer before it can be
-            // set as default. Using a PM on a PaymentIntent without setup_future_usage
-            // (i.e. saved-card payments) does not guarantee attachment, so we
-            // explicitly attach first — the call is idempotent if already attached.
+            // Attach first (idempotent) — saved-card PIs don't guarantee attachment.
             if ($paymentMethodId) {
                 try {
                     \Stripe\PaymentMethod::attach($paymentMethodId, ['customer' => $stripeCustomerIdFromIntent]);
@@ -368,5 +379,85 @@ function handlePaymentFailed(\Stripe\PaymentIntent $intent): void
             $failureMessage ?? 'No message'
         ),
         $invoiceId,
+    ]);
+}
+
+/**
+ * Handle setup_intent.succeeded
+ * Fired when a customer completes the explicit autopay enrollment flow
+ * (SetupIntent, no charge). Saves the PaymentMethod and marks the contact
+ * as autopay-enrolled.
+ */
+function handleSetupIntentSucceeded(\Stripe\SetupIntent $intent): void
+{
+    $contactId = (int) ($intent->metadata['contact_id'] ?? 0);
+    if ($contactId <= 0) {
+        error_log('[Stripe Webhook] setup_intent.succeeded — no contact_id in metadata');
+        return;
+    }
+
+    $pmId = is_string($intent->payment_method)
+        ? $intent->payment_method
+        : ($intent->payment_method->id ?? null);
+
+    if (!$pmId) {
+        error_log('[Stripe Webhook] setup_intent.succeeded — no payment_method on intent');
+        return;
+    }
+
+    \Stripe\Stripe::setApiKey(STRIPE_SECRET_KEY);
+
+    $cardBrand  = null;
+    $cardLast4  = null;
+    $cardExpiry = null;
+
+    try {
+        $pm = \Stripe\PaymentMethod::retrieve($pmId);
+        if (!empty($pm->card)) {
+            $cardBrand = $pm->card->brand  ?? null;
+            $cardLast4 = $pm->card->last4  ?? null;
+            $expMonth  = $pm->card->exp_month ?? null;
+            $expYear   = $pm->card->exp_year  ?? null;
+            if ($expMonth && $expYear) {
+                $cardExpiry = sprintf('%02d/%d', $expMonth, $expYear);
+            }
+        }
+    } catch (\Stripe\Exception\ApiErrorException $e) {
+        error_log('[Stripe Webhook] setup_intent.succeeded — could not retrieve PM: ' . $e->getMessage());
+    }
+
+    $stripeCustomerId = is_string($intent->customer) ? $intent->customer : ($intent->customer->id ?? null);
+
+    $db = getDB();
+    $stmt = $db->prepare("
+        UPDATE contacts SET
+            stripe_customer_id       = COALESCE(stripe_customer_id, ?),
+            stripe_payment_method_id = ?,
+            stripe_card_brand        = COALESCE(?, stripe_card_brand),
+            stripe_card_last4        = COALESCE(?, stripe_card_last4),
+            stripe_card_exp          = COALESCE(?, stripe_card_exp),
+            autopay_enabled          = 1,
+            autopay_enrolled_at      = NOW()
+        WHERE id = ?
+    ");
+    $stmt->execute([
+        $stripeCustomerId,
+        $pmId,
+        $cardBrand,
+        $cardLast4,
+        $cardExpiry,
+        $contactId,
+    ]);
+
+    error_log(sprintf(
+        '[Stripe Webhook] Autopay enrolled for contact %d via SetupIntent %s — PM: %s',
+        $contactId, $intent->id, $pmId
+    ));
+
+    $db->prepare("
+        INSERT INTO activity_log (user_id, action, details, created_at)
+        VALUES (NULL, 'Autopay enrolled', ?, NOW())
+    ")->execute([
+        sprintf('Contact %d enrolled in autopay via SetupIntent %s.', $contactId, $intent->id),
     ]);
 }
