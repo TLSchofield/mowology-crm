@@ -35407,3 +35407,69 @@ span.mw-icon-box--missing {
   padding: 40px 20px;
   color: #666;
 }
+
+/* ── Native-app enforcement gate ───────────────────────────────────── */
+.mw-native-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  background: var(--mw-forest);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.mw-native-gate-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 40px 32px;
+  max-width: 360px;
+  width: 100%;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+}
+.mw-native-gate-logo {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--mw-green);
+  letter-spacing: -0.5px;
+  margin-bottom: 20px;
+}
+.mw-native-gate-heading {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #1a1a1a;
+  margin-bottom: 12px;
+}
+.mw-native-gate-body {
+  font-size: 0.9rem;
+  color: #555;
+  line-height: 1.5;
+  margin-bottom: 24px;
+}
+.mw-native-gate-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 14px 20px;
+  background: var(--mw-green);
+  color: #fff;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.15s;
+}
+.mw-native-gate-btn:hover,
+.mw-native-gate-btn:focus {
+  background: var(--mw-dark);
+  color: #fff;
+  text-decoration: none;
+}
+.mw-native-gate-sub {
+  margin-top: 16px;
+  margin-bottom: 0;
+  font-size: 0.78rem;
+  color: #888;
+}

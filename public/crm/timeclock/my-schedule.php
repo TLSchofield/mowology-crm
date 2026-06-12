@@ -53,6 +53,18 @@ $serviceColors = [
 // GPS proximity setting
 $gpsProximityMeters = (int)getTimeClockSetting('gps_proximity_meters', '150');
 
+// Native-app enforcement — non-admin, non-truck crew must use the Android APK
+$trackRow = $db->prepare("SELECT IFNULL(device_type,'personal') AS device_type, COALESCE(location_tracking_enabled,0) AS tracking_on FROM users WHERE id = ?");
+$trackRow->execute([$user['id']]);
+$trackRow = $trackRow->fetch(PDO::FETCH_ASSOC);
+$deviceType       = $trackRow['device_type'] ?? 'personal';
+$trackingEnabled  = (bool)($trackRow['tracking_on'] ?? false);
+// Gate fires for: tracking-enabled, personal devices, non-admins.
+// Exempt: admin role (desk users), device_type='truck' (Trackimo-tracked tablets).
+$needsNativeApp = $trackingEnabled
+               && $deviceType !== 'truck'
+               && !in_array($user['role'], ['admin']);
+
 // All jobs for today (any crew) — used for GPS proximity so ANY crew near a property can clock in
 $allJobsToday = $isToday ? getAllJobsForDate($viewDate) : [];
 // Filter out jobs already in the user's assigned list and completed ones
@@ -773,6 +785,33 @@ function mwInjectFlatlineCSS() {
             startWatch();
         }
     });
+})();
+</script>
+<?php endif; ?>
+
+<?php if ($needsNativeApp): ?>
+<!-- Native-app enforcement gate: shown by JS when MwNative is absent -->
+<div id="mw-native-gate" class="mw-native-gate" style="display:none;" aria-modal="true" role="alertdialog">
+    <div class="mw-native-gate-card">
+        <div class="mw-native-gate-logo">Mowology</div>
+        <h2 class="mw-native-gate-heading">Use the Crew App</h2>
+        <p class="mw-native-gate-body">For reliable GPS tracking and schedule updates, you need to open Mowology in the Android app — not your browser.</p>
+        <a href="/crm/downloads/mowology-crew.apk" class="mw-native-gate-btn" download>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px;vertical-align:middle"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Download Mowology Crew App
+        </a>
+        <p class="mw-native-gate-sub">Already installed? Open it from your home screen and log back in.</p>
+    </div>
+</div>
+<script>
+(function() {
+    'use strict';
+    if (window.MwNative) return;          // running inside Capacitor — no gate
+    var gate = document.getElementById('mw-native-gate');
+    if (!gate) return;
+    gate.style.display = 'flex';
+    // Prevent scrolling behind the overlay
+    document.body.style.overflow = 'hidden';
 })();
 </script>
 <?php endif; ?>
