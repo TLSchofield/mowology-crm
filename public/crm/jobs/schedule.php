@@ -1105,8 +1105,9 @@ unset($mStop);
 // Determine which is the active stop (first non-completed stop, or first one)
 $activeIndex = 0;
 foreach ($mobileStops as $idx => $stop) {
-    $status = $stop['stop_status'] ?? 'scheduled';
-    if ($status !== 'completed' && $status !== 'skipped') {
+    $status  = $stop['stop_status'] ?? 'scheduled';
+    $vStatus = $stop['visits'][0]['visit_status'] ?? 'scheduled';
+    if ($status !== 'completed' && $status !== 'skipped' && $vStatus !== 'completed') {
         $activeIndex = $idx;
         break;
     }
@@ -1224,7 +1225,7 @@ $pageTitle = 'Schedule';
 $activePage = 'schedule';
 $bodyClass  = 'mw-page-schedule'; // Hides global mobile nav bars — schedule has its own
 $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
-$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260418c" rel="stylesheet">';
+$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260612g" rel="stylesheet">';
 $extraHead .= '<script src="/crm/js/offline-queue.js?v=20260303a" defer></script>';
 // Prefetch every day visible in the strip so any day tap is instant
 foreach ($stripDays as $_sd) {
@@ -2671,6 +2672,23 @@ if ($apiKey) {
                       <div class="mw-preshift-sub">Good work — you're all set for today</div>
                   </div>
               </div>
+              <script>
+              (function () {
+                  var card = document.getElementById('preshiftCard');
+                  if (!card) return;
+                  // Set up the collapsible transition from current rendered height
+                  card.style.overflow   = 'hidden';
+                  card.style.transition = 'opacity .45s ease, max-height .45s ease, margin-bottom .45s ease, padding .45s ease';
+                  card.style.maxHeight  = card.offsetHeight + 'px';
+                  setTimeout(function () {
+                      card.style.opacity      = '0';
+                      card.style.maxHeight    = '0';
+                      card.style.marginBottom = '0';
+                      card.style.padding      = '0';
+                  }, 3000);
+                  setTimeout(function () { card.remove(); }, 3500);
+              })();
+              </script>
               <?php endif; ?>
 
               <!-- ════════════════════════════════════════════
@@ -2681,7 +2699,7 @@ if ($apiKey) {
               <div class="mw-ds-wrap<?php echo $isClockedIn ? ' mw-ds-wrap-active' : ''; ?>">
 
                   <!-- Metrics card -->
-                  <div class="mw-ds-card">
+                  <div class="mw-ds-card" id="mwGreetingCard">
                       <div class="mw-ds-greeting">
                           <span class="mw-ds-hi"><?php echo htmlspecialchars($dayGreeting . ', ' . $greetingFirstName); ?></span>
                           <span class="mw-ds-date-lbl"><?php echo date('l, F j', strtotime($mobileDate)); ?></span>
@@ -2715,10 +2733,75 @@ if ($apiKey) {
                       </div>
                       <?php endif; ?>
                   </div>
+                  <script>
+                  (function () {
+                      var STORAGE_KEY = 'mw_greeting_dismissed_<?php echo date('Y-m-d'); ?>';
+                      var card = document.getElementById('mwGreetingCard');
+                      if (!card) return;
+
+                      // Already dismissed today — hide immediately with no animation
+                      if (localStorage.getItem(STORAGE_KEY)) {
+                          card.style.display = 'none';
+                          return;
+                      }
+
+                      function dismissCard() {
+                          card.style.transition = 'opacity .3s ease, max-height .35s ease, margin-bottom .35s ease, padding .35s ease';
+                          card.style.overflow   = 'hidden';
+                          card.style.maxHeight  = card.offsetHeight + 'px';
+                          requestAnimationFrame(function () {
+                              card.style.opacity      = '0';
+                              card.style.maxHeight    = '0';
+                              card.style.marginBottom = '0';
+                              card.style.padding      = '0';
+                          });
+                          setTimeout(function () { card.style.display = 'none'; }, 380);
+                          localStorage.setItem(STORAGE_KEY, '1');
+                      }
+
+                      var startX = 0, startY = 0, tracking = false;
+                      card.addEventListener('touchstart', function (e) {
+                          startX = e.touches[0].clientX;
+                          startY = e.touches[0].clientY;
+                          tracking = true;
+                          card.style.transition = 'none';
+                          card.style.willChange = 'transform, opacity';
+                          e.stopPropagation();
+                      }, { passive: true });
+
+                      card.addEventListener('touchmove', function (e) {
+                          if (!tracking) return;
+                          var dx = e.touches[0].clientX - startX;
+                          var dy = e.touches[0].clientY - startY;
+                          if (Math.abs(dy) > Math.abs(dx) + 10) { tracking = false; card.style.transform = ''; card.style.opacity = ''; return; }
+                          e.stopPropagation();
+                          card.style.transform = 'translateX(' + dx + 'px)';
+                          card.style.opacity   = String(Math.max(0, 1 - Math.abs(dx) / 160));
+                      }, { passive: false });
+
+                      card.addEventListener('touchend', function (e) {
+                          if (!tracking) return;
+                          tracking = false;
+                          e.stopPropagation();
+                          var dx = e.changedTouches[0].clientX - startX;
+                          if (Math.abs(dx) > 80) {
+                              card.style.transition = 'transform .25s ease, opacity .25s ease';
+                              card.style.transform  = 'translateX(' + (dx > 0 ? '110%' : '-110%') + ')';
+                              card.style.opacity    = '0';
+                              setTimeout(dismissCard, 240);
+                          } else {
+                              card.style.transition = 'transform .3s cubic-bezier(.22,.61,.36,1), opacity .3s ease';
+                              card.style.transform  = '';
+                              card.style.opacity    = '';
+                          }
+                          card.style.willChange = '';
+                      }, { passive: true });
+                  })();
+                  </script>
 
                   <!-- Weather AM / PM split -->
                   <?php if ($sc['show_morning_weather'] || $sc['show_afternoon_weather']): ?>
-                  <div class="mw-ds-weather-row">
+                  <div class="mw-ds-weather-row" id="mwWeatherRow">
                       <?php if ($sc['show_morning_weather']): ?>
                       <div class="mw-ds-wx mw-ds-wx-am">
                           <span class="mw-ds-wx-label">Morning</span>
@@ -2743,30 +2826,71 @@ if ($apiKey) {
                       <?php endif; ?>
                   </div>
                   <?php endif; ?>
+                  <script>
+                  (function () {
+                      var STORAGE_KEY = 'mw_weather_dismissed_<?php echo date('Y-m-d'); ?>';
+                      var row = document.getElementById('mwWeatherRow');
+                      if (!row) return;
+                      if (localStorage.getItem(STORAGE_KEY)) { row.style.display = 'none'; return; }
 
-                  <!-- Clock in/out card -->
-                  <?php if ($sc['show_clock_card']): ?>
-                  <div class="mw-ds-clock-card<?php echo $isClockedIn ? ' is-active' : ''; ?>">
+                      function dismissRow() {
+                          row.style.transition = 'opacity .3s ease, max-height .35s ease, margin-bottom .35s ease';
+                          row.style.overflow   = 'hidden';
+                          row.style.maxHeight  = row.offsetHeight + 'px';
+                          requestAnimationFrame(function () {
+                              row.style.opacity      = '0';
+                              row.style.maxHeight    = '0';
+                              row.style.marginBottom = '0';
+                          });
+                          setTimeout(function () { row.style.display = 'none'; }, 380);
+                          localStorage.setItem(STORAGE_KEY, '1');
+                      }
+
+                      var startX = 0, startY = 0, tracking = false;
+                      row.addEventListener('touchstart', function (e) {
+                          startX = e.touches[0].clientX;
+                          startY = e.touches[0].clientY;
+                          tracking = true;
+                          row.style.transition = 'none';
+                          e.stopPropagation();
+                      }, { passive: true });
+                      row.addEventListener('touchmove', function (e) {
+                          if (!tracking) return;
+                          var dx = e.touches[0].clientX - startX;
+                          var dy = e.touches[0].clientY - startY;
+                          if (Math.abs(dy) > Math.abs(dx) + 10) { tracking = false; row.style.transform = ''; row.style.opacity = ''; return; }
+                          e.stopPropagation();
+                          row.style.transform = 'translateX(' + dx + 'px)';
+                          row.style.opacity   = String(Math.max(0, 1 - Math.abs(dx) / 160));
+                      }, { passive: false });
+                      row.addEventListener('touchend', function (e) {
+                          if (!tracking) return;
+                          tracking = false;
+                          e.stopPropagation();
+                          var dx = e.changedTouches[0].clientX - startX;
+                          if (Math.abs(dx) > 80) {
+                              row.style.transition = 'transform .25s ease, opacity .25s ease';
+                              row.style.transform  = 'translateX(' + (dx > 0 ? '110%' : '-110%') + ')';
+                              row.style.opacity    = '0';
+                              setTimeout(dismissRow, 240);
+                          } else {
+                              row.style.transition = 'transform .3s cubic-bezier(.22,.61,.36,1), opacity .3s ease';
+                              row.style.transform  = '';
+                              row.style.opacity    = '';
+                          }
+                      }, { passive: true });
+                  })();
+                  </script>
+
+                  <!-- Clock in/out card — only shown when not clocked in (bottom nav handles the clocked-in state) -->
+                  <?php if ($sc['show_clock_card'] && !$isClockedIn): ?>
+                  <div class="mw-ds-clock-card">
                       <div class="mw-ds-clock-info">
-                          <div class="mw-ds-clock-dot<?php echo $isClockedIn ? ' is-on' : ''; ?>"></div>
-                          <?php if ($isClockedIn): ?>
-                              <span class="mw-ds-clock-status">Clocked in</span>
-                              <span class="mw-ds-clock-time"
-                                    data-clock-start="<?php echo htmlspecialchars($clockInTime ?? ''); ?>"><?php
-                                  $dsCkH = intdiv($clockElapsedSeconds, 3600);
-                                  $dsCkM = intdiv($clockElapsedSeconds % 3600, 60);
-                                  echo $dsCkH > 0 ? "{$dsCkH}h {$dsCkM}m" : "{$dsCkM}m";
-                              ?></span>
-                          <?php else: ?>
-                              <span class="mw-ds-clock-status">Not clocked in</span>
-                          <?php endif; ?>
+                          <div class="mw-ds-clock-dot"></div>
+                          <span class="mw-ds-clock-status">Not clocked in</span>
                       </div>
-                      <?php if ($isClockedIn): ?>
-                          <button class="mw-ds-clock-btn mw-ds-clock-btn-out" id="dsSummaryClockOut" type="button">Clock Out</button>
-                      <?php else: ?>
-                          <button class="mw-ds-clock-btn mw-ds-clock-btn-in" id="dsSummaryClockIn" type="button"
-                              <?php if ($preshiftEnabled && !$preshiftDone): ?>disabled title="Complete pre-shift quiz first"<?php endif; ?>>Clock In</button>
-                      <?php endif; ?>
+                      <button class="mw-ds-clock-btn mw-ds-clock-btn-in" id="dsSummaryClockIn" type="button"
+                          <?php if ($preshiftEnabled && !$preshiftDone): ?>disabled title="Complete pre-shift quiz first"<?php endif; ?>>Clock In</button>
                   </div>
                   <?php endif; ?>
 
@@ -2820,8 +2944,10 @@ if ($apiKey) {
                   $upcomingStops = [];
                   $completedStopsList = [];
                   foreach ($mobileStops as $idx => $stop) {
-                      $status = $stop['stop_status'] ?? 'scheduled';
-                      if ($status === 'completed' || $status === 'skipped') {
+                      $status   = $stop['stop_status'] ?? 'scheduled';
+                      $vStatus  = $stop['visits'][0]['visit_status'] ?? 'scheduled';
+                      $isDone   = ($status === 'completed' || $status === 'skipped' || $vStatus === 'completed');
+                      if ($isDone) {
                           $completedStopsList[] = $stop;
                       } else {
                           $upcomingStops[] = ['stop' => $stop, 'originalIndex' => $idx];
@@ -3631,6 +3757,10 @@ function getServiceLabel(type) {
 var MW_SCHEDULE_STATE = {
     csrf: <?php echo json_encode($csrfToken); ?>,
     userId: <?php echo (int)$user['id']; ?>,
+    extrasRate: <?php
+        $extrasRateRow = $db->query("SELECT setting_value FROM ops_settings WHERE setting_key = 'extras_rate_per_5min' LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+        echo json_encode(round(floatval($extrasRateRow['setting_value'] ?? 5.00), 2));
+    ?>,
     activeTimer: <?php echo json_encode($activeTimerData); ?>,
     visitPhotos: <?php echo json_encode($visitPhotoMap, JSON_FORCE_OBJECT); ?>,
     autoArrivalEnabled: <?php echo json_encode((bool)(int)getTimeClockSetting('auto_arrival_enabled', '1')); ?>,
@@ -3813,12 +3943,11 @@ function mwTogglePurchaseItem(checkbox) {
 }
 </script>
 <script src="../js/mw-schedule-search.js?v=20260422a" defer></script>
-<script src="../js/mw-pull-refresh.js?v=20260410a" defer></script>
 <script src="../js/navigation-launcher.js?v=20260225c" defer></script>
 <script src="../js/route-engine.js?v=20260219a" defer></script>
 <script src="../js/schedule-route-map.js?v=20260226b" defer></script>
 <script src="../js/batch-camera.js?v=20260421a" defer></script>
-<script src="../js/schedule-pill-workflow.js?v=20260421a" defer></script>
+<script src="../js/schedule-pill-workflow.js?v=20260612g" defer></script>
 <script src="../js/schedule-drag-drop.js" defer></script>
 <?php if ($view === 'day'): ?>
 <script>

@@ -48,7 +48,8 @@ if (!$property) {
 }
 
 // Does this build have billing_entity_name? Migration 1011 adds it.
-$hasBillingEntity = array_key_exists('billing_entity_name', $property);
+$hasBillingEntity   = array_key_exists('billing_entity_name',   $property);
+$hasPropertyManager = array_key_exists('property_manager_id',   $property);
 
 // ── POST handler ─────────────────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -63,13 +64,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $city         = trim($_POST['city']          ?? '');
         $province     = trim($_POST['province']      ?? '');
         $postalCode   = trim($_POST['postal_code']   ?? '');
-        $siteContactId = (int)($_POST['site_contact_id'] ?? 0) ?: null;
+        $siteContactId     = (int)($_POST['site_contact_id']     ?? 0) ?: null;
+        $propertyManagerId = (int)($_POST['property_manager_id'] ?? 0) ?: null;
         $lotSize      = $_POST['lot_size_sqft']  !== '' ? (float)$_POST['lot_size_sqft']  : null;
         $lawnSize     = $_POST['lawn_size_sqft'] !== '' ? (float)$_POST['lawn_size_sqft'] : null;
         $notes        = trim($_POST['notes']     ?? '');
         $status       = trim($_POST['status']    ?? 'active');
         $billingEntityName = trim($_POST['billing_entity_name'] ?? '');
         if ($billingEntityName === '') $billingEntityName = null;
+
+        // Standardize on the clients spine: derive the canonical client_id from
+        // the chosen PM company (its backfilled client via legacy_company_id), so
+        // the property stores the account link the invoice billing flow reads.
+        // Only set it when we resolve one — never wipe an existing client_id.
+        $hasClientId = array_key_exists('client_id', $property);
+        $derivedClientId = null;
+        if ($hasClientId && $propertyManagerId) {
+            try {
+                $cs = $db->prepare("SELECT id FROM clients WHERE legacy_company_id = ? ORDER BY id LIMIT 1");
+                $cs->execute([$propertyManagerId]);
+                $derivedClientId = (int)$cs->fetchColumn() ?: null;
+            } catch (PDOException $e) {
+                $derivedClientId = null;
+            }
+        }
 
         $allowedTypes  = ['single_family','townhouse','condo','commercial','strata','multi_unit'];
         if (!in_array($propertyType, $allowedTypes, true)) $propertyType = 'single_family';
@@ -112,6 +130,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $set[]    = 'billing_entity_name = ?';
                     $params[] = $billingEntityName;
                 }
+                if ($hasPropertyManager) {
+                    $set[]    = 'property_manager_id = ?';
+                    $params[] = $propertyManagerId;
+                }
+                // Canonical account link (clients spine). Only when resolved, so
+                // a manually-set client_id (e.g. retrofitted) is never wiped.
+                if ($hasClientId && $derivedClientId !== null) {
+                    $set[]    = 'client_id = ?';
+                    $params[] = $derivedClientId;
+                }
                 $params[] = $propertyId;
                 $sql = "UPDATE properties SET " . implode(', ', $set) . " WHERE id = ?";
                 $db->prepare($sql)->execute($params);
@@ -145,6 +173,18 @@ try {
     ")->fetchAll(PDO::FETCH_ASSOC);
 } catch (Throwable $e) {
     $contactsList = [];
+}
+
+// Companies list for property manager dropdown
+try {
+    $companiesList = $db->query("
+        SELECT id, company_name, company_type
+        FROM companies
+        WHERE account_status = 'active'
+        ORDER BY company_name
+    ")->fetchAll(PDO::FETCH_ASSOC);
+} catch (Throwable $e) {
+    $companiesList = [];
 }
 
 // Resolve the current site contact's display name (for the breadcrumb)
@@ -212,7 +252,7 @@ if ($apiKey) {
             <p class="text-muted mb-4">
                 <?= htmlspecialchars($property['address']) ?>
                 <?php if (!empty($property['city'])): ?> &bull; <?= htmlspecialchars($property['city']) ?><?php endif; ?>
-                <?php if ($siteContactName): ?> &bull; Site contact: <?= htmlspecialchars($siteContactName) ?><?php endif; ?>
+                <?php if ($siteContactName): ?> &bull; Property manager: <?= htmlspecialchars($siteContactName) ?><?php endif; ?>
                 <?php if ($inferredCompany): ?>
                     &bull; Managed by <a href="/crm/companies/view.php?id=<?= (int)$inferredCompany['id'] ?>"><?= htmlspecialchars($inferredCompany['company_name']) ?></a>
                 <?php endif; ?>
@@ -270,7 +310,7 @@ if ($apiKey) {
                                 </select>
                             </div>
                             <div class="form-group col-md-4">
-                                <label class="form-label">Site Contact <span class="text-muted" style="font-weight:400;">(on-site person)</span></label>
+                                <label class="form-label">Property Manager <span class="text-muted" style="font-weight:400;">(person / on-site contact)</span></label>
                                 <select name="site_contact_id" id="siteContactPicker" class="form-control" <?= $canEdit ? '' : 'disabled' ?>>
                                     <option value="">— none —</option>
                                     <?php foreach ($contactsList as $c):
@@ -283,6 +323,20 @@ if ($apiKey) {
                                 </select>
                                 <small class="text-muted">Drives the company auto-link on company pages.</small>
                             </div>
+                            <?php if ($hasPropertyManager): ?>
+                            <div class="form-group col-md-4">
+                                <label class="form-label">Management Company <span class="text-muted" style="font-weight:400;">(strata / property management firm)</span></label>
+                                <select name="property_manager_id" class="form-control" <?= $canEdit ? '' : 'disabled' ?>>
+                                    <option value="">— none —</option>
+                                    <?php foreach ($companiesList as $co):
+                                        $sel = (int)($property['property_manager_id'] ?? 0) === (int)$co['id'] ? ' selected' : '';
+                                    ?>
+                                    <option value="<?= (int)$co['id'] ?>"<?= $sel ?>><?= htmlspecialchars($co['company_name']) ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <small class="text-muted">Strata manager or property management company.</small>
+                            </div>
+                            <?php endif; ?>
                             <div class="form-group col-md-4">
                                 <label class="form-label">Status</label>
                                 <select name="status" class="form-control" <?= $canEdit ? '' : 'disabled' ?>>

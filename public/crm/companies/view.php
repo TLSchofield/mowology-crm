@@ -401,6 +401,11 @@ $extraHead = '<script src="https://js.stripe.com/v3/" defer></script>'
                 <div class="tab-pane fade" id="properties" role="tabpanel">
                     <div class="card">
                         <div class="card-body">
+                            <div class="d-flex justify-content-end mb-3">
+                                <button type="button" class="btn btn-sm btn-outline-primary" data-toggle="modal" data-target="#linkPropertyModal">
+                                    <i data-feather="link" style="width:13px;height:13px;margin-right:4px;"></i> Link Property
+                                </button>
+                            </div>
                             <?php if (empty($companyProperties)): ?>
                                 <div class="text-center py-4 text-muted">
                                     <i data-feather="map-pin" style="width:32px;height:32px;" class="mb-2"></i>
@@ -410,7 +415,7 @@ $extraHead = '<script src="https://js.stripe.com/v3/" defer></script>'
                                 <div class="table-responsive">
                                     <table class="table table-hover mb-0">
                                         <thead>
-                                            <tr><th>Address</th><th>City</th><th>Relationship</th><th>Primary</th><th>Location</th></tr>
+                                            <tr><th>Address</th><th>City</th><th>Relationship</th><th>Primary</th><th>Location</th><th></th></tr>
                                         </thead>
                                         <tbody>
                                             <?php foreach ($companyProperties as $prop): ?>
@@ -439,6 +444,13 @@ $extraHead = '<script src="https://js.stripe.com/v3/" defer></script>'
                                                                 <i data-feather="map-pin" style="width:13px;height:13px;"></i> Geocode
                                                             </button>
                                                         <?php endif; ?>
+                                                    </td>
+                                                    <td>
+                                                        <button type="button" class="btn btn-sm btn-outline-danger"
+                                                                onclick="unlinkProperty(<?= (int)$prop['id'] ?>)"
+                                                                title="Unlink this property">
+                                                            <i data-feather="x" style="width:12px;height:12px;"></i>
+                                                        </button>
                                                     </td>
                                                 </tr>
                                             <?php endforeach; ?>
@@ -831,5 +843,160 @@ $extraHead = '<script src="https://js.stripe.com/v3/" defer></script>'
                 .catch(() => alert('Request failed'));
             }
             </script>
+
+<!-- ── Link Property Modal ─────────────────────────────────────────── -->
+<div class="modal fade" id="linkPropertyModal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i data-feather="link" style="width:15px;height:15px;vertical-align:-2px;margin-right:6px;"></i> Link Property</h5>
+                <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">Property</label>
+                    <input type="hidden" id="linkPropHiddenId">
+                    <div style="position:relative;">
+                        <input type="text" id="linkPropSearch" class="form-control" autocomplete="off" placeholder="Search by address…">
+                        <div id="linkPropResults" style="display:none;position:absolute;z-index:1060;width:100%;background:#fff;border:1px solid #dee2e6;border-radius:4px;max-height:200px;overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,.1);top:100%;left:0;"></div>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-sm-6">
+                        <div class="form-group">
+                            <label class="form-label">Relationship</label>
+                            <select id="linkPropRelType" class="form-control">
+                                <option value="manager" selected>Manager</option>
+                                <option value="owner">Owner</option>
+                                <option value="billing">Billing</option>
+                                <option value="tenant">Tenant</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col-sm-6 d-flex align-items-end pb-3">
+                        <div class="custom-control custom-checkbox">
+                            <input type="checkbox" class="custom-control-input" id="linkPropIsPrimary" checked>
+                            <label class="custom-control-label" for="linkPropIsPrimary">Mark as Primary</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="linkPropSaveBtn">
+                    <i data-feather="link" style="width:13px;height:13px;"></i> Link Property
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    var COMPANY_ID = <?= (int)$companyId ?>;
+    var CSRF = '<?= generateCSRFToken() ?>';
+
+    // ── Property search autocomplete ───────────────────────────────────
+    var searchInput = document.getElementById('linkPropSearch');
+    var hiddenId    = document.getElementById('linkPropHiddenId');
+    var resultsBox  = document.getElementById('linkPropResults');
+    var debounceTimer;
+
+    searchInput.addEventListener('input', function () {
+        clearTimeout(debounceTimer);
+        var q = this.value.trim();
+        hiddenId.value = '';
+        if (q.length < 2) { resultsBox.style.display = 'none'; return; }
+        debounceTimer = setTimeout(function () {
+            fetch('/crm/api/client-search.php?action=search&type=property&q=' + encodeURIComponent(q))
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    resultsBox.innerHTML = '';
+                    var items = (data && data.results) ? data.results : [];
+                    if (!items.length) {
+                        // fallback: search all-contacts properties via different endpoint
+                        return fetch('/crm/api/client-search.php?action=all-contacts')
+                            .then(function(r2){return r2.json();})
+                            .then(function(d2){
+                                // Try direct property search
+                                resultsBox.innerHTML = '<div style="padding:8px 12px;color:#6c757d;font-size:13px;">No results — try fewer words</div>';
+                                resultsBox.style.display = 'block';
+                            });
+                    }
+                    items.forEach(function (p) {
+                        var item = document.createElement('div');
+                        item.style.cssText = 'padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid #f0f0f0;';
+                        item.textContent = p.label + (p.sublabel ? ' — ' + p.sublabel : '');
+                        item.addEventListener('mousedown', function (e) {
+                            e.preventDefault();
+                            searchInput.value = p.label;
+                            hiddenId.value = p.id;
+                            resultsBox.style.display = 'none';
+                        });
+                        item.addEventListener('mouseover', function () { this.style.background = '#f8f9fa'; });
+                        item.addEventListener('mouseout',  function () { this.style.background = ''; });
+                        resultsBox.appendChild(item);
+                    });
+                    resultsBox.style.display = 'block';
+                })
+                .catch(function () { resultsBox.style.display = 'none'; });
+        }, 250);
+    });
+    searchInput.addEventListener('blur', function () {
+        setTimeout(function () { resultsBox.style.display = 'none'; }, 150);
+    });
+
+    // ── Save ──────────────────────────────────────────────────────────
+    document.getElementById('linkPropSaveBtn').addEventListener('click', function () {
+        var propId = parseInt(hiddenId.value || '0', 10);
+        if (!propId) { alert('Please select a property from the list.'); return; }
+        var relType   = document.getElementById('linkPropRelType').value;
+        var isPrimary = document.getElementById('linkPropIsPrimary').checked ? 1 : 0;
+
+        fetch('/crm/companies/api.php', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                action: 'link_property',
+                company_id: COMPANY_ID,
+                property_id: propId,
+                relationship_type: relType,
+                is_primary: isPrimary,
+                csrf_token: CSRF
+            })
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+            if (d.success) {
+                $('#linkPropertyModal').modal('hide');
+                window.location.reload();
+            } else {
+                alert(d.error || 'Failed to link property.');
+            }
+        })
+        .catch(function () { alert('Network error.'); });
+    });
+
+    // ── Unlink ────────────────────────────────────────────────────────
+    window.unlinkProperty = function (propertyId) {
+        if (!confirm('Remove this property from the company?')) return;
+        fetch('/crm/companies/api.php', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                action: 'unlink_property',
+                company_id: COMPANY_ID,
+                property_id: propertyId,
+                csrf_token: CSRF
+            })
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+            if (d.success) window.location.reload();
+            else alert(d.error || 'Failed to unlink.');
+        });
+    };
+})();
+</script>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

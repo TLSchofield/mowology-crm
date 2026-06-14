@@ -310,6 +310,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
             'recurrence_day_of_week'   => $recurrenceDow,
             'horizon_days'             => intval($_POST['edit_horizon_days'] ?? 28),
             'crew_ids'                 => $crewIds,
+            'company_id'               => !empty($_POST['edit_company_id']) ? intval($_POST['edit_company_id']) : '',
         ];
 
         $result = updateJobPlan($planId, $planData, (int)$user['id']);
@@ -2345,6 +2346,24 @@ if ($hasPropCoords) {
             <form method="POST" id="editPlanForm">
                 <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
                 <input type="hidden" name="action" value="edit_plan">
+
+                <!-- Billing Company -->
+                <div class="mw-form-group mb-3">
+                    <label class="form-label">Billing Company <small class="text-muted">(strata / property manager)</small></label>
+                    <input type="hidden" name="edit_company_id" id="editPlanCompanyId"
+                           value="<?php echo (int)($plan['company_id'] ?? 0); ?>">
+                    <div style="position:relative;">
+                        <input type="text" id="editPlanCompanySearch" class="form-control" autocomplete="off"
+                               placeholder="Search company name…"
+                               value="<?php echo htmlspecialchars($plan['company_name'] ?? ''); ?>">
+                        <div id="editPlanCompanyResults"
+                             style="display:none;position:absolute;z-index:1060;width:100%;background:#fff;border:1px solid #dee2e6;border-radius:4px;max-height:200px;overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,.1);top:100%;left:0;"></div>
+                    </div>
+                    <?php if (!empty($plan['company_name'])): ?>
+                    <small class="text-muted">Currently: <?php echo htmlspecialchars($plan['company_name']); ?></small>
+                    <?php endif; ?>
+                </div>
+                <hr class="my-3">
 
                 <div class="mw-form-row">
                     <div class="mw-form-group" style="flex:2;">
@@ -4702,4 +4721,54 @@ if ($hasPropCoords) {
 }());
 </script>
 <?php endif; ?>
+<script>
+(function () {
+    var searchInput = document.getElementById('editPlanCompanySearch');
+    var hiddenId    = document.getElementById('editPlanCompanyId');
+    var resultsBox  = document.getElementById('editPlanCompanyResults');
+    if (!searchInput) return;
+
+    var debounceTimer;
+    searchInput.addEventListener('input', function () {
+        clearTimeout(debounceTimer);
+        var q = this.value.trim();
+        hiddenId.value = '';
+        if (q.length < 2) { resultsBox.style.display = 'none'; return; }
+        debounceTimer = setTimeout(function () {
+            fetch('/crm/api/client-search.php?action=search&type=company&q=' + encodeURIComponent(q))
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    resultsBox.innerHTML = '';
+                    var items = (data && data.results) ? data.results : [];
+                    if (!items.length) {
+                        resultsBox.innerHTML = '<div style="padding:8px 12px;color:#6c757d;font-size:13px;">No results</div>';
+                        resultsBox.style.display = 'block';
+                        return;
+                    }
+                    items.forEach(function (c) {
+                        var item = document.createElement('div');
+                        item.style.cssText = 'padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid #f0f0f0;';
+                        item.textContent = c.label + (c.sublabel ? ' — ' + c.sublabel : '');
+                        item.addEventListener('mousedown', function (e) {
+                            e.preventDefault();
+                            searchInput.value = c.label;
+                            hiddenId.value    = c.id;
+                            resultsBox.style.display = 'none';
+                        });
+                        item.addEventListener('mouseover', function () { this.style.background = '#f8f9fa'; });
+                        item.addEventListener('mouseout',  function () { this.style.background = ''; });
+                        resultsBox.appendChild(item);
+                    });
+                    resultsBox.style.display = 'block';
+                })
+                .catch(function () { resultsBox.style.display = 'none'; });
+        }, 250);
+    });
+
+    searchInput.addEventListener('blur', function () {
+        setTimeout(function () { resultsBox.style.display = 'none'; }, 150);
+    });
+})();
+</script>
+
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

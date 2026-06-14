@@ -107,6 +107,19 @@ $tierColors = [
     'warning'  => '#D32F2F',
 ];
 
+// Invoice icon: show only on completed per-visit stops (not monthly contracts)
+$hasInvoiceableVisits = false;
+$hasAnyInvoice        = false;
+$firstInvoiceId       = null;
+foreach ($stop['visits'] as $_iv) {
+    if (($_iv['pricing_model'] ?? 'per_visit') === 'per_visit') {
+        $hasInvoiceableVisits = true;
+        if (!empty($_iv['invoice_id'])) {
+            $hasAnyInvoice  = true;
+            $firstInvoiceId = $firstInvoiceId ?? (int)$_iv['invoice_id'];
+        }
+    }
+}
 // Status badge
 $statusBadges = [
     'in_progress' => ['label' => 'In Progress', 'class' => 'mw-mc-badge-progress'],
@@ -115,6 +128,9 @@ $statusBadges = [
 ];
 $badge = $statusBadges[$visitStatus] ?? null;
 $stopStatus = $stop['stop_status'] ?? 'scheduled';
+
+$isStopDone       = ($stopStatus === 'completed' || $stopStatus === 'skipped' || $visitStatus === 'completed');
+$showInvoiceBadge = $hasInvoiceableVisits && $isStopDone;
 
 // Duration display
 $durationDisplay = '';
@@ -227,28 +243,46 @@ $orStatusLabel = ($orStatus === 'enrolled') ? 'Active Program' : (($orStatus ===
         <div class="mw-mc-tier-strip" style="background: <?php echo $tierColors[$clientTier]; ?>"></div>
     <?php endif; ?>
 
-    <div class="mw-mc-accent" style="background: <?php echo $accentColor; ?>"></div>
+    <div class="mw-mc-accent" style="background: <?php echo ($stopStatus === 'completed' || $stopStatus === 'skipped' || $visitStatus === 'completed' || $visitStatus === 'skipped') ? '#9ca3af' : $accentColor; ?>"></div>
 
     <div class="mw-mc-card-body">
     <div class="mw-mc-flip-inner">
     <div class="mw-mc-flip-front">
         <div class="mw-mc-card-header">
-            <!-- Top row: uses exact same classes as compact card (.mw-mc-compact-main) — proven to work -->
-            <div class="mw-mc-compact-main">
-                <div class="mw-mc-compact-info">
-                    <div class="mw-mc-time-row">
+            <div class="mw-mc-active-hdr">
+                <div class="mw-mc-active-hdr-info">
+                    <?php if ($primaryPlanTitle || $serviceLabelsStr): ?>
+                        <div class="mw-mc-title"><?php echo htmlspecialchars($primaryPlanTitle ?: $serviceLabelsStr); ?></div>
+                    <?php endif; ?>
+                    <?php if ($clientName): ?>
+                        <div class="mw-mc-client mw-mc-client-headline"><?php echo $clientName; ?></div>
+                    <?php endif; ?>
+                    <div class="mw-mc-address">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                        <?php echo $fullAddress; ?>
+                    </div>
+                    <div class="mw-mc-active-meta">
                         <?php if ($timeDisplay): ?>
-                            <span class="mw-mc-time"><?php echo htmlspecialchars($timeDisplay); ?></span>
+                            <span class="mw-mc-active-meta-time"><?php echo htmlspecialchars($timeDisplay); ?></span>
                         <?php endif; ?>
                         <?php if ($durationDisplay): ?>
-                            <span class="mw-mc-duration"><?php echo htmlspecialchars($durationDisplay); ?></span>
+                            <span class="mw-mc-active-meta-sep">·</span>
+                            <span class="mw-mc-active-meta-item"><?php echo htmlspecialchars($durationDisplay); ?></span>
+                        <?php endif; ?>
+                        <?php if ($lawnSqFtDisplay): ?>
+                            <span class="mw-mc-active-meta-sep">·</span>
+                            <span class="mw-mc-active-meta-item"><?php echo htmlspecialchars($lawnSqFtDisplay); ?></span>
+                        <?php endif; ?>
+                        <?php if ($lastVisitDisplay): ?>
+                            <span class="mw-mc-active-meta-sep">·</span>
+                            <span class="mw-mc-active-meta-item">Last: <?php echo htmlspecialchars($lastVisitDisplay); ?></span>
                         <?php endif; ?>
                         <?php if ($badge): ?>
                             <span class="mw-mc-badge <?php echo $badge['class']; ?>"><?php echo $badge['label']; ?></span>
                         <?php endif; ?>
                     </div>
                 </div>
-                <?php if ($stopStatus !== 'completed' && $stopStatus !== 'skipped'): ?>
+                <?php if (!$isStopDone): ?>
                 <div class="mw-mc-header-actions">
                     <?php if ($contactPhone): ?>
                     <a href="tel:<?php echo htmlspecialchars($contactPhone); ?>"
@@ -259,43 +293,14 @@ $orStatusLabel = ($orStatus === 'enrolled') ? 'Active Program' : (($orStatus ===
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
                     </a>
                     <?php endif; ?>
-                    <button type="button" class="mw-mc-btn-route mw-mc-compact-route mw-mc-compact-go"
+                    <button type="button" class="mw-mc-btn-route mw-mc-compact-route mw-mc-compact-go mw-mc-go-icon-only"
                             data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
                             data-address="<?php echo htmlspecialchars($stop['property_address'] ?? ''); ?>">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
-                        <span>GO</span>
                     </button>
                 </div>
                 <?php endif; ?>
             </div>
-
-            <h3 class="mw-mc-title"><?php echo htmlspecialchars($primaryPlanTitle ?: $serviceLabelsStr); ?></h3>
-
-            <div class="mw-mc-address">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
-                <?php echo $fullAddress; ?>
-            </div>
-
-            <?php if ($clientName): ?>
-                <div class="mw-mc-client">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-                    <?php echo $clientName; ?>
-                </div>
-            <?php endif; ?>
-
-            <?php if ($lawnSqFtDisplay): ?>
-                <div class="mw-mc-lawn-sqft">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="1"/><path d="M3 9h18M9 3v18"/></svg>
-                    <?php echo htmlspecialchars($lawnSqFtDisplay); ?>
-                </div>
-            <?php endif; ?>
-
-            <?php if ($lastVisitDisplay): ?>
-                <div class="mw-mc-last-visit">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                    Last visit: <?php echo htmlspecialchars($lastVisitDisplay); ?>
-                </div>
-            <?php endif; ?>
 
             <?php echo renderPropertyTags($stopTags, $tagIcons); ?>
 
@@ -503,6 +508,7 @@ $orStatusLabel = ($orStatus === 'enrolled') ? 'Active Program' : (($orStatus ===
 <div class="mw-mc-card mw-mc-card-compact <?php echo ($stopStatus === 'completed') ? 'mw-mc-card-completed' : ''; ?>"
      data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
      data-visit-id="<?php echo $visitId; ?>"
+     data-pricing-model="<?php echo htmlspecialchars($stop['visits'][0]['pricing_model'] ?? 'per_visit'); ?>"
      data-lat="<?php echo htmlspecialchars($stop['latitude'] ?? ''); ?>"
      data-lng="<?php echo htmlspecialchars($stop['longitude'] ?? ''); ?>">
 
@@ -510,22 +516,31 @@ $orStatusLabel = ($orStatus === 'enrolled') ? 'Active Program' : (($orStatus ===
         <div class="mw-mc-tier-strip" style="background: <?php echo $tierColors[$clientTier]; ?>"></div>
     <?php endif; ?>
 
-    <div class="mw-mc-accent" style="background: <?php echo $accentColor; ?>"></div>
+    <div class="mw-mc-accent" style="background: <?php echo ($stopStatus === 'completed' || $stopStatus === 'skipped' || $visitStatus === 'completed' || $visitStatus === 'skipped') ? '#9ca3af' : $accentColor; ?>"></div>
 
     <div class="mw-mc-card-body">
         <div class="mw-mc-compact-main">
             <div class="mw-mc-compact-info">
-                <!-- Line 1: Time + Client Name (ALL CAPS) -->
+                <!-- Line 1: Time + Phone + Client Name (ALL CAPS) -->
                 <div class="mw-mc-compact-line1">
                     <?php if ($timeDisplay): ?>
                         <span class="mw-mc-compact-time"><?php echo htmlspecialchars($timeDisplay); ?></span>
+                    <?php endif; ?>
+                    <?php if ($contactPhone && $stopStatus !== 'completed' && $stopStatus !== 'skipped'): ?>
+                    <a href="tel:<?php echo htmlspecialchars($contactPhone); ?>"
+                       class="mw-mc-compact-phone"
+                       data-haptic="tap"
+                       aria-label="Call <?php echo htmlspecialchars($clientName ?: 'customer'); ?>"
+                       onclick="event.stopPropagation();">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                    </a>
                     <?php endif; ?>
                     <?php if ($clientName): ?>
                         <span class="mw-mc-compact-client"><?php echo strtoupper($clientName); ?></span>
                     <?php else: ?>
                         <span class="mw-mc-compact-title"><?php echo htmlspecialchars($primaryPlanTitle ?: $serviceLabelsStr); ?></span>
                     <?php endif; ?>
-                    <?php if ($badge): ?>
+                    <?php if ($badge && $visitStatus === 'in_progress'): ?>
                         <span class="mw-mc-badge <?php echo $badge['class']; ?>"><?php echo $badge['label']; ?></span>
                     <?php endif; ?>
                 </div>
@@ -533,26 +548,6 @@ $orStatusLabel = ($orStatus === 'enrolled') ? 'Active Program' : (($orStatus ===
                 <div class="mw-mc-compact-line2"><?php echo $fullAddress; ?></div>
             </div>
 
-            <?php if ($stopStatus !== 'completed' && $stopStatus !== 'skipped'): ?>
-                <div class="mw-mc-header-actions">
-                    <?php if ($contactPhone): ?>
-                    <a href="tel:<?php echo htmlspecialchars($contactPhone); ?>"
-                       class="mw-mc-btn-call"
-                       data-haptic="tap"
-                       aria-label="Call <?php echo htmlspecialchars($clientName ?: 'customer'); ?>"
-                       onclick="event.stopPropagation();">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
-                    </a>
-                    <?php endif; ?>
-                    <button type="button" class="mw-mc-compact-route mw-mc-compact-go"
-                            data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
-                            data-address="<?php echo htmlspecialchars($stop['property_address'] ?? ''); ?>"
-                            onclick="event.stopPropagation(); (function(sid){ var isMobile=window.matchMedia('(max-width:991px)').matches||('ontouchstart' in window&&window.innerWidth<=991); if(isMobile&&typeof MwRouteMap!=='undefined'&&MwRouteMap.launchNavToStop){MwRouteMap.launchNavToStop(sid);return;} if(typeof MwRouteMap!=='undefined')MwRouteMap.openToStop(sid); })(<?php echo (int)$stop['stop_id']; ?>);">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
-                        GO
-                    </button>
-                </div>
-            <?php endif; ?>
         </div>
 
         <?php if (!empty($stop['visits'])): ?>
@@ -775,6 +770,38 @@ $orStatusLabel = ($orStatus === 'enrolled') ? 'Active Program' : (($orStatus ===
         <?php endif; ?>
 
     </div><!-- /.mw-mc-card-body -->
+
+    <?php if (!$isStopDone): ?>
+    <button type="button" class="mw-mc-compact-route mw-mc-compact-go mw-mc-go-icon-only"
+            data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
+            data-address="<?php echo htmlspecialchars($stop['property_address'] ?? ''); ?>"
+            onclick="event.stopPropagation(); (function(sid){ var isMobile=window.matchMedia('(max-width:991px)').matches||('ontouchstart' in window&&window.innerWidth<=991); if(isMobile&&typeof MwRouteMap!=='undefined'&&MwRouteMap.launchNavToStop){MwRouteMap.launchNavToStop(sid);return;} if(typeof MwRouteMap!=='undefined')MwRouteMap.openToStop(sid); })(<?php echo (int)$stop['stop_id']; ?>);">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+    </button>
+    <?php endif; ?>
+
+    <?php if ($isStopDone):
+        $chipVariant = $hasInvoiceableVisits ? ($hasAnyInvoice ? 'mw-mc-stop-chip-sent' : 'mw-mc-stop-chip-pending') : 'mw-mc-stop-chip-neutral';
+        $chipLabel   = ($stopStatus === 'skipped' || $visitStatus === 'skipped') ? 'Skipped' : 'Completed';
+    ?>
+    <div class="mw-mc-stop-chip <?php echo $chipVariant; ?>">
+        <span class="mw-mc-stop-chip-label"><?php echo $chipLabel; ?></span>
+        <?php if ($hasInvoiceableVisits): ?>
+        <span class="mw-mc-stop-chip-divider"></span>
+        <a class="mw-mc-stop-chip-icon"
+           href="<?php echo $hasAnyInvoice && $firstInvoiceId ? '/crm/invoices/view.php?id=' . $firstInvoiceId : '/crm/invoices/create.php?stop_id=' . (int)$stop['stop_id']; ?>"
+           title="<?php echo $hasAnyInvoice ? 'View invoice' : 'Invoice not sent — tap to create'; ?>"
+           onclick="event.stopPropagation();">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+                <line x1="12" y1="18" x2="12" y2="12"/>
+                <line x1="9" y1="15" x2="15" y2="15"/>
+            </svg>
+        </a>
+        <?php endif; ?>
+    </div>
+    <?php endif; ?>
 
     <!-- Hidden camera input for photo capture -->
     <input type="file" class="mw-mc-camera-input" accept="image/*" capture="environment"

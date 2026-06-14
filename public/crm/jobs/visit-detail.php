@@ -1340,43 +1340,6 @@ $activePage = 'jobs';
     return d.innerHTML;
   }
 
-})();
-
-// ── Visit flag (heart) toggle ────────────────────────────────────────────────
-(function() {
-  var btn = document.querySelector('.mw-visit-flag-btn');
-  if (!btn) return;
-
-  // Lightbox on trio photo links
-  document.querySelectorAll('.mw-trio-photo-link').forEach(function(img) {
-    img.style.cursor = 'pointer';
-    img.addEventListener('click', function() {
-      var url = img.dataset.viewUrl;
-      if (url) window.open(url, '_blank');
-    });
-  });
-
-  btn.addEventListener('click', function() {
-    btn.disabled = true;
-    fetch('/crm/api/visit-flag.php', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-      body: 'visit_id=' + encodeURIComponent(btn.dataset.visitId)
-          + '&csrf_token=' + encodeURIComponent(btn.dataset.csrf)
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-      if (data.success) {
-        btn.classList.toggle('active', data.is_flagged);
-        btn.title = data.is_flagged
-          ? 'Endorsed — tap to remove'
-          : 'Endorse this visit for review + marketing';
-      }
-    })
-    .catch(function() { /* silent — UI reverts on next load */ })
-    .finally(function() { btn.disabled = false; });
-  });
-
   // ── Reschedule ──────────────────────────────────────────────────────────
   var btnReschedule = document.getElementById('btn-reschedule');
   if (btnReschedule) {
@@ -1429,6 +1392,43 @@ $activePage = 'jobs';
       });
     });
   }
+
+})();
+
+// ── Visit flag (heart) toggle ────────────────────────────────────────────────
+(function() {
+  var btn = document.querySelector('.mw-visit-flag-btn');
+  if (!btn) return;
+
+  // Lightbox on trio photo links
+  document.querySelectorAll('.mw-trio-photo-link').forEach(function(img) {
+    img.style.cursor = 'pointer';
+    img.addEventListener('click', function() {
+      var url = img.dataset.viewUrl;
+      if (url) window.open(url, '_blank');
+    });
+  });
+
+  btn.addEventListener('click', function() {
+    btn.disabled = true;
+    fetch('/crm/api/visit-flag.php', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: 'visit_id=' + encodeURIComponent(btn.dataset.visitId)
+          + '&csrf_token=' + encodeURIComponent(btn.dataset.csrf)
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.success) {
+        btn.classList.toggle('active', data.is_flagged);
+        btn.title = data.is_flagged
+          ? 'Endorsed — tap to remove'
+          : 'Endorse this visit for review + marketing';
+      }
+    })
+    .catch(function() { /* silent — UI reverts on next load */ })
+    .finally(function() { btn.disabled = false; });
+  });
 
 })();
 </script>

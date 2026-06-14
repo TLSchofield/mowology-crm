@@ -205,6 +205,10 @@ $activePage = 'invoices';
                     <button type="button" class="btn btn-sm btn-outline-secondary" onclick="mwClearSelection()">
                         Clear
                     </button>
+                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="mwBulkResend()">
+                        <i data-feather="send" style="width:14px;height:14px;margin-right:4px;vertical-align:middle;"></i>
+                        Resend Selected
+                    </button>
                     <button type="button" class="btn btn-sm btn-success" onclick="mwOpenBulkPayment()">
                         <i data-feather="check-circle" style="width:14px;height:14px;margin-right:4px;vertical-align:middle;"></i>
                         Record Payment
@@ -482,6 +486,25 @@ $activePage = 'invoices';
 <!-- ════════════════════════════════════════════════════════════════════════ -->
 <!-- Toast notification                                                        -->
 <!-- ════════════════════════════════════════════════════════════════════════ -->
+<!-- Bulk Resend Results Modal -->
+<div id="mw-resend-modal" class="mw-modal-overlay" style="display:none;" role="dialog" aria-modal="true">
+    <div class="mw-modal" style="max-width:540px;">
+        <div class="mw-modal-header">
+            <h5 class="mb-0" id="mw-resend-modal-title">Resend Invoices</h5>
+            <button type="button" class="mw-modal-close" onclick="mwCloseResendModal()" aria-label="Close">&times;</button>
+        </div>
+        <div class="mw-modal-body" id="mw-resend-body" style="max-height:380px;overflow-y:auto;">
+            <div style="text-align:center;padding:30px 0;">
+                <span class="spinner-border text-primary" role="status"></span>
+                <p class="mt-2 text-muted">Sending&hellip;</p>
+            </div>
+        </div>
+        <div class="mw-modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="mwCloseResendModal()">Close</button>
+        </div>
+    </div>
+</div>
+
 <div id="mw-toast" class="mw-toast" role="alert" aria-live="assertive" style="display:none;"></div>
 
 <script>
@@ -532,6 +555,73 @@ $activePage = 'invoices';
         if (master) master.checked = false;
         mwUpdateBulkBar();
     };
+
+    // ── Bulk Resend ────────────────────────────────────────────────────────────
+    window.mwBulkResend = function () {
+        var ids = Object.keys(selected).map(Number);
+        if (ids.length === 0) return;
+
+        var modal = document.getElementById('mw-resend-modal');
+        var body  = document.getElementById('mw-resend-body');
+        document.getElementById('mw-resend-modal-title').textContent = 'Resending ' + ids.length + ' invoice' + (ids.length === 1 ? '' : 's') + '…';
+        body.innerHTML = '<div style="text-align:center;padding:30px 0;"><span class="spinner-border text-primary" role="status"></span><p class="mt-2 text-muted">Generating PDFs and sending emails&hellip;</p></div>';
+        modal.style.display = 'flex';
+
+        fetch('bulk-resend.php', {
+            method : 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            body   : JSON.stringify({ csrf_token: CSRF_TOKEN, invoice_ids: ids }),
+        })
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+            if (!data.success) {
+                body.innerHTML = '<div class="alert alert-danger">' + escHtml(data.error || 'An error occurred.') + '</div>';
+                return;
+            }
+            var ok   = data.results.filter(function (r) { return r.success; });
+            var fail = data.results.filter(function (r) { return !r.success; });
+
+            document.getElementById('mw-resend-modal-title').textContent = 'Resend Complete';
+
+            var html = '';
+            if (ok.length) {
+                html += '<p class="text-success mb-2"><strong>' + ok.length + ' sent successfully</strong></p>';
+                html += '<ul class="list-unstyled mb-3">';
+                ok.forEach(function (r) {
+                    html += '<li style="padding:4px 0;border-bottom:1px solid #f0f0f0;font-size:13px;">'
+                         + '<span class="badge badge-success mr-2">✓</span>'
+                         + '<strong>' + escHtml(r.invoice_number) + '</strong> → ' + escHtml(r.sent_to) + '</li>';
+                });
+                html += '</ul>';
+            }
+            if (fail.length) {
+                html += '<p class="text-danger mb-2"><strong>' + fail.length + ' failed</strong></p>';
+                html += '<ul class="list-unstyled">';
+                fail.forEach(function (r) {
+                    html += '<li style="padding:4px 0;font-size:13px;">'
+                         + '<span class="badge badge-danger mr-2">✗</span>'
+                         + '<strong>' + escHtml(r.invoice_number || '#' + r.id) + '</strong>: ' + escHtml(r.error || 'Failed') + '</li>';
+                });
+                html += '</ul>';
+            }
+            body.innerHTML = html;
+            if (ok.length) {
+                mwClearSelection();
+                setTimeout(function () { window.location.reload(); }, 2500);
+            }
+        })
+        .catch(function (err) {
+            console.error('[mwBulkResend]', err);
+            body.innerHTML = '<div class="alert alert-danger">Network error — please try again.</div>';
+        });
+    };
+
+    window.mwCloseResendModal = function () {
+        document.getElementById('mw-resend-modal').style.display = 'none';
+    };
+    document.getElementById('mw-resend-modal').addEventListener('click', function (e) {
+        if (e.target === this) mwCloseResendModal();
+    });
 
     // ── Open modal (bulk) ──────────────────────────────────────────────────────
     window.mwOpenBulkPayment = function () {

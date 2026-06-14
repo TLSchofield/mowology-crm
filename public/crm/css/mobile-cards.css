@@ -443,9 +443,93 @@
         min-width: 0;
     }
 
-    /* ── Completed card fade ── */
-    .mw-mc-card-completed {
+    /* ── Completed card fade: fade card-body only so the invoice badge stays crisp ── */
+    .mw-mc-card-completed .mw-mc-card-body {
         opacity: 0.5;
+    }
+
+    /* ── Stop status chip: COMPLETED label joined to invoice icon ── */
+    .mw-mc-stop-chip {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        z-index: 3;
+        display: inline-flex;
+        align-items: stretch;
+        border-radius: 10px;
+        overflow: hidden;
+        border-left: 3px solid;
+        border-top: 1px solid;
+        border-right: 1px solid;
+        border-bottom: 1px solid;
+    }
+
+    .mw-mc-stop-chip-label {
+        display: flex;
+        align-items: center;
+        padding: 8px 14px;
+        font-size: 0.75rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+        white-space: nowrap;
+    }
+
+    .mw-mc-stop-chip-divider {
+        width: 1px;
+        background: currentColor;
+        opacity: 0.2;
+        flex-shrink: 0;
+    }
+
+    .mw-mc-stop-chip-icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 8px 13px;
+        text-decoration: none;
+        color: inherit;
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .mw-mc-stop-chip-icon:active {
+        opacity: 0.7;
+    }
+
+    /* Green — invoice sent */
+    .mw-mc-stop-chip-sent {
+        color: #2D8659;
+        background: #EDF7F0;
+        border-color: rgba(45, 134, 89, 0.28);
+        border-left-color: #2D8659;
+    }
+
+    /* Red — invoice not yet sent */
+    .mw-mc-stop-chip-pending {
+        color: #dc2626;
+        background: #FEF2F2;
+        border-color: rgba(220, 38, 38, 0.28);
+        border-left-color: #dc2626;
+    }
+
+    /* Neutral — monthly billing (no invoice needed) */
+    .mw-mc-stop-chip-neutral {
+        color: #64748b;
+        background: #f1f5f9;
+        border-color: rgba(100, 116, 139, 0.28);
+        border-left-color: #64748b;
+    }
+
+    /* Compact GO button — bottom-right of card */
+    .mw-mc-card-compact .mw-mc-compact-go {
+        position: absolute;
+        bottom: 12px;
+        right: 12px;
+    }
+
+    /* Clear GO button area so pills don't overlap it */
+    .mw-mc-card-compact:not(.mw-mc-card-completed) .mw-mc-card-body {
+        padding-bottom: 62px;
     }
 
     /* ════════════════════════════════════════════════════
@@ -458,6 +542,51 @@
 
     .mw-mc-card-active .mw-mc-accent {
         width: 6px;
+    }
+
+    /* ── Active card header: 2-column (info left, actions right) ── */
+    .mw-mc-active-hdr {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        margin-bottom: 10px;
+    }
+
+    .mw-mc-active-hdr-info {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .mw-mc-active-hdr .mw-mc-header-actions {
+        flex-shrink: 0;
+        align-self: flex-start;
+        margin-top: 1px;
+    }
+
+    /* Meta row: time · duration · last visit */
+    .mw-mc-active-meta {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        flex-wrap: wrap;
+        margin-top: 5px;
+    }
+
+    .mw-mc-active-meta-time {
+        font-size: 0.72rem;
+        font-weight: 600;
+        color: #64748b;
+    }
+
+    .mw-mc-active-meta-sep {
+        font-size: 0.68rem;
+        color: #cbd5e1;
+        line-height: 1;
+    }
+
+    .mw-mc-active-meta-item {
+        font-size: 0.72rem;
+        color: #94a3b8;
     }
 
     /* Time row */
@@ -483,12 +612,14 @@
         border-radius: 20px;
     }
 
-    /* Title */
+    /* Plan label (small uppercase above client name in active card) */
     .mw-mc-title {
-        font-size: 1rem;
-        font-weight: 600;
-        color: #212529;
-        margin: 0 0 8px 0;
+        font-size: 0.66rem;
+        font-weight: 700;
+        color: #94a3b8;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        margin: 0 0 4px 0;
         line-height: 1.3;
     }
 
@@ -496,30 +627,43 @@
     .mw-mc-address {
         display: flex;
         align-items: center;
-        gap: 6px;
-        font-size: 0.85rem;
-        color: #6c757d;
-        margin-bottom: 4px;
+        gap: 5px;
+        font-size: 0.81rem;
+        color: #64748b;
+        margin-bottom: 5px;
     }
 
     .mw-mc-address svg {
         flex-shrink: 0;
-        color: #9e9e9e;
+        color: #94a3b8;
     }
 
-    /* Client name */
+    /* Client name — base style (expand-detail in compact card) */
     .mw-mc-client {
         display: flex;
         align-items: center;
         gap: 6px;
         font-size: 0.85rem;
-        color: #6c757d;
+        color: #64748b;
         margin-bottom: 6px;
     }
 
     .mw-mc-client svg {
         flex-shrink: 0;
         color: #9e9e9e;
+    }
+
+    /* Client name — headline style (active card only) */
+    .mw-mc-client-headline {
+        font-size: 1.15rem;
+        font-weight: 800;
+        color: #0f172a;
+        letter-spacing: 0.01em;
+        margin-bottom: 5px;
+    }
+
+    .mw-mc-client-headline svg {
+        display: none;
     }
 
     /* Lawn sq ft measurement badge */
@@ -738,10 +882,11 @@
     }
 
     .mw-mc-compact-time {
-        font-size: 0.85rem;
-        font-weight: 700;
-        color: #1a1a1a;
+        font-size: 0.68rem;
+        font-weight: 600;
+        color: #94a3b8;
         flex-shrink: 0;
+        letter-spacing: 0.03em;
     }
 
     .mw-mc-compact-title {
@@ -756,11 +901,11 @@
     }
 
     .mw-mc-compact-client {
-        font-size: 0.85rem;
-        font-weight: 700;
-        color: #1a1a1a;
+        font-size: 0.97rem;
+        font-weight: 800;
+        color: #0f172a;
         text-transform: uppercase;
-        letter-spacing: 0.02em;
+        letter-spacing: 0.025em;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -827,10 +972,37 @@
         color: #fff !important;
     }
 
+    /* Inline phone icon — sits between time and client name */
+    .mw-mc-compact-phone {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        color: #94a3b8;
+        text-decoration: none;
+        -webkit-tap-highlight-color: transparent;
+        padding: 4px;
+        margin: -4px 0;
+    }
+
+    .mw-mc-compact-phone:active {
+        color: var(--mw-green, #2D8659);
+        text-decoration: none;
+    }
+
+    /* GO button: square icon-only */
+    .mw-mc-go-icon-only {
+        width: 40px !important;
+        height: 40px !important;
+        padding: 0 !important;
+        justify-content: center;
+        border-radius: 10px !important;
+    }
+
     .mw-mc-compact-line2 {
-        font-size: 0.78rem;
-        color: #9e9e9e;
-        margin-top: 2px;
+        font-size: 0.79rem;
+        color: #64748b;
+        margin-top: 3px;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -947,22 +1119,25 @@
     }
 
     .mw-mc-card-hero .mw-mc-compact-time {
-        font-size: 1.25rem;
-        font-weight: 700;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #94a3b8;
     }
 
     .mw-mc-card-hero .mw-mc-compact-title {
-        font-size: 1.2rem;
-        font-weight: 700;
+        font-size: 1.25rem;
+        font-weight: 800;
         white-space: normal;
         overflow: visible;
+        color: #0f172a;
     }
 
     .mw-mc-card-hero .mw-mc-compact-client {
-        font-size: 1.2rem;
-        font-weight: 700;
+        font-size: 1.25rem;
+        font-weight: 800;
         white-space: normal;
         overflow: visible;
+        color: #0f172a;
     }
 
     .mw-mc-card-hero .mw-mc-compact-line2 {
@@ -5318,4 +5493,330 @@ button.mw-mc-or-full-tile:active { opacity: 0.82; }
 .mw-mc-ap-finish-btn:active {
     background: #1A5F4A;
     transform: scale(0.98);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   Invoice Sheet — post-completion invoice flow
+   ══════════════════════════════════════════════════════════════ */
+
+.mw-invoice-sheet {
+    position: fixed;
+    inset: 0;
+    z-index: 9800;
+    pointer-events: none;
+}
+
+.mw-invoice-sheet.mw-invoice-sheet-open {
+    pointer-events: auto;
+}
+
+.mw-inv-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(13, 59, 46, 0.55);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.mw-invoice-sheet-open .mw-inv-backdrop {
+    opacity: 1;
+}
+
+.mw-inv-panel {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: #fff;
+    border-radius: 20px 20px 0 0;
+    padding: 0 0 env(safe-area-inset-bottom, 12px);
+    max-height: 92vh;
+    overflow-y: auto;
+    transform: translateY(100%);
+    transition: transform 0.32s cubic-bezier(0.32, 0.72, 0, 1);
+    box-shadow: 0 -4px 32px rgba(0,0,0,0.18);
+}
+
+.mw-invoice-sheet-open .mw-inv-panel {
+    transform: translateY(0);
+}
+
+.mw-inv-handle {
+    width: 40px;
+    height: 4px;
+    background: #d1d5db;
+    border-radius: 2px;
+    margin: 12px auto 20px;
+}
+
+/* Header */
+.mw-inv-hdr {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 0 20px 20px;
+    border-bottom: 1px solid #f0f4f2;
+}
+
+.mw-inv-hdr-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.mw-inv-hdr-icon-done {
+    background: #e8f3f0;
+    color: var(--mw-green, #2D8659);
+}
+
+.mw-inv-hdr-icon-inv {
+    background: #eef2fb;
+    color: #3b5bdb;
+}
+
+.mw-inv-hdr-title {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--mw-forest, #0D3B2E);
+    line-height: 1.2;
+}
+
+.mw-inv-hdr-sub {
+    font-size: 0.85rem;
+    color: #64748b;
+    margin-top: 2px;
+    font-weight: 500;
+}
+
+/* Sections */
+.mw-inv-section {
+    padding: 18px 20px 0;
+}
+
+.mw-inv-section-label {
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #64748b;
+    margin-bottom: 10px;
+}
+
+.mw-inv-optional {
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 0.75rem;
+    color: #94a3b8;
+}
+
+/* Extras buttons */
+.mw-inv-extras-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+}
+
+.mw-inv-extra-btn {
+    padding: 9px 16px;
+    background: #f0f4f2;
+    border: 1.5px solid #d1e8de;
+    border-radius: 10px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--mw-dark, #1A5F4A);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.12s, transform 0.1s;
+}
+
+.mw-inv-extra-btn:active {
+    background: #d4ede4;
+    transform: scale(0.95);
+}
+
+.mw-inv-extras-summary {
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 14px;
+    background: #f8fafb;
+    border-radius: 10px;
+    font-size: 0.875rem;
+}
+
+.mw-inv-extras-none {
+    color: #94a3b8;
+    font-style: italic;
+}
+
+.mw-inv-extras-val {
+    color: var(--mw-forest, #0D3B2E);
+    flex: 1;
+}
+
+.mw-inv-extras-clear {
+    background: none;
+    border: none;
+    color: #dc2626;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 6px;
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* Textarea */
+.mw-inv-textarea {
+    width: 100%;
+    border: 1.5px solid #d1d5db;
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 0.9rem;
+    font-family: inherit;
+    color: #1e293b;
+    background: #fff;
+    resize: none;
+    box-sizing: border-box;
+    line-height: 1.5;
+    -webkit-appearance: none;
+}
+
+.mw-inv-textarea:focus {
+    outline: none;
+    border-color: var(--mw-green, #2D8659);
+    box-shadow: 0 0 0 3px rgba(45, 134, 89, 0.12);
+}
+
+/* Actions */
+.mw-inv-actions {
+    padding: 20px 20px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.mw-inv-btn-primary {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    padding: 15px;
+    background: var(--mw-green, #2D8659);
+    color: #fff;
+    border: none;
+    border-radius: 12px;
+    font-size: 0.95rem;
+    font-weight: 700;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.15s, transform 0.1s;
+}
+
+.mw-inv-btn-primary:active:not(:disabled) {
+    background: var(--mw-dark, #1A5F4A);
+    transform: scale(0.98);
+}
+
+.mw-inv-btn-primary:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+}
+
+.mw-inv-btn-skip,
+.mw-inv-btn-secondary {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    padding: 12px;
+    background: none;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 12px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #64748b;
+    cursor: pointer;
+    text-decoration: none;
+    -webkit-tap-highlight-color: transparent;
+    box-sizing: border-box;
+}
+
+.mw-inv-btn-secondary {
+    color: var(--mw-green, #2D8659);
+    border-color: #d1e8de;
+}
+
+/* Invoice preview */
+.mw-inv-preview-lines {
+    margin: 0 20px;
+    border: 1px solid #e8f3f0;
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.mw-inv-preview-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 11px 16px;
+    font-size: 0.875rem;
+    color: #374151;
+    border-bottom: 1px solid #f0f4f2;
+}
+
+.mw-inv-preview-row:last-child {
+    border-bottom: none;
+}
+
+.mw-inv-preview-extras {
+    background: #fefce8;
+    color: #92400e;
+}
+
+.mw-inv-preview-gst {
+    background: #fafafa;
+    color: #6b7280;
+    font-size: 0.82rem;
+}
+
+.mw-inv-preview-total {
+    background: #e8f3f0;
+    font-weight: 700;
+    font-size: 1rem;
+    color: var(--mw-forest, #0D3B2E);
+}
+
+.mw-inv-preview-to {
+    margin: 12px 20px 0;
+    font-size: 0.82rem;
+    color: #6b7280;
+}
+
+.mw-inv-preview-to strong {
+    color: #374151;
+}
+
+/* Loading spinner */
+.mw-inv-spinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255,255,255,0.4);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: mw-inv-spin 0.7s linear infinite;
+    vertical-align: middle;
+}
+
+@keyframes mw-inv-spin {
+    to { transform: rotate(360deg); }
 }

@@ -615,7 +615,7 @@
 
                     // Check if ALL visits on this stop are now completed
                     var card = visits[visitId].pill.closest('.mw-mc-card');
-                    checkStopComplete(card);
+                    var stopJustCompleted = checkStopComplete(card);
 
                     // Fade out the active job panel
                     if (card) hideActivePanel(visitId, card);
@@ -630,9 +630,11 @@
                     // Hide per-visit section footer
                     pvSetDone(visitId);
 
-                    // Show completion feedback
+                    // Show completion feedback (invoice sheet handles per_visit stops)
                     var duration = data.duration_formatted || (data.duration_minutes + 'm');
-                    showToast(v.serviceLabel + ' completed (' + duration + ')');
+                    if (!stopJustCompleted) {
+                        showToast(v.serviceLabel + ' completed (' + duration + ')');
+                    }
                 } else {
                     showToast('Could not stop timer: ' + (data.error || data.message || 'Unknown error'));
                 }
@@ -1670,7 +1672,7 @@
      * Check if all visits on a stop are completed → mark card as completed
      */
     function checkStopComplete(card) {
-        if (!card) return;
+        if (!card) return false;
         var pills = card.querySelectorAll('.mw-mc-pill-interactive');
         var allDone = true;
 
@@ -1683,9 +1685,18 @@
 
         if (allDone && pills.length > 0) {
             card.classList.add('mw-mc-card-completed');
-            // Update progress bar in topbar
+            var accent = card.querySelector('.mw-mc-accent');
+            if (accent) accent.style.background = '#9ca3af';
             updateProgressBar();
+
+            // Trigger invoice sheet for per-visit stops
+            var pricingModel = card.dataset.pricingModel || 'per_visit';
+            if (pricingModel === 'per_visit') {
+                setTimeout(function() { showInvoiceSheet(card); }, 400);
+                return true;
+            }
         }
+        return false;
     }
 
     /**
@@ -2695,8 +2706,8 @@
                                     }
                                     pvSetDone(visitId);
                                     var card = footer.closest('.mw-mc-card');
-                                    if (card) checkStopComplete(card);
-                                    showToast('Job completed');
+                                    var stopComplete = card ? checkStopComplete(card) : false;
+                                    if (!stopComplete) showToast('Job completed');
                                 } else {
                                     showToast('Could not complete: ' + (data.error || 'Unknown error'));
                                     completeBtn.disabled = false;
@@ -3021,8 +3032,8 @@
                         footerSetIdle(stopId);
                         if (completeBtn) completeBtn.style.display = 'none';
                         pvSetDone(targetVisitId);
-                        if (card) checkStopComplete(card);
-                        showToast('Job completed');
+                        var stopComplete2 = card ? checkStopComplete(card) : false;
+                        if (!stopComplete2) showToast('Job completed');
                     } else {
                         showToast('Could not complete: ' + (data.error || 'Unknown error'));
                         if (completeBtn) {
@@ -3059,6 +3070,274 @@
     }
 
     window.MwPillWorkflow = { renderStripsForCard: renderStripsForCard };
+
+    // ═══════════════════════════════════════════════════════
+    //  INVOICE SHEET — post-completion flow for per_visit stops
+    // ═══════════════════════════════════════════════════════
+
+    function closeInvoiceSheet() {
+        var sheet = document.getElementById('mw-invoice-sheet');
+        if (!sheet) return;
+        sheet.classList.remove('mw-invoice-sheet-open');
+        setTimeout(function() {
+            if (sheet.parentNode) sheet.parentNode.removeChild(sheet);
+        }, 320);
+    }
+
+    function showInvoiceSheet(card) {
+        var visitId     = parseInt(card.dataset.visitId, 10);
+        var extrasRate  = (window.MW_SCHEDULE_STATE && MW_SCHEDULE_STATE.extrasRate) || 5.00;
+        var extrasMins  = 0;
+
+        var existing = document.getElementById('mw-invoice-sheet');
+        if (existing) existing.remove();
+
+        var SEND_ICON  = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>';
+        var NEXT_ICON  = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
+        var CHECK_ICON = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+        var INV_ICON   = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>';
+
+        var sheet = document.createElement('div');
+        sheet.id = 'mw-invoice-sheet';
+        sheet.className = 'mw-invoice-sheet';
+        sheet.innerHTML =
+            '<div class="mw-inv-backdrop"></div>' +
+            '<div class="mw-inv-panel">' +
+                '<div class="mw-inv-handle"></div>' +
+                '<div id="mw-inv-step1">' +
+                    '<div class="mw-inv-hdr">' +
+                        '<div class="mw-inv-hdr-icon mw-inv-hdr-icon-done">' + CHECK_ICON + '</div>' +
+                        '<div class="mw-inv-hdr-text">' +
+                            '<div class="mw-inv-hdr-title">Job Complete</div>' +
+                            '<div class="mw-inv-hdr-sub" id="mw-inv-client">Loading…</div>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="mw-inv-section">' +
+                        '<div class="mw-inv-section-label">Billable Extras <span class="mw-inv-optional">(optional)</span></div>' +
+                        '<div class="mw-inv-extras-row">' +
+                            '<button class="mw-inv-extra-btn" data-mins="5">+5 min</button>' +
+                            '<button class="mw-inv-extra-btn" data-mins="10">+10 min</button>' +
+                            '<button class="mw-inv-extra-btn" data-mins="15">+15 min</button>' +
+                            '<button class="mw-inv-extra-btn" data-mins="30">+30 min</button>' +
+                        '</div>' +
+                        '<div class="mw-inv-extras-summary" id="mw-inv-extras-sum">' +
+                            '<span class="mw-inv-extras-none">No extras — tap to add</span>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="mw-inv-section">' +
+                        '<div class="mw-inv-section-label">Client Message <span class="mw-inv-optional">(optional)</span></div>' +
+                        '<textarea class="mw-inv-textarea" id="mw-inv-notes" placeholder="e.g. Trimmed the cedar hedge, cleared debris from steps" rows="3"></textarea>' +
+                    '</div>' +
+                    '<div class="mw-inv-actions">' +
+                        '<button class="mw-inv-btn-primary" id="mw-inv-preview-btn">Preview Invoice ' + NEXT_ICON + '</button>' +
+                        '<button class="mw-inv-btn-skip" id="mw-inv-skip-btn">Skip for now</button>' +
+                    '</div>' +
+                '</div>' +
+                '<div id="mw-inv-step2" style="display:none;"></div>' +
+            '</div>';
+
+        document.body.appendChild(sheet);
+        requestAnimationFrame(function() {
+            requestAnimationFrame(function() {
+                sheet.classList.add('mw-invoice-sheet-open');
+            });
+        });
+
+        // Load client name
+        fetch('/crm/api/schedule-invoice.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'preview', visit_id: visitId })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            var el = document.getElementById('mw-inv-client');
+            if (el && d.success) {
+                el.textContent = d.contact_name || d.service_address || 'Invoice';
+            }
+            if (d.success && d.existing_invoice) {
+                // Already invoiced — just show chip update and close
+                closeInvoiceSheet();
+                updateStopChipSent(card);
+                showToast('Job complete — invoice already exists');
+            }
+        })
+        .catch(function() {});
+
+        // Extras buttons
+        var extrasBtns = sheet.querySelectorAll('.mw-inv-extra-btn');
+        extrasBtns.forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                extrasMins += parseInt(btn.dataset.mins, 10);
+                updateExtrasDisplay();
+            });
+        });
+
+        function updateExtrasDisplay() {
+            var el = document.getElementById('mw-inv-extras-sum');
+            if (!el) return;
+            if (extrasMins <= 0) {
+                el.innerHTML = '<span class="mw-inv-extras-none">No extras — tap to add</span>';
+            } else {
+                var blocks = Math.ceil(extrasMins / 5);
+                var amt    = (blocks * extrasRate).toFixed(2);
+                el.innerHTML =
+                    '<span class="mw-inv-extras-val">' + extrasMins + ' min &nbsp;·&nbsp; <strong>$' + amt + '</strong></span>' +
+                    '<button class="mw-inv-extras-clear" id="mw-inv-clear">Clear</button>';
+                var clrBtn = document.getElementById('mw-inv-clear');
+                if (clrBtn) {
+                    clrBtn.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        extrasMins = 0;
+                        updateExtrasDisplay();
+                    });
+                }
+            }
+        }
+
+        // Skip
+        document.getElementById('mw-inv-skip-btn').addEventListener('click', function() {
+            closeInvoiceSheet();
+            showToast('Job completed');
+        });
+
+        // Backdrop
+        sheet.querySelector('.mw-inv-backdrop').addEventListener('click', function() {
+            closeInvoiceSheet();
+            showToast('Job completed');
+        });
+
+        // Preview / Create invoice
+        document.getElementById('mw-inv-preview-btn').addEventListener('click', function() {
+            var previewBtn = document.getElementById('mw-inv-preview-btn');
+            var notes      = (document.getElementById('mw-inv-notes') || {}).value || '';
+            var blocks     = extrasMins > 0 ? Math.ceil(extrasMins / 5) : 0;
+            var extrasAmt  = Math.round(blocks * extrasRate * 100) / 100;
+
+            previewBtn.disabled = true;
+            previewBtn.innerHTML = '<span class="mw-inv-spinner"></span> Creating…';
+
+            fetch('/crm/api/schedule-invoice.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'create',
+                    visit_id: visitId,
+                    extras_minutes: extrasMins,
+                    extras_amount: extrasAmt,
+                    notes: notes,
+                    csrf: MW_SCHEDULE_STATE.csrf
+                })
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data.success) {
+                    if (data.invoice_id) {
+                        showStep2(data.invoice_id, null);
+                    } else {
+                        showToast(data.error || 'Could not create invoice');
+                        previewBtn.disabled = false;
+                        previewBtn.innerHTML = 'Preview Invoice ' + NEXT_ICON;
+                    }
+                    return;
+                }
+                showStep2(data.invoice_id, data);
+            })
+            .catch(function() {
+                showToast('Network error — check connection');
+                previewBtn.disabled = false;
+                previewBtn.innerHTML = 'Preview Invoice ' + NEXT_ICON;
+            });
+        });
+
+        function showStep2(invoiceId, data) {
+            var step1 = document.getElementById('mw-inv-step1');
+            var step2 = document.getElementById('mw-inv-step2');
+            if (!step1 || !step2) return;
+
+            var linesHtml = '';
+            if (data && data.line_items) {
+                data.line_items.forEach(function(li) {
+                    linesHtml +=
+                        '<div class="mw-inv-preview-row' + (li.is_extras ? ' mw-inv-preview-extras' : '') + '">' +
+                            '<span>' + escHtml(li.description) + '</span>' +
+                            '<span>$' + li.amount.toFixed(2) + '</span>' +
+                        '</div>';
+                });
+            }
+
+            var taxRate  = data ? data.tax_rate  : 5;
+            var taxAmt   = data ? data.tax_amount : 0;
+            var total    = data ? data.total      : 0;
+            var invNum   = data ? escHtml(data.invoice_number) : '';
+            var email    = data && data.contact_email ? escHtml(data.contact_email) : '';
+
+            step2.innerHTML =
+                '<div class="mw-inv-hdr">' +
+                    '<div class="mw-inv-hdr-icon mw-inv-hdr-icon-inv">' + INV_ICON + '</div>' +
+                    '<div class="mw-inv-hdr-text">' +
+                        '<div class="mw-inv-hdr-title">Invoice ' + invNum + '</div>' +
+                        '<div class="mw-inv-hdr-sub">Ready to send</div>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="mw-inv-preview-lines">' +
+                    linesHtml +
+                    '<div class="mw-inv-preview-row mw-inv-preview-gst"><span>GST (' + taxRate + '%)</span><span>$' + taxAmt.toFixed(2) + '</span></div>' +
+                    '<div class="mw-inv-preview-row mw-inv-preview-total"><span>Total Due</span><span>$' + total.toFixed(2) + '</span></div>' +
+                '</div>' +
+                (email ? '<div class="mw-inv-preview-to">Sending to: <strong>' + email + '</strong></div>' : '') +
+                '<div class="mw-inv-actions">' +
+                    '<button class="mw-inv-btn-primary" id="mw-inv-send-btn" data-inv="' + invoiceId + '">' + SEND_ICON + ' Send Invoice</button>' +
+                    '<a class="mw-inv-btn-secondary" href="/crm/invoices/view.php?id=' + invoiceId + '">View Full Invoice</a>' +
+                '</div>';
+
+            step1.style.display = 'none';
+            step2.style.display = 'block';
+
+            document.getElementById('mw-inv-send-btn').addEventListener('click', function() {
+                var sendBtn = this;
+                sendBtn.disabled = true;
+                sendBtn.innerHTML = '<span class="mw-inv-spinner"></span> Sending…';
+
+                fetch('/crm/api/schedule-invoice.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'send',
+                        invoice_id: invoiceId,
+                        csrf: MW_SCHEDULE_STATE.csrf
+                    })
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(res) {
+                    if (res.success) {
+                        closeInvoiceSheet();
+                        showToast('Invoice ' + (res.invoice_number || '') + ' sent!');
+                        updateStopChipSent(card);
+                    } else {
+                        showToast(res.error || 'Could not send. Open invoice to retry.');
+                        sendBtn.disabled = false;
+                        sendBtn.innerHTML = SEND_ICON + ' Send Invoice';
+                    }
+                })
+                .catch(function() {
+                    showToast('Network error — check connection');
+                    sendBtn.disabled = false;
+                    sendBtn.innerHTML = SEND_ICON + ' Send Invoice';
+                });
+            });
+        }
+    }
+
+    function updateStopChipSent(card) {
+        if (!card) return;
+        var chip = card.querySelector('.mw-mc-stop-chip');
+        if (chip) {
+            chip.className = 'mw-mc-stop-chip mw-mc-stop-chip-sent';
+            var label = chip.querySelector('.mw-mc-stop-chip-label');
+            if (label) label.textContent = 'Completed';
+        }
+    }
 
     // ═══════════════════════════════════════════════════════
     //  BOOT

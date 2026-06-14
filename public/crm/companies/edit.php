@@ -357,14 +357,14 @@ if ($apiKey) {
                                     </select>
                                 </div>
                                 <div class="form-group mb-0">
-                                    <label>Invoice Routing</label>
-                                    <select name="invoice_routing_method" class="form-control">
+                                    <label>Send Invoices To</label>
+                                    <select name="invoice_routing_method" id="invoiceRoutingMethod" class="form-control">
                                         <?php
                                         $routing = [
-                                            'primary_contact' => 'Primary Contact',
-                                            'billing_contact' => 'Billing Contact',
-                                            'both_contacts' => 'Both Contacts',
-                                            'email_address' => 'Email Address'
+                                            'primary_contact' => 'Primary contact\'s email',
+                                            'billing_contact' => 'Billing contact\'s email',
+                                            'both_contacts'   => 'Both (primary + billing contact)',
+                                            'email_address'   => 'Fixed billing email address (below)',
                                         ];
                                         foreach ($routing as $val => $label): ?>
                                             <option value="<?= $val ?>" <?= ($formData['invoice_routing_method'] ?? 'primary_contact') === $val ? 'selected' : '' ?>>
@@ -372,6 +372,7 @@ if ($apiKey) {
                                             </option>
                                         <?php endforeach; ?>
                                     </select>
+                                    <small id="routingHint" class="text-muted mt-1 d-block"></small>
                                 </div>
                             </div>
                         </div>
@@ -406,6 +407,21 @@ if ($apiKey) {
                 billingCheckbox.addEventListener('change', function() {
                     billingSection.style.display = this.checked ? 'none' : '';
                 });
+
+                // ── Invoice Routing hint ──
+                var routingHints = {
+                    'primary_contact': 'Invoices will be sent to the primary contact\'s email.',
+                    'billing_contact': 'Invoices will be sent to the billing contact\'s email (if set; falls back to primary).',
+                    'both_contacts':   'Invoices will be sent to both the primary and billing contacts.',
+                    'email_address':   'Invoices will be sent to the Billing Email address entered in the Billing Information section.'
+                };
+                var routingSelect = document.getElementById('invoiceRoutingMethod');
+                var routingHint   = document.getElementById('routingHint');
+                function updateRoutingHint() {
+                    routingHint.textContent = routingHints[routingSelect.value] || '';
+                }
+                routingSelect.addEventListener('change', updateRoutingHint);
+                updateRoutingHint();
 
                 // ── Client-side Validation ──
                 var form = document.getElementById('companyForm');
