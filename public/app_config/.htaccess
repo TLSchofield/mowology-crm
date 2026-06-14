@@ -1,0 +1,10 @@
+# Deny all direct web access to config and credential files in this directory.
+# This dir holds secrets.php and Google service-account keys — never web-served.
+# Blocks HTTP only; PHP includes from application code are unaffected.
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+</IfModule>

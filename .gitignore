@@ -47,3 +47,9 @@ cache/
 
 # Claude dev tools
 .claude/context.token
+
+# Google Cloud service-account keys (CREDENTIALS — never commit; rotate if exposed)
+public/app_config/*.json
+
+# PHPUnit result cache
+.phpunit.result.cache
