@@ -53,3 +53,6 @@ public/app_config/*.json
 
 # PHPUnit result cache
 .phpunit.result.cache
+
+# Quarantined debug/diagnostic endpoints (moved out of web root, kept for reference)
+/quarantine/
