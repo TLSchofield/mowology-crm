@@ -7062,6 +7062,20 @@ a.mw-clock-timer-nav:hover {
   color:#fff;
   border-color:var(--mw-green);
 }
+
+/* ── Map Draw Tool (shared MapDrawTool engine) ───────────────────────────── */
+/* Disabled draw buttons before the map engine is ready (prevents the old
+   null-drawingManager crash; buttons re-enable in MapDrawTool onReady). */
+.mw-measure-tools .btn:disabled,
+.mw-measure-tools .btn[disabled] {
+  opacity:.5;
+  cursor:not-allowed;
+}
+/* Inline arrival-border control beneath the measure tools */
+.mw-measure-zone-tools {
+  border-top:1px solid var(--mw-light);
+  padding-top:.6rem;
+}
 .mw-measurement-display {
   background:#f8fafc;
   padding:1rem;

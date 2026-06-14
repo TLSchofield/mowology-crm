@@ -104,7 +104,8 @@ $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
 
 $pageTitle = 'Area Measurement';
 $activePage = 'products';
-$extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($apiKey) . '&libraries=drawing,geometry&callback=initMap" async defer></script>';
+$extraHead = '<script src="/crm/js/map-draw/map-draw-tool.js"></script>'
+           . '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($apiKey) . '&libraries=drawing,geometry&callback=initMap" async defer></script>';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
@@ -185,9 +186,9 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                               Click on the map to draw the area outline. Double-click to finish.
                           </div>
                           <div class="mw-measure-tools">
-                              <button class="btn btn-outline-secondary btn-sm" id="drawPolygonBtn" onclick="startDrawing('polygon')">Draw Area</button>
-                              <button class="btn btn-outline-secondary btn-sm" id="drawRectangleBtn" onclick="startDrawing('rectangle')">Rectangle</button>
-                              <button class="btn btn-outline-secondary btn-sm" id="drawPolylineBtn" onclick="startDrawing('polyline')">Draw Line</button>
+                              <button class="btn btn-outline-secondary btn-sm" id="drawPolygonBtn" onclick="startDrawing('polygon')" disabled>Draw Area</button>
+                              <button class="btn btn-outline-secondary btn-sm" id="drawRectangleBtn" onclick="startDrawing('rectangle')" disabled>Rectangle</button>
+                              <button class="btn btn-outline-secondary btn-sm" id="drawPolylineBtn" onclick="startDrawing('polyline')" disabled>Draw Line</button>
                               <button class="btn btn-outline-secondary btn-sm" onclick="clearCurrentDrawing()">Clear Drawing</button>
                               <button class="btn btn-outline-danger btn-sm" onclick="clearAllAreas()">Clear All</button>
                           </div>
@@ -393,10 +394,10 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
           </div>
 
     <script>
-        let map;
-        let drawingManager;
-        let geocoder;
-        let currentShape = null;
+        let map;                 // google.maps.Map (owned by MapDrawTool)
+        let tool = null;         // MapDrawTool — the shared drawing engine
+        let currentMetrics = null;
+        let currentShapeType = 'polygon';
         let savedAreas = [];
         let areaCounter = 0;
 
@@ -566,141 +567,63 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
         const areaTypeOptions = <?php echo json_encode($areaTypeOptions); ?>;
 
         function initMap() {
-            // Check if we have property coordinates
+            // Property coordinates (if known)
             const propLat = document.getElementById('propertyLat');
             const propLng = document.getElementById('propertyLng');
+            const addressEl = document.getElementById('addressInput');
 
-            let initialCenter = { lat: 49.2827, lng: -123.1207 }; // Vancouver default
-            let initialZoom = 18;
-
+            let center = null;
             if (propLat && propLng) {
-                initialCenter = {
-                    lat: parseFloat(propLat.value),
-                    lng: parseFloat(propLng.value)
-                };
-                initialZoom = 20; // Closer zoom for property
+                center = { lat: parseFloat(propLat.value), lng: parseFloat(propLng.value) };
             }
 
-            // Initialize map
-            map = new google.maps.Map(document.getElementById('map'), {
-                center: initialCenter,
-                zoom: initialZoom,
-                mapTypeId: 'satellite',
-                tilt: 0,
-                mapTypeControl: false,
-                streetViewControl: true,
-                fullscreenControl: true
-            });
-
-            // Initialize geocoder
-            geocoder = new google.maps.Geocoder();
-
-            // Initialize drawing manager
-            drawingManager = new google.maps.drawing.DrawingManager({
-                drawingMode: null,
-                drawingControl: false,
-                polygonOptions: {
-                    fillColor: '#4a7c2c',
-                    fillOpacity: 0.4,
-                    strokeWeight: 2,
-                    strokeColor: '#2d5016',
-                    editable: true,
-                    draggable: true
-                },
-                rectangleOptions: {
-                    fillColor: '#4a7c2c',
-                    fillOpacity: 0.4,
-                    strokeWeight: 2,
-                    strokeColor: '#2d5016',
-                    editable: true,
-                    draggable: true
-                },
-                polylineOptions: {
-                    strokeColor: '#e85d04',
-                    strokeWeight: 3,
-                    editable: true,
-                    draggable: true
-                }
-            });
-
-            drawingManager.setMap(map);
-
-            // Listen for shape completion
-            google.maps.event.addListener(drawingManager, 'overlaycomplete', function(event) {
-                if (currentShape) {
-                    currentShape.setMap(null);
-                }
-
-                currentShape = event.overlay;
-                currentShapeType = event.type; // polygon, rectangle, or polyline
-                drawingManager.setDrawingMode(null);
-
-                // Update button states
-                document.querySelectorAll('.mw-measure-tools .btn').forEach(btn => {
-                    btn.classList.remove('mw-tool-active');
-                });
-
-                // Calculate and display measurements
-                updateMeasurements();
-
-                // Listen for shape edits
-                if (event.type === 'polygon') {
-                    google.maps.event.addListener(currentShape.getPath(), 'set_at', updateMeasurements);
-                    google.maps.event.addListener(currentShape.getPath(), 'insert_at', updateMeasurements);
-                } else if (event.type === 'rectangle') {
-                    google.maps.event.addListener(currentShape, 'bounds_changed', updateMeasurements);
-                } else if (event.type === 'polyline') {
-                    google.maps.event.addListener(currentShape.getPath(), 'set_at', updateMeasurements);
-                    google.maps.event.addListener(currentShape.getPath(), 'insert_at', updateMeasurements);
-                }
-            });
-
-            // Map type selector
-            document.getElementById('mapTypeSelector').addEventListener('change', function() {
-                map.setMapTypeId(this.value);
-            });
-
-            // Add property marker if we have coordinates
-            if (propLat && propLng) {
-                new google.maps.Marker({
-                    map: map,
-                    position: initialCenter,
-                    title: 'Property Location',
-                    icon: {
-                        path: google.maps.SymbolPath.CIRCLE,
-                        scale: 10,
-                        fillColor: '#4a7c2c',
-                        fillOpacity: 1,
-                        strokeColor: '#fff',
-                        strokeWeight: 2
+            // Single shared drawing engine (Google Maps satellite + DrawingManager)
+            tool = new MapDrawTool({
+                mapContainer: 'map',
+                center: center,
+                zoom: 20,
+                address: (!center && addressEl) ? addressEl.value : '',
+                marker: !!center,
+                mapTypeSelectorId: 'mapTypeSelector',
+                polygonColor: '#4a7c2c',
+                polygonStroke: '#2d5016',
+                onReady: function () {
+                    map = tool.getMap();
+                    document.querySelectorAll('.mw-measure-tools .btn').forEach(function (b) { b.disabled = false; });
+                    if (existingMeasurements && existingMeasurements.length > 0) {
+                        loadExistingMeasurements();
                     }
-                });
-            }
-            // If we have address but no coords, auto-search
-            else if (document.getElementById('addressInput').value) {
-                setTimeout(searchAddress, 500);
-            }
-
-            // Load existing measurements if available
-            if (existingMeasurements && existingMeasurements.length > 0) {
-                loadExistingMeasurements();
-            }
+                },
+                onDraw: function (m) {
+                    currentMetrics = m;
+                    currentShapeType = m ? m.shapeType : 'polygon';
+                    updateMeasurements();
+                }
+            });
+            tool.init();
         }
 
         function loadExistingMeasurements() {
-            existingMeasurements.forEach((m, index) => {
-                // Create area object without shape (we don't store polygon coords yet)
-                const area = {
+            existingMeasurements.forEach(function (m) {
+                const coords = MapDrawTool.parsePolygonCoords(m.polygon_coords);
+                const color = getRandomColor();
+                const shapeType = m.measurement_shape || 'polygon';
+                const overlay = coords.length
+                    ? tool.renderShape(coords, { shapeType: shapeType, color: color })
+                    : null;
+                savedAreas.push({
                     id: ++areaCounter,
                     name: m.measurement_name,
                     type: m.measurement_type,
-                    sqFt: parseFloat(m.area_sqft),
-                    shape: null, // No shape to display yet
-                    color: getRandomColor(),
+                    sqFt: parseFloat(m.area_sqft) || 0,
+                    linearFt: parseFloat(m.linear_ft) || 0,
+                    perimeter: parseFloat(m.perimeter_ft) || 0,
+                    coords: coords,
+                    shape: overlay,
+                    shapeType: shapeType,
+                    color: color,
                     fromDb: true
-                };
-
-                savedAreas.push(area);
+                });
             });
 
             updateAreasList();
@@ -709,169 +632,79 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
 
         function searchAddress() {
             const address = document.getElementById('addressInput').value;
-            if (!address) return;
-
-            geocoder.geocode({ address: address }, function(results, status) {
-                if (status === 'OK') {
-                    map.setCenter(results[0].geometry.location);
-                    map.setZoom(19);
-
-                    // Add marker
-                    new google.maps.Marker({
-                        map: map,
-                        position: results[0].geometry.location,
-                        title: 'Property Location'
-                    });
-                } else {
-                    alert('Address not found: ' + status);
-                }
-            });
+            if (!address || !tool) return;
+            tool.geocode(address);
         }
 
         function startDrawing(type) {
-            // Clear previous drawing mode
-            drawingManager.setDrawingMode(null);
-
-            // Remove active class from all buttons
-            document.querySelectorAll('.mw-measure-tools .btn').forEach(btn => {
-                btn.classList.remove('mw-tool-active');
-            });
-
-            // Set new drawing mode and activate button
-            if (type === 'polygon') {
-                drawingManager.setDrawingMode(google.maps.drawing.OverlayType.POLYGON);
-                document.getElementById('drawPolygonBtn').classList.add('mw-tool-active');
-            } else if (type === 'rectangle') {
-                drawingManager.setDrawingMode(google.maps.drawing.OverlayType.RECTANGLE);
-                document.getElementById('drawRectangleBtn').classList.add('mw-tool-active');
-            } else if (type === 'polyline') {
-                drawingManager.setDrawingMode(google.maps.drawing.OverlayType.POLYLINE);
-                document.getElementById('drawPolylineBtn').classList.add('mw-tool-active');
-            }
+            if (!tool || !tool.isReady()) return;
+            document.querySelectorAll('.mw-measure-tools .btn').forEach(function (btn) { btn.classList.remove('mw-tool-active'); });
+            const id = type === 'rectangle' ? 'drawRectangleBtn'
+                     : type === 'polyline'  ? 'drawPolylineBtn'
+                     : 'drawPolygonBtn';
+            const btn = document.getElementById(id);
+            if (btn) btn.classList.add('mw-tool-active');
+            tool.startDraw(type);
         }
 
-        // Track current shape type for polyline vs polygon/rectangle
-        var currentShapeType = 'polygon';
-
         function clearCurrentDrawing() {
-            if (currentShape) {
-                currentShape.setMap(null);
-                currentShape = null;
-                document.getElementById('currentMeasurement').style.display = 'none';
-            }
+            if (tool) tool.clearCurrent();
+            currentMetrics = null;
+            document.getElementById('currentMeasurement').style.display = 'none';
+            document.querySelectorAll('.mw-measure-tools .btn').forEach(function (btn) { btn.classList.remove('mw-tool-active'); });
         }
 
         function updateMeasurements() {
-            if (!currentShape) return;
+            const m = currentMetrics;
+            if (!m) return;
 
-            let area = 0;
-            let perimeter = 0;
-            let linearLength = 0;
-
-            if (currentShapeType === 'polyline') {
-                // Polyline — compute length only, no area
-                const path = currentShape.getPath();
-                linearLength = google.maps.geometry.spherical.computeLength(path);
-                area = 0;
-                perimeter = 0;
-            } else if (currentShape.getPath) {
-                // Polygon
-                const path = currentShape.getPath();
-                area = google.maps.geometry.spherical.computeArea(path);
-
-                // Calculate perimeter
-                for (let i = 0; i < path.getLength(); i++) {
-                    const start = path.getAt(i);
-                    const end = path.getAt((i + 1) % path.getLength());
-                    perimeter += google.maps.geometry.spherical.computeDistanceBetween(start, end);
-                }
-            } else {
-                // Rectangle
-                const bounds = currentShape.getBounds();
-                const ne = bounds.getNorthEast();
-                const sw = bounds.getSouthWest();
-                const nw = new google.maps.LatLng(ne.lat(), sw.lng());
-                const se = new google.maps.LatLng(sw.lat(), ne.lng());
-
-                // Calculate area
-                const path = [nw, ne, se, sw];
-                area = google.maps.geometry.spherical.computeArea(path);
-
-                // Calculate perimeter
-                const width = google.maps.geometry.spherical.computeDistanceBetween(nw, ne);
-                const height = google.maps.geometry.spherical.computeDistanceBetween(ne, se);
-                perimeter = 2 * (width + height);
-            }
-
-            // Convert to various units
-            const sqMeters = area;
-            const sqFeet = sqMeters * 10.764;
-            const acres = sqMeters * 0.000247105;
-            const perimeterFeet = perimeter * 3.28084;
-            const linearFeet = linearLength * 3.28084;
-
-            // Display measurements
-            if (currentShapeType === 'polyline') {
+            if (m.shapeType === 'polyline') {
                 document.getElementById('currentSqFt').textContent = '—';
                 document.getElementById('currentSqM').textContent = '—';
                 document.getElementById('currentAcres').textContent = '—';
-                document.getElementById('currentPerimeter').textContent = Math.round(linearFeet).toLocaleString() + ' lin ft';
+                document.getElementById('currentPerimeter').textContent = Math.round(m.linearFeet).toLocaleString() + ' lin ft';
             } else {
-                document.getElementById('currentSqFt').textContent = Math.round(sqFeet).toLocaleString();
-                document.getElementById('currentSqM').textContent = Math.round(sqMeters).toLocaleString();
-                document.getElementById('currentAcres').textContent = acres.toFixed(3);
-                document.getElementById('currentPerimeter').textContent = Math.round(perimeterFeet).toLocaleString() + ' ft';
+                document.getElementById('currentSqFt').textContent = Math.round(m.sqFeet).toLocaleString();
+                document.getElementById('currentSqM').textContent = Math.round(m.sqMeters).toLocaleString();
+                document.getElementById('currentAcres').textContent = m.acres.toFixed(3);
+                document.getElementById('currentPerimeter').textContent = Math.round(m.perimeterFeet).toLocaleString() + ' ft';
             }
 
             document.getElementById('currentMeasurement').style.display = 'block';
         }
 
         function saveArea() {
-            if (!currentShape) return;
+            if (!tool || !tool.hasCurrent()) return;
+            const m = tool.getCurrent();
+            const isLine = m.shapeType === 'polyline';
 
             const areaName = document.getElementById('areaName').value || `Area ${areaCounter + 1}`;
             const areaType = document.getElementById('areaType').value;
-            const sqFtText = document.getElementById('currentSqFt').textContent.replace(/,/g, '');
-            const sqFt = sqFtText === '—' ? 0 : parseInt(sqFtText);
-            const perimText = document.getElementById('currentPerimeter').textContent.replace(/,/g, '').replace(/\s*(ft|lin ft)/, '');
-            const linearFt = currentShapeType === 'polyline' ? parseInt(perimText) || 0 : 0;
+            const color = getRandomColor();
+            const adopted = tool.adoptCurrent({ color: color });
 
             const area = {
                 id: ++areaCounter,
                 name: areaName,
                 type: areaType,
-                sqFt: sqFt,
-                linearFt: linearFt,
-                shape: currentShape,
-                shapeType: currentShapeType,
-                color: getRandomColor()
+                sqFt: isLine ? 0 : Math.round(m.sqFeet),
+                linearFt: isLine ? Math.round(m.linearFeet) : 0,
+                perimeter: Math.round(m.perimeterFeet),
+                coords: m.coords,
+                shape: adopted ? adopted.overlay : null,
+                shapeType: m.shapeType,
+                color: color
             };
-
-            // Update shape appearance
-            if (currentShapeType === 'polyline') {
-                currentShape.setOptions({
-                    strokeColor: area.color,
-                    strokeWeight: 3,
-                    editable: false,
-                    draggable: false
-                });
-            } else {
-                currentShape.setOptions({
-                    fillColor: area.color,
-                    fillOpacity: 0.3,
-                    editable: false,
-                    draggable: false
-                });
-            }
 
             savedAreas.push(area);
             pushUndo({ type: 'save', area: area });
             updateAreasList();
 
             // Clear current drawing
-            currentShape = null;
+            currentMetrics = null;
             document.getElementById('currentMeasurement').style.display = 'none';
             document.getElementById('areaName').value = '';
+            document.querySelectorAll('.mw-measure-tools .btn').forEach(function (btn) { btn.classList.remove('mw-tool-active'); });
 
             calculatePricing();
         }
@@ -1080,12 +913,9 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
 
             // Prepare measurement data
             const measurements = savedAreas.map(area => {
-                let coords = null;
-                if (area.shape && area.shape.getPath) {
-                    coords = area.shape.getPath().getArray().map(p => ({
-                        lat: p.lat(),
-                        lng: p.lng()
-                    }));
+                let coords = area.coords || null;
+                if (!coords && area.shape && area.shape.getPath) {
+                    coords = area.shape.getPath().getArray().map(p => ({ lat: p.lat(), lng: p.lng() }));
                 }
 
                 return {

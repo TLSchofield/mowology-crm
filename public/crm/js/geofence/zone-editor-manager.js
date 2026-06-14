@@ -1,4 +1,10 @@
 /**
+ * @deprecated June 2026 — superseded by the unified Google Maps drawing engine
+ *   `/crm/js/map-draw/map-draw-tool.js` (MapDrawTool). The zone editor
+ *   (jobs/zone-editor.php) now draws arrival borders + work zones with that
+ *   engine. This Leaflet-based manager is retained only for reference and is no
+ *   longer loaded by any page. Do not extend it — use MapDrawTool instead.
+ *
  * ZoneEditorManager — Multi-zone map editor for the Mowology CRM.
  *
  * Manages an arrival border polygon + multiple named work zone polygons

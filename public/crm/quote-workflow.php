@@ -416,7 +416,8 @@ if ($request['latitude'] && $request['longitude']) {
 
 $pageTitle = 'Quote Workflow - ' . htmlspecialchars($contactName);
 $activePage = 'quotes';
-$extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars(GOOGLE_MAPS_API_KEY, ENT_QUOTES, 'UTF-8') . '&libraries=drawing,geometry&callback=initMaps" async defer></script>';
+$extraHead = '<script src="/crm/js/map-draw/map-draw-tool.js"></script>'
+           . '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars(GOOGLE_MAPS_API_KEY, ENT_QUOTES, 'UTF-8') . '&libraries=drawing,geometry&callback=initMaps" async defer></script>';
 ?>
 <?php include 'includes/appstack_head.php'; ?>
 
@@ -454,9 +455,8 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                                 <span>
                                     <strong>No arrival border drawn.</strong>
                                     Draw one for accurate auto-clock-in on dense routes.
-                                    <a href="jobs/zone-editor.php?property_id=<?php echo (int)$request['property_id']; ?>&return_to=<?php echo urlencode('quote-workflow.php?request_id=' . $requestId); ?>"
-                                       target="_blank" class="mw-wf-border-link">
-                                        Draw arrival border <i data-feather="external-link" style="width:11px;height:11px;"></i>
+                                    <a href="#" onclick="wfDrawArrivalBorder(); return false;" class="mw-wf-border-link">
+                                        Draw arrival border with the Measure Tool &rarr;
                                     </a>
                                 </span>
                             </div>
@@ -757,10 +757,10 @@ Work to be completed weather permitting.</textarea>
 
                                     <!-- Drawing Tools -->
                                     <div class="mw-measure-tools">
-                                        <button class="btn btn-sm btn-outline-secondary" id="drawPolygonBtn" onclick="startDrawing('polygon')">
+                                        <button class="btn btn-sm btn-outline-secondary" id="drawPolygonBtn" onclick="startDrawing('polygon')" disabled>
                                             <i class="align-middle" data-feather="layers" style="width:14px;height:14px;"></i> Polygon
                                         </button>
-                                        <button class="btn btn-sm btn-outline-secondary" id="drawRectangleBtn" onclick="startDrawing('rectangle')">
+                                        <button class="btn btn-sm btn-outline-secondary" id="drawRectangleBtn" onclick="startDrawing('rectangle')" disabled>
                                             <i class="align-middle" data-feather="square" style="width:14px;height:14px;"></i> Rectangle
                                         </button>
                                         <button class="btn btn-sm btn-outline-secondary" onclick="clearCurrentDrawing()">
@@ -769,6 +769,17 @@ Work to be completed weather permitting.</textarea>
                                         <button class="btn btn-sm btn-outline-danger" onclick="clearAllAreas()">
                                             Clear All
                                         </button>
+                                    </div>
+
+                                    <!-- Arrival Border (drawn inline with the same tool) -->
+                                    <div class="mw-measure-zone-tools mt-2">
+                                        <button class="btn btn-sm mw-zone-btn-border btn-block" id="drawBorderBtn" onclick="wfDrawArrivalBorder()">
+                                            <i class="align-middle" data-feather="navigation" style="width:14px;height:14px;"></i>
+                                            <span id="wfBorderBtnLabel">Draw Arrival Border</span>
+                                        </button>
+                                        <p class="text-muted mb-0 mt-1" style="font-size:0.72rem;">
+                                            One boundary around the whole property. Crew entering it auto-clocks in.
+                                        </p>
                                     </div>
 
                                     <!-- Current Measurement -->
@@ -1003,266 +1014,163 @@ Work to be completed weather permitting.</textarea>
     }
 
     function resizeMaps() {
-        if (typeof google !== 'undefined') {
-            if (territoryMapInstance) {
-                google.maps.event.trigger(territoryMapInstance, 'resize');
-            }
-            if (measureMapInstance) {
-                google.maps.event.trigger(measureMapInstance, 'resize');
-            }
-        }
+        if (typeof google === 'undefined') return;
+        if (territoryMapInstance) google.maps.event.trigger(territoryMapInstance, 'resize');
+        if (measureTool) measureTool.resize();
     }
 
-    // ─── Google Maps ────────────────────────────────────────
+    // ─── Map + Measure Tool (shared MapDrawTool engine) ─────
     var territoryMapInstance = null;
-    var measureMapInstance = null;
-    var drawingManager = null;
-    var geocoder = null;
-    var currentShape = null;
+    var measureTool = null;          // MapDrawTool instance — the single shared drawing engine
     var savedAreas = [];
     var areaCounter = 0;
+    var mapsInited = false;
+    var MEAS_API = '/crm/api/measurements.php';
+    var GEOFENCE_API = '/crm/api/geofence.php';
+    var WF_CSRF = '<?php echo $csrfToken; ?>';
+    var wfHasArrivalBorder = <?php echo $hasArrivalBorder ? 'true' : 'false'; ?>;
+    var wfDrawIntent = 'measure';    // 'measure' | 'arrival_border'
 
+    var AREA_COLORS = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#6366f1'];
+    function colorForArea(i) { return AREA_COLORS[i % AREA_COLORS.length]; }
+
+    // Google Maps script callback (also re-invoked by the load fallback below).
     function initMaps() {
-        // Ensure map containers exist
-        var territoryMapEl = document.getElementById('territoryMap');
-        var measureMapEl = document.getElementById('measureMap');
+        if (mapsInited) return;
+        if (typeof google === 'undefined' || !google.maps) return;
+        mapsInited = true;
 
-        if (!territoryMapEl || !measureMapEl) {
-            console.error('Map containers not found');
-            return;
-        }
+        var center = (propertyLat && propertyLng) ? { lat: propertyLat, lng: propertyLng } : null;
 
-        var defaultCenter = { lat: 49.2827, lng: -123.1207 }; // Vancouver
-        var center = (propertyLat && propertyLng) ? { lat: propertyLat, lng: propertyLng } : defaultCenter;
-        var hasCoords = !!(propertyLat && propertyLng);
-
-        geocoder = new google.maps.Geocoder();
-
-        // Territory Map (roadmap overview)
-        territoryMapInstance = new google.maps.Map(document.getElementById('territoryMap'), {
-            center: center,
-            zoom: hasCoords ? 16 : 12,
-            mapTypeId: 'roadmap',
-            mapTypeControl: false,
-            streetViewControl: false,
-            fullscreenControl: false,
-            zoomControl: true,
-            tilt: 0
-        });
-
-        if (hasCoords) {
-            new google.maps.Marker({
-                map: territoryMapInstance,
-                position: center,
-                title: propertyAddress
+        // Territory overview map (read-only roadmap — not a drawing surface)
+        var tEl = document.getElementById('territoryMap');
+        if (tEl) {
+            territoryMapInstance = new google.maps.Map(tEl, {
+                center: center || { lat: 49.2827, lng: -123.1207 },
+                zoom: center ? 16 : 12,
+                mapTypeId: 'roadmap',
+                mapTypeControl: false, streetViewControl: false, fullscreenControl: false, zoomControl: true, tilt: 0
             });
+            if (center) {
+                new google.maps.Marker({ map: territoryMapInstance, position: center, title: propertyAddress });
+            }
         }
 
-        // Measure Map (satellite with drawing tools)
-        measureMapInstance = new google.maps.Map(document.getElementById('measureMap'), {
+        // Measure tool — the single shared drawing engine
+        measureTool = new MapDrawTool({
+            mapContainer: 'measureMap',
             center: center,
-            zoom: hasCoords ? 19 : 17,
-            mapTypeId: 'satellite',
-            mapTypeControl: false,
-            streetViewControl: false,
-            fullscreenControl: true,
-            tilt: 0
-        });
-
-        // Drawing manager
-        drawingManager = new google.maps.drawing.DrawingManager({
-            drawingMode: null,
-            drawingControl: false,
-            polygonOptions: {
-                fillColor: '#2D8659',
-                fillOpacity: 0.4,
-                strokeWeight: 2,
-                strokeColor: '#0D3B2E',
-                editable: true,
-                draggable: true
+            zoom: 19,
+            address: propertyAddress,
+            marker: true,
+            mapTypeSelectorId: 'mapTypeSelector',
+            onReady: function () {
+                document.querySelectorAll('.mw-measure-tools .btn').forEach(function (b) { b.disabled = false; });
+                if (wfHasArrivalBorder) {
+                    var lbl = document.getElementById('wfBorderBtnLabel');
+                    if (lbl) lbl.textContent = 'Redraw Arrival Border';
+                }
+                renderExistingMeasurements();
+                renderExistingZones();
+                hydrateFeatherIcons();
             },
-            rectangleOptions: {
-                fillColor: '#2D8659',
-                fillOpacity: 0.4,
-                strokeWeight: 2,
-                strokeColor: '#0D3B2E',
-                editable: true,
-                draggable: true
+            onDraw: function (m) {
+                if (wfDrawIntent === 'measure') showCurrentMeasurement(m);
+            },
+            onComplete: function (m) {
+                if (wfDrawIntent === 'arrival_border') wfFinishArrivalBorder(m);
             }
         });
+        measureTool.init();
 
-        drawingManager.setMap(measureMapInstance);
-
-        // Shape completion listener
-        google.maps.event.addListener(drawingManager, 'overlaycomplete', function(event) {
-            if (currentShape) {
-                currentShape.setMap(null);
-            }
-            currentShape = event.overlay;
-            drawingManager.setDrawingMode(null);
-
-            document.querySelectorAll('.mw-measure-tools .btn').forEach(function(btn) {
-                btn.classList.remove('mw-tool-active');
-            });
-
-            updateMeasurements();
-
-            if (event.type === 'polygon') {
-                google.maps.event.addListener(currentShape.getPath(), 'set_at', updateMeasurements);
-                google.maps.event.addListener(currentShape.getPath(), 'insert_at', updateMeasurements);
-            } else if (event.type === 'rectangle') {
-                google.maps.event.addListener(currentShape, 'bounds_changed', updateMeasurements);
-            }
-        });
-
-        // Map type selector
-        document.getElementById('mapTypeSelector').addEventListener('change', function() {
-            measureMapInstance.setMapTypeId(this.value);
-        });
-
-        // Property marker on measure map
-        if (hasCoords) {
-            new google.maps.Marker({
-                map: measureMapInstance,
-                position: center,
-                title: 'Property',
-                icon: {
-                    path: google.maps.SymbolPath.CIRCLE,
-                    scale: 8,
-                    fillColor: '#2D8659',
-                    fillOpacity: 1,
-                    strokeColor: '#fff',
-                    strokeWeight: 2
-                }
-            });
-        } else if (propertyAddress) {
-            // Geocode the address
-            geocoder.geocode({ address: propertyAddress }, function(results, status) {
-                if (status === 'OK') {
-                    var loc = results[0].geometry.location;
-                    territoryMapInstance.setCenter(loc);
-                    territoryMapInstance.setZoom(16);
-                    measureMapInstance.setCenter(loc);
-                    measureMapInstance.setZoom(19);
-
-                    new google.maps.Marker({ map: territoryMapInstance, position: loc, title: propertyAddress });
-                    new google.maps.Marker({
-                        map: measureMapInstance, position: loc, title: 'Property',
-                        icon: { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: '#2D8659', fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 }
-                    });
-                }
-            });
-        }
-
-        // Load existing measurements
-        if (existingMeasurements && existingMeasurements.length > 0) {
-            existingMeasurements.forEach(function(m) {
-                savedAreas.push({
-                    id: ++areaCounter,
-                    name: m.measurement_name,
-                    type: m.measurement_type,
-                    sqFt: parseFloat(m.area_sqft),
-                    perimeter: parseFloat(m.perimeter_ft) || 0,
-                    shape: null,
-                    fromDb: true
-                });
-            });
-            updateAreasList();
-        }
-
-        // Re-init feather icons for dynamically added elements
-        hydrateFeatherIcons();
+        setTimeout(resizeMaps, 400);
     }
 
-    // ─── Drawing Tools ──────────────────────────────────────
-    function startDrawing(type) {
-        drawingManager.setDrawingMode(null);
-        document.querySelectorAll('.mw-measure-tools .btn').forEach(function(btn) {
-            btn.classList.remove('mw-tool-active');
+    // Render measurement polygons saved on this property.
+    function renderExistingMeasurements() {
+        if (!existingMeasurements || !existingMeasurements.length || !measureTool) return;
+        existingMeasurements.forEach(function (m) {
+            var coords = MapDrawTool.parsePolygonCoords(m.polygon_coords);
+            var color = colorForArea(areaCounter);
+            var overlay = coords.length
+                ? measureTool.renderShape(coords, { shapeType: m.measurement_shape || 'polygon', color: color })
+                : null;
+            savedAreas.push({
+                id: ++areaCounter,
+                name: m.measurement_name,
+                type: m.measurement_type,
+                sqFt: parseFloat(m.area_sqft) || 0,
+                perimeter: parseFloat(m.perimeter_ft) || 0,
+                coords: coords,
+                overlay: overlay,
+                color: color,
+                fromDb: true
+            });
         });
+        updateAreasList();
+    }
 
-        if (type === 'polygon') {
-            drawingManager.setDrawingMode(google.maps.drawing.OverlayType.POLYGON);
-            document.getElementById('drawPolygonBtn').classList.add('mw-tool-active');
-        } else if (type === 'rectangle') {
-            drawingManager.setDrawingMode(google.maps.drawing.OverlayType.RECTANGLE);
-            document.getElementById('drawRectangleBtn').classList.add('mw-tool-active');
-        }
+    // Render existing arrival border + work zones for context (read-only here).
+    function renderExistingZones() {
+        if (!propertyId || !measureTool) return;
+        MapDrawTool.loadZones(GEOFENCE_API, propertyId).then(function (zones) {
+            zones.forEach(function (z) {
+                var isArrival = z.zone_type === 'arrival_border';
+                measureTool.renderShape(z.ring, {
+                    shapeType: 'polygon',
+                    color: isArrival ? '#FFD700' : '#2D8659',
+                    strokeColor: isArrival ? '#FFD700' : '#2D8659',
+                    fillOpacity: isArrival ? 0.06 : 0.12
+                });
+            });
+        });
+    }
+
+    // ─── Drawing Tools (measurements) ───────────────────────
+    function startDrawing(type) {
+        if (!measureTool || !measureTool.isReady()) return;
+        wfDrawIntent = 'measure';
+        document.querySelectorAll('.mw-measure-tools .btn').forEach(function (btn) { btn.classList.remove('mw-tool-active'); });
+        var btn = document.getElementById(type === 'rectangle' ? 'drawRectangleBtn' : 'drawPolygonBtn');
+        if (btn) btn.classList.add('mw-tool-active');
+        measureTool.startDraw(type);
     }
 
     function clearCurrentDrawing() {
-        if (currentShape) {
-            currentShape.setMap(null);
-            currentShape = null;
-            document.getElementById('currentMeasurement').style.display = 'none';
-        }
+        if (measureTool) measureTool.clearCurrent();
+        document.getElementById('currentMeasurement').style.display = 'none';
+        document.querySelectorAll('.mw-measure-tools .btn').forEach(function (btn) { btn.classList.remove('mw-tool-active'); });
     }
 
-    function updateMeasurements() {
-        if (!currentShape) return;
-
-        var area, perimeter = 0;
-
-        if (currentShape.getPath) {
-            var path = currentShape.getPath();
-            area = google.maps.geometry.spherical.computeArea(path);
-            for (var i = 0; i < path.getLength(); i++) {
-                var start = path.getAt(i);
-                var end = path.getAt((i + 1) % path.getLength());
-                perimeter += google.maps.geometry.spherical.computeDistanceBetween(start, end);
-            }
-        } else {
-            var bounds = currentShape.getBounds();
-            var ne = bounds.getNorthEast();
-            var sw = bounds.getSouthWest();
-            var nw = new google.maps.LatLng(ne.lat(), sw.lng());
-            var se = new google.maps.LatLng(sw.lat(), ne.lng());
-            area = google.maps.geometry.spherical.computeArea([nw, ne, se, sw]);
-            var w = google.maps.geometry.spherical.computeDistanceBetween(nw, ne);
-            var h = google.maps.geometry.spherical.computeDistanceBetween(ne, se);
-            perimeter = 2 * (w + h);
-        }
-
-        var sqFeet = area * 10.764;
-        var perimeterFeet = perimeter * 3.28084;
-
-        document.getElementById('currentSqFt').textContent = Math.round(sqFeet).toLocaleString();
-        document.getElementById('currentPerimeter').textContent = Math.round(perimeterFeet).toLocaleString() + ' ft';
+    function showCurrentMeasurement(m) {
+        if (!m) { document.getElementById('currentMeasurement').style.display = 'none'; return; }
+        document.getElementById('currentSqFt').textContent = Math.round(m.sqFeet).toLocaleString();
+        document.getElementById('currentPerimeter').textContent = Math.round(m.perimeterFeet).toLocaleString() + ' ft';
         document.getElementById('currentMeasurement').style.display = 'block';
     }
 
     function saveArea() {
-        if (!currentShape) return;
-
+        if (!measureTool || !measureTool.hasCurrent()) return;
+        var m = measureTool.getCurrent();
         var areaName = document.getElementById('areaName').value || ('Area ' + (areaCounter + 1));
         var areaType = document.getElementById('areaType').value;
-        var sqFt = parseInt(document.getElementById('currentSqFt').textContent.replace(/,/g, ''));
-        var perimeterText = document.getElementById('currentPerimeter').textContent;
-        var perimeterVal = parseInt(perimeterText.replace(/[^0-9]/g, '')) || 0;
-
-        var colors = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#6366f1'];
-        var color = colors[areaCounter % colors.length];
-
-        currentShape.setOptions({
-            fillColor: color,
-            fillOpacity: 0.3,
-            editable: false,
-            draggable: false
-        });
+        var color = colorForArea(areaCounter);
+        var adopted = measureTool.adoptCurrent({ color: color });
 
         savedAreas.push({
             id: ++areaCounter,
             name: areaName,
             type: areaType,
-            sqFt: sqFt,
-            perimeter: perimeterVal,
-            shape: currentShape,
+            sqFt: Math.round(m.sqFeet),
+            perimeter: Math.round(m.perimeterFeet),
+            coords: m.coords,
+            overlay: adopted ? adopted.overlay : null,
             color: color
         });
 
-        currentShape = null;
         document.getElementById('currentMeasurement').style.display = 'none';
         document.getElementById('areaName').value = '';
+        document.querySelectorAll('.mw-measure-tools .btn').forEach(function (btn) { btn.classList.remove('mw-tool-active'); });
         updateAreasList();
     }
 
@@ -1284,7 +1192,7 @@ Work to be completed weather permitting.</textarea>
                     '<div class="mw-area-item-detail">' + escapeHtml(area.type) + ' &mdash; ' + area.sqFt.toLocaleString() + ' sq ft</div>' +
                 '</div>' +
                 '<div class="mw-area-item-actions">' +
-                    (area.shape ? '<button onclick="zoomToArea(' + area.id + ')" title="Zoom">&#128269;</button>' : '') +
+                    (area.overlay ? '<button onclick="zoomToArea(' + area.id + ')" title="Zoom">&#128269;</button>' : '') +
                     '<button onclick="deleteArea(' + area.id + ')" title="Delete">&#10005;</button>' +
                 '</div>' +
             '</div>';
@@ -1299,37 +1207,65 @@ Work to be completed weather permitting.</textarea>
 
     function deleteArea(id) {
         var area = savedAreas.find(function(a) { return a.id === id; });
-        if (area && area.shape) {
-            area.shape.setMap(null);
-        }
+        if (area && area.overlay && measureTool) measureTool.removeOverlay(area.overlay);
         savedAreas = savedAreas.filter(function(a) { return a.id !== id; });
         updateAreasList();
     }
 
     function zoomToArea(id) {
         var area = savedAreas.find(function(a) { return a.id === id; });
-        if (!area || !area.shape) return;
-
-        var bounds = new google.maps.LatLngBounds();
-        if (area.shape.getPath) {
-            area.shape.getPath().forEach(function(point) { bounds.extend(point); });
-        } else {
-            bounds = area.shape.getBounds();
-        }
-        measureMapInstance.fitBounds(bounds);
+        if (area && area.overlay && measureTool) measureTool.zoomTo(area.overlay);
     }
 
     function clearAllAreas() {
         if (!confirm('Clear all measured areas?')) return;
         savedAreas.forEach(function(area) {
-            if (area.shape) area.shape.setMap(null);
+            if (area.overlay && measureTool) measureTool.removeOverlay(area.overlay);
         });
         savedAreas = [];
         clearCurrentDrawing();
         updateAreasList();
     }
 
-    // ─── Save Measurements to DB ────────────────────────────
+    // ─── Arrival Border (drawn inline via the same engine) ──
+    function wfDrawArrivalBorder() {
+        if (!measureTool || !measureTool.isReady()) { showToast('Map is still loading — try again in a moment.'); return; }
+        if (!propertyId) { showToast('Save the property first to attach an arrival border.'); return; }
+        wfDrawIntent = 'arrival_border';
+        document.querySelectorAll('.mw-measure-tools .btn').forEach(function (btn) { btn.classList.remove('mw-tool-active'); });
+        showToast('Click points around the whole property, then close the shape to save the arrival border.');
+        measureTool.startDraw('polygon');
+    }
+
+    function wfFinishArrivalBorder(m) {
+        wfDrawIntent = 'measure';
+        if (!m || !m.coords || m.coords.length < 3) { if (measureTool) measureTool.clearCurrent(); return; }
+        var adopted = measureTool.adoptCurrent({ color: '#FFD700', strokeColor: '#FFD700', fillOpacity: 0.08 });
+        MapDrawTool.saveZone(GEOFENCE_API, {
+            csrfToken: WF_CSRF,
+            propertyId: propertyId,
+            zoneType: 'arrival_border',
+            coords: m.coords,
+            label: 'Arrival Border'
+        }).then(function (data) {
+            if (data && data.success) {
+                wfHasArrivalBorder = true;
+                var alertEl = document.getElementById('borderAlert');
+                if (alertEl) alertEl.style.display = 'none';
+                var lbl = document.getElementById('wfBorderBtnLabel');
+                if (lbl) lbl.textContent = 'Redraw Arrival Border';
+                showToast('Arrival border saved.');
+            } else {
+                if (adopted) measureTool.removeOverlay(adopted.overlay);
+                showToast('Could not save arrival border: ' + ((data && data.error) || 'error'));
+            }
+        }).catch(function (err) {
+            if (adopted) measureTool.removeOverlay(adopted.overlay);
+            showToast('Error saving arrival border: ' + err.message);
+        });
+    }
+
+    // ─── Save Measurements to DB (shared MapDrawTool endpoint) ──
     function saveMeasurementsToDb() {
         if (savedAreas.length === 0) {
             alert('No areas to save. Please measure at least one area first.');
@@ -1342,36 +1278,21 @@ Work to be completed weather permitting.</textarea>
         statusDiv.textContent = 'Saving measurements...';
 
         var measurements = savedAreas.map(function(area) {
-            var coords = null;
-            if (area.shape && area.shape.getPath) {
-                coords = area.shape.getPath().getArray().map(function(p) {
-                    return { lat: p.lat(), lng: p.lng() };
-                });
-            }
             return {
                 name: area.name,
                 type: area.type,
                 sqFt: area.sqFt,
                 perimeter: area.perimeter || null,
-                coords: coords
+                shape: 'polygon',
+                coords: area.coords || null
             };
         });
 
-        var formData = new FormData();
-        formData.append('action', 'save_measurements');
-        formData.append('csrf_token', '<?php echo $csrfToken; ?>');
-        formData.append('property_id', propertyId);
-        formData.append('measurements', JSON.stringify(measurements));
-
-        fetch(window.location.href, {
-            method: 'POST',
-            body: formData
-        })
-        .then(function(response) { return response.json(); })
+        MapDrawTool.saveMeasurements(MEAS_API, propertyId, WF_CSRF, measurements)
         .then(function(data) {
             if (data.success) {
                 statusDiv.className = 'mt-1 alert alert-success';
-                statusDiv.textContent = data.message;
+                statusDiv.textContent = data.message || 'Measurements saved.';
                 // Refresh the service picker with the newly saved measurements
                 wfFetchMeasurements();
             } else {
@@ -1407,7 +1328,7 @@ Work to be completed weather permitting.</textarea>
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', function() {
             // Call initMaps explicitly if Google Maps loaded but callback didn't fire
-            if (typeof google !== 'undefined' && google.maps && !territoryMapInstance) {
+            if (typeof google !== 'undefined' && google.maps && !mapsInited) {
                 initMaps();
             }
             setTimeout(resizeMaps, 500);

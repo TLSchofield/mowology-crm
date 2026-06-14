@@ -125,6 +125,32 @@ try {
             'filter_groups'=> $groups,
         ]);
 
+    } elseif ($action === 'save') {
+        // Replace-all save of a property's measurements (shared MapDrawTool engine).
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') throw new Exception('POST required');
+
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'error' => 'Invalid security token']);
+            exit;
+        }
+
+        $propId       = (int)($input['property_id'] ?? 0);
+        $measurements = $input['measurements'] ?? [];
+        if (!$propId) throw new Exception('Property ID required');
+        if (!is_array($measurements) || empty($measurements)) {
+            throw new Exception('No measurements to save');
+        }
+
+        require_once APP_ROOT . '/Services/MeasurementService.php';
+        if (!function_exists('saveMeasurementsForProperty')) {
+            throw new Exception('MeasurementService not available');
+        }
+
+        $result = saveMeasurementsForProperty($propId, $measurements, (int)$user['id']);
+        echo json_encode($result);
+
     } elseif ($action === 'update') {
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') throw new Exception('POST required');
 

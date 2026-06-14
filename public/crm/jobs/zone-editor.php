@@ -61,11 +61,9 @@ if (!empty($_GET['return_to'])) {
 
 $pageTitle  = 'Zone Editor — ' . htmlspecialchars($property['address'] ?? 'Property');
 $activePage = 'jobs';
-$extraHead  = '
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="/crm/js/geofence/zone-editor-manager.js"></script>
-';
+$mapsApiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
+$extraHead  = '<script src="/crm/js/map-draw/map-draw-tool.js"></script>'
+            . '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($mapsApiKey, ENT_QUOTES, 'UTF-8') . '&libraries=drawing,geometry&callback=initZoneEditor" async defer></script>';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
@@ -110,7 +108,7 @@ $extraHead  = '
                     One large polygon surrounding the entire property (including all addresses).
                     Crew entering this border auto-clocks in for the shift.
                 </p>
-                <button id="btn-draw-border" class="btn btn-sm mw-zone-btn-border w-100" onclick="startDrawArrivalBorder()">
+                <button id="btn-draw-border" class="btn btn-sm mw-zone-btn-border w-100" onclick="startDrawArrivalBorder()" disabled>
                     <i data-feather="edit-3" class="me-1"></i> Draw Arrival Border
                 </button>
             </div>
@@ -145,7 +143,7 @@ $extraHead  = '
                     <input id="zone-label-input" type="text" class="form-control form-control-sm"
                            placeholder="e.g. Willow Entrance Bed" maxlength="100">
                 </div>
-                <button id="btn-draw-zone" class="btn btn-sm btn-success w-100" onclick="startDrawWorkZone()">
+                <button id="btn-draw-zone" class="btn btn-sm btn-success w-100" onclick="startDrawWorkZone()" disabled>
                     <i data-feather="plus-circle" class="me-1"></i> Draw Work Zone
                 </button>
             </div>
@@ -156,16 +154,11 @@ $extraHead  = '
             <div class="card-body text-center">
                 <p class="text-warning small mb-2">
                     <i data-feather="crosshair" class="me-1"></i>
-                    Drawing mode active — click to add vertices
+                    Drawing mode active — click to add points, then click the first point (or double-click) to close the shape. It saves automatically.
                 </p>
-                <div class="d-flex gap-2">
-                    <button class="btn btn-sm btn-success flex-fill" onclick="zm.finishDraw()">
-                        <i data-feather="check" class="me-1"></i> Finish
-                    </button>
-                    <button class="btn btn-sm btn-outline-secondary flex-fill" onclick="zm.cancelDraw(); hideDrawControls()">
-                        <i data-feather="x" class="me-1"></i> Cancel
-                    </button>
-                </div>
+                <button class="btn btn-sm btn-outline-secondary w-100" onclick="cancelDraw()">
+                    <i data-feather="x" class="me-1"></i> Cancel
+                </button>
             </div>
         </div>
 
@@ -193,7 +186,7 @@ $extraHead  = '
         <div class="d-flex align-items-center justify-content-between mt-2">
             <p class="text-muted small mb-0">
                 <i data-feather="info" class="me-1"></i>
-                Yellow dashed = arrival border. Coloured = work zones. Hover a zone to see its name.
+                Yellow = arrival border. Coloured = work zones. Hover a zone to see its name.
             </p>
             <div id="tileCacheStatus" class="mw-tile-status" style="display:none;"></div>
         </div>
@@ -203,52 +196,130 @@ $extraHead  = '
 
 <script>
 const PROPERTY_ID  = <?= (int)$propertyId ?>;
-const MAP_CENTER   = [<?= (float)$lat ?>, <?= (float)$lng ?>];
+const MAP_CENTER   = { lat: <?= (float)$lat ?>, lng: <?= (float)$lng ?> };
 const CSRF_TOKEN   = '<?= htmlspecialchars(generateCSRFToken()) ?>';
+const GEOFENCE_API = '/crm/api/geofence.php';
 
-let zm;
+const ZONE_COLORS = ['#2D8659','#e85d04','#0d6efd','#6f42c1','#20c997','#fd7e14','#dc3545','#0dcaf0'];
 
-document.addEventListener('DOMContentLoaded', () => {
-    zm = new ZoneEditorManager({
-        mapContainer:   'zone-map',
-        apiBase:        '/crm/api/geofence.php',
-        csrfToken:      CSRF_TOKEN,
-        propertyId:     PROPERTY_ID,
-        center:         MAP_CENTER,
-        zoom:           20,
-        onZonesChanged: renderZoneList,
+let tool = null;             // MapDrawTool — the shared drawing engine
+let zoneList = [];           // zones for this property
+const zoneOverlays = {};     // geofence_id -> Google Maps overlay
+let drawIntent = null;       // {zoneType, planId, label} | null
+let colorIdx = 0;
+
+// Google Maps script callback
+function initZoneEditor() {
+    if (tool) return;
+    tool = new MapDrawTool({
+        mapContainer: 'zone-map',
+        center:       MAP_CENTER,
+        zoom:         20,
+        marker:       true,
+        onReady: function () {
+            const b1 = document.getElementById('btn-draw-border');
+            const b2 = document.getElementById('btn-draw-zone');
+            if (b1) b1.disabled = false;
+            if (b2) b2.disabled = false;
+            loadZones();
+            if (typeof feather !== 'undefined') feather.replace();
+        },
+        onComplete: function (m) { onShapeComplete(m); }
     });
-    zm.init();
+    tool.init();
+}
 
-    // Large green dot to indicate the property location
-    if (typeof L !== 'undefined' && zm._map) {
-        L.circleMarker(MAP_CENTER, {
-            radius: 14,
-            color: '#0D3B2E',
-            weight: 3,
-            fillColor: '#2D8659',
-            fillOpacity: 0.9,
-        }).addTo(zm._map).bindTooltip('Property Location', { permanent: false, direction: 'top' });
-    }
+function loadZones() {
+    MapDrawTool.loadZones(GEOFENCE_API, PROPERTY_ID).then(function (zones) {
+        zoneList = zones || [];
+        const coordArrays = [];
+        zoneList.forEach(function (z) { addZoneOverlay(z); coordArrays.push(z.ring); });
+        if (coordArrays.length) tool.fitAll(coordArrays);
+        renderZoneList(zoneList);
+    });
+}
 
-    if (typeof feather !== 'undefined') feather.replace();
-});
+function addZoneOverlay(z) {
+    const isArrival = z.zone_type === 'arrival_border';
+    const color = isArrival ? '#FFD700' : ZONE_COLORS[colorIdx++ % ZONE_COLORS.length];
+    z._color = color;
+    const overlay = tool.renderShape(z.ring, {
+        shapeType:   'polygon',
+        color:       color,
+        strokeColor: color,
+        fillOpacity: isArrival ? 0.08 : 0.18,
+        weight:      isArrival ? 3 : 2
+    });
+    if (overlay) zoneOverlays[z.id] = overlay;
+}
 
 function startDrawArrivalBorder() {
-    zm.startDrawArrivalBorder();
-    showDrawControls('arrival_border');
+    if (!tool || !tool.isReady()) return;
+    drawIntent = { zoneType: 'arrival_border', planId: null, label: 'Arrival Border' };
+    showDrawControls();
+    tool.startDraw('polygon');
 }
 
 function startDrawWorkZone() {
+    if (!tool || !tool.isReady()) return;
     const planId = parseInt(document.getElementById('zone-plan-select').value);
     const label  = document.getElementById('zone-label-input').value.trim();
     if (!planId) { alert('Please select a plan first.'); return; }
     if (!label)  { alert('Please enter a zone name first.'); return; }
-    zm.startDrawWorkZone(planId, label);
-    showDrawControls('work_zone');
+    drawIntent = { zoneType: 'work_zone', planId: planId, label: label };
+    showDrawControls();
+    tool.startDraw('polygon');
 }
 
-function showDrawControls(type) {
+function onShapeComplete(m) {
+    if (!drawIntent) { if (tool) tool.clearCurrent(); return; }
+    const intent = drawIntent;
+    drawIntent = null;
+    hideDrawControls();
+    if (!m || !m.coords || m.coords.length < 3) { tool.clearCurrent(); return; }
+
+    // Drop the editable scratch shape; the styled saved overlay is re-added on success.
+    tool.clearCurrent();
+
+    MapDrawTool.saveZone(GEOFENCE_API, {
+        csrfToken:  CSRF_TOKEN,
+        propertyId: PROPERTY_ID,
+        zoneType:   intent.zoneType,
+        planId:     intent.planId,
+        coords:     m.coords,
+        label:      intent.label
+    }).then(function (data) {
+        if (!data || !data.success) { alert('Save failed: ' + ((data && data.error) || 'error')); return; }
+        const z = {
+            id:        data.geofence_id,
+            zone_type: intent.zoneType,
+            plan_id:   intent.planId,
+            label:     intent.label,
+            ring:      MapDrawTool.ringFromCoords(m.coords)
+        };
+        zoneList.push(z);
+        addZoneOverlay(z);
+        renderZoneList(zoneList);
+    }).catch(function (err) { alert('Save failed: ' + err.message); });
+}
+
+function cancelDraw() {
+    drawIntent = null;
+    if (tool) { tool.stopDraw(); tool.clearCurrent(); }
+    hideDrawControls();
+}
+
+function deleteZone(id) {
+    if (!confirm('Delete this zone?')) return;
+    MapDrawTool.deleteZone(GEOFENCE_API, CSRF_TOKEN, id).then(function (data) {
+        if (!data || !data.success) { alert('Delete failed: ' + ((data && data.error) || 'error')); return; }
+        if (zoneOverlays[id]) { tool.removeOverlay(zoneOverlays[id]); delete zoneOverlays[id]; }
+        zoneList = zoneList.filter(function (z) { return z.id !== id; });
+        renderZoneList(zoneList);
+    }).catch(function (err) { alert('Delete failed: ' + err.message); });
+}
+
+function showDrawControls() {
     document.getElementById('draw-controls').style.display = '';
     document.getElementById('btn-draw-border').disabled = true;
     document.getElementById('btn-draw-zone').disabled   = true;
@@ -260,13 +331,6 @@ function hideDrawControls() {
     document.getElementById('btn-draw-border').disabled = false;
     document.getElementById('btn-draw-zone').disabled   = false;
 }
-
-// Override finishDraw to also hide controls
-const origFinish = ZoneEditorManager.prototype.finishDraw;
-ZoneEditorManager.prototype.finishDraw = function() {
-    origFinish.call(this);
-    hideDrawControls();
-};
 
 function renderZoneList(zones) {
     const list  = document.getElementById('zone-list');
@@ -282,7 +346,7 @@ function renderZoneList(zones) {
 
     zones.forEach(z => {
         const isArrival = z.zone_type === 'arrival_border';
-        const dot = isArrival ? '#FFD700' : (z.color ? z.color.stroke : '#2D8659');
+        const dot = isArrival ? '#FFD700' : (z._color || '#2D8659');
         const label = isArrival ? 'Arrival Border' : (z.label || 'Work Zone');
 
         const item = document.createElement('div');
@@ -296,7 +360,7 @@ function renderZoneList(zones) {
                     ${isArrival ? `<div class="text-muted" style="font-size:11px;">Clock-in trigger</div>` : ''}
                 </div>
             </div>
-            <button class="btn btn-sm btn-outline-danger btn-xs" onclick="zm.deleteZone(${z.id})" title="Delete zone">
+            <button class="btn btn-sm btn-outline-danger btn-xs" onclick="deleteZone(${z.id})" title="Delete zone">
                 <i data-feather="trash-2"></i>
             </button>
         `;
@@ -309,6 +373,11 @@ function renderZoneList(zones) {
 function escHtml(s) {
     return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
 }
+
+// Fallback: if the Google callback didn't fire (script cached/race), init on load.
+document.addEventListener('DOMContentLoaded', function () {
+    if (!tool && typeof google !== 'undefined' && google.maps) initZoneEditor();
+});
 </script>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
