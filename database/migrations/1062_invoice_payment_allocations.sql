@@ -42,11 +42,7 @@ ALTER TABLE bank_import_rows
     ENUM('unmatched','auto_matched','suggested','manually_matched','new_expense','true_duplicate','matched_invoice')
     NOT NULL DEFAULT 'unmatched';
 
--- Bank Clearing account — deposits reclassified to type='transfer' land here (asset, excluded from P&L).
--- Subqueries are nested in derived tables so MySQL allows referencing chart_of_accounts in an INSERT…SELECT.
-INSERT INTO chart_of_accounts (code, name, type, subtype, normal_balance, parent_id, is_active, display_order, description)
-SELECT '1150', 'Bank Clearing', 'asset', 'clearing', 'debit',
-       (SELECT id FROM (SELECT id FROM chart_of_accounts WHERE code = '1000' LIMIT 1) AS p),
-       1, 15, 'Imported deposits reconciled to invoices (cash-clearing, excluded from P&L)'
-FROM DUAL
-WHERE NOT EXISTS (SELECT 1 FROM (SELECT id FROM chart_of_accounts WHERE code = '1150' LIMIT 1) AS e);
+-- NOTE: No dedicated 'Bank Clearing' account is required. A reconciled deposit keeps its
+-- original account_id and is excluded from P&L purely by flipping `type` to 'transfer'
+-- (every report sums `type IN ('income','expense')`). This keeps the migration independent
+-- of chart_of_accounts columns that differ between the intended schema and production.

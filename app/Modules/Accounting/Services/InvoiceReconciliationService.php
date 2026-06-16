@@ -390,7 +390,20 @@ class InvoiceReconciliationService
         ];
     }
 
-    /** Split a bank description into candidate name words (≥3 chars, non-numeric). */
+    /**
+     * Generic banking / business-suffix words that must NOT count as a name match —
+     * otherwise "...PROPERTY MANAGEMENT" in a memo falsely matches "Smith Property".
+     */
+    private const NAME_STOPWORDS = [
+        'property','properties','management','mgmt','branch','deposit','transfer',
+        'payment','cheque','cheq','chq','check','interac','etransfer','holdings',
+        'holding','limited','ltd','inc','incorporated','corp','corporation','company',
+        'services','service','group','account','online','banking','mobile','vancity',
+        'credit','union','the','and','from','for','bill','invoice','llc','enterprises',
+        'contracting','landscaping','lawn','care','maintenance',
+    ];
+
+    /** Split a bank description into candidate name words (≥3 chars, non-numeric, non-stopword). */
     private function extractNameWords(string $description): array
     {
         $clean = preg_replace(
@@ -401,7 +414,9 @@ class InvoiceReconciliationService
         $clean = trim((string)preg_replace('/\s+/', ' ', (string)$clean));
         $words = [];
         foreach (preg_split('/\s+/', strtolower($clean)) as $w) {
-            if (strlen($w) >= 3 && !is_numeric($w)) $words[] = $w;
+            if (strlen($w) >= 3 && !is_numeric($w) && !in_array($w, self::NAME_STOPWORDS, true)) {
+                $words[] = $w;
+            }
         }
         return $words;
     }

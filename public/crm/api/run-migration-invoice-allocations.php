@@ -80,27 +80,10 @@ tryExec($db,
        NOT NULL DEFAULT 'unmatched'",
     "extend bank_import_rows.match_status", $results);
 
-// ── Seed '1150 Bank Clearing' (done in PHP to avoid self-referencing INSERT) ──
-try {
-    $exists = $db->query("SELECT id FROM chart_of_accounts WHERE code = '1150' LIMIT 1")->fetchColumn();
-    if ($exists) {
-        $results[] = ['step' => 'seed 1150 Bank Clearing', 'status' => 'already exists'];
-    } else {
-        $parentId = $db->query("SELECT id FROM chart_of_accounts WHERE code = '1000' LIMIT 1")->fetchColumn();
-        $stmt = $db->prepare("
-            INSERT INTO chart_of_accounts
-                (code, name, type, subtype, normal_balance, parent_id, is_active, display_order, description)
-            VALUES ('1150', 'Bank Clearing', 'asset', 'clearing', 'debit', ?, 1, 15, ?)
-        ");
-        $stmt->execute([
-            $parentId ?: null,
-            'Imported deposits reconciled to invoices (cash-clearing, excluded from P&L)',
-        ]);
-        $results[] = ['step' => 'seed 1150 Bank Clearing', 'status' => 'ok'];
-    }
-} catch (PDOException $e) {
-    $results[] = ['step' => 'seed 1150 Bank Clearing', 'status' => 'error', 'msg' => $e->getMessage()];
-}
+// NOTE: No 'Bank Clearing' account is needed. Reconciled deposits keep their original
+// account_id and are excluded from P&L purely by flipping type to 'transfer' (every
+// report sums type IN ('income','expense')). This avoids depending on chart_of_accounts
+// columns that differ between the intended schema and production.
 
 $hasError = (bool)array_filter($results, fn($r) => ($r['status'] ?? '') === 'error');
 echo json_encode(['success' => !$hasError, 'migration' => '1062', 'results' => $results], JSON_PRETTY_PRINT);
