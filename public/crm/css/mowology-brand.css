@@ -33983,9 +33983,9 @@ a.mw-clock-timer-nav:hover {
 .modal-body .form-group { margin-bottom: 1rem; }
 .modal-body label { font-size: var(--mw-text-sm); font-weight: var(--mw-weight-medium); color: var(--mw-ink-700); }
 
-/* Make modals feel less wide by default */
-.modal-dialog { margin: 1.75rem auto; }
-.modal-dialog:not(.modal-lg):not(.modal-xl) { max-width: 520px; }
+/* Make modals feel less wide by default (full-screen modals opt out) */
+.modal-dialog:not(.mw-modal-fullscreen) { margin: 1.75rem auto; }
+.modal-dialog:not(.mw-modal-fullscreen):not(.modal-lg):not(.modal-xl) { max-width: 520px; }
 
 /* ─── GPS Tracking Showcase Card — Team Page ─────────────────────────────── */
 
