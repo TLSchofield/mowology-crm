@@ -97,6 +97,115 @@ function determineInvoiceRecipients(int $propertyId, int $companyId): array {
 
 
 /**
+ * PM-MANAGED BILLING PRECEDENCE.
+ *
+ * When a property is managed by a firm (properties.property_manager_id set),
+ * invoices for that building must go to the MANAGEMENT COMPANY's accounts
+ * contact — not the on-site/property contact. This is the documented intent of
+ * the contract "PM-Managed Billing" screen ("invoices to this building bill the
+ * management company's accounts").
+ *
+ * Resolution honors the management company's invoice_routing_method:
+ *   billing_contact   → companies.billing_contact_id
+ *   primary_contact   → companies.primary_contact_id
+ *   both_contacts     → both (deduped)
+ *   email_address     → companies.billing_email (no contact row)
+ *   custom_contacts / anything else → billing_contact_id, else primary_contact_id
+ *
+ * Returns recipient rows in the api-get-recipients shape (preselect=true), or
+ * an empty array if the property is not PM-managed / nothing resolvable.
+ *
+ * @param int $propertyId
+ * @return array<int,array>
+ */
+function resolveManagementBillingRecipient(int $propertyId): array {
+    $db = getDB();
+
+    try {
+        $stmt = $db->prepare("
+            SELECT mgr.id AS company_id, mgr.company_name,
+                   mgr.primary_contact_id, mgr.billing_contact_id,
+                   mgr.billing_email, mgr.invoice_routing_method
+            FROM properties p
+            JOIN companies mgr ON mgr.id = p.property_manager_id
+            WHERE p.id = ? AND p.property_manager_id IS NOT NULL
+        ");
+        $stmt->execute([$propertyId]);
+        $mgr = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$mgr) {
+            return []; // not PM-managed
+        }
+
+        $method = $mgr['invoice_routing_method'] ?: 'billing_contact';
+
+        // Which contact id(s) to use, by routing method.
+        $contactIds = [];
+        switch ($method) {
+            case 'primary_contact':
+                $contactIds = [$mgr['primary_contact_id']];
+                break;
+            case 'both_contacts':
+                $contactIds = [$mgr['billing_contact_id'], $mgr['primary_contact_id']];
+                break;
+            case 'email_address':
+                $contactIds = []; // resolved via billing_email below
+                break;
+            case 'billing_contact':
+            case 'custom_contacts':
+            default:
+                $contactIds = [$mgr['billing_contact_id'], $mgr['primary_contact_id']];
+                // For billing_contact we only want the billing contact; keep
+                // primary only as a fallback when billing_contact_id is empty.
+                if ($method === 'billing_contact' && !empty($mgr['billing_contact_id'])) {
+                    $contactIds = [$mgr['billing_contact_id']];
+                }
+                break;
+        }
+
+        $recipients = [];
+        $seen = [];
+        foreach (array_filter($contactIds) as $cid) {
+            $cid = (int)$cid;
+            if (isset($seen[$cid])) continue;
+            $cstmt = $db->prepare("SELECT id, first_name, last_name, email, mobile, receive_sms FROM contacts WHERE id = ?");
+            $cstmt->execute([$cid]);
+            $c = $cstmt->fetch(PDO::FETCH_ASSOC);
+            if (!$c || empty($c['email'])) continue;
+            $seen[$cid] = true;
+            $recipients[] = [
+                'contact_id'    => (int)$c['id'],
+                'contact_name'  => trim($c['first_name'] . ' ' . $c['last_name']),
+                'contact_role'  => 'billing_contact',
+                'email_address' => $c['email'],
+                'receive_sms'   => (bool)$c['receive_sms'],
+                'phone'         => $c['mobile'] ?? null,
+                'preselect'     => true,
+            ];
+        }
+
+        // email_address routing (or no usable contact found): bill the company's
+        // billing_email as a contactless recipient.
+        if (empty($recipients) && !empty($mgr['billing_email'])) {
+            $recipients[] = [
+                'contact_id'    => 0,
+                'contact_name'  => $mgr['company_name'] . ' (Accounts)',
+                'contact_role'  => 'billing_contact',
+                'email_address' => $mgr['billing_email'],
+                'receive_sms'   => false,
+                'phone'         => null,
+                'preselect'     => true,
+            ];
+        }
+
+        return $recipients;
+    } catch (Throwable $e) {
+        error_log('resolveManagementBillingRecipient error: ' . $e->getMessage());
+        return [];
+    }
+}
+
+
+/**
  * Get recipient list for direct client (no property manager)
  *
  * @param array $property Property data

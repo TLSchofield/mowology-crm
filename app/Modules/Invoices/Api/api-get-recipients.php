@@ -152,6 +152,31 @@ try {
         }
     }
 
+    // ── PM-MANAGED BILLING PRECEDENCE ──────────────────────────────────────
+    // If the property is managed by a firm, invoices bill the MANAGEMENT
+    // COMPANY's accounts contact (honoring its invoice_routing_method), NOT the
+    // on-site/property contact. The management billing recipient becomes the
+    // preselected primary; anything resolved above stays in the list but
+    // unchecked (available as a CC). This is the documented intent of the
+    // contract "PM-Managed Billing" screen and fixes the case where the form
+    // defaulted to the property manager *person* instead of the firm's accounts.
+    if ($propertyId) {
+        $pmRecipients = resolveManagementBillingRecipient($propertyId);
+        if (!empty($pmRecipients)) {
+            $pmContactIds = array_column($pmRecipients, 'contact_id');
+            $ccRecipients = [];
+            foreach ($recipients as $r) {
+                // Drop duplicates of the PM contacts; demote the rest to unchecked.
+                if (in_array((int)($r['contact_id'] ?? 0), array_map('intval', $pmContactIds), true)) {
+                    continue;
+                }
+                $r['preselect'] = false;
+                $ccRecipients[] = $r;
+            }
+            $recipients = array_merge($pmRecipients, $ccRecipients);
+        }
+    }
+
     // Determine recipients
     // (already set above)
 

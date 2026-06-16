@@ -125,7 +125,7 @@ if (!$visitId && isset($_GET['plan_id'])) {
             SELECT jp.*, jp.plan_number, jp.title, jp.service_type,
                    jp.estimated_amount, jp.plan_start_date,
                    p.address, p.city, p.province, p.postal_code,
-                   p.site_contact_id,
+                   p.site_contact_id, p.property_manager_id, p.billing_entity_name,
                    COALESCE(con.first_name, '') AS contact_first,
                    COALESCE(con.last_name,  '') AS contact_last,
                    con.email  AS contact_email,
@@ -156,6 +156,32 @@ if (!$visitId && isset($_GET['plan_id'])) {
 
             $amount      = !empty($planRow['billing_amount']) ? $planRow['billing_amount'] : $planRow['estimated_amount'];
             $contactName = trim($planRow['contact_first'] . ' ' . $planRow['contact_last']) ?: null;
+
+            // PM-managed building: the bill-to is the MANAGEMENT FIRM's account
+            // ("Entity C/O Firm"), and invoices route to the firm's accounts
+            // contact — NOT the on-site contact. Resolve the firm's company name
+            // and unified client account so the customer prefills as a billing
+            // entity. (Without this, plans with no company_id fall back to the
+            // site contact and email the property manager person instead.)
+            $pmCompanyId   = (int)($planRow['property_manager_id'] ?? 0);
+            $pmClientId    = 0;
+            $pmCompanyName = null;
+            if ($pmCompanyId) {
+                try {
+                    $mStmt = $db->prepare("
+                        SELECT co.company_name, cl.id AS client_id
+                        FROM companies co
+                        LEFT JOIN clients cl ON cl.legacy_company_id = co.id
+                        WHERE co.id = ? ORDER BY cl.id LIMIT 1
+                    ");
+                    $mStmt->execute([$pmCompanyId]);
+                    if ($mr = $mStmt->fetch(PDO::FETCH_ASSOC)) {
+                        $pmCompanyName = $mr['company_name'] ?? null;
+                        $pmClientId    = (int)($mr['client_id'] ?? 0);
+                    }
+                } catch (PDOException $e) { /* pre-Phase-1 — leave unset */ }
+            }
+            $isPmManaged = $pmCompanyId > 0 && $pmClientId > 0;
             $baseDate    = !empty($planRow['contract_start_date']) ? $planRow['contract_start_date'] : ($planRow['plan_start_date'] ?? date('Y-m-d'));
             $billMonth   = date('F Y', strtotime($baseDate));
             $svcLabel    = $planRow['title'] ?: ucwords(str_replace('_', ' ', $planRow['service_type'] ?? 'Service'));
@@ -201,6 +227,12 @@ if (!$visitId && isset($_GET['plan_id'])) {
                 'issue_date'          => $baseDate,
                 'scheduled_date'      => date('Y-m-d'),
                 'from_plan'           => true,
+                // PM-managed billing entity (drives the customer prefill below)
+                'is_pm_managed'       => $isPmManaged,
+                'pm_company_id'       => $pmCompanyId,
+                'pm_client_id'        => $pmClientId,
+                'pm_company_name'     => $pmCompanyName,
+                'billing_entity_name' => $planRow['billing_entity_name'] ?? '',
             ];
         }
     }
@@ -1436,7 +1468,27 @@ function escHtml(str) {
 })();
 <?php endif; ?>
 
-<?php if (!empty($prefill['from_plan']) && (!empty($prefill['contact_id']) || !empty($prefill['company_id']))): ?>
+<?php if (!empty($prefill['from_plan']) && !empty($prefill['is_pm_managed'])): ?>
+// PM-managed building: prefill the customer as a billing entity
+// ("Entity C/O Management Firm"). Recipients resolve from the firm's account
+// (its accounts contact), and the invoice header reads "Entity C/O Firm" —
+// instead of defaulting to the on-site property manager person.
+(function () {
+    selectCustomer({
+        type:             'billing_entity',
+        id:               <?php echo (int)$prefill['pm_company_id']; ?>,
+        client_id:        <?php echo (int)$prefill['pm_client_id']; ?>,
+        billing_entity_name: <?php echo json_encode($prefill['billing_entity_name'] ?? ''); ?>,
+        label:            <?php echo json_encode(trim(($prefill['billing_entity_name'] ?: 'Building') . ' C/O ' . ($prefill['pm_company_name'] ?? 'Management'))); ?>,
+        sublabel:         <?php echo json_encode('Billed to ' . ($prefill['pm_company_name'] ?? 'management') . ' accounts'); ?>,
+        property_id:      <?php echo (int)($prefill['property_id'] ?? 0); ?>,
+        property_address: <?php echo json_encode($prefill['service_address'] ?? ''); ?>,
+        property_city:    <?php echo json_encode($prefill['service_city'] ?? ''); ?>,
+    });
+})();
+<?php endif; ?>
+
+<?php if (!empty($prefill['from_plan']) && empty($prefill['is_pm_managed']) && (!empty($prefill['contact_id']) || !empty($prefill['company_id']))): ?>
 // Prefilled from a plan (manual / upfront billing) — auto-select the customer
 // so the recipient list, property, and billing address populate without the user
 // having to re-search them.
