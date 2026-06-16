@@ -309,6 +309,25 @@ function createPlanFromQuote(int $quoteId, int $userId): array {
         return ['success' => false, 'plan_id' => null, 'plan_number' => null, 'errors' => ['Quote not found or not accepted.']];
     }
 
+    // Idempotency guard: this "convert the whole quote → one plan" path must not
+    // create duplicate plans on a double-click / back-button / second tab. If a
+    // plan already exists for this quote, return it instead of inserting another.
+    // (The multi-plan, per-line-item workflow uses createJobPlan() directly and is
+    // unaffected by this guard.) NOTE: this is a sequential guard — a true
+    // simultaneous double-submit can still race; a unique index is not viable here
+    // because a quote may legitimately yield multiple plans via the other path.
+    $existing = $db->prepare("SELECT id, plan_number FROM job_plans WHERE quote_id = ? ORDER BY id LIMIT 1");
+    $existing->execute([$quoteId]);
+    if ($existingPlan = $existing->fetch(PDO::FETCH_ASSOC)) {
+        return [
+            'success'         => true,
+            'plan_id'         => (int)$existingPlan['id'],
+            'plan_number'     => $existingPlan['plan_number'],
+            'errors'          => [],
+            'already_existed' => true,
+        ];
+    }
+
     // price_per_visit is stored NET (pre-GST). Quotes keep `subtotal` pre-GST and
     // `amount`/`total` GST-inclusive, so prefer subtotal; otherwise back GST out of gross.
     $quoteNet = ($quote['subtotal'] ?? null) !== null

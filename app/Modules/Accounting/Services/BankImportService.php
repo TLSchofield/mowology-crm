@@ -356,6 +356,11 @@ class BankImportService
                         ]);
                     }
 
+                    // Capture rollback intent: a pre-existing expense tx is only
+                    // un-reconciled; a tx we created in this session is deleted.
+                    $row['_revert'] = $existingTxId
+                        ? ['unflag_tx' => [(int)$existingTxId]]
+                        : ['delete_tx' => [$txId]];
                     $rowStmt->execute([
                         $sessionId, $row['date'], $row['description'], $rawAmount,
                         $row['type'], $row['amount'], $row['account_id'],
@@ -389,34 +394,56 @@ class BankImportService
                         WHERE id = ?
                     ")->execute([$accountName, $bankAccountId ?: null, $sessionId, $confidence, $invTxId]);
 
-                    // Insert the bank deposit as a bank_import transaction (actual cash received)
+                    // Book the bank deposit as a cash-clearing TRANSFER — NOT a second
+                    // income row. The invoice's own ledger row (marked 'reconciled'
+                    // above) already recognizes this revenue; booking the deposit as
+                    // income too would double-count it in the P&L / GST. Mirrors
+                    // InvoiceReconciliationService::recomputeDepositRow() (fully-allocated
+                    // deposit → type='transfer', excluded from income reports).
+                    $invoiceIdForDeposit = (int)($row['matched_invoice_id'] ?? 0);
                     $txStmt->execute([
-                        $row['date'], 'income', $row['account_id'], $row['amount'],
+                        $row['date'], 'transfer', $row['account_id'], $row['amount'],
                         0, $row['description'],
                         0, null, $accountName, $bankAccountId ?: null, $sessionId, $userId,
                     ]);
                     $txId = (int)$this->db->lastInsertId();
 
-                    // Store payment reference on the bank deposit row (audit trail)
-                    if ($payRef) {
-                        $this->db->prepare("
-                            UPDATE accounting_transactions SET payment_reference = ? WHERE id = ?
-                        ")->execute([$payRef, $txId]);
-                    }
+                    // Flag the transfer reconciled + link it to the invoice (audit trail).
+                    $this->db->prepare("
+                        UPDATE accounting_transactions SET
+                          status             = 'reconciled',
+                          matched_invoice_id = ?,
+                          match_confidence   = ?,
+                          matched_at         = NOW(),
+                          matched_by         = 'auto',
+                          payment_reference  = ?
+                        WHERE id = ?
+                    ")->execute([$invoiceIdForDeposit ?: null, $confidence, $payRef ?: null, $txId]);
 
                     // Close the invoice if this was an e-Transfer (Stripe closes via webhook)
                     $matchMethod   = $row['match_method'] ?? '';
                     $invoiceId     = (int)($row['matched_invoice_id'] ?? 0);
+                    $priorInvoice  = null;
                     if ($matchMethod === 'etransfer' && $invoiceId) {
-                        // Fetch invoice total so we can set amount_paid correctly
+                        // Snapshot prior invoice state BEFORE closing it, so rollback()
+                        // can restore it exactly (status/amount_paid/balance/method/paid_at).
                         $invRow = $this->db->prepare("
-                            SELECT total, amount_paid FROM invoices
+                            SELECT total, amount_paid, balance_due, status, payment_method, paid_at
+                            FROM invoices
                             WHERE id = ? AND status NOT IN ('paid','cancelled')
                             LIMIT 1
                         ");
                         $invRow->execute([$invoiceId]);
                         $inv = $invRow->fetch(PDO::FETCH_ASSOC);
                         if ($inv) {
+                            $priorInvoice = [
+                                'id'             => $invoiceId,
+                                'status'         => $inv['status'],
+                                'amount_paid'    => $inv['amount_paid'],
+                                'balance_due'    => $inv['balance_due'],
+                                'payment_method' => $inv['payment_method'],
+                                'paid_at'        => $inv['paid_at'],
+                            ];
                             $this->db->prepare("
                                 UPDATE invoices SET
                                     status           = 'paid',
@@ -445,6 +472,12 @@ class BankImportService
                         ]);
                     }
 
+                    // Capture what rollback() must undo for this row: un-reconcile the
+                    // invoice's income ledger row, and reopen the invoice if we closed it.
+                    $row['_revert'] = ['unflag_tx' => [$invTxId]];
+                    if ($priorInvoice) {
+                        $row['_revert']['reopen_invoice'] = $priorInvoice;
+                    }
                     $rowStmt->execute([
                         $sessionId, $row['date'], $row['description'], $rawAmount,
                         'income', $row['amount'], $row['account_id'],
@@ -513,22 +546,91 @@ class BankImportService
     }
 
     /**
-     * Rollback an import session — deletes all transactions created in that session.
+     * Rollback an import session — fully reverse everything commit() changed.
+     *
+     * commit() does more than insert bank-import rows: it un-reconciles/closes
+     * pre-existing invoice + expense ledger rows and can mark invoices 'paid'.
+     * A delete-only rollback left those mutations in place (falsely-paid invoices,
+     * orphaned 'reconciled' flags). We now replay the per-row reversal payload that
+     * commit() recorded in bank_import_rows.raw_row._revert, inside one transaction.
+     *
+     * Backward-compatible: sessions committed before this change have no _revert
+     * payload, so they degrade to the original delete-inserted-rows behaviour.
+     *
+     * @return int Number of ledger rows deleted.
      */
     public function rollback(int $sessionId): int
     {
-        $stmt = $this->db->prepare("
-            DELETE t FROM accounting_transactions t
-            JOIN bank_import_rows r ON r.transaction_id = t.id
-            WHERE r.session_id = ? AND t.reference_type = 'bank_import'
-        ");
-        $stmt->execute([$sessionId]);
-        $deleted = $stmt->rowCount();
+        $ownTransaction = !$this->db->inTransaction();
+        if ($ownTransaction) {
+            $this->db->beginTransaction();
+        }
 
-        $this->db->prepare("UPDATE bank_import_sessions SET status = 'rolled_back' WHERE id = ?")
-                 ->execute([$sessionId]);
+        try {
+            // ── 1. Replay captured reversals (un-reconcile / reopen / delete-created) ──
+            $unflag = $this->db->prepare("
+                UPDATE accounting_transactions SET
+                    status = 'cleared', matched_invoice_id = NULL,
+                    matched_expense_id = NULL, match_confidence = NULL,
+                    matched_at = NULL, matched_by = NULL, import_session_id = NULL
+                WHERE id = ?
+            ");
+            $deleteTx = $this->db->prepare("DELETE FROM accounting_transactions WHERE id = ?");
+            $reopen   = $this->db->prepare("
+                UPDATE invoices SET
+                    status = ?, amount_paid = ?, balance_due = ?,
+                    payment_method = ?, paid_at = ?
+                WHERE id = ? AND status = 'paid'
+            ");
 
-        return $deleted;
+            $rows = $this->db->prepare("SELECT raw_row FROM bank_import_rows WHERE session_id = ?");
+            $rows->execute([$sessionId]);
+            while ($r = $rows->fetch(PDO::FETCH_ASSOC)) {
+                $data   = json_decode($r['raw_row'] ?? '', true);
+                $revert = is_array($data) ? ($data['_revert'] ?? null) : null;
+                if (!is_array($revert)) {
+                    continue;
+                }
+                foreach (($revert['unflag_tx'] ?? []) as $txId) {
+                    $unflag->execute([(int)$txId]);
+                }
+                foreach (($revert['delete_tx'] ?? []) as $txId) {
+                    $deleteTx->execute([(int)$txId]);
+                }
+                if (!empty($revert['reopen_invoice']['id'])) {
+                    $pi = $revert['reopen_invoice'];
+                    $reopen->execute([
+                        $pi['status'], $pi['amount_paid'], $pi['balance_due'],
+                        $pi['payment_method'], $pi['paid_at'], (int)$pi['id'],
+                    ]);
+                }
+            }
+
+            // ── 2. Delete every ledger row this session INSERTED ──────────────────
+            //   (unmatched bank rows, invoice-match transfers, processing-fee expenses).
+            //   Keyed on import_session_id so the fee rows — which have no
+            //   bank_import_rows.transaction_id link — are also removed.
+            $del = $this->db->prepare("
+                DELETE FROM accounting_transactions
+                WHERE import_session_id = ? AND reference_type = 'bank_import'
+            ");
+            $del->execute([$sessionId]);
+            $deleted = $del->rowCount();
+
+            $this->db->prepare("UPDATE bank_import_sessions SET status = 'rolled_back' WHERE id = ?")
+                     ->execute([$sessionId]);
+
+            if ($ownTransaction) {
+                $this->db->commit();
+            }
+            return $deleted;
+
+        } catch (Throwable $e) {
+            if ($ownTransaction && $this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            throw $e;
+        }
     }
 
     // ══════════════════════════════════════════════════════════════════════════

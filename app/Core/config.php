@@ -17,10 +17,18 @@ if (!defined('APP_ROOT')) {
 // Set timezone early (stable)
 date_default_timezone_set('America/Vancouver');
 
-// Environment flags (set APP_ENV in server config if you want)
+// Load secrets first (single source of truth) — secrets.php stays in
+// /public/app_config/ (not in git). It may OPTIONALLY define('APP_ENV','dev')
+// on a local/dev machine; production's secrets.php leaves it undefined so we
+// fall through to the safe 'prod' default below.
+require_once PUBLIC_ROOT . '/app_config/secrets.php';
+
+// Environment flags. SAFE DEFAULT IS 'prod' — a box that forgot to set this must
+// NOT leak warnings/paths to users or API consumers. Override precedence:
+//   secrets.php define('APP_ENV',...)  >  APP_ENV env var (cPanel SetEnv / .user.ini)  >  'prod'
 if (!defined('APP_ENV')) {
-    // dev | prod
-    define('APP_ENV', 'dev');
+    $appEnv = getenv('APP_ENV');
+    define('APP_ENV', ($appEnv === 'dev') ? 'dev' : 'prod');
 }
 if (!defined('APP_DEBUG')) {
     define('APP_DEBUG', APP_ENV !== 'prod');
@@ -34,9 +42,6 @@ if (APP_DEBUG) {
     error_reporting(E_ALL);
     ini_set('display_errors', '0');
 }
-
-// Load secrets (single source of truth) — secrets.php stays in /public/app_config/ (not in git)
-require_once PUBLIC_ROOT . '/app_config/secrets.php';
 
 /**
  * Backwards-compatible DB accessor used across older pages.
