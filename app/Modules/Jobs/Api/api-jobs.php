@@ -56,6 +56,15 @@ try {
                 // activity_log may not have plan_id column — ignore
             }
 
+            // Release quote line items so they return to the quote's "available" pool
+            // for re-allocation (no FK on quote_line_items.plan_id — must be explicit,
+            // otherwise the items orphan to a deleted plan).
+            try {
+                $db->prepare("UPDATE quote_line_items SET plan_id = NULL WHERE plan_id IN ({$placeholders})")->execute($ids);
+            } catch (Exception $e) {
+                // quote_line_items.plan_id may be absent in some environments — ignore
+            }
+
             // Delete plans
             $stmt = $db->prepare("DELETE FROM job_plans WHERE id IN ({$placeholders})");
             $stmt->execute($ids);
@@ -98,6 +107,15 @@ try {
                 $db->prepare("UPDATE activity_log SET plan_id = NULL WHERE plan_id IN ({$placeholders})")->execute($ids);
             } catch (Exception $e) {
                 // activity_log may not have plan_id column — ignore
+            }
+
+            // Release quote line items so they return to the quote's "available" pool
+            // for re-allocation (no FK on quote_line_items.plan_id — must be explicit,
+            // otherwise the items orphan to a deleted plan).
+            try {
+                $db->prepare("UPDATE quote_line_items SET plan_id = NULL WHERE plan_id IN ({$placeholders})")->execute($ids);
+            } catch (Exception $e) {
+                // quote_line_items.plan_id may be absent in some environments — ignore
             }
 
             // Delete plans

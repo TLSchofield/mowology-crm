@@ -39,17 +39,26 @@ $lineItems = $svc->getLineItems($quoteId);
 $distinctServiceTypes = array_unique(array_filter(array_column($lineItems, 'service_type')));
 $quoteIsSingleService = (count($distinctServiceTypes) <= 1);
 
-// Plans already created from this quote — used to surface an "already converted"
-// state and point the user to the existing plan(s) instead of silently making a
-// duplicate. (A quote can legitimately have several plans via the multi-plan flow.)
-$quoteLinkedPlans = [];
-try {
-    $lpStmt = $db->prepare("SELECT id, plan_number FROM job_plans WHERE quote_id = ? ORDER BY id");
-    $lpStmt->execute([$quoteId]);
-    $quoteLinkedPlans = $lpStmt->fetchAll(PDO::FETCH_ASSOC);
-} catch (Throwable $e) {
-    $quoteLinkedPlans = [];
+// Quote → plan allocation state. A quote's line items are *assigned* to plans
+// (quote_line_items.plan_id). getQuoteLineItemsWithStatus() exposes converted_plan_id,
+// which is null when an item is unassigned OR its plan was deleted — so orphaned items
+// correctly read as available again. This drives the allocation coverage UI below.
+$quotePlans        = getPlansForQuote($quoteId);
+$quoteItemsStatus  = getQuoteLineItemsWithStatus($quoteId);
+$allocTotal        = count($quoteItemsStatus);
+$allocAssigned     = 0;
+$allocUnassigned   = [];
+foreach ($quoteItemsStatus as $qis) {
+    if (!empty($qis['converted_plan_id'])) {
+        $allocAssigned++;
+    } else {
+        $allocUnassigned[] = $qis;
+    }
 }
+$allocAvailable = max(0, $allocTotal - $allocAssigned);
+$allocPct       = $allocTotal > 0 ? (int)round($allocAssigned / $allocTotal * 100) : 0;
+$allocFully     = ($allocTotal > 0 && $allocAvailable === 0 && !empty($quotePlans));
+$allocNone      = ($allocAssigned === 0);
 
 // Get activity for this quote
 // Note: activity_log.quote_id column may not exist in older databases
@@ -357,10 +366,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($action === 'convert_to_job') {
-        $forceNew = !empty($_POST['force_new_plan']);
-        $result = createPlanFromQuote($quoteId, (int)$user['id'], $forceNew);
+        $result = createPlanFromQuote($quoteId, (int)$user['id']);
         if ($result['success']) {
             header("Location: ../jobs/view.php?id={$result['plan_id']}&created=1");
+            exit;
+        } elseif (!empty($result['fully_allocated'])) {
+            // Nothing left to convert — every service is already assigned to a plan.
+            // Refresh back to the quote so the allocation card shows the existing plans
+            // (rather than surfacing a dead-end error from a stale form submit).
+            header("Location: view.php?id={$quoteId}&fully_allocated=1");
             exit;
         } else {
             $message = "Error creating plan: " . implode(' ', $result['errors']);
@@ -689,40 +703,32 @@ $activePage = 'quotes';
                           <a href="../contracts/create.php?quote_id=<?php echo $quoteId; ?>" class="btn btn-primary">
                               <i data-feather="pen-tool" class="mr-1"></i> Create Contract
                           </a>
-                      <?php else: ?>
+                      <?php elseif ($allocNone): ?>
                           <?php if ($quoteIsSingleService): ?>
-                              <?php if (!empty($quoteLinkedPlans)): ?>
-                              <!-- Already converted → point to the existing plan(s); re-convert only on explicit confirm -->
-                              <?php foreach ($quoteLinkedPlans as $lp): ?>
-                              <a href="../jobs/view.php?id=<?php echo (int)$lp['id']; ?>" class="btn btn-primary">
-                                  <i data-feather="briefcase" class="mr-1"></i> View Plan <?php echo htmlspecialchars($lp['plan_number']); ?>
-                              </a>
-                              <?php endforeach; ?>
-                              <form method="POST" class="d-inline">
-                                  <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
-                                  <input type="hidden" name="action" value="convert_to_job">
-                                  <input type="hidden" name="force_new_plan" value="1">
-                                  <button type="submit" class="btn btn-outline-secondary"
-                                          onclick="return confirm('This quote is already converted to <?php echo htmlspecialchars($quoteLinkedPlans[0]['plan_number']); ?>. Create another full plan from it anyway?')">
-                                      <i data-feather="zap" class="mr-1"></i> Convert again
-                                  </button>
-                              </form>
-                              <?php else: ?>
-                              <!-- Single service type → one-click conversion, line items auto-copied -->
-                              <form method="POST" class="d-inline">
-                                  <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
-                                  <input type="hidden" name="action" value="convert_to_job">
-                                  <button type="submit" class="btn btn-primary">
-                                      <i data-feather="zap" class="mr-1"></i> Convert to Job
-                                  </button>
-                              </form>
-                              <?php endif; ?>
+                          <!-- Nothing assigned yet, single service → one-click conversion -->
+                          <form method="POST" class="d-inline">
+                              <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                              <input type="hidden" name="action" value="convert_to_job">
+                              <button type="submit" class="btn btn-primary">
+                                  <i data-feather="zap" class="mr-1"></i> Convert to Job
+                              </button>
+                          </form>
                           <?php else: ?>
-                          <!-- Multiple service types → split-plan workflow -->
+                          <!-- Multiple services → assign line items to plans -->
                           <a href="../jobs/create-from-quote.php?quote_id=<?php echo $quoteId; ?>" class="btn btn-primary">
-                              <i data-feather="briefcase" class="mr-1"></i> Create Plans
+                              <i data-feather="layers" class="mr-1"></i> Create Plans
                           </a>
                           <?php endif; ?>
+                      <?php elseif ($allocAvailable > 0): ?>
+                          <!-- Partially assigned → continue allocating the remaining services -->
+                          <a href="../jobs/create-from-quote.php?quote_id=<?php echo $quoteId; ?>" class="btn btn-primary">
+                              <i data-feather="layers" class="mr-1"></i> Assign Remaining (<?php echo (int)$allocAvailable; ?>)
+                          </a>
+                      <?php else: ?>
+                          <!-- Fully assigned → point to the plans (detail in the card below) -->
+                          <a href="#mw-job-plans" class="btn btn-outline-primary">
+                              <i data-feather="check-circle" class="mr-1"></i> View Plans (<?php echo count($quotePlans); ?>)
+                          </a>
                       <?php endif; ?>
                       <form method="POST" class="d-inline">
                           <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
@@ -898,6 +904,68 @@ $activePage = 'quotes';
                           </div>
                       </div>
                   </div>
+
+                  <!-- Job Plans / line-item allocation (accepted quotes only).
+                       Shown once a plan exists, or always for multi-service quotes where
+                       allocation IS the workflow. A fresh single-service quote relies on
+                       the header's one-click "Convert to Job" instead (no duplicate CTA). -->
+                  <?php if ($quote['status'] === 'accepted' && $allocTotal > 0 && ($allocAssigned > 0 || !$quoteIsSingleService)): ?>
+                  <div class="card mw-alloc-card" id="mw-job-plans">
+                      <div class="card-header d-flex justify-content-between align-items-center">
+                          <h5 class="card-title mb-0">Job Plans</h5>
+                          <span class="mw-alloc-pct"><?php echo $allocPct; ?>%</span>
+                      </div>
+                      <div class="card-body">
+                          <div class="mw-alloc-bar" role="progressbar" aria-valuenow="<?php echo $allocPct; ?>" aria-valuemin="0" aria-valuemax="100" aria-label="Services assigned to plans">
+                              <div class="mw-alloc-bar-fill" style="width: <?php echo $allocPct; ?>%;"></div>
+                          </div>
+                          <p class="mw-alloc-summary">
+                              <strong><?php echo $allocAssigned; ?></strong> of <strong><?php echo $allocTotal; ?></strong> services assigned to plans<?php
+                                  if ($allocAvailable > 0) {
+                                      echo ' · <span class="mw-alloc-available-count">' . (int)$allocAvailable . ' available</span>';
+                                  } else {
+                                      echo ' · <span class="mw-alloc-complete">fully assigned</span>';
+                                  }
+                              ?>
+                          </p>
+
+                          <?php if (!empty($quotePlans)): ?>
+                          <div class="mw-plan-chips">
+                              <?php foreach ($quotePlans as $pl): ?>
+                              <a class="mw-plan-chip" href="../jobs/view.php?id=<?php echo (int)$pl['id']; ?>" title="<?php echo htmlspecialchars($pl['title'] ?? ''); ?>">
+                                  <span class="mw-plan-chip-dot mw-plan-status-<?php echo htmlspecialchars($pl['status'] ?? 'active'); ?>"></span>
+                                  <span class="mw-plan-chip-num"><?php echo htmlspecialchars($pl['plan_number']); ?></span>
+                                  <span class="mw-plan-chip-meta"><?php echo htmlspecialchars($pl['service_type'] ?: ($pl['title'] ?: 'Plan')); ?></span>
+                                  <i data-feather="arrow-right" class="mw-plan-chip-arrow"></i>
+                              </a>
+                              <?php endforeach; ?>
+                          </div>
+                          <?php endif; ?>
+
+                          <?php if (!empty($allocUnassigned)): ?>
+                          <div class="mw-alloc-unassigned">
+                              <div class="mw-alloc-unassigned-title">Not yet assigned</div>
+                              <ul class="mw-alloc-unassigned-list">
+                                  <?php foreach ($allocUnassigned as $ui): ?>
+                                  <li>
+                                      <span class="mw-alloc-ui-name"><?php echo htmlspecialchars($ui['service_type'] ?: ($ui['description'] ?: 'Service')); ?></span>
+                                      <span class="mw-alloc-ui-amount"><?php echo formatCurrency($ui['line_total']); ?></span>
+                                  </li>
+                                  <?php endforeach; ?>
+                              </ul>
+                              <a href="../jobs/create-from-quote.php?quote_id=<?php echo $quoteId; ?>" class="btn btn-primary mw-alloc-cta">
+                                  <i data-feather="layers" class="mr-1"></i> <?php echo $allocAssigned === 0 ? 'Assign services to plans' : 'Assign Remaining (' . (int)$allocAvailable . ')'; ?>
+                              </a>
+                          </div>
+                          <?php else: ?>
+                          <div class="mw-alloc-done">
+                              <i data-feather="check-circle"></i>
+                              <span>All services from this quote are assigned to plans.</span>
+                          </div>
+                          <?php endif; ?>
+                      </div>
+                  </div>
+                  <?php endif; ?>
 
                   <!-- Terms -->
                   <?php if ($quote['terms']): ?>

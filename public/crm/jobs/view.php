@@ -100,6 +100,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                            ->execute($orphanStopIds);
                     }
 
+                    // Release this plan's quote line items so they return to the quote's
+                    // "available" pool for re-allocation. There is no FK on
+                    // quote_line_items.plan_id, so this must be done explicitly —
+                    // otherwise the items orphan (stuck assigned to a deleted plan).
+                    $db->prepare("UPDATE quote_line_items SET plan_id = NULL WHERE plan_id = ?")->execute([$planId]);
+
                     // Delete the plan — CASCADE handles job_visits + plan_line_items
                     $db->prepare("DELETE FROM job_plans WHERE id = ?")->execute([$planId]);
 

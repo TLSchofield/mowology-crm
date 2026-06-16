@@ -291,7 +291,7 @@ function createJobPlan(array $planData, int $userId): array {
  * Create a job plan from an accepted quote.
  * Replaces createJobFromQuote().
  */
-function createPlanFromQuote(int $quoteId, int $userId, bool $forceNew = false): array {
+function createPlanFromQuote(int $quoteId, int $userId): array {
     $db = getDB();
 
     // Get accepted quote
@@ -309,34 +309,56 @@ function createPlanFromQuote(int $quoteId, int $userId, bool $forceNew = false):
         return ['success' => false, 'plan_id' => null, 'plan_number' => null, 'errors' => ['Quote not found or not accepted.']];
     }
 
-    // Idempotency guard: this "convert the whole quote → one plan" path must not
-    // create duplicate plans on a double-click / back-button / second tab. If a
-    // plan already exists for this quote, return it instead of inserting another.
-    // (The multi-plan, per-line-item workflow uses createJobPlan() directly and is
-    // unaffected by this guard.) NOTE: this is a sequential guard — a true
-    // simultaneous double-submit can still race; a unique index is not viable here
-    // because a quote may legitimately yield multiple plans via the other path.
-    // $forceNew bypasses the guard for the explicit, confirm-gated "Convert again"
-    // action in the UI (deliberate re-conversion), not accidental re-submits.
-    if (!$forceNew) {
-        $existing = $db->prepare("SELECT id, plan_number FROM job_plans WHERE quote_id = ? ORDER BY id LIMIT 1");
-        $existing->execute([$quoteId]);
-        if ($existingPlan = $existing->fetch(PDO::FETCH_ASSOC)) {
-            return [
-                'success'         => true,
-                'plan_id'         => (int)$existingPlan['id'],
-                'plan_number'     => $existingPlan['plan_number'],
-                'errors'          => [],
-                'already_existed' => true,
-            ];
-        }
+    // Allocation-aware conversion. A quote's line items are *assigned* to plans, and
+    // each item is converted at most once. Pull only the items NOT yet assigned to a
+    // still-existing plan — the LEFT JOIN treats items whose plan was later deleted as
+    // available again, so they are never orphaned. This makes duplicate plans
+    // impossible by construction: once every item is assigned there is nothing left to
+    // convert. The per-line-item multi-plan workflow (create-from-quote.php) shares the
+    // same quote_line_items.plan_id model.
+    $uaStmt = $db->prepare("
+        SELECT qli.id, qli.service_type, qli.description, qli.quantity,
+               qli.unit_type, qli.unit_price, qli.line_total, qli.sort_order
+        FROM quote_line_items qli
+        LEFT JOIN job_plans jp ON jp.id = qli.plan_id
+        WHERE qli.quote_id = ? AND (qli.plan_id IS NULL OR jp.id IS NULL)
+        ORDER BY qli.sort_order, qli.id
+    ");
+    $uaStmt->execute([$quoteId]);
+    $unallocated = $uaStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    if (empty($unallocated)) {
+        // Every line item is already assigned — nothing to convert. Hand the caller
+        // the existing plans so the UI can route the user to them instead of duplicating.
+        return [
+            'success'         => false,
+            'fully_allocated' => true,
+            'plan_id'         => null,
+            'plan_number'     => null,
+            'plans'           => getPlansForQuote($quoteId),
+            'errors'          => ['Every service on this quote is already assigned to a plan.'],
+        ];
     }
 
-    // price_per_visit is stored NET (pre-GST). Quotes keep `subtotal` pre-GST and
-    // `amount`/`total` GST-inclusive, so prefer subtotal; otherwise back GST out of gross.
-    $quoteNet = ($quote['subtotal'] ?? null) !== null
-        ? (float)$quote['subtotal']
-        : round((float)($quote['amount'] ?? $quote['total'] ?? 0) / 1.05, 2);
+    // Build the plan's line items from the unallocated quote items. createJobPlan()
+    // inserts them, marks each source quote item as assigned (quote_line_items.plan_id),
+    // and recomputes price_per_visit/estimated_amount from the item totals — so the plan
+    // price reflects exactly the services it covers, not the whole quote.
+    $planItems = array_map(function ($qi) {
+        return [
+            'quote_line_item_id' => (int)$qi['id'],
+            'service_type'       => $qi['service_type'] ?? 'Service',
+            'description'        => $qi['description'] ?? '',
+            'quantity'           => $qi['quantity'],
+            'unit_type'          => $qi['unit_type'] ?? 'visit',
+            'unit_price'         => $qi['unit_price'],
+            'line_total'         => $qi['line_total'],
+            'sort_order'         => (int)($qi['sort_order'] ?? 0),
+        ];
+    }, $unallocated);
+
+    // Net total of just these items (pre-GST line_totals) — used for ROI attribution.
+    $planNet = array_sum(array_map(fn($qi) => (float)($qi['line_total'] ?? 0), $unallocated));
 
     $planData = [
         'quote_id'         => $quoteId,
@@ -344,45 +366,15 @@ function createPlanFromQuote(int $quoteId, int $userId, bool $forceNew = false):
         'company_id'       => $quote['company_id'],
         'title'            => $quote['title'] ?: 'Plan from ' . $quote['quote_number'],
         'description'      => $quote['description'],
-        'service_type'     => $quote['service_type'] ?? 'landscaping',
-        'estimated_amount' => $quoteNet,
-        'price_per_visit'  => $quoteNet,
+        'service_type'     => $unallocated[0]['service_type'] ?: ($quote['service_type'] ?? 'landscaping'),
         'plan_start_date'  => date('Y-m-d'),
         'is_recurring'     => 0,
+        'line_items'       => $planItems,
     ];
 
     $result = createJobPlan($planData, $userId);
 
     if ($result['success']) {
-        // Auto-copy quote line items → plan line items (zero re-entry on Quote→Invoice path)
-        try {
-            $qliStmt = $db->prepare("
-                SELECT id, service_type, description, quantity, unit_type, unit_price, line_total, sort_order
-                FROM quote_line_items
-                WHERE quote_id = ?
-                ORDER BY sort_order, id
-            ");
-            $qliStmt->execute([$quoteId]);
-            $quoteItems = $qliStmt->fetchAll(PDO::FETCH_ASSOC);
-            if ($quoteItems) {
-                $planItems = array_map(function ($qi) {
-                    return [
-                        'quote_line_item_id' => (int)$qi['id'],
-                        'service_type'       => $qi['service_type'] ?? 'Service',
-                        'description'        => $qi['description'] ?? '',
-                        'quantity'           => $qi['quantity'],
-                        'unit_type'          => $qi['unit_type'] ?? 'visit',
-                        'unit_price'         => $qi['unit_price'],
-                        'line_total'         => $qi['line_total'],
-                        'sort_order'         => (int)($qi['sort_order'] ?? 0),
-                    ];
-                }, $quoteItems);
-                addPlanLineItems($result['plan_id'], $planItems);
-            }
-        } catch (Exception $e) {
-            // Non-fatal — plan is created, line items can be added manually
-        }
-
         // ROI attribution
         if (function_exists('createROIAttribution')) {
             $leadEventId = !empty($quote['lead_event_id']) ? (int)$quote['lead_event_id'] : null;
@@ -400,7 +392,7 @@ function createPlanFromQuote(int $quoteId, int $userId, bool $forceNew = false):
                 // quote_request_id column may not exist on production
             }
 
-            createROIAttribution($result['plan_id'], $leadEventId, $quoteSource, $planData['estimated_amount']);
+            createROIAttribution($result['plan_id'], $leadEventId, $quoteSource, $planNet);
         }
 
         // Log conversion
@@ -591,6 +583,25 @@ function getQuoteLineItemsWithStatus(int $quoteId): array {
         LEFT JOIN job_plans jp ON qli.plan_id = jp.id
         WHERE qli.quote_id = ?
         ORDER BY qli.sort_order, qli.id
+    ");
+    $stmt->execute([$quoteId]);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/**
+ * Get the plans created from a quote (existing plans only — deleted plans are
+ * naturally excluded since this reads job_plans directly). Used to render the
+ * quote's plan-allocation coverage view.
+ *
+ * @return array of ['id','plan_number','title','service_type','status','price_per_visit']
+ */
+function getPlansForQuote(int $quoteId): array {
+    $db = getDB();
+    $stmt = $db->prepare("
+        SELECT id, plan_number, title, service_type, status, price_per_visit
+        FROM job_plans
+        WHERE quote_id = ?
+        ORDER BY id
     ");
     $stmt->execute([$quoteId]);
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
