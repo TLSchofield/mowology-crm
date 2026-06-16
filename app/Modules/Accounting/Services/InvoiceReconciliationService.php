@@ -340,17 +340,23 @@ class InvoiceReconciliationService
             || (strlen($invDigits) >= 4 && $descDigits !== '' && strpos($descDigits, $invDigits) !== false)) {
             $descScore = 35; $reasons[] = 'Invoice # in memo';
         } else {
-            $hay = strtolower(trim(
-                ($invoice['contact_name'] ?? '') . ' ' .
-                ($invoice['company_name'] ?? '') . ' ' .
-                ($invoice['property_name'] ?? '')
-            ));
-            foreach ($this->extractNameWords($descRaw) as $w) {
-                if ($w !== '' && $hay !== '' && strpos($hay, $w) !== false) {
-                    $descScore = 25;
-                    $who = trim((string)($invoice['contact_name'] ?? '')) ?: ($invoice['company_name'] ?? 'client');
-                    $reasons[] = 'Memo names ' . $who;
-                    break;
+            // Match memo words against each name field separately so the reason names
+            // the field that actually matched (e.g. the company), not just the contact.
+            $fields = [
+                'company_name'  => trim((string)($invoice['company_name'] ?? '')),
+                'contact_name'  => trim((string)($invoice['contact_name'] ?? '')),
+                'property_name' => trim((string)($invoice['property_name'] ?? '')),
+            ];
+            $words = $this->extractNameWords($descRaw);
+            foreach ($fields as $value) {
+                if ($value === '') continue;
+                $valLower = strtolower($value);
+                foreach ($words as $w) {
+                    if ($w !== '' && strpos($valLower, $w) !== false) {
+                        $descScore = 25;
+                        $reasons[] = 'Memo names ' . $value;
+                        break 2;
+                    }
                 }
             }
         }
@@ -414,11 +420,13 @@ class InvoiceReconciliationService
         $clean = trim((string)preg_replace('/\s+/', ' ', (string)$clean));
         $words = [];
         foreach (preg_split('/\s+/', strtolower($clean)) as $w) {
+            // Strip surrounding punctuation, e.g. "(obsidian" → "obsidian", "management)" → "management"
+            $w = preg_replace('/[^a-z0-9]/', '', $w);
             if (strlen($w) >= 3 && !is_numeric($w) && !in_array($w, self::NAME_STOPWORDS, true)) {
                 $words[] = $w;
             }
         }
-        return $words;
+        return array_values(array_unique($words));
     }
 
     // ══════════════════════════════════════════════════════════════════════════
