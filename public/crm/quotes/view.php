@@ -39,6 +39,18 @@ $lineItems = $svc->getLineItems($quoteId);
 $distinctServiceTypes = array_unique(array_filter(array_column($lineItems, 'service_type')));
 $quoteIsSingleService = (count($distinctServiceTypes) <= 1);
 
+// Plans already created from this quote — used to surface an "already converted"
+// state and point the user to the existing plan(s) instead of silently making a
+// duplicate. (A quote can legitimately have several plans via the multi-plan flow.)
+$quoteLinkedPlans = [];
+try {
+    $lpStmt = $db->prepare("SELECT id, plan_number FROM job_plans WHERE quote_id = ? ORDER BY id");
+    $lpStmt->execute([$quoteId]);
+    $quoteLinkedPlans = $lpStmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (Throwable $e) {
+    $quoteLinkedPlans = [];
+}
+
 // Get activity for this quote
 // Note: activity_log.quote_id column may not exist in older databases
 $activities = [];
@@ -345,7 +357,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($action === 'convert_to_job') {
-        $result = createPlanFromQuote($quoteId, (int)$user['id']);
+        $forceNew = !empty($_POST['force_new_plan']);
+        $result = createPlanFromQuote($quoteId, (int)$user['id'], $forceNew);
         if ($result['success']) {
             header("Location: ../jobs/view.php?id={$result['plan_id']}&created=1");
             exit;
@@ -678,14 +691,32 @@ $activePage = 'quotes';
                           </a>
                       <?php else: ?>
                           <?php if ($quoteIsSingleService): ?>
-                          <!-- Single service type → one-click conversion, line items auto-copied -->
-                          <form method="POST" class="d-inline">
-                              <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
-                              <input type="hidden" name="action" value="convert_to_job">
-                              <button type="submit" class="btn btn-primary">
-                                  <i data-feather="zap" class="mr-1"></i> Convert to Job
-                              </button>
-                          </form>
+                              <?php if (!empty($quoteLinkedPlans)): ?>
+                              <!-- Already converted → point to the existing plan(s); re-convert only on explicit confirm -->
+                              <?php foreach ($quoteLinkedPlans as $lp): ?>
+                              <a href="../jobs/view.php?id=<?php echo (int)$lp['id']; ?>" class="btn btn-primary">
+                                  <i data-feather="briefcase" class="mr-1"></i> View Plan <?php echo htmlspecialchars($lp['plan_number']); ?>
+                              </a>
+                              <?php endforeach; ?>
+                              <form method="POST" class="d-inline">
+                                  <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                                  <input type="hidden" name="action" value="convert_to_job">
+                                  <input type="hidden" name="force_new_plan" value="1">
+                                  <button type="submit" class="btn btn-outline-secondary"
+                                          onclick="return confirm('This quote is already converted to <?php echo htmlspecialchars($quoteLinkedPlans[0]['plan_number']); ?>. Create another full plan from it anyway?')">
+                                      <i data-feather="zap" class="mr-1"></i> Convert again
+                                  </button>
+                              </form>
+                              <?php else: ?>
+                              <!-- Single service type → one-click conversion, line items auto-copied -->
+                              <form method="POST" class="d-inline">
+                                  <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                                  <input type="hidden" name="action" value="convert_to_job">
+                                  <button type="submit" class="btn btn-primary">
+                                      <i data-feather="zap" class="mr-1"></i> Convert to Job
+                                  </button>
+                              </form>
+                              <?php endif; ?>
                           <?php else: ?>
                           <!-- Multiple service types → split-plan workflow -->
                           <a href="../jobs/create-from-quote.php?quote_id=<?php echo $quoteId; ?>" class="btn btn-primary">

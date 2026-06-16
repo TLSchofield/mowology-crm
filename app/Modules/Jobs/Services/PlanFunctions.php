@@ -291,7 +291,7 @@ function createJobPlan(array $planData, int $userId): array {
  * Create a job plan from an accepted quote.
  * Replaces createJobFromQuote().
  */
-function createPlanFromQuote(int $quoteId, int $userId): array {
+function createPlanFromQuote(int $quoteId, int $userId, bool $forceNew = false): array {
     $db = getDB();
 
     // Get accepted quote
@@ -316,16 +316,20 @@ function createPlanFromQuote(int $quoteId, int $userId): array {
     // unaffected by this guard.) NOTE: this is a sequential guard — a true
     // simultaneous double-submit can still race; a unique index is not viable here
     // because a quote may legitimately yield multiple plans via the other path.
-    $existing = $db->prepare("SELECT id, plan_number FROM job_plans WHERE quote_id = ? ORDER BY id LIMIT 1");
-    $existing->execute([$quoteId]);
-    if ($existingPlan = $existing->fetch(PDO::FETCH_ASSOC)) {
-        return [
-            'success'         => true,
-            'plan_id'         => (int)$existingPlan['id'],
-            'plan_number'     => $existingPlan['plan_number'],
-            'errors'          => [],
-            'already_existed' => true,
-        ];
+    // $forceNew bypasses the guard for the explicit, confirm-gated "Convert again"
+    // action in the UI (deliberate re-conversion), not accidental re-submits.
+    if (!$forceNew) {
+        $existing = $db->prepare("SELECT id, plan_number FROM job_plans WHERE quote_id = ? ORDER BY id LIMIT 1");
+        $existing->execute([$quoteId]);
+        if ($existingPlan = $existing->fetch(PDO::FETCH_ASSOC)) {
+            return [
+                'success'         => true,
+                'plan_id'         => (int)$existingPlan['id'],
+                'plan_number'     => $existingPlan['plan_number'],
+                'errors'          => [],
+                'already_existed' => true,
+            ];
+        }
     }
 
     // price_per_visit is stored NET (pre-GST). Quotes keep `subtotal` pre-GST and
