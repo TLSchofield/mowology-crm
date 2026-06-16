@@ -115,6 +115,9 @@
   </script>
   <script src="/crm/js/mw-layout-manager.js?v=20260306" defer></script>
   <script src="/crm/js/mw-toast.js?v=20260306c"></script>
+  <!-- Searchable-select enhancement: any <select class="mw-searchable"> becomes
+       a filterable combobox with a "no value" clear row. Styles in mowology-brand.css. -->
+  <script src="/crm/js/mw-searchable-select.js?v=20260616a"></script>
   <script src="/crm/js/time-clock-widget.min.js?v=20260430a"></script>
   <script src="/crm/js/capacitor-bridge.js?v=20260309a"></script>
   <!-- Photo Queue: durable storage + background upload engine (must load before media-uploader.js) -->

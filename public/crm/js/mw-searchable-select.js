@@ -1,0 +1,198 @@
+/**
+ * mw-searchable-select.js — shared searchable-select component.
+ * ────────────────────────────────────────────────────────────
+ * Progressive enhancement for long <select> lists. Add class
+ * "mw-searchable" to any <select> and it becomes a filterable combobox:
+ *   - type to filter (matches option text — name AND email, etc.)
+ *   - a pinned "✕ {none label}" row always available at the top
+ *   - a ✕ clear button, and full keyboard support (↑/↓/Enter/Esc)
+ *
+ * The native <select> stays in the DOM and keeps its name/value, so forms
+ * submit exactly as before — this is pure enhancement, not a replacement.
+ *
+ * Per-select config via data-attributes:
+ *   data-placeholder  — input placeholder (default "Search…")
+ *   data-none-label   — label for the clear row (default "— none —")
+ *
+ * Styling lives centrally in mowology-brand.css (".mw-ss*" rules).
+ * Loaded once via appstack_footer.php; runs on DOMContentLoaded and again
+ * via window.mwEnhanceSearchableSelects() for dynamically-injected selects.
+ */
+(function () {
+    'use strict';
+
+    function enhance(select) {
+        if (select.dataset.mwSsReady) return;
+        if (select.disabled) return;
+        select.dataset.mwSsReady = '1';
+
+        var placeholder = select.getAttribute('data-placeholder') || 'Search…';
+        var noneLabel   = select.getAttribute('data-none-label') || '— none —';
+
+        var opts = [];
+        Array.prototype.forEach.call(select.options, function (o) {
+            opts.push({ value: o.value, label: o.textContent.trim(), isNone: o.value === '' });
+        });
+
+        var wrap = document.createElement('div');
+        wrap.className = 'mw-ss';
+        select.parentNode.insertBefore(wrap, select);
+        wrap.appendChild(select);
+        select.classList.add('mw-ss-native');
+
+        var control = document.createElement('div');
+        control.className = 'mw-ss-control';
+        var input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'form-control mw-ss-input';
+        input.setAttribute('placeholder', placeholder);
+        input.setAttribute('autocomplete', 'off');
+        input.setAttribute('role', 'combobox');
+        input.setAttribute('aria-expanded', 'false');
+        var clearBtn = document.createElement('button');
+        clearBtn.type = 'button';
+        clearBtn.className = 'mw-ss-clear';
+        clearBtn.setAttribute('aria-label', 'Clear selection');
+        clearBtn.textContent = '✕';
+        control.appendChild(input);
+        control.appendChild(clearBtn);
+        wrap.appendChild(control);
+
+        var panel = document.createElement('div');
+        panel.className = 'mw-ss-panel';
+        panel.setAttribute('role', 'listbox');
+        panel.hidden = true;
+        wrap.appendChild(panel);
+
+        var rows = [];   // { el, opt }
+        var activeIdx = -1;
+
+        function labelFor(value) {
+            for (var i = 0; i < opts.length; i++) {
+                if (opts[i].value === value) return opts[i].isNone ? '' : opts[i].label;
+            }
+            return '';
+        }
+        function syncDisplay() {
+            input.value = labelFor(select.value);
+            clearBtn.hidden = (select.value === '');
+        }
+
+        function buildRows() {
+            panel.innerHTML = '';
+            rows = [];
+            opts.forEach(function (opt) {
+                var el = document.createElement('div');
+                el.className = 'mw-ss-opt' + (opt.isNone ? ' mw-ss-opt-none' : '');
+                el.setAttribute('role', 'option');
+                el.textContent = opt.isNone ? ('✕ ' + noneLabel) : opt.label;
+                if (opt.value === select.value) el.classList.add('is-selected');
+                el.addEventListener('mousedown', function (e) {
+                    e.preventDefault(); // keep focus, avoid blur-before-click
+                    choose(opt.value);
+                });
+                panel.appendChild(el);
+                rows.push({ el: el, opt: opt });
+            });
+        }
+
+        function filter(q) {
+            q = (q || '').trim().toLowerCase();
+            var anyVisible = false;
+            rows.forEach(function (r) {
+                // The "none" row is always available regardless of query.
+                var show = r.opt.isNone || r.opt.label.toLowerCase().indexOf(q) !== -1;
+                r.el.style.display = show ? '' : 'none';
+                if (show && !r.opt.isNone) anyVisible = true;
+            });
+            var empty = panel.querySelector('.mw-ss-empty');
+            if (!anyVisible && q) {
+                if (!empty) {
+                    empty = document.createElement('div');
+                    empty.className = 'mw-ss-empty';
+                    empty.textContent = 'No matches';
+                    panel.appendChild(empty);
+                }
+            } else if (empty) {
+                empty.remove();
+            }
+            setActiveToFirstVisible();
+        }
+
+        function visibleRows() { return rows.filter(function (r) { return r.el.style.display !== 'none'; }); }
+        function setActive(idx) {
+            rows.forEach(function (r) { r.el.classList.remove('is-active'); });
+            activeIdx = idx;
+            if (idx >= 0 && rows[idx]) {
+                rows[idx].el.classList.add('is-active');
+                rows[idx].el.scrollIntoView({ block: 'nearest' });
+            }
+        }
+        function setActiveToFirstVisible() {
+            var v = visibleRows();
+            setActive(v.length ? rows.indexOf(v[0]) : -1);
+        }
+        function move(dir) {
+            var v = visibleRows();
+            if (!v.length) return;
+            var curPos = v.findIndex(function (r) { return rows.indexOf(r) === activeIdx; });
+            var nextPos = curPos + dir;
+            if (nextPos < 0) nextPos = v.length - 1;
+            if (nextPos >= v.length) nextPos = 0;
+            setActive(rows.indexOf(v[nextPos]));
+        }
+
+        function open() {
+            buildRows();
+            filter('');
+            panel.hidden = false;
+            input.setAttribute('aria-expanded', 'true');
+            input.value = '';            // let the user type to search
+            input.select();
+        }
+        function close(revert) {
+            panel.hidden = true;
+            input.setAttribute('aria-expanded', 'false');
+            if (revert !== false) syncDisplay();
+        }
+        function choose(value) {
+            select.value = value;
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+            close();
+            input.blur();
+        }
+
+        input.addEventListener('focus', open);
+        input.addEventListener('input', function () { if (panel.hidden) open(); filter(input.value); });
+        input.addEventListener('keydown', function (e) {
+            if (panel.hidden && (e.key === 'ArrowDown' || e.key === 'Enter')) { open(); return; }
+            if (e.key === 'ArrowDown') { e.preventDefault(); move(1); }
+            else if (e.key === 'ArrowUp') { e.preventDefault(); move(-1); }
+            else if (e.key === 'Enter') { e.preventDefault(); if (activeIdx >= 0 && rows[activeIdx]) choose(rows[activeIdx].opt.value); }
+            else if (e.key === 'Escape') { close(); input.blur(); }
+        });
+        input.addEventListener('blur', function () { setTimeout(function () { if (!panel.hidden) close(); }, 120); });
+        clearBtn.addEventListener('click', function () { choose(''); });
+
+        document.addEventListener('click', function (e) {
+            if (!wrap.contains(e.target) && !panel.hidden) close();
+        });
+
+        syncDisplay();
+    }
+
+    function init(root) {
+        var scope = root && root.querySelectorAll ? root : document;
+        var list = scope.querySelectorAll('select.mw-searchable:not([disabled])');
+        Array.prototype.forEach.call(list, enhance);
+    }
+
+    // Public API for dynamically-injected selects (e.g. after opening a modal).
+    window.mwEnhanceSearchableSelects = init;
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', function () { init(); });
+    } else {
+        init();
+    }
+}());
