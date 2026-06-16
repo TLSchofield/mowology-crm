@@ -35487,3 +35487,147 @@ span.mw-icon-box--missing {
   font-size: 0.78rem;
   color: #888;
 }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   INVOICE ↔ BANK-DEPOSIT MATCHING (inline reconciliation on invoices list)
+   Surfaces imported Vancity deposits that likely pay an unpaid invoice and lets
+   the admin attach them. Lives in the white invoices table (not the dark sidebar).
+   ════════════════════════════════════════════════════════════════════════════ */
+
+.mw-match-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--mw-light);
+  border: 1px solid rgba(45, 134, 89, .35);
+  color: var(--mw-dark);
+  font-size: .72rem;
+  font-weight: 600;
+  padding: .18rem .55rem;
+  border-radius: 100px;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease;
+  margin-bottom: 4px;
+}
+.mw-match-pill:hover { background: #d8ece4; border-color: var(--mw-green); }
+.mw-match-pill svg { width: 13px; height: 13px; }
+
+/* Expanded sub-row */
+.mw-match-row > .mw-match-cell { padding: 0; background: #f3faf6; }
+.mw-match-panel {
+  border-left: 3px solid var(--mw-green);
+  padding: .85rem 1.1rem 1rem;
+}
+.mw-match-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: .8rem;
+  color: var(--mw-dark);
+  margin-bottom: .65rem;
+}
+.mw-match-panel-head svg { width: 15px; height: 15px; color: var(--mw-green); }
+.mw-match-panel-head .mw-match-balance {
+  margin-left: auto;
+  font-size: .74rem;
+  color: #5f6f68;
+  font-weight: 600;
+}
+
+.mw-match-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #fff;
+  border: 1px solid rgba(45, 134, 89, .22);
+  border-radius: 8px;
+  padding: .6rem .8rem;
+}
+.mw-match-item + .mw-match-item { margin-top: .5rem; }
+
+.mw-conf-badge {
+  flex: none;
+  min-width: 44px;
+  text-align: center;
+  font-size: .82rem;
+  font-weight: 700;
+  padding: .28rem .2rem;
+  border-radius: 6px;
+}
+.mw-conf-high { background: var(--mw-light); color: var(--mw-dark); }
+.mw-conf-med  { background: #fff3e0; color: #b45309; }
+.mw-conf-low  { background: #f1f1f1; color: #6b7280; }
+
+.mw-match-info { flex: 1 1 auto; min-width: 0; }
+.mw-match-desc {
+  font-size: .82rem;
+  font-weight: 600;
+  color: #243530;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mw-match-meta {
+  font-size: .73rem;
+  color: #5f6f68;
+  margin-top: 2px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.mw-match-reason {
+  background: var(--mw-light);
+  color: var(--mw-dark);
+  font-size: .68rem;
+  font-weight: 600;
+  padding: .08rem .4rem;
+  border-radius: 4px;
+}
+.mw-match-note {
+  font-size: .72rem;
+  color: #b45309;
+  margin-top: 4px;
+}
+
+.mw-match-apply {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mw-match-amount-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: #fff;
+  border: 1px solid #cdd6d2;
+  border-radius: 6px;
+  padding: 0 .4rem;
+  font-size: .8rem;
+  color: #5f6f68;
+}
+.mw-match-amount {
+  width: 78px;
+  border: 0;
+  outline: 0;
+  padding: .32rem .15rem;
+  font-size: .82rem;
+  text-align: right;
+  background: transparent;
+  color: #243530;
+}
+.mw-match-dismiss {
+  background: transparent;
+  border: 0;
+  color: #8a9a93;
+  font-size: .76rem;
+  cursor: pointer;
+  padding: .2rem .3rem;
+}
+.mw-match-dismiss:hover { color: #243530; text-decoration: underline; }
+
+@media (max-width: 720px) {
+  .mw-match-item { flex-wrap: wrap; }
+  .mw-match-apply { width: 100%; justify-content: flex-end; }
+}
