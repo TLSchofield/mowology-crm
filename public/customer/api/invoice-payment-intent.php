@@ -136,6 +136,23 @@ if (!empty($invoice['stripe_payment_intent_id'])) {
     try {
         $existing = \Stripe\PaymentIntent::retrieve($invoice['stripe_payment_intent_id']);
 
+        // ── Guard: never create a second charge for an already-paid invoice ──────
+        // If the stored intent already succeeded (or is mid-processing), the customer
+        // has paid. Previously the code fell through to "create a new PaymentIntent"
+        // when the webhook lagged in marking the invoice paid — which let a customer
+        // be charged 2x/3x by retrying. Stop here and tell the client it's paid.
+        // The webhook (and bank reconciliation) marks the invoice paid.
+        if (in_array($existing->status, ['succeeded', 'processing'], true)) {
+            echo json_encode([
+                'already_paid' => true,
+                'status'       => $existing->status,
+                'message'      => 'This invoice has already been paid — no further payment is needed. Thank you!',
+                'amount_cents' => $existing->amount,
+                'currency'     => $existing->currency,
+            ]);
+            exit;
+        }
+
         $isReusable = in_array($existing->status, ['requires_payment_method', 'requires_confirmation', 'requires_action'], true)
                       && $existing->amount === $amountCents;
 

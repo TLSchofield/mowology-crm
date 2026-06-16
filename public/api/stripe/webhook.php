@@ -57,10 +57,11 @@ try {
 error_log(sprintf('[Stripe Webhook] Received event: %s  id: %s', $event->type, $event->id));
 
 // ── Route events ─────────────────────────────────────────────────────────────
+$ok = true;
 switch ($event->type) {
 
     case 'payment_intent.succeeded':
-        handlePaymentSucceeded($event->data->object);
+        $ok = handlePaymentSucceeded($event->data->object);
         break;
 
     case 'payment_intent.payment_failed':
@@ -77,6 +78,15 @@ switch ($event->type) {
         break;
 }
 
+// If a handler hit a transient DB error it returns false — respond 5xx so Stripe
+// RETRIES. Never swallow a failed "mark invoice paid" with a 200: that is exactly
+// what left invoices unpaid and allowed customers to be charged multiple times.
+if ($ok === false) {
+    error_log('[Stripe Webhook] Handler reported failure for event ' . $event->id . ' — responding 500 so Stripe retries');
+    http_response_code(500);
+    exit;
+}
+
 http_response_code(200);
 exit;
 
@@ -86,7 +96,7 @@ exit;
  * Handle payment_intent.succeeded
  * Marks the linked invoice as paid, records the payment audit row.
  */
-function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): void
+function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): bool
 {
     $paymentIntentId = $intent->id;
     $amountCents     = (int) $intent->amount_received;
@@ -100,7 +110,7 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): void
 
     if ($invoiceId <= 0) {
         error_log('[Stripe Webhook] ERROR: No invoice_id in PaymentIntent metadata for ' . $paymentIntentId);
-        return;
+        return true; // nothing we can do — retrying won't help, ack with 200
     }
 
     $db = getDB();
@@ -114,7 +124,7 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): void
 
     if ($existingPayment && $existingPayment['status'] === 'succeeded') {
         error_log('[Stripe Webhook] Duplicate event — already processed: ' . $paymentIntentId);
-        return; // Already handled, safe to return 200
+        return true; // Already handled, safe to return 200
     }
 
     // ── Load invoice ──────────────────────────────────────────────────────────
@@ -126,7 +136,7 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): void
 
     if (!$invoice) {
         error_log('[Stripe Webhook] ERROR: Invoice not found: ' . $invoiceId);
-        return;
+        return true; // unknown invoice — retrying won't help, ack with 200
     }
 
     if ($invoice['status'] === 'paid') {
@@ -184,6 +194,15 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): void
     $balanceDue  = max(0, (float) $invoice['balance_due'] - $paidAmount);
     $newStatus   = $balanceDue <= 0.005 ? 'paid' : 'partial'; // tolerance for float rounding
 
+    $contactId    = (int) ($intent->metadata['contact_id'] ?? 0);
+    $wantsAutopay = ($intent->metadata['enable_autopay'] ?? '0') === '1';
+
+    // Stripe-side calls (attach PM, set default payment method) are deferred until
+    // AFTER the DB commit. If they ran inside the transaction, an API hiccup would
+    // roll back the invoice-paid update while we still returned 200 to Stripe —
+    // leaving the invoice unpaid and letting the customer be charged again.
+    $setDefaultPm = false;
+
     $db->beginTransaction();
     try {
         // ── Update invoice ────────────────────────────────────────────────────
@@ -238,8 +257,6 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): void
         }
 
         // ── Save card details to contact (if applicable) ──────────────────────
-        $contactId    = (int) ($intent->metadata['contact_id'] ?? 0);
-        $wantsAutopay = ($intent->metadata['enable_autopay'] ?? '0') === '1';
         if ($contactId > 0 && $cardLast4 && $stripeCustomerIdFromIntent) {
             // Persist card details whenever a Stripe customer is attached
             // (covers both save_card=true and subsequent payments with saved card)
@@ -269,26 +286,10 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): void
                 $contactId, $cardBrand ?? 'unknown', $cardLast4, $cardExpiry ?? '', $wantsAutopay ? 'enabled' : 'no'
             ));
 
-            // ── Set as default payment method on Stripe Customer ──────────────
-            // Enables one-click saved-card pay on future invoices.
-            // invoice-payment-intent.php reads customer->invoice_settings->default_payment_method
-            // to offer the saved card UI. Without this call that field is always null.
-            // Attach first (idempotent) — saved-card PIs don't guarantee attachment.
+            // Defer the Stripe-side default-payment-method calls until after commit
+            // (see $setDefaultPm note above) so an API error can't roll back the DB.
             if ($paymentMethodId) {
-                try {
-                    \Stripe\PaymentMethod::attach($paymentMethodId, ['customer' => $stripeCustomerIdFromIntent]);
-                    \Stripe\Customer::update($stripeCustomerIdFromIntent, [
-                        'invoice_settings' => ['default_payment_method' => $paymentMethodId],
-                    ]);
-                    error_log(sprintf(
-                        '[Stripe Webhook] Set default_payment_method %s on customer %s',
-                        $paymentMethodId, $stripeCustomerIdFromIntent
-                    ));
-                } catch (\Stripe\Exception\ApiErrorException $e) {
-                    // Non-fatal — card is still saved in contacts; one-click pay just won't
-                    // be offered until next successful payment resolves this.
-                    error_log('[Stripe Webhook] Could not set default_payment_method: ' . $e->getMessage());
-                }
+                $setDefaultPm = true;
             }
         }
 
@@ -316,9 +317,33 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): void
         ));
 
     } catch (\Throwable $e) {
-        $db->rollBack();
+        if ($db->inTransaction()) {
+            $db->rollBack();
+        }
         error_log('[Stripe Webhook] DB error in handlePaymentSucceeded: ' . $e->getMessage());
+        return false; // signal caller to respond 5xx so Stripe retries — invoice NOT yet paid
     }
+
+    // ── Post-commit: external Stripe-side calls (non-fatal, can never roll back DB) ──
+    // Sets the saved card as the customer's default so future invoices offer one-click
+    // pay. Failures here only affect that convenience, never the recorded payment.
+    if ($setDefaultPm && $paymentMethodId && $stripeCustomerIdFromIntent) {
+        try {
+            // Attach first (idempotent) — saved-card PIs don't guarantee attachment.
+            \Stripe\PaymentMethod::attach($paymentMethodId, ['customer' => $stripeCustomerIdFromIntent]);
+            \Stripe\Customer::update($stripeCustomerIdFromIntent, [
+                'invoice_settings' => ['default_payment_method' => $paymentMethodId],
+            ]);
+            error_log(sprintf(
+                '[Stripe Webhook] Set default_payment_method %s on customer %s',
+                $paymentMethodId, $stripeCustomerIdFromIntent
+            ));
+        } catch (\Stripe\Exception\ApiErrorException $e) {
+            error_log('[Stripe Webhook] Could not set default_payment_method: ' . $e->getMessage());
+        }
+    }
+
+    return true;
 }
 
 /**

@@ -485,6 +485,11 @@ function fmtDate(string $d): string {
                     document.getElementById('stripeLoading').style.display = 'none';
                     return;
                 }
+                if (data.already_paid) {
+                    // Server refused to create a second charge — invoice is already paid.
+                    showAlreadyPaid();
+                    return;
+                }
                 fetched = true;
                 intentData = data;
                 stripe = Stripe(data.publishable_key);
@@ -631,6 +636,7 @@ function fmtDate(string $d): string {
                 .then(function (r) { return r.json(); })
                 .then(function (newData) {
                     if (newData.error) { setLoading(false); showError(newData.error); return; }
+                    if (newData.already_paid) { setLoading(false); showAlreadyPaid(); return; }
                     // Update elements with new client_secret
                     elements.fetchUpdates().then(doConfirm).catch(doConfirm);
                 })
@@ -717,6 +723,17 @@ function fmtDate(string $d): string {
                 '</div>'
             ].join('');
             setTimeout(function () { location.reload(); }, 5000);
+        }
+        function showAlreadyPaid() {
+            document.querySelector('#payModal .portal-modal').innerHTML = [
+                '<div style="padding:48px 32px;text-align:center;">',
+                '<div style="font-size:56px;color:#2D8659;line-height:1;">&#10003;</div>',
+                '<h3 style="color:#0D3B2E;margin:16px 0 8px;font-family:Montserrat,sans-serif;">Already Paid</h3>',
+                '<p style="color:#4a6b5d;font-size:14px;">This invoice has already been paid &mdash; no further payment is needed. Thank you!</p>',
+                '<p style="color:#9ca3af;font-size:12px;margin-top:12px;">Refreshing&hellip;</p>',
+                '</div>'
+            ].join('');
+            setTimeout(function () { location.reload(); }, 3000);
         }
 
         <?php if (isset($_GET['payment']) && $_GET['payment'] === 'success'): ?>
