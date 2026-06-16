@@ -35631,3 +35631,78 @@ span.mw-icon-box--missing {
   .mw-match-item { flex-wrap: wrap; }
   .mw-match-apply { width: 100%; justify-content: flex-end; }
 }
+
+/* ============================================================
+   Searchable Select (mw-searchable)
+   Progressive enhancement over a native <select>: a filterable
+   combobox with an always-available "No contact" clear row.
+   Used on the property edit page for the long contact picker.
+   ============================================================ */
+.mw-ss { position: relative; }
+.mw-ss-native { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0; }
+.mw-ss-control {
+  display: flex; align-items: center; gap: .4rem;
+  width: 100%;
+}
+.mw-ss-input {
+  flex: 1 1 auto;
+  width: 100%;
+  display: block;
+}
+.mw-ss-clear {
+  flex: 0 0 auto;
+  background: transparent;
+  border: 1px solid var(--mw-light, #E8F3F0);
+  border-radius: .375rem;
+  color: #8a9a93;
+  cursor: pointer;
+  padding: .25rem .5rem;
+  line-height: 1;
+  font-size: .9rem;
+}
+.mw-ss-clear:hover { color: var(--mw-dark, #1A5F4A); border-color: var(--mw-green, #2D8659); }
+.mw-ss-clear[hidden] { display: none; }
+
+.mw-ss-panel {
+  position: absolute;
+  z-index: 1080;
+  top: calc(100% + 2px);
+  left: 0;
+  right: 0;
+  max-height: 300px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid var(--mw-light, #E8F3F0);
+  border-radius: .5rem;
+  box-shadow: 0 8px 24px rgba(13,59,46,.14);
+  padding: .25rem;
+}
+.mw-ss-panel[hidden] { display: none; }
+
+.mw-ss-opt {
+  padding: .5rem .6rem;
+  border-radius: .375rem;
+  cursor: pointer;
+  font-size: .9rem;
+  color: #243530;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mw-ss-opt:hover,
+.mw-ss-opt.is-active { background: var(--mw-light, #E8F3F0); }
+.mw-ss-opt.is-selected { font-weight: 600; color: var(--mw-dark, #1A5F4A); }
+
+/* The "No contact" clear row stays pinned at the top, visually distinct. */
+.mw-ss-opt-none {
+  color: #8a9a93;
+  border-bottom: 1px solid var(--mw-light, #E8F3F0);
+  margin-bottom: .2rem;
+  position: sticky;
+  top: -.25rem;
+  background: #fff;
+}
+.mw-ss-opt-none:hover,
+.mw-ss-opt-none.is-active { color: var(--mw-dark, #1A5F4A); background: var(--mw-light, #E8F3F0); }
+
+.mw-ss-empty { padding: .6rem; color: #8a9a93; font-size: .85rem; text-align: center; }
