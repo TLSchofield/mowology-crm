@@ -910,7 +910,7 @@ if ($hasPropCoords && !$hasBorder) {
                             </div>
                             <div class="col-sm-6">
                                 <label class="form-label">Management Company</label>
-                                <select name="property_manager_id" class="form-control">
+                                <select name="property_manager_id" class="form-control mw-searchable" data-placeholder="Search companies…" data-none-label="No management company">
                                     <option value="">— none —</option>
                                     <?php foreach ($pmCompanies as $co):
                                         $sel = (int)($propBilling['property_manager_id'] ?? 0) === (int)$co['id'] ? ' selected' : '';
@@ -923,7 +923,7 @@ if ($hasPropCoords && !$hasBorder) {
                         <div class="row mt-2">
                             <div class="col-sm-6">
                                 <label class="form-label">Property Manager <small class="text-muted">(person)</small></label>
-                                <select name="site_contact_id" class="form-control">
+                                <select name="site_contact_id" class="form-control mw-searchable" data-placeholder="Search contacts…" data-none-label="No contact">
                                     <option value="">— none —</option>
                                     <?php foreach ($pmContacts as $c):
                                         $cl = trim(($c['first_name'] ?? '') . ' ' . ($c['last_name'] ?? ''));
