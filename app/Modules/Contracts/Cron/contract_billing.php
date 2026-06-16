@@ -129,7 +129,7 @@ try {
                -- Billing entity for the Bill To line.
                -- Priority: property.billing_entity_name → contract.title (when it
                -- looks like a strata/entity, not a service description).
-               -- Formatted as "{entity} C/O {company_name}" when a company is set.
+               -- Formatted as entity C/O company_name when a company is set.
                {$propertyBillingEntitySelect}
                c.title          AS contract_title,
                p.address        AS service_address,
@@ -191,29 +191,14 @@ foreach ($contracts as $ctr) {
             continue;
         }
 
-        // ── 3b.2 Resolve the Bill To heading ──────────────────────────────────
-        // Priority:
-        //   1. property.billing_entity_name  — explicit strata/entity set on property
-        //   2. contract.title                — used as entity when a company is also
-        //                                      present (e.g. "VR15-40" on a strata contract)
-        //   3. company.company_name alone    — commercial / PM company, no strata entity
-        //   4. null                          — view.php falls back to contact full name
-        $propertyEntity = $ctr['property_billing_entity'] ?? null;
-        $contractTitle  = trim((string)($ctr['contract_title'] ?? ''));
-        $companyName    = $ctr['company_name']             ?? null;
-
-        // Use contract title as entity only when a billing company is present
-        // (otherwise it's a service description like "Full Service", not an entity name)
-        $entity = $propertyEntity ?: (!empty($companyName) ? $contractTitle : null) ?: null;
-
+        // ── 3b.2 Bill To heading ──────────────────────────────────────────────
+        // Resolved at RENDER time (PdfGenerator / view.php), which composes
+        // "{billing_entity_name} C/O {management firm}" for PM-managed strata from
+        // live property + property_manager_id data. We deliberately store NULL here
+        // rather than a computed name: the old company resolution missed the
+        // property_manager_id link, so it stored a partial entity ("VR1450") that
+        // overrode the correct render-time heading.
         $billToName = null;
-        if (!empty($entity) && !empty($companyName)) {
-            $billToName = $entity . ' C/O ' . $companyName;
-        } elseif (!empty($entity)) {
-            $billToName = $entity;
-        } elseif (!empty($companyName)) {
-            $billToName = $companyName;
-        }
 
         $db->beginTransaction();
 

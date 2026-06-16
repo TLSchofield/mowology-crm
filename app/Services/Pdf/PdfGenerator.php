@@ -138,12 +138,18 @@ class PdfGenerator
                     i.*,
                     i.bill_to_name as bill_to_name,
                     p.billing_entity_name,
-                    COALESCE(c.company_name, cb.company_name, cp.company_name, cc.company_name) as company_name,
-                    COALESCE(c.payment_terms, cb.payment_terms, cp.payment_terms, cc.payment_terms) as payment_terms,
+                    -- pm = the property management firm (property_manager_id). For a
+                    -- PM-managed strata the firm is the PAYER: the Bill To becomes
+                    -- billing_entity_name C/O pm.company_name (e.g. VR1450 C/O Pacific
+                    -- Quorum). Without pm in this COALESCE, company_name came back NULL
+                    -- and the heading fell back to the on-site contact name.
+                    COALESCE(c.company_name, cb.company_name, pm.company_name, cp.company_name, cc.company_name) as company_name,
+                    COALESCE(c.payment_terms, cb.payment_terms, pm.payment_terms, cp.payment_terms, cc.payment_terms) as payment_terms,
                     COALESCE(
                         NULLIF(IF(i.billing_address = i.service_address, '', i.billing_address), ''),
                         NULLIF(c.billing_address, ''),
                         NULLIF(cb.billing_address, ''),
+                        NULLIF(pm.billing_address, ''),
                         NULLIF(cp.billing_address, ''),
                         NULLIF(cc.billing_address, ''),
                         NULLIF(i.service_address, ''),
@@ -153,6 +159,7 @@ class PdfGenerator
                         NULLIF(IF(i.billing_city = i.service_city, '', i.billing_city), ''),
                         NULLIF(c.billing_city, ''),
                         NULLIF(cb.billing_city, ''),
+                        NULLIF(pm.billing_city, ''),
                         NULLIF(cp.billing_city, ''),
                         NULLIF(cc.billing_city, ''),
                         NULLIF(i.service_city, ''),
@@ -162,6 +169,7 @@ class PdfGenerator
                         NULLIF(IF(i.billing_province = i.service_province, '', i.billing_province), ''),
                         NULLIF(c.billing_province, ''),
                         NULLIF(cb.billing_province, ''),
+                        NULLIF(pm.billing_province, ''),
                         NULLIF(cp.billing_province, ''),
                         NULLIF(cc.billing_province, ''),
                         NULLIF(i.service_province, '')
@@ -170,6 +178,7 @@ class PdfGenerator
                         NULLIF(IF(i.billing_postal_code = i.service_postal_code, '', i.billing_postal_code), ''),
                         NULLIF(c.billing_postal_code, ''),
                         NULLIF(cb.billing_postal_code, ''),
+                        NULLIF(pm.billing_postal_code, ''),
                         NULLIF(cp.billing_postal_code, ''),
                         NULLIF(cc.billing_postal_code, ''),
                         NULLIF(i.service_postal_code, ''),
@@ -191,6 +200,7 @@ class PdfGenerator
                 LEFT JOIN contacts dc  ON i.contact_id = dc.id
                 LEFT JOIN properties p ON i.property_id = p.id
                 LEFT JOIN companies cb ON p.billing_company_id = cb.id
+                LEFT JOIN companies pm ON p.property_manager_id = pm.id
                 LEFT JOIN companies cp ON p.company_id = cp.id
                 LEFT JOIN companies cc ON dc.company_id = cc.id
                 LEFT JOIN users u      ON i.created_by = u.id

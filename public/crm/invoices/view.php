@@ -25,13 +25,17 @@ $db = getDB();
 $stmt = $db->prepare("
     SELECT
         i.*,
-        c.company_name,
-        COALESCE(NULLIF(c.billing_email,''), NULLIF(dc.email,''), NULLIF(ct.email,'')) as billing_email,
-        COALESCE(NULLIF(c.billing_phone,''), NULLIF(dc.mobile,''), NULLIF(dc.phone,''), NULLIF(ct.mobile,''), NULLIF(ct.phone,'')) as billing_phone,
-        COALESCE(NULLIF(i.billing_address,''), NULLIF(c.billing_address,''))       as billing_address,
-        COALESCE(NULLIF(i.billing_city,''),    NULLIF(c.billing_city,''))           as billing_city,
-        COALESCE(NULLIF(i.billing_province,''),NULLIF(c.billing_province,''))       as billing_province,
-        COALESCE(NULLIF(i.billing_postal_code,''),NULLIF(c.billing_postal_code,'')) as billing_postal_code,
+        -- pm = the property management firm (property_manager_id). For PM-managed
+        -- strata the firm is the payer; folding it into company_name lets the Bill
+        -- To compose billing_entity_name C/O firm instead of the on-site contact.
+        COALESCE(c.company_name, pm.company_name) as company_name,
+        p.billing_entity_name,
+        COALESCE(NULLIF(c.billing_email,''), NULLIF(pm.billing_email,''), NULLIF(dc.email,''), NULLIF(ct.email,'')) as billing_email,
+        COALESCE(NULLIF(c.billing_phone,''), NULLIF(pm.billing_phone,''), NULLIF(dc.mobile,''), NULLIF(dc.phone,''), NULLIF(ct.mobile,''), NULLIF(ct.phone,'')) as billing_phone,
+        COALESCE(NULLIF(i.billing_address,''), NULLIF(c.billing_address,''), NULLIF(pm.billing_address,''))       as billing_address,
+        COALESCE(NULLIF(i.billing_city,''),    NULLIF(c.billing_city,''), NULLIF(pm.billing_city,''))           as billing_city,
+        COALESCE(NULLIF(i.billing_province,''),NULLIF(c.billing_province,''), NULLIF(pm.billing_province,''))       as billing_province,
+        COALESCE(NULLIF(i.billing_postal_code,''),NULLIF(c.billing_postal_code,''), NULLIF(pm.billing_postal_code,'')) as billing_postal_code,
         COALESCE(ct.first_name, dc.first_name) as contact_first,
         COALESCE(ct.last_name, dc.last_name) as contact_last,
         COALESCE(ct.email, dc.email) as contact_email,
@@ -48,6 +52,7 @@ $stmt = $db->prepare("
     LEFT JOIN contacts ct ON c.primary_contact_id = ct.id
     LEFT JOIN contacts dc ON i.contact_id = dc.id
     LEFT JOIN properties p ON i.property_id = p.id
+    LEFT JOIN companies pm ON p.property_manager_id = pm.id
     LEFT JOIN job_visits jv ON i.visit_id = jv.id
     LEFT JOIN job_plans jp ON i.plan_id = jp.id
     LEFT JOIN users u ON i.created_by = u.id
@@ -758,11 +763,18 @@ $extraHead = $isPayable
                           <?php
                               $contactFullName = trim(($invoice['contact_first'] ?? '') . ' ' . ($invoice['contact_last'] ?? ''));
                               $displayCompany  = $invoice['company_name'] ?? '';
-                              // Priority: manual bill_to_name override →
-                              // company_name → contact full name.
-                              $billToHeading   = !empty($invoice['bill_to_name'])
-                                  ? $invoice['bill_to_name']
-                                  : ($displayCompany ?: $contactFullName);
+                              $billingEntity   = trim((string)($invoice['billing_entity_name'] ?? ''));
+                              // Priority (matches the PDF template):
+                              //   manual bill_to_name override
+                              //   → "{billing_entity} C/O {company}" (PM-managed strata)
+                              //   → company_name → contact full name.
+                              if (!empty($invoice['bill_to_name'])) {
+                                  $billToHeading = $invoice['bill_to_name'];
+                              } elseif ($billingEntity !== '' && $displayCompany !== '') {
+                                  $billToHeading = $billingEntity . ' C/O ' . $displayCompany;
+                              } else {
+                                  $billToHeading = $displayCompany ?: $contactFullName;
+                              }
                           ?>
                           <?php
                               $clientContactId = (int)($invoice['contact_id'] ?? 0);

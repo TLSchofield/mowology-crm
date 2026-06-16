@@ -196,7 +196,11 @@ try {
             $visit['city']      ?? '',
             $visit['province']  ?? 'BC',
             $visit['postal_code'] ?? '',
-            $contactName,
+            // bill_to_name left NULL on purpose: the PDF/view compose the payer
+            // heading at render time ("{billing_entity} C/O {management firm}" for
+            // PM-managed strata). Storing the on-site contact name here wrongly
+            // forced the Bill To to the property manager person.
+            null,
             $user['id'],
         ]);
         $invoiceId = (int)$db->lastInsertId();
