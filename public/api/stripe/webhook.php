@@ -72,6 +72,10 @@ switch ($event->type) {
         handleSetupIntentSucceeded($event->data->object);
         break;
 
+    case 'charge.refunded':
+        handleChargeRefunded($event->data->object);
+        break;
+
     default:
         // Acknowledge receipt of events we don't handle — Stripe expects 200
         error_log('[Stripe Webhook] Unhandled event type: ' . $event->type);
@@ -127,9 +131,16 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): bool
         return true; // Already handled, safe to return 200
     }
 
-    // ── Load invoice ──────────────────────────────────────────────────────────
+    // ── Load invoice + customer (the customer fields drive the receipt email) ───
     $invoiceStmt = $db->prepare("
-        SELECT id, status, balance_due, total FROM invoices WHERE id = ? LIMIT 1
+        SELECT i.id, i.status, i.balance_due, i.total, i.invoice_number, i.access_token,
+               ct.email      AS contact_email,
+               ct.first_name AS contact_first,
+               ct.last_name  AS contact_last
+        FROM invoices i
+        LEFT JOIN companies c ON i.company_id = c.id
+        LEFT JOIN contacts ct ON ct.id = COALESCE(i.contact_id, c.primary_contact_id)
+        WHERE i.id = ? LIMIT 1
     ");
     $invoiceStmt->execute([$invoiceId]);
     $invoice = $invoiceStmt->fetch(PDO::FETCH_ASSOC);
@@ -138,6 +149,9 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): bool
         error_log('[Stripe Webhook] ERROR: Invoice not found: ' . $invoiceId);
         return true; // unknown invoice — retrying won't help, ack with 200
     }
+
+    // True only when we're recording a brand-new payment — gates the one-time receipt.
+    $invoiceWasUnpaid = ($invoice['status'] !== 'paid');
 
     if ($invoice['status'] === 'paid') {
         error_log('[Stripe Webhook] Invoice already marked paid — updating stripe_payments record only: ' . $invoiceId);
@@ -343,6 +357,40 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): bool
         }
     }
 
+    // ── Email the customer their receipt (non-fatal, post-commit) ───────────────
+    // Previously NO receipt was ever sent on payment — customers paid and heard
+    // nothing back, which read as "it didn't work" and drove repeat attempts.
+    if ($invoiceWasUnpaid && !empty($invoice['contact_email'])) {
+        try {
+            $appRoot = defined('APP_ROOT') ? APP_ROOT : (dirname(__DIR__, 3) . '/app');
+            require_once $appRoot . '/Services/Messaging/EmailWrapper.php';
+            require_once $appRoot . '/Services/Messaging/MessagingService.php';
+
+            $companyInfo = EmailWrapper::getCompanyInfo();
+            $rvars = [
+                '{{customer_first_name}}' => $invoice['contact_first'] ?: 'there',
+                '{{customer_name}}'       => trim(($invoice['contact_first'] ?? '') . ' ' . ($invoice['contact_last'] ?? '')),
+                '{{invoice_number}}'      => $invoice['invoice_number'],
+                '{{amount_paid}}'         => '$' . number_format($paidAmount, 2),
+                '{{payment_date}}'        => date('F j, Y'),
+                '{{company_name}}'        => $companyInfo['company_name'],
+                '{{company_phone}}'       => $companyInfo['company_phone'],
+            ];
+            $tpl    = loadEmailTemplate('receipt_sent', $rvars);
+            $ctaUrl = !empty($invoice['access_token'])
+                ? 'https://mowology.ca/customer/invoice.php?token=' . urlencode($invoice['access_token'])
+                : ($receiptUrl ?: null);
+            $ctaLabel  = $ctaUrl ? 'View Your Invoice & Receipt' : null;
+            $emailHtml = EmailWrapper::wrap($tpl['body_html'], $ctaLabel, $ctaUrl, $companyInfo);
+
+            $sent = sendEmail($invoice['contact_email'], $tpl['subject'], $emailHtml);
+            error_log('[Stripe Webhook] Receipt email to ' . $invoice['contact_email'] . ': '
+                . ($sent['success'] ? 'sent' : 'FAILED ' . ($sent['error'] ?? '')));
+        } catch (\Throwable $e) {
+            error_log('[Stripe Webhook] Receipt email error: ' . $e->getMessage());
+        }
+    }
+
     return true;
 }
 
@@ -405,6 +453,91 @@ function handlePaymentFailed(\Stripe\PaymentIntent $intent): void
         ),
         $invoiceId,
     ]);
+}
+
+/**
+ * Handle charge.refunded
+ * Notifies the customer that a refund was issued and when to expect it.
+ * Email + audit log ONLY — deliberately does NOT change invoice status, because a
+ * refund is often a duplicate-charge reversal where the invoice must stay paid.
+ */
+function handleChargeRefunded(\Stripe\Charge $charge): void
+{
+    $chargeId      = $charge->id;
+    $piId          = is_string($charge->payment_intent) ? $charge->payment_intent : ($charge->payment_intent->id ?? null);
+    $refundedCents = (int) $charge->amount_refunded;
+    $currency      = strtoupper($charge->currency ?? 'cad');
+
+    if ($refundedCents <= 0 || !$piId) {
+        return;
+    }
+
+    $db = getDB();
+
+    // Resolve invoice + customer from the originating PaymentIntent.
+    $stmt = $db->prepare("
+        SELECT i.id AS invoice_id, i.invoice_number,
+               ct.email      AS contact_email,
+               ct.first_name AS contact_first
+        FROM stripe_payments sp
+        JOIN invoices i ON i.id = sp.invoice_id
+        LEFT JOIN companies c ON i.company_id = c.id
+        LEFT JOIN contacts ct ON ct.id = COALESCE(i.contact_id, c.primary_contact_id)
+        WHERE sp.payment_intent_id = ? LIMIT 1
+    ");
+    $stmt->execute([$piId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$row) {
+        error_log('[Stripe Webhook] charge.refunded — no invoice match for PI ' . $piId);
+        return;
+    }
+
+    // Idempotency: never email twice for the same charge+amount (redelivery / partials).
+    $marker = $chargeId . ':' . $refundedCents;
+    $guard  = $db->prepare("SELECT id FROM activity_log WHERE action = 'Stripe refund notified' AND details LIKE ? LIMIT 1");
+    $guard->execute(['%' . $marker . '%']);
+    if ($guard->fetch()) {
+        error_log('[Stripe Webhook] charge.refunded — already notified for ' . $marker);
+        return;
+    }
+
+    if (!empty($row['contact_email'])) {
+        try {
+            $appRoot = defined('APP_ROOT') ? APP_ROOT : (dirname(__DIR__, 3) . '/app');
+            require_once $appRoot . '/Services/Messaging/EmailWrapper.php';
+            require_once $appRoot . '/Services/Messaging/MessagingService.php';
+
+            $companyInfo = EmailWrapper::getCompanyInfo();
+            $firstName   = $row['contact_first'] ?: 'there';
+            $amountStr   = '$' . number_format($refundedCents / 100, 2) . ' ' . $currency;
+
+            $bodyText = "Hi {$firstName},\n\n"
+                . "We've processed a refund of {$amountStr} to the card used for invoice {$row['invoice_number']}.\n\n"
+                . "Refunds typically take 5–10 business days to appear on your statement, depending on your bank or card issuer.\n\n"
+                . "If you have any questions, just reply to this email or call us at {$companyInfo['company_phone']}.\n\n"
+                . "Thank you,\n{$companyInfo['company_name']}";
+            $emailHtml = EmailWrapper::wrap(EmailWrapper::textToHtml($bodyText), null, null, $companyInfo);
+            $subject   = "Refund processed — {$amountStr} for invoice {$row['invoice_number']}";
+
+            $sent = sendEmail($row['contact_email'], $subject, $emailHtml);
+            error_log('[Stripe Webhook] Refund email to ' . $row['contact_email'] . ': '
+                . ($sent['success'] ? 'sent' : 'FAILED ' . ($sent['error'] ?? '')));
+        } catch (\Throwable $e) {
+            error_log('[Stripe Webhook] Refund email error: ' . $e->getMessage());
+        }
+    }
+
+    // Audit trail (also the idempotency marker checked above).
+    try {
+        $log = $db->prepare("INSERT INTO activity_log (user_id, action, details, invoice_id, created_at) VALUES (NULL, 'Stripe refund notified', ?, ?, NOW())");
+        $log->execute([
+            sprintf('Refund of $%.2f %s for charge %s (PI %s).', $refundedCents / 100, $currency, $marker, $piId),
+            $row['invoice_id'],
+        ]);
+    } catch (\Throwable $e) {
+        error_log('[Stripe Webhook] Refund activity_log failed: ' . $e->getMessage());
+    }
 }
 
 /**
