@@ -160,6 +160,20 @@ function invPageUrl($pageNum) {
 
 $csrfToken = generateCSRFToken();
 
+// Pending Interac e-Transfer notifications (filled by the inbox poller cron).
+$pendingEtransfers = [];
+if (defined('APP_ROOT')) {
+    $__etSvc = APP_ROOT . '/Modules/Accounting/Services/EtransferInboxService.php';
+    if (is_file($__etSvc)) {
+        require_once $__etSvc;
+        try {
+            $pendingEtransfers = (new EtransferInboxService(getDB()))->listPending();
+        } catch (\Throwable $__e) {
+            error_log('[invoices] e-Transfer panel load failed: ' . $__e->getMessage());
+        }
+    }
+}
+
 $pageTitle  = 'Invoices';
 $activePage = 'invoices';
 ?>
@@ -195,6 +209,48 @@ $activePage = 'invoices';
                     <div class="value"><?php echo $statusCounts['overdue'] ?? 0; ?></div>
                 </div>
             </div>
+
+            <?php if (!empty($pendingEtransfers)): ?>
+            <!-- Pending Interac e-Transfers (from the inbox poller) -->
+            <div class="mw-etransfer-panel" id="etransfers">
+                <div class="mw-etransfer-head">
+                    <span><i data-feather="inbox"></i> Pending e-Transfers <span class="mw-et-count"><?php echo count($pendingEtransfers); ?></span></span>
+                    <span class="mw-et-sub">Match each transfer to an invoice, then record it.</span>
+                </div>
+                <?php foreach ($pendingEtransfers as $et): ?>
+                    <?php
+                    $etAmount   = $et['amount'] !== null ? (float)$et['amount'] : 0;
+                    $matchedNo  = $et['matched_invoice_number'] ?? '';
+                    $prefillNo  = $matchedNo ?: ($et['invoice_hint'] ?? '');
+                    $conf       = $et['match_confidence'] ?? 'none';
+                    $isClaim    = ($et['transfer_type'] ?? '') === 'claim';
+                    ?>
+                    <div class="mw-et-row" data-id="<?php echo (int)$et['id']; ?>">
+                        <div class="mw-et-main">
+                            <div class="mw-et-line1">
+                                <strong><?php echo htmlspecialchars($et['sender_name'] ?: 'Unknown sender'); ?></strong>
+                                <span class="mw-et-amount"><?php echo formatCurrency($etAmount); ?></span>
+                                <?php if ($isClaim): ?><span class="mw-et-badge claim">needs claiming in online banking</span><?php endif; ?>
+                                <?php if ($conf === 'high'): ?><span class="mw-et-badge high">match: <?php echo htmlspecialchars($matchedNo); ?></span>
+                                <?php elseif ($conf === 'medium'): ?><span class="mw-et-badge med">likely: <?php echo htmlspecialchars($matchedNo); ?></span>
+                                <?php else: ?><span class="mw-et-badge none">no match — enter invoice #</span><?php endif; ?>
+                            </div>
+                            <?php if (!empty($et['memo'])): ?>
+                                <div class="mw-et-memo">“<?php echo htmlspecialchars($et['memo']); ?>”</div>
+                            <?php endif; ?>
+                        </div>
+                        <div class="mw-et-actions">
+                            <input type="text" class="form-control form-control-sm mw-et-inv" placeholder="INV-…"
+                                   value="<?php echo htmlspecialchars($prefillNo); ?>" aria-label="Invoice number">
+                            <input type="number" step="0.01" min="0" class="form-control form-control-sm mw-et-amt"
+                                   value="<?php echo $etAmount > 0 ? number_format($etAmount, 2, '.', '') : ''; ?>" aria-label="Amount">
+                            <button class="btn btn-primary btn-sm mw-et-record">Record</button>
+                            <button class="btn btn-outline-secondary btn-sm mw-et-dismiss" title="Dismiss">&times;</button>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+            <?php endif; ?>
 
             <!-- Filters + search -->
             <div class="d-flex flex-wrap align-items-center mb-3" style="gap: 16px;">
@@ -945,6 +1001,62 @@ $activePage = 'invoices';
             showToast('Network error — please try again.', 'error');
         });
     };
+
+    // ── Pending e-Transfers panel ──────────────────────────────────────────
+    var etPanel = document.getElementById('etransfers');
+    if (etPanel) {
+        etPanel.addEventListener('click', function (e) {
+            var recordBtn  = e.target.closest('.mw-et-record');
+            var dismissBtn = e.target.closest('.mw-et-dismiss');
+            if (!recordBtn && !dismissBtn) return;
+
+            var row = e.target.closest('.mw-et-row');
+            if (!row) return;
+            var id = row.getAttribute('data-id');
+
+            var body = new FormData();
+            body.append('csrf_token', CSRF_TOKEN);
+            body.append('notification_id', id);
+
+            if (recordBtn) {
+                var inv = (row.querySelector('.mw-et-inv') || {}).value || '';
+                var amt = (row.querySelector('.mw-et-amt') || {}).value || '';
+                if (!inv.trim()) { showToast('Enter an invoice number first.', 'error'); return; }
+                body.append('action', 'record');
+                body.append('invoice_number', inv.trim());
+                body.append('amount', amt);
+                recordBtn.disabled = true;
+                recordBtn.textContent = 'Recording…';
+            } else {
+                if (!confirm('Dismiss this e-Transfer? It will no longer show here.')) return;
+                body.append('action', 'dismiss');
+                dismissBtn.disabled = true;
+            }
+
+            fetch('/crm/api/etransfer-confirm.php', { method: 'POST', body: body })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (data.ok) {
+                        showToast(data.message || 'Done.', 'success');
+                        row.parentNode.removeChild(row);
+                        var remaining = etPanel.querySelectorAll('.mw-et-row').length;
+                        var cnt = etPanel.querySelector('.mw-et-count');
+                        if (cnt) cnt.textContent = remaining;
+                        if (remaining === 0) etPanel.parentNode.removeChild(etPanel);
+                    } else {
+                        showToast(data.message || 'Could not record.', 'error');
+                        if (recordBtn) { recordBtn.disabled = false; recordBtn.textContent = 'Record'; }
+                        if (dismissBtn) dismissBtn.disabled = false;
+                    }
+                })
+                .catch(function (err) {
+                    console.error('[etransfer]', err);
+                    showToast('Network error — please try again.', 'error');
+                    if (recordBtn) { recordBtn.disabled = false; recordBtn.textContent = 'Record'; }
+                    if (dismissBtn) dismissBtn.disabled = false;
+                });
+        });
+    }
 
 }());
 </script>

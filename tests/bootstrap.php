@@ -14,6 +14,7 @@ require_once __DIR__ . '/../app/Modules/Accounting/Services/AlertEngine.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/BankImportService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/AccountingService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/InvoiceReconciliationService.php';
+require_once __DIR__ . '/../app/Modules/Accounting/Services/EtransferInboxService.php';
 
 // Quotes
 require_once __DIR__ . '/../app/Modules/Quotes/Services/QuoteService.php';

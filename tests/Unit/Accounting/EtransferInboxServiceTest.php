@@ -1,0 +1,92 @@
+<?php
+declare(strict_types=1);
+
+use PHPUnit\Framework\TestCase;
+
+/**
+ * Tests for EtransferInboxService::parseInteracEmail() and extractInvoiceNumber().
+ *
+ * Exercised against a real Interac notification email captured from the
+ * office@mowology.ca inbox (manual-claim format) plus a synthetic auto-deposit
+ * variant. Pure static methods — no database required.
+ */
+class EtransferInboxServiceTest extends TestCase
+{
+    /** Real "claim your deposit" email body (name/amount are real but public-facing on the invoice). */
+    private const CLAIM_SUBJECT = 'Interac e-Transfer: Claim your $396.17 from ALEX SHI KE WANG by July 3, 2026';
+    private const CLAIM_BODY = "Hi mowology office,\r\n\r\nYour funds expire soon!\r\n\$396.17\r\n\r\n"
+        . "Select your financial institution to deposit funds.\r\n\r\nVancity: https://etransfer.interac.ca/x\r\n\r\nOR\r\n\r\n"
+        . "Select a different Institution: https://etransfer.interac.ca/y\r\n\r\nExpiry: July 3, 2026\r\n\r\n"
+        . "Message:\r\nHere is the payment for June for Alex Wang(INV-2026-0096). I've added \$18.01 because I forgot to pay the GST last month\r\n\r\n"
+        . "Transfer Details\r\n\r\nDate: June 3, 2026\r\nReference Number: CAkvXmaZ\r\nSent From: ALEX SHI KE WANG\r\nAmount: \$396.17 (CAD)\n\nFAQ: https://www.interac.ca";
+
+    public function test_parses_amount_from_structured_field(): void
+    {
+        $p = EtransferInboxService::parseInteracEmail(self::CLAIM_SUBJECT, self::CLAIM_BODY);
+        $this->assertSame(396.17, $p['amount']);
+    }
+
+    public function test_parses_sender_name(): void
+    {
+        $p = EtransferInboxService::parseInteracEmail(self::CLAIM_SUBJECT, self::CLAIM_BODY);
+        $this->assertSame('ALEX SHI KE WANG', $p['sender_name']);
+    }
+
+    public function test_parses_reference_number(): void
+    {
+        $p = EtransferInboxService::parseInteracEmail(self::CLAIM_SUBJECT, self::CLAIM_BODY);
+        $this->assertSame('CAkvXmaZ', $p['reference_number']);
+    }
+
+    public function test_extracts_invoice_number_from_memo(): void
+    {
+        $p = EtransferInboxService::parseInteracEmail(self::CLAIM_SUBJECT, self::CLAIM_BODY);
+        $this->assertSame('INV-2026-0096', $p['invoice_hint']);
+    }
+
+    public function test_memo_captured_without_transfer_details(): void
+    {
+        $p = EtransferInboxService::parseInteracEmail(self::CLAIM_SUBJECT, self::CLAIM_BODY);
+        $this->assertStringContainsString('payment for June', $p['memo']);
+        $this->assertStringNotContainsString('Reference Number', $p['memo']);
+    }
+
+    public function test_detects_claim_type(): void
+    {
+        $p = EtransferInboxService::parseInteracEmail(self::CLAIM_SUBJECT, self::CLAIM_BODY);
+        $this->assertSame('claim', $p['transfer_type']);
+    }
+
+    public function test_amount_falls_back_to_subject_when_body_lacks_field(): void
+    {
+        $subject = 'Interac e-Transfer: KAMALJEET SINGH sent you $66.15. Claim your deposit!';
+        $p = EtransferInboxService::parseInteracEmail($subject, 'no structured amount here');
+        $this->assertSame(66.15, $p['amount']);
+        $this->assertSame('KAMALJEET SINGH', $p['sender_name']);
+    }
+
+    public function test_detects_autodeposit_type(): void
+    {
+        $body = "Hi,\nReference Number: ABC123\nSent From: JANE DOE\nAmount: \$120.00 (CAD)\n"
+              . "Your money has been automatically deposited into your account.";
+        $p = EtransferInboxService::parseInteracEmail('Interac e-Transfer: JANE DOE sent you money', $body);
+        $this->assertSame('autodeposit', $p['transfer_type']);
+        $this->assertSame(120.00, $p['amount']);
+    }
+
+    public function test_extract_invoice_number_normalises_variants(): void
+    {
+        $this->assertSame('INV-2026-0096', EtransferInboxService::extractInvoiceNumber('paid inv 2026 96'));
+        $this->assertSame('INV-2026-0096', EtransferInboxService::extractInvoiceNumber('INV-2026-0096'));
+        $this->assertNull(EtransferInboxService::extractInvoiceNumber('no invoice here'));
+    }
+
+    public function test_handles_email_with_no_parseable_fields(): void
+    {
+        $p = EtransferInboxService::parseInteracEmail('Random subject', 'nothing useful');
+        $this->assertNull($p['amount']);
+        $this->assertNull($p['sender_name']);
+        $this->assertNull($p['reference_number']);
+        $this->assertNull($p['invoice_hint']);
+    }
+}

@@ -35806,3 +35806,76 @@ span.mw-icon-box--missing {
 .mw-ss-opt-none.is-active { color: var(--mw-dark, #1A5F4A); background: var(--mw-light, #E8F3F0); }
 
 .mw-ss-empty { padding: .6rem; color: #8a9a93; font-size: .85rem; text-align: center; }
+
+/* ============================================================
+   Pending e-Transfers panel (Invoices list)
+   Inbox poller surfaces parsed Interac e-Transfers here for
+   one-click record-against-invoice. Uses --mw-* brand tokens.
+   ============================================================ */
+.mw-etransfer-panel {
+    border: 1px solid var(--mw-light, #E8F3F0);
+    border-left: 4px solid var(--mw-green, #2D8659);
+    border-radius: 8px;
+    background: #fff;
+    margin-bottom: 1.25rem;
+    overflow: hidden;
+}
+.mw-etransfer-head {
+    display: flex;
+    align-items: baseline;
+    gap: .75rem;
+    flex-wrap: wrap;
+    padding: .75rem 1rem;
+    background: var(--mw-light, #E8F3F0);
+    color: var(--mw-forest, #0D3B2E);
+    font-weight: 600;
+}
+.mw-etransfer-head .mw-et-count {
+    display: inline-block;
+    min-width: 1.4rem;
+    padding: 0 .35rem;
+    margin-left: .35rem;
+    border-radius: 10px;
+    background: var(--mw-green, #2D8659);
+    color: #fff;
+    font-size: .8rem;
+    text-align: center;
+}
+.mw-etransfer-head .mw-et-sub { font-weight: 400; font-size: .85rem; color: var(--mw-dark, #1A5F4A); }
+.mw-etransfer-head svg { width: 16px; height: 16px; vertical-align: -2px; }
+
+.mw-et-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: .75rem 1rem;
+    border-top: 1px solid var(--mw-light, #E8F3F0);
+    flex-wrap: wrap;
+}
+.mw-et-main { flex: 1 1 320px; min-width: 0; }
+.mw-et-line1 { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.mw-et-amount { font-weight: 700; color: var(--mw-forest, #0D3B2E); }
+.mw-et-memo { margin-top: .25rem; color: #5f6e68; font-size: .85rem; font-style: italic; }
+
+.mw-et-badge {
+    font-size: .72rem;
+    font-weight: 600;
+    padding: .12rem .5rem;
+    border-radius: 10px;
+    white-space: nowrap;
+}
+.mw-et-badge.high  { background: var(--mw-green, #2D8659); color: #fff; }
+.mw-et-badge.med   { background: var(--mw-lime, #7FD858); color: var(--mw-forest, #0D3B2E); }
+.mw-et-badge.none  { background: #f1f1ee; color: #6b6b66; }
+.mw-et-badge.claim { background: #fff3e0; color: #b45309; }
+
+.mw-et-actions { display: flex; align-items: center; gap: .4rem; flex: 0 0 auto; }
+.mw-et-actions .mw-et-inv { width: 130px; }
+.mw-et-actions .mw-et-amt { width: 95px; }
+.mw-et-actions .mw-et-dismiss { line-height: 1; padding: .25rem .55rem; }
+
+@media (max-width: 640px) {
+    .mw-et-actions { width: 100%; flex-wrap: wrap; }
+    .mw-et-actions .mw-et-inv, .mw-et-actions .mw-et-amt { flex: 1 1 auto; width: auto; }
+}
