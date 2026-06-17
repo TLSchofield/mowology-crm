@@ -119,7 +119,7 @@
        a filterable combobox with a "no value" clear row. Styles in mowology-brand.css. -->
   <script src="/crm/js/mw-searchable-select.js?v=20260616a"></script>
   <script src="/crm/js/time-clock-widget.min.js?v=20260430a"></script>
-  <script src="/crm/js/capacitor-bridge.js?v=20260309a"></script>
+  <script src="/crm/js/capacitor-bridge.js?v=20260617a"></script>
   <!-- Photo Queue: durable storage + background upload engine (must load before media-uploader.js) -->
   <script src="/crm/js/photo-queue.js?v=20260401a"></script>
 

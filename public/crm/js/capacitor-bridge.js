@@ -227,6 +227,27 @@
         _bgWatchId: null,
         _currentActivity: 'UNKNOWN',
 
+        /**
+         * Open this app's OS settings page (so the user can toggle a denied
+         * permission, e.g. Camera). Uses the Android app-details intent via the
+         * App plugin; falls back to the generic Settings screen. Best-effort.
+         */
+        openAppSettings: function() {
+            if (!App || typeof App.openUrl !== 'function') {
+                console.warn('[MwNative] App.openUrl unavailable — cannot open settings');
+                return;
+            }
+            var pkg = (window.Capacitor.getPlatform && window.Capacitor.getPlatform() === 'android')
+                ? 'ca.mowology.crm' : null;
+            var url = pkg
+                ? 'intent://' + pkg + '#Intent;scheme=package;action=android.settings.APPLICATION_DETAILS_SETTINGS;end'
+                : 'app-settings:';
+            App.openUrl({ url: url }).catch(function() {
+                App.openUrl({ url: 'intent://#Intent;action=android.settings.SETTINGS;end' })
+                    .catch(function(err) { console.warn('[MwNative] openAppSettings failed:', err); });
+            });
+        },
+
         // ── Background GPS ──────────────────────────────────
         geo: {
             watchId: null,

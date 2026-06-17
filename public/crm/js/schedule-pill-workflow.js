@@ -36,6 +36,20 @@
     var activeDrawer = null;
     var activeDrawerVisitId = null;
     var cachedGps = null;
+    var _camPermState = null;   // 'granted' | 'denied' | 'prompt' | null (unknown) — see refreshCameraPermission()
+
+    // True when running inside the native Capacitor Android shell. Camera
+    // permission handling and timer re-arming only apply here; browsers and
+    // iOS keep their existing behaviour untouched.
+    function isNativeAndroid() {
+        try {
+            return !!(window.Capacitor &&
+                      window.Capacitor.isNativePlatform &&
+                      window.Capacitor.isNativePlatform() &&
+                      window.Capacitor.getPlatform &&
+                      window.Capacitor.getPlatform() === 'android');
+        } catch (e) { return false; }
+    }
 
     // ═══════════════════════════════════════════════════════
     //  INITIALIZATION
@@ -146,6 +160,24 @@
         getGps(function(lat, lng) {
             console.log('[PillWorkflow] GPS ready:', lat, lng);
         });
+
+        // Re-arm running timers whenever the app returns to the foreground.
+        // Android WebViews freeze setInterval while backgrounded; without this
+        // the timer can stay stuck at 0:00 after the screen locks. (Bug fix)
+        document.addEventListener('visibilitychange', function() {
+            if (document.visibilityState === 'visible') refreshAllPillTimers();
+        });
+        window.addEventListener('pageshow', refreshAllPillTimers);
+        window.addEventListener('focus', refreshAllPillTimers);
+        if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App) {
+            try {
+                window.Capacitor.Plugins.App.addListener('resume', refreshAllPillTimers);
+            } catch (e) { /* App plugin unavailable — DOM events still cover it */ }
+        }
+
+        // Cache camera permission state up front so the very first photo tap can
+        // be guarded on native Android. (Bug fix — "Access denied" on before photo)
+        if (isNativeAndroid()) refreshCameraPermission();
 
         // Listen for hero promotion (GPS arrival) — auto-clock-in single-visit cards
         document.addEventListener('mw-hero-promoted', function(e) {
@@ -736,6 +768,16 @@
         var v = visits[visitId];
         if (!v) { console.warn('[PillWorkflow] triggerCamera: visit ' + visitId + ' not registered'); return; }
 
+        // Bug fix: on native Android the OS camera is reached through the WebView
+        // file picker, which throws "Access denied" when the app's CAMERA
+        // permission is off. If we already know it's denied, skip the doomed
+        // click and show actionable guidance instead. (Synchronous — preserves
+        // the user-gesture requirement for the click in the granted path.)
+        if (isNativeAndroid() && _camPermState === 'denied') {
+            showCameraDeniedDialog();
+            return;
+        }
+
         var card = v.pill.closest('.mw-mc-card');
         if (!card) { console.warn('[PillWorkflow] triggerCamera: no card found for visit ' + visitId); return; }
 
@@ -774,7 +816,15 @@
             }
 
             if (!input.files || !input.files.length) {
-                // User cancelled — re-render strip so placeholders are still tappable
+                // No file: either the user cancelled, or Android denied camera
+                // access (the picker fails silently with no file). Re-check the
+                // permission so a denial surfaces the guidance dialog and guards
+                // the next tap. (Bug fix)
+                if (isNativeAndroid()) {
+                    refreshCameraPermission(function(stateStr) {
+                        if (stateStr === 'denied') showCameraDeniedDialog();
+                    });
+                }
                 renderPhotoStrip(visitId);
                 return;
             }
@@ -1381,6 +1431,29 @@
         if (v && v.timerInterval) {
             clearInterval(v.timerInterval);
             v.timerInterval = null;
+        }
+    }
+
+    /**
+     * Re-arm every running pill timer.
+     *
+     * Android Capacitor WebViews freeze JS (and throttle/kill setInterval) when
+     * the app is backgrounded or the screen locks. On some devices the interval
+     * never resumes ticking when the app returns to the foreground, leaving the
+     * timer frozen at whatever it last rendered (e.g. 0:00 right after start).
+     *
+     * Because each tick recomputes elapsed from Date.now() - startTime, simply
+     * clearing and restarting the interval — and repainting immediately — snaps
+     * the display back to the correct wall-clock value. Wired to visibilitychange,
+     * pageshow and the Capacitor App 'resume' event below.
+     */
+    function refreshAllPillTimers() {
+        for (var vid in visits) {
+            if (!visits.hasOwnProperty(vid)) continue;
+            var v = visits[vid];
+            if (!v || !v.startTime || v.paused) continue;
+            if (v.status !== 'in_progress' && v.status !== 'prompt_before' && v.status !== 'prompt_after') continue;
+            startPillTimer(parseInt(vid, 10)); // clears any stale interval + repaints immediately
         }
     }
 
@@ -2171,6 +2244,111 @@
         var div = document.createElement('div');
         div.appendChild(document.createTextNode(str));
         return div.innerHTML;
+    }
+
+    /**
+     * Query the WebView camera permission and cache it in _camPermState.
+     * Uses the standard Permissions API (Chromium-based Android WebView supports
+     * the 'camera' permission name). Attaches a one-time onchange listener so the
+     * cache stays fresh if the user toggles the permission in Settings and returns.
+     * Calls cb(stateStr) when resolved; degrades gracefully where unsupported.
+     */
+    function refreshCameraPermission(cb) {
+        if (!navigator.permissions || !navigator.permissions.query) {
+            if (cb) cb(_camPermState);
+            return;
+        }
+        try {
+            navigator.permissions.query({ name: 'camera' }).then(function(status) {
+                _camPermState = status.state; // 'granted' | 'denied' | 'prompt'
+                if (!status._mwBound) {
+                    status._mwBound = true;
+                    status.onchange = function() { _camPermState = status.state; };
+                }
+                if (cb) cb(_camPermState);
+            }).catch(function() {
+                // 'camera' not a queryable permission on this device — leave unknown.
+                if (cb) cb(_camPermState);
+            });
+        } catch (e) {
+            if (cb) cb(_camPermState);
+        }
+    }
+
+    /**
+     * Open the OS app-settings screen so the user can enable Camera. Prefers a
+     * native helper, then the Capacitor App plugin's openUrl with an Android
+     * app-details intent. Best-effort: the dialog's text instructions stand on
+     * their own if the device ignores the intent.
+     */
+    function openAppSettings() {
+        try {
+            if (window.MwNative && typeof window.MwNative.openAppSettings === 'function') {
+                window.MwNative.openAppSettings();
+                return;
+            }
+            var plugins = window.Capacitor && window.Capacitor.Plugins;
+            if (plugins && plugins.App && typeof plugins.App.openUrl === 'function') {
+                var pkg = (window.Capacitor.getPlatform && window.Capacitor.getPlatform() === 'android')
+                    ? 'ca.mowology.crm' : null;
+                var url = pkg
+                    ? 'intent://' + pkg + '#Intent;scheme=package;action=android.settings.APPLICATION_DETAILS_SETTINGS;end'
+                    : 'app-settings:';
+                plugins.App.openUrl({ url: url }).catch(function() {
+                    // Fall back to the generic Settings app.
+                    plugins.App.openUrl({ url: 'intent://#Intent;action=android.settings.SETTINGS;end' })
+                        .catch(function() {});
+                });
+            }
+        } catch (e) { /* text instructions cover this */ }
+    }
+
+    /**
+     * Full-screen "Camera access denied" guidance with an Open Settings button.
+     * Shown when the OS has blocked camera access for the app. (Bug fix)
+     */
+    function showCameraDeniedDialog() {
+        var existing = document.getElementById('mw-cam-denied-dialog');
+        if (existing) return;
+
+        var overlay = document.createElement('div');
+        overlay.id = 'mw-cam-denied-dialog';
+        overlay.style.cssText =
+            'position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,0.6);' +
+            'display:flex;align-items:center;justify-content:center;padding:24px;';
+
+        overlay.innerHTML =
+            '<div style="background:#fff;border-radius:14px;max-width:340px;width:100%;' +
+                'padding:24px 22px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.4);">' +
+                '<div style="font-size:2rem;margin-bottom:10px;">📷</div>' +
+                '<h3 style="margin:0 0 10px;font-size:1.1rem;font-weight:700;color:#1a1a1a;">Camera access denied</h3>' +
+                '<p style="margin:0 0 18px;font-size:0.88rem;line-height:1.5;color:#555;">' +
+                    'Camera access denied — go to <strong>Settings &rsaquo; Apps &rsaquo; Mowology &rsaquo; ' +
+                    'Permissions</strong> and enable <strong>Camera</strong>.' +
+                '</p>' +
+                '<button id="mw-cam-denied-settings" style="' +
+                    'display:block;width:100%;padding:13px;margin-bottom:10px;border:none;border-radius:8px;' +
+                    'background:#2d8659;color:#fff;font-weight:700;font-size:0.92rem;cursor:pointer;">' +
+                    'Open Settings' +
+                '</button>' +
+                '<button id="mw-cam-denied-dismiss" style="' +
+                    'display:block;width:100%;padding:11px;border:none;border-radius:8px;' +
+                    'background:transparent;color:#888;font-weight:600;font-size:0.88rem;cursor:pointer;">' +
+                    'Not now' +
+                '</button>' +
+            '</div>';
+
+        document.body.appendChild(overlay);
+        document.getElementById('mw-cam-denied-settings').addEventListener('click', function() {
+            openAppSettings();
+            overlay.remove();
+        });
+        document.getElementById('mw-cam-denied-dismiss').addEventListener('click', function() {
+            overlay.remove();
+        });
+        overlay.addEventListener('click', function(e) {
+            if (e.target === overlay) overlay.remove();
+        });
     }
 
     /**

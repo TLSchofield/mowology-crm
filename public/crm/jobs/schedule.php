@@ -3947,7 +3947,7 @@ function mwTogglePurchaseItem(checkbox) {
 <script src="../js/route-engine.js?v=20260219a" defer></script>
 <script src="../js/schedule-route-map.js?v=20260226b" defer></script>
 <script src="../js/batch-camera.js?v=20260421a" defer></script>
-<script src="../js/schedule-pill-workflow.js?v=20260612g" defer></script>
+<script src="../js/schedule-pill-workflow.js?v=20260617a" defer></script>
 <script src="../js/schedule-drag-drop.js" defer></script>
 <?php if ($view === 'day'): ?>
 <script>
