@@ -822,25 +822,73 @@ function mwInjectFlatlineCSS() {
 <script>
 (function() {
     'use strict';
-    if (window.MwNative) return;          // running inside Capacitor — no gate
     var gate = document.getElementById('mw-native-gate');
     if (!gate) return;
-    gate.style.display = 'flex';
-    // Prevent scrolling behind the overlay
-    document.body.style.overflow = 'hidden';
 
-    // Post-download guidance: after the user taps Download, the APK lands in
-    // the Downloads folder with no system prompt, so tell them what to do next.
-    var dl = document.getElementById('mw-native-gate-download');
-    var note = document.getElementById('mw-native-gate-downloading');
-    if (dl && note) {
-        dl.addEventListener('click', function() {
-            // Let the download fire first, then reveal the guidance.
-            setTimeout(function() {
-                note.classList.add('is-visible');
-            }, 400);
-        });
+    // Decide whether we are running INSIDE the Capacitor app. The interstitial
+    // must NEVER appear inside the app's own WebView — only in a real mobile
+    // browser (Chrome, Samsung Internet, Firefox, etc.). Any signal counts.
+    //
+    // The old check relied solely on window.MwNative, which is set by
+    // capacitor-bridge.js — but that script loads in the footer, AFTER this
+    // inline block runs, so MwNative was always undefined here and the gate
+    // showed even inside the app. We now check window.Capacitor directly (the
+    // native bridge is injected early by the OS layer) and add a UA fallback.
+    function isInApp() {
+        try {
+            if (window.Capacitor) {
+                if (typeof window.Capacitor.isNativePlatform === 'function' &&
+                    window.Capacitor.isNativePlatform()) return true;
+                if (window.Capacitor.isNative) return true;
+            }
+        } catch (e) {}
+        if (window.MwNative) return true;
+        // Any Android WebView UA contains "wv"; real browsers do not. Also match
+        // a custom token in case the native build appends one to the UA.
+        var ua = navigator.userAgent || '';
+        if (/;\s*wv\b/i.test(ua) || /\bwv\)/i.test(ua) || /CapApp|MowologyCrew/i.test(ua)) return true;
+        return false;
     }
+
+    function hideGate() {
+        gate.style.display = 'none';
+        document.body.style.overflow = '';
+    }
+
+    function showGate() {
+        if (gate.style.display === 'flex') return; // already shown
+        gate.style.display = 'flex';
+        document.body.style.overflow = 'hidden';
+
+        // Post-download guidance: after Download is tapped the APK lands in the
+        // Downloads folder with no system prompt, so tell them what to do next.
+        var dl = document.getElementById('mw-native-gate-download');
+        var note = document.getElementById('mw-native-gate-downloading');
+        if (dl && note && !dl._mwBound) {
+            dl._mwBound = true;
+            dl.addEventListener('click', function() {
+                setTimeout(function() { note.classList.add('is-visible'); }, 400);
+            });
+        }
+    }
+
+    // Detected as in-app immediately → never show.
+    if (isInApp()) { hideGate(); return; }
+
+    // Not detected yet. The native bridge can inject a beat after this inline
+    // script runs, so don't show immediately — poll briefly. If the bridge
+    // appears we stay hidden; if the grace window passes with no bridge, we're
+    // in a real browser → show the gate. Keep listening afterwards so a late
+    // bridge still dismisses it.
+    var tries = 0;
+    var poll = setInterval(function() {
+        tries++;
+        if (isInApp()) { clearInterval(poll); hideGate(); return; }
+        if (tries >= 12) { clearInterval(poll); showGate(); } // ~1.2s grace
+    }, 100);
+
+    document.addEventListener('deviceready', function() { if (isInApp()) hideGate(); }, { once: true });
+    window.addEventListener('load', function() { if (isInApp()) hideGate(); });
 })();
 </script>
 <?php endif; ?>
