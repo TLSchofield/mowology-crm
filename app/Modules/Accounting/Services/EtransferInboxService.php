@@ -174,19 +174,29 @@ class EtransferInboxService
         $match = $this->matchInvoice($parsed);
         $dt    = $emailDate ? date('Y-m-d H:i:s', strtotime($emailDate)) : null;
 
-        $stmt = $this->db->prepare(
-            "INSERT INTO etransfer_notifications
-               (mailbox, dedup_key, reference_number, message_id, sender_name, amount, memo,
-                invoice_hint, transfer_type, email_subject, email_date,
-                matched_invoice_id, match_method, match_confidence, status, created_at)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'pending', NOW())"
-        );
-        $stmt->execute([
-            $mailbox, $dedup, $parsed['reference_number'], $messageId, $parsed['sender_name'],
-            $parsed['amount'], $parsed['memo'], $parsed['invoice_hint'], $parsed['transfer_type'],
-            $emailSubject, $dt,
-            $match['invoice_id'], $match['method'], $match['confidence'],
-        ]);
+        try {
+            $stmt = $this->db->prepare(
+                "INSERT INTO etransfer_notifications
+                   (mailbox, dedup_key, reference_number, message_id, sender_name, amount, memo,
+                    invoice_hint, transfer_type, email_subject, email_date,
+                    matched_invoice_id, match_method, match_confidence, status, created_at)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'pending', NOW())"
+            );
+            $stmt->execute([
+                $mailbox, $dedup, $parsed['reference_number'], $messageId, $parsed['sender_name'],
+                $parsed['amount'], $parsed['memo'], $parsed['invoice_hint'], $parsed['transfer_type'],
+                $emailSubject, $dt,
+                $match['invoice_id'], $match['method'], $match['confidence'],
+            ]);
+        } catch (PDOException $e) {
+            // Lost an insert race against a concurrent poll → already seen.
+            if (stripos($e->getMessage(), 'Duplicate') !== false || $e->getCode() === '23000') {
+                $chk->execute([$dedup]);
+                $existing = (int) $chk->fetchColumn();
+                return ['inserted' => false, 'id' => $existing ?: null, 'row' => null];
+            }
+            throw $e;
+        }
         $id = (int) $this->db->lastInsertId();
 
         return ['inserted' => true, 'id' => $id, 'row' => $this->find($id)];

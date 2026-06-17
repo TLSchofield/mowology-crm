@@ -129,18 +129,24 @@ foreach ($mailboxes as $mb) {
 
     foreach ($hits as $msgNo) {
         $seen++;
-        $hdr     = @imap_headerinfo($mbox, $msgNo);
-        $subject = $hdr && isset($hdr->subject) ? imap_utf8($hdr->subject) : '';
-        $msgId   = $hdr->message_id ?? null;
-        $date    = $hdr->date ?? null;
+        try {
+            $hdr     = @imap_headerinfo($mbox, $msgNo);
+            $subject = $hdr && isset($hdr->subject) ? imap_utf8($hdr->subject) : '';
+            $msgId   = $hdr->message_id ?? null;
+            $date    = $hdr->date ?? null;
 
-        // Skip anything from before the launch floor (already-handled history).
-        if ($date && $floorTs && strtotime($date) < $floorTs) { continue; }
+            // Skip anything from before the launch floor (already-handled history).
+            if ($date && $floorTs && strtotime($date) < $floorTs) { continue; }
 
-        $body    = pollBody($mbox, $msgNo);
+            $body    = pollBody($mbox, $msgNo);
 
-        $parsed = EtransferInboxService::parseInteracEmail($subject, $body);
-        $res    = $service->ingest($parsed, $mb['user'], $msgId, $subject, $date);
+            $parsed = EtransferInboxService::parseInteracEmail($subject, $body);
+            $res    = $service->ingest($parsed, $mb['user'], $msgId, $subject, $date);
+        } catch (\Throwable $e) {
+            // One bad email must never abort the batch.
+            pollLog("ERROR processing msg {$msgNo} in {$mb['user']}: " . $e->getMessage());
+            continue;
+        }
 
         if ($res['inserted'] && $res['row'] && $res['row']['status'] === 'pending') {
             $newItems[] = $res['row'];
