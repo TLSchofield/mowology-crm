@@ -36,7 +36,8 @@ $bodyData = json_decode($rawBody ?: '', true) ?? [];
 
 // CSRF guard on all state-mutating actions.
 $writingActions = ['save', 'delete', 'toggle-active', 'save-overhead', 'seed-defaults',
-                   'save-overhead-item', 'delete-overhead-item', 'toggle-overhead-item'];
+                   'save-overhead-item', 'delete-overhead-item', 'toggle-overhead-item',
+                   'seed-overhead-items'];
 if (in_array($action, $writingActions, true)) {
     if (!verifyCSRFToken($bodyData['csrf_token'] ?? '')) {
         http_response_code(403);
