@@ -249,7 +249,7 @@ function getDefaultSettings() {
         'brand_color_secondary' => '#7FD858',
         'invoice_footer_text' => '',
         'invoice_terms_text' => '',
-        'invoice_payment_instructions' => '',
+        'invoice_payment_instructions' => 'Pay by Interac e-Transfer to info@mowology.ca. Auto-deposit is enabled — no security question or password needed. Please include your invoice number in the message so we can match your payment.',
         'email_signature_text' => '',
         'email_footer_html' => '',
         'quote_message_header' => '',

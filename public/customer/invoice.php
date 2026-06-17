@@ -105,6 +105,18 @@ $isPayable   = $invoice && in_array($invoice['status'], ['sent', 'viewed', 'part
 $contactName = $invoice ? trim(($invoice['contact_first'] ?? '') . ' ' . ($invoice['contact_last'] ?? '')) : '';
 $displayName = $invoice ? ($invoice['company_name'] ?: $contactName ?: 'Valued Customer') : '';
 
+// Payment instructions (e-Transfer etc.) — single source of truth: business_settings,
+// the same value shown on the invoice PDF.
+$paymentInstructions = '';
+if ($isPayable) {
+    try {
+        $val = $db->query("SELECT invoice_payment_instructions FROM business_settings WHERE id = 1")->fetchColumn();
+        $paymentInstructions = trim((string)($val ?: ''));
+    } catch (Exception $e) {
+        $paymentInstructions = '';
+    }
+}
+
 // ── helpers ──────────────────────────────────────────────────────────────────
 function fmt(float $n): string {
     return '$' . number_format($n, 2);
@@ -335,6 +347,13 @@ function fmtDate(string $d): string {
             </div>
         </div>
     </div>
+
+    <?php if ($isPayable && $paymentInstructions !== ''): ?>
+        <div class="portal-info-card">
+            <div class="portal-info-card-header">How to Pay</div>
+            <div class="portal-info-card-body" style="white-space:pre-line;font-size:0.875rem;color:var(--p-text-mid);line-height:1.6;"><?php echo htmlspecialchars($paymentInstructions); ?></div>
+        </div>
+    <?php endif; ?>
 
     <?php if (!empty($invoice['notes'])): ?>
         <div class="portal-info-card">
