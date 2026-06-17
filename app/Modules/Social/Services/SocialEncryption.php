@@ -75,9 +75,12 @@ class SocialEncryption
             }
         }
 
-        // Fallback: derive a key from DB credentials (less secure, logs a warning)
-        error_log('WARNING: SOCIAL_ENCRYPTION_KEY not set in secrets.php — using insecure fallback. Set this before connecting accounts.');
-        $fallback = defined('DB_PASS') ? DB_PASS : 'mowology-social-fallback-key-set-me';
-        return str_pad(substr(hash('sha256', $fallback, true), 0, 32), 32, "\0");
+        // No safe fallback exists — a key derived from DB_PASS is guessable by
+        // anyone with DB credentials. Fail loudly so the problem is caught in dev,
+        // not silently in production with weak encryption.
+        throw new \RuntimeException(
+            'SOCIAL_ENCRYPTION_KEY is not configured in secrets.php. ' .
+            'Generate one with: php -r "echo base64_encode(random_bytes(32));"'
+        );
     }
 }

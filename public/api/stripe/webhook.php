@@ -131,10 +131,9 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): bool
         return true; // Already handled, safe to return 200
     }
 
-    // ── Load invoice + customer (the customer fields drive the receipt email) ───
-    $invoiceStmt = $db->prepare("
-        SELECT i.id, i.status, i.balance_due, i.total, i.invoice_number, i.access_token,
-               ct.email      AS contact_email,
+    // ── Load customer info for receipt email (read-only, outside transaction) ───
+    $customerStmt = $db->prepare("
+        SELECT ct.email      AS contact_email,
                ct.first_name AS contact_first,
                ct.last_name  AS contact_last
         FROM invoices i
@@ -142,20 +141,12 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): bool
         LEFT JOIN contacts ct ON ct.id = COALESCE(i.contact_id, c.primary_contact_id)
         WHERE i.id = ? LIMIT 1
     ");
-    $invoiceStmt->execute([$invoiceId]);
-    $invoice = $invoiceStmt->fetch(PDO::FETCH_ASSOC);
+    $customerStmt->execute([$invoiceId]);
+    $customer = $customerStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
-    if (!$invoice) {
-        error_log('[Stripe Webhook] ERROR: Invoice not found: ' . $invoiceId);
-        return true; // unknown invoice — retrying won't help, ack with 200
-    }
-
-    // True only when we're recording a brand-new payment — gates the one-time receipt.
-    $invoiceWasUnpaid = ($invoice['status'] !== 'paid');
-
-    if ($invoice['status'] === 'paid') {
-        error_log('[Stripe Webhook] Invoice already marked paid — updating stripe_payments record only: ' . $invoiceId);
-    }
+    // invoice row is re-read inside the transaction below with FOR UPDATE so that
+    // concurrent webhooks for the same PaymentIntent cannot both pass the paid-check
+    // and double-apply the payment. The customer fields above are stable read-only data.
 
     // Resolve charge ID and receipt URL from the latest charge
     $chargeId   = null;
@@ -219,6 +210,32 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): bool
 
     $db->beginTransaction();
     try {
+        // ── Lock and re-read invoice inside the transaction ───────────────────
+        // FOR UPDATE serialises concurrent webhooks for the same invoice — the
+        // second webhook blocks here until the first commits, then sees the
+        // already-paid status and skips the UPDATE.
+        $invoiceStmt = $db->prepare("
+            SELECT id, status, balance_due, total, invoice_number, access_token
+            FROM invoices WHERE id = ? LIMIT 1 FOR UPDATE
+        ");
+        $invoiceStmt->execute([$invoiceId]);
+        $invoice = $invoiceStmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$invoice) {
+            $db->rollBack();
+            error_log('[Stripe Webhook] ERROR: Invoice not found inside txn: ' . $invoiceId);
+            return true;
+        }
+
+        // Merge customer fields from the pre-transaction read.
+        $invoice = array_merge($invoice, $customer);
+
+        $invoiceWasUnpaid = ($invoice['status'] !== 'paid');
+
+        if ($invoice['status'] === 'paid') {
+            error_log('[Stripe Webhook] Invoice already paid (seen inside txn) — stripe_payments update only: ' . $invoiceId);
+        }
+
         // ── Update invoice ────────────────────────────────────────────────────
         if ($invoice['status'] !== 'paid') {
             $updateInvoice = $db->prepare("

@@ -116,6 +116,14 @@ foreach ($invoices as $inv) {
         continue;
     }
 
+    // Guard against overpayment when a manual amount override is supplied.
+    // A tolerance of 0.5¢ covers float rounding on exact-balance payments.
+    if ($payAmount > $balanceDue + 0.005) {
+        $errors[] = "Invoice {$inv['invoice_number']}: payment \$" . number_format($payAmount, 2)
+            . " exceeds balance due \$" . number_format($balanceDue, 2);
+        continue;
+    }
+
     $newAmountPaid = floatval($inv['amount_paid']) + $payAmount;
     $newBalance    = max(0, $balanceDue - $payAmount);
     $newStatus     = $newBalance <= 0.005 ? 'paid' : 'partial'; // treat < 0.5¢ as paid
