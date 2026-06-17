@@ -35562,6 +35562,8 @@ span.mw-icon-box--missing {
   margin-bottom: 24px;
 }
 .mw-native-gate-btn {
+  position: relative;
+  overflow: hidden;            /* clip the ripple */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -35573,13 +35575,74 @@ span.mw-icon-box--missing {
   font-size: 0.95rem;
   font-weight: 600;
   text-decoration: none;
-  transition: background 0.15s;
+  transition: background 0.15s, transform 0.08s;
+  -webkit-tap-highlight-color: transparent;  /* we provide our own feedback */
+  user-select: none;
+  -webkit-user-select: none;
 }
 .mw-native-gate-btn:hover,
 .mw-native-gate-btn:focus {
   background: var(--mw-dark);
   color: #fff;
   text-decoration: none;
+}
+/* Pressed state — darker + slight scale-down so Android taps feel responsive */
+.mw-native-gate-btn:active {
+  background: var(--mw-forest);
+  color: #fff;
+  transform: scale(0.97);
+}
+/* Pure-CSS ripple: an expanding circle that fires on :active */
+.mw-native-gate-btn::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.5);
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(1);
+  pointer-events: none;
+}
+.mw-native-gate-btn:active::after {
+  animation: mw-gate-ripple 0.5s ease-out;
+}
+@keyframes mw-gate-ripple {
+  0%   { opacity: 0.55; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0;    transform: translate(-50%, -50%) scale(45); }
+}
+/* Secondary "open Downloads" button shown after the download fires */
+.mw-native-gate-btn-secondary {
+  margin-top: 12px;
+  background: transparent;
+  color: var(--mw-green);
+  border: 1.5px solid var(--mw-green);
+}
+.mw-native-gate-btn-secondary:hover,
+.mw-native-gate-btn-secondary:focus {
+  background: var(--mw-light);
+  color: var(--mw-dark);
+}
+.mw-native-gate-btn-secondary:active {
+  background: var(--mw-light);
+  color: var(--mw-forest);
+}
+/* Post-download guidance message */
+.mw-native-gate-downloading {
+  display: none;
+  margin-top: 18px;
+  padding: 12px 14px;
+  background: var(--mw-light);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--mw-dark);
+  line-height: 1.4;
+}
+.mw-native-gate-downloading.is-visible {
+  display: block;
 }
 .mw-native-gate-sub {
   margin-top: 16px;

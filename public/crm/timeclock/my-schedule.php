@@ -795,10 +795,17 @@ function mwInjectFlatlineCSS() {
         <div class="mw-native-gate-logo">Mowology</div>
         <h2 class="mw-native-gate-heading">Use the Crew App</h2>
         <p class="mw-native-gate-body">For reliable GPS tracking and schedule updates, you need to open Mowology in the Android app — not your browser.</p>
-        <a href="/crm/downloads/mowology-crew.apk" class="mw-native-gate-btn" download>
+        <a id="mw-native-gate-download" href="/crm/downloads/mowology-crew.apk" class="mw-native-gate-btn" download>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px;vertical-align:middle"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             Download Mowology Crew App
         </a>
+        <div id="mw-native-gate-downloading" class="mw-native-gate-downloading">
+            APK downloading — open your <strong>Downloads</strong> app to install it.
+            <a id="mw-native-gate-open-downloads" href="intent://downloads#Intent;scheme=file;package=com.android.documentsui;end" class="mw-native-gate-btn mw-native-gate-btn-secondary">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px;vertical-align:middle"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                Open Downloads folder
+            </a>
+        </div>
         <p class="mw-native-gate-sub">Already installed? Open it from your home screen and log back in.</p>
     </div>
 </div>
@@ -811,6 +818,19 @@ function mwInjectFlatlineCSS() {
     gate.style.display = 'flex';
     // Prevent scrolling behind the overlay
     document.body.style.overflow = 'hidden';
+
+    // Post-download guidance: after the user taps Download, the APK lands in
+    // the Downloads folder with no system prompt, so tell them what to do next.
+    var dl = document.getElementById('mw-native-gate-download');
+    var note = document.getElementById('mw-native-gate-downloading');
+    if (dl && note) {
+        dl.addEventListener('click', function() {
+            // Let the download fire first, then reveal the guidance.
+            setTimeout(function() {
+                note.classList.add('is-visible');
+            }, 400);
+        });
+    }
 })();
 </script>
 <?php endif; ?>
