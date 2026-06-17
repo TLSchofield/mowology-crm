@@ -99,7 +99,9 @@ try {
                    prod.description AS product_description
             FROM campaign_sends cs
             LEFT JOIN contacts c ON c.id = cs.contact_id
-            LEFT JOIN properties p ON p.site_contact_id = c.id
+            LEFT JOIN properties p ON p.id = (
+                SELECT MIN(id) FROM properties WHERE site_contact_id = c.id
+            )
             LEFT JOIN products prod ON prod.id = ?
             WHERE cs.campaign_id = ?
               AND cs.status = 'pending'

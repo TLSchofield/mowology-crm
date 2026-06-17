@@ -35,7 +35,9 @@ struct MowologyCRMApp: App {
                 .onReceive(authSession.$token.compactMap { $0 }) { _ in
                     let client = APIClient(authSession: authSession)
                     AppTransitionDrainService.shared.configure(apiClient: client)
+                    AppPhotoQueueDrainService.shared.configure(apiClient: client)
                     Task { await AppTransitionDrainService.shared.drain() }
+                    Task { await AppPhotoQueueDrainService.shared.drain() }
                 }
         }
         .onChange(of: scenePhase) { _, phase in
@@ -46,6 +48,7 @@ struct MowologyCRMApp: App {
                 // Drain on every foreground transition — catches the case where
                 // connectivity restored while the app was backgrounded.
                 Task { await AppTransitionDrainService.shared.drain() }
+                Task { await AppPhotoQueueDrainService.shared.drain() }
             }
         }
     }

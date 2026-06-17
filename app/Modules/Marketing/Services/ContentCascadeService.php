@@ -176,8 +176,19 @@ PROMPT;
             'gbp'       => $content['gbp'] ?? null,
         ];
 
+        // Pre-load active accounts per platform so we can satisfy the
+        // social_post_platforms.account_id NOT NULL constraint.
+        $accountStmt = $this->db->prepare(
+            "SELECT id FROM social_accounts WHERE platform = ? AND is_active = 1 LIMIT 1"
+        );
+
         foreach ($platforms as $platform => $data) {
             if (!$data) continue;
+
+            // Skip platforms with no connected account — can't publish without one.
+            $accountStmt->execute([$platform]);
+            $accountId = $accountStmt->fetchColumn();
+            if (!$accountId) continue;
 
             $caption = trim($data['caption'] ?? '');
             if (!empty($data['hashtags'])) {
@@ -194,16 +205,18 @@ PROMPT;
                 $stmt->execute([trim($caption), $userId]);
                 $postId = (int)$this->db->lastInsertId();
 
-                // Insert platform target row
+                // Insert platform target row with the resolved account_id.
                 $this->db->prepare("
-                    INSERT INTO social_post_platforms (post_id, platform, status, created_at)
-                    VALUES (?, ?, 'pending', NOW())
-                ")->execute([$postId, $platform]);
+                    INSERT INTO social_post_platforms
+                        (post_id, account_id, platform, status, created_at)
+                    VALUES (?, ?, ?, 'pending', NOW())
+                ")->execute([$postId, (int)$accountId, $platform]);
 
                 $created[] = [
-                    'platform' => $platform,
-                    'post_id'  => $postId,
-                    'caption'  => mb_substr($caption, 0, 100) . (mb_strlen($caption) > 100 ? '…' : ''),
+                    'platform'   => $platform,
+                    'post_id'    => $postId,
+                    'account_id' => (int)$accountId,
+                    'caption'    => mb_substr($caption, 0, 100) . (mb_strlen($caption) > 100 ? '…' : ''),
                 ];
             } catch (Throwable $e) {
                 error_log("ContentCascadeService social draft error ({$platform}): " . $e->getMessage());

@@ -71,10 +71,26 @@ class ReferralRewardService
                 return;
             }
 
-            // Find a pending referral where this contact was the referred party
-            $referral = self::findPendingReferralForContact((int)$contact['id'], $db);
+            // Find a pending referral where this contact was the referred party.
+            // Falls back to email match because referred_contact_id is not set at
+            // quote-request time (the person is not yet a contact). When matched
+            // by email, referred_contact_id is written so future lookups hit the
+            // fast path.
+            $referral = self::findPendingReferralForContact(
+                (int)$contact['id'],
+                trim((string)($contact['email'] ?? '')),
+                $db
+            );
             if (!$referral) {
                 return;
+            }
+
+            // Backfill referred_contact_id if this was an email-only match.
+            if (empty($referral['referred_contact_id'])) {
+                $db->prepare(
+                    "UPDATE referrals SET referred_contact_id = ? WHERE id = ?"
+                )->execute([(int)$contact['id'], (int)$referral['id']]);
+                $referral['referred_contact_id'] = (int)$contact['id'];
             }
 
             // Suggest or look up the reward product
@@ -344,8 +360,9 @@ class ReferralRewardService
         return $row ?: null;
     }
 
-    private static function findPendingReferralForContact(int $contactId, PDO $db): ?array
+    private static function findPendingReferralForContact(int $contactId, string $email, PDO $db): ?array
     {
+        // Primary: match on referred_contact_id (set after first match).
         $stmt = $db->prepare("
             SELECT * FROM referrals
             WHERE referred_contact_id = ? AND status = 'pending'
@@ -353,6 +370,21 @@ class ReferralRewardService
             LIMIT 1
         ");
         $stmt->execute([$contactId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row) return $row;
+
+        // Fallback: referred_contact_id was never written (quote-request path
+        // does not have a contact_id yet). Match on email instead.
+        if ($email === '') return null;
+        $stmt = $db->prepare("
+            SELECT * FROM referrals
+            WHERE referred_contact_id IS NULL
+              AND referred_email = ?
+              AND status = 'pending'
+            ORDER BY created_at DESC
+            LIMIT 1
+        ");
+        $stmt->execute([$email]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         return $row ?: null;
     }

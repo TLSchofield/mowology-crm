@@ -848,6 +848,19 @@ function geofenceDeriveEvents(int $visitId, int $geofenceId): void {
 
         $prevInZone = $inZone;
     }
+
+    // Synthetic trailing exit — crew still inside at the last sample.
+    // Without this, the final in-zone segment (clock-out-on-site, the common
+    // case) is never counted in in_zone_seconds.
+    if ($entryTime !== null && !empty($samples)) {
+        $last     = end($samples);
+        $duration = strtotime($last['sampled_at']) - strtotime($entryTime);
+        $insExit->execute([
+            $visitId, $geofenceId,
+            $last['sampled_at'], $last['lat'], $last['lng'], $last['accuracy_m'],
+            max(0, $duration),
+        ]);
+    }
 }
 
 

@@ -62,6 +62,7 @@
 		FEE6F4240C835E02425E19BD /* JobPhotoQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020780B1CE91FCD6C5F342B3 /* JobPhotoQueue.swift */; };
 		9123154214A57C98D697E9A0 /* ScheduleCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD1CBB45AF36E4DCB8B81C51 /* ScheduleCache.swift */; };
 		34AB0F00E7B692E81E5392EC /* AppTransitionDrainService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04649C7082A9C0FC920D58AD /* AppTransitionDrainService.swift */; };
+		FD632889669224A6AEF473DF /* AppPhotoQueueDrainService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88FD0AEC402CBA0866DBF37B /* AppPhotoQueueDrainService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -122,6 +123,7 @@
 		020780B1CE91FCD6C5F342B3 /* JobPhotoQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobPhotoQueue.swift; sourceTree = "<group>"; };
 		AD1CBB45AF36E4DCB8B81C51 /* ScheduleCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleCache.swift; sourceTree = "<group>"; };
 		04649C7082A9C0FC920D58AD /* AppTransitionDrainService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTransitionDrainService.swift; sourceTree = "<group>"; };
+		88FD0AEC402CBA0866DBF37B /* AppPhotoQueueDrainService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPhotoQueueDrainService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -145,7 +147,8 @@
 			children = (
 				51F215642B22B1FCC54B663F /* MowologyCRM */,
 				636F64D13F9CF99C7CCAD7EA /* Products */,
-			);
+							88FD0AEC402CBA0866DBF37B /* AppPhotoQueueDrainService.swift */,
+);
 			sourceTree = "<group>";
 		};
 		3CAC498CFC84EC47A1CECC6B /* Network */ = {

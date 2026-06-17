@@ -54,11 +54,14 @@ final class ClockQueue: ObservableObject {
     // MARK: - Enqueue
 
     /// Records a clock action to be replayed when connectivity returns.
-    /// Replaces any existing pending action of the same type — only the most
-    /// recent clock-in or clock-out attempt is kept.
+    ///
+    /// Only deduplicates a trailing double-tap (last item is the same action).
+    /// Earlier items of the same type are preserved because they may form part of
+    /// a completed [clock_in, clock_out] pair — stripping them reorders the queue
+    /// and replays clock_out before clock_in, corrupting the payroll record.
     func enqueue(action: String, lat: Double?, lng: Double?) {
         var current = items
-        current.removeAll { $0.action == action }
+        if current.last?.action == action { current.removeLast() }
         current.append(PendingAction(
             id:       UUID().uuidString,
             action:   action,
