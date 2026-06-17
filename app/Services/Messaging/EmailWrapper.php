@@ -230,4 +230,35 @@ HTML;
             'company_website' => 'mowology.ca',
         ];
     }
+
+    /**
+     * Render a "How to Pay" block from business_settings.invoice_payment_instructions
+     * for invoice emails. Single source of truth — same text shown on the invoice
+     * PDF and the customer portal. Returns '' when no instructions are configured.
+     */
+    public static function paymentInstructionsHtml(): string
+    {
+        try {
+            $val = (string) (getDB()
+                ->query("SELECT invoice_payment_instructions FROM business_settings LIMIT 1")
+                ->fetchColumn() ?: '');
+        } catch (Throwable $e) {
+            return '';
+        }
+        return self::renderPaymentInstructions($val);
+    }
+
+    /** Pure renderer for the "How to Pay" block. Returns '' for empty/whitespace input. */
+    public static function renderPaymentInstructions(string $val): string
+    {
+        $val = trim($val);
+        if ($val === '') {
+            return '';
+        }
+        return '<div style="margin:0 0 20px;padding:14px 16px;background:#E8F3F0;border-radius:8px;'
+             . 'font-size:14px;color:#0D3B2E;line-height:1.6;font-family:\'Helvetica Neue\',Arial,sans-serif;">'
+             . '<strong style="display:block;margin-bottom:4px;">How to Pay</strong>'
+             . nl2br(htmlspecialchars($val))
+             . '</div>';
+    }
 }

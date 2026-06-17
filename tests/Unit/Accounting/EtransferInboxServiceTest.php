@@ -89,4 +89,33 @@ class EtransferInboxServiceTest extends TestCase
         $this->assertNull($p['reference_number']);
         $this->assertNull($p['invoice_hint']);
     }
+
+    // ── paymentBlockReason() ──────────────────────────────────────────────────
+
+    public function test_payable_statuses_are_not_blocked(): void
+    {
+        foreach (['sent', 'viewed', 'partial', 'overdue', 'draft'] as $status) {
+            $this->assertNull(
+                EtransferInboxService::paymentBlockReason($status, 'INV-2026-0001'),
+                "status {$status} should be payable"
+            );
+        }
+    }
+
+    public function test_paid_invoice_blocked_with_duplicate_warning(): void
+    {
+        $msg = EtransferInboxService::paymentBlockReason('paid', 'INV-2026-0096');
+        $this->assertNotNull($msg);
+        $this->assertStringContainsString('already fully paid', $msg);
+        $this->assertStringContainsString('duplicate', $msg);
+        $this->assertStringContainsString('INV-2026-0096', $msg);
+    }
+
+    public function test_cancelled_invoice_blocked_with_status(): void
+    {
+        $msg = EtransferInboxService::paymentBlockReason('cancelled', 'INV-2026-0100');
+        $this->assertNotNull($msg);
+        $this->assertStringContainsString('cancelled', $msg);
+        $this->assertStringContainsString("can't take a payment", $msg);
+    }
 }

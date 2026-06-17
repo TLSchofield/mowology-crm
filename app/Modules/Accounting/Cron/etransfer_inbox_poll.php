@@ -62,6 +62,13 @@ $port    = 993;
 $interac = 'notify@payments.interac.ca';
 $since   = date('d-M-Y', strtotime('-21 days'));   // IMAP date format (server-side window)
 
+// Bound every IMAP operation so an unresponsive mail server can never hang the
+// unattended cron (default is no timeout). Seconds.
+imap_timeout(IMAP_OPENTIMEOUT,  15);
+imap_timeout(IMAP_READTIMEOUT,  20);
+imap_timeout(IMAP_WRITETIMEOUT, 20);
+imap_timeout(IMAP_CLOSETIMEOUT, 10);
+
 // Launch floor: ignore e-Transfers received before the feature went live so the
 // panel starts clean (office@ holds months of already-handled history). Override
 // with ETRANSFER_POLL_FLOOR in secrets.php to backfill further if ever needed.

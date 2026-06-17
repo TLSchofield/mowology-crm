@@ -363,7 +363,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
             $billSummary .= '</table>';
 
             $emailBody = EmailWrapper::wrap(
-                $billSummary . $tpl['body_html'],
+                $billSummary . $tpl['body_html'] . EmailWrapper::paymentInstructionsHtml(),
                 'View &amp; Pay Invoice Online',
                 $invoiceViewUrl ?: null,
                 $companyInfo

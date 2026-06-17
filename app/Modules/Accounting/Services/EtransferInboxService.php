@@ -90,6 +90,22 @@ class EtransferInboxService
         ];
     }
 
+    /**
+     * Why an invoice can't accept a payment, or null if it can. Pure + testable.
+     * Distinguishes "already paid" (duplicate-payment signal) from other states.
+     */
+    public static function paymentBlockReason(string $status, string $invoiceNumber): ?string
+    {
+        if (in_array($status, self::PAYABLE, true) || $status === 'draft') {
+            return null;
+        }
+        if ($status === 'paid') {
+            return "{$invoiceNumber} is already fully paid — possible duplicate payment. "
+                 . 'Dismiss, or attach to a different invoice.';
+        }
+        return "{$invoiceNumber} is {$status} and can't take a payment.";
+    }
+
     /** Pull a normalised INV-YYYY-NNNN invoice number out of free text. */
     public static function extractInvoiceNumber(string $text): ?string
     {
@@ -244,14 +260,19 @@ class EtransferInboxService
             return ['ok' => false, 'message' => 'Already ' . $note['status']];
         }
 
+        // Load unconditionally so we can give a precise reason when it can't take
+        // a payment (already paid → likely a duplicate; cancelled → can't apply).
         $stmt = $this->db->prepare(
-            "SELECT id, invoice_number, balance_due, amount_paid, total
-               FROM invoices WHERE id = ? AND status IN ('sent','viewed','partial','overdue','draft') LIMIT 1"
+            "SELECT id, invoice_number, balance_due, amount_paid, total, status
+               FROM invoices WHERE id = ? LIMIT 1"
         );
         $stmt->execute([$invoiceId]);
         $inv = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$inv) {
-            return ['ok' => false, 'message' => 'Invoice not payable or not found'];
+            return ['ok' => false, 'message' => 'Invoice not found'];
+        }
+        if ($block = self::paymentBlockReason((string) $inv['status'], (string) $inv['invoice_number'])) {
+            return ['ok' => false, 'message' => $block];
         }
 
         $balanceDue = (float) $inv['balance_due'];
