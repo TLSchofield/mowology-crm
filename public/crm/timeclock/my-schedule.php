@@ -794,8 +794,19 @@ function mwInjectFlatlineCSS() {
     <div class="mw-native-gate-card">
         <div class="mw-native-gate-logo">Mowology</div>
         <h2 class="mw-native-gate-heading">Use the Crew App</h2>
-        <p class="mw-native-gate-body">For reliable GPS tracking and schedule updates, you need to open Mowology in the Android app — not your browser.</p>
-        <a id="mw-native-gate-download" href="/crm/downloads/mowology-crew.apk" class="mw-native-gate-btn" download>
+        <p class="mw-native-gate-body">For reliable GPS tracking and schedule updates, open Mowology in the Android app — not your browser.</p>
+
+        <!-- Primary action: launch the installed app via Android intent.
+             Falls back to the APK download if the app isn't installed.
+             Package name = Capacitor appId (ca.mowology.crm). -->
+        <a id="mw-native-gate-open" href="intent://mowology.ca/crm/timeclock/my-schedule.php#Intent;scheme=https;package=ca.mowology.crm;S.browser_fallback_url=https%3A%2F%2Fmowology.ca%2Fcrm%2Fdownloads%2Fmowology-crew.apk;end" class="mw-native-gate-btn">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px;vertical-align:middle"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            Already installed? Open the App
+        </a>
+
+        <div class="mw-native-gate-divider"><span>Don't have it yet?</span></div>
+
+        <a id="mw-native-gate-download" href="/crm/downloads/mowology-crew.apk" class="mw-native-gate-btn mw-native-gate-btn-secondary" download>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px;vertical-align:middle"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             Download Mowology Crew App
         </a>
@@ -806,7 +817,6 @@ function mwInjectFlatlineCSS() {
                 Open Downloads folder
             </a>
         </div>
-        <p class="mw-native-gate-sub">Already installed? Open it from your home screen and log back in.</p>
     </div>
 </div>
 <script>

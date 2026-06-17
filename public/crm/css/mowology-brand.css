@@ -35629,6 +35629,25 @@ span.mw-icon-box--missing {
   background: var(--mw-light);
   color: var(--mw-forest);
 }
+/* "Don't have it yet?" divider between Open App and Download */
+.mw-native-gate-divider {
+  display: flex;
+  align-items: center;
+  margin: 18px 0 14px;
+  color: #999;
+  font-size: 0.78rem;
+}
+.mw-native-gate-divider::before,
+.mw-native-gate-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: #e0e0e0;
+}
+.mw-native-gate-divider span {
+  padding: 0 10px;
+}
+
 /* Post-download guidance message */
 .mw-native-gate-downloading {
   display: none;
