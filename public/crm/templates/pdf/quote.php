@@ -318,10 +318,10 @@ $taxRate = floatval($quote['tax_rate'] ?? 0.05);
             <div class="client-info" style="text-align: right;">
                 <div class="client-name"><?php echo $esc($contactName); ?></div>
                 <?php
-                    // Show the company on its own line only when it adds info —
-                    // i.e. a person at a company. For strata the name already reads
-                    // "Entity C/O Company", so don't repeat it.
-                    $showCompany = !empty($quote['company_name'])
+                    // Show the company on its own line only for a person-at-company.
+                    // Strata quotes show JUST the strata name (no company line).
+                    $showCompany = empty($quote['property_billing_entity'])
+                        && !empty($quote['company_name'])
                         && $quote['company_name'] !== $contactName
                         && stripos($contactName, (string)$quote['company_name']) === false;
                 ?>

@@ -168,35 +168,33 @@ class QuoteServiceTest extends TestCase
     // ── resolveDisplayName() ──────────────────────────────────────────────────
 
     /** @test */
-    public function resolveDisplayName_prefers_an_individual_person(): void
+    public function resolveDisplayName_prefers_an_individual_person_when_no_strata(): void
     {
         $quote = [
             'qr_first_name' => 'Alice', 'qr_last_name' => 'Smith',
             'contact_first' => 'Bob', 'contact_last' => 'Jones',
             'prop_contact_first' => null, 'prop_contact_last' => null,
-            'company_name' => 'ACME Strata Mgmt',
-            'property_billing_entity' => 'Strata Plan VR15/40',
+            'company_name' => 'ACME Corp',
+            'property_billing_entity' => null,
         ];
 
-        // A real person wins over the company/strata entity — residential unaffected.
+        // No strata entity → a real person wins (residential unaffected).
         $this->assertSame('Alice Smith', $this->service()->resolveDisplayName($quote));
     }
 
     /** @test */
-    public function resolveDisplayName_composes_strata_C_O_company_when_no_person(): void
+    public function resolveDisplayName_strata_entity_wins_alone_over_person_and_company(): void
     {
         $quote = [
-            'qr_first_name' => null, 'qr_last_name' => null,
+            'qr_first_name' => 'Alice', 'qr_last_name' => 'Smith',
             'contact_first' => null, 'contact_last' => null,
             'prop_contact_first' => null, 'prop_contact_last' => null,
             'company_name' => 'FirstService Residential',
             'property_billing_entity' => 'Strata Plan VR15/40',
         ];
 
-        $this->assertSame(
-            'Strata Plan VR15/40 C/O FirstService Residential',
-            $this->service()->resolveDisplayName($quote)
-        );
+        // Strata: just the strata name — no "C/O company", no on-site person.
+        $this->assertSame('Strata Plan VR15/40', $this->service()->resolveDisplayName($quote));
     }
 
     /** @test */
