@@ -36,7 +36,13 @@ $db     = getDB();
 $params = [];
 $whereConditions = ['1=1'];
 
-if ($statusFilter) {
+if ($statusFilter === 'overdue') {
+    // Live overdue: unpaid with a past due date (matches the summary card / "Due" column),
+    // not the stale stored status which lags behind the daily cron.
+    $whereConditions[] = "i.status IN ('sent','viewed','partial','overdue')
+                          AND i.balance_due > 0.005
+                          AND i.due_date IS NOT NULL AND i.due_date < CURDATE()";
+} elseif ($statusFilter) {
     $whereConditions[] = 'i.status = ?';
     $params[] = $statusFilter;
 }
@@ -128,7 +134,7 @@ try {
     $invoiceMatches = [];
 }
 
-// Get counts
+// Get counts (per-status, used by the filter chips below).
 $countStmt = $db->query("
     SELECT status, COUNT(*) as count, SUM(balance_due) as total_due
     FROM invoices
@@ -143,6 +149,25 @@ while ($row = $countStmt->fetch()) {
     }
 }
 $totalCount = array_sum($statusCounts);
+
+// Live aging split for the summary cards. The stored `status` column only flips to
+// 'overdue' when the daily invoice_overdue cron runs, so it lags reality. Derive the
+// overdue count straight from due_date (matching the per-row "Due" column) so the cards
+// are correct regardless of whether the cron has run.
+//   - overdueLive  = unpaid (balance > 0) AND due_date has passed
+//   - currentUnpaid = unpaid AND not yet overdue  (shown on the "Sent" card)
+$agingStmt = $db->query("
+    SELECT
+        SUM(CASE WHEN balance_due > 0.005 AND due_date IS NOT NULL AND due_date < CURDATE()
+                 THEN 1 ELSE 0 END) AS overdue_live,
+        SUM(CASE WHEN balance_due > 0.005 AND (due_date IS NULL OR due_date >= CURDATE())
+                 THEN 1 ELSE 0 END) AS current_unpaid
+    FROM invoices
+    WHERE status IN ('sent', 'viewed', 'partial', 'overdue')
+");
+$agingRow      = $agingStmt->fetch() ?: [];
+$overdueCount  = (int)($agingRow['overdue_live'] ?? 0);
+$currentUnpaid = (int)($agingRow['current_unpaid'] ?? 0);
 
 // Helper functions for sort/pagination URLs
 function invSortUrl($col, $curSort, $curDir) {
@@ -198,7 +223,7 @@ $activePage = 'invoices';
                 </div>
                 <div class="mw-stat-card sent">
                     <h4>Sent</h4>
-                    <div class="value"><?php echo ($statusCounts['sent'] ?? 0) + ($statusCounts['viewed'] ?? 0); ?></div>
+                    <div class="value"><?php echo $currentUnpaid; ?></div>
                 </div>
                 <div class="mw-stat-card paid">
                     <h4>Paid</h4>
@@ -206,7 +231,7 @@ $activePage = 'invoices';
                 </div>
                 <div class="mw-stat-card overdue">
                     <h4>Overdue</h4>
-                    <div class="value"><?php echo $statusCounts['overdue'] ?? 0; ?></div>
+                    <div class="value"><?php echo $overdueCount; ?></div>
                 </div>
             </div>
 
@@ -268,7 +293,7 @@ $activePage = 'invoices';
                         Paid <span class="count"><?php echo $statusCounts['paid'] ?? 0; ?></span>
                     </a>
                     <a href="?status=overdue" class="mw-filter-tab <?php echo $statusFilter === 'overdue' ? 'active' : ''; ?>">
-                        Overdue <span class="count"><?php echo $statusCounts['overdue'] ?? 0; ?></span>
+                        Overdue <span class="count"><?php echo $overdueCount; ?></span>
                     </a>
                 </div>
 

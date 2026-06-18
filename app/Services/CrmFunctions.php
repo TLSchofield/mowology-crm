@@ -673,6 +673,22 @@ function getDashboardStats() {
         }
     }
 
+    // Live overdue count, derived from due_date rather than the stored `status` column
+    // (which only flips via the daily invoice_overdue cron and therefore lags reality).
+    $stats['invoices_overdue'] = 0;
+    try {
+        $ovStmt = $db->query("
+            SELECT COUNT(*) FROM invoices
+            WHERE status IN ('sent','viewed','partial','overdue')
+              AND balance_due > 0.005
+              AND due_date IS NOT NULL AND due_date < CURDATE()
+        ");
+        $stats['invoices_overdue'] = (int)$ovStmt->fetchColumn();
+    } catch (Exception $e) {
+        // Non-fatal — fall back to status-based count if needed
+        $stats['invoices_overdue'] = $stats['invoices']['overdue'] ?? 0;
+    }
+
     return $stats;
 }
 
