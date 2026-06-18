@@ -709,7 +709,11 @@ function mwInjectFlatlineCSS() {
     'use strict';
 
     // In native Capacitor, the background GPS plugin in time-clock-widget.js
-    // handles tracking natively — no need for this browser-based backup.
+    // handles tracking natively. NOTE: capacitor-bridge.js (which sets
+    // window.MwNative) loads in the footer — AFTER this inline script — so this
+    // one-shot check usually can't see it yet. We therefore keep this browser
+    // watcher as a fallback but make sendGPS() defer at send-time (when MwNative
+    // is available) so it never competes with / double-counts native pings.
     if (window.MwNative && window.MwNative.geo) return;
 
     var SEND_INTERVAL = 30000; // 30 seconds
@@ -718,6 +722,9 @@ function mwInjectFlatlineCSS() {
     var latestPos = null;
 
     function sendGPS() {
+        // If the native background plugin is actively tracking, let it own the
+        // pings — don't fire the foreground browser ping on top of it.
+        if (window.MwNative && window.MwNative.geo && window.MwNative.geo.watchId) return;
         if (!latestPos) return;
         fetch('/crm/api/crew-location.php', {
             method: 'POST',
