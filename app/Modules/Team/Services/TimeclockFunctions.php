@@ -66,8 +66,8 @@ function clockIn($userId, $lat = null, $lng = null) {
     }
 
     $db = getDB();
-    // Use MySQL NOW() so all stored timestamps are consistently in the MySQL server timezone (EST).
-    // The plan_time_log API uses toPacific() to convert EST→Pacific for display.
+    // Use MySQL NOW(); the MySQL session time_zone is aligned to PHP's Pacific offset in
+    // Core/config.php, so stored timestamps match PHP date() without conversion.
     $stmt = $db->prepare("
         INSERT INTO time_clock_entries (user_id, clock_in, clock_in_lat, clock_in_lng)
         VALUES (?, NOW(), ?, ?)
@@ -153,7 +153,9 @@ function clockOut($userId, $lat = null, $lng = null, $notes = null) {
     }
 
     $db = getDB();
-    // Use MySQL NOW() so all stored timestamps are consistently in the MySQL server timezone (EST).
+    // Compute clock_out + duration entirely DB-side. The PDO bootstrap (Core/config.php)
+    // sets the MySQL session time_zone to PHP's Pacific offset, so NOW() and PHP date()
+    // agree — do NOT reintroduce PHP-side arithmetic on stored timestamps.
     $stmt = $db->prepare("
         UPDATE time_clock_entries
         SET clock_out = NOW(),

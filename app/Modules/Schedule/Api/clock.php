@@ -132,15 +132,20 @@ try {
             $lng   = isset($input['lng'])   ? (float)$input['lng']  : null;
             $notes = $input['notes'] ?? null;
 
-            $clockIn = strtotime($entry['clock_in']);
-            $total   = max(0, (int)round((time() - $clockIn) / 60));
-
+            // Compute total_minutes DB-side via TIMESTAMPDIFF so this matches the Team
+            // clock-out path (TimeclockFunctions::clockOut) exactly. Avoids the round()
+            // vs truncate divergence and the PHP time() vs MySQL NOW() timezone coupling.
             $db->prepare(
                 "UPDATE time_clock_entries
                  SET clock_out = NOW(), clock_out_lat = ?, clock_out_lng = ?,
-                     total_minutes = ?, notes = ?, status = 'completed'
+                     total_minutes = TIMESTAMPDIFF(MINUTE, clock_in, NOW()),
+                     notes = ?, status = 'completed'
                  WHERE id = ?"
-            )->execute([$lat, $lng, $total, $notes, (int)$entry['id']]);
+            )->execute([$lat, $lng, $notes, (int)$entry['id']]);
+
+            $totStmt = $db->prepare("SELECT total_minutes FROM time_clock_entries WHERE id = ?");
+            $totStmt->execute([(int)$entry['id']]);
+            $total = (int)$totStmt->fetchColumn();
 
             echo json_encode([
                 'success'         => true,
