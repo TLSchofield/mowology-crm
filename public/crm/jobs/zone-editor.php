@@ -221,6 +221,13 @@ function initZoneEditor() {
             const b2 = document.getElementById('btn-draw-zone');
             if (b1) b1.disabled = false;
             if (b2) b2.disabled = false;
+
+            // Property label pinned to top-left of the map
+            const addrChip = document.createElement('div');
+            addrChip.style.cssText = 'background:#fff;padding:4px 10px;border-radius:20px;box-shadow:0 1px 4px rgba(0,0,0,.35);font-size:12px;font-weight:600;color:#1a1a1a;margin:8px;white-space:nowrap;pointer-events:none;';
+            addrChip.textContent = <?= json_encode($property['address'] ?? 'Property #' . $propertyId) ?>;
+            tool.getMap().controls[google.maps.ControlPosition.TOP_LEFT].push(addrChip);
+
             loadZones();
             if (typeof feather !== 'undefined') feather.replace();
         },

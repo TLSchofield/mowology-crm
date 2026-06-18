@@ -102,6 +102,7 @@
             streetViewControl: false,
             fullscreenControl: true,
             zoomControl:       true,
+            gestureHandling:   'greedy',
         });
 
         this._geocoder = new google.maps.Geocoder();
