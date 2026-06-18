@@ -1,0 +1,94 @@
+# Schedule / Plan / Visit Function Library
+
+> Sectional doc for the Job Plan → Visit → Calendar Stop engine.
+> Watched by the pre-commit doc-sync hook: changes to
+> `app/Modules/Jobs/Services/PlanFunctions.php` or `public/crm/jobs/schedule.php`
+> should update this file.
+
+## Domain model
+
+| Table | Meaning |
+|-------|---------|
+| `job_plans` | The service agreement / contract (recurring or one-off). |
+| `plan_line_items` | What services are included in each visit (drives price). |
+| `job_visits` | One occurrence of work generated from a plan. |
+| `calendar_stops` | One card per property per day per crew on the schedule. |
+
+## Where the code lives
+
+`app/Modules/Jobs/Services/PlanFunctions.php` is a **thin aggregator** (no logic
+of its own). It `require_once`'s 11 focused domain files under
+`app/Modules/Jobs/Services/Plan/`. Every function is a **global function** (no
+namespace) so the ~28 callers and the legacy shim keep working unchanged.
+
+> **Do not add logic to `PlanFunctions.php`.** Add it to the relevant `Plan/*.php`
+> file below (or create a new one and `require_once` it from the aggregator).
+
+### Load paths
+
+```
+public/crm/includes/plan-functions.php   (legacy shim — DO NOT add code)
+        └─ require app/Modules/Jobs/Services/PlanFunctions.php   (aggregator)
+                └─ require app/Modules/Jobs/Services/Plan/*.php   (11 domain files)
+```
+
+Most callers `require_once CRM_INCLUDES . '/plan-functions.php'`; a few require
+`APP_ROOT . '/Modules/Jobs/Services/PlanFunctions.php'` directly. Both resolve to
+the same aggregator.
+
+### Domain files (`Services/Plan/`)
+
+| File | Functions |
+|------|-----------|
+| `PlanHelpers.php` | `planTimeStringToMinutes`, `planMinutesToTimeString`, `isVisitHorizonCurrent`, `generatePlanNumber`, `generateVisitNumber` |
+| `PlanCrud.php` | `createJobPlan`, `createPlanFromQuote` |
+| `PlanLineItems.php` | `addPlanLineItems`, `getPlanLineItems`, `updatePlanTotalFromItems`, `getNextScheduledVisitDate`, `getQuoteLineItemsWithStatus`, `getPlansForQuote` |
+| `VisitGeneration.php` | `generateVisits`, `getActiveHolidays`, `findBumpDate`, `parseDowList`, `calculateRecurrenceDates` |
+| `CalendarStops.php` | `ensureCalendarStop`, `getCalendarStops` |
+| `VisitLifecycle.php` | `updateVisitStatus`, `getVisitWithPlan`, `getPlanDetails`, `getPlanVisits`, `pausePlan`, `resumePlan`, `propagatePlanChanges`, `skipVisitDate`, `moveVisit`, `canInvoiceVisit` |
+| `PlanDashboard.php` | `getPlanDashboardStats`, `getRecentPlansOnProperty`, `resolveTrackingRequirementsForPlan`, `resolveTrackingRequirements` |
+| `PlanProfitability.php` | `getOverheadPercentage`, `getOverheadSettings`, `getMonthlyOverheadTotal`, `getPlanProfitability`, `getStopProfitabilityBatch` |
+| `PlanEditing.php` | `cleanupOrphanedVisits`, `updateJobPlan`, `replacePlanLineItems` |
+| `PlanCrew.php` | `getPlanCrewAssignments`, `setPlanCrewAssignments`, `getVisitCrewAssignments`, `setVisitCrewAssignments`, `getUnscheduledVisits` |
+| `PlanMaterials.php` | `generateFertilizerVisits`, `calculateMaterialsForVisit`, `getPurchaseTasksForSchedule` |
+
+50 public functions total (each keeps its original name + signature).
+
+## Visit generation flow
+
+1. **Cron** `app/Modules/Jobs/Cron/generate_visits.php` calls `generateVisits()`
+   to materialise `job_visits` up to a rolling horizon (default 42 days;
+   `isVisitHorizonCurrent()` is the cheap read-only "are we caught up?" check at
+   14 days).
+2. `generateVisits()` → `calculateRecurrenceDates()` expands the plan's
+   day-of-week + frequency rules, then `getActiveHolidays()` / `findBumpDate()`
+   shift visits off holidays and blackout dates.
+3. `ensureCalendarStop()` places each visit onto the schedule as a
+   `calendar_stops` card; `getCalendarStops()` is what the schedule page reads.
+4. Pre-sold fertilizer bundles use `generateFertilizerVisits()` with explicit
+   dates instead of recurrence math.
+
+## Critical: the timer / completion path
+
+The clock-out / job-timer endpoints rely on `updateVisitStatus()` (in
+`VisitLifecycle.php`). If `plan-functions.php` is **not loaded**,
+`updateVisitStatus` is silently undefined and visit completion no-ops — the visit
+stays `scheduled` and map pins stay green. Any endpoint that completes a visit
+**must** require the plan-functions chain. See `project_timer_status_persistence`.
+
+## Safety net
+
+`tests/Unit/Jobs/PlanFunctionsLoadTest.php` is a characterization test asserting
+all 50 functions load with their original arity. Run `vendor/bin/phpunit` before
+every commit. This library otherwise has no behavioural test coverage — treat
+changes to recurrence math and `updateVisitStatus` with extra care.
+
+## Deployment
+
+`app/` is **not** in cPanel auto-deploy (it only ships `public/`). After editing
+any `Plan/*.php` or the aggregator, deploy via `lftp` to
+`/app/Modules/Jobs/Services/` and hit `/crm/api/opcache-reset.php` (OPcache
+`validate_timestamps` is off on production).
+
+---
+_Last decomposed 2026-06-18: 3,200-line monolith → aggregator + 11 `Plan/` files._
