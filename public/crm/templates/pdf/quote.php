@@ -11,7 +11,13 @@
 $fmt = function($amount) { return '$' . number_format(floatval($amount), 2); };
 $esc = function($str) { return htmlspecialchars($str ?? '', ENT_QUOTES, 'UTF-8'); };
 
-$contactName = trim(($quote['contact_first'] ?? '') . ' ' . ($quote['contact_last'] ?? ''));
+// Prefer the name resolved by QuoteService::resolveDisplayName() (person →
+// strata/company "C/O" entity). Fall back to the old inline logic if a caller
+// renders this template without the resolved field.
+$contactName = $quote['display_name'] ?? '';
+if ($contactName === '' || $contactName === 'N/A') {
+    $contactName = trim(($quote['contact_first'] ?? '') . ' ' . ($quote['contact_last'] ?? ''));
+}
 if (empty($contactName)) $contactName = $quote['company_name'] ?? 'Customer';
 
 $propertyLine = $esc($quote['property_address'] ?? '');
@@ -305,11 +311,13 @@ $taxRate = floatval($quote['tax_rate'] ?? 0.05);
         <?php echo $esc($quote['company_name']); ?><br>
     <?php endif; ?>
     <?php echo $propertyLine; ?><br>
-    <?php if (!empty($quote['contact_email'] ?: $quote['billing_email'])): ?>
-        <?php echo $esc($quote['contact_email'] ?: $quote['billing_email']); ?><br>
+    <?php $pdfEmail = ($quote['display_email'] ?? null) ?: ($quote['contact_email'] ?? null) ?: ($quote['billing_email'] ?? null); ?>
+    <?php $pdfPhone = ($quote['display_phone'] ?? null) ?: ($quote['contact_phone'] ?? null) ?: ($quote['billing_phone'] ?? null); ?>
+    <?php if (!empty($pdfEmail)): ?>
+        <?php echo $esc($pdfEmail); ?><br>
     <?php endif; ?>
-    <?php if (!empty($quote['contact_phone'] ?: $quote['billing_phone'])): ?>
-        <?php echo $esc($quote['contact_phone'] ?: $quote['billing_phone']); ?>
+    <?php if (!empty($pdfPhone)): ?>
+        <?php echo $esc($pdfPhone); ?>
     <?php endif; ?>
 </div>
 

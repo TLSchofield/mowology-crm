@@ -49,38 +49,24 @@ class PdfGenerator
     public function generateQuotePdf(int $quoteId): array
     {
         try {
-            // Fetch quote with related data
-            $stmt = $this->db->prepare("
-                SELECT
-                    q.*,
-                    p.address as property_address,
-                    p.city as property_city,
-                    p.postal_code as property_postal,
-                    p.property_type,
-                    c.company_name,
-                    c.billing_email,
-                    c.billing_phone,
-                    c.billing_address,
-                    c.billing_city,
-                    c.billing_postal_code,
-                    ct.first_name as contact_first,
-                    ct.last_name as contact_last,
-                    ct.email as contact_email,
-                    ct.phone as contact_phone,
-                    u.full_name as created_by_name
-                FROM quotes q
-                LEFT JOIN properties p ON q.property_id = p.id
-                LEFT JOIN companies c ON q.company_id = c.id
-                LEFT JOIN contacts ct ON c.primary_contact_id = ct.id
-                LEFT JOIN users u ON q.created_by = u.id
-                WHERE q.id = ?
-            ");
-            $stmt->execute([$quoteId]);
-            $quote = $stmt->fetch(PDO::FETCH_ASSOC);
+            // Fetch quote through QuoteService so the PDF resolves the customer
+            // name from the SAME source as the on-screen view (quote-request
+            // contact → company contact → site contact → strata/company "C/O"
+            // entity). Previously this used a thin query that only joined the
+            // company primary contact, so company/strata quotes printed "Customer".
+            require_once APP_ROOT . '/Modules/Quotes/Services/QuoteService.php';
+            $svc = new QuoteService($this->db);
+            $quote = $svc->getWithContact($quoteId);
 
             if (!$quote) {
                 return ['success' => false, 'error' => 'Quote not found'];
             }
+
+            // Resolve the display name + best contact email/phone for the template.
+            $quote['display_name']  = $svc->resolveDisplayName($quote);
+            $resolvedContact        = $svc->resolveContact($quote);
+            $quote['display_email'] = $resolvedContact['email'];
+            $quote['display_phone'] = $resolvedContact['phone'];
 
             // Fetch line items
             $stmt = $this->db->prepare("SELECT * FROM quote_line_items WHERE quote_id = ? ORDER BY sort_order");
