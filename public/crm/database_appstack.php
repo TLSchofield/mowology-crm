@@ -404,7 +404,7 @@ $CRON_CAT_LABELS = [
         <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3">
 <?php foreach ($crons as $c):
             $catLabel = $CRON_CAT_LABELS[$c['cat']] ?? ucfirst($c['cat']);
-            $cmd = htmlspecialchars($CRON_BASE . ' ' . $c['app'], ENT_QUOTES);
+            $cmd = htmlspecialchars($CRON_BASE . $c['app'], ENT_QUOTES);
             $titleAttr = htmlspecialchars($c['title'], ENT_QUOTES);
         ?>
             <!-- <?= htmlspecialchars($c['title']) ?> -->
