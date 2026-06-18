@@ -777,18 +777,9 @@ if ($propLat && $propLng) {
     }
 }
 
-// Count completed visits with actual timer data (used to label the averaged duration estimate)
-$durAvgCountStmt = $db->prepare("
-    SELECT COUNT(DISTINCT jv.id)
-    FROM job_visits jv
-    JOIN job_time_entries jte ON jte.visit_id = jv.id
-    WHERE jv.plan_id = ?
-      AND jv.status = 'completed'
-      AND jte.status IN ('completed', 'edited')
-      AND jte.duration_minutes > 0
-");
-$durAvgCountStmt->execute([$planId]);
-$durAvgCount = (int)($durAvgCountStmt->fetchColumn() ?: 0);
+// The "Duration" field's averaged on-site time is computed client-side in
+// loadTimeLog() from the same plan_time_log data the Time Log uses, so the two
+// can never disagree (and GPS-estimated time is included consistently).
 
 // Get tracking requirements (resolved: plan overrides > product defaults)
 $trackingReqs = resolveTrackingRequirementsForPlan($planId);
@@ -1161,10 +1152,9 @@ if ($hasPropCoords) {
                             <div class="mw-detail-row">
                                 <span class="mw-detail-label">Duration</span>
                                 <span class="mw-detail-value">
-                                    <?php echo (int)$plan['estimated_duration_minutes']; ?> min
-                                    <?php if ($durAvgCount > 0): ?>
-                                        <small class="text-muted">· avg of <?php echo $durAvgCount; ?> visit<?php echo $durAvgCount !== 1 ? 's' : ''; ?></small>
-                                    <?php endif; ?>
+                                    <?php /* Number defaults to the plan estimate; loadTimeLog() replaces it
+                                             with the averaged actual on-site time once entries load. */ ?>
+                                    <span id="planDurationValue"><?php echo (int)$plan['estimated_duration_minutes']; ?></span> min<small id="planDurationAvg" class="text-muted"></small>
                                 </span>
                             </div>
                             <div class="mw-detail-row">
@@ -3836,6 +3826,39 @@ if ($hasPropCoords) {
                         }
                         byVisit[e.visit_id].entries.push(e);
                     });
+
+                    // Average on-site time per visit for the "Duration" field.
+                    // Per visit, wall-clock span = latest clock-out − earliest clock-in
+                    // across its entries (manual + GPS). Only visits with recorded
+                    // time (sum of durations > 0) and a positive span are counted.
+                    (function updateAvgDuration() {
+                        var valEl = document.getElementById('planDurationValue');
+                        var avgEl = document.getElementById('planDurationAvg');
+                        if (!valEl || !avgEl) return;
+                        var ms = function(t) {
+                            if (!t) return NaN;
+                            return new Date(String(t).replace(' ', 'T')).getTime();
+                        };
+                        var spans = [];
+                        visitOrder.forEach(function(vid) {
+                            var entries = byVisit[vid].entries;
+                            var sumMin = entries.reduce(function(s, e) { return s + (e.duration_minutes || 0); }, 0);
+                            if (sumMin <= 0) return; // no recorded time for this visit
+                            var starts = [], ends = [];
+                            entries.forEach(function(e) {
+                                var st = ms(e.start_time), en = ms(e.end_time);
+                                if (!isNaN(st)) starts.push(st);
+                                if (!isNaN(en)) ends.push(en);
+                            });
+                            if (!starts.length || !ends.length) return;
+                            var span = Math.round((Math.max.apply(null, ends) - Math.min.apply(null, starts)) / 60000);
+                            if (span > 0) spans.push(span);
+                        });
+                        if (!spans.length) return; // keep the plan estimate as-is
+                        var avg = Math.round(spans.reduce(function(a, b) { return a + b; }, 0) / spans.length);
+                        valEl.textContent = avg;
+                        avgEl.textContent = ' · avg of ' + spans.length + ' visit' + (spans.length !== 1 ? 's' : '');
+                    })();
 
                     var CAN_EDIT = <?php echo userHasPermission('jobs.edit') ? 'true' : 'false'; ?>;
                     // Encode a value as JSON safe for embedding in an HTML onclick="..." attribute.

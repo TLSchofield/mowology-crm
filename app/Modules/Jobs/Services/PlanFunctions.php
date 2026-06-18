@@ -2625,8 +2625,18 @@ function updateJobPlan(int $planId, array $data, int $userId): array {
             // the wrong day-of-week or before the plan's effective start.
             cleanupOrphanedVisits($planId);
 
-            // Reset generation tracker so visits regenerate from scratch
-            $stmt = $db->prepare("UPDATE job_plans SET visits_generated_through = NULL WHERE id = ?");
+            // Move the generation watermark to yesterday (NOT NULL) so the
+            // regeneration pass runs in incremental mode and starts from TODAY.
+            // Resetting to NULL would put generateVisits() into fresh mode, which
+            // backfills up to 90 days of past-dated visits at the new cadence —
+            // creating phantom "overdue" history alongside the real completed
+            // visits from the previous schedule. A recurrence edit must only
+            // ever change FUTURE visits; established history stays untouched.
+            $stmt = $db->prepare("
+                UPDATE job_plans
+                SET visits_generated_through = DATE_SUB(CURDATE(), INTERVAL 1 DAY)
+                WHERE id = ?
+            ");
             $stmt->execute([$planId]);
 
             generateVisits($planId);
