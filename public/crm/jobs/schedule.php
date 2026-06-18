@@ -4619,9 +4619,11 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
             showMsg('Optimising route…', 'loading');
 
             var payload = { date: date, csrf_token: CSRF };
-            var pinned = (typeof MwDayViewMap !== 'undefined' && MwDayViewMap.getPinnedStopId)
-                ? MwDayViewMap.getPinnedStopId() : null;
+            var hasMap = (typeof MwDayViewMap !== 'undefined');
+            var pinned = (hasMap && MwDayViewMap.getPinnedStopId) ? MwDayViewMap.getPinnedStopId() : null;
+            var pinnedLast = (hasMap && MwDayViewMap.getPinnedLastStopId) ? MwDayViewMap.getPinnedLastStopId() : null;
             if (pinned) { payload.pinned_first_stop_id = pinned; }
+            if (pinnedLast) { payload.pinned_last_stop_id = pinnedLast; }
 
             fetch('/crm/api/optimize-route.php', {
                 method: 'POST',

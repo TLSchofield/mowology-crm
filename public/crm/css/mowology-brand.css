@@ -3436,6 +3436,12 @@ a.mw-clock-timer-nav:hover {
   background:rgb(232 93 4 / .03);
   box-shadow:0 2px 8px rgb(232 93 4 / .1)
 }
+.mw-dv-card-pinned-last {
+  border-left-color:#1565C0!important;
+  border-left-width:4px;
+  background:rgb(21 101 192 / .03);
+  box-shadow:0 2px 8px rgb(21 101 192 / .1)
+}
 .mw-dv-pin-btn {
   position:absolute;
   top:6px;
@@ -3464,6 +3470,11 @@ a.mw-clock-timer-nav:hover {
   border-color:var(--mw-orange);
   color:var(--mw-ink-0)
 }
+.mw-dv-pin-btn.mw-dv-pin-last {
+  background:#1565C0;
+  border-color:#1565C0;
+  color:var(--mw-ink-0)
+}
 .mw-dv-pin-badge {
   position:absolute;
   top:6px;
@@ -3476,6 +3487,10 @@ a.mw-clock-timer-nav:hover {
   border-radius:10px;
   letter-spacing:.3px;
   z-index:2
+}
+.mw-dv-pin-badge-last {
+  color:#1565C0;
+  background:rgb(21 101 192 / .08)
 }
 .mw-dv-route-num {
   display:inline-flex;

@@ -22,6 +22,7 @@ var MwDayViewMap = (function() {
     var userMarker = null;
     var stopMarkers = [];
     var pinnedStopId = null;
+    var pinnedLastStopId = null;
     var userLat = null;
     var userLng = null;
     var optimizedStops = null;
@@ -245,93 +246,68 @@ var MwDayViewMap = (function() {
     }
 
     function multiStopRoute(assigned, hasGPS) {
-        var origin, destination, waypoints = [], waypointStops = [];
-        var pinnedStop = null;
-        var otherStops = [];
+        var origin, destination, destStop = null, firstStop = null;
+        var waypoints = [], waypointStops = [];
+        var pinnedFirst = null, pinnedLast = null, pool = [];
 
-        // Separate pinned from rest
-        if (pinnedStopId) {
-            for (var i = 0; i < assigned.length; i++) {
-                if (assigned[i].stopId === pinnedStopId) {
-                    pinnedStop = assigned[i];
-                } else {
-                    otherStops.push(assigned[i]);
-                }
+        // Separate pinned-first and pinned-last from the optimizable pool
+        for (var i = 0; i < assigned.length; i++) {
+            if (pinnedStopId && assigned[i].stopId === pinnedStopId) {
+                pinnedFirst = assigned[i];
+            } else if (pinnedLastStopId && assigned[i].stopId === pinnedLastStopId) {
+                pinnedLast = assigned[i];
+            } else {
+                pool.push(assigned[i]);
             }
-            // If pinned stop not found in assigned, ignore pin
-            if (!pinnedStop) {
-                otherStops = assigned;
-            }
-        } else {
-            otherStops = assigned;
         }
 
-        if (pinnedStop) {
-            // Pinned stop is origin, optimize the rest
-            origin = stopToLatLng(pinnedStop);
+        var originIsGPS = false;
+
+        // ── Origin ──
+        if (pinnedFirst) {
+            origin = stopToLatLng(pinnedFirst);
             if (!origin) { titleEl.textContent = 'Missing location data'; return; }
-
-            // Find farthest from pinned as destination
-            var fIdx = findFarthest(otherStops, pinnedStop.lat, pinnedStop.lng);
-            var destStop = otherStops[fIdx];
-            destination = stopToLatLng(destStop);
-
-            // Remaining as optimizable waypoints
-            for (var j = 0; j < otherStops.length; j++) {
-                if (j !== fIdx) {
-                    var loc = stopToLatLng(otherStops[j]);
-                    if (loc) {
-                        waypoints.push({ location: loc, stopover: true });
-                        waypointStops.push(otherStops[j]);
-                    }
-                }
-            }
-
-            // Build optimized order: pinned first, then Google-optimized rest
-            fireDirections(origin, destination, waypoints, waypointStops, destStop, pinnedStop, otherStops, false);
-
+            firstStop = pinnedFirst;
         } else if (hasGPS) {
-            // No pin, GPS available: origin = GPS, optimize all
             origin = new google.maps.LatLng(userLat, userLng);
-
-            var fIdx = findFarthest(assigned, userLat, userLng);
-            var destStop = assigned[fIdx];
-            destination = stopToLatLng(destStop);
-
-            for (var j = 0; j < assigned.length; j++) {
-                if (j !== fIdx) {
-                    var loc = stopToLatLng(assigned[j]);
-                    if (loc) {
-                        waypoints.push({ location: loc, stopover: true });
-                        waypointStops.push(assigned[j]);
-                    }
-                }
-            }
-
-            fireDirections(origin, destination, waypoints, waypointStops, destStop, null, assigned, true);
-
+            originIsGPS = true;
         } else {
-            // No pin, no GPS: first stop = origin, optimize rest
-            origin = stopToLatLng(assigned[0]);
+            // No first pin, no GPS: first available stop becomes the origin
+            firstStop = pool.length ? pool.shift() : null;
+            if (!firstStop) { titleEl.textContent = 'Missing location data'; return; }
+            origin = stopToLatLng(firstStop);
             if (!origin) { titleEl.textContent = 'Missing location data'; return; }
-
-            var fIdx = findFarthest(assigned.slice(1), assigned[0].lat, assigned[0].lng);
-            // fIdx is relative to slice(1), so actual index = fIdx + 1
-            var destStop = assigned[fIdx + 1];
-            destination = stopToLatLng(destStop);
-
-            for (var j = 1; j < assigned.length; j++) {
-                if (j !== fIdx + 1) {
-                    var loc = stopToLatLng(assigned[j]);
-                    if (loc) {
-                        waypoints.push({ location: loc, stopover: true });
-                        waypointStops.push(assigned[j]);
-                    }
-                }
-            }
-
-            fireDirections(origin, destination, waypoints, waypointStops, destStop, assigned[0], assigned, false);
         }
+
+        // ── Destination ──
+        var refLat = originIsGPS ? userLat : firstStop.lat;
+        var refLng = originIsGPS ? userLng : firstStop.lng;
+        if (pinnedLast) {
+            destStop = pinnedLast;
+            destination = stopToLatLng(pinnedLast);
+            if (!destination) { titleEl.textContent = 'Missing location data'; return; }
+        } else if (pool.length > 0) {
+            // No last pin: farthest stop from the origin becomes the destination
+            var fIdx = findFarthest(pool, refLat, refLng);
+            destStop = pool[fIdx];
+            destination = stopToLatLng(destStop);
+            pool.splice(fIdx, 1);
+        } else {
+            // Degenerate (e.g. only the origin stop is routable) — nothing to optimize
+            destStop = firstStop;
+            destination = origin;
+        }
+
+        // ── Waypoints = whatever remains in the pool ──
+        for (var j = 0; j < pool.length; j++) {
+            var loc = stopToLatLng(pool[j]);
+            if (loc) {
+                waypoints.push({ location: loc, stopover: true });
+                waypointStops.push(pool[j]);
+            }
+        }
+
+        fireDirections(origin, destination, waypoints, waypointStops, destStop, firstStop, assigned, originIsGPS);
     }
 
     function fireDirections(origin, destination, waypoints, waypointStops, destStop, firstStop, allAssigned, originIsGPS) {
@@ -582,6 +558,9 @@ var MwDayViewMap = (function() {
         } else if (stop.stopId === pinnedStopId) {
             color = '#e85d04';
             size = 40;
+        } else if (stop.stopId === pinnedLastStopId) {
+            color = '#1565C0';
+            size = 40;
         } else {
             color = serviceColors[stop.serviceType] || '#2D8659';
             size = isActive ? 40 : 36;
@@ -772,39 +751,56 @@ var MwDayViewMap = (function() {
                 e.stopPropagation();
                 var stopId = parseInt(btn.dataset.stopId, 10);
 
+                // Cycle this stop: none → first → last → none
                 if (pinnedStopId === stopId) {
+                    // Was first → become last
                     pinnedStopId = null;
-                    updatePinUI(null);
+                    pinnedLastStopId = stopId;
+                } else if (pinnedLastStopId === stopId) {
+                    // Was last → clear
+                    pinnedLastStopId = null;
                 } else {
+                    // Was unpinned → become first (and free this stop from a last pin)
                     pinnedStopId = stopId;
-                    updatePinUI(stopId);
                 }
 
+                renderPins();
                 computeRoute();
             });
         });
     }
 
-    function updatePinUI(activeStopId) {
+    // Render the first/last pin state across all cards from the two state vars.
+    function renderPins() {
         document.querySelectorAll('.mw-dv-pin-btn').forEach(function(btn) {
             var id = parseInt(btn.dataset.stopId, 10);
             var card = btn.closest('.mw-dv-card');
+            var existing = card.querySelector('.mw-dv-pin-badge');
+            if (existing) existing.remove();
 
-            if (id === activeStopId) {
+            btn.classList.remove('mw-dv-pin-active', 'mw-dv-pin-last');
+            card.classList.remove('mw-dv-card-pinned', 'mw-dv-card-pinned-last');
+
+            var label = null;
+            if (id === pinnedStopId) {
                 btn.classList.add('mw-dv-pin-active');
                 card.classList.add('mw-dv-card-pinned');
-                // Add badge
-                if (!card.querySelector('.mw-dv-pin-badge')) {
-                    var badge = document.createElement('span');
-                    badge.className = 'mw-dv-pin-badge';
-                    badge.textContent = '#1';
-                    btn.parentNode.insertBefore(badge, btn);
-                }
+                btn.title = 'First stop — click for last, again to clear';
+                label = '#1';
+            } else if (id === pinnedLastStopId) {
+                btn.classList.add('mw-dv-pin-last');
+                card.classList.add('mw-dv-card-pinned-last');
+                btn.title = 'Last stop — click again to clear';
+                label = 'LAST';
             } else {
-                btn.classList.remove('mw-dv-pin-active');
-                card.classList.remove('mw-dv-card-pinned');
-                var badge = card.querySelector('.mw-dv-pin-badge');
-                if (badge) badge.remove();
+                btn.title = 'Pin as 1st stop';
+            }
+
+            if (label) {
+                var badge = document.createElement('span');
+                badge.className = 'mw-dv-pin-badge' + (label === 'LAST' ? ' mw-dv-pin-badge-last' : '');
+                badge.textContent = label;
+                btn.parentNode.insertBefore(badge, btn);
             }
         });
     }
@@ -829,12 +825,12 @@ var MwDayViewMap = (function() {
         stopMarkers.forEach(function(sm) {
             if (sm.stopId === stopId) {
                 // Enlarge the highlighted marker
-                var color = sm.isCompleted ? '#9CA3AF' : (sm.stopId === pinnedStopId ? '#e85d04' : (serviceColors[sm.serviceType] || '#2D8659'));
+                var color = sm.isCompleted ? '#9CA3AF' : (sm.stopId === pinnedStopId ? '#e85d04' : (sm.stopId === pinnedLastStopId ? '#1565C0' : (serviceColors[sm.serviceType] || '#2D8659')));
                 sm.marker.setIcon(createPinIcon(color, sm.label || '\u2022', 44, sm.isCompleted));
                 sm.marker.setZIndex(200);
             } else {
                 // Dim others slightly via smaller size
-                var c = sm.isCompleted ? '#9CA3AF' : (sm.isUnassigned ? '#9CA3AF' : (sm.stopId === pinnedStopId ? '#e85d04' : (serviceColors[sm.serviceType] || '#2D8659')));
+                var c = sm.isCompleted ? '#9CA3AF' : (sm.isUnassigned ? '#9CA3AF' : (sm.stopId === pinnedStopId ? '#e85d04' : (sm.stopId === pinnedLastStopId ? '#1565C0' : (serviceColors[sm.serviceType] || '#2D8659'))));
                 sm.marker.setIcon(createPinIcon(c, sm.label || '\u2022', sm.isUnassigned ? 26 : 30, sm.isCompleted));
                 sm.marker.setZIndex(10);
             }
@@ -850,6 +846,8 @@ var MwDayViewMap = (function() {
                 color = '#9CA3AF'; size = 30;
             } else if (sm.stopId === pinnedStopId) {
                 color = '#e85d04'; size = 40;
+            } else if (sm.stopId === pinnedLastStopId) {
+                color = '#1565C0'; size = 40;
             } else {
                 color = serviceColors[sm.serviceType] || '#2D8659';
                 size = 36;
@@ -960,6 +958,7 @@ var MwDayViewMap = (function() {
     return {
         recompute: computeRoute,
         getPinnedStopId: function() { return pinnedStopId; },
+        getPinnedLastStopId: function() { return pinnedLastStopId; },
         getMap: function() { return map; }
     };
 

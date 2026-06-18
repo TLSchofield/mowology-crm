@@ -43,6 +43,7 @@ try {
     $crewId            = isset($input['crew_id']) ? (int)$input['crew_id'] : null;
     $fromStopId        = isset($input['from_stop_id']) ? (int)$input['from_stop_id'] : null;
     $pinnedFirstStopId = isset($input['pinned_first_stop_id']) ? (int)$input['pinned_first_stop_id'] : null;
+    $pinnedLastStopId  = isset($input['pinned_last_stop_id'])  ? (int)$input['pinned_last_stop_id']  : null;
 
     if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
         throw new Exception('Invalid date format');
@@ -96,31 +97,62 @@ try {
         'address' => $s['property_address'] ?? '',
     ], $rows);
 
-    // Pin a specific stop as #1, then nearest-neighbour the rest from its location.
-    if ($pinnedFirstStopId !== null) {
-        $pinnedIdx = null;
-        foreach ($stopData as $i => $s) {
-            if ($s['id'] === $pinnedFirstStopId) { $pinnedIdx = $i; break; }
+    // Pin a first stop, a last stop, or both — then optimise the middle.
+    if ($pinnedFirstStopId !== null || $pinnedLastStopId !== null) {
+        $findStop = function (?int $id) use ($stopData) {
+            if ($id === null) return null;
+            foreach ($stopData as $s) {
+                if ($s['id'] === $id) return $s;
+            }
+            return null;
+        };
+
+        $firstStop = $findStop($pinnedFirstStopId);
+        $lastStop  = $findStop($pinnedLastStopId);
+
+        // A stop cannot be both endpoints; if same id slipped through, treat as first only.
+        if ($firstStop && $lastStop && $firstStop['id'] === $lastStop['id']) {
+            $lastStop = null;
         }
 
-        if ($pinnedIdx !== null) {
-            $pinnedStop = $stopData[$pinnedIdx];
-            $rest       = array_values(array_filter($stopData, fn($s) => $s['id'] !== $pinnedFirstStopId));
+        if ($firstStop || $lastStop) {
+            $lockedIds = array_filter([
+                $firstStop['id'] ?? null,
+                $lastStop['id']  ?? null,
+            ]);
+            $middle = array_values(array_filter(
+                $stopData,
+                fn($s) => !in_array($s['id'], $lockedIds, true)
+            ));
 
-            // Nearest-neighbour on the rest, starting from the pinned stop's position
-            $optimisedRest = nearestNeighbourFromPosition($rest, $pinnedStop['lat'], $pinnedStop['lng']);
+            // Order the middle stops greedily from the best available start point:
+            //   - if a first stop is pinned, chain outward from it
+            //   - otherwise use the centroid-start nearest-neighbour
+            if ($firstStop) {
+                $orderedMiddle = nearestNeighbourFromPosition($middle, $firstStop['lat'], $firstStop['lng']);
+            } else {
+                $orderedMiddle = nearestNeighbourM($middle);
+            }
+
+            // Assemble final sequence: [first?] + middle + [last?]
+            $sequence = [];
+            if ($firstStop) $sequence[] = $firstStop;
+            foreach ($orderedMiddle as $s) $sequence[] = $s;
+            if ($lastStop)  $sequence[] = $lastStop;
 
             $upd = $db->prepare('UPDATE calendar_stops SET route_order = ? WHERE id = ?');
-            $upd->execute([0, $pinnedStop['id']]);
-            foreach ($optimisedRest as $pos => $s) {
-                $upd->execute([$pos + 1, $s['id']]);
+            foreach ($sequence as $pos => $s) {
+                $upd->execute([$pos, $s['id']]);
             }
+
+            $pinMsg = $firstStop && $lastStop ? 'first + last stops locked'
+                    : ($firstStop ? 'first stop locked' : 'last stop locked');
 
             echo json_encode([
                 'success'    => true,
-                'count'      => count($stopData),
+                'count'      => count($sequence),
                 'savings_km' => 0.0,
-                'message'    => 'Route optimised · pinned stop locked as #1',
+                'message'    => 'Route optimised · ' . $pinMsg,
             ]);
             exit;
         }
