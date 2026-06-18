@@ -534,6 +534,32 @@ function getPropertyDetails($propertyId) {
 }
 
 /**
+ * Get the properties belonging to a contact (for quote/job property dropdowns).
+ *
+ * @param int       $contactId  contacts.id (matched against properties.site_contact_id)
+ * @param PDO|null  $db         optional PDO; falls back to getDB()
+ * @param bool      $activeOnly when true, only status='active' properties are returned
+ * @return array
+ */
+function getPropertiesForContact($contactId, $db = null, $activeOnly = true) {
+    $contactId = (int)$contactId;
+    if ($contactId <= 0) {
+        return [];
+    }
+    $db = $db ?: getDB();
+    $sql = "SELECT id, address, city, province, postal_code, property_type, status, latitude, longitude
+            FROM properties
+            WHERE site_contact_id = ?";
+    if ($activeOnly) {
+        $sql .= " AND status = 'active'";
+    }
+    $sql .= " ORDER BY address";
+    $stmt = $db->prepare($sql);
+    $stmt->execute([$contactId]);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/**
  * Get all staff members for assignment dropdown
  */
 function getStaffMembers() {
