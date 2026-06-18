@@ -19,4 +19,4 @@ if (!isAdmin()) {
     exit;
 }
 
-require_once APP_ROOT . '/Modules/Privacy/Cron/data_retention.php';
+require_once APP_ROOT . '/Modules/Invoices/Cron/autopay_charge.php';

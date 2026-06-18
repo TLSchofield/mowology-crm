@@ -16551,10 +16551,28 @@ a.mw-clock-timer-nav:hover {
   border-radius:12px;
   font-weight:600;
 }
+.mw-badge-team {
+  background:#5e35b1;
+  color:#fff;
+  font-size:.68rem;
+  padding:2px 8px;
+  border-radius:12px;
+  font-weight:600;
+}
+.mw-badge-tracking {
+  background:#00838f;
+  color:#fff;
+  font-size:.68rem;
+  padding:2px 8px;
+  border-radius:12px;
+  font-weight:600;
+}
 .mw-tick-accounting { background:#e65100; }
 .mw-tick-contracts { background:#00695c; }
 .mw-tick-cms { background:#1976d2; }
 .mw-tick-social { background:#c62828; }
+.mw-tick-team { background:#5e35b1; }
+.mw-tick-tracking { background:#00838f; }
 .mw-cron-card {
   border:1px solid #e2e8f0;
   border-radius:8px;

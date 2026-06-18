@@ -19,4 +19,4 @@ if (!isAdmin()) {
     exit;
 }
 
-require_once APP_ROOT . '/Modules/Privacy/Cron/data_retention.php';
+require_once APP_ROOT . '/Modules/Accounting/Cron/etransfer_inbox_poll.php';

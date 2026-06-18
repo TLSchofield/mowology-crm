@@ -299,12 +299,60 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
          CRON JOBS TAB
     ════════════════════════════════════════════════════════════════ -->
     <div class="tab-pane fade" id="tab-crons" role="tabpanel">
+<?php
+// ── Cron registry ─────────────────────────────────────────────────────────
+// Single source of truth for the cron manager. To add/edit a cron, change one
+// entry here — the summary count, the timeline ticks, and the cards grid all
+// render from this array, so the page can no longer drift out of sync with the
+// actual scheduled jobs. `run` may be null to render a card with no "Run Now".
+// `tl` is the timeline position (% of 24h, or an array for multi-run jobs);
+// `freq` flags high-frequency jobs; `monthly` flags monthly/weekly cadence.
+$CRON_BASE = '/usr/local/bin/php /home/mowology/public_html';
+$crons = [
+    ['key'=>'generate_visits','title'=>'Generate Visits','cat'=>'jobs','human'=>'Every 6 hours','expr'=>'0 */6 * * *','app'=>'/app/Modules/Jobs/Cron/generate_visits.php','run'=>'/crm/cron/generate_visits.php','abbr'=>'GV','tl'=>[0,25,50,75],'desc'=>'Generate future visits 42 days ahead for all active recurring plans. Removed from schedule.php page load in Phase 1.'],
+    ['key'=>'auto_rollover','title'=>'Auto Rollover','cat'=>'jobs','human'=>'Daily at 11 PM','expr'=>'0 23 * * *','app'=>'/app/Modules/Jobs/Cron/auto_rollover.php','run'=>'/crm/cron/auto_rollover.php','abbr'=>'AR','tl'=>95.8,'desc'=>'Roll past-due recurring visits forward 1 day. Cleans up orphaned calendar stops afterward.'],
+    ['key'=>'weather_guard','title'=>'Weather Guard','cat'=>'jobs','human'=>'Daily at 12 PM','expr'=>'0 12 * * *','app'=>'/app/Modules/Jobs/Cron/weather_schedule_guard.php','run'=>'/crm/cron/weather_schedule_guard.php','abbr'=>'WG','tl'=>50,'offset'=>true,'desc'=>'Evaluate upcoming visits against weather forecasts. Auto-reschedules NOT_OK visits and sends SMS salt alerts for freezing/snow conditions.'],
+    ['key'=>'schema_snapshot','title'=>'Schema Snapshot','cat'=>'database','human'=>'Daily at 4 AM','expr'=>'0 4 * * *','app'=>'/crm/cron/schema_snapshot.php','run'=>'/crm/cron/schema_snapshot.php','abbr'=>'SS','tl'=>16.7,'desc'=>'Capture live DB structure (tables, columns, indexes, FKs) to storage for drift detection and schema authority.'],
+    ['key'=>'purchase_history','title'=>'Purchase History','cat'=>'core','human'=>'Daily at 2 AM','expr'=>'0 2 * * *','app'=>'/crm/cron/refresh_purchase_history.php','run'=>'/crm/cron/refresh_purchase_history.php','abbr'=>'PH','tl'=>8.3,'desc'=>'Refresh contact&rarr;product history table, lifecycle stages, last service date, and total lifetime value from quotes and plans.'],
+    ['key'=>'seo_recommendations','title'=>'SEO Recommendations','cat'=>'marketing','human'=>'Daily at 3 AM','expr'=>'0 3 * * *','app'=>'/crm/cron/seo_recommendations.php','run'=>'/crm/cron/seo_recommendations.php','abbr'=>'SEO','tl'=>12.5,'desc'=>'Read Google Search Console query stats (last 28 days), score opportunities, generate and update SEO recommendations.'],
+    ['key'=>'expense_baselines','title'=>'Expense Baselines','cat'=>'core','human'=>'Monthly &mdash; 1st at 2 AM','expr'=>'0 2 1 * *','app'=>'/crm/cron/expense_baselines.php','run'=>'/crm/cron/expense_baselines.php','abbr'=>'EB','tl'=>8.3,'monthly'=>true,'desc'=>'Aggregate monthly expense averages per accounting category (last 2 years) into baselines used by the anomaly detector.'],
+    ['key'=>'campaign_sender','title'=>'Campaign Email Sender','cat'=>'marketing','human'=>'Every 15 minutes','expr'=>'*/15 * * * *','app'=>'/app/Modules/Marketing/Cron/campaign_sender.php','run'=>'/crm/cron/campaign_sender.php','abbr'=>'CS','tl'=>60,'freq'=>true,'desc'=>'Process pending campaign sends (max 20/run for SMTP throttle). Renders templates, sends email, updates tracking.'],
+    ['key'=>'automation_runner','title'=>'Automation Runner','cat'=>'marketing','human'=>'Every 5 minutes','expr'=>'*/5 * * * *','app'=>'/app/Modules/Marketing/Cron/automation_runner.php','run'=>'/crm/cron/automation_runner.php','abbr'=>'AR5','tl'=>20,'freq'=>true,'desc'=>'Process queued_actions and evaluate automation rules against recent CRM events. Max 50 queue items per run.'],
+    ['key'=>'invoice_overdue','title'=>'Invoice Overdue','cat'=>'marketing','human'=>'Daily at 8 AM','expr'=>'0 8 * * *','app'=>'/app/Modules/Marketing/Cron/invoice_overdue.php','run'=>'/crm/cron/invoice_overdue.php','abbr'=>'IO','tl'=>33.3,'desc'=>'Mark invoices as overdue when due_date has passed and they remain unpaid. Feeds the invoice_overdue automation trigger.'],
+    ['key'=>'invoice_reminders','title'=>'Invoice Reminders','cat'=>'marketing','human'=>'Daily at 9 AM','expr'=>'0 9 * * *','app'=>'/app/Modules/Marketing/Cron/invoice_reminders.php','run'=>'/crm/cron/invoice_reminders.php','abbr'=>'IR','tl'=>37.5,'offset'=>true,'desc'=>'Send email + SMS reminders for unpaid invoices at 3 stages: 3 days before due, due today, 7+ days overdue. Max 3 reminders per invoice.'],
+    ['key'=>'seasonal_triggers','title'=>'Seasonal Triggers','cat'=>'marketing','human'=>'Monthly &mdash; 1st at 8 AM','expr'=>'0 8 1 * *','app'=>'/app/Modules/Marketing/Cron/seasonal_triggers.php','run'=>'/crm/cron/seasonal_triggers.php','abbr'=>'ST','tl'=>33.3,'monthly'=>true,'offset'=>true,'desc'=>'On 1st of month, create queued campaigns for products with trigger_month matching current month, targeting contacts who haven&rsquo;t purchased that product.'],
+    ['key'=>'reconsent_sender','title'=>'Reconsent Sender','cat'=>'marketing','human'=>'Daily at 9 AM','expr'=>'0 9 * * *','app'=>'/crm/cron/reconsent_sender.php','run'=>'/crm/cron/reconsent_sender.php','abbr'=>'RC','tl'=>37.5,'desc'=>'Send up to 10 opt-in/reconsent emails per run from approved queue entries. Used for Jobber contact re-consent campaign.'],
+    ['key'=>'social_publisher','title'=>'Social Post Publisher','cat'=>'social','human'=>'Every 5 minutes','expr'=>'*/5 * * * *','app'=>'/app/Modules/Social/Cron/social_publisher.php','run'=>'/crm/cron/social_publisher.php','abbr'=>'SP5','tl'=>80,'freq'=>true,'desc'=>'Publish due items from social_queue to Google Business and Meta. Max 10 posts per run with exponential backoff retry. Process lock prevents overlaps.'],
+    ['key'=>'cms_schedule_publish','title'=>'CMS Schedule Publish','cat'=>'cms','human'=>'Every minute','expr'=>'* * * * *','app'=>'/app/Modules/CMS/Cron/cms_schedule_publish.php','run'=>'/crm/cron/cms-schedule-publish.php','abbr'=>'CP1','tl'=>40,'freq'=>true,'desc'=>'Auto-publish draft pages where publish_at &le; NOW(). Auto-archive published pages where unpublish_at &le; NOW(). Invalidates HTML cache.'],
+    ['key'=>'cms_seo_recalc','title'=>'CMS SEO Recalc','cat'=>'cms','human'=>'Daily at 3 AM','expr'=>'0 3 * * *','app'=>'/app/Modules/CMS/Cron/cms_seo_recalc.php','run'=>'/crm/cron/cms-seo-recalc.php','abbr'=>'CR','tl'=>12.5,'offset'=>true,'desc'=>'Recalculate seo_score for all CMS pages via cms_getPageCompletionScore(). Useful after bulk edits or imports.'],
+    ['key'=>'sync_ledger','title'=>'Accounting Ledger Sync','cat'=>'accounting','human'=>'Daily at 2 AM','expr'=>'0 2 * * *','app'=>'/app/Modules/Accounting/Cron/sync-ledger.php','run'=>'/crm/cron/sync-ledger.php','abbr'=>'LS','tl'=>8.3,'offset'=>true,'desc'=>'Pull new paid invoices and expenses into accounting_transactions. Then run AlertEngine to refresh financial intelligence alerts.'],
+    ['key'=>'contract_renewal','title'=>'Contract Auto-Renewal','cat'=>'contracts','human'=>'Daily at 1 AM','expr'=>'0 1 * * *','app'=>'/app/Modules/Contracts/Cron/contract_renewal.php','run'=>'/crm/cron/contract_renewal.php','abbr'=>'CA','tl'=>4.2,'desc'=>'Auto-renew active contracts with auto_renew=1: apply increase %, push dates forward, recalculate plan pricing. Expire non-renewing contracts past end_date.'],
+    ['key'=>'contract_billing','title'=>'Contract Monthly Billing','cat'=>'contracts','human'=>'1st of month at 6 AM','expr'=>'0 6 1 * *','app'=>'/app/Modules/Contracts/Cron/contract_billing.php','run'=>'/crm/cron/contract_billing.php','abbr'=>'CB','tl'=>25,'monthly'=>true,'desc'=>'Generate and email invoices for all active monthly contracts. Idempotent &mdash; skips any contract already invoiced this month. 5% GST applied, due end of month.'],
+    ['key'=>'estimating_feedback','title'=>'Estimating Feedback','cat'=>'core','human'=>'Weekly &mdash; Mon at 3 AM','expr'=>'0 3 * * 1','app'=>'/crm/cron/estimating_feedback.php','run'=>'/crm/cron/estimating_feedback.php','abbr'=>'EF','tl'=>12.5,'monthly'=>true,'desc'=>'Compare quoted material costs vs actual expenses for active job plans. Writes to quote_accuracy_log and vendor_price_index for profitability dashboard.'],
+    // ── Previously missing from the manager (added) ──────────────────────
+    ['key'=>'autopay_charge','title'=>'Autopay Charge','cat'=>'accounting','human'=>'Daily at 9 AM','expr'=>'0 17 * * *','app'=>'/app/Modules/Invoices/Cron/autopay_charge.php','run'=>'/crm/cron/autopay_charge.php','abbr'=>'AP','tl'=>37.5,'offset'=>true,'desc'=>'Charge saved cards for due autopay invoices &mdash; gated by business_settings.autopay_live_mode. Defers Stripe calls past DB commit; idempotent per invoice.'],
+    ['key'=>'etransfer_inbox_poll','title'=>'e-Transfer Inbox Poll','cat'=>'accounting','human'=>'Every 10 minutes','expr'=>'*/10 * * * *','app'=>'/app/Modules/Accounting/Cron/etransfer_inbox_poll.php','run'=>'/crm/cron/etransfer_inbox_poll.php','abbr'=>'ET','tl'=>30,'freq'=>true,'desc'=>'Poll info@ + office@ mailboxes for Interac e-Transfer notifications, parse memo/amount, and surface pending matches on the Invoices page. Never auto-records.'],
+    ['key'=>'data_retention','title'=>'Data Retention','cat'=>'core','human'=>'Daily at 3 AM','expr'=>'0 3 * * *','app'=>'/app/Modules/Privacy/Cron/data_retention.php','run'=>'/crm/cron/data_retention.php','abbr'=>'DR','tl'=>12.5,'desc'=>'Apply privacy data-retention policies &mdash; purge or anonymize expired records on schedule.'],
+    ['key'=>'quote_request_reminder','title'=>'Quote Request Reminder','cat'=>'core','human'=>'Every 30 minutes','expr'=>'*/30 * * * *','app'=>'/app/Modules/Quotes/Cron/quote_request_reminder.php','run'=>'/crm/cron/quote_request_reminder.php','abbr'=>'QR','tl'=>50,'freq'=>true,'desc'=>'SMS the admin for every quote_request left unactioned past the threshold, so no inbound lead goes cold.'],
+    ['key'=>'auto_clockout','title'=>'Auto Clock-Out','cat'=>'team','human'=>'Every 30 minutes','expr'=>'0,30 * * * *','app'=>'/app/Modules/Team/Cron/auto_clockout.php','run'=>'/crm/cron/auto_clockout.php','abbr'=>'AC','tl'=>70,'freq'=>true,'desc'=>'Auto clock-out crew left on the clock past a max shift length, preventing runaway timer hours on payroll.'],
+    ['key'=>'forgot_clockout_sms','title'=>'Forgot Clock-Out SMS','cat'=>'team','human'=>'Every 30 minutes','expr'=>'0,30 * * * *','app'=>'/app/Modules/Team/Cron/forgot_clockout_sms.php','run'=>'/crm/cron/forgot_clockout_sms.php','abbr'=>'FC','tl'=>72,'freq'=>true,'desc'=>'SMS crew who forgot to clock out, prompting them to close their timer before payroll is calculated.'],
+    ['key'=>'trackimo_poll','title'=>'Trackimo GPS Poll','cat'=>'tracking','human'=>'Every minute (business hrs)','expr'=>'* * * * *','app'=>'/app/Modules/Tracking/Cron/trackimo_poll.php','run'=>'/crm/cron/trackimo_poll.php','abbr'=>'TK','tl'=>90,'freq'=>true,'desc'=>'Poll the Trackimo GPS API for truck positions (every minute during business hours, every 5 min otherwise) for live map tracking.'],
+];
+// Defensive: drop any malformed entry (keeps the page rendering if one is half-edited).
+$crons = array_values(array_filter($crons, static fn($c) => is_array($c) && !empty($c['key']) && !empty($c['title'])));
+
+$CRON_CAT_LABELS = [
+    'jobs'=>'Jobs','database'=>'Database','marketing'=>'Marketing','core'=>'Core',
+    'accounting'=>'Accounting','contracts'=>'Contracts','cms'=>'CMS','social'=>'Social',
+    'team'=>'Team','tracking'=>'Tracking',
+];
+?>
 
         <!-- Summary bar -->
         <div class="mw-cron-summary-bar d-flex align-items-center justify-content-between mb-3">
             <div class="mw-cron-summary-stat">
                 <i data-feather="clock" class="mw-cron-summary-icon"></i>
-                <strong>7</strong>&nbsp;cron jobs configured
+                <strong><?= count($crons) ?></strong>&nbsp;cron jobs configured
             </div>
             <div class="mw-cron-summary-stat" id="cronHealthStat">
                 <i data-feather="loader" class="mw-cron-summary-icon"></i>
@@ -328,51 +376,25 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         <?php foreach ([0,2,4,6,8,10,12,14,16,18,20,22,24] as $h): ?>
                         <span class="mw-cron-timeline-label" style="left:<?= ($h/24)*100 ?>%"><?= $h ?>h</span>
                         <?php endforeach; ?>
-                        <!-- Generate Visits: every 6h (0, 6, 12, 18) -->
-                        <div class="mw-cron-timeline-tick mw-tick-jobs" style="left:0%"        title="Generate Visits — 00:00">GV</div>
-                        <div class="mw-cron-timeline-tick mw-tick-jobs" style="left:25%"       title="Generate Visits — 06:00">GV</div>
-                        <div class="mw-cron-timeline-tick mw-tick-jobs" style="left:50%"       title="Generate Visits — 12:00">GV</div>
-                        <div class="mw-cron-timeline-tick mw-tick-jobs" style="left:75%"       title="Generate Visits — 18:00">GV</div>
-                        <!-- Auto Rollover: 23:00 -->
-                        <div class="mw-cron-timeline-tick mw-tick-jobs" style="left:<?= (23/24)*100 ?>%" title="Auto Rollover — 23:00">AR</div>
-                        <!-- Weather Guard: 12:00 (offset slightly so it doesn't overlap GV) -->
-                        <div class="mw-cron-timeline-tick mw-tick-jobs mw-tick-offset" style="left:50%" title="Weather Guard — 12:00">WG</div>
-                        <!-- Schema Snapshot: 04:00 -->
-                        <div class="mw-cron-timeline-tick mw-tick-database" style="left:<?= (4/24)*100 ?>%" title="Schema Snapshot — 04:00">SS</div>
-                        <!-- Purchase History: 02:00 -->
-                        <div class="mw-cron-timeline-tick mw-tick-core" style="left:<?= (2/24)*100 ?>%" title="Purchase History — 02:00">PH</div>
-                        <!-- SEO Recommendations: 03:00 -->
-                        <div class="mw-cron-timeline-tick mw-tick-marketing" style="left:<?= (3/24)*100 ?>%" title="SEO Recommendations — 03:00">SEO</div>
-                        <!-- Expense Baselines: 02:00, 1st of month — offset below PH -->
-                        <div class="mw-cron-timeline-tick mw-tick-core mw-tick-monthly" style="left:<?= (2/24)*100 ?>%" title="Expense Baselines — 02:00 on 1st of month">EB</div>
-                        <!-- Contract Auto-Renewal: 01:00 -->
-                        <div class="mw-cron-timeline-tick mw-tick-contracts" style="left:<?= (1/24)*100 ?>%" title="Contract Auto-Renewal — 01:00">CA</div>
-                        <!-- Accounting Ledger Sync: 02:00, offset -->
-                        <div class="mw-cron-timeline-tick mw-tick-accounting mw-tick-offset" style="left:<?= (2/24)*100 ?>%" title="Accounting Ledger Sync — 02:00">LS</div>
-                        <!-- Invoice Overdue: 08:00 -->
-                        <div class="mw-cron-timeline-tick mw-tick-marketing" style="left:<?= (8/24)*100 ?>%" title="Invoice Overdue — 08:00">IO</div>
-                        <!-- Invoice Reminders + Reconsent: 09:00 -->
-                        <div class="mw-cron-timeline-tick mw-tick-marketing mw-tick-offset" style="left:<?= (9/24)*100 ?>%" title="Invoice Reminders + Reconsent — 09:00">IR</div>
-                        <!-- CMS SEO Recalc: 03:00 -->
-                        <div class="mw-cron-timeline-tick mw-tick-cms mw-tick-offset" style="left:<?= (3/24)*100 ?>%" title="CMS SEO Recalc — 03:00">CR</div>
-                        <!-- Estimating Feedback: Mon 03:00 -->
-                        <div class="mw-cron-timeline-tick mw-tick-core mw-tick-monthly" style="left:<?= (3/24)*100 ?>%" title="Estimating Feedback — Mon 03:00">EF</div>
-                        <!-- High-frequency: Automation Runner */5, Social Publisher */5, Campaign Sender */15, CMS Publish */1 — shown as bars -->
-                        <div class="mw-cron-timeline-tick mw-tick-marketing" style="left:20%;font-size:.5rem;" title="Automation Runner — every 5 min">AR5</div>
-                        <div class="mw-cron-timeline-tick mw-tick-cms" style="left:40%;font-size:.5rem;" title="CMS Schedule Publish — every 1 min">CP1</div>
-                        <div class="mw-cron-timeline-tick mw-tick-marketing" style="left:60%;font-size:.5rem;" title="Campaign Sender — every 15 min">CS15</div>
-                        <div class="mw-cron-timeline-tick mw-tick-social" style="left:80%;font-size:.5rem;" title="Social Publisher — every 5 min">SP5</div>
+                        <?php
+                        // Render one tick per scheduled run, straight from the registry.
+                        foreach ($crons as $c):
+                            $positions = is_array($c['tl'] ?? null) ? $c['tl'] : [$c['tl'] ?? 0];
+                            $tickClass = 'mw-tick-' . $c['cat'];
+                            if (!empty($c['offset']))  { $tickClass .= ' mw-tick-offset'; }
+                            if (!empty($c['monthly'])) { $tickClass .= ' mw-tick-monthly'; }
+                            $extraStyle = !empty($c['freq']) ? 'font-size:.5rem;' : '';
+                            $titleAttr  = htmlspecialchars($c['title'] . ' — ' . strip_tags(html_entity_decode($c['human'])), ENT_QUOTES);
+                            foreach ($positions as $pos):
+                        ?>
+                        <div class="mw-cron-timeline-tick <?= $tickClass ?>" style="left:<?= $pos ?>%;<?= $extraStyle ?>" title="<?= $titleAttr ?>"><?= htmlspecialchars($c['abbr'] ?? '') ?></div>
+                        <?php endforeach; endforeach; ?>
                     </div>
                     <div class="mw-cron-timeline-legend mt-2">
-                        <span class="mw-cron-legend-item mw-tick-jobs">Jobs</span>
-                        <span class="mw-cron-legend-item mw-tick-database">Database</span>
-                        <span class="mw-cron-legend-item mw-tick-marketing">Marketing</span>
-                        <span class="mw-cron-legend-item mw-tick-core">Core</span>
-                        <span class="mw-cron-legend-item mw-tick-accounting">Accounting</span>
-                        <span class="mw-cron-legend-item mw-tick-contracts">Contracts</span>
-                        <span class="mw-cron-legend-item mw-tick-cms">CMS</span>
-                        <span class="mw-cron-legend-item mw-tick-social">Social</span>
-                        <span class="mw-cron-legend-item" style="background:#78909c;color:#fff;font-size:.65rem;padding:1px 6px;border-radius:3px;">EB/EF = monthly/weekly</span>
+                        <?php foreach ($CRON_CAT_LABELS as $catKey => $catLabel): ?>
+                        <span class="mw-cron-legend-item mw-tick-<?= $catKey ?>"><?= htmlspecialchars($catLabel) ?></span>
+                        <?php endforeach; ?>
+                        <span class="mw-cron-legend-item" style="background:#78909c;color:#fff;font-size:.65rem;padding:1px 6px;border-radius:3px;">monthly/weekly &amp; frequent jobs shown smaller</span>
                     </div>
                 </div>
             </div>
@@ -380,29 +402,33 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
         <!-- Cron cards grid -->
         <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3">
-
-            <!-- ─── 1. Generate Visits ─────────────────────────────── -->
+<?php foreach ($crons as $c):
+            $catLabel = $CRON_CAT_LABELS[$c['cat']] ?? ucfirst($c['cat']);
+            $cmd = htmlspecialchars($CRON_BASE . ' ' . $c['app'], ENT_QUOTES);
+            $titleAttr = htmlspecialchars($c['title'], ENT_QUOTES);
+        ?>
+            <!-- <?= htmlspecialchars($c['title']) ?> -->
             <div class="col mb-4">
-                <div class="card mw-cron-card h-100" data-cron-key="generate_visits">
+                <div class="card mw-cron-card h-100" data-cron-key="<?= htmlspecialchars($c['key']) ?>">
                     <div class="card-header mw-cron-card-header">
                         <div class="d-flex align-items-center justify-content-between w-100">
-                            <h6 class="mw-cron-card-title mb-0">Generate Visits</h6>
+                            <h6 class="mw-cron-card-title mb-0"><?= htmlspecialchars($c['title']) ?></h6>
                             <div class="d-flex align-items-center">
                                 <span class="mw-cron-status-dot mr-2" title="Loading…"></span>
-                                <span class="badge mw-badge-jobs">Jobs</span>
+                                <span class="badge mw-badge-<?= htmlspecialchars($c['cat']) ?>"><?= htmlspecialchars($catLabel) ?></span>
                             </div>
                         </div>
                     </div>
                     <div class="card-body d-flex flex-column">
                         <div class="mw-cron-schedule mb-2">
                             <i data-feather="clock" class="mw-cron-schedule-icon"></i>
-                            <span class="mw-cron-schedule-human">Every 6 hours</span>
-                            <code class="mw-cron-schedule-expr">0 */6 * * *</code>
+                            <span class="mw-cron-schedule-human"><?= $c['human'] ?></span>
+                            <code class="mw-cron-schedule-expr"><?= htmlspecialchars($c['expr']) ?></code>
                         </div>
-                        <p class="mw-cron-desc">Generate future visits 42 days ahead for all active recurring plans. Removed from schedule.php page load in Phase 1.</p>
+                        <p class="mw-cron-desc"><?= $c['desc'] ?></p>
                         <div class="mw-cron-command-wrap mb-3">
-                            <code class="mw-cron-command" id="cmd-1">/usr/local/bin/php /home/mowology/public_html/app/Modules/Jobs/Cron/generate_visits.php</code>
-                            <button class="mw-cron-copy-btn" onclick="copyCronCommand(this, document.getElementById('cmd-1').textContent)" title="Copy to clipboard">
+                            <code class="mw-cron-command" id="cmd-<?= htmlspecialchars($c['key']) ?>"><?= $cmd ?></code>
+                            <button class="mw-cron-copy-btn" onclick="copyCronCommand(this, document.getElementById('cmd-<?= htmlspecialchars($c['key']) ?>').textContent)" title="Copy to clipboard">
                                 <i data-feather="clipboard" style="width:13px;height:13px;"></i>
                             </button>
                         </div>
@@ -412,795 +438,18 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         </div>
                         <div class="mw-cron-last-summary small text-muted mb-3" style="display:none;"></div>
                         <div class="mt-auto">
-                            <button class="btn btn-sm mw-cron-run-btn" onclick="runCron(this, '/crm/cron/generate_visits.php')">
+                            <?php if (!empty($c['run'])): ?>
+                            <button class="btn btn-sm mw-cron-run-btn" onclick="runCron(this, '<?= htmlspecialchars($c['run'], ENT_QUOTES) ?>')">
                                 <i data-feather="play" style="width:13px;height:13px;"></i> Run Now
                             </button>
-                            <button class="btn btn-sm btn-link mw-cron-history-btn p-0 ml-2" onclick="showCronHistory('generate_visits', 'Generate Visits')">History</button>
+                            <?php endif; ?>
+                            <button class="btn btn-sm btn-link mw-cron-history-btn p-0 ml-2" onclick="showCronHistory('<?= htmlspecialchars($c['key'], ENT_QUOTES) ?>', '<?= $titleAttr ?>')">History</button>
                             <div class="mw-cron-result mt-2" style="display:none;"></div>
                         </div>
                     </div>
                 </div>
             </div>
-
-            <!-- ─── 2. Auto Rollover ───────────────────────────────── -->
-            <div class="col mb-4">
-                <div class="card mw-cron-card h-100" data-cron-key="auto_rollover">
-                    <div class="card-header mw-cron-card-header">
-                        <div class="d-flex align-items-center justify-content-between w-100">
-                            <h6 class="mw-cron-card-title mb-0">Auto Rollover</h6>
-                            <div class="d-flex align-items-center">
-                                <span class="mw-cron-status-dot mr-2" title="Loading…"></span>
-                                <span class="badge mw-badge-jobs">Jobs</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="card-body d-flex flex-column">
-                        <div class="mw-cron-schedule mb-2">
-                            <i data-feather="clock" class="mw-cron-schedule-icon"></i>
-                            <span class="mw-cron-schedule-human">Daily at 11 PM</span>
-                            <code class="mw-cron-schedule-expr">0 23 * * *</code>
-                        </div>
-                        <p class="mw-cron-desc">Roll past-due recurring visits forward 1 day. Cleans up orphaned calendar stops afterward.</p>
-                        <div class="mw-cron-command-wrap mb-3">
-                            <code class="mw-cron-command" id="cmd-2">/usr/local/bin/php /home/mowology/public_html/app/Modules/Jobs/Cron/auto_rollover.php</code>
-                            <button class="mw-cron-copy-btn" onclick="copyCronCommand(this, document.getElementById('cmd-2').textContent)" title="Copy to clipboard">
-                                <i data-feather="clipboard" style="width:13px;height:13px;"></i>
-                            </button>
-                        </div>
-                        <div class="mw-cron-last-run small mb-1">
-                            <i data-feather="clock" style="width:12px;height:12px;"></i>
-                            Last run: <span class="mw-cron-ran-at text-muted"><em>Loading&hellip;</em></span>
-                        </div>
-                        <div class="mw-cron-last-summary small text-muted mb-3" style="display:none;"></div>
-                        <div class="mt-auto">
-                            <button class="btn btn-sm mw-cron-run-btn" onclick="runCron(this, '/crm/cron/auto_rollover.php')">
-                                <i data-feather="play" style="width:13px;height:13px;"></i> Run Now
-                            </button>
-                            <button class="btn btn-sm btn-link mw-cron-history-btn p-0 ml-2" onclick="showCronHistory('auto_rollover', 'Auto Rollover')">History</button>
-                            <div class="mw-cron-result mt-2" style="display:none;"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ─── 3. Weather Guard ───────────────────────────────── -->
-            <div class="col mb-4">
-                <div class="card mw-cron-card h-100" data-cron-key="weather_guard">
-                    <div class="card-header mw-cron-card-header">
-                        <div class="d-flex align-items-center justify-content-between w-100">
-                            <h6 class="mw-cron-card-title mb-0">Weather Guard</h6>
-                            <div class="d-flex align-items-center">
-                                <span class="mw-cron-status-dot mr-2" title="Loading…"></span>
-                                <span class="badge mw-badge-jobs">Jobs</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="card-body d-flex flex-column">
-                        <div class="mw-cron-schedule mb-2">
-                            <i data-feather="clock" class="mw-cron-schedule-icon"></i>
-                            <span class="mw-cron-schedule-human">Daily at 12 PM</span>
-                            <code class="mw-cron-schedule-expr">0 12 * * *</code>
-                        </div>
-                        <p class="mw-cron-desc">Evaluate upcoming visits against weather forecasts. Auto-reschedules NOT_OK visits and sends SMS salt alerts for freezing/snow conditions.</p>
-                        <div class="mw-cron-command-wrap mb-3">
-                            <code class="mw-cron-command" id="cmd-3">/usr/local/bin/php /home/mowology/public_html/app/Modules/Jobs/Cron/weather_schedule_guard.php</code>
-                            <button class="mw-cron-copy-btn" onclick="copyCronCommand(this, document.getElementById('cmd-3').textContent)" title="Copy to clipboard">
-                                <i data-feather="clipboard" style="width:13px;height:13px;"></i>
-                            </button>
-                        </div>
-                        <div class="mw-cron-last-run small mb-1">
-                            <i data-feather="clock" style="width:12px;height:12px;"></i>
-                            Last run: <span class="mw-cron-ran-at text-muted"><em>Loading&hellip;</em></span>
-                        </div>
-                        <div class="mw-cron-last-summary small text-muted mb-3" style="display:none;"></div>
-                        <div class="mt-auto">
-                            <button class="btn btn-sm mw-cron-run-btn" onclick="runCron(this, '/crm/cron/weather_schedule_guard.php')">
-                                <i data-feather="play" style="width:13px;height:13px;"></i> Run Now
-                            </button>
-                            <button class="btn btn-sm btn-link mw-cron-history-btn p-0 ml-2" onclick="showCronHistory('weather_guard', 'Weather Guard')">History</button>
-                            <div class="mw-cron-result mt-2" style="display:none;"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ─── 4. Schema Snapshot ─────────────────────────────── -->
-            <div class="col mb-4">
-                <div class="card mw-cron-card h-100" data-cron-key="schema_snapshot">
-                    <div class="card-header mw-cron-card-header">
-                        <div class="d-flex align-items-center justify-content-between w-100">
-                            <h6 class="mw-cron-card-title mb-0">Schema Snapshot</h6>
-                            <div class="d-flex align-items-center">
-                                <span class="mw-cron-status-dot mr-2" title="Loading…"></span>
-                                <span class="badge mw-badge-database">Database</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="card-body d-flex flex-column">
-                        <div class="mw-cron-schedule mb-2">
-                            <i data-feather="clock" class="mw-cron-schedule-icon"></i>
-                            <span class="mw-cron-schedule-human">Daily at 4 AM</span>
-                            <code class="mw-cron-schedule-expr">0 4 * * *</code>
-                        </div>
-                        <p class="mw-cron-desc">Capture live DB structure (tables, columns, indexes, FKs) to storage for drift detection and schema authority.</p>
-                        <div class="mw-cron-command-wrap mb-3">
-                            <code class="mw-cron-command" id="cmd-4">/usr/local/bin/php /home/mowology/public_html/crm/cron/schema_snapshot.php</code>
-                            <button class="mw-cron-copy-btn" onclick="copyCronCommand(this, document.getElementById('cmd-4').textContent)" title="Copy to clipboard">
-                                <i data-feather="clipboard" style="width:13px;height:13px;"></i>
-                            </button>
-                        </div>
-                        <div class="mw-cron-last-run small mb-1">
-                            <i data-feather="clock" style="width:12px;height:12px;"></i>
-                            Last run: <span class="mw-cron-ran-at text-muted"><em>Loading&hellip;</em></span>
-                        </div>
-                        <div class="mw-cron-last-summary small text-muted mb-3" style="display:none;"></div>
-                        <div class="mt-auto">
-                            <button class="btn btn-sm mw-cron-run-btn" onclick="runCron(this, '/crm/cron/schema_snapshot.php')">
-                                <i data-feather="play" style="width:13px;height:13px;"></i> Run Now
-                            </button>
-                            <button class="btn btn-sm btn-link mw-cron-history-btn p-0 ml-2" onclick="showCronHistory('schema_snapshot', 'Schema Snapshot')">History</button>
-                            <div class="mw-cron-result mt-2" style="display:none;"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ─── 5. Purchase History ────────────────────────────── -->
-            <div class="col mb-4">
-                <div class="card mw-cron-card h-100" data-cron-key="purchase_history">
-                    <div class="card-header mw-cron-card-header">
-                        <div class="d-flex align-items-center justify-content-between w-100">
-                            <h6 class="mw-cron-card-title mb-0">Purchase History</h6>
-                            <div class="d-flex align-items-center">
-                                <span class="mw-cron-status-dot mr-2" title="Loading…"></span>
-                                <span class="badge mw-badge-core">Core</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="card-body d-flex flex-column">
-                        <div class="mw-cron-schedule mb-2">
-                            <i data-feather="clock" class="mw-cron-schedule-icon"></i>
-                            <span class="mw-cron-schedule-human">Daily at 2 AM</span>
-                            <code class="mw-cron-schedule-expr">0 2 * * *</code>
-                        </div>
-                        <p class="mw-cron-desc">Refresh contact&rarr;product history table, lifecycle stages, last service date, and total lifetime value from quotes and plans.</p>
-                        <div class="mw-cron-command-wrap mb-3">
-                            <code class="mw-cron-command" id="cmd-5">/usr/local/bin/php /home/mowology/public_html/crm/cron/refresh_purchase_history.php</code>
-                            <button class="mw-cron-copy-btn" onclick="copyCronCommand(this, document.getElementById('cmd-5').textContent)" title="Copy to clipboard">
-                                <i data-feather="clipboard" style="width:13px;height:13px;"></i>
-                            </button>
-                        </div>
-                        <div class="mw-cron-last-run small mb-1">
-                            <i data-feather="clock" style="width:12px;height:12px;"></i>
-                            Last run: <span class="mw-cron-ran-at text-muted"><em>Loading&hellip;</em></span>
-                        </div>
-                        <div class="mw-cron-last-summary small text-muted mb-3" style="display:none;"></div>
-                        <div class="mt-auto">
-                            <button class="btn btn-sm mw-cron-run-btn" onclick="runCron(this, '/crm/cron/refresh_purchase_history.php')">
-                                <i data-feather="play" style="width:13px;height:13px;"></i> Run Now
-                            </button>
-                            <button class="btn btn-sm btn-link mw-cron-history-btn p-0 ml-2" onclick="showCronHistory('purchase_history', 'Purchase History')">History</button>
-                            <div class="mw-cron-result mt-2" style="display:none;"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ─── 6. SEO Recommendations ─────────────────────────── -->
-            <div class="col mb-4">
-                <div class="card mw-cron-card h-100" data-cron-key="seo_recommendations">
-                    <div class="card-header mw-cron-card-header">
-                        <div class="d-flex align-items-center justify-content-between w-100">
-                            <h6 class="mw-cron-card-title mb-0">SEO Recommendations</h6>
-                            <div class="d-flex align-items-center">
-                                <span class="mw-cron-status-dot mr-2" title="Loading…"></span>
-                                <span class="badge mw-badge-marketing">Marketing</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="card-body d-flex flex-column">
-                        <div class="mw-cron-schedule mb-2">
-                            <i data-feather="clock" class="mw-cron-schedule-icon"></i>
-                            <span class="mw-cron-schedule-human">Daily at 3 AM</span>
-                            <code class="mw-cron-schedule-expr">0 3 * * *</code>
-                        </div>
-                        <p class="mw-cron-desc">Read Google Search Console query stats (last 28 days), score opportunities, generate and update SEO recommendations.</p>
-                        <div class="mw-cron-command-wrap mb-3">
-                            <code class="mw-cron-command" id="cmd-6">/usr/local/bin/php /home/mowology/public_html/crm/cron/seo_recommendations.php</code>
-                            <button class="mw-cron-copy-btn" onclick="copyCronCommand(this, document.getElementById('cmd-6').textContent)" title="Copy to clipboard">
-                                <i data-feather="clipboard" style="width:13px;height:13px;"></i>
-                            </button>
-                        </div>
-                        <div class="mw-cron-last-run small mb-1">
-                            <i data-feather="clock" style="width:12px;height:12px;"></i>
-                            Last run: <span class="mw-cron-ran-at text-muted"><em>Loading&hellip;</em></span>
-                        </div>
-                        <div class="mw-cron-last-summary small text-muted mb-3" style="display:none;"></div>
-                        <div class="mt-auto">
-                            <button class="btn btn-sm mw-cron-run-btn" onclick="runCron(this, '/crm/cron/seo_recommendations.php')">
-                                <i data-feather="play" style="width:13px;height:13px;"></i> Run Now
-                            </button>
-                            <button class="btn btn-sm btn-link mw-cron-history-btn p-0 ml-2" onclick="showCronHistory('seo_recommendations', 'SEO Recommendations')">History</button>
-                            <div class="mw-cron-result mt-2" style="display:none;"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ─── 7. Expense Baselines ───────────────────────────── -->
-            <div class="col mb-4">
-                <div class="card mw-cron-card h-100" data-cron-key="expense_baselines">
-                    <div class="card-header mw-cron-card-header">
-                        <div class="d-flex align-items-center justify-content-between w-100">
-                            <h6 class="mw-cron-card-title mb-0">Expense Baselines</h6>
-                            <div class="d-flex align-items-center">
-                                <span class="mw-cron-status-dot mr-2" title="Loading…"></span>
-                                <span class="badge mw-badge-core">Core</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="card-body d-flex flex-column">
-                        <div class="mw-cron-schedule mb-2">
-                            <i data-feather="clock" class="mw-cron-schedule-icon"></i>
-                            <span class="mw-cron-schedule-human">Monthly &mdash; 1st at 2 AM</span>
-                            <code class="mw-cron-schedule-expr">0 2 1 * *</code>
-                        </div>
-                        <p class="mw-cron-desc">Aggregate monthly expense averages per accounting category (last 2 years) into baselines used by the anomaly detector.</p>
-                        <div class="mw-cron-command-wrap mb-3">
-                            <code class="mw-cron-command" id="cmd-7">/usr/local/bin/php /home/mowology/public_html/crm/cron/expense_baselines.php</code>
-                            <button class="mw-cron-copy-btn" onclick="copyCronCommand(this, document.getElementById('cmd-7').textContent)" title="Copy to clipboard">
-                                <i data-feather="clipboard" style="width:13px;height:13px;"></i>
-                            </button>
-                        </div>
-                        <div class="mw-cron-last-run small mb-1">
-                            <i data-feather="clock" style="width:12px;height:12px;"></i>
-                            Last run: <span class="mw-cron-ran-at text-muted"><em>Loading&hellip;</em></span>
-                        </div>
-                        <div class="mw-cron-last-summary small text-muted mb-3" style="display:none;"></div>
-                        <div class="mt-auto">
-                            <button class="btn btn-sm mw-cron-run-btn" onclick="runCron(this, '/crm/cron/expense_baselines.php')">
-                                <i data-feather="play" style="width:13px;height:13px;"></i> Run Now
-                            </button>
-                            <button class="btn btn-sm btn-link mw-cron-history-btn p-0 ml-2" onclick="showCronHistory('expense_baselines', 'Expense Baselines')">History</button>
-                            <div class="mw-cron-result mt-2" style="display:none;"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ─── 8. Campaign Email Sender ───────────────────────── -->
-            <div class="col mb-4">
-                <div class="card mw-cron-card h-100" data-cron-key="campaign_sender">
-                    <div class="card-header mw-cron-card-header">
-                        <div class="d-flex align-items-center justify-content-between w-100">
-                            <h6 class="mw-cron-card-title mb-0">Campaign Email Sender</h6>
-                            <div class="d-flex align-items-center">
-                                <span class="mw-cron-status-dot mr-2" title="Loading…"></span>
-                                <span class="badge mw-badge-marketing">Marketing</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="card-body d-flex flex-column">
-                        <div class="mw-cron-schedule mb-2">
-                            <i data-feather="clock" class="mw-cron-schedule-icon"></i>
-                            <span class="mw-cron-schedule-human">Every 15 minutes</span>
-                            <code class="mw-cron-schedule-expr">*/15 * * * *</code>
-                        </div>
-                        <p class="mw-cron-desc">Process pending campaign sends (max 20/run for SMTP throttle). Renders templates, sends email, updates tracking.</p>
-                        <div class="mw-cron-command-wrap mb-3">
-                            <code class="mw-cron-command" id="cmd-8">/usr/local/bin/php /home/mowology/public_html/app/Modules/Marketing/Cron/campaign_sender.php</code>
-                            <button class="mw-cron-copy-btn" onclick="copyCronCommand(this, document.getElementById('cmd-8').textContent)" title="Copy to clipboard">
-                                <i data-feather="clipboard" style="width:13px;height:13px;"></i>
-                            </button>
-                        </div>
-                        <div class="mw-cron-last-run small mb-1">
-                            <i data-feather="clock" style="width:12px;height:12px;"></i>
-                            Last run: <span class="mw-cron-ran-at text-muted"><em>Loading&hellip;</em></span>
-                        </div>
-                        <div class="mw-cron-last-summary small text-muted mb-3" style="display:none;"></div>
-                        <div class="mt-auto">
-                            <button class="btn btn-sm mw-cron-run-btn" onclick="runCron(this, '/crm/cron/campaign_sender.php')">
-                                <i data-feather="play" style="width:13px;height:13px;"></i> Run Now
-                            </button>
-                            <button class="btn btn-sm btn-link mw-cron-history-btn p-0 ml-2" onclick="showCronHistory('campaign_sender', 'Campaign Email Sender')">History</button>
-                            <div class="mw-cron-result mt-2" style="display:none;"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ─── 9. Automation Runner ───────────────────────────── -->
-            <div class="col mb-4">
-                <div class="card mw-cron-card h-100" data-cron-key="automation_runner">
-                    <div class="card-header mw-cron-card-header">
-                        <div class="d-flex align-items-center justify-content-between w-100">
-                            <h6 class="mw-cron-card-title mb-0">Automation Runner</h6>
-                            <div class="d-flex align-items-center">
-                                <span class="mw-cron-status-dot mr-2" title="Loading…"></span>
-                                <span class="badge mw-badge-marketing">Marketing</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="card-body d-flex flex-column">
-                        <div class="mw-cron-schedule mb-2">
-                            <i data-feather="clock" class="mw-cron-schedule-icon"></i>
-                            <span class="mw-cron-schedule-human">Every 5 minutes</span>
-                            <code class="mw-cron-schedule-expr">*/5 * * * *</code>
-                        </div>
-                        <p class="mw-cron-desc">Process queued_actions and evaluate automation rules against recent CRM events. Max 50 queue items per run.</p>
-                        <div class="mw-cron-command-wrap mb-3">
-                            <code class="mw-cron-command" id="cmd-9">/usr/local/bin/php /home/mowology/public_html/app/Modules/Marketing/Cron/automation_runner.php</code>
-                            <button class="mw-cron-copy-btn" onclick="copyCronCommand(this, document.getElementById('cmd-9').textContent)" title="Copy to clipboard">
-                                <i data-feather="clipboard" style="width:13px;height:13px;"></i>
-                            </button>
-                        </div>
-                        <div class="mw-cron-last-run small mb-1">
-                            <i data-feather="clock" style="width:12px;height:12px;"></i>
-                            Last run: <span class="mw-cron-ran-at text-muted"><em>Loading&hellip;</em></span>
-                        </div>
-                        <div class="mw-cron-last-summary small text-muted mb-3" style="display:none;"></div>
-                        <div class="mt-auto">
-                            <button class="btn btn-sm mw-cron-run-btn" onclick="runCron(this, '/crm/cron/automation_runner.php')">
-                                <i data-feather="play" style="width:13px;height:13px;"></i> Run Now
-                            </button>
-                            <button class="btn btn-sm btn-link mw-cron-history-btn p-0 ml-2" onclick="showCronHistory('automation_runner', 'Automation Runner')">History</button>
-                            <div class="mw-cron-result mt-2" style="display:none;"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ─── 10. Invoice Overdue ────────────────────────────── -->
-            <div class="col mb-4">
-                <div class="card mw-cron-card h-100" data-cron-key="invoice_overdue">
-                    <div class="card-header mw-cron-card-header">
-                        <div class="d-flex align-items-center justify-content-between w-100">
-                            <h6 class="mw-cron-card-title mb-0">Invoice Overdue</h6>
-                            <div class="d-flex align-items-center">
-                                <span class="mw-cron-status-dot mr-2" title="Loading…"></span>
-                                <span class="badge mw-badge-marketing">Marketing</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="card-body d-flex flex-column">
-                        <div class="mw-cron-schedule mb-2">
-                            <i data-feather="clock" class="mw-cron-schedule-icon"></i>
-                            <span class="mw-cron-schedule-human">Daily at 8 AM</span>
-                            <code class="mw-cron-schedule-expr">0 8 * * *</code>
-                        </div>
-                        <p class="mw-cron-desc">Mark invoices as overdue when due_date has passed and they remain unpaid. Feeds the invoice_overdue automation trigger.</p>
-                        <div class="mw-cron-command-wrap mb-3">
-                            <code class="mw-cron-command" id="cmd-10">/usr/local/bin/php /home/mowology/public_html/app/Modules/Marketing/Cron/invoice_overdue.php</code>
-                            <button class="mw-cron-copy-btn" onclick="copyCronCommand(this, document.getElementById('cmd-10').textContent)" title="Copy to clipboard">
-                                <i data-feather="clipboard" style="width:13px;height:13px;"></i>
-                            </button>
-                        </div>
-                        <div class="mw-cron-last-run small mb-1">
-                            <i data-feather="clock" style="width:12px;height:12px;"></i>
-                            Last run: <span class="mw-cron-ran-at text-muted"><em>Loading&hellip;</em></span>
-                        </div>
-                        <div class="mw-cron-last-summary small text-muted mb-3" style="display:none;"></div>
-                        <div class="mt-auto">
-                            <button class="btn btn-sm mw-cron-run-btn" onclick="runCron(this, '/crm/cron/invoice_overdue.php')">
-                                <i data-feather="play" style="width:13px;height:13px;"></i> Run Now
-                            </button>
-                            <button class="btn btn-sm btn-link mw-cron-history-btn p-0 ml-2" onclick="showCronHistory('invoice_overdue', 'Invoice Overdue')">History</button>
-                            <div class="mw-cron-result mt-2" style="display:none;"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ─── 11. Invoice Reminders ──────────────────────────── -->
-            <div class="col mb-4">
-                <div class="card mw-cron-card h-100" data-cron-key="invoice_reminders">
-                    <div class="card-header mw-cron-card-header">
-                        <div class="d-flex align-items-center justify-content-between w-100">
-                            <h6 class="mw-cron-card-title mb-0">Invoice Reminders</h6>
-                            <div class="d-flex align-items-center">
-                                <span class="mw-cron-status-dot mr-2" title="Loading…"></span>
-                                <span class="badge mw-badge-marketing">Marketing</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="card-body d-flex flex-column">
-                        <div class="mw-cron-schedule mb-2">
-                            <i data-feather="clock" class="mw-cron-schedule-icon"></i>
-                            <span class="mw-cron-schedule-human">Daily at 9 AM</span>
-                            <code class="mw-cron-schedule-expr">0 9 * * *</code>
-                        </div>
-                        <p class="mw-cron-desc">Send email + SMS reminders for unpaid invoices at 3 stages: 3 days before due, due today, 7+ days overdue. Max 3 reminders per invoice.</p>
-                        <div class="mw-cron-command-wrap mb-3">
-                            <code class="mw-cron-command" id="cmd-11">/usr/local/bin/php /home/mowology/public_html/app/Modules/Marketing/Cron/invoice_reminders.php</code>
-                            <button class="mw-cron-copy-btn" onclick="copyCronCommand(this, document.getElementById('cmd-11').textContent)" title="Copy to clipboard">
-                                <i data-feather="clipboard" style="width:13px;height:13px;"></i>
-                            </button>
-                        </div>
-                        <div class="mw-cron-last-run small mb-1">
-                            <i data-feather="clock" style="width:12px;height:12px;"></i>
-                            Last run: <span class="mw-cron-ran-at text-muted"><em>Loading&hellip;</em></span>
-                        </div>
-                        <div class="mw-cron-last-summary small text-muted mb-3" style="display:none;"></div>
-                        <div class="mt-auto">
-                            <button class="btn btn-sm mw-cron-run-btn" onclick="runCron(this, '/crm/cron/invoice_reminders.php')">
-                                <i data-feather="play" style="width:13px;height:13px;"></i> Run Now
-                            </button>
-                            <button class="btn btn-sm btn-link mw-cron-history-btn p-0 ml-2" onclick="showCronHistory('invoice_reminders', 'Invoice Reminders')">History</button>
-                            <div class="mw-cron-result mt-2" style="display:none;"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ─── 12. Seasonal Triggers ──────────────────────────── -->
-            <div class="col mb-4">
-                <div class="card mw-cron-card h-100" data-cron-key="seasonal_triggers">
-                    <div class="card-header mw-cron-card-header">
-                        <div class="d-flex align-items-center justify-content-between w-100">
-                            <h6 class="mw-cron-card-title mb-0">Seasonal Triggers</h6>
-                            <div class="d-flex align-items-center">
-                                <span class="mw-cron-status-dot mr-2" title="Loading…"></span>
-                                <span class="badge mw-badge-marketing">Marketing</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="card-body d-flex flex-column">
-                        <div class="mw-cron-schedule mb-2">
-                            <i data-feather="clock" class="mw-cron-schedule-icon"></i>
-                            <span class="mw-cron-schedule-human">Monthly &mdash; 1st at 8 AM</span>
-                            <code class="mw-cron-schedule-expr">0 8 1 * *</code>
-                        </div>
-                        <p class="mw-cron-desc">On 1st of month, create queued campaigns for products with trigger_month matching current month, targeting contacts who haven't purchased that product.</p>
-                        <div class="mw-cron-command-wrap mb-3">
-                            <code class="mw-cron-command" id="cmd-12">/usr/local/bin/php /home/mowology/public_html/app/Modules/Marketing/Cron/seasonal_triggers.php</code>
-                            <button class="mw-cron-copy-btn" onclick="copyCronCommand(this, document.getElementById('cmd-12').textContent)" title="Copy to clipboard">
-                                <i data-feather="clipboard" style="width:13px;height:13px;"></i>
-                            </button>
-                        </div>
-                        <div class="mw-cron-last-run small mb-1">
-                            <i data-feather="clock" style="width:12px;height:12px;"></i>
-                            Last run: <span class="mw-cron-ran-at text-muted"><em>Loading&hellip;</em></span>
-                        </div>
-                        <div class="mw-cron-last-summary small text-muted mb-3" style="display:none;"></div>
-                        <div class="mt-auto">
-                            <button class="btn btn-sm mw-cron-run-btn" onclick="runCron(this, '/crm/cron/seasonal_triggers.php')">
-                                <i data-feather="play" style="width:13px;height:13px;"></i> Run Now
-                            </button>
-                            <button class="btn btn-sm btn-link mw-cron-history-btn p-0 ml-2" onclick="showCronHistory('seasonal_triggers', 'Seasonal Triggers')">History</button>
-                            <div class="mw-cron-result mt-2" style="display:none;"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ─── 13. Reconsent Sender ───────────────────────────── -->
-            <div class="col mb-4">
-                <div class="card mw-cron-card h-100" data-cron-key="reconsent_sender">
-                    <div class="card-header mw-cron-card-header">
-                        <div class="d-flex align-items-center justify-content-between w-100">
-                            <h6 class="mw-cron-card-title mb-0">Reconsent Sender</h6>
-                            <div class="d-flex align-items-center">
-                                <span class="mw-cron-status-dot mr-2" title="Loading…"></span>
-                                <span class="badge mw-badge-marketing">Marketing</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="card-body d-flex flex-column">
-                        <div class="mw-cron-schedule mb-2">
-                            <i data-feather="clock" class="mw-cron-schedule-icon"></i>
-                            <span class="mw-cron-schedule-human">Daily at 9 AM</span>
-                            <code class="mw-cron-schedule-expr">0 9 * * *</code>
-                        </div>
-                        <p class="mw-cron-desc">Send up to 10 opt-in/reconsent emails per run from approved queue entries. Used for Jobber contact re-consent campaign.</p>
-                        <div class="mw-cron-command-wrap mb-3">
-                            <code class="mw-cron-command" id="cmd-13">/usr/local/bin/php /home/mowology/public_html/crm/cron/reconsent_sender.php</code>
-                            <button class="mw-cron-copy-btn" onclick="copyCronCommand(this, document.getElementById('cmd-13').textContent)" title="Copy to clipboard">
-                                <i data-feather="clipboard" style="width:13px;height:13px;"></i>
-                            </button>
-                        </div>
-                        <div class="mw-cron-last-run small mb-1">
-                            <i data-feather="clock" style="width:12px;height:12px;"></i>
-                            Last run: <span class="mw-cron-ran-at text-muted"><em>Loading&hellip;</em></span>
-                        </div>
-                        <div class="mw-cron-last-summary small text-muted mb-3" style="display:none;"></div>
-                        <div class="mt-auto">
-                            <button class="btn btn-sm mw-cron-run-btn" onclick="runCron(this, '/crm/cron/reconsent_sender.php')">
-                                <i data-feather="play" style="width:13px;height:13px;"></i> Run Now
-                            </button>
-                            <button class="btn btn-sm btn-link mw-cron-history-btn p-0 ml-2" onclick="showCronHistory('reconsent_sender', 'Reconsent Sender')">History</button>
-                            <div class="mw-cron-result mt-2" style="display:none;"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ─── 14. Social Post Publisher ─────────────────────── -->
-            <div class="col mb-4">
-                <div class="card mw-cron-card h-100" data-cron-key="social_publisher">
-                    <div class="card-header mw-cron-card-header">
-                        <div class="d-flex align-items-center justify-content-between w-100">
-                            <h6 class="mw-cron-card-title mb-0">Social Post Publisher</h6>
-                            <div class="d-flex align-items-center">
-                                <span class="mw-cron-status-dot mr-2" title="Loading…"></span>
-                                <span class="badge mw-badge-social">Social</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="card-body d-flex flex-column">
-                        <div class="mw-cron-schedule mb-2">
-                            <i data-feather="clock" class="mw-cron-schedule-icon"></i>
-                            <span class="mw-cron-schedule-human">Every 5 minutes</span>
-                            <code class="mw-cron-schedule-expr">*/5 * * * *</code>
-                        </div>
-                        <p class="mw-cron-desc">Publish due items from social_queue to Google Business and Meta. Max 10 posts per run with exponential backoff retry. Process lock prevents overlaps.</p>
-                        <div class="mw-cron-command-wrap mb-3">
-                            <code class="mw-cron-command" id="cmd-14">/usr/local/bin/php /home/mowology/public_html/app/Modules/Social/Cron/social_publisher.php</code>
-                            <button class="mw-cron-copy-btn" onclick="copyCronCommand(this, document.getElementById('cmd-14').textContent)" title="Copy to clipboard">
-                                <i data-feather="clipboard" style="width:13px;height:13px;"></i>
-                            </button>
-                        </div>
-                        <div class="mw-cron-last-run small mb-1">
-                            <i data-feather="clock" style="width:12px;height:12px;"></i>
-                            Last run: <span class="mw-cron-ran-at text-muted"><em>Loading&hellip;</em></span>
-                        </div>
-                        <div class="mw-cron-last-summary small text-muted mb-3" style="display:none;"></div>
-                        <div class="mt-auto">
-                            <button class="btn btn-sm mw-cron-run-btn" onclick="runCron(this, '/crm/cron/social_publisher.php')">
-                                <i data-feather="play" style="width:13px;height:13px;"></i> Run Now
-                            </button>
-                            <button class="btn btn-sm btn-link mw-cron-history-btn p-0 ml-2" onclick="showCronHistory('social_publisher', 'Social Post Publisher')">History</button>
-                            <div class="mw-cron-result mt-2" style="display:none;"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ─── 15. CMS Schedule Publish ──────────────────────── -->
-            <div class="col mb-4">
-                <div class="card mw-cron-card h-100" data-cron-key="cms_schedule_publish">
-                    <div class="card-header mw-cron-card-header">
-                        <div class="d-flex align-items-center justify-content-between w-100">
-                            <h6 class="mw-cron-card-title mb-0">CMS Schedule Publish</h6>
-                            <div class="d-flex align-items-center">
-                                <span class="mw-cron-status-dot mr-2" title="Loading…"></span>
-                                <span class="badge mw-badge-cms">CMS</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="card-body d-flex flex-column">
-                        <div class="mw-cron-schedule mb-2">
-                            <i data-feather="clock" class="mw-cron-schedule-icon"></i>
-                            <span class="mw-cron-schedule-human">Every minute</span>
-                            <code class="mw-cron-schedule-expr">* * * * *</code>
-                        </div>
-                        <p class="mw-cron-desc">Auto-publish draft pages where publish_at &le; NOW(). Auto-archive published pages where unpublish_at &le; NOW(). Invalidates HTML cache.</p>
-                        <div class="mw-cron-command-wrap mb-3">
-                            <code class="mw-cron-command" id="cmd-15">/usr/local/bin/php /home/mowology/public_html/app/Modules/CMS/Cron/cms_schedule_publish.php</code>
-                            <button class="mw-cron-copy-btn" onclick="copyCronCommand(this, document.getElementById('cmd-15').textContent)" title="Copy to clipboard">
-                                <i data-feather="clipboard" style="width:13px;height:13px;"></i>
-                            </button>
-                        </div>
-                        <div class="mw-cron-last-run small mb-1">
-                            <i data-feather="clock" style="width:12px;height:12px;"></i>
-                            Last run: <span class="mw-cron-ran-at text-muted"><em>Loading&hellip;</em></span>
-                        </div>
-                        <div class="mw-cron-last-summary small text-muted mb-3" style="display:none;"></div>
-                        <div class="mt-auto">
-                            <button class="btn btn-sm mw-cron-run-btn" onclick="runCron(this, '/crm/cron/cms-schedule-publish.php')">
-                                <i data-feather="play" style="width:13px;height:13px;"></i> Run Now
-                            </button>
-                            <button class="btn btn-sm btn-link mw-cron-history-btn p-0 ml-2" onclick="showCronHistory('cms_schedule_publish', 'CMS Schedule Publish')">History</button>
-                            <div class="mw-cron-result mt-2" style="display:none;"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ─── 16. CMS SEO Recalc ─────────────────────────────── -->
-            <div class="col mb-4">
-                <div class="card mw-cron-card h-100" data-cron-key="cms_seo_recalc">
-                    <div class="card-header mw-cron-card-header">
-                        <div class="d-flex align-items-center justify-content-between w-100">
-                            <h6 class="mw-cron-card-title mb-0">CMS SEO Recalc</h6>
-                            <div class="d-flex align-items-center">
-                                <span class="mw-cron-status-dot mr-2" title="Loading…"></span>
-                                <span class="badge mw-badge-cms">CMS</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="card-body d-flex flex-column">
-                        <div class="mw-cron-schedule mb-2">
-                            <i data-feather="clock" class="mw-cron-schedule-icon"></i>
-                            <span class="mw-cron-schedule-human">Daily at 3 AM</span>
-                            <code class="mw-cron-schedule-expr">0 3 * * *</code>
-                        </div>
-                        <p class="mw-cron-desc">Recalculate seo_score for all CMS pages via cms_getPageCompletionScore(). Useful after bulk edits or imports.</p>
-                        <div class="mw-cron-command-wrap mb-3">
-                            <code class="mw-cron-command" id="cmd-16">/usr/local/bin/php /home/mowology/public_html/app/Modules/CMS/Cron/cms_seo_recalc.php</code>
-                            <button class="mw-cron-copy-btn" onclick="copyCronCommand(this, document.getElementById('cmd-16').textContent)" title="Copy to clipboard">
-                                <i data-feather="clipboard" style="width:13px;height:13px;"></i>
-                            </button>
-                        </div>
-                        <div class="mw-cron-last-run small mb-1">
-                            <i data-feather="clock" style="width:12px;height:12px;"></i>
-                            Last run: <span class="mw-cron-ran-at text-muted"><em>Loading&hellip;</em></span>
-                        </div>
-                        <div class="mw-cron-last-summary small text-muted mb-3" style="display:none;"></div>
-                        <div class="mt-auto">
-                            <button class="btn btn-sm mw-cron-run-btn" onclick="runCron(this, '/crm/cron/cms-seo-recalc.php')">
-                                <i data-feather="play" style="width:13px;height:13px;"></i> Run Now
-                            </button>
-                            <button class="btn btn-sm btn-link mw-cron-history-btn p-0 ml-2" onclick="showCronHistory('cms_seo_recalc', 'CMS SEO Recalc')">History</button>
-                            <div class="mw-cron-result mt-2" style="display:none;"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ─── 17. Accounting Ledger Sync ────────────────────── -->
-            <div class="col mb-4">
-                <div class="card mw-cron-card h-100" data-cron-key="sync_ledger">
-                    <div class="card-header mw-cron-card-header">
-                        <div class="d-flex align-items-center justify-content-between w-100">
-                            <h6 class="mw-cron-card-title mb-0">Accounting Ledger Sync</h6>
-                            <div class="d-flex align-items-center">
-                                <span class="mw-cron-status-dot mr-2" title="Loading…"></span>
-                                <span class="badge mw-badge-accounting">Accounting</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="card-body d-flex flex-column">
-                        <div class="mw-cron-schedule mb-2">
-                            <i data-feather="clock" class="mw-cron-schedule-icon"></i>
-                            <span class="mw-cron-schedule-human">Daily at 2 AM</span>
-                            <code class="mw-cron-schedule-expr">0 2 * * *</code>
-                        </div>
-                        <p class="mw-cron-desc">Pull new paid invoices and expenses into accounting_transactions. Then run AlertEngine to refresh financial intelligence alerts.</p>
-                        <div class="mw-cron-command-wrap mb-3">
-                            <code class="mw-cron-command" id="cmd-17">/usr/local/bin/php /home/mowology/public_html/app/Modules/Accounting/Cron/sync-ledger.php</code>
-                            <button class="mw-cron-copy-btn" onclick="copyCronCommand(this, document.getElementById('cmd-17').textContent)" title="Copy to clipboard">
-                                <i data-feather="clipboard" style="width:13px;height:13px;"></i>
-                            </button>
-                        </div>
-                        <div class="mw-cron-last-run small mb-1">
-                            <i data-feather="clock" style="width:12px;height:12px;"></i>
-                            Last run: <span class="mw-cron-ran-at text-muted"><em>Loading&hellip;</em></span>
-                        </div>
-                        <div class="mw-cron-last-summary small text-muted mb-3" style="display:none;"></div>
-                        <div class="mt-auto">
-                            <button class="btn btn-sm mw-cron-run-btn" onclick="runCron(this, '/crm/cron/sync-ledger.php')">
-                                <i data-feather="play" style="width:13px;height:13px;"></i> Run Now
-                            </button>
-                            <button class="btn btn-sm btn-link mw-cron-history-btn p-0 ml-2" onclick="showCronHistory('sync_ledger', 'Accounting Ledger Sync')">History</button>
-                            <div class="mw-cron-result mt-2" style="display:none;"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ─── 18. Contract Auto-Renewal ─────────────────────── -->
-            <div class="col mb-4">
-                <div class="card mw-cron-card h-100" data-cron-key="contract_renewal">
-                    <div class="card-header mw-cron-card-header">
-                        <div class="d-flex align-items-center justify-content-between w-100">
-                            <h6 class="mw-cron-card-title mb-0">Contract Auto-Renewal</h6>
-                            <div class="d-flex align-items-center">
-                                <span class="mw-cron-status-dot mr-2" title="Loading…"></span>
-                                <span class="badge mw-badge-contracts">Contracts</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="card-body d-flex flex-column">
-                        <div class="mw-cron-schedule mb-2">
-                            <i data-feather="clock" class="mw-cron-schedule-icon"></i>
-                            <span class="mw-cron-schedule-human">Daily at 1 AM</span>
-                            <code class="mw-cron-schedule-expr">0 1 * * *</code>
-                        </div>
-                        <p class="mw-cron-desc">Auto-renew active contracts with auto_renew=1: apply increase %, push dates forward, recalculate plan pricing. Expire non-renewing contracts past end_date.</p>
-                        <div class="mw-cron-command-wrap mb-3">
-                            <code class="mw-cron-command" id="cmd-18">/usr/local/bin/php /home/mowology/public_html/app/Modules/Contracts/Cron/contract_renewal.php</code>
-                            <button class="mw-cron-copy-btn" onclick="copyCronCommand(this, document.getElementById('cmd-18').textContent)" title="Copy to clipboard">
-                                <i data-feather="clipboard" style="width:13px;height:13px;"></i>
-                            </button>
-                        </div>
-                        <div class="mw-cron-last-run small mb-1">
-                            <i data-feather="clock" style="width:12px;height:12px;"></i>
-                            Last run: <span class="mw-cron-ran-at text-muted"><em>Loading&hellip;</em></span>
-                        </div>
-                        <div class="mw-cron-last-summary small text-muted mb-3" style="display:none;"></div>
-                        <div class="mt-auto">
-                            <button class="btn btn-sm mw-cron-run-btn" onclick="runCron(this, '/crm/cron/contract_renewal.php')">
-                                <i data-feather="play" style="width:13px;height:13px;"></i> Run Now
-                            </button>
-                            <button class="btn btn-sm btn-link mw-cron-history-btn p-0 ml-2" onclick="showCronHistory('contract_renewal', 'Contract Auto-Renewal')">History</button>
-                            <div class="mw-cron-result mt-2" style="display:none;"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ─── 19. Contract Monthly Billing ────────────────────── -->
-            <div class="col mb-4">
-                <div class="card mw-cron-card h-100" data-cron-key="contract_billing">
-                    <div class="card-header mw-cron-card-header">
-                        <div class="d-flex align-items-center justify-content-between w-100">
-                            <h6 class="mw-cron-card-title mb-0">Contract Monthly Billing</h6>
-                            <div class="d-flex align-items-center">
-                                <span class="mw-cron-status-dot mr-2" title="Loading…"></span>
-                                <span class="badge mw-badge-contracts">Contracts</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="card-body d-flex flex-column">
-                        <div class="mw-cron-schedule mb-2">
-                            <i data-feather="clock" class="mw-cron-schedule-icon"></i>
-                            <span class="mw-cron-schedule-human">1st of month at 6 AM</span>
-                            <code class="mw-cron-schedule-expr">0 6 1 * *</code>
-                        </div>
-                        <p class="mw-cron-desc">Generate and email invoices for all active monthly contracts. Idempotent — skips any contract already invoiced this month. 5% GST applied, due end of month.</p>
-                        <div class="mw-cron-command-wrap mb-3">
-                            <code class="mw-cron-command" id="cmd-billing">/usr/local/bin/php /home/mowology/public_html/app/Modules/Contracts/Cron/contract_billing.php</code>
-                            <button class="mw-cron-copy-btn" onclick="copyCronCommand(this, document.getElementById('cmd-billing').textContent)" title="Copy to clipboard">
-                                <i data-feather="clipboard" style="width:13px;height:13px;"></i>
-                            </button>
-                        </div>
-                        <div class="mw-cron-last-run small mb-1">
-                            <i data-feather="clock" style="width:12px;height:12px;"></i>
-                            Last run: <span class="mw-cron-ran-at text-muted"><em>Loading&hellip;</em></span>
-                        </div>
-                        <div class="mw-cron-last-summary small text-muted mb-3" style="display:none;"></div>
-                        <div class="mt-auto">
-                            <button class="btn btn-sm mw-cron-run-btn" onclick="runCron(this, '/crm/cron/contract_billing.php')">
-                                <i data-feather="play" style="width:13px;height:13px;"></i> Run Now
-                            </button>
-                            <button class="btn btn-sm btn-link mw-cron-history-btn p-0 ml-2" onclick="showCronHistory('contract_billing', 'Contract Monthly Billing')">History</button>
-                            <div class="mw-cron-result mt-2" style="display:none;"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ─── 20. Estimating Feedback ───────────────────────── -->
-            <div class="col mb-4">
-                <div class="card mw-cron-card h-100" data-cron-key="estimating_feedback">
-                    <div class="card-header mw-cron-card-header">
-                        <div class="d-flex align-items-center justify-content-between w-100">
-                            <h6 class="mw-cron-card-title mb-0">Estimating Feedback</h6>
-                            <div class="d-flex align-items-center">
-                                <span class="mw-cron-status-dot mr-2" title="Loading…"></span>
-                                <span class="badge mw-badge-core">Core</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="card-body d-flex flex-column">
-                        <div class="mw-cron-schedule mb-2">
-                            <i data-feather="clock" class="mw-cron-schedule-icon"></i>
-                            <span class="mw-cron-schedule-human">Weekly &mdash; Mon at 3 AM</span>
-                            <code class="mw-cron-schedule-expr">0 3 * * 1</code>
-                        </div>
-                        <p class="mw-cron-desc">Compare quoted material costs vs actual expenses for active job plans. Writes to quote_accuracy_log and vendor_price_index for profitability dashboard.</p>
-                        <div class="mw-cron-command-wrap mb-3">
-                            <code class="mw-cron-command" id="cmd-19">/usr/local/bin/php /home/mowology/public_html/crm/cron/estimating_feedback.php</code>
-                            <button class="mw-cron-copy-btn" onclick="copyCronCommand(this, document.getElementById('cmd-19').textContent)" title="Copy to clipboard">
-                                <i data-feather="clipboard" style="width:13px;height:13px;"></i>
-                            </button>
-                        </div>
-                        <div class="mw-cron-last-run small mb-1">
-                            <i data-feather="clock" style="width:12px;height:12px;"></i>
-                            Last run: <span class="mw-cron-ran-at text-muted"><em>Loading&hellip;</em></span>
-                        </div>
-                        <div class="mw-cron-last-summary small text-muted mb-3" style="display:none;"></div>
-                        <div class="mt-auto">
-                            <button class="btn btn-sm mw-cron-run-btn" onclick="runCron(this, '/crm/cron/estimating_feedback.php')">
-                                <i data-feather="play" style="width:13px;height:13px;"></i> Run Now
-                            </button>
-                            <button class="btn btn-sm btn-link mw-cron-history-btn p-0 ml-2" onclick="showCronHistory('estimating_feedback', 'Estimating Feedback')">History</button>
-                            <div class="mw-cron-result mt-2" style="display:none;"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
+        <?php endforeach; ?>
         </div><!-- /.row (cron cards) -->
     </div><!-- /#tab-crons -->
 
