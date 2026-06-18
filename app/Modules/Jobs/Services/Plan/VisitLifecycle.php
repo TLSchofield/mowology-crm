@@ -208,24 +208,15 @@ function getPlanDetails(int $planId): ?array {
 
     if (!$plan) return null;
 
-    // Resolve the display name of the client (who the work is billed to).
-    // Mirrors the live invoice precedence (see invoices/create.php + migration
-    // 1064): billing entity [C/O firm] → company → individual contact name.
-    // Uses only columns the production invoice path already relies on; the
-    // Phase-0 BillToResolver is NOT used here because its query references
-    // p.billing_company_id, a column production does not have.
-    $entity   = trim((string)($plan['billing_entity_name'] ?? ''));
-    $company  = trim((string)($plan['company_name'] ?? ''));
-    $pmFirm   = trim((string)($plan['pm_firm_name'] ?? ''));
-    $contact  = trim(($plan['first_name'] ?? '') . ' ' . ($plan['last_name'] ?? ''));
-    if ($entity !== '') {
-        $coOf = $pmFirm ?: $company;
-        $plan['client_display_name'] = $coOf !== '' ? ($entity . ' C/O ' . $coOf) : $entity;
-    } elseif ($company !== '') {
-        $plan['client_display_name'] = $company;
-    } else {
-        $plan['client_display_name'] = $contact !== '' ? $contact : '';
-    }
+    // Resolve the display name of the client via the canonical BillToResolver.
+    require_once APP_ROOT . '/Modules/Clients/Services/BillToResolver.php';
+    $plan['client_display_name'] = (new BillToResolver(getDB()))->composeBillToName([
+        'property_billing_entity' => $plan['billing_entity_name'] ?? null,
+        'pm_firm_name'            => $plan['pm_firm_name'] ?? null,
+        'company_name'            => $plan['company_name'] ?? null,
+        'contact_first'           => $plan['first_name'] ?? null,
+        'contact_last'            => $plan['last_name'] ?? null,
+    ]) ?? '';
 
     // Compute stats
     $statsStmt = $db->prepare("
