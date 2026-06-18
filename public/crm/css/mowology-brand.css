@@ -35983,3 +35983,25 @@ span.mw-icon-box--missing {
     .mw-et-actions { width: 100%; flex-wrap: wrap; }
     .mw-et-actions .mw-et-inv, .mw-et-actions .mw-et-amt { flex: 1 1 auto; width: auto; }
 }
+
+/* Dashboard banner: pending e-Transfers awaiting recording (links to Invoices panel) */
+.mw-et-dash-alert {
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+    padding: .7rem 1rem;
+    margin-bottom: 1.25rem;
+    border: 1px solid var(--mw-lime, #7FD858);
+    border-left: 4px solid var(--mw-green, #2D8659);
+    border-radius: 8px;
+    background: var(--mw-light, #E8F3F0);
+    color: var(--mw-forest, #0D3B2E);
+    font-size: .95rem;
+    text-decoration: none;
+    transition: background .15s ease;
+}
+.mw-et-dash-alert:hover { background: #ddeee7; color: var(--mw-forest, #0D3B2E); text-decoration: none; }
+.mw-et-dash-alert svg { width: 18px; height: 18px; flex: 0 0 auto; }
+.mw-et-dash-alert span { flex: 1 1 auto; }
+.mw-et-dash-alert strong { color: var(--mw-dark, #1A5F4A); }
+.mw-et-dash-alert .mw-et-dash-arrow { opacity: .6; }

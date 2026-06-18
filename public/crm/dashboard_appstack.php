@@ -182,6 +182,30 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
             </div>
           </div>
 
+          <?php
+          // Pending e-Transfers awaiting recording (billing users only — links to
+          // the record/dismiss panel on Invoices, which is the single place to act).
+          $pendingEtransferCount = 0;
+          if (defined('APP_ROOT') && function_exists('userHasPermission') && userHasPermission('billing.view')) {
+              $__etSvc = APP_ROOT . '/Modules/Accounting/Services/EtransferInboxService.php';
+              if (is_file($__etSvc)) {
+                  require_once $__etSvc;
+                  try {
+                      $pendingEtransferCount = (new EtransferInboxService(getDB()))->countPending();
+                  } catch (\Throwable $__e) {
+                      $pendingEtransferCount = 0;
+                  }
+              }
+          }
+          ?>
+          <?php if ($pendingEtransferCount > 0): ?>
+          <a href="/crm/invoices/index.php#etransfers" class="mw-et-dash-alert">
+            <i data-feather="inbox"></i>
+            <span><strong><?php echo (int)$pendingEtransferCount; ?></strong> e-Transfer<?php echo $pendingEtransferCount === 1 ? '' : 's'; ?> received &mdash; record <?php echo $pendingEtransferCount === 1 ? 'it' : 'them'; ?></span>
+            <i data-feather="arrow-right" class="mw-et-dash-arrow"></i>
+          </a>
+          <?php endif; ?>
+
           <!-- Daily Operations Strip: Weather + Profitability -->
           <?php
           $opsStartDate = new DateTime('-3 days');
