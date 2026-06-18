@@ -773,38 +773,29 @@ $activePage = 'quotes';
                               // For commercial properties, show company. For residential, show contact name as primary
                               $isResidential = $quote['property_type'] === 'residential';
 
-                              // Contact resolution priority:
-                              // 1. Quote request contact (from original request)
-                              // 2. Company primary contact
-                              // 3. Property site contact (from properties.site_contact_id)
-                              $contactName = trim(($quote['qr_first_name'] ?? '') . ' ' . ($quote['qr_last_name'] ?? ''));
-                              $contactEmail = $quote['qr_email'] ?? null;
-                              $contactPhone = $quote['qr_phone'] ?? null;
+                              // Name resolution lives in QuoteService::resolveDisplayName():
+                              // individual person first (qr → company contact → site contact),
+                              // then the strata/company bill-to entity ("Entity C/O Company"),
+                              // then 'N/A'. Keeps residential quotes unchanged while fixing the
+                              // blank name on company/strata quotes with no linked person.
+                              $contactName = $svc->resolveDisplayName($quote);
 
-                              // Fall back to company contact if no quote request contact
-                              if (!$contactName) {
-                                  $contactName = trim(($quote['contact_first'] ?? '') . ' ' . ($quote['contact_last'] ?? ''));
-                                  $contactEmail = $quote['contact_email'] ?? null;
-                                  $contactPhone = $quote['contact_phone'] ?? null;
-                              }
-
-                              // Fall back to property site contact
-                              if (!$contactName) {
-                                  $contactName = trim(($quote['prop_contact_first'] ?? '') . ' ' . ($quote['prop_contact_last'] ?? ''));
-                                  $contactEmail = $quote['prop_contact_email'] ?? null;
-                                  $contactPhone = $quote['prop_contact_phone'] ?? null;
-                              }
-
-                              // Final fallback
-                              if (!$contactName) {
-                                  $contactName = 'N/A';
-                              }
-                              if (!$contactEmail) {
-                                  $contactEmail = $quote['billing_email'] ?? 'N/A';
-                              }
-                              if (!$contactPhone) {
-                                  $contactPhone = $quote['billing_phone'] ?? 'N/A';
-                              }
+                              // Email/phone: first non-empty across the same contact ladder,
+                              // then company billing fields.
+                              $firstNonEmpty = static function (array $vals) {
+                                  foreach ($vals as $v) {
+                                      if (trim((string)$v) !== '') { return $v; }
+                                  }
+                                  return 'N/A';
+                              };
+                              $contactEmail = $firstNonEmpty([
+                                  $quote['qr_email'] ?? '', $quote['contact_email'] ?? '',
+                                  $quote['prop_contact_email'] ?? '', $quote['billing_email'] ?? '',
+                              ]);
+                              $contactPhone = $firstNonEmpty([
+                                  $quote['qr_phone'] ?? '', $quote['contact_phone'] ?? '',
+                                  $quote['prop_contact_phone'] ?? '', $quote['billing_phone'] ?? '',
+                              ]);
                           ?>
                           <?php if (!$isResidential && $quote['company_name']): ?>
                           <div class="mw-detail-row">

@@ -56,6 +56,7 @@ class QuoteService
                 p.postal_code   AS property_postal,
                 p.property_type,
                 p.site_contact_id,
+                NULLIF(p.billing_entity_name, '') AS property_billing_entity,
                 c.company_name,
                 c.billing_email,
                 c.billing_phone,
@@ -427,6 +428,42 @@ class QuoteService
             'first_name' => $firstName ?: explode(' ', $name)[0],
             'contact_id' => $contactId,
         ];
+    }
+
+    /**
+     * Resolve the display name shown on the quote ("who is this for").
+     *
+     * Precedence:
+     *   1. Individual person — quote-request contact → company primary contact
+     *      → property site contact. An actual person always wins so residential
+     *      quotes are unaffected.
+     *   2. No person → the strata/company bill-to entity, composed by
+     *      BillToResolver as "Entity C/O Company" (matches the list view and the
+     *      invoice header). This is what fixes the blank "N/A" on company/strata
+     *      quotes that have no linked individual.
+     *   3. Nothing resolvable → 'N/A'.
+     *
+     * Requires the quote row from getWithContact() (provides property_billing_entity).
+     */
+    public function resolveDisplayName(array $quote): string
+    {
+        $person = trim(($quote['qr_first_name'] ?? '') . ' ' . ($quote['qr_last_name'] ?? ''))
+            ?: trim(($quote['contact_first'] ?? '') . ' ' . ($quote['contact_last'] ?? ''))
+            ?: trim(($quote['prop_contact_first'] ?? '') . ' ' . ($quote['prop_contact_last'] ?? ''));
+        if ($person !== '') {
+            return $person;
+        }
+
+        require_once __DIR__ . '/../../Clients/Services/BillToResolver.php';
+        $composed = (new BillToResolver($this->db))->composeBillToName([
+            'property_billing_entity' => $quote['property_billing_entity'] ?? null,
+            'company_name'            => $quote['company_name'] ?? null,
+            // contact fields intentionally blank — the person ladder ran above
+            'contact_first'           => '',
+            'contact_last'            => '',
+        ]);
+
+        return $composed ?: 'N/A';
     }
 
     // ══════════════════════════════════════════════════════════════════════════

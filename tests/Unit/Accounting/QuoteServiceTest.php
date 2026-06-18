@@ -165,6 +165,66 @@ class QuoteServiceTest extends TestCase
         $this->assertNull($result['contact_id']);
     }
 
+    // ── resolveDisplayName() ──────────────────────────────────────────────────
+
+    /** @test */
+    public function resolveDisplayName_prefers_an_individual_person(): void
+    {
+        $quote = [
+            'qr_first_name' => 'Alice', 'qr_last_name' => 'Smith',
+            'contact_first' => 'Bob', 'contact_last' => 'Jones',
+            'prop_contact_first' => null, 'prop_contact_last' => null,
+            'company_name' => 'ACME Strata Mgmt',
+            'property_billing_entity' => 'Strata Plan VR15/40',
+        ];
+
+        // A real person wins over the company/strata entity — residential unaffected.
+        $this->assertSame('Alice Smith', $this->service()->resolveDisplayName($quote));
+    }
+
+    /** @test */
+    public function resolveDisplayName_composes_strata_C_O_company_when_no_person(): void
+    {
+        $quote = [
+            'qr_first_name' => null, 'qr_last_name' => null,
+            'contact_first' => null, 'contact_last' => null,
+            'prop_contact_first' => null, 'prop_contact_last' => null,
+            'company_name' => 'FirstService Residential',
+            'property_billing_entity' => 'Strata Plan VR15/40',
+        ];
+
+        $this->assertSame(
+            'Strata Plan VR15/40 C/O FirstService Residential',
+            $this->service()->resolveDisplayName($quote)
+        );
+    }
+
+    /** @test */
+    public function resolveDisplayName_falls_back_to_company_name(): void
+    {
+        $quote = [
+            'qr_first_name' => null, 'qr_last_name' => null,
+            'contact_first' => null, 'contact_last' => null,
+            'prop_contact_first' => null, 'prop_contact_last' => null,
+            'company_name' => 'ACME Corp',
+            'property_billing_entity' => null,
+        ];
+
+        $this->assertSame('ACME Corp', $this->service()->resolveDisplayName($quote));
+    }
+
+    /** @test */
+    public function resolveDisplayName_returns_na_when_nothing_resolvable(): void
+    {
+        $quote = array_fill_keys([
+            'qr_first_name', 'qr_last_name', 'contact_first', 'contact_last',
+            'prop_contact_first', 'prop_contact_last', 'company_name',
+            'property_billing_entity',
+        ], null);
+
+        $this->assertSame('N/A', $this->service()->resolveDisplayName($quote));
+    }
+
     // ── calculateTotals() ─────────────────────────────────────────────────────
 
     /** @test */
