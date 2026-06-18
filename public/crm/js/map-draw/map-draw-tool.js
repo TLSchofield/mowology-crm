@@ -70,10 +70,18 @@
         }, opts);
 
         this._map            = null;
-        this._drawingManager = null;
         this._geocoder       = null;
         this._ready          = false;
         this._current        = null;  // {overlay, shapeType}
+
+        // Manual drawing state (replaces the removed google.maps.drawing.DrawingManager)
+        this._drawMode    = null;   // 'polygon' | 'polyline' | 'rectangle' | null
+        this._drawVerts   = [];     // committed google.maps.LatLng vertices
+        this._drawPreview = null;   // live in-progress overlay (Polyline or Rectangle)
+        this._closeMarker = null;   // clickable marker on the first vertex (polygon close)
+        this._mapClickL   = null;   // saved map event listeners
+        this._mapDblL     = null;
+        this._mapMoveL    = null;
     }
 
     // ── Lifecycle ──────────────────────────────────────────────────────────────
@@ -87,7 +95,6 @@
 
         if (!el) { this._fail('Map container not found: ' + this._opts.mapContainer); return this; }
         if (typeof google === 'undefined' || !google.maps) { this._fail('Google Maps not loaded'); return this; }
-        if (!google.maps.drawing) { this._fail('Google Maps "drawing" library not loaded'); return this; }
         if (!google.maps.geometry) { this._fail('Google Maps "geometry" library not loaded'); return this; }
 
         var hasCenter = !!(this._opts.center && this._opts.center.lat && this._opts.center.lng);
@@ -107,32 +114,19 @@
 
         this._geocoder = new google.maps.Geocoder();
 
-        this._drawingManager = new google.maps.drawing.DrawingManager({
-            drawingMode:    null,
-            drawingControl: false,
-            polygonOptions: this._shapeStyle(),
-            rectangleOptions: this._shapeStyle(),
-            polylineOptions: {
-                strokeColor: this._opts.polylineColor,
-                strokeWeight: 3,
-                editable: true,
-                draggable: true,
-            },
-        });
-        this._drawingManager.setMap(this._map);
-
+        // Manual drawing listeners. google.maps.drawing.DrawingManager was removed
+        // from the Maps JS API in v3.65, so we build polygons/lines/rectangles by
+        // hand from map clicks. Listeners stay attached and no-op unless a draw
+        // mode is active (_drawMode set by startDraw()).
         var self = this;
-        google.maps.event.addListener(this._drawingManager, 'overlaycomplete', function (event) {
-            if (self._current && self._current.overlay) {
-                self._current.overlay.setMap(null);
-            }
-            self._current = { overlay: event.overlay, shapeType: event.type };
-            self._drawingManager.setDrawingMode(null);
-            self._bindEditListeners(event.overlay, event.type);
-            self._emitDraw();
-            if (typeof self._opts.onComplete === 'function') {
-                self._opts.onComplete(self.getCurrent());
-            }
+        this._mapClickL = google.maps.event.addListener(this._map, 'click', function (e) {
+            self._onDrawClick(e.latLng);
+        });
+        this._mapDblL = google.maps.event.addListener(this._map, 'dblclick', function (e) {
+            if (self._drawMode) self._finishDraw();
+        });
+        this._mapMoveL = google.maps.event.addListener(this._map, 'mousemove', function (e) {
+            self._onDrawMove(e.latLng);
         });
 
         // Optional map-type <select> binding
@@ -170,21 +164,164 @@
     MapDrawTool.prototype.isReady = function () { return this._ready; };
     MapDrawTool.prototype.getMap = function () { return this._map; };
 
-    // ── Drawing ────────────────────────────────────────────────────────────────
+    // ── Drawing (manual — DrawingManager was removed from Maps JS v3.65) ─────────
 
-    /** Start drawing. No-ops until the map + DrawingManager are ready. */
+    /**
+     * Begin drawing. Click the map to add vertices.
+     *   polygon  — click each corner; click the first point or double-click to close (min 3).
+     *   polyline — click each point; double-click to finish (min 2).
+     *   rectangle— click two opposite corners.
+     * No-ops until the map is ready.
+     */
     MapDrawTool.prototype.startDraw = function (type) {
-        if (!this._ready || !this._drawingManager) return false;
-        var overlay = google.maps.drawing.OverlayType;
-        var mode = type === 'rectangle' ? overlay.RECTANGLE
-                 : type === 'polyline'  ? overlay.POLYLINE
-                 : overlay.POLYGON;
-        this._drawingManager.setDrawingMode(mode);
+        if (!this._ready || !this._map) return false;
+        this._resetDrawState();
+        this._drawMode = (type === 'rectangle' || type === 'polyline') ? type : 'polygon';
+        this._map.setOptions({ draggableCursor: 'crosshair', disableDoubleClickZoom: true });
         return true;
     };
 
+    /** Cancel the in-progress draw (does not touch any completed shape). */
     MapDrawTool.prototype.stopDraw = function () {
-        if (this._drawingManager) this._drawingManager.setDrawingMode(null);
+        this._resetDrawState();
+        if (this._map) this._map.setOptions({ draggableCursor: null, disableDoubleClickZoom: false });
+    };
+
+    /** Tear down preview overlays + vertices for the in-progress shape. */
+    MapDrawTool.prototype._resetDrawState = function () {
+        this._drawMode = null;
+        this._drawVerts = [];
+        if (this._drawPreview) { this._drawPreview.setMap(null); this._drawPreview = null; }
+        if (this._closeMarker) { this._closeMarker.setMap(null); this._closeMarker = null; }
+    };
+
+    /** Map click while a draw mode is active — add a vertex / corner. */
+    MapDrawTool.prototype._onDrawClick = function (latLng) {
+        if (!this._drawMode || !latLng) return;
+        var self = this;
+
+        if (this._drawMode === 'rectangle') {
+            this._drawVerts.push(latLng);
+            if (this._drawVerts.length >= 2) { this._finishDraw(); }
+            return;
+        }
+
+        // polygon / polyline
+        this._drawVerts.push(latLng);
+
+        // First vertex of a polygon → drop a clickable "close" marker.
+        if (this._drawMode === 'polygon' && this._drawVerts.length === 1) {
+            this._closeMarker = new google.maps.Marker({
+                position: latLng,
+                map: this._map,
+                title: 'Click to close shape',
+                icon: {
+                    path: google.maps.SymbolPath.CIRCLE,
+                    scale: 6,
+                    fillColor: '#fff',
+                    fillOpacity: 1,
+                    strokeColor: this._opts.polygonStroke,
+                    strokeWeight: 2,
+                },
+            });
+            google.maps.event.addListener(this._closeMarker, 'click', function () {
+                if (self._drawVerts.length >= 3) self._finishDraw();
+            });
+        }
+
+        this._renderDrawPreview(this._drawVerts);
+    };
+
+    /** Map mousemove — rubber-band the preview to the cursor. */
+    MapDrawTool.prototype._onDrawMove = function (latLng) {
+        if (!this._drawMode || !latLng || !this._drawVerts.length) return;
+
+        if (this._drawMode === 'rectangle') {
+            this._renderRectPreview(this._drawVerts[0], latLng);
+            return;
+        }
+        this._renderDrawPreview(this._drawVerts.concat([latLng]));
+    };
+
+    MapDrawTool.prototype._renderDrawPreview = function (verts) {
+        if (!this._drawPreview) {
+            this._drawPreview = new google.maps.Polyline({
+                map: this._map,
+                strokeColor: this._opts.polygonStroke,
+                strokeWeight: 2,
+                strokeOpacity: 0.9,
+                clickable: false,
+            });
+        }
+        this._drawPreview.setPath(verts);
+    };
+
+    MapDrawTool.prototype._renderRectPreview = function (c1, c2) {
+        var bounds = new google.maps.LatLngBounds();
+        bounds.extend(c1); bounds.extend(c2);
+        if (!this._drawPreview || !this._drawPreview.setBounds) {
+            if (this._drawPreview) this._drawPreview.setMap(null);
+            this._drawPreview = new google.maps.Rectangle({
+                map: this._map,
+                fillColor: this._opts.polygonColor,
+                fillOpacity: 0.2,
+                strokeColor: this._opts.polygonStroke,
+                strokeWeight: 2,
+                clickable: false,
+            });
+        }
+        this._drawPreview.setBounds(bounds);
+    };
+
+    /** Build the final editable shape, mirror the old overlaycomplete behaviour. */
+    MapDrawTool.prototype._finishDraw = function () {
+        var mode = this._drawMode;
+        var verts = this._dedupeVerts(this._drawVerts);
+        var minPts = mode === 'polyline' ? 2 : (mode === 'rectangle' ? 2 : 3);
+
+        // Tear down preview/markers but keep the collected vertices for building.
+        this.stopDraw();
+
+        if (verts.length < minPts) return;
+
+        // Replace any previously-completed scratch shape (matches old DrawingManager).
+        if (this._current && this._current.overlay) this._current.overlay.setMap(null);
+
+        var overlay, shapeType;
+        if (mode === 'polyline') {
+            shapeType = 'polyline';
+            overlay = new google.maps.Polyline({
+                path: verts, map: this._map,
+                strokeColor: this._opts.polylineColor, strokeWeight: 3,
+                editable: true, draggable: true,
+            });
+        } else if (mode === 'rectangle') {
+            shapeType = 'rectangle';
+            var b = new google.maps.LatLngBounds();
+            b.extend(verts[0]); b.extend(verts[1]);
+            overlay = new google.maps.Rectangle(Object.assign(this._shapeStyle(), { bounds: b, map: this._map }));
+        } else {
+            shapeType = 'polygon';
+            overlay = new google.maps.Polygon(Object.assign(this._shapeStyle(), { paths: verts, map: this._map }));
+        }
+
+        this._current = { overlay: overlay, shapeType: shapeType };
+        this._bindEditListeners(overlay, shapeType);
+        this._emitDraw();
+        if (typeof this._opts.onComplete === 'function') {
+            this._opts.onComplete(this.getCurrent());
+        }
+    };
+
+    /** Drop consecutive vertices within ~0.5m of each other (double-click dupes). */
+    MapDrawTool.prototype._dedupeVerts = function (verts) {
+        var out = [];
+        for (var i = 0; i < verts.length; i++) {
+            var prev = out[out.length - 1];
+            if (prev && google.maps.geometry.spherical.computeDistanceBetween(prev, verts[i]) < 0.5) continue;
+            out.push(verts[i]);
+        }
+        return out;
     };
 
     /** Remove the in-progress / just-completed shape. */

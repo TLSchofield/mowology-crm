@@ -62,8 +62,9 @@ if (!empty($_GET['return_to'])) {
 $pageTitle  = 'Zone Editor — ' . htmlspecialchars($property['address'] ?? 'Property');
 $activePage = 'jobs';
 $mapsApiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
-$extraHead  = '<script src="/crm/js/map-draw/map-draw-tool.js"></script>'
-            . '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($mapsApiKey, ENT_QUOTES, 'UTF-8') . '&libraries=drawing,geometry&callback=initZoneEditor" async defer></script>';
+$mdtVer     = @filemtime(dirname(__DIR__) . '/js/map-draw/map-draw-tool.js') ?: '1';
+$extraHead  = '<script src="/crm/js/map-draw/map-draw-tool.js?v=' . $mdtVer . '"></script>'
+            . '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($mapsApiKey, ENT_QUOTES, 'UTF-8') . '&libraries=geometry&callback=initZoneEditor" async defer></script>';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 

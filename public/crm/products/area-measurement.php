@@ -104,8 +104,9 @@ $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
 
 $pageTitle = 'Area Measurement';
 $activePage = 'products';
-$extraHead = '<script src="/crm/js/map-draw/map-draw-tool.js"></script>'
-           . '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($apiKey) . '&libraries=drawing,geometry&callback=initMap" async defer></script>';
+$mdtVer    = @filemtime(dirname(__DIR__) . '/js/map-draw/map-draw-tool.js') ?: '1';
+$extraHead = '<script src="/crm/js/map-draw/map-draw-tool.js?v=' . $mdtVer . '"></script>'
+           . '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($apiKey) . '&libraries=geometry&callback=initMap" async defer></script>';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
