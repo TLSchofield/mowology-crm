@@ -43,7 +43,7 @@ the same aggregator.
 | `PlanHelpers.php` | `planTimeStringToMinutes`, `planMinutesToTimeString`, `isVisitHorizonCurrent`, `generatePlanNumber`, `generateVisitNumber` |
 | `PlanCrud.php` | `createJobPlan`, `createPlanFromQuote` |
 | `PlanLineItems.php` | `addPlanLineItems`, `getPlanLineItems`, `updatePlanTotalFromItems`, `getNextScheduledVisitDate`, `getQuoteLineItemsWithStatus`, `getPlansForQuote` |
-| `VisitGeneration.php` | `generateVisits`, `getActiveHolidays`, `findBumpDate`, `parseDowList`, `calculateRecurrenceDates` |
+| `VisitGeneration.php` | `generateVisits`, `getActiveHolidays`, `findBumpDate`, `parseDowList`, `calculateRecurrenceDates` — **facade**: these delegate to `VisitGenerationService` (Phase 2). |
 | `CalendarStops.php` | `ensureCalendarStop`, `getCalendarStops` |
 | `VisitLifecycle.php` | `updateVisitStatus`, `getVisitWithPlan`, `getPlanDetails`, `getPlanVisits`, `pausePlan`, `resumePlan`, `propagatePlanChanges`, `skipVisitDate`, `moveVisit`, `canInvoiceVisit` |
 | `PlanDashboard.php` | `getPlanDashboardStats`, `getRecentPlansOnProperty`, `resolveTrackingRequirementsForPlan`, `resolveTrackingRequirements` |
@@ -90,5 +90,20 @@ any `Plan/*.php` or the aggregator, deploy via `lftp` to
 `/app/Modules/Jobs/Services/` and hit `/crm/api/opcache-reset.php` (OPcache
 `validate_timestamps` is off on production).
 
+## Phase 2 — service extraction (in progress)
+
+Each `Plan/*.php` domain's logic is being moved into a real service class behind
+the unchanged global functions (facade), one domain at a time, so the logic can
+be unit-tested. First done:
+
+| Service | Backs | Tests |
+|---------|-------|-------|
+| `Services/VisitGenerationService.php` | `Plan/VisitGeneration.php` globals | `tests/Unit/Jobs/VisitGenerationServiceTest.php` (pure recurrence math) |
+
+The pure methods (`parseDowList`, `findBumpDate`, `calculateRecurrenceDates`) take
+explicit dates — no DB, no clock — so they are fully deterministic and unit-tested.
+`generateVisits`/`getActiveHolidays` still touch the DB.
+
 ---
 _Last decomposed 2026-06-18: 3,200-line monolith → aggregator + 11 `Plan/` files._
+_Phase 2 began 2026-06-18 with VisitGenerationService._

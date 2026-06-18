@@ -43,5 +43,8 @@ require_once __DIR__ . '/../app/Modules/Team/Services/GeofenceService.php';
 require_once __DIR__ . '/../app/Modules/Tracking/Services/TrackimoService.php';
 require_once __DIR__ . '/../app/Modules/Tracking/Services/TruckLocationService.php';
 
+// Jobs (plan/visit engine — Phase 2 extraction; pure recurrence math is unit-tested)
+require_once __DIR__ . '/../app/Modules/Jobs/Services/VisitGenerationService.php';
+
 // Integration test base class (needed when --testsuite Integration is run)
 require_once __DIR__ . '/Integration/ApiTestCase.php';

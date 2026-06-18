@@ -31,13 +31,16 @@ app/Modules/Jobs/
 | Service | Purpose |
 |---------|---------|
 | `PlanFunctions.php` + `Plan/*.php` | Plan → visit → calendar-stop engine. Procedural global functions. **See [schedule.md](schedule.md).** |
+| `VisitGenerationService.php` | Recurrence/holiday math + visit materialisation. Phase 2 extraction — the `Plan/VisitGeneration.php` globals delegate here; pure recurrence math is unit-tested. |
 | `ClusterService.php` / `ClusterDetectionService.php` | Group nearby stops into geographic clusters for route building. |
 | `VisitCompletionService.php` | Completion-side logic for finished visits. |
 
 > Per CLAUDE.md rule 10, new business logic belongs in a service class, not in
-> page/API files. The Plan engine predates that rule and stays procedural for
-> now; the 2026-06-18 split into `Plan/*.php` was the first step toward
-> extractable, testable services (facade-over-globals is the deferred Phase 2).
+> page/API files. The Plan engine predates that rule and stays procedural; the
+> 2026-06-18 split into `Plan/*.php` was step one. **Phase 2** (in progress) moves
+> each domain's logic into a real service class behind the unchanged global
+> functions (facade) so it can be unit-tested. `VisitGenerationService` is the
+> first; remaining `Plan/*.php` domains still hold their logic inline.
 
 ### API endpoints (`Api/`)
 
