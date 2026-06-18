@@ -1104,6 +1104,14 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
     } catch (Exception $e) { /* ignore */ }
     $orStatusSelect = $hasOrStatus ? ', p.or_status' : '';
 
+    // Persisted route pin ('first' | 'last' | NULL) — migration 1065.
+    // Guarded so the schedule still loads on environments missing the column.
+    $hasRoutePin = false;
+    try {
+        $hasRoutePin = $db->query("SHOW COLUMNS FROM calendar_stops LIKE 'route_pin'")->rowCount() > 0;
+    } catch (Exception $e) { /* ignore */ }
+    $routePinSelect = $hasRoutePin ? ', cs.route_pin' : '';
+
     // Single query: stops with their visits.
     // Note: lawn_sqft + last_completed_date used to be computed via two
     // correlated subqueries in the SELECT list, producing O(N) extra
@@ -1129,7 +1137,7 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
             p.lawn_size_sqft,
             p.notes AS property_notes,
             cs.notes AS stop_notes
-            {$orStatusSelect},
+            {$orStatusSelect}{$routePinSelect},
             co.company_name,
             ct.id AS contact_id,
             CONCAT(ct.first_name, ' ', ct.last_name) AS contact_name,
@@ -1290,6 +1298,7 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
                 'stop_id'       => (int)$stopId,
                 'stop_date'     => $date,
                 'route_order'   => (int)$row['route_order'],
+                'route_pin'     => $row['route_pin'] ?? null,
                 'crew_id'       => $row['crew_id'] ? (int)$row['crew_id'] : null,
                 'crew_name'     => $row['crew_name'],
                 'crew_ids'      => $crewIdsArr,

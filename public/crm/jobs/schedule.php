@@ -2142,7 +2142,7 @@ if ($apiKey) {
                            data-visits="<?php echo htmlspecialchars(json_encode($dvVisitsJson)); ?>"
                            data-lat="<?php echo htmlspecialchars($stop['latitude'] ?? ''); ?>"
                            data-lng="<?php echo htmlspecialchars($stop['longitude'] ?? ''); ?>">
-                          <button type="button" class="mw-dv-pin-btn" data-stop-id="<?php echo (int)$stop['stop_id']; ?>" title="Pin as 1st stop">
+                          <button type="button" class="mw-dv-pin-btn" data-stop-id="<?php echo (int)$stop['stop_id']; ?>" data-pin="<?php echo htmlspecialchars($stop['route_pin'] ?? ''); ?>" title="Pin as 1st stop">
                               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
                           </button>
                           <div class="mw-dv-card-body">

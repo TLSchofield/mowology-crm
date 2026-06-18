@@ -53,6 +53,7 @@ var MwDayViewMap = (function() {
 
         if (externalBtn) externalBtn.addEventListener('click', openExternal);
         wirePinButtons();
+        initPinsFromDom();
         wireCardHighlight();
 
         waitForMaps(function() {
@@ -745,27 +746,66 @@ var MwDayViewMap = (function() {
     //  PIN AS 1ST STOP
     // ═══════════════════════════════════════════════════
 
+    // Restore persisted pins (data-pin="first|last") rendered server-side.
+    function initPinsFromDom() {
+        document.querySelectorAll('.mw-dv-pin-btn').forEach(function(btn) {
+            var stopId = parseInt(btn.dataset.stopId, 10);
+            if (btn.dataset.pin === 'first') pinnedStopId = stopId;
+            else if (btn.dataset.pin === 'last') pinnedLastStopId = stopId;
+        });
+        renderPins();
+    }
+
+    // Persist a pin change. Mirrors the day-scoped state on the server so it
+    // survives reloads; failures roll the UI back so the two stay in sync.
+    function persistPin(stopId, pin, revert) {
+        fetch('/crm/api/set-route-pin.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ stop_id: stopId, pin: pin, csrf_token: window.MW_CSRF || '' })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+            if (!res || !res.success) { revert(); }
+        })
+        .catch(function() { revert(); });
+    }
+
     function wirePinButtons() {
         document.querySelectorAll('.mw-dv-pin-btn').forEach(function(btn) {
             btn.addEventListener('click', function(e) {
                 e.stopPropagation();
                 var stopId = parseInt(btn.dataset.stopId, 10);
 
+                // Snapshot for rollback if the server rejects the change.
+                var prevFirst = pinnedStopId, prevLast = pinnedLastStopId;
+                var newPin;
+
                 // Cycle this stop: none → first → last → none
                 if (pinnedStopId === stopId) {
                     // Was first → become last
                     pinnedStopId = null;
                     pinnedLastStopId = stopId;
+                    newPin = 'last';
                 } else if (pinnedLastStopId === stopId) {
                     // Was last → clear
                     pinnedLastStopId = null;
+                    newPin = null;
                 } else {
                     // Was unpinned → become first (and free this stop from a last pin)
                     pinnedStopId = stopId;
+                    newPin = 'first';
                 }
 
                 renderPins();
                 computeRoute();
+
+                persistPin(stopId, newPin, function() {
+                    pinnedStopId = prevFirst;
+                    pinnedLastStopId = prevLast;
+                    renderPins();
+                    computeRoute();
+                });
             });
         });
     }
