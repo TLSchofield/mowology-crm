@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/_guard.php';
 /**
  * LEGACY SHIM — contract_billing.php
  * Real logic lives at /app/Modules/Contracts/Cron/contract_billing.php

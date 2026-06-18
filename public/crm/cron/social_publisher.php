@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/_guard.php';
 /**
  * Shim — routes to /app/Modules/Social/Cron/social_publisher.php
  * Callable via web POST (admin only) or directly by cron.

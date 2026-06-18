@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/_guard.php';
 /**
  * LEGACY SHIM — sync-ledger.php
  * Real logic lives at /app/Modules/Accounting/Cron/sync-ledger.php
