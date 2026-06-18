@@ -4618,10 +4618,15 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
             btn.textContent = 'Optimising…';
             showMsg('Optimising route…', 'loading');
 
+            var payload = { date: date, csrf_token: CSRF };
+            var pinned = (typeof MwDayViewMap !== 'undefined' && MwDayViewMap.getPinnedStopId)
+                ? MwDayViewMap.getPinnedStopId() : null;
+            if (pinned) { payload.pinned_first_stop_id = pinned; }
+
             fetch('/crm/api/optimize-route.php', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ date: date, csrf_token: CSRF })
+                body: JSON.stringify(payload)
             })
             .then(function (r) { return r.json(); })
             .then(function (data) {
