@@ -1105,10 +1105,13 @@ if ($hasPropCoords) {
                             <div class="mw-detail-row">
                                 <span class="mw-detail-label">Client</span>
                                 <span class="mw-detail-value">
+                                    <?php $clientName = trim((string)($plan['client_display_name'] ?? '')); ?>
                                     <?php if (!empty($plan['company_name']) && !empty($plan['company_id'])): ?>
                                         <a href="../companies/view.php?id=<?php echo (int)$plan['company_id']; ?>">
-                                            <i data-feather="briefcase" style="width:13px;height:13px;vertical-align:-1px;margin-right:3px;"></i><?php echo htmlspecialchars($plan['company_name']); ?>
+                                            <i data-feather="briefcase" style="width:13px;height:13px;vertical-align:-1px;margin-right:3px;"></i><?php echo htmlspecialchars($clientName ?: $plan['company_name']); ?>
                                         </a>
+                                    <?php elseif ($clientName !== ''): ?>
+                                        <?php echo htmlspecialchars($clientName); ?>
                                     <?php else: ?>
                                         N/A
                                     <?php endif; ?>

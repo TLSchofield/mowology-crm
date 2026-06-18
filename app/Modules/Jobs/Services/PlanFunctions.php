@@ -1548,7 +1548,9 @@ function getPlanDetails(int $planId): ?array {
         SELECT jp.*,
                p.address AS property_address, p.city AS property_city,
                p.latitude, p.longitude,
+               NULLIF(p.billing_entity_name, '') AS billing_entity_name,
                co.company_name,
+               mgr.company_name AS pm_firm_name,
                COALESCE(ct.id, pc.id) AS contact_id,
                COALESCE(ct.first_name, pc.first_name) AS first_name,
                COALESCE(ct.last_name, pc.last_name) AS last_name,
@@ -1566,6 +1568,7 @@ function getPlanDetails(int $planId): ?array {
         FROM job_plans jp
         LEFT JOIN properties p ON jp.property_id = p.id
         LEFT JOIN companies co ON jp.company_id = co.id
+        LEFT JOIN companies mgr ON p.property_manager_id = mgr.id
         LEFT JOIN contacts ct ON co.primary_contact_id = ct.id
         LEFT JOIN contacts pc ON p.site_contact_id = pc.id
         LEFT JOIN users u ON jp.default_crew_id = u.id
@@ -1578,6 +1581,25 @@ function getPlanDetails(int $planId): ?array {
     $plan = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if (!$plan) return null;
+
+    // Resolve the display name of the client (who the work is billed to).
+    // Mirrors the live invoice precedence (see invoices/create.php + migration
+    // 1064): billing entity [C/O firm] → company → individual contact name.
+    // Uses only columns the production invoice path already relies on; the
+    // Phase-0 BillToResolver is NOT used here because its query references
+    // p.billing_company_id, a column production does not have.
+    $entity   = trim((string)($plan['billing_entity_name'] ?? ''));
+    $company  = trim((string)($plan['company_name'] ?? ''));
+    $pmFirm   = trim((string)($plan['pm_firm_name'] ?? ''));
+    $contact  = trim(($plan['first_name'] ?? '') . ' ' . ($plan['last_name'] ?? ''));
+    if ($entity !== '') {
+        $coOf = $pmFirm ?: $company;
+        $plan['client_display_name'] = $coOf !== '' ? ($entity . ' C/O ' . $coOf) : $entity;
+    } elseif ($company !== '') {
+        $plan['client_display_name'] = $company;
+    } else {
+        $plan['client_display_name'] = $contact !== '' ? $contact : '';
+    }
 
     // Compute stats
     $statsStmt = $db->prepare("
