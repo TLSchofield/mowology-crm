@@ -187,7 +187,7 @@ $extraHead  = '<script src="/crm/js/map-draw/map-draw-tool.js?v=' . $mdtVer . '"
         <div class="d-flex align-items-center justify-content-between mt-2">
             <p class="text-muted small mb-0">
                 <i data-feather="info" class="me-1"></i>
-                Yellow = arrival border. Coloured = work zones. Hover a zone to see its name.
+                Yellow = arrival border. Coloured = work zones. Drag a node to fine-tune a saved zone (auto-saves).
             </p>
             <div id="tileCacheStatus" class="mw-tile-status" style="display:none;"></div>
         </div>
@@ -256,9 +256,28 @@ function addZoneOverlay(z) {
         color:       color,
         strokeColor: color,
         fillOpacity: isArrival ? 0.08 : 0.18,
-        weight:      isArrival ? 3 : 2
+        weight:      isArrival ? 3 : 2,
+        editable:    true
     });
-    if (overlay) zoneOverlays[z.id] = overlay;
+    if (overlay) {
+        zoneOverlays[z.id] = overlay;
+        // Vertices are draggable — persist geometry changes (debounced in the engine).
+        tool.bindZoneEdit(overlay, function (coords) { saveZoneEdit(z.id, coords); });
+    }
+}
+
+// Persist a node drag/insert/remove on an already-saved zone.
+function saveZoneEdit(id, coords) {
+    if (!coords || coords.length < 3) return;
+    MapDrawTool.updateZone(GEOFENCE_API, {
+        csrfToken:  CSRF_TOKEN,
+        geofenceId: id,
+        coords:     coords
+    }).then(function (data) {
+        if (!data || !data.success) { console.warn('Zone update failed:', data); return; }
+        const z = zoneList.find(function (zz) { return zz.id === id; });
+        if (z) z.ring = MapDrawTool.ringFromCoords(coords);
+    }).catch(function (err) { console.warn('Zone update error:', err); });
 }
 
 function startDrawArrivalBorder() {

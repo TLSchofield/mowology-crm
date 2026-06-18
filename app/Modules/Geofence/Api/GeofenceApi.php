@@ -467,6 +467,24 @@ try {
             echo json_encode(['success' => true, 'zones' => $out]);
             break;
 
+        // ── POST: update a zone's polygon (node drag/insert/remove) ──────────
+        case 'update_zone':
+            if (!$canEdit) {
+                http_response_code(403);
+                echo json_encode(['error' => 'Permission denied.']);
+                break;
+            }
+
+            $geofenceId = (int)($input['geofence_id'] ?? 0);
+            $ring       = $input['ring'] ?? [];
+            if (!$geofenceId) throw new InvalidArgumentException('geofence_id required');
+            if (count($ring) < 3) throw new InvalidArgumentException('Polygon must have at least 3 vertices.');
+
+            geofenceUpdateZonePolygon($geofenceId, $ring);
+
+            echo json_encode(['success' => true, 'geofence_id' => $geofenceId, 'message' => 'Zone updated.']);
+            break;
+
         // ── POST: delete a zone by ID ────────────────────────────────────────
         case 'delete_zone':
             if (!$canEdit) {
@@ -540,7 +558,7 @@ try {
                     'resolve', 'get_polygon', 'save_polygon', 'delete_polygon',
                     'sync_samples', 'compute_session', 'get_session',
                     'get_settings', 'save_settings', 'set_visit_override', 'set_plan_override',
-                    'save_zone', 'get_zones', 'delete_zone', 'get_zone_sessions', 'compute_zone_sessions',
+                    'save_zone', 'update_zone', 'get_zones', 'delete_zone', 'get_zone_sessions', 'compute_zone_sessions',
                 ],
             ]);
     }

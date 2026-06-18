@@ -340,6 +340,48 @@ function geofenceSaveZone(
 }
 
 /**
+ * Update an existing zone's polygon in place (node drag/insert/remove from the
+ * editor). Only geometry is touched — zone_type, plan_id, label, etc. are kept.
+ * Recomputes the closed ring, vertex count, bbox and area. Returns true on update.
+ */
+function geofenceUpdateZonePolygon(int $geofenceId, array $ring): bool {
+    if (count($ring) < 3) {
+        throw new InvalidArgumentException('A polygon must have at least 3 vertices.');
+    }
+    foreach ($ring as $pt) {
+        if (!is_array($pt) || count($pt) < 2 || !is_numeric($pt[0]) || !is_numeric($pt[1])) {
+            throw new InvalidArgumentException('Each point must be [lat, lng].');
+        }
+    }
+
+    $first = $ring[0];
+    $last  = end($ring);
+    if ($first[0] !== $last[0] || $first[1] !== $last[1]) {
+        $ring[] = $first;
+    }
+
+    [$latMin, $latMax, $lngMin, $lngMax] = geofenceBbox($ring);
+    $areaSqm = geofencePolygonArea($ring);
+
+    $db = getDB();
+    $stmt = $db->prepare("
+        UPDATE job_geofences
+        SET polygon_json = ?, vertex_count = ?,
+            bbox_lat_min = ?, bbox_lat_max = ?, bbox_lng_min = ?, bbox_lng_max = ?,
+            area_sqm = ?
+        WHERE id = ?
+    ");
+    $stmt->execute([
+        json_encode($ring),
+        count($ring) - 1,
+        $latMin, $latMax, $lngMin, $lngMax,
+        $areaSqm,
+        $geofenceId,
+    ]);
+    return $stmt->rowCount() >= 0;
+}
+
+/**
  * Get all zones for a property (arrival borders + work zones).
  * Ordered: arrival_border first, then work_zones by label.
  */

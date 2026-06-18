@@ -62,6 +62,7 @@
             polygonColor:      '#2D8659',
             polygonStroke:     '#0D3B2E',
             polylineColor:     '#e85d04',
+            drawPreviewColor:  '#ff1d1d',   // in-progress rubber-band line + nodes (bright, high-contrast on satellite)
             colors:            DEFAULT_COLORS,
             onReady:           null,
             onDraw:            null,   // fn(measurement) — on complete + on every edit (live display)
@@ -79,6 +80,7 @@
         this._drawVerts   = [];     // committed google.maps.LatLng vertices
         this._drawPreview = null;   // live in-progress overlay (Polyline or Rectangle)
         this._closeMarker = null;   // clickable marker on the first vertex (polygon close)
+        this._nodeMarkers = [];     // small dots on each committed vertex (visibility while drawing)
         this._mapClickL   = null;   // saved map event listeners
         this._mapDblL     = null;
         this._mapMoveL    = null;
@@ -193,6 +195,8 @@
         this._drawVerts = [];
         if (this._drawPreview) { this._drawPreview.setMap(null); this._drawPreview = null; }
         if (this._closeMarker) { this._closeMarker.setMap(null); this._closeMarker = null; }
+        this._nodeMarkers.forEach(function (m) { m.setMap(null); });
+        this._nodeMarkers = [];
     };
 
     /** Map click while a draw mode is active — add a vertex / corner. */
@@ -209,24 +213,41 @@
         // polygon / polyline
         this._drawVerts.push(latLng);
 
-        // First vertex of a polygon → drop a clickable "close" marker.
+        // First vertex of a polygon → drop a clickable "close" marker (ringed, bright).
         if (this._drawMode === 'polygon' && this._drawVerts.length === 1) {
             this._closeMarker = new google.maps.Marker({
                 position: latLng,
                 map: this._map,
                 title: 'Click to close shape',
+                zIndex: 1000,
                 icon: {
                     path: google.maps.SymbolPath.CIRCLE,
-                    scale: 6,
+                    scale: 7,
                     fillColor: '#fff',
                     fillOpacity: 1,
-                    strokeColor: this._opts.polygonStroke,
-                    strokeWeight: 2,
+                    strokeColor: this._opts.drawPreviewColor,
+                    strokeWeight: 3,
                 },
             });
             google.maps.event.addListener(this._closeMarker, 'click', function () {
                 if (self._drawVerts.length >= 3) self._finishDraw();
             });
+        } else {
+            // Subsequent vertices → small solid red dots so every node is visible.
+            this._nodeMarkers.push(new google.maps.Marker({
+                position: latLng,
+                map: this._map,
+                clickable: false,
+                zIndex: 999,
+                icon: {
+                    path: google.maps.SymbolPath.CIRCLE,
+                    scale: 5,
+                    fillColor: this._opts.drawPreviewColor,
+                    fillOpacity: 1,
+                    strokeColor: '#fff',
+                    strokeWeight: 1.5,
+                },
+            }));
         }
 
         this._renderDrawPreview(this._drawVerts);
@@ -247,10 +268,11 @@
         if (!this._drawPreview) {
             this._drawPreview = new google.maps.Polyline({
                 map: this._map,
-                strokeColor: this._opts.polygonStroke,
-                strokeWeight: 2,
-                strokeOpacity: 0.9,
+                strokeColor: this._opts.drawPreviewColor,
+                strokeWeight: 4,
+                strokeOpacity: 1,
                 clickable: false,
+                zIndex: 998,
             });
         }
         this._drawPreview.setPath(verts);
@@ -263,11 +285,12 @@
             if (this._drawPreview) this._drawPreview.setMap(null);
             this._drawPreview = new google.maps.Rectangle({
                 map: this._map,
-                fillColor: this._opts.polygonColor,
-                fillOpacity: 0.2,
-                strokeColor: this._opts.polygonStroke,
-                strokeWeight: 2,
+                fillColor: this._opts.drawPreviewColor,
+                fillOpacity: 0.12,
+                strokeColor: this._opts.drawPreviewColor,
+                strokeWeight: 4,
                 clickable: false,
+                zIndex: 998,
             });
         }
         this._drawPreview.setBounds(bounds);
@@ -414,6 +437,28 @@
 
     MapDrawTool.prototype.removeOverlay = function (overlay) {
         if (overlay) overlay.setMap(null);
+    };
+
+    /**
+     * Make a rendered polygon's vertices draggable. Fires cb(coords) — debounced —
+     * whenever the user drags, inserts, or removes a node. coords = [{lat,lng},...].
+     * Returns the overlay (now editable).
+     */
+    MapDrawTool.prototype.bindZoneEdit = function (overlay, cb) {
+        if (!overlay || !overlay.getPath) return overlay;
+        overlay.setEditable(true);
+        var timer = null;
+        var fire = function () {
+            if (timer) clearTimeout(timer);
+            timer = setTimeout(function () {
+                cb(MapDrawTool._pathToCoords(overlay.getPath()));
+            }, 600);
+        };
+        var path = overlay.getPath();
+        google.maps.event.addListener(path, 'set_at', fire);
+        google.maps.event.addListener(path, 'insert_at', fire);
+        google.maps.event.addListener(path, 'remove_at', fire);
+        return overlay;
     };
 
     MapDrawTool.prototype.zoomTo = function (overlay) {
@@ -647,6 +692,25 @@
         return fetch(url, { credentials: 'same-origin' })
             .then(function (r) { return r.json(); })
             .then(function (d) { return (d && d.success && d.zones) ? d.zones : []; });
+    };
+
+    /**
+     * Persist an edited zone's new polygon (node drag/insert/remove).
+     * @param o {csrfToken, geofenceId, coords|ring}
+     */
+    MapDrawTool.updateZone = function (apiUrl, o) {
+        var ring = o.ring || MapDrawTool.ringFromCoords(o.coords);
+        return fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({
+                action:      'update_zone',
+                csrf_token:  o.csrfToken,
+                geofence_id: o.geofenceId,
+                ring:        ring,
+            }),
+        }).then(function (r) { return r.json(); });
     };
 
     MapDrawTool.deleteZone = function (apiUrl, csrfToken, geofenceId) {
