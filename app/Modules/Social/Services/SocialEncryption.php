@@ -75,22 +75,9 @@ class SocialEncryption
             }
         }
 
-        // Backward-compatible fallback: tokens encrypted before SOCIAL_ENCRYPTION_KEY
-        // was added to secrets.php used DB_PASS as the key source. This keeps the
-        // social publisher cron operational until the key migration is complete.
-        //
-        // ACTION REQUIRED: run /crm/api/social-keymig.php to get the exact value
-        // to add as define('SOCIAL_ENCRYPTION_KEY', ...) in secrets.php, then
-        // this fallback can be removed.
-        if (defined('DB_PASS') && DB_PASS !== '') {
-            error_log('SocialEncryption: SOCIAL_ENCRYPTION_KEY not set — using legacy DB_PASS fallback. '
-                . 'Run /crm/api/social-keymig.php to complete migration.');
-            return str_pad(substr(hash('sha256', DB_PASS, true), 0, 32), 32, "\0");
-        }
-
         throw new \RuntimeException(
             'SOCIAL_ENCRYPTION_KEY is not configured in secrets.php. '
-            . 'Run /crm/api/social-keymig.php to generate the value, then add it to secrets.php.'
+            . 'Generate one with: php -r "echo base64_encode(random_bytes(32));"'
         );
     }
 }
