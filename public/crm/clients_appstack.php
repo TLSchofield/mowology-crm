@@ -5013,7 +5013,7 @@ $unconvertedRequests = $db->query("
                                 <i data-feather="clipboard" style="width: 11px; height: 11px;"></i> Create Plan
                               </a>
                               <?php if (floatval($prop['latitude'] ?? 0) != 0 && floatval($prop['longitude'] ?? 0) != 0 && (int)($prop['has_arrival_border'] ?? 0) === 0): ?>
-                              <a href="jobs/zone-editor.php?property_id=<?php echo (int)$prop['id']; ?>&return_to=<?php echo urlencode('clients_appstack.php?action=view_company&id=' . (int)$companyId); ?>"
+                              <a href="jobs/zone-editor.php?property_id=<?php echo (int)$prop['id']; ?>&return_to=<?php echo urlencode('clients_appstack.php?action=view_company&id=' . (int)$clientId); ?>"
                                  class="mw-prop-action-btn mw-prop-action-border-missing" title="Draw arrival border for accurate auto-clock-in">
                                 <i data-feather="alert-triangle" style="width: 11px; height: 11px;"></i> No Arrival Border
                               </a>
