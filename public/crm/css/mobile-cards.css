@@ -4385,35 +4385,46 @@
 .mw-mc-search-wrap.mw-mc-search-has-route {
     display: flex;
     flex-wrap: wrap;
-    align-items: center;
-    gap: 8px;
+    align-items: stretch;   /* the button matches the search field's height exactly */
+    gap: 10px;
 }
+/* flex-basis:0 forces the field to actually grow and fill the row up to the
+   button (otherwise it sits at content width and leaves a dead gap). */
 .mw-mc-search-wrap.mw-mc-search-has-route .mw-mc-search-field {
-    flex: 1 1 auto;
+    flex: 1 1 0;
     min-width: 0;
+}
+/* Slightly taller search bar on the carousel — glove-friendly + lets the
+   square action button read as a proper size next to it. */
+.mw-mc-search-wrap.mw-mc-search-has-route .mw-mc-search-input {
+    min-height: 50px;
 }
 .mw-mc-search-wrap.mw-mc-search-has-route .mw-mc-search-count {
     flex-basis: 100%;
 }
 .mw-rfh-sq {
     flex: 0 0 auto;
+    align-self: stretch;          /* exact height match with the search field */
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 48px;
-    height: 48px;
-    border: 1.5px solid var(--mw-green, #2D8659);
+    min-width: 56px;
+    padding: 0 16px;
+    border: 2px solid var(--mw-green, #2D8659);
     border-radius: var(--mw-radius-md, 12px);
-    background: #fff;
+    background: #EFF7F1;
     color: var(--mw-green, #2D8659);
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
-    transition: background 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
+    box-shadow: 0 1px 3px rgba(13, 59, 46, 0.10);
+    transition: background 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease, border-color 0.15s ease;
 }
 .mw-rfh-sq:active {
     transform: scale(0.94);
 }
 .mw-rfh-sq svg {
+    width: 24px;
+    height: 24px;
     flex-shrink: 0;
 }
 /* Active = list is currently sorted by distance (filled green) */

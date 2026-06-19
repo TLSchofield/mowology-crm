@@ -1225,7 +1225,7 @@ $pageTitle = 'Schedule';
 $activePage = 'schedule';
 $bodyClass  = 'mw-page-schedule'; // Hides global mobile nav bars — schedule has its own
 $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
-$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260619c" rel="stylesheet">';
+$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260619d" rel="stylesheet">';
 $extraHead .= '<script src="/crm/js/offline-queue.js?v=20260619a" defer></script>';
 // Prefetch every day visible in the strip so any day tap is instant
 foreach ($stripDays as $_sd) {
@@ -3903,7 +3903,7 @@ function getServiceLabel(type) {
         );
     }
 
-    var SQ_SVG = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>';
+    var SQ_SVG = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>';
 
     // Inject the square button to the RIGHT of the search field. The search box
     // is built by a deferred script, so this is retried until the field exists.
