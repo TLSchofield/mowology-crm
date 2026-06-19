@@ -153,7 +153,7 @@ $activePage = 'timeclock';
 <!-- Day Stats -->
 <div class="mw-schedule-stats mb-4">
     <div class="mw-schedule-stat">
-        <div class="mw-schedule-stat-value"><?php echo count($jobs); ?></div>
+        <div class="mw-schedule-stat-value" id="mwStatJobs"><?php echo count($jobs); ?></div>
         <div class="mw-schedule-stat-label">Jobs Today</div>
     </div>
     <div class="mw-schedule-stat">
@@ -161,7 +161,7 @@ $activePage = 'timeclock';
         <div class="mw-schedule-stat-label">Completed</div>
     </div>
     <div class="mw-schedule-stat">
-        <div class="mw-schedule-stat-value"><?php echo formatMinutesAsHours($totalEstimatedMin); ?></div>
+        <div class="mw-schedule-stat-value" id="mwStatEst"><?php echo formatMinutesAsHours($totalEstimatedMin); ?></div>
         <div class="mw-schedule-stat-label">Est. Total</div>
     </div>
 </div>
@@ -210,6 +210,7 @@ $activePage = 'timeclock';
              id="jobCard-<?php echo (int)$job['id']; ?>"
              data-job-id="<?php echo (int)$job['id']; ?>"
              data-seq="<?php echo $__routeSeq++; ?>"
+             data-est-min="<?php echo (int)($job['estimated_duration_minutes'] ?? 60); ?>"
              data-lat="<?php echo htmlspecialchars($job['property_lat'] ?? ''); ?>"
              data-lng="<?php echo htmlspecialchars($job['property_lng'] ?? ''); ?>"
              data-status="<?php echo htmlspecialchars($job['status']); ?>">
@@ -288,6 +289,13 @@ $activePage = 'timeclock';
                     </span>
                 <?php endif; ?>
             </div>
+
+            <?php if ($job['status'] !== 'completed'): ?>
+            <button type="button" class="mw-tc-skip-btn" onclick="skipJob(<?php echo (int)$job['id']; ?>)">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
+                Skip this job
+            </button>
+            <?php endif; ?>
         </div>
         <?php endforeach; ?>
     <?php endif; ?>
@@ -758,6 +766,93 @@ $activePage = 'timeclock';
         var saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
         if (saved && saved.length) { applyOrder(saved); showIndicator(); }
     } catch (err) {}
+})();
+</script>
+
+<!-- ═══ Skip Job — marks the visit 'skipped' (existing pow-actions endpoint) ═══ -->
+<script>
+(function() {
+    'use strict';
+
+    var SKIP_CSRF   = '<?php echo htmlspecialchars(generateCSRFToken(), ENT_QUOTES); ?>';
+    var ROUTE_DATE  = '<?php echo htmlspecialchars($viewDate, ENT_QUOTES); ?>';
+    var STORAGE_KEY = 'route_order_' + ROUTE_DATE;
+    var totalEstMin = <?php echo (int)$totalEstimatedMin; ?>;
+
+    function toast(message, type) {
+        var t = document.createElement('div');
+        t.className = 'mw-clock-toast mw-clock-toast-' + (type || 'info');
+        t.textContent = message;
+        document.body.appendChild(t);
+        t.offsetHeight;
+        t.classList.add('mw-clock-toast-visible');
+        setTimeout(function() {
+            t.classList.remove('mw-clock-toast-visible');
+            setTimeout(function() { t.remove(); }, 300);
+        }, 3000);
+    }
+
+    // Drop the skipped visit from the persisted "Route From Here" order so a
+    // refresh doesn't try to re-place a card that no longer exists.
+    function removeFromRouteOrder(jobId) {
+        try {
+            var saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+            if (saved && saved.length) {
+                var next = saved.filter(function(id) { return String(id) !== String(jobId); });
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+            }
+        } catch (e) {}
+    }
+
+    // Skipped jobs must not count toward the route stats.
+    function updateStats(card) {
+        var jobsEl = document.getElementById('mwStatJobs');
+        if (jobsEl) {
+            var n = Math.max(0, (parseInt(jobsEl.textContent, 10) || 0) - 1);
+            jobsEl.textContent = n;
+        }
+        var estEl = document.getElementById('mwStatEst');
+        if (estEl) {
+            var mins = parseInt(card.getAttribute('data-est-min'), 10) || 0;
+            totalEstMin = Math.max(0, totalEstMin - mins);
+            estEl.textContent = Math.floor(totalEstMin / 60) + 'h ' + (totalEstMin % 60) + 'm';
+        }
+    }
+
+    // Collapse + fade the card, then remove it from the DOM.
+    function removeCard(card) {
+        if (!card) return;
+        card.style.maxHeight = card.scrollHeight + 'px';
+        card.style.overflow = 'hidden';
+        card.offsetHeight; // force reflow so the collapse transition runs
+        card.classList.add('mw-tc-removing');
+        setTimeout(function() { card.remove(); }, 350);
+    }
+
+    window.skipJob = function(jobId) {
+        if (!confirm('Skip this job? It will be removed from today’s route.')) return;
+
+        var card = document.getElementById('jobCard-' + jobId);
+
+        fetch('/crm/api/pow-actions.php', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'skip_visit', visit_id: jobId, csrf_token: SKIP_CSRF })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data && data.success) {
+                removeFromRouteOrder(jobId);
+                if (card) updateStats(card);
+                removeCard(card);
+                toast('Job skipped', 'info');
+            } else {
+                alert((data && data.error) || 'Could not skip this job. Please try again.');
+            }
+        })
+        .catch(function() { alert('Network error — please try again.'); });
+    };
 })();
 </script>
 

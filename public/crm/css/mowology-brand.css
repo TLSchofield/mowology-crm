@@ -3687,6 +3687,49 @@ a.mw-clock-timer-nav:hover {
   color:var(--mw-dark)
 }
 
+/* ── Skip Job (crew schedule — marks visit 'skipped') ── */
+.mw-tc-skip-btn {
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:6px;
+  width:100%;
+  margin-top:10px;
+  padding:9px 12px;
+  background:transparent;
+  color:#6c757d;
+  border:1px solid #d8dee4;
+  border-radius:8px;
+  font-size:.85rem;
+  font-weight:600;
+  font-family:inherit;
+  cursor:pointer;
+  transition:all .15s ease
+}
+.mw-tc-skip-btn:hover {
+  background:#fbecec;
+  color:#dc2626;
+  border-color:#f0b4b4
+}
+.mw-tc-skip-btn:active {
+  transform:scale(.98)
+}
+.mw-tc-skip-btn svg {
+  flex:0 0 auto
+}
+/* Collapse + fade animation when a card is skipped */
+.mw-tc-card.mw-tc-removing {
+  max-height:0!important;
+  margin-top:0!important;
+  margin-bottom:0!important;
+  padding-top:0!important;
+  padding-bottom:0!important;
+  opacity:0;
+  transform:translateX(30px);
+  overflow:hidden;
+  transition:all .35s ease
+}
+
 @media (max-width:1024px) {
   .mw-mobile-clock {
   display:flex;
