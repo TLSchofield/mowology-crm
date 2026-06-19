@@ -1226,7 +1226,7 @@ $activePage = 'schedule';
 $bodyClass  = 'mw-page-schedule'; // Hides global mobile nav bars — schedule has its own
 $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
 $extraHead = '<link href="/crm/css/mobile-cards.css?v=20260619b" rel="stylesheet">';
-$extraHead .= '<script src="/crm/js/offline-queue.js?v=20260303a" defer></script>';
+$extraHead .= '<script src="/crm/js/offline-queue.js?v=20260619a" defer></script>';
 // Prefetch every day visible in the strip so any day tap is instant
 foreach ($stripDays as $_sd) {
     if ($_sd['date'] !== $mobileDate) {

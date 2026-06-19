@@ -374,32 +374,52 @@
     window._mwOrigFetch = _origFetch;
 
     window.fetch = function (resource, options) {
+        var fetchArgs = arguments;
         var url    = typeof resource === 'string' ? resource : (resource && resource.url) || '';
         var method = ((options && options.method) || 'GET').toUpperCase();
 
-        // Only intercept POST requests to the three queued endpoints when offline
-        var shouldQueue = method === 'POST' &&
-            QUEUED_ENDPOINTS.some(function (ep) { return url.indexOf(ep) !== -1; }) &&
-            !isOnline();
+        // Is this a POST to one of the critical, replay-safe endpoints?
+        var isQueueable = method === 'POST' &&
+            QUEUED_ENDPOINTS.some(function (ep) { return url.indexOf(ep) !== -1; });
 
-        if (!shouldQueue) {
-            return _origFetch.apply(window, arguments);
+        if (!isQueueable) {
+            return _origFetch.apply(window, fetchArgs);
         }
 
-        // Offline path: queue the action and return an optimistic response
         var bodyStr = (options && options.body) || '';
         var bodyObj = null;
         try { bodyObj = typeof bodyStr === 'string' ? JSON.parse(bodyStr) : null; } catch (e) {}
 
-        return queueAction(url, options).then(function () {
-            var fakeData = buildOptimisticResponse(url, bodyObj);
-            return new Response(
-                JSON.stringify(fakeData),
-                { status: 200, headers: { 'Content-Type': 'application/json' } }
-            );
-        }).catch(function () {
-            // IDB write failed — fall back to real fetch (will fail naturally if offline)
-            return _origFetch.apply(window, arguments);
+        // Queue the action and resolve with an optimistic success response so
+        // the caller's `.then(data => data.success)` branch still runs.
+        function queueAndFake() {
+            return queueAction(url, options).then(function () {
+                var fakeData = buildOptimisticResponse(url, bodyObj);
+                return new Response(
+                    JSON.stringify(fakeData),
+                    { status: 200, headers: { 'Content-Type': 'application/json' } }
+                );
+            });
+        }
+
+        // Known-offline path: queue immediately, don't even attempt the network.
+        if (!isOnline()) {
+            return queueAndFake().catch(function () {
+                // IDB write failed — fall back to real fetch (will fail naturally if offline)
+                return _origFetch.apply(window, fetchArgs);
+            });
+        }
+
+        // Nominally-online path: attempt the real request, but if it fails at the
+        // NETWORK level (TypeError — flaky field signal, captive portal, DNS, timeout)
+        // the request never reached the server, so queue it for replay instead of
+        // letting the action be silently lost. A resolved response (incl. 4xx/5xx)
+        // means the server answered — pass it straight through unchanged.
+        return _origFetch.apply(window, fetchArgs).catch(function (err) {
+            return queueAndFake().catch(function () {
+                // IDB unavailable — surface the original network error to the caller.
+                return Promise.reject(err);
+            });
         });
     };
 
