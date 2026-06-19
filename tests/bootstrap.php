@@ -10,6 +10,7 @@ require_once __DIR__ . '/../vendor/autoload.php';
 // Accounting
 require_once __DIR__ . '/../app/Modules/Accounting/Services/LedgerService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/ReportingService.php';
+require_once __DIR__ . '/../app/Modules/Accounting/Services/LedgerSyncService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/RulesEngine.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/TaxEngine.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/AlertEngine.php';

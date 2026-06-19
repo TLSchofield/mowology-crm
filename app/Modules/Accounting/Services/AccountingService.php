@@ -43,12 +43,29 @@ class AccountingService
         $ruleResult     = $this->applyRulesToUncategorized();
         $removed        = $this->removeOrphanedTransactions();
 
+        // Phase 1: also post the double-entry journal (additive — never break the
+        // legacy single-entry sync above). Idempotent; safe to run every time.
+        $journalResult = null;
+        try {
+            $ledgerFile = __DIR__ . '/LedgerService.php';
+            $syncFile   = __DIR__ . '/LedgerSyncService.php';
+            if (is_file($ledgerFile) && is_file($syncFile)
+                && $this->db->query("SHOW TABLES LIKE 'journal_entries'")->fetchColumn()) {
+                require_once $ledgerFile;
+                require_once $syncFile;
+                $journalResult = (new LedgerSyncService($this->db, new LedgerService($this->db)))->syncAll();
+            }
+        } catch (\Throwable $e) {
+            $journalResult = ['error' => $e->getMessage()];
+        }
+
         return [
             'invoices_synced'  => $invoiceResult['synced'],
             'invoices_updated' => $invoiceResult['updated'],
             'expenses_synced'  => $expenseResult['synced'],
             'expenses_updated' => $expenseResult['updated'],
             'rules_applied'    => $ruleResult,
+            'journal'          => $journalResult,
             'removed_orphans'  => $removed,
         ];
     }

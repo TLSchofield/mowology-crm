@@ -114,8 +114,11 @@ foreach ($costTypes as $row) {
 // ── Add accounts needed by posting recipes (idempotent via UNIQUE code) ──────
 $accounts = [
     // code, name, type, sub_type, normal_balance, display_order
-    ['1300', 'Due from Shareholder',   'asset',  'shareholder_loan', 'debit',  130],
-    ['3900', 'Opening Balance Equity',  'equity', 'opening',          'credit', 390],
+    ['1250', 'Income Tax Receivable',      'asset',     'receivable',       'debit',  125],
+    ['1300', 'Due from Shareholder',       'asset',     'shareholder_loan', 'debit',  130],
+    ['2500', 'Due to Government Agencies',  'liability', 'gov_payable',      'credit', 250],
+    ['2600', 'Loan Payable',                'liability', 'loan',             'credit', 260],
+    ['3900', 'Opening Balance Equity',      'equity',    'opening',          'credit', 390],
 ];
 $acc = $db->prepare("INSERT IGNORE INTO chart_of_accounts (code, name, type, sub_type, normal_balance, is_system, is_active, display_order)
                      VALUES (?, ?, ?, ?, ?, 1, 1, ?)");
