@@ -368,18 +368,22 @@ try {
 
             $tpl = loadEmailTemplate('invoice_sent', $tplVars);
 
-            $billSummary  = '<table style="width:100%;max-width:460px;margin:0 0 20px;font-size:14px;font-family:\'Helvetica Neue\',Arial,sans-serif;">';
+            $billSummary  = '<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:460px;margin:0 0 20px;font-size:14px;font-family:\'Helvetica Neue\',Arial,sans-serif;">';
             $billSummary .= '<tr><td style="padding:6px 0;color:#4a6b5d;width:120px;">Invoice #</td><td style="padding:6px 0;color:#0D3B2E;font-weight:700;">' . htmlspecialchars($invoice['invoice_number']) . '</td></tr>';
             $billSummary .= '<tr><td style="padding:6px 0;color:#4a6b5d;">Amount Due</td><td style="padding:6px 0;color:#0D3B2E;font-size:18px;font-weight:700;">' . formatCurrency($invoice['balance_due']) . ' CAD</td></tr>';
             $billSummary .= '<tr><td style="padding:6px 0;color:#4a6b5d;">Due Date</td><td style="padding:6px 0;color:#0D3B2E;">' . formatDate($invoice['due_date']) . '</td></tr>';
             $billSummary .= '</table>';
 
-            $ctaBtn = '<table cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;"><tr><td style="border-radius:6px;background:#2D8659;">'
-                . '<a href="' . htmlspecialchars($invoiceViewUrl) . '" style="display:inline-block;padding:12px 28px;color:#fff;font-size:15px;font-weight:600;text-decoration:none;border-radius:6px;">View &amp; Pay Invoice</a>'
-                . '</td></tr></table>';
-
-            $body = $tpl['body'] ?? '';
-            $body = str_replace('{{bill_summary}}', $billSummary . $ctaBtn, $body);
+            // Build the branded email body the same way the desktop path does:
+            // EmailWrapper::wrap() wraps the bill summary + template body + payment
+            // instructions in the Mowology shell and renders the View & Pay button.
+            // (loadEmailTemplate returns 'body_html', not 'body'.)
+            $body = EmailWrapper::wrap(
+                $billSummary . ($tpl['body_html'] ?? '') . EmailWrapper::paymentInstructionsHtml(),
+                'View &amp; Pay Invoice Online',
+                $invoiceViewUrl ?: null,
+                $companyInfo
+            );
 
             sendCrmEmail(
                 $recipient['email_address'],
@@ -401,11 +405,17 @@ try {
         $db->prepare("UPDATE invoices SET status = 'sent', sent_at = NOW(), sent_by = ? WHERE id = ?")
            ->execute([$user['id'], $invoiceId]);
 
+        // Mark the source visit invoiced. Join invoices.visit_id -> job_visits.id;
+        // if the invoice has no visit_id the join matches nothing (safe no-op).
+        // NOTE: job_visits has no `visit_id` column — the previous query referenced
+        // it in the WHERE clause and threw "Unknown column 'visit_id'", surfacing as
+        // a generic "Server error" to the crew after the email had already gone out.
         $db->prepare("
-            UPDATE job_visits SET is_invoiced = 1, invoice_id = ?
-            WHERE id = (SELECT visit_id FROM invoices WHERE id = ? LIMIT 1)
-              AND visit_id IS NOT NULL
-        ")->execute([$invoiceId, $invoiceId]);
+            UPDATE job_visits jv
+            JOIN invoices i ON i.visit_id = jv.id
+            SET jv.is_invoiced = 1, jv.invoice_id = i.id
+            WHERE i.id = ?
+        ")->execute([$invoiceId]);
 
         siOut([
             'success'        => true,
