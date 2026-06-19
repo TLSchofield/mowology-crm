@@ -153,7 +153,7 @@ $activePage = 'timeclock';
 <!-- Day Stats -->
 <div class="mw-schedule-stats mb-4">
     <div class="mw-schedule-stat">
-        <div class="mw-schedule-stat-value" id="mwStatJobs"><?php echo count($jobs); ?></div>
+        <div class="mw-schedule-stat-value"><?php echo count($jobs); ?></div>
         <div class="mw-schedule-stat-label">Jobs Today</div>
     </div>
     <div class="mw-schedule-stat">
@@ -161,27 +161,10 @@ $activePage = 'timeclock';
         <div class="mw-schedule-stat-label">Completed</div>
     </div>
     <div class="mw-schedule-stat">
-        <div class="mw-schedule-stat-value" id="mwStatEst"><?php echo formatMinutesAsHours($totalEstimatedMin); ?></div>
+        <div class="mw-schedule-stat-value"><?php echo formatMinutesAsHours($totalEstimatedMin); ?></div>
         <div class="mw-schedule-stat-label">Est. Total</div>
     </div>
 </div>
-
-<?php if (!empty($jobs) && count($jobs) > 1): ?>
-<!-- Route From Here — reorders the job list by straight-line distance from current GPS location -->
-<div class="mw-route-bar">
-    <button type="button" class="mw-route-btn" id="mwRouteBtn">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
-        <span class="mw-route-btn-label">Route From Here</span>
-    </button>
-    <div class="mw-route-indicator" id="mwRouteIndicator" style="display:none;">
-        <span class="mw-route-indicator-text">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-            Sorted by distance from your location
-        </span>
-        <a href="#" class="mw-route-reset" id="mwRouteReset">Reset to scheduled order</a>
-    </div>
-</div>
-<?php endif; ?>
 
 <!-- Job Timeline -->
 <div class="mw-job-timeline" id="jobTimeline">
@@ -192,7 +175,6 @@ $activePage = 'timeclock';
             <p>You have no jobs assigned for <?php echo date('l, M j', strtotime($viewDate)); ?>.</p>
         </div>
     <?php else: ?>
-        <?php $__routeSeq = 0; ?>
         <?php foreach ($jobs as $job):
             $statusClass = '';
             if ($job['status'] === 'in_progress') $statusClass = 'mw-tc-in-progress';
@@ -209,8 +191,6 @@ $activePage = 'timeclock';
         <div class="mw-tc-card <?php echo $statusClass; ?>"
              id="jobCard-<?php echo (int)$job['id']; ?>"
              data-job-id="<?php echo (int)$job['id']; ?>"
-             data-seq="<?php echo $__routeSeq++; ?>"
-             data-est-min="<?php echo (int)($job['estimated_duration_minutes'] ?? 60); ?>"
              data-lat="<?php echo htmlspecialchars($job['property_lat'] ?? ''); ?>"
              data-lng="<?php echo htmlspecialchars($job['property_lng'] ?? ''); ?>"
              data-status="<?php echo htmlspecialchars($job['status']); ?>">
@@ -289,13 +269,6 @@ $activePage = 'timeclock';
                     </span>
                 <?php endif; ?>
             </div>
-
-            <?php if ($job['status'] !== 'completed'): ?>
-            <button type="button" class="mw-tc-skip-btn" onclick="skipJob(<?php echo (int)$job['id']; ?>)">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
-                Skip this job
-            </button>
-            <?php endif; ?>
         </div>
         <?php endforeach; ?>
     <?php endif; ?>
@@ -585,274 +558,6 @@ $activePage = 'timeclock';
         }, 3000);
     }
 
-})();
-</script>
-
-<!-- ═══ Route From Here — GPS distance sort (Capacitor + browser) ═══ -->
-<script>
-(function() {
-    'use strict';
-
-    var btn = document.getElementById('mwRouteBtn');
-    if (!btn) return; // button only rendered when 2+ jobs exist
-
-    var timeline  = document.getElementById('jobTimeline');
-    var label     = btn.querySelector('.mw-route-btn-label');
-    var indicator = document.getElementById('mwRouteIndicator');
-    var resetLink = document.getElementById('mwRouteReset');
-
-    var ROUTE_DATE  = '<?php echo htmlspecialchars($viewDate, ENT_QUOTES); ?>';
-    var STORAGE_KEY = 'route_order_' + ROUTE_DATE;
-    var DEFAULT_LABEL = 'Route From Here';
-
-    function haversineKm(lat1, lon1, lat2, lon2) {
-        var R = 6371; // km
-        var dLat = (lat2 - lat1) * Math.PI / 180;
-        var dLon = (lon2 - lon1) * Math.PI / 180;
-        var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                Math.sin(dLon / 2) * Math.sin(dLon / 2);
-        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    }
-
-    function getCards() {
-        return Array.prototype.slice.call(timeline.querySelectorAll('.mw-tc-card'));
-    }
-
-    function bySeq(a, b) {
-        return (parseInt(a.getAttribute('data-seq'), 10) || 0) -
-               (parseInt(b.getAttribute('data-seq'), 10) || 0);
-    }
-
-    // Re-append cards in the given id order; any card not listed (no coords /
-    // newly added) goes to the bottom in its original scheduled order.
-    function applyOrder(idList) {
-        var byId = {};
-        getCards().forEach(function(c) { byId[c.getAttribute('data-job-id')] = c; });
-        idList.forEach(function(id) {
-            if (byId[id]) { timeline.appendChild(byId[id]); delete byId[id]; }
-        });
-        Object.keys(byId).map(function(id) { return byId[id]; })
-            .sort(bySeq)
-            .forEach(function(c) { timeline.appendChild(c); });
-    }
-
-    function sortByDistance(lat, lng) {
-        var withCoords = [], without = [];
-        getCards().forEach(function(c) {
-            var clat = parseFloat(c.getAttribute('data-lat'));
-            var clng = parseFloat(c.getAttribute('data-lng'));
-            if (isNaN(clat) || isNaN(clng)) { without.push(c); return; }
-            c._routeDist = haversineKm(lat, lng, clat, clng);
-            withCoords.push(c);
-        });
-
-        withCoords.sort(function(a, b) { return a._routeDist - b._routeDist; });
-        without.sort(bySeq);
-
-        withCoords.concat(without).forEach(function(c) { timeline.appendChild(c); });
-
-        var order = withCoords.map(function(c) { return c.getAttribute('data-job-id'); });
-        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(order)); } catch (e) {}
-
-        showIndicator();
-    }
-
-    function showIndicator() { if (indicator) indicator.style.display = 'flex'; }
-    function hideIndicator() { if (indicator) indicator.style.display = 'none'; }
-
-    function setBtn(state) {
-        btn.classList.remove('mw-route-btn-error');
-        if (state === 'loading') {
-            btn.disabled = true;
-            label.textContent = 'Getting location…';
-        } else if (state === 'denied') {
-            // Permission refused — surface a clear, distinct message (Android prompt declined).
-            btn.disabled = false;
-            btn.classList.add('mw-route-btn-error');
-            label.textContent = 'Location permission required';
-            setTimeout(function() {
-                btn.classList.remove('mw-route-btn-error');
-                label.textContent = DEFAULT_LABEL;
-            }, 5000);
-        } else if (state === 'error') {
-            // Timeout / no fix / unavailable.
-            btn.disabled = false;
-            btn.classList.add('mw-route-btn-error');
-            label.textContent = 'Location unavailable — check permissions';
-            setTimeout(function() {
-                btn.classList.remove('mw-route-btn-error');
-                label.textContent = DEFAULT_LABEL;
-            }, 4000);
-        } else { // idle / done
-            btn.disabled = false;
-            label.textContent = DEFAULT_LABEL;
-        }
-    }
-
-    // High-accuracy GPS options. Android can be slow to acquire a first fix
-    // (cold start in a parked truck), so give it a generous 15s timeout.
-    var GPS_OPTS = { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 };
-
-    function permGranted(p) {
-        return p && (p.location === 'granted' || p.coarseLocation === 'granted');
-    }
-
-    // GPS acquisition. onErr receives a reason: 'denied' (permission refused)
-    // or 'error' (timeout / no fix / plugin missing).
-    function acquire(onOk, onErr) {
-        var isNative = window.Capacitor && window.Capacitor.isNativePlatform &&
-                       window.Capacitor.isNativePlatform();
-        var Geo = isNative && window.Capacitor.Plugins ? window.Capacitor.Plugins.Geolocation : null;
-
-        // ── Native Android: request permission explicitly, then get a fix ──
-        if (Geo) {
-            var fix = function() {
-                Geo.getCurrentPosition(GPS_OPTS)
-                    .then(function(pos) {
-                        if (pos && pos.coords) { onOk(pos.coords.latitude, pos.coords.longitude); }
-                        else { onErr('error'); }
-                    })
-                    .catch(function() { onErr('error'); });
-            };
-
-            Geo.checkPermissions()
-                .then(function(status) {
-                    if (permGranted(status)) { fix(); return; }
-                    // Not yet granted — show the Android system prompt.
-                    Geo.requestPermissions({ permissions: ['location', 'coarseLocation'] })
-                        .then(function(req) {
-                            if (permGranted(req)) { fix(); }
-                            else { onErr('denied'); }
-                        })
-                        .catch(function() { onErr('denied'); });
-                })
-                .catch(function() {
-                    // checkPermissions unsupported on this plugin build — try a fix anyway.
-                    fix();
-                });
-            return;
-        }
-
-        // ── Browser fallback (testing outside the app) ──
-        if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(
-                function(pos) { onOk(pos.coords.latitude, pos.coords.longitude); },
-                function(err) { onErr(err && err.code === 1 ? 'denied' : 'error'); },
-                GPS_OPTS
-            );
-        } else {
-            onErr('error');
-        }
-    }
-
-    btn.addEventListener('click', function() {
-        setBtn('loading');
-        acquire(
-            function(lat, lng) { sortByDistance(lat, lng); setBtn('done'); },
-            function(reason) { setBtn(reason === 'denied' ? 'denied' : 'error'); }
-        );
-    });
-
-    resetLink.addEventListener('click', function(e) {
-        e.preventDefault();
-        try { localStorage.removeItem(STORAGE_KEY); } catch (err) {}
-        getCards().sort(bySeq).forEach(function(c) { timeline.appendChild(c); });
-        hideIndicator();
-    });
-
-    // Restore a persisted sort for this date (survives page refresh; resets per-day).
-    try {
-        var saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
-        if (saved && saved.length) { applyOrder(saved); showIndicator(); }
-    } catch (err) {}
-})();
-</script>
-
-<!-- ═══ Skip Job — marks the visit 'skipped' (existing pow-actions endpoint) ═══ -->
-<script>
-(function() {
-    'use strict';
-
-    var SKIP_CSRF   = '<?php echo htmlspecialchars(generateCSRFToken(), ENT_QUOTES); ?>';
-    var ROUTE_DATE  = '<?php echo htmlspecialchars($viewDate, ENT_QUOTES); ?>';
-    var STORAGE_KEY = 'route_order_' + ROUTE_DATE;
-    var totalEstMin = <?php echo (int)$totalEstimatedMin; ?>;
-
-    function toast(message, type) {
-        var t = document.createElement('div');
-        t.className = 'mw-clock-toast mw-clock-toast-' + (type || 'info');
-        t.textContent = message;
-        document.body.appendChild(t);
-        t.offsetHeight;
-        t.classList.add('mw-clock-toast-visible');
-        setTimeout(function() {
-            t.classList.remove('mw-clock-toast-visible');
-            setTimeout(function() { t.remove(); }, 300);
-        }, 3000);
-    }
-
-    // Drop the skipped visit from the persisted "Route From Here" order so a
-    // refresh doesn't try to re-place a card that no longer exists.
-    function removeFromRouteOrder(jobId) {
-        try {
-            var saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
-            if (saved && saved.length) {
-                var next = saved.filter(function(id) { return String(id) !== String(jobId); });
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-            }
-        } catch (e) {}
-    }
-
-    // Skipped jobs must not count toward the route stats.
-    function updateStats(card) {
-        var jobsEl = document.getElementById('mwStatJobs');
-        if (jobsEl) {
-            var n = Math.max(0, (parseInt(jobsEl.textContent, 10) || 0) - 1);
-            jobsEl.textContent = n;
-        }
-        var estEl = document.getElementById('mwStatEst');
-        if (estEl) {
-            var mins = parseInt(card.getAttribute('data-est-min'), 10) || 0;
-            totalEstMin = Math.max(0, totalEstMin - mins);
-            estEl.textContent = Math.floor(totalEstMin / 60) + 'h ' + (totalEstMin % 60) + 'm';
-        }
-    }
-
-    // Collapse + fade the card, then remove it from the DOM.
-    function removeCard(card) {
-        if (!card) return;
-        card.style.maxHeight = card.scrollHeight + 'px';
-        card.style.overflow = 'hidden';
-        card.offsetHeight; // force reflow so the collapse transition runs
-        card.classList.add('mw-tc-removing');
-        setTimeout(function() { card.remove(); }, 350);
-    }
-
-    window.skipJob = function(jobId) {
-        if (!confirm('Skip this job? It will be removed from today’s route.')) return;
-
-        var card = document.getElementById('jobCard-' + jobId);
-
-        fetch('/crm/api/pow-actions.php', {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'skip_visit', visit_id: jobId, csrf_token: SKIP_CSRF })
-        })
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-            if (data && data.success) {
-                removeFromRouteOrder(jobId);
-                if (card) updateStats(card);
-                removeCard(card);
-                toast('Job skipped', 'info');
-            } else {
-                alert((data && data.error) || 'Could not skip this job. Please try again.');
-            }
-        })
-        .catch(function() { alert('Network error — please try again.'); });
-    };
 })();
 </script>
 

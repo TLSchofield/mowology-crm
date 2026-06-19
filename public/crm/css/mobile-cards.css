@@ -4344,6 +4344,98 @@
     background: #D6EFDF;
 }
 
+/* ── Skip button (footer, secondary — compact alongside Clock In / Complete) ── */
+.mw-mc-footer-btn-skip {
+    flex: 0 0 auto;
+    background: #fff;
+    color: #8a94a6;
+    border: 1.5px solid #e2e6ec;
+    padding: 12px 14px;
+}
+.mw-mc-footer-btn-skip:active {
+    background: #f3f5f8;
+    transform: scale(0.97);
+}
+.mw-mc-footer-btn-skip svg {
+    flex-shrink: 0;
+}
+
+/* ── Card skip-out animation (collapse + fade) ── */
+.mw-mc-card.mw-mc-card-removing {
+    opacity: 0;
+    transform: translateX(34px);
+    max-height: 0 !important;
+    margin: 0 !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    overflow: hidden;
+    transition: opacity .3s ease, transform .3s ease, max-height .35s ease, margin .35s ease, padding .35s ease;
+    pointer-events: none;
+}
+
+/* ── Route From Here bar (above the card carousel) ── */
+.mw-rfh-bar {
+    padding: 12px 14px 0 14px;
+}
+.mw-rfh-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 56px;
+    padding: 14px 18px;
+    border: none;
+    border-radius: 14px;
+    background: linear-gradient(135deg, var(--mw-green, #2D8659) 0%, var(--mw-dark, #1A5F4A) 100%);
+    color: #fff;
+    font-size: 1.05rem;
+    font-weight: 700;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    box-shadow: 0 4px 14px rgba(45, 134, 89, 0.35);
+    transition: transform 0.1s ease;
+}
+.mw-rfh-btn:active {
+    transform: scale(0.98);
+}
+.mw-rfh-btn:disabled {
+    opacity: 0.75;
+}
+.mw-rfh-btn.mw-rfh-btn-error {
+    background: #dc2626;
+    box-shadow: 0 4px 14px rgba(220, 38, 38, 0.35);
+}
+.mw-rfh-btn svg {
+    flex-shrink: 0;
+}
+.mw-rfh-note {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+    padding: 8px 12px;
+    background: #EDF7F0;
+    border-radius: 10px;
+    font-size: 0.8rem;
+    color: var(--mw-dark, #1A5F4A);
+}
+.mw-rfh-note-text {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+}
+.mw-rfh-reset {
+    color: var(--mw-green, #2D8659);
+    font-weight: 700;
+    text-decoration: underline;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
 /* When timer is running, the complete button gets a stronger finish style */
 .mw-mc-card-footer.is-timing .mw-mc-footer-btn-complete {
     background: #FFF3E0;

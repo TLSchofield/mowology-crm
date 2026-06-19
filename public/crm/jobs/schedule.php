@@ -1225,7 +1225,7 @@ $pageTitle = 'Schedule';
 $activePage = 'schedule';
 $bodyClass  = 'mw-page-schedule'; // Hides global mobile nav bars — schedule has its own
 $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
-$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260612g" rel="stylesheet">';
+$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260619a" rel="stylesheet">';
 $extraHead .= '<script src="/crm/js/offline-queue.js?v=20260303a" defer></script>';
 // Prefetch every day visible in the strip so any day tap is instant
 foreach ($stripDays as $_sd) {
@@ -2955,6 +2955,23 @@ if ($apiKey) {
                   }
                   ?>
 
+                  <?php if (count($upcomingStops) > 1): ?>
+                  <!-- Route From Here — reorders upcoming cards by straight-line GPS distance (persists per-day) -->
+                  <div class="mw-rfh-bar">
+                      <button type="button" class="mw-rfh-btn" id="mwRfhBtn">
+                          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+                          <span class="mw-rfh-label">Route From Here</span>
+                      </button>
+                      <div class="mw-rfh-note" id="mwRfhNote" style="display:none;">
+                          <span class="mw-rfh-note-text">
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                              Sorted by distance from your location
+                          </span>
+                          <a href="#" class="mw-rfh-reset" id="mwRfhReset">Reset order</a>
+                      </div>
+                  </div>
+                  <?php endif; ?>
+
                   <?php if (!empty($upcomingStops)): ?>
                       <!-- All upcoming stops rendered as compact cards; JS promotes the GPS-matched one -->
                       <?php foreach ($upcomingStops as $upIdx => $upEntry):
@@ -3747,6 +3764,194 @@ function getServiceLabel(type) {
             );
         });
     }
+})();
+</script>
+<script>
+/**
+ * Route From Here + Skip — crew carousel (mobile schedule).
+ * Reorders the upcoming cards by straight-line GPS distance (nearest first),
+ * persists per-day in localStorage, and wires the per-card Skip button to the
+ * existing pow-actions skip_visit endpoint.
+ */
+(function() {
+    'use strict';
+    if (window.innerWidth > 991) return; // mobile card view only
+
+    var ROUTE_DATE  = '<?php echo htmlspecialchars($mobileDate, ENT_QUOTES); ?>';
+    var STORAGE_KEY = 'mw_route_order_' + ROUTE_DATE;
+
+    function area() { return document.querySelector('.mw-mc-scroll-area'); }
+
+    function haversine(la1, lo1, la2, lo2) {
+        var R = 6371000, r = Math.PI / 180;
+        var dLa = (la2 - la1) * r, dLo = (lo2 - lo1) * r;
+        var a = Math.sin(dLa/2)*Math.sin(dLa/2) + Math.cos(la1*r)*Math.cos(la2*r)*Math.sin(dLo/2)*Math.sin(dLo/2);
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    // Upcoming cards = .mw-mc-card nodes BEFORE the first section label
+    // ("Completed" / "Procurement"). Completed cards live after that label.
+    function anchorNode() { var a = area(); return a ? a.querySelector('.mw-mc-section-label') : null; }
+
+    function upcomingCards() {
+        var a = area(); if (!a) return [];
+        var lbl = anchorNode();
+        return [].slice.call(a.querySelectorAll('.mw-mc-card')).filter(function(c) {
+            return !(lbl && (c.compareDocumentPosition(lbl) & Node.DOCUMENT_POSITION_PRECEDING));
+        });
+    }
+
+    function coordsOf(c) {
+        var lat = parseFloat(c.getAttribute('data-lat')), lng = parseFloat(c.getAttribute('data-lng'));
+        if (isNaN(lat) || isNaN(lng) || (lat === 0 && lng === 0)) return null;
+        return { lat: lat, lng: lng };
+    }
+
+    function placeOrder(cards) {
+        var a = area(); if (!a) return;
+        var anchor = anchorNode();
+        cards.forEach(function(c) { a.insertBefore(c, anchor); });
+    }
+
+    function sortByDistance(uLat, uLng) {
+        var withC = [], without = [];
+        upcomingCards().forEach(function(c) {
+            var co = coordsOf(c);
+            if (co) { c.__d = haversine(uLat, uLng, co.lat, co.lng); withC.push(c); }
+            else { without.push(c); }
+        });
+        withC.sort(function(x, y) { return x.__d - y.__d; });
+        var ordered = withC.concat(without);
+        placeOrder(ordered);
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(ordered.map(function(c) { return c.getAttribute('data-stop-id'); }))); } catch (e) {}
+        showNote();
+        if (area()) area().scrollTop = 0;
+    }
+
+    function applySaved() {
+        var saved;
+        try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null'); } catch (e) { return; }
+        if (!saved || !saved.length) return;
+        var cards = upcomingCards(), byId = {};
+        cards.forEach(function(c) { byId[c.getAttribute('data-stop-id')] = c; });
+        var ordered = [];
+        saved.forEach(function(id) { if (byId[id]) { ordered.push(byId[id]); delete byId[id]; } });
+        cards.forEach(function(c) { if (byId[c.getAttribute('data-stop-id')]) ordered.push(c); });
+        placeOrder(ordered);
+        showNote();
+    }
+
+    function showNote() { var n = document.getElementById('mwRfhNote'); if (n) n.style.display = 'flex'; }
+    function hideNote() { var n = document.getElementById('mwRfhNote'); if (n) n.style.display = 'none'; }
+
+    var btn = document.getElementById('mwRfhBtn');
+    var label = btn ? btn.querySelector('.mw-rfh-label') : null;
+    var DEFAULT_LABEL = 'Route From Here';
+
+    function setState(s) {
+        if (!btn) return;
+        btn.classList.remove('mw-rfh-btn-error');
+        if (s === 'loading') { btn.disabled = true; label.textContent = 'Getting location…'; }
+        else if (s === 'denied') { btn.disabled = false; btn.classList.add('mw-rfh-btn-error'); label.textContent = 'Location permission required'; setTimeout(revert, 5000); }
+        else if (s === 'error') { btn.disabled = false; btn.classList.add('mw-rfh-btn-error'); label.textContent = 'Location unavailable'; setTimeout(revert, 4000); }
+        else { revert(); }
+        function revert() { btn.disabled = false; btn.classList.remove('mw-rfh-btn-error'); label.textContent = DEFAULT_LABEL; }
+    }
+
+    // Android-correct GPS: request permission, high accuracy, 15s timeout.
+    function acquire(ok, err) {
+        var native = window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform();
+        var Geo = native && window.Capacitor.Plugins ? window.Capacitor.Plugins.Geolocation : null;
+        var opts = { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 };
+        if (Geo) {
+            var fix = function() {
+                Geo.getCurrentPosition(opts)
+                    .then(function(p) { if (p && p.coords) ok(p.coords.latitude, p.coords.longitude); else err('error'); })
+                    .catch(function() { err('error'); });
+            };
+            Geo.checkPermissions().then(function(st) {
+                if (st && (st.location === 'granted' || st.coarseLocation === 'granted')) { fix(); return; }
+                Geo.requestPermissions({ permissions: ['location', 'coarseLocation'] })
+                    .then(function(rq) { if (rq && (rq.location === 'granted' || rq.coarseLocation === 'granted')) fix(); else err('denied'); })
+                    .catch(function() { err('denied'); });
+            }).catch(function() { fix(); });
+            return;
+        }
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                function(p) { ok(p.coords.latitude, p.coords.longitude); },
+                function(e) { err(e && e.code === 1 ? 'denied' : 'error'); },
+                opts
+            );
+        } else { err('error'); }
+    }
+
+    if (btn) {
+        btn.addEventListener('click', function() {
+            setState('loading');
+            acquire(
+                function(la, lo) { sortByDistance(la, lo); setState('done'); },
+                function(reason) { setState(reason === 'denied' ? 'denied' : 'error'); }
+            );
+        });
+    }
+
+    var resetLink = document.getElementById('mwRfhReset');
+    if (resetLink) {
+        resetLink.addEventListener('click', function(e) {
+            e.preventDefault();
+            try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
+            location.reload(); // restore the server's scheduled route order
+        });
+    }
+
+    applySaved(); // re-apply persisted order on load
+
+    // ── Skip button (delegated, capture phase to beat card tap-to-expand) ──
+    function bumpCounter() {
+        var pill = document.querySelector('.mw-mc-strip-progress-pill');
+        if (!pill) return;
+        var parts = (pill.textContent || '').split('/');
+        if (parts.length === 2) { pill.textContent = ((parseInt(parts[0], 10) || 0) + 1) + '/' + parts[1].trim(); }
+    }
+    function dropFromSaved(stopId) {
+        try {
+            var saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+            if (saved && saved.length) {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(saved.filter(function(id) { return String(id) !== String(stopId); })));
+            }
+        } catch (e) {}
+    }
+    document.addEventListener('click', function(e) {
+        var sb = e.target.closest ? e.target.closest('.mw-mc-footer-btn-skip') : null;
+        if (!sb) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (!confirm('Skip this job? It will be removed from today’s route.')) return;
+        var visitId = parseInt(sb.getAttribute('data-footer-skip'), 10);
+        var stopId  = sb.getAttribute('data-skip-stop');
+        sb.disabled = true;
+        var csrf = (window.MW_SCHEDULE_STATE && MW_SCHEDULE_STATE.csrf) || window.MW_CSRF || '';
+        fetch('/crm/api/pow-actions.php', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'skip_visit', visit_id: visitId, csrf_token: csrf })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            if (d && d.success) {
+                dropFromSaved(stopId);
+                bumpCounter();
+                var card = sb.closest('.mw-mc-card');
+                if (card) { card.classList.add('mw-mc-card-removing'); setTimeout(function() { card.remove(); }, 350); }
+            } else {
+                sb.disabled = false;
+                alert((d && d.error) || 'Could not skip this job. Please try again.');
+            }
+        })
+        .catch(function() { sb.disabled = false; alert('Network error — please try again.'); });
+    }, true);
 })();
 </script>
 <script>

@@ -444,6 +444,12 @@ $orStatusLabel = ($orStatus === 'enrolled') ? 'Active Program' : (($orStatus ===
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
                 Complete Job
             </button>
+            <button type="button" class="mw-mc-footer-btn mw-mc-footer-btn-skip"
+                    data-footer-skip="<?php echo (int)$footerVisitId; ?>"
+                    data-skip-stop="<?php echo (int)$stop['stop_id']; ?>">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
+                Skip
+            </button>
         </div>
         <?php endif; ?>
 
@@ -765,6 +771,12 @@ $orStatusLabel = ($orStatus === 'enrolled') ? 'Active Program' : (($orStatus ===
             <button type="button" class="mw-mc-footer-btn mw-mc-footer-btn-complete" data-footer-complete="<?php echo (int)$stop['stop_id']; ?>">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
                 Complete Job
+            </button>
+            <button type="button" class="mw-mc-footer-btn mw-mc-footer-btn-skip"
+                    data-footer-skip="<?php echo (int)$footerVisitId; ?>"
+                    data-skip-stop="<?php echo (int)$stop['stop_id']; ?>">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
+                Skip
             </button>
         </div>
         <?php endif; ?>
