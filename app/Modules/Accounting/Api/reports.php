@@ -38,9 +38,11 @@ try {
     require_once APP_ROOT . '/Modules/Accounting/Services/AccountingService.php';
     require_once APP_ROOT . '/Modules/Accounting/Services/TaxEngine.php';
     require_once APP_ROOT . '/Modules/Accounting/Services/RulesEngine.php';
+    require_once APP_ROOT . '/Modules/Accounting/Services/ReportingService.php';
 
-    $svc = new AccountingService($db);
-    $tax = new TaxEngine($db);
+    $svc       = new AccountingService($db);
+    $tax       = new TaxEngine($db);
+    $reporting = new ReportingService($db);
 
     $action    = $_GET['action'] ?? '';
     $thisMonth = date('Y-m-01');
@@ -54,6 +56,27 @@ try {
         case 'pl':
             $data = $svc->getProfitLoss($dateFrom, $dateTo);
             echo json_encode(['ok' => true, 'report' => $data]);
+            break;
+
+        // ── Double-entry statements (Phase 1) ─────────────────────────────────
+        case 'trial_balance':
+            echo json_encode(['ok' => true, 'report' => $reporting->getTrialBalance($dateTo)]);
+            break;
+
+        case 'balance_sheet':
+            echo json_encode(['ok' => true, 'report' => $reporting->getBalanceSheet($dateTo)]);
+            break;
+
+        case 'income_statement':
+            echo json_encode(['ok' => true, 'report' => $reporting->getIncomeStatement($dateFrom, $dateTo)]);
+            break;
+
+        // ── GGOB cost drill-down (group_by: cost_type | service_type | job) ────
+        case 'cost_drilldown':
+            $groupBy = in_array($_GET['group_by'] ?? '', ['cost_type', 'service_type', 'job'], true)
+                ? $_GET['group_by'] : 'cost_type';
+            echo json_encode(['ok' => true, 'group_by' => $groupBy,
+                'report' => $reporting->getCostDrillDown($dateFrom, $dateTo, $groupBy)]);
             break;
 
         // ── Cash Flow (simplified) ────────────────────────────────────────────
