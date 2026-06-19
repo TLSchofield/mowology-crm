@@ -4344,19 +4344,28 @@
     background: #D6EFDF;
 }
 
-/* ── Skip button (footer, secondary — compact alongside Clock In / Complete) ── */
-/* Skip button takes its own full-width row beneath Clock In / Complete so it
-   is never squeezed off the card edge. Footer must wrap to allow the new row. */
+/* ── Skip button (footer) ──
+   Clock In · Complete Job · Skip all share ONE row. Skip is compact and muted
+   at the far right (with a divider gap) so it isn't mis-tapped instead of the
+   primary actions. It still confirms before skipping. */
 .mw-mc-card-footer {
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+}
+/* Let the two primary buttons shrink so all three fit on the row. */
+.mw-mc-footer-btn-clockin,
+.mw-mc-footer-btn-complete {
+    min-width: 0;
+    white-space: nowrap;
 }
 .mw-mc-footer-btn-skip {
-    flex: 1 1 100%;
+    flex: 0 0 auto;
     background: #fff;
     color: #8a94a6;
     border: 1.5px solid #e2e6ec;
-    min-height: 44px;
+    min-height: 52px;
     padding: 10px 14px;
+    margin-left: 4px;            /* small separation from Complete Job */
+    white-space: nowrap;
 }
 .mw-mc-footer-btn-skip:active {
     background: #f3f5f8;
