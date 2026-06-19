@@ -140,7 +140,12 @@ final class VisitDetailViewModel: ObservableObject {
         isLoading = false
     }
 
-    func completeJob(visitId: Int) async {
+    /// Completes the visit (timer stop). Optional timed-extras minutes + a note
+    /// to the client are persisted on the visit server-side, so they survive even
+    /// when the crew complete without invoicing.
+    /// Returns `true` when the server confirmed completion.
+    @discardableResult
+    func completeJob(visitId: Int, extrasMinutes: Int = 0, extrasNote: String = "") async -> Bool {
         isLoading    = true
         errorMessage = nil
 
@@ -159,8 +164,12 @@ final class VisitDetailViewModel: ObservableObject {
         ]
         if let lat { body["lat"] = lat }
         if let lng { body["lng"] = lng }
+        if extrasMinutes > 0 { body["extras_minutes"] = extrasMinutes }
+        let trimmedNote = extrasNote.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedNote.isEmpty { body["extras_note"] = trimmedNote }
         accountability.forEach { body[$0.key] = $0.value }
 
+        var completed = false
         do {
             let response: TimerStopResponse = try await withExponentialBackoff {
                 try await self.apiClient.request(
@@ -174,6 +183,7 @@ final class VisitDetailViewModel: ObservableObject {
                 transitionQueue.confirm(visitId: visitId, action: "stop")
                 haptic.notificationOccurred(.success)
                 visitStatuses[visitId] = "completed"
+                completed = true
 
                 if activeTimerVisitId == visitId {
                     activeTimerVisitId = nil
@@ -188,6 +198,7 @@ final class VisitDetailViewModel: ObservableObject {
         }
 
         isLoading = false
+        return completed
     }
 
     // MARK: - Exponential Backoff

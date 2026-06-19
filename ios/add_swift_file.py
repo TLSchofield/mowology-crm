@@ -67,12 +67,17 @@ def main(swift_path: str):
     content = content.replace('/* End PBXBuildFile section */',
                                build_entry + '/* End PBXBuildFile section */')
 
-    # 3. Compile Sources — insert after last existing Sources entry
-    content = re.sub(
-        r'(\t\t\t\t[A-F0-9]{24} /\* \S+ in Sources \*/,)(?=\n\t\t\t\t\);)',
+    # 3. Compile Sources — insert after the last entry in the files list.
+    #    The closing `);` of the list is indented with 3 tabs (not 4), so the
+    #    lookahead tolerates any leading whitespace before `);`.
+    content, src_n = re.subn(
+        r'([ \t]*[A-F0-9]{24} /\* \S+ in Sources \*/,)(?=\n[ \t]*\);)',
         f'\\1\n\t\t\t\t{build_file_id} /* {filename} in Sources */,',
         content, count=1
     )
+    if src_n != 1:
+        sys.exit("ERROR: could not add the file to the Compile Sources phase. "
+                 "It would not be compiled — check pbxproj manually.")
 
     # 4. Ensure group hierarchy exists and file ref is in the leaf group
     parts = group_rel.split('/') if group_rel else []

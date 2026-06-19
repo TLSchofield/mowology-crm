@@ -15,6 +15,9 @@ struct VisitDetailView: View {
     @StateObject private var viewModel: VisitDetailViewModel
     @Environment(\.openURL) private var openURL
 
+    /// The visit being completed via the completion sheet (extras + invoice).
+    @State private var completingVisit: Visit?
+
 
     // MARK: - Init
 
@@ -59,6 +62,9 @@ struct VisitDetailView: View {
         .navigationTitle(stop.propertyAddress)
         .navigationBarTitleDisplayMode(.inline)
         .task { await viewModel.checkClockStatus() }
+        .sheet(item: $completingVisit) { visit in
+            VisitCompletionSheet(visit: visit, detailVM: viewModel, authSession: authSession)
+        }
     }
 
     // MARK: - Notice Banner (green — informational)
@@ -455,24 +461,15 @@ struct VisitDetailView: View {
 
         case "in_progress":
             Button {
-                Task { await viewModel.completeJob(visitId: visit.visitId) }
+                completingVisit = visit
             } label: {
-                Group {
-                    if isThisLoading {
-                        HStack(spacing: 8) {
-                            ProgressView().tint(.white)
-                            Text("Completing…").font(.subheadline.bold())
-                        }
-                    } else {
-                        Label("Mark Complete", systemImage: "checkmark.circle.fill")
-                            .font(.subheadline.bold())
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(Color.MW.green)
-                .foregroundStyle(.white)
-                .clipShape(Capsule())
+                Label("Mark Complete", systemImage: "checkmark.circle.fill")
+                    .font(.subheadline.bold())
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(Color.MW.green)
+                    .foregroundStyle(.white)
+                    .clipShape(Capsule())
             }
             .disabled(isThisLoading)
 

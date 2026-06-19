@@ -156,6 +156,7 @@ $actionAliases = [
         'jobs'               => 'jobs',        // Mobile jobs history (JWT) — GET paginated visit list
         'quotes'             => 'quotes',      // Mobile quotes (JWT, admin only)
         'invoices'           => 'invoices',    // Mobile invoices (JWT, admin only)
+        'invoice'            => 'invoice',     // Mobile invoice-a-visit: preview/create/send (JWT, all crew)
         'job-photo'          => 'job-photo',   // Mobile before/after photo upload (JWT)
         'crew-trails'        => 'crew-trails', // Mobile crew GPS trail playback (JWT)
         'visit-flag'         => 'visit-flag',  // Mobile visit endorsement heart toggle (JWT)

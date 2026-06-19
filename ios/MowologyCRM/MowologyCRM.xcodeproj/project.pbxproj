@@ -63,6 +63,10 @@
 		9123154214A57C98D697E9A0 /* ScheduleCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD1CBB45AF36E4DCB8B81C51 /* ScheduleCache.swift */; };
 		34AB0F00E7B692E81E5392EC /* AppTransitionDrainService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04649C7082A9C0FC920D58AD /* AppTransitionDrainService.swift */; };
 		FD632889669224A6AEF473DF /* AppPhotoQueueDrainService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88FD0AEC402CBA0866DBF37B /* AppPhotoQueueDrainService.swift */; };
+		AE74E867CBA867786A90D8D4 /* AppExtrasConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA520C17803E2ABBC60EB495 /* AppExtrasConfig.swift */; };
+		0E8BD469E6536724AE4F425C /* InvoiceModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92E56ACC6D7EF8F4EDA36AED /* InvoiceModels.swift */; };
+		5C089B5E2F20B5713536F07E /* VisitCompletionViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6BA08B82EF419A25EC2AB73 /* VisitCompletionViewModel.swift */; };
+		D5811C582B278D90ABABED99 /* VisitCompletionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = E526A13618A59178167DFC63 /* VisitCompletionSheet.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -124,6 +128,10 @@
 		AD1CBB45AF36E4DCB8B81C51 /* ScheduleCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleCache.swift; sourceTree = "<group>"; };
 		04649C7082A9C0FC920D58AD /* AppTransitionDrainService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTransitionDrainService.swift; sourceTree = "<group>"; };
 		88FD0AEC402CBA0866DBF37B /* AppPhotoQueueDrainService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPhotoQueueDrainService.swift; sourceTree = "<group>"; };
+		FA520C17803E2ABBC60EB495 /* AppExtrasConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppExtrasConfig.swift; sourceTree = "<group>"; };
+		92E56ACC6D7EF8F4EDA36AED /* InvoiceModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InvoiceModels.swift; sourceTree = "<group>"; };
+		B6BA08B82EF419A25EC2AB73 /* VisitCompletionViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitCompletionViewModel.swift; sourceTree = "<group>"; };
+		E526A13618A59178167DFC63 /* VisitCompletionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitCompletionSheet.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -135,6 +143,7 @@
 				F33171690DA9721C3D67B8E9 /* TransitionQueue.swift */,
 				20334B98F42E1FA61C896430 /* ReceiptQueue.swift */,
 				C38B412AFB12D52D9679198C /* ClockQueue.swift */,
+				88FD0AEC402CBA0866DBF37B /* AppPhotoQueueDrainService.swift */,
 				020780B1CE91FCD6C5F342B3 /* JobPhotoQueue.swift */,
 				AD1CBB45AF36E4DCB8B81C51 /* ScheduleCache.swift */,
 				04649C7082A9C0FC920D58AD /* AppTransitionDrainService.swift */,
@@ -147,7 +156,6 @@
 			children = (
 				51F215642B22B1FCC54B663F /* MowologyCRM */,
 				636F64D13F9CF99C7CCAD7EA /* Products */,
-							88FD0AEC402CBA0866DBF37B /* AppPhotoQueueDrainService.swift */,
 );
 			sourceTree = "<group>";
 		};
@@ -253,6 +261,8 @@
 				DEA3E082EB582E2D8825C262 /* ScheduleViewModel.swift */,
 				F73A09E1281950C78A2D0821 /* StopCardView.swift */,
 				AC8674D3A1F9F01248ECB134 /* VisitDetailView.swift */,
+				E526A13618A59178167DFC63 /* VisitCompletionSheet.swift */,
+				B6BA08B82EF419A25EC2AB73 /* VisitCompletionViewModel.swift */,
 				1B1F4DFF661307A98228D10E /* VisitDetailViewModel.swift */,
 				68D4D6F730154942832B001A /* WeekStripView.swift */,
 				A16DCCA87E60FAD86C6FAE71 /* DayMapView.swift */,
@@ -293,6 +303,8 @@
 				AD88E66FE7C3D2F54EEB6953 /* TimeClockModels.swift */,
 				C9C49661C41333A49EE1D301 /* User.swift */,
 				46E2EA872345FA9825A6DF2E /* Visit.swift */,
+				92E56ACC6D7EF8F4EDA36AED /* InvoiceModels.swift */,
+				FA520C17803E2ABBC60EB495 /* AppExtrasConfig.swift */,
 				15B038E603948161013BAE5A /* ReceiptIntakeResponse.swift */,
 				D2304800F25344F166EF4441 /* Expense.swift */,
 			);
@@ -304,7 +316,7 @@
 			children = (
 				C8040C6DF2C66988040204FE /* Assets.xcassets */,
 				9DD091BEACD0F5E731BE8B0E /* Info.plist */,
-			);
+);
 			path = Resources;
 			sourceTree = "<group>";
 		};
@@ -447,6 +459,11 @@
 				34AB0F00E7B692E81E5392EC /* AppTransitionDrainService.swift in Sources */,
 				FEE6F4240C835E02425E19BD /* JobPhotoQueue.swift in Sources */,
 				9123154214A57C98D697E9A0 /* ScheduleCache.swift in Sources */,
+				FD632889669224A6AEF473DF /* AppPhotoQueueDrainService.swift in Sources */,
+				AE74E867CBA867786A90D8D4 /* AppExtrasConfig.swift in Sources */,
+				0E8BD469E6536724AE4F425C /* InvoiceModels.swift in Sources */,
+				5C089B5E2F20B5713536F07E /* VisitCompletionViewModel.swift in Sources */,
+				D5811C582B278D90ABABED99 /* VisitCompletionSheet.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

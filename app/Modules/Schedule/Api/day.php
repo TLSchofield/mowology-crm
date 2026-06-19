@@ -141,12 +141,22 @@ foreach ($dayStops as $stop) {
     ];
 }
 
+// Timed-extras rate per 5-minute block — lets the app show a live dollar total
+// while crew accrue extra-work minutes on the completion sheet (default $5.00).
+$extrasRate = 5.00;
+try {
+    $erRow = getDB()->query("SELECT setting_value FROM ops_settings WHERE setting_key = 'extras_rate_per_5min' LIMIT 1")
+                ->fetch(PDO::FETCH_ASSOC);
+    $extrasRate = round(floatval($erRow['setting_value'] ?? 5.00), 2);
+} catch (Throwable $e) { /* default 5.00 */ }
+
 // ── Respond ───────────────────────────────────────────────────────────────────
 http_response_code(200);
 echo json_encode([
-    'success'    => true,
-    'date'       => $date,
-    'role'       => $jwtUser['role'],
-    'stop_count' => count($stops),
-    'stops'      => $stops,
+    'success'              => true,
+    'date'                 => $date,
+    'role'                 => $jwtUser['role'],
+    'stop_count'           => count($stops),
+    'extras_rate_per_5min' => $extrasRate,
+    'stops'                => $stops,
 ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);

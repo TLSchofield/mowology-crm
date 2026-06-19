@@ -135,8 +135,25 @@ try {
             $lng           = isset($input['lng']) ? (float)$input['lng'] : null;
             $notes         = $input['notes'] ?? null;
             $completeVisit = $input['complete_visit'] ?? true;
+            $extrasMinutes = max(0, (int)($input['extras_minutes'] ?? 0));
+            $extrasNote    = trim((string)($input['extras_note'] ?? ''));
 
             $duration = stopVisitTimer($visitId, $userId, $lat, $lng, $notes, (bool)$completeVisit);
+
+            // Persist timed extra work on the visit so it is never lost when the
+            // crew complete without invoicing. The invoice create flow reads these
+            // back and itemises them. Calc is the single source in the service.
+            if ($extrasMinutes > 0 || $extrasNote !== '') {
+                try {
+                    require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceFromVisitService.php';
+                    $extras       = (new InvoiceFromVisitService($db ?? getDB()))->computeExtrasAmount($extrasMinutes);
+                    if (!isset($db)) $db = getDB();
+                    $db->prepare("UPDATE job_visits SET extras_minutes = ?, extras_amount = ?, extras_note = ? WHERE id = ?")
+                       ->execute([$extrasMinutes, $extras['amount'], ($extrasNote !== '' ? $extrasNote : null), $visitId]);
+                } catch (Throwable $exEx) {
+                    error_log('timer.php extras persist failed: ' . $exEx->getMessage());
+                }
+            }
 
             $responseStop = json_encode([
                 'success'          => true,

@@ -15,6 +15,7 @@ private struct DayResponse: Decodable {
     let role: String
     let stopCount: Int
     let stops: [Stop]
+    let extrasRatePer5Min: Double?
 
     enum CodingKeys: String, CodingKey {
         case success
@@ -22,6 +23,7 @@ private struct DayResponse: Decodable {
         case role
         case stopCount = "stop_count"
         case stops
+        case extrasRatePer5Min = "extras_rate_per_5min"
     }
 }
 
@@ -236,6 +238,7 @@ final class ScheduleViewModel: ObservableObject {
                 .scheduleDay(date: dateString)
             )
             guard !Task.isCancelled else { return }
+            AppExtrasConfig.shared.update(ratePer5Min: response.extrasRatePer5Min)
             let fetched = response.stops
             cacheStops(fetched, forDate: dateString)
             ScheduleCache.shared.save(fetched, forDate: dateString)

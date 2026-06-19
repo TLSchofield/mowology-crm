@@ -78,6 +78,10 @@ enum APIEndpoint {
     /// POST /api/schedule/job-photo — upload a before/after job photo for a visit.
     case scheduleJobPhoto
 
+    /// POST /api/schedule/invoice — invoice a completed visit (timed extras + invoice).
+    /// Body: { action: "preview"|"create"|"send", ... }
+    case scheduleInvoice
+
     // MARK: - URL
 
     /// Builds the full URL for the endpoint. Returns `nil` only if the base
@@ -171,6 +175,9 @@ enum APIEndpoint {
 
         case .scheduleJobPhoto:
             return URL(string: "\(baseURLString)/schedule/job-photo")
+
+        case .scheduleInvoice:
+            return URL(string: "\(baseURLString)/schedule/invoice")
         }
     }
 
@@ -199,7 +206,8 @@ enum APIEndpoint {
              .deviceTokenRegister,
              .quizAction,
              .quizQuestion,
-             .scheduleJobPhoto: return true
+             .scheduleJobPhoto,
+             .scheduleInvoice: return true
         }
     }
 
@@ -231,7 +239,8 @@ enum APIEndpoint {
              .quizQuestion: return "GET"
 
         case .quizAction,
-             .scheduleJobPhoto: return "POST"
+             .scheduleJobPhoto,
+             .scheduleInvoice: return "POST"
         }
     }
 }
