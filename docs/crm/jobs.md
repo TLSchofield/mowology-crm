@@ -34,6 +34,7 @@ app/Modules/Jobs/
 | `VisitGenerationService.php` | Recurrence/holiday math + visit materialisation. Phase 2 extraction — the `Plan/VisitGeneration.php` globals delegate here; pure recurrence math is unit-tested. |
 | `PlanProfitabilityService.php` | Overhead settings + plan/stop profit & margin math. Phase 2 extraction — `Plan/PlanProfitability.php` globals delegate here; pure money math is unit-tested. |
 | `PlanMaterialsService.php` | Fertilizer-bundle visits, materials calc, purchase-task schedule. Phase 2 extraction — `Plan/PlanMaterials.php` globals delegate here; the application-rate parser and purchase-task date distribution are unit-tested. |
+| `PlanHelpersService.php` | Time↔minutes conversion, visit-horizon check, plan/visit numbering. Phase 2 extraction — `Plan/PlanHelpers.php` globals delegate here; the pure time/numbering helpers are unit-tested. |
 | `ClusterService.php` / `ClusterDetectionService.php` | Group nearby stops into geographic clusters for route building. |
 | `VisitCompletionService.php` | Completion-side logic for finished visits. |
 
