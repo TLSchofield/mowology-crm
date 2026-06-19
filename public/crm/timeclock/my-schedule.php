@@ -166,6 +166,23 @@ $activePage = 'timeclock';
     </div>
 </div>
 
+<?php if (!empty($jobs) && count($jobs) > 1): ?>
+<!-- Route From Here — reorders the job list by straight-line distance from current GPS location -->
+<div class="mw-route-bar">
+    <button type="button" class="mw-route-btn" id="mwRouteBtn">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+        <span class="mw-route-btn-label">Route From Here</span>
+    </button>
+    <div class="mw-route-indicator" id="mwRouteIndicator" style="display:none;">
+        <span class="mw-route-indicator-text">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+            Sorted by distance from your location
+        </span>
+        <a href="#" class="mw-route-reset" id="mwRouteReset">Reset to scheduled order</a>
+    </div>
+</div>
+<?php endif; ?>
+
 <!-- Job Timeline -->
 <div class="mw-job-timeline" id="jobTimeline">
     <?php if (empty($jobs)): ?>
@@ -175,6 +192,7 @@ $activePage = 'timeclock';
             <p>You have no jobs assigned for <?php echo date('l, M j', strtotime($viewDate)); ?>.</p>
         </div>
     <?php else: ?>
+        <?php $__routeSeq = 0; ?>
         <?php foreach ($jobs as $job):
             $statusClass = '';
             if ($job['status'] === 'in_progress') $statusClass = 'mw-tc-in-progress';
@@ -191,6 +209,7 @@ $activePage = 'timeclock';
         <div class="mw-tc-card <?php echo $statusClass; ?>"
              id="jobCard-<?php echo (int)$job['id']; ?>"
              data-job-id="<?php echo (int)$job['id']; ?>"
+             data-seq="<?php echo $__routeSeq++; ?>"
              data-lat="<?php echo htmlspecialchars($job['property_lat'] ?? ''); ?>"
              data-lng="<?php echo htmlspecialchars($job['property_lng'] ?? ''); ?>"
              data-status="<?php echo htmlspecialchars($job['status']); ?>">
@@ -558,6 +577,141 @@ $activePage = 'timeclock';
         }, 3000);
     }
 
+})();
+</script>
+
+<!-- ═══ Route From Here — GPS distance sort (Capacitor + browser) ═══ -->
+<script>
+(function() {
+    'use strict';
+
+    var btn = document.getElementById('mwRouteBtn');
+    if (!btn) return; // button only rendered when 2+ jobs exist
+
+    var timeline  = document.getElementById('jobTimeline');
+    var label     = btn.querySelector('.mw-route-btn-label');
+    var indicator = document.getElementById('mwRouteIndicator');
+    var resetLink = document.getElementById('mwRouteReset');
+
+    var ROUTE_DATE  = '<?php echo htmlspecialchars($viewDate, ENT_QUOTES); ?>';
+    var STORAGE_KEY = 'route_order_' + ROUTE_DATE;
+    var DEFAULT_LABEL = 'Route From Here';
+
+    function haversineKm(lat1, lon1, lat2, lon2) {
+        var R = 6371; // km
+        var dLat = (lat2 - lat1) * Math.PI / 180;
+        var dLon = (lon2 - lon1) * Math.PI / 180;
+        var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    function getCards() {
+        return Array.prototype.slice.call(timeline.querySelectorAll('.mw-tc-card'));
+    }
+
+    function bySeq(a, b) {
+        return (parseInt(a.getAttribute('data-seq'), 10) || 0) -
+               (parseInt(b.getAttribute('data-seq'), 10) || 0);
+    }
+
+    // Re-append cards in the given id order; any card not listed (no coords /
+    // newly added) goes to the bottom in its original scheduled order.
+    function applyOrder(idList) {
+        var byId = {};
+        getCards().forEach(function(c) { byId[c.getAttribute('data-job-id')] = c; });
+        idList.forEach(function(id) {
+            if (byId[id]) { timeline.appendChild(byId[id]); delete byId[id]; }
+        });
+        Object.keys(byId).map(function(id) { return byId[id]; })
+            .sort(bySeq)
+            .forEach(function(c) { timeline.appendChild(c); });
+    }
+
+    function sortByDistance(lat, lng) {
+        var withCoords = [], without = [];
+        getCards().forEach(function(c) {
+            var clat = parseFloat(c.getAttribute('data-lat'));
+            var clng = parseFloat(c.getAttribute('data-lng'));
+            if (isNaN(clat) || isNaN(clng)) { without.push(c); return; }
+            c._routeDist = haversineKm(lat, lng, clat, clng);
+            withCoords.push(c);
+        });
+
+        withCoords.sort(function(a, b) { return a._routeDist - b._routeDist; });
+        without.sort(bySeq);
+
+        withCoords.concat(without).forEach(function(c) { timeline.appendChild(c); });
+
+        var order = withCoords.map(function(c) { return c.getAttribute('data-job-id'); });
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(order)); } catch (e) {}
+
+        showIndicator();
+    }
+
+    function showIndicator() { if (indicator) indicator.style.display = 'flex'; }
+    function hideIndicator() { if (indicator) indicator.style.display = 'none'; }
+
+    function setBtn(state) {
+        btn.classList.remove('mw-route-btn-error');
+        if (state === 'loading') {
+            btn.disabled = true;
+            label.textContent = 'Getting location…';
+        } else if (state === 'error') {
+            btn.disabled = false;
+            btn.classList.add('mw-route-btn-error');
+            label.textContent = 'Location unavailable — check permissions';
+            setTimeout(function() {
+                btn.classList.remove('mw-route-btn-error');
+                label.textContent = DEFAULT_LABEL;
+            }, 4000);
+        } else { // idle / done
+            btn.disabled = false;
+            label.textContent = DEFAULT_LABEL;
+        }
+    }
+
+    // GPS acquisition — prefer the native Capacitor plugin, fall back to the browser.
+    function acquire(onOk, onErr) {
+        if (window.MwNative && window.MwNative.geo && window.MwNative.geo.getCurrentPosition) {
+            window.MwNative.geo.getCurrentPosition()
+                .then(function(pos) {
+                    if (pos && typeof pos.lat === 'number') { onOk(pos.lat, pos.lng); }
+                    else { onErr(); }
+                })
+                .catch(function() { onErr(); });
+        } else if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                function(pos) { onOk(pos.coords.latitude, pos.coords.longitude); },
+                function() { onErr(); },
+                { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+            );
+        } else {
+            onErr();
+        }
+    }
+
+    btn.addEventListener('click', function() {
+        setBtn('loading');
+        acquire(
+            function(lat, lng) { sortByDistance(lat, lng); setBtn('done'); },
+            function() { setBtn('error'); }
+        );
+    });
+
+    resetLink.addEventListener('click', function(e) {
+        e.preventDefault();
+        try { localStorage.removeItem(STORAGE_KEY); } catch (err) {}
+        getCards().sort(bySeq).forEach(function(c) { timeline.appendChild(c); });
+        hideIndicator();
+    });
+
+    // Restore a persisted sort for this date (survives page refresh; resets per-day).
+    try {
+        var saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+        if (saved && saved.length) { applyOrder(saved); showIndicator(); }
+    } catch (err) {}
 })();
 </script>
 
