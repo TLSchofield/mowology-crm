@@ -188,6 +188,197 @@ class LedgerService
     }
 
     // ══════════════════════════════════════════════════════════════════════════
+    // POSTING RECIPES — pure builders (no DB) + thin post wrappers
+    //
+    // Builders return an entry whose lines carry an 'account' CODE (string).
+    // post*() resolves codes -> account_id and calls postEntry(). Keeping the
+    // accounting logic in the pure builders makes every recipe unit-testable.
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Invoice raised (accrual): DR Accounts Receivable / CR Revenue (+ GST Collected).
+     * @param array $inv id, date, net, gst?, revenue_account? (code, default 4900),
+     *                   service_type?, contact_id?, job_id?, memo?
+     */
+    public function buildInvoiceEntry(array $inv): array
+    {
+        $net = round((float)$inv['net'], 2);
+        $gst = round((float)($inv['gst'] ?? 0), 2);
+        $total = round($net + $gst, 2);
+        $revenue = $inv['revenue_account'] ?? '4900';
+
+        $lines = [];
+        $lines[] = [
+            'account' => self::ACC_AR, 'debit' => $total, 'credit' => 0,
+            'contact_id' => $inv['contact_id'] ?? null, 'job_id' => $inv['job_id'] ?? null,
+        ];
+        $lines[] = [
+            'account' => $revenue, 'debit' => 0, 'credit' => $net,
+            'service_type' => $inv['service_type'] ?? null,
+            'contact_id' => $inv['contact_id'] ?? null, 'job_id' => $inv['job_id'] ?? null,
+        ];
+        if ($gst > 0) {
+            $lines[] = ['account' => self::ACC_GST_COLLECTED, 'debit' => 0, 'credit' => $gst, 'gst_amount' => $gst];
+        }
+
+        return [
+            'entry_date'  => $inv['date'],
+            'memo'        => $inv['memo'] ?? ('Invoice #' . ($inv['id'] ?? '')),
+            'source_type' => 'invoice',
+            'source_id'   => $inv['id'] ?? null,
+            'lines'       => $lines,
+        ];
+    }
+
+    /**
+     * Customer payment: DR Bank / CR Accounts Receivable.
+     * @param array $pmt id, date, amount, bank_account? (code, default 1010), contact_id?, memo?
+     */
+    public function buildPaymentEntry(array $pmt): array
+    {
+        $amount = round((float)$pmt['amount'], 2);
+        $bank = $pmt['bank_account'] ?? self::ACC_BANK;
+
+        return [
+            'entry_date'  => $pmt['date'],
+            'memo'        => $pmt['memo'] ?? ('Payment for invoice #' . ($pmt['invoice_id'] ?? '')),
+            'source_type' => 'payment',
+            'source_id'   => $pmt['id'] ?? null,
+            'lines'       => [
+                ['account' => $bank, 'debit' => $amount, 'credit' => 0, 'contact_id' => $pmt['contact_id'] ?? null],
+                ['account' => self::ACC_AR, 'debit' => 0, 'credit' => $amount, 'contact_id' => $pmt['contact_id'] ?? null],
+            ],
+        ];
+    }
+
+    /**
+     * Expense: DR Expense (+ PST as cost) + DR GST ITC / CR funding account.
+     * PST is non-recoverable, so it is rolled into the expense cost, not the ITC.
+     * @param array $exp id, date, net, gst?, pst?, expense_account (code),
+     *                   funding? (code, default 2400 Credit Card), cost_type_id?,
+     *                   service_type?, job_id?, vendor_id?, memo?
+     */
+    public function buildExpenseEntry(array $exp): array
+    {
+        $net = round((float)$exp['net'], 2);
+        $gst = round((float)($exp['gst'] ?? 0), 2);
+        $pst = round((float)($exp['pst'] ?? 0), 2);
+        $total = round($net + $gst + $pst, 2);
+        $funding = $exp['funding'] ?? self::ACC_CREDIT_CARD;
+
+        $lines = [];
+        $lines[] = [
+            'account' => $exp['expense_account'], 'debit' => round($net + $pst, 2), 'credit' => 0,
+            'gst_amount' => $gst, 'pst_amount' => $pst,
+            'cost_type_id' => $exp['cost_type_id'] ?? null,
+            'service_type' => $exp['service_type'] ?? null,
+            'job_id' => $exp['job_id'] ?? null, 'vendor_id' => $exp['vendor_id'] ?? null,
+        ];
+        if ($gst > 0) {
+            $lines[] = ['account' => self::ACC_GST_ITC, 'debit' => $gst, 'credit' => 0, 'gst_amount' => $gst];
+        }
+        $lines[] = ['account' => $funding, 'debit' => 0, 'credit' => $total, 'vendor_id' => $exp['vendor_id'] ?? null];
+
+        return [
+            'entry_date'  => $exp['date'],
+            'memo'        => $exp['memo'] ?? ('Expense #' . ($exp['id'] ?? '')),
+            'source_type' => 'expense',
+            'source_id'   => $exp['id'] ?? null,
+            'lines'       => $lines,
+        ];
+    }
+
+    /**
+     * Owner draw: DR Owner's Draw (or Due from Shareholder) / CR Bank.
+     * @param array $d date, amount, draw_account? (code, default 3300), bank_account? (code, default 1010), memo?
+     */
+    public function buildOwnerDrawEntry(array $d): array
+    {
+        $amount = round((float)$d['amount'], 2);
+        return [
+            'entry_date'  => $d['date'],
+            'memo'        => $d['memo'] ?? 'Owner draw',
+            'source_type' => $d['source_type'] ?? 'manual',
+            'source_id'   => $d['id'] ?? null,
+            'lines'       => [
+                ['account' => $d['draw_account'] ?? self::ACC_OWNER_DRAW, 'debit' => $amount, 'credit' => 0],
+                ['account' => $d['bank_account'] ?? self::ACC_BANK, 'debit' => 0, 'credit' => $amount],
+            ],
+        ];
+    }
+
+    /**
+     * Bank transfer: DR destination / CR source.
+     * @param array $t date, amount, from (code), to (code), memo?
+     */
+    public function buildTransferEntry(array $t): array
+    {
+        $amount = round((float)$t['amount'], 2);
+        return [
+            'entry_date'  => $t['date'],
+            'memo'        => $t['memo'] ?? 'Transfer',
+            'source_type' => 'manual',
+            'lines'       => [
+                ['account' => $t['to'],   'debit' => $amount, 'credit' => 0],
+                ['account' => $t['from'], 'debit' => 0, 'credit' => $amount],
+            ],
+        ];
+    }
+
+    /**
+     * Opening balances: caller supplies known asset/liability/equity opening
+     * lines (each ['account'=>code, 'debit'|'credit'=>x]); the difference is
+     * plugged to Opening Balance Equity (3900) so the entry balances.
+     * @param array $b date, lines[], memo?
+     */
+    public function buildOpeningBalanceEntry(array $b): array
+    {
+        $lines = $b['lines'];
+        $sumDebit = 0.0; $sumCredit = 0.0;
+        foreach ($lines as $l) {
+            $sumDebit  += round((float)($l['debit']  ?? 0), 2);
+            $sumCredit += round((float)($l['credit'] ?? 0), 2);
+        }
+        $diff = round($sumDebit - $sumCredit, 2);
+        if (abs($diff) >= 0.005) {
+            // plug to Opening Balance Equity to balance
+            $lines[] = $diff > 0
+                ? ['account' => self::ACC_OPENING_EQUITY, 'debit' => 0, 'credit' => $diff]
+                : ['account' => self::ACC_OPENING_EQUITY, 'debit' => -$diff, 'credit' => 0];
+        }
+        return [
+            'entry_date'  => $b['date'],
+            'memo'        => $b['memo'] ?? 'Opening balances',
+            'source_type' => 'opening',
+            'source_id'   => $b['id'] ?? null,
+            'is_adjusting'=> 1,
+            'lines'       => $lines,
+        ];
+    }
+
+    // ── post wrappers: resolve account codes -> ids, then postEntry ─────────────
+
+    public function postInvoice(array $inv): int      { return $this->postBuilt($this->buildInvoiceEntry($inv)); }
+    public function postPayment(array $pmt): int       { return $this->postBuilt($this->buildPaymentEntry($pmt)); }
+    public function postExpense(array $exp): int        { return $this->postBuilt($this->buildExpenseEntry($exp)); }
+    public function postOwnerDraw(array $d): int        { return $this->postBuilt($this->buildOwnerDrawEntry($d)); }
+    public function postTransfer(array $t): int         { return $this->postBuilt($this->buildTransferEntry($t)); }
+    public function postOpeningBalances(array $b): int  { return $this->postBuilt($this->buildOpeningBalanceEntry($b)); }
+    public function postManual(array $entry): int       { return $this->postBuilt($entry); }
+
+    /** Resolve each line's 'account' code to account_id (if present) and post. */
+    private function postBuilt(array $entry): int
+    {
+        foreach ($entry['lines'] as &$line) {
+            if (!isset($line['account_id']) && isset($line['account'])) {
+                $line['account_id'] = $this->accountId((string)$line['account']);
+            }
+        }
+        unset($line);
+        return $this->postEntry($entry);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
     // HELPERS
     // ══════════════════════════════════════════════════════════════════════════
 
