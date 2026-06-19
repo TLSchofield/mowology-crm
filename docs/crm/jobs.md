@@ -35,6 +35,7 @@ app/Modules/Jobs/
 | `PlanProfitabilityService.php` | Overhead settings + plan/stop profit & margin math. Phase 2 extraction — `Plan/PlanProfitability.php` globals delegate here; pure money math is unit-tested. |
 | `PlanMaterialsService.php` | Fertilizer-bundle visits, materials calc, purchase-task schedule. Phase 2 extraction — `Plan/PlanMaterials.php` globals delegate here; the application-rate parser and purchase-task date distribution are unit-tested. |
 | `PlanHelpersService.php` | Time↔minutes conversion, visit-horizon check, plan/visit numbering. Phase 2 extraction — `Plan/PlanHelpers.php` globals delegate here; the pure time/numbering helpers are unit-tested. |
+| `VisitLifecycleService.php` | Visit status/lifecycle (incl. the revenue-critical `updateVisitStatus`), plan pause/resume, exceptions, invoice eligibility. Phase 2 extraction — `Plan/VisitLifecycle.php` globals delegate here; the status/propagation/move SET builders and invoice checklist/photo checks are unit-tested. |
 | `ClusterService.php` / `ClusterDetectionService.php` | Group nearby stops into geographic clusters for route building. |
 | `VisitCompletionService.php` | Completion-side logic for finished visits. |
 

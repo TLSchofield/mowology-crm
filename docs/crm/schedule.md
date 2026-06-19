@@ -70,8 +70,9 @@ the same aggregator.
 
 ## Critical: the timer / completion path
 
-The clock-out / job-timer endpoints rely on `updateVisitStatus()` (in
-`VisitLifecycle.php`). If `plan-functions.php` is **not loaded**,
+The clock-out / job-timer endpoints rely on `updateVisitStatus()` (global facade
+in `Plan/VisitLifecycle.php` → `VisitLifecycleService::updateVisitStatus`). If
+`plan-functions.php` is **not loaded**,
 `updateVisitStatus` is silently undefined and visit completion no-ops — the visit
 stays `scheduled` and map pins stay green. Any endpoint that completes a visit
 **must** require the plan-functions chain. See `project_timer_status_persistence`.
@@ -102,6 +103,7 @@ be unit-tested. First done:
 | `Services/PlanProfitabilityService.php` | `Plan/PlanProfitability.php` globals | `tests/Unit/Jobs/PlanProfitabilityServiceTest.php` (pure overhead/profit/margin math) |
 | `Services/PlanMaterialsService.php` | `Plan/PlanMaterials.php` globals | `tests/Unit/Jobs/PlanMaterialsServiceTest.php` (application-rate parser, purchase-task distribution) |
 | `Services/PlanHelpersService.php` | `Plan/PlanHelpers.php` globals | `tests/Unit/Jobs/PlanHelpersServiceTest.php` (time↔minutes, visit numbering) |
+| `Services/VisitLifecycleService.php` | `Plan/VisitLifecycle.php` globals | `tests/Unit/Jobs/VisitLifecycleServiceTest.php` (status/propagation/move SET builders, invoice eligibility) |
 
 The pure methods (`parseDowList`, `findBumpDate`, `calculateRecurrenceDates`) take
 explicit dates — no DB, no clock — so they are fully deterministic and unit-tested.
