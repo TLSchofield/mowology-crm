@@ -100,6 +100,7 @@ be unit-tested. First done:
 |---------|-------|-------|
 | `Services/VisitGenerationService.php` | `Plan/VisitGeneration.php` globals | `tests/Unit/Jobs/VisitGenerationServiceTest.php` (pure recurrence math) |
 | `Services/PlanProfitabilityService.php` | `Plan/PlanProfitability.php` globals | `tests/Unit/Jobs/PlanProfitabilityServiceTest.php` (pure overhead/profit/margin math) |
+| `Services/PlanMaterialsService.php` | `Plan/PlanMaterials.php` globals | `tests/Unit/Jobs/PlanMaterialsServiceTest.php` (application-rate parser, purchase-task distribution) |
 
 The pure methods (`parseDowList`, `findBumpDate`, `calculateRecurrenceDates`) take
 explicit dates — no DB, no clock — so they are fully deterministic and unit-tested.
