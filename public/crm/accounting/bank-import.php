@@ -75,12 +75,21 @@ $activePage = 'accounting';
             <div class="col-md-4" id="preset-col">
                 <label class="form-label small fw-semibold">Bank / Format</label>
                 <select id="preset" class="form-select" onchange="updatePresetHint()">
-                    <option value="td">TD Bank</option>
-                    <option value="rbc">RBC</option>
-                    <option value="bmo">BMO</option>
-                    <option value="cibc">CIBC</option>
-                    <option value="scotiabank">Scotiabank</option>
-                    <option value="generic">Generic (single amount column)</option>
+                    <option value="auto" selected>Auto-detect from file</option>
+                    <optgroup label="Bank accounts">
+                        <option value="td">TD Bank</option>
+                        <option value="rbc">RBC</option>
+                        <option value="bmo">BMO</option>
+                        <option value="cibc">CIBC</option>
+                        <option value="scotiabank">Scotiabank</option>
+                        <option value="vancity">Vancity (Bank)</option>
+                        <option value="generic">Generic bank (single amount column)</option>
+                    </optgroup>
+                    <optgroup label="Credit cards">
+                        <option value="td_cc">TD Credit Card</option>
+                        <option value="vancity_cc">Vancity Credit Card</option>
+                        <option value="generic_cc">Generic credit card</option>
+                    </optgroup>
                     <option value="custom">Custom column mapping…</option>
                 </select>
                 <div id="preset-hint" class="form-text mt-1"></div>
@@ -112,6 +121,13 @@ $activePage = 'accounting';
             <i data-feather="camera" style="width:16px;height:16px;flex-shrink:0;margin-top:1px"></i>
             <div><strong>Image detected.</strong> The statement will be scanned with OCR.
             For best results: flat, well-lit, text in focus.</div>
+        </div>
+        <div id="cc-notice" class="mw-bi-notice mw-bi-notice--info d-none">
+            <i data-feather="credit-card" style="width:16px;height:16px;flex-shrink:0;margin-top:1px"></i>
+            <div><strong>Credit card statement.</strong> Charges import as expenses and refunds as
+            expense reversals. The monthly card payment is flagged <em>“reconcile against CC statement”</em>
+            instead of being counted as an expense, so it isn’t double-counted. Choose your
+            <strong>Credit Card Payable</strong> account above.</div>
         </div>
 
         <!-- Custom mapping -->
@@ -314,16 +330,25 @@ let previewRows      = [];
 let lastSessionId    = null;
 let allAccounts      = [];
 let lastBalanceCheck = null;
+let resolvedPreset   = '';   // preset the server actually used (auto-detect resolves it)
 
 const PRESET_HINTS = {
-    td:         'Columns: Date, Description, Debit, Credit, Balance',
-    rbc:        'Columns: AccType, AccNum, Date, ChequeNum, Desc1, Desc2, CAD$, USD$',
-    bmo:        'Columns: Date, Description, Withdrawal, Deposit, Balance',
-    cibc:       'Columns: Date, Description, Debit, Credit',
-    scotiabank: 'Columns: Date, Description, Withdrawal, Deposit, Balance',
-    generic:    'Columns: Date, Description, Amount (positive=income, negative=expense)',
-    custom:     'Enter your column numbers below',
+    auto:        'We detect Vancity / TD / bank vs credit card from the file header.',
+    td:          'Columns: Date, Description, Debit, Credit, Balance',
+    rbc:         'Columns: AccType, AccNum, Date, ChequeNum, Desc1, Desc2, CAD$, USD$',
+    bmo:         'Columns: Date, Description, Withdrawal, Deposit, Balance',
+    cibc:        'Columns: Date, Description, Debit, Credit',
+    scotiabank:  'Columns: Date, Description, Withdrawal, Deposit, Balance',
+    vancity:     'Columns: Date, Description, Withdrawal, Deposit, Balance',
+    generic:     'Columns: Date, Description, Amount (positive=income, negative=expense)',
+    td_cc:       'Credit card — charges import as expenses; the monthly payment is flagged to reconcile.',
+    vancity_cc:  'Credit card — charges import as expenses; the monthly payment is flagged to reconcile.',
+    generic_cc:  'Credit card — Date, Description, Amount (charge positive, payment/credit negative).',
+    custom:      'Enter your column numbers below',
 };
+
+// Preset keys that route as credit-card statements.
+const CC_PRESETS = ['td_cc', 'vancity_cc', 'generic_cc'];
 
 document.addEventListener('DOMContentLoaded', () => {
     loadAccounts();
@@ -353,9 +378,10 @@ async function loadAccounts() {
     if (!d.ok) return;
     allAccounts = d.accounts;
     const sel = document.getElementById('bank-account-id');
-    d.accounts.filter(a => a.sub_type === 'bank').forEach(a => {
+    // Bank accounts AND credit-card liability accounts can be a statement source.
+    d.accounts.filter(a => a.sub_type === 'bank' || a.sub_type === 'credit_card').forEach(a => {
         sel.insertAdjacentHTML('beforeend',
-            `<option value="${a.id}">${a.code} – ${a.name}</option>`);
+            `<option value="${a.id}" data-subtype="${a.sub_type}">${a.code} – ${a.name}</option>`);
     });
 }
 
@@ -387,6 +413,10 @@ function updatePresetHint() {
     const preset = document.getElementById('preset').value;
     document.getElementById('preset-hint').textContent = PRESET_HINTS[preset] || '';
     document.getElementById('custom-mapping').style.display = preset === 'custom' ? '' : 'none';
+    // Show the credit-card guidance whenever a CC format is explicitly chosen.
+    const ccNotice = document.getElementById('cc-notice');
+    if (ccNotice) ccNotice.classList.toggle('d-none', !CC_PRESETS.includes(preset));
+    if (typeof feather !== 'undefined') feather.replace();
 }
 
 function onFileSelected() {
@@ -408,22 +438,29 @@ function onFileSelected() {
 
     document.getElementById('pdf-notice').classList.toggle('d-none', !isPdf);
     document.getElementById('image-notice').classList.toggle('d-none', !isImg);
-    document.getElementById('preset-col').style.display = isAuto ? 'none' : '';
+    // Keep the format selector visible for PDFs/images too — it carries the
+    // bank-vs-credit-card choice that drives routing (column mapping is skipped).
+    document.getElementById('preset-col').style.display = '';
 
     if (isAuto) {
         document.getElementById('custom-mapping').style.display = 'none';
-        if (typeof feather !== 'undefined') feather.replace();
-        return;
     }
 
-    const keys = ['td', 'rbc', 'bmo', 'cibc', 'scotiabank'];
-    for (const k of keys) {
-        if (name.includes(k)) {
-            document.getElementById('preset').value = k;
-            updatePresetHint();
-            return;
+    // Filename hint — only overrides when the user is still on "Auto-detect"
+    // so an explicit choice is never clobbered.
+    const presetEl = document.getElementById('preset');
+    if (presetEl.value === 'auto') {
+        const isCard = /(visa|mastercard|master_?card|amex|credit_?card|_cc\b|\bcc_)/.test(name);
+        const banks = ['vancity', 'td', 'rbc', 'bmo', 'cibc', 'scotiabank'];
+        for (const k of banks) {
+            if (name.includes(k)) {
+                presetEl.value = isCard ? (k === 'td' || k === 'vancity' ? k + '_cc' : 'generic_cc') : k;
+                break;
+            }
         }
+        if (presetEl.value === 'auto' && isCard) presetEl.value = 'generic_cc';
     }
+    updatePresetHint();
 }
 
 async function uploadAndPreview() {
@@ -493,7 +530,8 @@ async function uploadAndPreview() {
         barEl.style.width = '100%';
         statusEl.textContent = 'Done — loading preview…';
 
-        previewRows = d.preview.rows;
+        previewRows    = d.preview.rows;
+        resolvedPreset = d.preset || preset;
         renderPreview(d.preview);
 
         // Auto-detect bank account from statement account number
@@ -644,13 +682,24 @@ function renderPreviewTable(rows) {
         if (activeFilter === 'duplicate' && !isDupe)               return '';
         if (activeFilter === 'unmatched' && (isDupe || isMatched)) return '';
 
-        const typeClass = row.type === 'income' ? 'mw-acct-badge-income' : 'mw-acct-badge-expense';
+        const isRefund  = row.type === 'expense' && (parseFloat(row.amount) < 0 || row.cc_role === 'refund');
+        const typeLabel = row.cc_payment ? 'transfer' : (isRefund ? 'refund' : row.type);
+        const typeClass = row.type === 'income' ? 'mw-acct-badge-income'
+                        : row.cc_payment       ? 'bg-secondary'
+                        : 'mw-acct-badge-expense';
         const autoTag   = row.auto_cat ? '<span class="badge bg-light text-secondary" style="font-size:9px;border:1px solid #dee2e6">auto</span>' : '';
-        const amtClass  = row.type === 'income' ? 'mw-acct-color-income' : 'mw-acct-color-expense';
+        const amtClass  = row.type === 'income' ? 'mw-acct-color-income'
+                        : row.cc_payment       ? 'text-muted'
+                        : 'mw-acct-color-expense';
 
         let statusCell = '';
         if (isDupe) {
             statusCell = '<span class="badge bg-warning text-dark" style="font-size:9px">Already imported</span>';
+        } else if (row.cc_payment) {
+            statusCell = `<span class="badge bg-secondary" style="font-size:9px">↔ Card payment</span>
+                          <div class="small text-muted mt-1" style="font-size:10px">Reconcile against CC statement</div>`;
+        } else if (isRefund) {
+            statusCell = '<span class="badge bg-info text-dark" style="font-size:9px">↩ Refund / reversal</span>';
         } else if (isMatched && row.matched_invoice) {
             const inv    = row.matched_invoice;
             const conf   = row.match_confidence || 0;
@@ -701,8 +750,8 @@ function renderPreviewTable(rows) {
                 <div class="small fw-bold">${esc(row.description)}</div>
                 <div class="d-flex gap-1 mt-1">${autoTag}</div>
             </td>
-            <td><span class="badge ${typeClass}">${row.type}</span></td>
-            <td class="text-end small fw-bold ${amtClass}">${fmtMoney(row.amount)}</td>
+            <td><span class="badge ${typeClass}">${typeLabel}</span></td>
+            <td class="text-end small fw-bold ${amtClass}">${isRefund ? '+' : ''}${fmtMoney(Math.abs(row.amount))}</td>
             <td>
                 <select class="form-select form-select-sm account-sel" data-idx="${i}" onchange="updateRowAccount(this)" ${isDupe ? 'disabled' : ''}>
                     ${accountOptions}
@@ -808,7 +857,7 @@ async function commitImport() {
         body: JSON.stringify({
             action:          'commit',
             rows:            rowsToImport,
-            bank_name:       document.getElementById('preset').value,
+            bank_name:       resolvedPreset || document.getElementById('preset').value,
             bank_account_id: parseInt(document.getElementById('bank-account-id').value) || 0,
             skip_duplicates: skipDuplicates,
         }),

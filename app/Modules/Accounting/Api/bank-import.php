@@ -91,10 +91,14 @@ try {
 
             $ext      = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
             $bankName = htmlspecialchars($_POST['bank_name'] ?? $_POST['preset'] ?? '');
+            $presetIn = $_POST['preset'] ?? '';
+            // 'bank' | 'credit_card' — drives credit-card routing. Derived from the
+            // selected preset; 'auto' / unknown defaults to bank.
+            $kind     = $importer->getPresetKind($presetIn);
 
             if ($ext === 'pdf') {
                 // PDF path — extract text and parse transactions automatically
-                $result = $importer->previewPdf($file['tmp_name'], $bankName);
+                $result = $importer->previewPdf($file['tmp_name'], $bankName, $kind);
                 echo json_encode(['ok' => true, 'preview' => $result]);
                 break;
             }
@@ -102,7 +106,7 @@ try {
             if (in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'heic'], true)) {
                 // Image path — photo or scan of a bank statement
                 $mime   = $file['type'] ?: 'image/jpeg';
-                $result = $importer->previewImage($file['tmp_name'], $mime, $bankName);
+                $result = $importer->previewImage($file['tmp_name'], $mime, $bankName, $kind);
                 echo json_encode(['ok' => true, 'preview' => $result]);
                 break;
             }
@@ -112,7 +116,16 @@ try {
             }
 
             $content  = file_get_contents($file['tmp_name']);
-            $preset   = $_POST['preset'] ?? $importer->detectPreset($file['name']);
+            $preset   = $presetIn;
+
+            // Auto-detect statement type (Vancity bank / TD CC / Vancity CC / …)
+            // from the CSV header row when the user left the format on "Auto-detect".
+            if ($preset === '' || $preset === 'auto') {
+                $firstLine = strtok($content, "\r\n") ?: '';
+                $detected  = $importer->detectStatementType($firstLine, $file['name']);
+                $preset    = $detected !== '' ? $detected : $importer->detectPreset($file['name']);
+            }
+            $kind = $importer->getPresetKind($preset);
             if (!$bankName) $bankName = htmlspecialchars($preset);
 
             // Build column mapping from preset or POST params
@@ -130,15 +143,17 @@ try {
                     if (isset($_POST["col_$k"])) $mapping[$k] = (int)$_POST["col_$k"];
                 }
                 $skipRows = (int)($_POST['skip_rows'] ?? 1);
+                // Custom CSV can still be a credit-card statement.
+                if (($_POST['kind'] ?? '') === 'credit_card') $kind = 'credit_card';
             }
 
             if (empty($mapping['date']) && !isset($mapping['date'])) {
                 throw new Exception('Column mapping must include at least: date, description, and amount or debit/credit');
             }
 
-            $result = $importer->preview($content, $mapping, $skipRows, $bankName);
+            $result = $importer->preview($content, $mapping, $skipRows, $bankName, $kind);
 
-            echo json_encode(['ok' => true, 'preview' => $result, 'preset' => $preset]);
+            echo json_encode(['ok' => true, 'preview' => $result, 'preset' => $preset, 'kind' => $kind]);
             break;
 
         // ── Commit import ──────────────────────────────────────────────────────

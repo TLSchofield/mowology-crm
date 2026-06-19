@@ -58,16 +58,21 @@ class BankImportServiceTest extends TestCase
     }
 
     /** @test */
-    public function getPresets_returns_all_six_banks(): void
+    public function getPresets_includes_banks_and_credit_cards(): void
     {
         $presets = $this->service->getPresets();
-        $this->assertCount(6, $presets);
+        // Banks
         $this->assertArrayHasKey('td', $presets);
         $this->assertArrayHasKey('rbc', $presets);
         $this->assertArrayHasKey('bmo', $presets);
         $this->assertArrayHasKey('cibc', $presets);
         $this->assertArrayHasKey('scotiabank', $presets);
+        $this->assertArrayHasKey('vancity', $presets);
         $this->assertArrayHasKey('generic', $presets);
+        // Credit cards
+        $this->assertArrayHasKey('td_cc', $presets);
+        $this->assertArrayHasKey('vancity_cc', $presets);
+        $this->assertArrayHasKey('generic_cc', $presets);
     }
 
     // ── parseNumber() (private) ───────────────────────────────────────────────
@@ -232,5 +237,201 @@ class BankImportServiceTest extends TestCase
         $this->assertArrayHasKey('is_duplicate', $rows[0]);
         $this->assertFalse($rows[0]['is_duplicate']);
         $this->assertNull($rows[0]['account_id']);
+    }
+
+    // ── getPresetKind() ───────────────────────────────────────────────────────
+
+    /** @test */
+    public function getPresetKind_bank_presets_are_bank(): void
+    {
+        $this->assertSame('bank', $this->service->getPresetKind('td'));
+        $this->assertSame('bank', $this->service->getPresetKind('vancity'));
+        $this->assertSame('bank', $this->service->getPresetKind('generic'));
+    }
+
+    /** @test */
+    public function getPresetKind_credit_card_presets_are_credit_card(): void
+    {
+        $this->assertSame('credit_card', $this->service->getPresetKind('td_cc'));
+        $this->assertSame('credit_card', $this->service->getPresetKind('vancity_cc'));
+        $this->assertSame('credit_card', $this->service->getPresetKind('generic_cc'));
+    }
+
+    /** @test */
+    public function getPresetKind_unknown_defaults_to_bank(): void
+    {
+        $this->assertSame('bank', $this->service->getPresetKind('auto'));
+        $this->assertSame('bank', $this->service->getPresetKind('nonsense'));
+    }
+
+    // ── detectStatementType() ─────────────────────────────────────────────────
+
+    /** @test */
+    public function detectStatementType_vancity_credit_card(): void
+    {
+        $header = 'Card Number,Transaction Date,Posted Date,Description,Amount';
+        $this->assertSame('vancity_cc', $this->service->detectStatementType($header, 'vancity_visa_jan.csv'));
+    }
+
+    /** @test */
+    public function detectStatementType_vancity_bank(): void
+    {
+        $header = 'Date,Description,Withdrawal,Deposit,Balance';
+        $this->assertSame('vancity', $this->service->detectStatementType($header, 'vancity_chequing.csv'));
+    }
+
+    /** @test */
+    public function detectStatementType_td_credit_card(): void
+    {
+        $header = 'Transaction Date,Description,Visa Card,Amount';
+        $this->assertSame('td_cc', $this->service->detectStatementType($header, 'TD_VISA_statement.csv'));
+    }
+
+    /** @test */
+    public function detectStatementType_td_bank(): void
+    {
+        $header = 'Date,Description,Withdrawal,Deposit,Balance';
+        $this->assertSame('td', $this->service->detectStatementType($header, 'td_chequing.csv'));
+    }
+
+    /** @test */
+    public function detectStatementType_unknown_returns_empty(): void
+    {
+        $this->assertSame('', $this->service->detectStatementType('foo,bar,baz', 'mystery.csv'));
+    }
+
+    // ── isCreditCardPayment() (private) ───────────────────────────────────────
+
+    private function isCreditCardPayment(string $desc): bool
+    {
+        $m = $this->ref->getMethod('isCreditCardPayment');
+        return (bool)$m->invoke($this->service, $desc);
+    }
+
+    /** @test */
+    public function isCreditCardPayment_matches_payment_thank_you(): void
+    {
+        $this->assertTrue($this->isCreditCardPayment('PAYMENT - THANK YOU'));
+        $this->assertTrue($this->isCreditCardPayment('PAYMENT RECEIVED THANK YOU'));
+    }
+
+    /** @test */
+    public function isCreditCardPayment_matches_visa_payment(): void
+    {
+        $this->assertTrue($this->isCreditCardPayment('VISA PAYMENT VANCITY'));
+        $this->assertTrue($this->isCreditCardPayment('PAYMENT TO TD VISA'));
+        $this->assertTrue($this->isCreditCardPayment('PRE-AUTHORIZED PAYMENT'));
+    }
+
+    /** @test */
+    public function isCreditCardPayment_ignores_normal_purchases(): void
+    {
+        $this->assertFalse($this->isCreditCardPayment('SHELL GAS STATION'));
+        $this->assertFalse($this->isCreditCardPayment('HOME DEPOT #7012'));
+        $this->assertFalse($this->isCreditCardPayment('VISA — JUST A MERCHANT NAME'));
+    }
+
+    // ── parseCSV() credit-card routing ────────────────────────────────────────
+
+    private function parseCcCSV(string $content, array $mapping, int $skipRows = 1): array
+    {
+        $m = $this->ref->getMethod('parseCSV');
+        return $m->invoke($this->service, $content, $mapping, $skipRows, 'credit_card');
+    }
+
+    /** @test */
+    public function parseCSV_cc_charge_is_positive_expense(): void
+    {
+        // TD single-amount CC: charges positive.
+        $csv = "Date,Description,Amount\n2024-01-15,Shell Gas,65.42";
+        $rows = $this->parseCcCSV($csv, ['date' => 0, 'description' => 1, 'amount' => 2]);
+
+        $this->assertCount(1, $rows);
+        $this->assertSame('expense', $rows[0]['type']);
+        $this->assertSame('charge', $rows[0]['cc_role']);
+        $this->assertEqualsWithDelta(65.42, $rows[0]['amount'], 0.001);
+    }
+
+    /** @test */
+    public function parseCSV_cc_refund_is_negative_expense(): void
+    {
+        // TD single-amount CC: payments/credits negative; a non-payment credit is a refund.
+        $csv = "Date,Description,Amount\n2024-01-20,HOME DEPOT REFUND,-30.00";
+        $rows = $this->parseCcCSV($csv, ['date' => 0, 'description' => 1, 'amount' => 2]);
+
+        $this->assertCount(1, $rows);
+        $this->assertSame('expense', $rows[0]['type']);
+        $this->assertSame('refund', $rows[0]['cc_role']);
+        $this->assertEqualsWithDelta(-30.00, $rows[0]['amount'], 0.001);
+    }
+
+    /** @test */
+    public function parseCSV_cc_payment_is_flagged_settlement(): void
+    {
+        $csv = "Date,Description,Amount\n2024-01-25,PAYMENT - THANK YOU,-500.00";
+        $rows = $this->parseCcCSV($csv, ['date' => 0, 'description' => 1, 'amount' => 2]);
+
+        $this->assertCount(1, $rows);
+        $this->assertSame('payment', $rows[0]['cc_role']);
+        $this->assertTrue($rows[0]['cc_payment']);
+        $this->assertEqualsWithDelta(500.00, $rows[0]['amount'], 0.001);
+    }
+
+    /** @test */
+    public function parseCSV_cc_debit_credit_charge_and_payment(): void
+    {
+        // Debit column = charge, Credit column = payment/refund.
+        $csv = "Date,Desc,Debit,Credit\n2024-01-15,Lowes,120.00,\n2024-01-25,VISA PAYMENT,,500.00";
+        $rows = $this->parseCcCSV($csv, ['date' => 0, 'description' => 1, 'debit' => 2, 'credit' => 3]);
+
+        $this->assertCount(2, $rows);
+        $this->assertSame('charge', $rows[0]['cc_role']);
+        $this->assertEqualsWithDelta(120.00, $rows[0]['amount'], 0.001);
+        $this->assertSame('payment', $rows[1]['cc_role']);
+        $this->assertTrue($rows[1]['cc_payment']);
+    }
+
+    // ── applyCcSettlement() (private) ─────────────────────────────────────────
+
+    private function applyCcSettlement(array $row, int $ccPayableId, int $defaultExpenseId): array
+    {
+        $m = $this->ref->getMethod('applyCcSettlement');
+        $handled = $m->invokeArgs($this->service, [&$row, $ccPayableId, $defaultExpenseId]);
+        return ['handled' => $handled, 'row' => $row];
+    }
+
+    /** @test */
+    public function applyCcSettlement_bank_debit_cc_payment_becomes_transfer(): void
+    {
+        $row = ['type' => 'expense', 'description' => 'VANCITY VISA PAYMENT', 'amount' => 500.0];
+        $out = $this->applyCcSettlement($row, 42, 99);
+
+        $this->assertTrue($out['handled']);
+        $this->assertSame('transfer', $out['row']['type']);
+        $this->assertSame(42, $out['row']['account_id']);
+        $this->assertSame('2400', $out['row']['account_code']);
+        $this->assertTrue($out['row']['cc_payment']);
+        $this->assertStringContainsString('reconcile', strtolower($out['row']['cc_note']));
+    }
+
+    /** @test */
+    public function applyCcSettlement_falls_back_to_expense_when_no_cc_account(): void
+    {
+        $row = ['type' => 'expense', 'description' => 'VISA PAYMENT', 'amount' => 500.0];
+        $out = $this->applyCcSettlement($row, 0, 99);
+
+        $this->assertTrue($out['handled']);
+        $this->assertSame('expense', $out['row']['type']);
+        $this->assertSame(99, $out['row']['account_id']);
+    }
+
+    /** @test */
+    public function applyCcSettlement_ignores_normal_expense(): void
+    {
+        $row = ['type' => 'expense', 'description' => 'SHELL GAS STATION', 'amount' => 60.0];
+        $out = $this->applyCcSettlement($row, 42, 99);
+
+        $this->assertFalse($out['handled']);
+        $this->assertSame('expense', $out['row']['type']);
     }
 }

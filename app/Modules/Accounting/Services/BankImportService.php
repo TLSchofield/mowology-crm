@@ -32,19 +32,34 @@ class BankImportService
     /** Per-page raw OCR text captured during extractTextViaImagickOcr(). */
     private array $rawPageTexts = [];
 
-    // Known bank CSV presets — column mapping and skip-header-rows count
+    // Known bank/credit-card CSV presets — column mapping, skip-header-rows count,
+    // and `kind` ('bank' | 'credit_card'). `kind` drives transaction routing:
+    //   bank        — debit=expense, credit=income (income rows are invoice-matched)
+    //   credit_card — charge=expense, refund=expense reversal, payment=settlement
+    //                 (no income/invoice matching; see classifyCreditCardRow + parseCSV)
     private const BANK_PRESETS = [
-        'td'        => ['name' => 'TD Bank',    'date' => 0, 'description' => 1, 'debit' => 2, 'credit' => 3, 'skip' => 1],
-        'rbc'       => ['name' => 'RBC',         'date' => 2, 'description' => 4, 'debit' => 6, 'credit' => 7, 'skip' => 1],
-        'bmo'       => ['name' => 'BMO',         'date' => 0, 'description' => 1, 'debit' => 2, 'credit' => 3, 'skip' => 1],
-        'cibc'      => ['name' => 'CIBC',        'date' => 0, 'description' => 1, 'debit' => 2, 'credit' => 3, 'skip' => 1],
-        'scotiabank'=> ['name' => 'Scotiabank',  'date' => 0, 'description' => 1, 'debit' => 2, 'credit' => 3, 'skip' => 1],
-        'generic'   => ['name' => 'Generic',     'date' => 0, 'description' => 1, 'amount' => 2,               'skip' => 1],
+        'td'         => ['name' => 'TD Bank',            'kind' => 'bank', 'date' => 0, 'description' => 1, 'debit' => 2, 'credit' => 3, 'skip' => 1],
+        'rbc'        => ['name' => 'RBC',                'kind' => 'bank', 'date' => 2, 'description' => 4, 'debit' => 6, 'credit' => 7, 'skip' => 1],
+        'bmo'        => ['name' => 'BMO',                'kind' => 'bank', 'date' => 0, 'description' => 1, 'debit' => 2, 'credit' => 3, 'skip' => 1],
+        'cibc'       => ['name' => 'CIBC',               'kind' => 'bank', 'date' => 0, 'description' => 1, 'debit' => 2, 'credit' => 3, 'skip' => 1],
+        'scotiabank' => ['name' => 'Scotiabank',         'kind' => 'bank', 'date' => 0, 'description' => 1, 'debit' => 2, 'credit' => 3, 'skip' => 1],
+        'vancity'    => ['name' => 'Vancity (Bank)',     'kind' => 'bank', 'date' => 0, 'description' => 1, 'debit' => 2, 'credit' => 3, 'skip' => 1],
+        // ── Credit card statements ────────────────────────────────────────────────
+        // TD credit card exports vary: some have Debit/Credit columns, others a single
+        // signed Amount column (charges positive, payments/credits negative). The
+        // single-amount mapping covers both because parseCSV treats a missing
+        // debit/credit pair as single-amount. We default to debit/credit; the header
+        // detector (detectStatementType) upgrades to single-amount when it sees one.
+        'td_cc'      => ['name' => 'TD Credit Card',     'kind' => 'credit_card', 'date' => 0, 'description' => 1, 'debit' => 2, 'credit' => 3, 'skip' => 1],
+        'vancity_cc' => ['name' => 'Vancity Credit Card','kind' => 'credit_card', 'date' => 0, 'description' => 1, 'debit' => 2, 'credit' => 3, 'skip' => 1],
+        'generic'    => ['name' => 'Generic',            'kind' => 'bank', 'date' => 0, 'description' => 1, 'amount' => 2,               'skip' => 1],
+        'generic_cc' => ['name' => 'Generic Credit Card','kind' => 'credit_card', 'date' => 0, 'description' => 1, 'amount' => 2,        'skip' => 1],
     ];
 
     // Default fallback accounts when no rule matches
     private const DEFAULT_INCOME_CODE  = '4900';
     private const DEFAULT_EXPENSE_CODE = '6900';
+    private const CREDIT_CARD_CODE     = '2400';   // Credit Card Payable (liability)
 
     public function __construct(PDO $db)
     {
@@ -78,6 +93,71 @@ class BankImportService
         return self::BANK_PRESETS[$key] ?? null;
     }
 
+    /**
+     * Return the routing kind ('bank' | 'credit_card') for a preset key.
+     * Unknown keys default to 'bank'.
+     */
+    public function getPresetKind(string $key): string
+    {
+        return self::BANK_PRESETS[$key]['kind'] ?? 'bank';
+    }
+
+    /**
+     * Detect the statement type from a CSV header row (and optionally filename),
+     * returning a preset key: distinguishes Vancity bank, TD credit card, and
+     * Vancity credit card from one another.
+     *
+     * Header-based detection is best-effort — bank/CC CSV exports are inconsistent
+     * (TD in particular often ships headerless). The UI dropdown remains
+     * authoritative; this only improves the auto-selected default.
+     *
+     * Strategy:
+     *   1. Identify the institution from the header text / filename (vancity, td, …).
+     *   2. Decide bank vs credit-card from column-name signatures
+     *      (credit-card statements mention card/visa/mastercard/posted; bank
+     *       statements mention withdrawal/deposit/cheque/balance).
+     *
+     * @param string $headerLine First (header) line of the CSV
+     * @param string $filename   Original upload filename (optional hint)
+     * @return string preset key, or '' when nothing matched (caller falls back)
+     */
+    public function detectStatementType(string $headerLine, string $filename = ''): string
+    {
+        // Normalize: collapse punctuation/underscores (CSV commas, filename
+        // separators) to single spaces so word-boundary matches work on tokens
+        // like "td_visa" or "vancity_chequing".
+        $hay = strtolower(preg_replace('/[^a-z0-9]+/i', ' ', $headerLine . ' ' . $filename) ?? '');
+
+        // Credit-card signals: explicit card wording, or a "posted"/"transaction"
+        // date pairing typical of card exports.
+        $looksCC = (bool)preg_match('/\b(credit\s*card|visa|mastercard|master\s*card|amex|american\s+express|card\s*(no|number|holder)?|posted\s+date)\b/', $hay);
+        // Bank signals: chequing/withdrawal/deposit columns.
+        $looksBank = (bool)preg_match('/\b(withdrawal|deposit|cheque|chequing|chequed|opening\s+balance|account\s+balance)\b/', $hay);
+
+        // Single signed amount column (no separate debit/credit)?
+        $hasDebitCredit = (bool)preg_match('/\b(debit|withdrawal)\b/', $hay)
+                       && (bool)preg_match('/\b(credit|deposit)\b/', $hay);
+
+        $isVancity = (bool)preg_match('/\b(vancity|vcty)\b/', $hay);
+        $isTd      = (bool)preg_match('/\b(td|toronto\s*dominion)\b/', $hay);
+
+        if ($isVancity) {
+            return ($looksCC && !$looksBank) ? 'vancity_cc' : 'vancity';
+        }
+        if ($isTd) {
+            if ($looksCC && !$looksBank) {
+                return 'td_cc';
+            }
+            return 'td';
+        }
+
+        // Institution unknown — still classify bank vs CC so routing is correct.
+        if ($looksCC && !$looksBank) {
+            return $hasDebitCredit ? 'generic_cc' : 'generic_cc';
+        }
+        return '';
+    }
+
     // ══════════════════════════════════════════════════════════════════════════
     // PARSE + PREVIEW
     // ══════════════════════════════════════════════════════════════════════════
@@ -92,19 +172,29 @@ class BankImportService
      * @param int    $skipRows  Number of header rows to skip
      * @param string $bankName  Label for the bank account
      */
-    public function preview(string $content, array $mapping, int $skipRows = 1, string $bankName = ''): array
+    public function preview(string $content, array $mapping, int $skipRows = 1, string $bankName = '', string $kind = 'bank'): array
     {
         require_once __DIR__ . '/RulesEngine.php';
         $engine = new RulesEngine($this->db);
 
-        $rows   = $this->parseCSV($content, $mapping, $skipRows);
+        $rows   = $this->parseCSV($content, $mapping, $skipRows, $kind);
         $totals = ['income' => 0, 'expense' => 0, 'duplicates' => 0, 'matched' => 0, 'rows' => count($rows)];
 
         // Load account IDs for defaults
         $defaultIncomeId  = $this->getAccountId(self::DEFAULT_INCOME_CODE);
         $defaultExpenseId = $this->getAccountId(self::DEFAULT_EXPENSE_CODE);
+        $ccPayableId      = $this->getAccountId(self::CREDIT_CARD_CODE);
 
         foreach ($rows as &$row) {
+            // ── Credit-card settlement: the monthly payment that moves cash from the
+            //    bank to the card is a TRANSFER (excluded from P&L), not an expense.
+            //    Flagged here so it is never double-counted against the CC statement's
+            //    individual charges. Applies to both the CC statement's "payment
+            //    received" line and the bank statement's "pay credit card" debit.
+            if ($this->applyCcSettlement($row, $ccPayableId, $defaultExpenseId)) {
+                continue; // transfer — excluded from income/expense totals
+            }
+
             // Apply rules engine for preview categorization
             $match = $engine->previewMatch($row['description'], '', $row['type']);
             if ($match) {
@@ -266,6 +356,10 @@ class BankImportService
 
             foreach ($rows as $row) {
                 $rawAmount  = $row['type'] === 'expense' ? -$row['amount'] : $row['amount'];
+                // bank_import_rows.type is ENUM('income','expense'); credit-card
+                // settlement rows carry type='transfer' on the ledger — stage them
+                // as 'expense' (the full row, incl. type/cc_role, is preserved in raw_row).
+                $stagedType = in_array($row['type'], ['income', 'expense'], true) ? $row['type'] : 'expense';
                 $matchStatus = 'unmatched';
                 $matchExpId  = null;
 
@@ -275,7 +369,7 @@ class BankImportService
                     $matchStatus = 'true_duplicate';
                     $rowStmt->execute([
                         $sessionId, $row['date'], $row['description'], $rawAmount,
-                        $row['type'], $row['amount'], $row['account_id'],
+                        $stagedType, $row['amount'], $row['account_id'],
                         null, 1, $row['duplicate_tx_id'] ?? null,
                         $row['rule_id'] ?? null, json_encode($row),
                         $matchStatus, null,
@@ -503,7 +597,7 @@ class BankImportService
 
                 $rowStmt->execute([
                     $sessionId, $row['date'], $row['description'], $rawAmount,
-                    $row['type'], $row['amount'], $row['account_id'],
+                    $stagedType, $row['amount'], $row['account_id'],
                     $txId, 0, null,
                     $row['rule_id'] ?? null, json_encode($row),
                     'unmatched', null,
@@ -673,8 +767,9 @@ class BankImportService
      *
      * @param string $filePath   Absolute path to the uploaded PDF file
      * @param string $bankName   Bank label
+     * @param string $kind       'bank' | 'credit_card' — routes CC settlement flagging
      */
-    public function previewPdf(string $filePath, string $bankName = ''): array
+    public function previewPdf(string $filePath, string $bankName = '', string $kind = 'bank'): array
     {
         if (!defined('VENDOR_ROOT') || !is_file(VENDOR_ROOT . '/autoload.php')) {
             throw new RuntimeException('Composer autoloader not found. Run composer install in the project root.');
@@ -711,7 +806,7 @@ class BankImportService
             );
         }
 
-        $result = $this->enrichRows($rows, $bankName, 'pdf');
+        $result = $this->enrichRows($rows, $bankName, 'pdf', $kind);
         $result['balance_check'] = $this->computeBalanceCheck($balMeta, $result['totals']);
         $result += $this->detectAccountNumber($text);
         return $result;
@@ -818,7 +913,7 @@ class BankImportService
      * @param string $mimeType   e.g. 'image/jpeg', 'image/png'
      * @param string $bankName   Label for the bank account
      */
-    public function previewImage(string $filePath, string $mimeType, string $bankName = ''): array
+    public function previewImage(string $filePath, string $mimeType, string $bankName = '', string $kind = 'bank'): array
     {
         $imageData = file_get_contents($filePath);
         if ($imageData === false || strlen($imageData) < 100) {
@@ -839,7 +934,7 @@ class BankImportService
             );
         }
 
-        $result = $this->enrichRows($rows, $bankName, 'image');
+        $result = $this->enrichRows($rows, $bankName, 'image', $kind);
         $result['balance_check'] = $this->computeBalanceCheck($balMeta, $result['totals']);
         $result += $this->detectAccountNumber($text);
         return $result;
@@ -1276,13 +1371,14 @@ class BankImportService
         ];
     }
 
-    private function enrichRows(array $rows, string $bankName, string $source): array
+    private function enrichRows(array $rows, string $bankName, string $source, string $kind = 'bank'): array
     {
         require_once __DIR__ . '/RulesEngine.php';
         $engine = new RulesEngine($this->db);
 
         $defaultIncomeId  = $this->getAccountId(self::DEFAULT_INCOME_CODE);
         $defaultExpenseId = $this->getAccountId(self::DEFAULT_EXPENSE_CODE);
+        $ccPayableId      = $this->getAccountId(self::CREDIT_CARD_CODE);
         $totals = [
             'income'     => 0.0,
             'expense'    => 0.0,
@@ -1292,6 +1388,13 @@ class BankImportService
         ];
 
         foreach ($rows as &$row) {
+            // ── Credit-card settlement (transfer, excluded from P&L) ───────────
+            //    Catches the monthly "pay credit card" debit on a bank statement
+            //    and the "payment received" credit on a CC statement.
+            if ($this->applyCcSettlement($row, $ccPayableId, $defaultExpenseId)) {
+                continue;
+            }
+
             // ── Auto-categorize via rules engine ──────────────────────────────
             $ruleMatch = $engine->previewMatch($row['description'], '', $row['type']);
             if ($ruleMatch) {
@@ -1827,11 +1930,13 @@ class BankImportService
      * Parse a raw CSV string into normalized row arrays.
      * Handles both debit/credit split and single-amount formats.
      */
-    private function parseCSV(string $content, array $mapping, int $skipRows): array
+    private function parseCSV(string $content, array $mapping, int $skipRows, string $kind = 'bank'): array
     {
         // Normalize line endings
         $content = str_replace(["\r\n", "\r"], "\n", trim($content));
         $lines   = explode("\n", $content);
+
+        $isCreditCard = ($kind === 'credit_card');
 
         $rows = [];
         $i    = 0;
@@ -1843,26 +1948,27 @@ class BankImportService
             // Parse CSV line (handles quoted fields with commas inside)
             $cols = str_getcsv($line, ',', '"', '');
 
-            // Determine amount and type
-            $amount = null;
-            $type   = null;
-
+            // ── Resolve raw debit/credit/single-amount values ────────────────────
+            //   `$signed` is positive when money is OWED on the statement and
+            //   negative when money is paid back / credited. For bank accounts that
+            //   is income(+)/expense(−); for credit cards it is charge(+)/payment(−).
+            $signed = null;
             if (isset($mapping['amount'])) {
-                // Single-amount column: positive=income, negative=expense
-                $raw    = $this->parseNumber($cols[$mapping['amount']] ?? '');
+                $raw = $this->parseNumber($cols[$mapping['amount']] ?? '');
                 if ($raw === null) continue;
-                $type   = $raw >= 0 ? 'income' : 'expense';
-                $amount = abs($raw);
+                // Bank single-amount: +income / −expense.
+                // Credit-card single-amount (TD): +charge / −payment-or-credit.
+                $signed = $isCreditCard ? $raw : $raw;
             } elseif (isset($mapping['debit']) && isset($mapping['credit'])) {
                 $debit  = $this->parseNumber($cols[$mapping['debit']]  ?? '');
                 $credit = $this->parseNumber($cols[$mapping['credit']] ?? '');
 
                 if ($debit !== null && $debit > 0) {
-                    $type   = 'expense';
-                    $amount = $debit;
+                    // Bank: money out (expense). CC: a charge.
+                    $signed = $isCreditCard ? $debit : -$debit;
                 } elseif ($credit !== null && $credit > 0) {
-                    $type   = 'income';
-                    $amount = $credit;
+                    // Bank: money in (income). CC: a payment / refund.
+                    $signed = $isCreditCard ? -$credit : $credit;
                 } else {
                     continue; // Zero row — skip
                 }
@@ -1870,7 +1976,7 @@ class BankImportService
                 continue;
             }
 
-            if ($amount <= 0) continue;
+            if (abs($signed) <= 0) continue;
 
             // Parse date
             $dateRaw = trim($cols[$mapping['date']] ?? '');
@@ -1884,13 +1990,23 @@ class BankImportService
             }
             $desc = substr($desc, 0, 500);
 
-            $rows[] = [
-                'date'        => $date,
-                'description' => $desc,
-                'amount'      => round($amount, 2),
-                'type'        => $type,
-                'raw_line'    => $line,
-                // These will be set by preview():
+            // ── Resolve type/amount + credit-card role ───────────────────────────
+            if ($isCreditCard) {
+                $row = $this->makeCreditCardRow($date, $desc, $signed, $line);
+            } else {
+                $type   = $signed >= 0 ? 'income' : 'expense';
+                $amount = abs($signed);
+                $row = [
+                    'date'        => $date,
+                    'description' => $desc,
+                    'amount'      => round($amount, 2),
+                    'type'        => $type,
+                    'raw_line'    => $line,
+                ];
+            }
+
+            // Common fields set by preview()/enrichRows() downstream:
+            $row += [
                 'account_id'  => null,
                 'account_name'=> null,
                 'account_code'=> null,
@@ -1899,9 +2015,64 @@ class BankImportService
                 'is_duplicate'=> false,
                 'duplicate_tx_id' => null,
             ];
+            $rows[] = $row;
         }
 
         return $rows;
+    }
+
+    /**
+     * Build a staged row for a single credit-card statement line.
+     *
+     * Routing (no income / invoice matching for cards):
+     *   charge  (signed > 0) → expense, positive amount
+     *   payment (signed < 0, description looks like a CC payment) → settlement;
+     *            tagged cc_payment so applyCcSettlement() routes it to Credit Card
+     *            Payable as a transfer (excluded from P&L — the bank statement's
+     *            matching debit is the real cash movement).
+     *   refund  (signed < 0, anything else) → expense reversal, NEGATIVE amount
+     *            so it nets against the original charge in expense totals/reports.
+     *
+     * @param float $signed  + = charge owed, − = payment/credit on the card
+     */
+    private function makeCreditCardRow(string $date, string $desc, float $signed, string $line): array
+    {
+        $mag = round(abs($signed), 2);
+
+        if ($signed > 0) {
+            // Purchase / charge — a business expense.
+            return [
+                'date'        => $date,
+                'description' => $desc,
+                'amount'      => $mag,
+                'type'        => 'expense',
+                'cc_role'     => 'charge',
+                'raw_line'    => $line,
+            ];
+        }
+
+        if ($this->isCreditCardPayment($desc)) {
+            // "Payment received — thank you" — settlement, flagged for applyCcSettlement().
+            return [
+                'date'        => $date,
+                'description' => $desc,
+                'amount'      => $mag,
+                'type'        => 'expense',     // staging-safe; promoted to transfer downstream
+                'cc_role'     => 'payment',
+                'cc_payment'  => true,
+                'raw_line'    => $line,
+            ];
+        }
+
+        // Merchant refund / statement credit — reverses an expense (negative amount).
+        return [
+            'date'        => $date,
+            'description' => $desc,
+            'amount'      => -$mag,
+            'type'        => 'expense',
+            'cc_role'     => 'refund',
+            'raw_line'    => $line,
+        ];
     }
 
     /**
@@ -1950,6 +2121,76 @@ class BankImportService
         }
 
         return null;
+    }
+
+    /**
+     * Returns true if this description is a credit-card payment/settlement —
+     * either the bank statement's "pay credit card" debit, or the CC statement's
+     * "payment received — thank you" credit. These move cash between the bank
+     * account and the card; they are NOT income or expense (the CC statement's
+     * individual charges are the real expenses) and must not be double-counted.
+     */
+    private function isCreditCardPayment(string $description): bool
+    {
+        $d = ' ' . strtoupper($description) . ' ';
+
+        // The card's own "payment received" / autopay lines.
+        if (preg_match('/\bPAYMENT\b.*\bTHANK\s*YOU\b/', $d)) return true;
+        if (preg_match('/\b(PRE-?AUTH(ORIZED)?|AUTOMATIC|AUTO)\s+PAYMENT\b/', $d)) return true;
+
+        // A payment from the bank TO a card, in either word order
+        // ("VISA PAYMENT", "PAYMENT - VANCITY VISA", "MASTERCARD PMT", "PAY CREDIT CARD").
+        $card = '(VISA|MASTERCARD|MASTER\s*CARD|AMEX|AMERICAN\s+EXPRESS|CREDIT\s*CARD|CREDITCARD)';
+        if (preg_match('/\b' . $card . '\b.*\b(PAYMENT|PYMT|PMT|PAY)\b/', $d)) return true;
+        if (preg_match('/\b(PAYMENT|PYMT|PMT)\b.*\b' . $card . '\b/', $d)) return true;
+
+        return false;
+    }
+
+    /**
+     * Promote a credit-card settlement row to a TRANSFER against Credit Card
+     * Payable so it is excluded from income/expense reporting. Returns true when
+     * the row was handled (caller should skip further categorization/matching).
+     *
+     * Triggers for:
+     *   (a) CC statement payment lines already flagged cc_payment in parseCSV, and
+     *   (b) bank statement debits whose description looks like a CC payment.
+     *
+     * Falls back to a flagged expense (never a broken FK) if the Credit Card
+     * Payable account is missing from the chart of accounts.
+     */
+    private function applyCcSettlement(array &$row, int $ccPayableId, int $defaultExpenseId): bool
+    {
+        $isSettlement = !empty($row['cc_payment'])
+            || (($row['type'] ?? '') === 'expense' && $this->isCreditCardPayment($row['description'] ?? ''));
+        if (!$isSettlement) {
+            return false;
+        }
+
+        $row['cc_payment']      = true;
+        $row['cc_note']         = 'Credit card payment — reconcile against CC statement';
+        $row['amount']          = round(abs((float)$row['amount']), 2);
+        $row['auto_cat']        = true;
+        $row['rule_id']         = null;
+        $row['is_duplicate']    = false;
+        $row['duplicate_type']  = null;
+        $row['duplicate_tx_id'] = null;
+        $row['match_candidate'] = false;
+
+        if ($ccPayableId > 0) {
+            $row['type']         = 'transfer';
+            $row['account_id']   = $ccPayableId;
+            $row['account_name'] = 'Credit Card Payable';
+            $row['account_code'] = self::CREDIT_CARD_CODE;
+        } else {
+            // No Credit Card Payable account — keep it a (flagged) expense so the
+            // NOT NULL account_id FK stays valid; the note still warns the user.
+            $row['type']         = 'expense';
+            $row['account_id']   = $defaultExpenseId;
+            $row['account_name'] = 'Miscellaneous Expenses';
+            $row['account_code'] = self::DEFAULT_EXPENSE_CODE;
+        }
+        return true;
     }
 
     /**
