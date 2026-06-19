@@ -385,8 +385,7 @@ try {
                 $recipient['email_address'],
                 $tpl['subject'],
                 $body,
-                [],
-                $attachPath ? [['path' => $attachPath, 'name' => 'Invoice-' . $invoice['invoice_number'] . '.pdf']] : []
+                $attachPath ?: null
             );
 
             $sentTo[] = $recipient['email_address'];
