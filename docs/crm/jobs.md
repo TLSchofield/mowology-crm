@@ -32,6 +32,7 @@ app/Modules/Jobs/
 |---------|---------|
 | `PlanFunctions.php` + `Plan/*.php` | Plan → visit → calendar-stop engine. Procedural global functions. **See [schedule.md](schedule.md).** |
 | `VisitGenerationService.php` | Recurrence/holiday math + visit materialisation. Phase 2 extraction — the `Plan/VisitGeneration.php` globals delegate here; pure recurrence math is unit-tested. |
+| `PlanProfitabilityService.php` | Overhead settings + plan/stop profit & margin math. Phase 2 extraction — `Plan/PlanProfitability.php` globals delegate here; pure money math is unit-tested. |
 | `ClusterService.php` / `ClusterDetectionService.php` | Group nearby stops into geographic clusters for route building. |
 | `VisitCompletionService.php` | Completion-side logic for finished visits. |
 
