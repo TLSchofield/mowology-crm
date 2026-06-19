@@ -23,6 +23,9 @@ require_once __DIR__ . '/../app/Services/Messaging/EmailWrapper.php';
 // Quotes
 require_once __DIR__ . '/../app/Modules/Quotes/Services/QuoteService.php';
 
+// Expenses
+require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptInboxService.php';
+
 // Contacts
 require_once __DIR__ . '/../app/Modules/Contacts/Services/ContactService.php';
 
@@ -31,6 +34,9 @@ require_once __DIR__ . '/../app/Modules/Clients/Services/BillToResolver.php';
 
 // Contracts
 require_once __DIR__ . '/../app/Modules/Contracts/Services/ContractService.php';
+
+// Invoices
+require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceFromVisitService.php';
 
 // Privacy
 require_once __DIR__ . '/../app/Modules/Privacy/Services/PrivacyService.php';

@@ -10,6 +10,28 @@ $canEdit = userHasPermission('expenses.edit');
 $canSend = userHasPermission('expenses.send');
 $canApprove = userHasPermission('expenses.approve');
 
+// Emailed receipts awaiting review (source='email_inbox', status='draft').
+require_once dirname(__DIR__) . '/app/Modules/Expenses/Services/ReceiptInboxService.php';
+$pendingReceipts = [];
+$inboxVendors    = [];
+$inboxCategories = [
+    'Materials', 'Fuel', 'Tools/Equipment', 'Repairs/Maintenance',
+    'Disposal/Dump', 'Subcontractors', 'Marketing', 'Office/Admin',
+    'Overhead', 'Licenses/Permits', 'Meals', 'Vehicle', 'Other',
+];
+if ($canEdit) {
+    try {
+        $pendingReceipts = (new ReceiptInboxService(getDB()))->listPending();
+        if (!empty($pendingReceipts)) {
+            $inboxVendors = getDB()->query(
+                "SELECT id, name FROM vendors WHERE is_active = 1 ORDER BY name"
+            )->fetchAll(PDO::FETCH_ASSOC);
+        }
+    } catch (Throwable $e) {
+        error_log('[expenses] receipt inbox load: ' . $e->getMessage());
+    }
+}
+
 // Quick mode: activated from schedule page "Receipt" button
 $quickMode  = ($_GET['mode'] ?? '') === 'quick';
 $returnTo   = $_GET['return'] ?? '';
@@ -48,6 +70,75 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         </a>
     </div>
 </div>
+
+<?php if ($canEdit && !empty($pendingReceipts)): ?>
+<!-- ═══════ EMAILED RECEIPTS — PENDING REVIEW ═══════════════════════ -->
+<div class="card mb-3 mw-receipt-inbox" id="receipt-inbox">
+    <div class="card-header d-flex align-items-center justify-content-between">
+        <span class="mw-ri-title">
+            <i data-feather="mail" style="width:16px;height:16px;"></i>
+            Receipts from email — pending review
+            <span class="mw-ri-count"><?php echo count($pendingReceipts); ?></span>
+        </span>
+    </div>
+    <div class="card-body p-0">
+        <?php foreach ($pendingReceipts as $r): ?>
+        <div class="mw-ri-row" data-expense-id="<?php echo (int)$r['id']; ?>">
+            <div class="mw-ri-receipt">
+                <?php if (!empty($r['receipt_media_id'])): ?>
+                    <a href="/crm/api/serve-receipt.php?id=<?php echo (int)$r['receipt_media_id']; ?>" target="_blank" rel="noopener" class="mw-ri-thumb-link">
+                        <i data-feather="<?php echo (strpos((string)$r['receipt_mime'], 'pdf') !== false) ? 'file-text' : 'image'; ?>" style="width:18px;height:18px;"></i>
+                        View
+                    </a>
+                <?php else: ?>
+                    <span class="text-muted small">no file</span>
+                <?php endif; ?>
+                <?php if (!empty($r['inbox_note'])): ?>
+                    <span class="mw-ri-flag" title="<?php echo htmlspecialchars($r['inbox_note']); ?>"><?php echo htmlspecialchars($r['inbox_note']); ?></span>
+                <?php endif; ?>
+                <?php if (!empty($r['sender_email'])): ?>
+                    <span class="mw-ri-from">from <?php echo htmlspecialchars($r['sender_email']); ?></span>
+                <?php endif; ?>
+            </div>
+            <div class="mw-ri-fields">
+                <label>Vendor
+                    <select class="form-select form-select-sm mw-searchable mw-ri-vendor">
+                        <option value="">— select —</option>
+                        <?php foreach ($inboxVendors as $v): ?>
+                            <option value="<?php echo (int)$v['id']; ?>" <?php echo ((int)$r['vendor_id'] === (int)$v['id']) ? 'selected' : ''; ?>><?php echo htmlspecialchars($v['name']); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </label>
+                <label>Date
+                    <input type="date" class="form-control form-control-sm mw-ri-date" value="<?php echo htmlspecialchars((string)$r['expense_date']); ?>">
+                </label>
+                <label>Total
+                    <input type="number" step="0.01" min="0" class="form-control form-control-sm mw-ri-total" value="<?php echo htmlspecialchars(number_format((float)$r['total'], 2, '.', '')); ?>">
+                </label>
+                <label>GST
+                    <input type="number" step="0.01" min="0" class="form-control form-control-sm mw-ri-gst" value="<?php echo htmlspecialchars(number_format((float)$r['gst_amount'], 2, '.', '')); ?>">
+                </label>
+                <label>PST
+                    <input type="number" step="0.01" min="0" class="form-control form-control-sm mw-ri-pst" value="<?php echo htmlspecialchars(number_format((float)$r['pst_amount'], 2, '.', '')); ?>">
+                </label>
+                <label>Category
+                    <select class="form-select form-select-sm mw-ri-category">
+                        <option value="">— select —</option>
+                        <?php foreach ($inboxCategories as $c): ?>
+                            <option value="<?php echo htmlspecialchars($c); ?>" <?php echo ((string)$r['accounting_category'] === $c) ? 'selected' : ''; ?>><?php echo htmlspecialchars($c); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </label>
+            </div>
+            <div class="mw-ri-actions">
+                <button type="button" class="btn btn-sm btn-primary" onclick="approveReceiptInbox(this)">Approve</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="dismissReceiptInbox(this)">Dismiss</button>
+            </div>
+        </div>
+        <?php endforeach; ?>
+    </div>
+</div>
+<?php endif; ?>
 
 <?php if ($canEdit): ?>
 <!-- Hidden file inputs (must stay outside hidden containers for mobile access) -->
@@ -5766,6 +5857,56 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             loadApprovals();
             loadExpenses(currentPage);
         } catch(e) { alert('Error: ' + e.message); }
+    };
+
+    // ── Emailed Receipts — pending review panel ───────────────────
+    async function submitReceiptInbox(btn, payload) {
+        var row = btn.closest('.mw-ri-row');
+        var btns = row.querySelectorAll('button');
+        btns.forEach(function(b){ b.disabled = true; });
+        try {
+            var body = new URLSearchParams(Object.assign({ csrf_token: CSRF }, payload));
+            var r = await fetch('/crm/api/receipt-inbox-confirm.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: body.toString(),
+            });
+            var d = await r.json();
+            if (!d.ok) throw new Error(d.message || 'Failed');
+            // Remove the row; update the count badge; refresh the expenses list.
+            row.remove();
+            var card = document.getElementById('receipt-inbox');
+            var countEl = card ? card.querySelector('.mw-ri-count') : null;
+            if (countEl) {
+                var n = Math.max(0, parseInt(countEl.textContent, 10) - 1);
+                countEl.textContent = n;
+                if (n === 0 && card) card.remove();
+            }
+            if (typeof loadExpenses === 'function') loadExpenses(currentPage);
+        } catch(e) {
+            alert('Error: ' + e.message);
+            btns.forEach(function(b){ b.disabled = false; });
+        }
+    }
+
+    window.approveReceiptInbox = function(btn) {
+        var row = btn.closest('.mw-ri-row');
+        submitReceiptInbox(btn, {
+            action: 'approve',
+            expense_id: row.getAttribute('data-expense-id'),
+            vendor_id: (row.querySelector('.mw-ri-vendor') || {}).value || '',
+            expense_date: (row.querySelector('.mw-ri-date') || {}).value || '',
+            total: (row.querySelector('.mw-ri-total') || {}).value || '',
+            gst_amount: (row.querySelector('.mw-ri-gst') || {}).value || '',
+            pst_amount: (row.querySelector('.mw-ri-pst') || {}).value || '',
+            accounting_category: (row.querySelector('.mw-ri-category') || {}).value || '',
+        });
+    };
+
+    window.dismissReceiptInbox = function(btn) {
+        if (!confirm('Dismiss this emailed receipt? It will not be added to your books.')) return;
+        var row = btn.closest('.mw-ri-row');
+        submitReceiptInbox(btn, { action: 'dismiss', expense_id: row.getAttribute('data-expense-id') });
     };
 
     window.showRejectModal = function(id) {

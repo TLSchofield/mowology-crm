@@ -36063,3 +36063,94 @@ span.mw-icon-box--missing {
 .mw-et-dash-alert span { flex: 1 1 auto; }
 .mw-et-dash-alert strong { color: var(--mw-dark, #1A5F4A); }
 .mw-et-dash-alert .mw-et-dash-arrow { opacity: .6; }
+
+/* ============================================================
+   Emailed Receipts — pending review panel (Expenses page)
+   ============================================================ */
+.mw-receipt-inbox {
+    border: 1px solid var(--mw-lime, #7FD858);
+    border-left: 4px solid var(--mw-green, #2D8659);
+}
+.mw-receipt-inbox .card-header { background: var(--mw-light, #E8F3F0); }
+.mw-ri-title {
+    display: inline-flex;
+    align-items: center;
+    gap: .5rem;
+    font-weight: 600;
+    color: var(--mw-forest, #0D3B2E);
+}
+.mw-ri-title svg { color: var(--mw-green, #2D8659); }
+.mw-ri-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.5rem;
+    height: 1.5rem;
+    padding: 0 .4rem;
+    border-radius: 999px;
+    background: var(--mw-green, #2D8659);
+    color: #fff;
+    font-size: .8rem;
+    font-weight: 700;
+}
+.mw-ri-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: .75rem;
+    padding: .85rem 1rem;
+    border-bottom: 1px solid var(--mw-light, #E8F3F0);
+}
+.mw-ri-row:last-child { border-bottom: none; }
+.mw-ri-receipt {
+    flex: 1 1 160px;
+    min-width: 140px;
+    display: flex;
+    flex-direction: column;
+    gap: .25rem;
+    font-size: .82rem;
+}
+.mw-ri-thumb-link {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    font-weight: 600;
+    color: var(--mw-green, #2D8659);
+    text-decoration: none;
+}
+.mw-ri-thumb-link:hover { color: var(--mw-dark, #1A5F4A); text-decoration: underline; }
+.mw-ri-flag {
+    align-self: flex-start;
+    padding: .1rem .4rem;
+    border-radius: 4px;
+    background: #fff3cd;
+    color: #b45309;
+    font-size: .72rem;
+}
+.mw-ri-from { color: #6c757d; }
+.mw-ri-fields {
+    flex: 3 1 520px;
+    display: grid;
+    grid-template-columns: 1.6fr .9fr .8fr .7fr .7fr 1.2fr;
+    gap: .5rem;
+}
+.mw-ri-fields label {
+    display: flex;
+    flex-direction: column;
+    gap: .15rem;
+    margin: 0;
+    font-size: .72rem;
+    font-weight: 600;
+    color: var(--mw-dark, #1A5F4A);
+}
+.mw-ri-actions {
+    flex: 1 1 auto;
+    display: flex;
+    gap: .4rem;
+    align-items: flex-end;
+}
+@media (max-width: 768px) {
+    .mw-ri-fields { grid-template-columns: 1fr 1fr; }
+    .mw-ri-actions { width: 100%; }
+    .mw-ri-actions .btn { flex: 1; }
+}
