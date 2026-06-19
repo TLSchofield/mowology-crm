@@ -1225,7 +1225,7 @@ $pageTitle = 'Schedule';
 $activePage = 'schedule';
 $bodyClass  = 'mw-page-schedule'; // Hides global mobile nav bars — schedule has its own
 $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
-$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260619b" rel="stylesheet">';
+$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260619c" rel="stylesheet">';
 $extraHead .= '<script src="/crm/js/offline-queue.js?v=20260619a" defer></script>';
 // Prefetch every day visible in the strip so any day tap is instant
 foreach ($stripDays as $_sd) {
@@ -2954,23 +2954,9 @@ if ($apiKey) {
                       }
                   }
                   ?>
-
-                  <?php if (count($upcomingStops) > 1): ?>
-                  <!-- Route From Here — reorders upcoming cards by straight-line GPS distance (persists per-day) -->
-                  <div class="mw-rfh-bar">
-                      <button type="button" class="mw-rfh-btn" id="mwRfhBtn">
-                          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
-                          <span class="mw-rfh-label">Route From Here</span>
-                      </button>
-                      <div class="mw-rfh-note" id="mwRfhNote" style="display:none;">
-                          <span class="mw-rfh-note-text">
-                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-                              Sorted by distance from your location
-                          </span>
-                          <a href="#" class="mw-rfh-reset" id="mwRfhReset">Reset order</a>
-                      </div>
-                  </div>
-                  <?php endif; ?>
+                  <!-- Route From Here button is injected next to the search box by the
+                       inline route script below (mwRfhBtn), so it sits in the fixed
+                       header area and never scrolls away with the card list. -->
 
                   <?php if (!empty($upcomingStops)): ?>
                       <!-- All upcoming stops rendered as compact cards; JS promotes the GPS-matched one -->
@@ -3824,7 +3810,6 @@ function getServiceLabel(type) {
         var ordered = withC.concat(without);
         placeOrder(ordered);
         try { localStorage.setItem(STORAGE_KEY, JSON.stringify(ordered.map(function(c) { return c.getAttribute('data-stop-id'); }))); } catch (e) {}
-        showNote();
         if (area()) area().scrollTop = 0;
     }
 
@@ -3838,24 +3823,6 @@ function getServiceLabel(type) {
         saved.forEach(function(id) { if (byId[id]) { ordered.push(byId[id]); delete byId[id]; } });
         cards.forEach(function(c) { if (byId[c.getAttribute('data-stop-id')]) ordered.push(c); });
         placeOrder(ordered);
-        showNote();
-    }
-
-    function showNote() { var n = document.getElementById('mwRfhNote'); if (n) n.style.display = 'flex'; }
-    function hideNote() { var n = document.getElementById('mwRfhNote'); if (n) n.style.display = 'none'; }
-
-    var btn = document.getElementById('mwRfhBtn');
-    var label = btn ? btn.querySelector('.mw-rfh-label') : null;
-    var DEFAULT_LABEL = 'Route From Here';
-
-    function setState(s) {
-        if (!btn) return;
-        btn.classList.remove('mw-rfh-btn-error');
-        if (s === 'loading') { btn.disabled = true; label.textContent = 'Getting location…'; }
-        else if (s === 'denied') { btn.disabled = false; btn.classList.add('mw-rfh-btn-error'); label.textContent = 'Location permission required'; setTimeout(revert, 5000); }
-        else if (s === 'error') { btn.disabled = false; btn.classList.add('mw-rfh-btn-error'); label.textContent = 'Location unavailable'; setTimeout(revert, 4000); }
-        else { revert(); }
-        function revert() { btn.disabled = false; btn.classList.remove('mw-rfh-btn-error'); label.textContent = DEFAULT_LABEL; }
     }
 
     // Android-correct GPS: request permission, high accuracy, 15s timeout.
@@ -3886,26 +3853,92 @@ function getServiceLabel(type) {
         } else { err('error'); }
     }
 
-    if (btn) {
-        btn.addEventListener('click', function() {
-            setState('loading');
-            acquire(
-                function(la, lo) { sortByDistance(la, lo); setState('done'); },
-                function(reason) { setState(reason === 'denied' ? 'denied' : 'error'); }
-            );
-        });
+    // ── Square route button (injected into the search bar header) ──
+    var ROUTE_TITLE = 'Route from here — sort stops by nearest';
+    var routeBtn = null, busy = false;
+
+    function toast(msg) {
+        var t = document.createElement('div');
+        t.className = 'mw-rfh-toast';
+        t.textContent = msg;
+        document.body.appendChild(t);
+        t.offsetHeight;
+        t.classList.add('mw-rfh-toast-show');
+        setTimeout(function() { t.classList.remove('mw-rfh-toast-show'); setTimeout(function() { t.remove(); }, 250); }, 2600);
     }
 
-    var resetLink = document.getElementById('mwRfhReset');
-    if (resetLink) {
-        resetLink.addEventListener('click', function(e) {
-            e.preventDefault();
+    function isSorted() {
+        try { var s = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null'); return !!(s && s.length); } catch (e) { return false; }
+    }
+    function setActive(on) { if (routeBtn) routeBtn.classList.toggle('mw-rfh-sq-active', !!on); }
+    function setBusy(on) { busy = on; if (routeBtn) { routeBtn.classList.toggle('mw-rfh-sq-busy', on); routeBtn.disabled = on; } }
+
+    // Restore the server's scheduled order (captured before any saved sort applied).
+    function restoreOriginal() {
+        var cards = upcomingCards(), byId = {};
+        cards.forEach(function(c) { byId[c.getAttribute('data-stop-id')] = c; });
+        var ordered = [];
+        ORIGINAL_ORDER.forEach(function(id) { if (byId[id]) { ordered.push(byId[id]); delete byId[id]; } });
+        cards.forEach(function(c) { if (byId[c.getAttribute('data-stop-id')]) ordered.push(c); });
+        placeOrder(ordered);
+    }
+
+    function onRouteClick() {
+        if (busy) return;
+        if (isSorted()) { // toggle off → back to scheduled order
             try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
-            location.reload(); // restore the server's scheduled route order
-        });
+            restoreOriginal();
+            setActive(false);
+            toast('Back to scheduled order');
+            return;
+        }
+        setBusy(true);
+        acquire(
+            function(la, lo) { sortByDistance(la, lo); setBusy(false); setActive(true); toast('Sorted by nearest stop'); },
+            function(reason) {
+                setBusy(false);
+                if (routeBtn) { routeBtn.classList.add('mw-rfh-sq-error'); setTimeout(function() { routeBtn.classList.remove('mw-rfh-sq-error'); }, 1500); }
+                toast(reason === 'denied' ? 'Location permission required' : 'Location unavailable — check GPS');
+            }
+        );
     }
 
+    var SQ_SVG = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>';
+
+    // Inject the square button to the RIGHT of the search field. The search box
+    // is built by a deferred script, so this is retried until the field exists.
+    function injectRouteButton() {
+        if (document.getElementById('mwRfhBtn')) return true;
+        if (upcomingCards().length < 2) return true; // nothing worth routing
+        var wrap = document.querySelector('.mw-mc-search-wrap');
+        var field = wrap ? wrap.querySelector('.mw-mc-search-field') : null;
+        if (!wrap || !field) return false;
+        wrap.classList.add('mw-mc-search-has-route');
+        routeBtn = document.createElement('button');
+        routeBtn.id = 'mwRfhBtn';
+        routeBtn.type = 'button';
+        routeBtn.className = 'mw-rfh-sq';
+        routeBtn.title = ROUTE_TITLE;
+        routeBtn.setAttribute('aria-label', ROUTE_TITLE);
+        routeBtn.innerHTML = SQ_SVG;
+        field.insertAdjacentElement('afterend', routeBtn);
+        routeBtn.addEventListener('click', onRouteClick);
+        setActive(isSorted());
+        return true;
+    }
+
+    // Capture the server's scheduled order BEFORE applying any saved sort.
+    var ORIGINAL_ORDER = upcomingCards().map(function(c) { return c.getAttribute('data-stop-id'); });
     applySaved(); // re-apply persisted order on load
+
+    function whenReady(fn) {
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn);
+        else fn();
+    }
+    whenReady(function() {
+        var tries = 0;
+        (function tryInject() { if (injectRouteButton()) return; if (++tries < 25) setTimeout(tryInject, 100); })();
+    });
 
     // ── Skip button (delegated, capture phase to beat card tap-to-expand) ──
     function bumpCounter() {

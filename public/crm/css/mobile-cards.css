@@ -4379,88 +4379,89 @@
     pointer-events: none;
 }
 
-/* ── Route From Here — fixed floating bar, always visible above the bottom nav.
-   Must be position:fixed because the hero card fills 100% of the scroll area
-   and would otherwise push the bar off the top of the viewport. ── */
-.mw-rfh-bar {
-    position: fixed;
-    left: 12px;
-    right: 12px;
-    bottom: calc(env(safe-area-inset-bottom, 0px) + 86px); /* clear the bottom nav bar */
-    z-index: 40;
+/* ── Route From Here — square icon button to the RIGHT of the search field.
+   Lives in the sticky search header, so it stays visible and never scrolls
+   away with the card list (the old floating bar was clipped by the hero card). ── */
+.mw-mc-search-wrap.mw-mc-search-has-route {
     display: flex;
-    flex-direction: column-reverse; /* note sits above the button */
-    gap: 8px;
-    margin: 0;
-    padding: 0;
-    pointer-events: none; /* taps pass through the gaps */
-}
-.mw-rfh-bar > * {
-    pointer-events: auto;
-}
-/* Reserve space at the bottom of the scroll list so the last card's footer
-   isn't hidden behind the floating bar (overrides the hero padding:0). */
-.mw-mc-scroll-area:has(.mw-rfh-bar) {
-    padding-bottom: 132px;
-}
-.mw-rfh-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    width: 100%;
-    min-height: 56px;
-    padding: 14px 18px;
-    border: none;
-    border-radius: 14px;
-    background: linear-gradient(135deg, var(--mw-green, #2D8659) 0%, var(--mw-dark, #1A5F4A) 100%);
-    color: #fff;
-    font-size: 1.05rem;
-    font-weight: 700;
-    cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
-    box-shadow: 0 6px 20px rgba(13, 59, 46, 0.45);
-    transition: transform 0.1s ease;
-}
-.mw-rfh-btn:active {
-    transform: scale(0.98);
-}
-.mw-rfh-btn:disabled {
-    opacity: 0.85;
-}
-.mw-rfh-btn.mw-rfh-btn-error {
-    background: #dc2626;
-    box-shadow: 0 6px 20px rgba(220, 38, 38, 0.45);
-}
-.mw-rfh-btn svg {
-    flex-shrink: 0;
-}
-.mw-rfh-note {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
     flex-wrap: wrap;
+    align-items: center;
     gap: 8px;
-    padding: 8px 12px;
-    background: #fff;
-    border: 1px solid #d6e8dd;
-    border-radius: 10px;
-    font-size: 0.8rem;
-    color: var(--mw-dark, #1A5F4A);
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
 }
-.mw-rfh-note-text {
+.mw-mc-search-wrap.mw-mc-search-has-route .mw-mc-search-field {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.mw-mc-search-wrap.mw-mc-search-has-route .mw-mc-search-count {
+    flex-basis: 100%;
+}
+.mw-rfh-sq {
+    flex: 0 0 auto;
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    font-weight: 600;
-}
-.mw-rfh-reset {
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    border: 1.5px solid var(--mw-green, #2D8659);
+    border-radius: var(--mw-radius-md, 12px);
+    background: #fff;
     color: var(--mw-green, #2D8659);
-    font-weight: 700;
-    text-decoration: underline;
     cursor: pointer;
-    white-space: nowrap;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
+}
+.mw-rfh-sq:active {
+    transform: scale(0.94);
+}
+.mw-rfh-sq svg {
+    flex-shrink: 0;
+}
+/* Active = list is currently sorted by distance (filled green) */
+.mw-rfh-sq.mw-rfh-sq-active {
+    background: linear-gradient(135deg, var(--mw-green, #2D8659) 0%, var(--mw-dark, #1A5F4A) 100%);
+    color: #fff;
+    border-color: var(--mw-dark, #1A5F4A);
+    box-shadow: 0 3px 10px rgba(45, 134, 89, 0.4);
+}
+/* Busy = acquiring GPS (spin the arrow) */
+.mw-rfh-sq.mw-rfh-sq-busy {
+    opacity: 0.85;
+}
+.mw-rfh-sq.mw-rfh-sq-busy svg {
+    animation: mw-rfh-spin 0.9s linear infinite;
+}
+@keyframes mw-rfh-spin {
+    to { transform: rotate(360deg); }
+}
+/* Error flash */
+.mw-rfh-sq.mw-rfh-sq-error {
+    border-color: #dc2626;
+    color: #dc2626;
+    background: #fbecec;
+}
+
+/* Toast feedback for the square route button */
+.mw-rfh-toast {
+    position: fixed;
+    left: 50%;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 96px);
+    transform: translateX(-50%) translateY(8px);
+    z-index: 60;
+    max-width: 80vw;
+    padding: 10px 16px;
+    background: rgba(13, 59, 46, 0.95);
+    color: #fff;
+    font-size: 0.85rem;
+    font-weight: 600;
+    border-radius: 10px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.mw-rfh-toast.mw-rfh-toast-show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
 }
 
 /* When timer is running, the complete button gets a stronger finish style */
