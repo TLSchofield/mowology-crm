@@ -658,7 +658,17 @@ $activePage = 'timeclock';
         if (state === 'loading') {
             btn.disabled = true;
             label.textContent = 'Getting location…';
+        } else if (state === 'denied') {
+            // Permission refused — surface a clear, distinct message (Android prompt declined).
+            btn.disabled = false;
+            btn.classList.add('mw-route-btn-error');
+            label.textContent = 'Location permission required';
+            setTimeout(function() {
+                btn.classList.remove('mw-route-btn-error');
+                label.textContent = DEFAULT_LABEL;
+            }, 5000);
         } else if (state === 'error') {
+            // Timeout / no fix / unavailable.
             btn.disabled = false;
             btn.classList.add('mw-route-btn-error');
             label.textContent = 'Location unavailable — check permissions';
@@ -672,23 +682,59 @@ $activePage = 'timeclock';
         }
     }
 
-    // GPS acquisition — prefer the native Capacitor plugin, fall back to the browser.
+    // High-accuracy GPS options. Android can be slow to acquire a first fix
+    // (cold start in a parked truck), so give it a generous 15s timeout.
+    var GPS_OPTS = { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 };
+
+    function permGranted(p) {
+        return p && (p.location === 'granted' || p.coarseLocation === 'granted');
+    }
+
+    // GPS acquisition. onErr receives a reason: 'denied' (permission refused)
+    // or 'error' (timeout / no fix / plugin missing).
     function acquire(onOk, onErr) {
-        if (window.MwNative && window.MwNative.geo && window.MwNative.geo.getCurrentPosition) {
-            window.MwNative.geo.getCurrentPosition()
-                .then(function(pos) {
-                    if (pos && typeof pos.lat === 'number') { onOk(pos.lat, pos.lng); }
-                    else { onErr(); }
+        var isNative = window.Capacitor && window.Capacitor.isNativePlatform &&
+                       window.Capacitor.isNativePlatform();
+        var Geo = isNative && window.Capacitor.Plugins ? window.Capacitor.Plugins.Geolocation : null;
+
+        // ── Native Android: request permission explicitly, then get a fix ──
+        if (Geo) {
+            var fix = function() {
+                Geo.getCurrentPosition(GPS_OPTS)
+                    .then(function(pos) {
+                        if (pos && pos.coords) { onOk(pos.coords.latitude, pos.coords.longitude); }
+                        else { onErr('error'); }
+                    })
+                    .catch(function() { onErr('error'); });
+            };
+
+            Geo.checkPermissions()
+                .then(function(status) {
+                    if (permGranted(status)) { fix(); return; }
+                    // Not yet granted — show the Android system prompt.
+                    Geo.requestPermissions({ permissions: ['location', 'coarseLocation'] })
+                        .then(function(req) {
+                            if (permGranted(req)) { fix(); }
+                            else { onErr('denied'); }
+                        })
+                        .catch(function() { onErr('denied'); });
                 })
-                .catch(function() { onErr(); });
-        } else if (navigator.geolocation) {
+                .catch(function() {
+                    // checkPermissions unsupported on this plugin build — try a fix anyway.
+                    fix();
+                });
+            return;
+        }
+
+        // ── Browser fallback (testing outside the app) ──
+        if (navigator.geolocation) {
             navigator.geolocation.getCurrentPosition(
                 function(pos) { onOk(pos.coords.latitude, pos.coords.longitude); },
-                function() { onErr(); },
-                { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+                function(err) { onErr(err && err.code === 1 ? 'denied' : 'error'); },
+                GPS_OPTS
             );
         } else {
-            onErr();
+            onErr('error');
         }
     }
 
@@ -696,7 +742,7 @@ $activePage = 'timeclock';
         setBtn('loading');
         acquire(
             function(lat, lng) { sortByDistance(lat, lng); setBtn('done'); },
-            function() { setBtn('error'); }
+            function(reason) { setBtn(reason === 'denied' ? 'denied' : 'error'); }
         );
     });
 
