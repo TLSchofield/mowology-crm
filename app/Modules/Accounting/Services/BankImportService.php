@@ -792,7 +792,9 @@ class BankImportService
         //      (seen in Vancity VCTY_16310 2025 statements). Caught by isSpacePaddedText.
         // Both cases route through the OCR fallback which renders page images cleanly.
         if ($this->isGarbledText($text) || $this->isSpacePaddedText($text)) {
-            $text = $this->extractTextFallback($filePath);
+            // Native EBCDIC decode first (Vancity 2026+ font) — no poppler/OCR needed.
+            $decoded = $this->decodeEbcdicStatement($text);
+            $text = $decoded ?? $this->extractTextFallback($filePath);
         }
 
         $parsed = $this->parsePdfText($text);
@@ -1850,6 +1852,92 @@ class BankImportService
         if (strlen($printable) < 20) return false;
         $nonAscii = preg_match_all('/[^\x20-\x7E]/', $printable);
         return ($nonAscii / strlen($printable)) > 0.25;
+    }
+
+    /**
+     * EBCDIC (IBM CP037) byte → ASCII translation table. The Vancity 2026+
+     * statement font encodes glyphs with EBCDIC code points (A–I=0xC1-C9,
+     * J–R=0xD1-D9, S–Z=0xE2-E9, 0–9=0xF0-F9), which smalot emits as raw bytes.
+     */
+    private function ebcdicTable(): array
+    {
+        static $tr = null;
+        if ($tr !== null) return $tr;
+        $m = [0x40 => ' ', 0x4B => '.', 0x4D => '(', 0x4E => '+', 0x50 => '&', 0x5B => '$',
+              0x5C => '*', 0x5D => ')', 0x60 => '-', 0x61 => '/', 0x6B => ',', 0x7A => ':',
+              0x7C => '@', 0x7D => "'", 0x7E => '=', 0x6F => '?', 0x6C => '%', 0x7B => '#'];
+        for ($i = 0; $i <= 8; $i++) $m[0x81 + $i] = chr(ord('a') + $i);   // a-i
+        for ($i = 0; $i <= 8; $i++) $m[0x91 + $i] = chr(ord('j') + $i);   // j-r
+        for ($i = 0; $i <= 7; $i++) $m[0xA2 + $i] = chr(ord('s') + $i);   // s-z
+        for ($i = 0; $i <= 8; $i++) $m[0xC1 + $i] = chr(ord('A') + $i);   // A-I
+        for ($i = 0; $i <= 8; $i++) $m[0xD1 + $i] = chr(ord('J') + $i);   // J-R
+        for ($i = 0; $i <= 7; $i++) $m[0xE2 + $i] = chr(ord('S') + $i);   // S-Z
+        for ($i = 0; $i <= 9; $i++) $m[0xF0 + $i] = chr(ord('0') + $i);   // 0-9
+        $tr = [];
+        foreach ($m as $b => $c) $tr[chr($b)] = $c;
+        $tr[chr(0x0A)] = "\n"; $tr[chr(0x0D)] = "\n"; $tr[chr(0x25)] = "\n"; // EBCDIC LF
+        return $tr;
+    }
+
+    /** True when smalot text is EBCDIC-encoded (high ratio of EBCDIC letter/digit bytes). */
+    private function looksLikeEbcdic(string $utf8): bool
+    {
+        $raw = @mb_convert_encoding($utf8, 'ISO-8859-1', 'UTF-8');
+        if ($raw === false || strlen($raw) < 40) return false;
+        $hits = preg_match_all('/[\xC1-\xC9\xD1-\xD9\xE2-\xE9\xF0-\xF9]/', $raw);
+        return ($hits / strlen($raw)) > 0.25;
+    }
+
+    /**
+     * Decode an EBCDIC-encoded Vancity statement (smalot UTF-8 output) into clean
+     * "DD MON DESCRIPTION AMOUNT BALANCE" lines that parsePdfText can consume, with
+     * the 3-column header + opening balance prepended so the parser uses its reliable
+     * running-balance classification. Returns null when the text isn't EBCDIC.
+     */
+    private function decodeEbcdicStatement(string $utf8): ?string
+    {
+        if (!$this->looksLikeEbcdic($utf8)) return null;
+
+        $raw = mb_convert_encoding($utf8, 'ISO-8859-1', 'UTF-8');
+        $dec = strtr($raw, $this->ebcdicTable());
+        $dec = preg_replace('/[\x00-\x09\x0B\x0C\x0E-\x1F\x80-\xFF]/', ' ', $dec);
+
+        $lines = [];
+        foreach (explode("\n", $dec) as $l) {
+            $l = trim(preg_replace('/\s+/', ' ', $l));
+            if ($l !== '') $lines[] = $l;
+        }
+        $n = count($lines);
+        $isNum = static fn($s) => (bool)preg_match('/^\d{1,3}(?:,\d{3})*\.\d{2}$/', str_replace(' ', '', $s));
+
+        // Opening balance — first "OPENING BALANCE" label followed by a number line.
+        $opening = null; $startIdx = 0;
+        for ($i = 0; $i < $n; $i++) {
+            if (stripos($lines[$i], 'OPENING BALANCE') !== false) {
+                for ($k = $i + 1; $k < min($i + 3, $n); $k++) {
+                    if ($isNum($lines[$k])) { $opening = str_replace(' ', '', $lines[$k]); $startIdx = $k + 1; break 2; }
+                }
+            }
+        }
+
+        // Reflow date-triplets (date+desc line, amount line, balance line).
+        $monthRe = 'JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC';
+        $tx = [];
+        for ($i = $startIdx; $i < $n; $i++) {
+            $compact = str_replace(' ', '', $lines[$i]);
+            if (!preg_match('/^(\d{1,2})(' . $monthRe . ')(.*)$/i', $compact, $x)) continue;
+            $nums = []; $j = $i + 1;
+            while ($j < $n && count($nums) < 2 && $isNum($lines[$j])) { $nums[] = str_replace(' ', '', $lines[$j]); $j++; }
+            if (count($nums) < 2) continue;
+            $desc = $x[3] !== '' ? $x[3] : 'TRANSACTION';
+            $tx[] = sprintf('%02d %s %s %s %s', (int)$x[1], strtoupper($x[2]), $desc, $nums[0], $nums[1]);
+            $i = $j - 1;
+        }
+        if (count($tx) < 1) return null;
+
+        $header = "WITHDRAWALS DEPOSITS BALANCE\n";
+        if ($opening !== null) $header .= "OPENING BALANCE $opening\n";
+        return $header . implode("\n", $tx);
     }
 
     /**

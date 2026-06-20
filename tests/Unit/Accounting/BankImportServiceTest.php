@@ -26,6 +26,63 @@ class BankImportServiceTest extends TestCase
 
     // ── detectPreset() ────────────────────────────────────────────────────────
 
+    /** Encode an ASCII string as the UTF-8-wrapped EBCDIC bytes smalot emits. */
+    private function toEbcdicUtf8(string $ascii): string
+    {
+        $map = [' ' => 0x40, '.' => 0x4B, ',' => 0x6B, '(' => 0x4D, ')' => 0x5D];
+        for ($i = 0; $i <= 8; $i++) $map[chr(ord('A') + $i)] = 0xC1 + $i;
+        for ($i = 0; $i <= 8; $i++) $map[chr(ord('J') + $i)] = 0xD1 + $i;
+        for ($i = 0; $i <= 7; $i++) $map[chr(ord('S') + $i)] = 0xE2 + $i;
+        for ($i = 0; $i <= 9; $i++) $map[chr(ord('0') + $i)] = 0xF0 + $i;
+        $out = '';
+        foreach (str_split($ascii) as $c) {
+            $out .= $c === "\n" ? "\n" : (isset($map[$c]) ? mb_chr($map[$c], 'UTF-8') : $c);
+        }
+        return $out;
+    }
+
+    private function callPrivate(string $method, ...$args)
+    {
+        $m = $this->ref->getMethod($method);
+        $m->setAccessible(true);
+        return $m->invoke($this->service, ...$args);
+    }
+
+    // ── EBCDIC decode (Vancity 2026+ font) ──────────────────────────────────────
+
+    /** @test */
+    public function looksLikeEbcdic_detects_ebcdic_text(): void
+    {
+        $this->assertTrue($this->callPrivate('looksLikeEbcdic',
+            $this->toEbcdicUtf8('MOWOLOGY LAWNS AND LANDSCAPES VANCOUVER BC 14,331.92 OPENING BALANCE')));
+        $this->assertFalse($this->callPrivate('looksLikeEbcdic',
+            'Plain ASCII bank statement text with a balance of 14,331.92 and more words here'));
+    }
+
+    /** @test */
+    public function decodeEbcdicStatement_reflows_transactions(): void
+    {
+        // A minimal EBCDIC statement: opening balance + two date-triplets.
+        $ascii = "OPENING BALANCE\n100.00\n"
+               . "01MAY POS GROCERY\n10.00\n90.00\n"
+               . "02MAY DEPOSIT\n40.00\n130.00\n";
+        $decoded = $this->callPrivate('decodeEbcdicStatement', $this->toEbcdicUtf8($ascii));
+
+        $this->assertNotNull($decoded);
+        $this->assertStringContainsString('WITHDRAWALS DEPOSITS BALANCE', $decoded);
+        $this->assertStringContainsString('OPENING BALANCE 100.00', $decoded);
+        $this->assertStringContainsString('01 MAY POSGROCERY 10.00 90.00', $decoded);
+        $this->assertStringContainsString('02 MAY DEPOSIT 40.00 130.00', $decoded);
+    }
+
+    /** @test */
+    public function decodeEbcdicStatement_returns_null_for_non_ebcdic(): void
+    {
+        $this->assertNull($this->callPrivate('decodeEbcdicStatement', "01/05  GROCERY  10.00  90.00\n"));
+    }
+
+    // ── detectPreset() ────────────────────────────────────────────────────────
+
     /** @test */
     public function detectPreset_td_filename(): void
     {
