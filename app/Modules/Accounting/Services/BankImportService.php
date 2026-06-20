@@ -1911,25 +1911,50 @@ class BankImportService
         $isNum = static fn($s) => (bool)preg_match('/^\d{1,3}(?:,\d{3})*\.\d{2}$/', str_replace(' ', '', $s));
 
         // Opening balance — first "OPENING BALANCE" label followed by a number line.
-        $opening = null; $startIdx = 0;
+        // This is the primary (chequing) account; the statement also lists Reserve /
+        // GST-reserve sub-accounts further down, each with their own OPENING BALANCE.
+        $opening = null; $startIdx = 0; $openingLabelIdx = -1;
         for ($i = 0; $i < $n; $i++) {
             if (stripos($lines[$i], 'OPENING BALANCE') !== false) {
                 for ($k = $i + 1; $k < min($i + 3, $n); $k++) {
-                    if ($isNum($lines[$k])) { $opening = str_replace(' ', '', $lines[$k]); $startIdx = $k + 1; break 2; }
+                    if ($isNum($lines[$k])) { $opening = str_replace(' ', '', $lines[$k]); $startIdx = $k + 1; $openingLabelIdx = $i; break 2; }
                 }
             }
         }
 
-        // Reflow date-triplets (date+desc line, amount line, balance line).
-        $monthRe = 'JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC';
-        $tx = [];
+        // Bound to the primary account: stop at the next account section — a second
+        // "OPENING BALANCE" label or a Reserve/Savings/GST sub-account header. Without
+        // this, the tiny reserve-account transactions corrupt the running balance.
+        $endIdx = $n;
         for ($i = $startIdx; $i < $n; $i++) {
+            if (stripos($lines[$i], 'OPENING BALANCE') !== false
+                || preg_match('/INVESTMENT\s+SAVINGS|JUMPSTART|RESERVE\s+FUND|GST\s+RESERVE/i', $lines[$i])) {
+                $endIdx = $i;
+                break;
+            }
+        }
+
+        // Reflow each transaction: a date+description line, optional wrapped
+        // description lines, then the amount line and the running-balance line.
+        $monthRe = 'JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC';
+        $isDate  = static fn($s) => (bool)preg_match('/^\d{1,2}(' . $monthRe . ')/i', str_replace(' ', '', $s));
+        $tx = [];
+        for ($i = $startIdx; $i < $endIdx; $i++) {
             $compact = str_replace(' ', '', $lines[$i]);
             if (!preg_match('/^(\d{1,2})(' . $monthRe . ')(.*)$/i', $compact, $x)) continue;
-            $nums = []; $j = $i + 1;
-            while ($j < $n && count($nums) < 2 && $isNum($lines[$j])) { $nums[] = str_replace(' ', '', $lines[$j]); $j++; }
+
+            $desc = $x[3];
+            $j = $i + 1;
+            // Absorb wrapped-description lines (e.g. "(SQ SOUTHLANDS NURSERY ... BCCA)")
+            // until we reach the amount column. Stop at a number or the next date.
+            while ($j < $endIdx && !$isNum($lines[$j]) && !$isDate($lines[$j])) {
+                $desc .= str_replace(' ', '', $lines[$j]);
+                $j++;
+            }
+            $nums = [];
+            while ($j < $endIdx && count($nums) < 2 && $isNum($lines[$j])) { $nums[] = str_replace(' ', '', $lines[$j]); $j++; }
             if (count($nums) < 2) continue;
-            $desc = $x[3] !== '' ? $x[3] : 'TRANSACTION';
+            if ($desc === '') $desc = 'TRANSACTION';
             $tx[] = sprintf('%02d %s %s %s %s', (int)$x[1], strtoupper($x[2]), $desc, $nums[0], $nums[1]);
             $i = $j - 1;
         }

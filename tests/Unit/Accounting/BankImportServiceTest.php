@@ -76,6 +76,20 @@ class BankImportServiceTest extends TestCase
     }
 
     /** @test */
+    public function decodeEbcdicStatement_absorbs_wrapped_description_lines(): void
+    {
+        // The amount is not on the line immediately after the date — the description
+        // wraps across two lines first (real Vancity layout for long merchant names).
+        $ascii = "OPENING BALANCE\n100.00\n"
+               . "01MAY POS SOUTHLANDS\nNURSERY VANCOUVER\n10.00\n90.00\n";
+        $decoded = $this->callPrivate('decodeEbcdicStatement', $this->toEbcdicUtf8($ascii));
+
+        $this->assertNotNull($decoded);
+        // wrapped description joined, amount + balance captured (not dropped)
+        $this->assertStringContainsString('01 MAY POSSOUTHLANDSNURSERYVANCOUVER 10.00 90.00', $decoded);
+    }
+
+    /** @test */
     public function decodeEbcdicStatement_returns_null_for_non_ebcdic(): void
     {
         $this->assertNull($this->callPrivate('decodeEbcdicStatement', "01/05  GROCERY  10.00  90.00\n"));
