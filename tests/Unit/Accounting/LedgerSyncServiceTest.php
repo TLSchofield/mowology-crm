@@ -104,4 +104,107 @@ class LedgerSyncServiceTest extends TestCase
         $this->assertSame('1010', $s->fundingAccountFor('cash'));
         $this->assertSame('1010', $s->fundingAccountFor(''));
     }
+
+    // ── bank-import row → journal entry (Step 6) ─────────────────────────────────
+
+    private function lineByAccount(array $entry, int $accountId): array
+    {
+        foreach ($entry['lines'] as $l) {
+            if ((int)$l['account_id'] === $accountId) { return $l; }
+        }
+        $this->fail("No line for account_id $accountId");
+    }
+
+    private function assertEntryBalances(array $entry): void
+    {
+        $d = 0.0; $c = 0.0;
+        foreach ($entry['lines'] as $l) { $d += (float)($l['debit'] ?? 0); $c += (float)($l['credit'] ?? 0); }
+        $this->assertEqualsWithDelta($d, $c, 0.005, 'bank entry does not balance');
+    }
+
+    // ids: ITC=10, GST collected=11, default bank=1
+    /** @test */
+    public function bank_expense_debits_category_and_itc_credits_bank(): void
+    {
+        $e = $this->service()->bankRowToEntryArgs([
+            'id' => 50, 'transaction_date' => '2025-02-28', 'type' => 'expense',
+            'account_id' => 5100, 'account_type' => 'expense', 'account_code' => '5100',
+            'bank_account_id' => 1, 'amount' => 1062.37, 'gst_amount' => 0, 'pst_amount' => 0,
+            'description' => 'ETRANSFER DEBIT (NIGEL CASEY)',
+        ], 10, 11, 1, ['5100' => 7]);  // 5100 → Labour cost type id 7
+
+        $this->assertSame('bank_import', $e['source_type']);
+        $this->assertSame(50, $e['source_id']);
+        $this->assertEqualsWithDelta(1062.37, $this->lineByAccount($e, 5100)['debit'],  0.001);
+        $this->assertEqualsWithDelta(1062.37, $this->lineByAccount($e, 1)['credit'],    0.001); // bank
+        $this->assertSame(7, $this->lineByAccount($e, 5100)['cost_type_id']);                    // GGOB tag
+        $this->assertEntryBalances($e);
+    }
+
+    /** @test */
+    public function bank_expense_with_gst_splits_out_itc(): void
+    {
+        $e = $this->service()->bankRowToEntryArgs([
+            'id' => 51, 'transaction_date' => '2025-02-28', 'type' => 'expense',
+            'account_id' => 6100, 'account_type' => 'expense', 'account_code' => '6100',
+            'bank_account_id' => 1, 'amount' => 105.00, 'gst_amount' => 5.00, 'pst_amount' => 0,
+        ], 10, 11, 1, []);
+        $this->assertEqualsWithDelta(100.00, $this->lineByAccount($e, 6100)['debit'], 0.001); // net
+        $this->assertEqualsWithDelta(5.00,   $this->lineByAccount($e, 10)['debit'],   0.001); // ITC
+        $this->assertEqualsWithDelta(105.00, $this->lineByAccount($e, 1)['credit'],   0.001); // bank
+        $this->assertEntryBalances($e);
+    }
+
+    /** @test */
+    public function bank_transfer_debits_category_credits_bank(): void
+    {
+        // Vancity Visa bill payment: DR 2400 Credit Card Payable / CR 1010 Bank
+        $e = $this->service()->bankRowToEntryArgs([
+            'id' => 52, 'transaction_date' => '2025-02-28', 'type' => 'transfer',
+            'account_id' => 2400, 'account_type' => 'liability', 'account_code' => '2400',
+            'bank_account_id' => 1, 'amount' => 2700.00, 'gst_amount' => 0, 'pst_amount' => 0,
+        ], 10, 11, 1, []);
+        $this->assertEqualsWithDelta(2700.00, $this->lineByAccount($e, 2400)['debit'],  0.001);
+        $this->assertEqualsWithDelta(2700.00, $this->lineByAccount($e, 1)['credit'],    0.001);
+        $this->assertEntryBalances($e);
+    }
+
+    /** @test */
+    public function bank_income_to_non_revenue_account_posts(): void
+    {
+        // Interest credited: DR Bank / CR (some income account, non-revenue type)
+        $e = $this->service()->bankRowToEntryArgs([
+            'id' => 53, 'transaction_date' => '2025-12-31', 'type' => 'income',
+            'account_id' => 4950, 'account_type' => 'other_income', 'account_code' => '4950',
+            'bank_account_id' => 1, 'amount' => 8.72, 'gst_amount' => 0, 'pst_amount' => 0,
+        ], 10, 11, 1, []);
+        $this->assertNotNull($e);
+        $this->assertEqualsWithDelta(8.72, $this->lineByAccount($e, 1)['debit'],    0.001);
+        $this->assertEqualsWithDelta(8.72, $this->lineByAccount($e, 4950)['credit'], 0.001);
+        $this->assertEntryBalances($e);
+    }
+
+    /** @test */
+    public function bank_income_to_revenue_account_is_skipped(): void
+    {
+        // Customer payment deposit hitting 4900 Revenue → already on invoice side → skip.
+        $e = $this->service()->bankRowToEntryArgs([
+            'id' => 54, 'transaction_date' => '2025-02-27', 'type' => 'income',
+            'account_id' => 4900, 'account_type' => 'revenue', 'account_code' => '4900',
+            'bank_account_id' => 1, 'amount' => 61.00, 'gst_amount' => 0, 'pst_amount' => 0,
+        ], 10, 11, 1, []);
+        $this->assertNull($e);
+    }
+
+    /** @test */
+    public function null_bank_account_falls_back_to_default(): void
+    {
+        $e = $this->service()->bankRowToEntryArgs([
+            'id' => 55, 'transaction_date' => '2025-02-28', 'type' => 'expense',
+            'account_id' => 6800, 'account_type' => 'expense', 'account_code' => '6800',
+            'bank_account_id' => null, 'amount' => 85.35, 'gst_amount' => 0, 'pst_amount' => 0,
+        ], 10, 11, 99, []);  // default bank id = 99
+        $this->assertEqualsWithDelta(85.35, $this->lineByAccount($e, 99)['credit'], 0.001);
+        $this->assertEntryBalances($e);
+    }
 }

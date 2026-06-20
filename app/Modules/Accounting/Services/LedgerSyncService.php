@@ -99,6 +99,76 @@ class LedgerSyncService
         return LedgerService::ACC_BANK; // 1010
     }
 
+    /**
+     * Map a bank-import ledger row (accounting_transactions, reference_type='bank_import')
+     * to a balanced journal entry — using account_id directly (already chart ids).
+     * Returns null when the row should be SKIPPED to avoid double-counting:
+     * an income deposit categorised to a revenue account is a customer payment
+     * already recognised on the invoice side.
+     *
+     * @param array $row id, transaction_date, type, account_id, account_type (category's
+     *                   chart type), account_code, bank_account_id, amount, gst_amount,
+     *                   pst_amount, description, job_id, contact_id, vendor_id
+     * @param int   $itcId            chart id of 2210 GST ITC
+     * @param int   $gstCollectedId   chart id of 2200 GST Collected
+     * @param int   $defaultBankId    chart id of 1010 (fallback when bank_account_id is null)
+     * @param array $codeToCostTypeId account code => cost_types.id (for GGOB drill-down)
+     */
+    public function bankRowToEntryArgs(array $row, int $itcId, int $gstCollectedId, int $defaultBankId, array $codeToCostTypeId = []): ?array
+    {
+        $type    = $row['type'];
+        $catId   = (int)$row['account_id'];
+        $bankId  = !empty($row['bank_account_id']) ? (int)$row['bank_account_id'] : $defaultBankId;
+        $amount  = round((float)$row['amount'], 2);
+        $gst     = round((float)($row['gst_amount'] ?? 0), 2);
+        $pst     = round((float)($row['pst_amount'] ?? 0), 2);
+        if ($amount <= 0) {
+            return null;
+        }
+
+        // Revenue is recognised on invoices — skip deposit rows hitting a revenue account.
+        if ($type === 'income' && ($row['account_type'] ?? '') === 'revenue') {
+            return null;
+        }
+
+        $costTypeId = $codeToCostTypeId[$row['account_code'] ?? ''] ?? null;
+        $dims = [
+            'job_id'       => !empty($row['job_id'])     ? (int)$row['job_id']     : null,
+            'contact_id'   => !empty($row['contact_id']) ? (int)$row['contact_id'] : null,
+            'vendor_id'    => !empty($row['vendor_id'])  ? (int)$row['vendor_id']  : null,
+            'cost_type_id' => $costTypeId,
+        ];
+
+        $lines = [];
+        if ($type === 'expense') {
+            $lines[] = array_merge(['account_id' => $catId, 'debit' => round($amount - $gst, 2), 'credit' => 0,
+                'gst_amount' => $gst, 'pst_amount' => $pst, 'description' => $row['description'] ?? null], $dims);
+            if ($gst > 0) {
+                $lines[] = ['account_id' => $itcId, 'debit' => $gst, 'credit' => 0, 'gst_amount' => $gst];
+            }
+            $lines[] = ['account_id' => $bankId, 'debit' => 0, 'credit' => $amount];
+        } elseif ($type === 'transfer') {
+            $lines[] = array_merge(['account_id' => $catId, 'debit' => $amount, 'credit' => 0,
+                'description' => $row['description'] ?? null], $dims);
+            $lines[] = ['account_id' => $bankId, 'debit' => 0, 'credit' => $amount];
+        } else { // income to a non-revenue account (loan proceeds, interest, owner contribution)
+            $lines[] = ['account_id' => $bankId, 'debit' => $amount, 'credit' => 0];
+            $lines[] = array_merge(['account_id' => $catId, 'debit' => 0, 'credit' => round($amount - $gst, 2),
+                'gst_amount' => $gst, 'description' => $row['description'] ?? null], $dims);
+            if ($gst > 0) {
+                $lines[] = ['account_id' => $gstCollectedId, 'debit' => 0, 'credit' => $gst, 'gst_amount' => $gst];
+            }
+        }
+
+        return [
+            'entry_date'  => substr((string)$row['transaction_date'], 0, 10),
+            'memo'        => $row['description'] ?? 'Bank transaction',
+            'source_type' => 'bank_import',
+            'source_id'   => (int)$row['id'],
+            'lines'       => $lines,
+        ];
+    }
+
     // ══════════════════════════════════════════════════════════════════════════
     // DB SYNC (idempotent, per-record guarded)
     // ══════════════════════════════════════════════════════════════════════════
@@ -106,9 +176,66 @@ class LedgerSyncService
     public function syncAll(): array
     {
         return [
-            'invoices' => $this->syncInvoices(),
-            'expenses' => $this->syncExpenses(),
+            'invoices'     => $this->syncInvoices(),
+            'expenses'     => $this->syncExpenses(),
+            'bank_imports' => $this->syncBankImports(),
         ];
+    }
+
+    /**
+     * Post unmatched bank-import rows to the journal (labour, subs, payroll, fees,
+     * loans, card/loan payments). Matched rows are already in the journal from the
+     * invoice/expense side and are excluded.
+     */
+    public function syncBankImports(): array
+    {
+        $itcId    = $this->ledger->accountId(LedgerService::ACC_GST_ITC);
+        $gstColId = $this->ledger->accountId(LedgerService::ACC_GST_COLLECTED);
+        $bankId   = $this->ledger->accountId(LedgerService::ACC_BANK);
+        $codeToCostType = $this->accountCodeToCostTypeMap();
+
+        $posted = 0; $skipped = 0; $errors = 0;
+        $rows = $this->db->query("
+            SELECT at.id, at.transaction_date, at.type, at.account_id,
+                   coa.type AS account_type, coa.code AS account_code,
+                   at.bank_account_id, at.amount, at.gst_amount, at.pst_amount,
+                   at.description, at.job_id, at.contact_id, at.vendor_id
+            FROM accounting_transactions at
+            JOIN chart_of_accounts coa ON coa.id = at.account_id
+            WHERE at.reference_type = 'bank_import'
+              AND at.matched_invoice_id IS NULL
+              AND at.matched_expense_id IS NULL
+        ")->fetchAll(PDO::FETCH_ASSOC);
+
+        foreach ($rows as $row) {
+            try {
+                $args = $this->bankRowToEntryArgs($row, $itcId, $gstColId, $bankId, $codeToCostType);
+                if ($args === null) { $skipped++; continue; }
+                $this->ledger->postManual($args);
+                $posted++;
+            } catch (\Throwable $e) {
+                $errors++;
+            }
+        }
+        return ['bank_posted' => $posted, 'skipped' => $skipped, 'errors' => $errors];
+    }
+
+    /** Chart code => cost_types.id, so bank cost rows carry the GGOB drill-down dimension. */
+    private function accountCodeToCostTypeMap(): array
+    {
+        $ids = [];
+        foreach ($this->db->query("SELECT id, name FROM cost_types WHERE is_active = 1")->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $ids[strtolower($r['name'])] = (int)$r['id'];
+        }
+        $codeToName = [
+            '5100' => 'labour', '5200' => 'materials', '5300' => 'equipment',
+            '5400' => 'subcontractor', '6100' => 'fuel', '6200' => 'equipment',
+        ];
+        $map = [];
+        foreach ($codeToName as $code => $name) {
+            if (isset($ids[$name])) { $map[$code] = $ids[$name]; }
+        }
+        return $map;
     }
 
     public function syncInvoices(): array
