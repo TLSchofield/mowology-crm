@@ -95,6 +95,51 @@ class BankImportServiceTest extends TestCase
         $this->assertNull($this->callPrivate('decodeEbcdicStatement', "01/05  GROCERY  10.00  90.00\n"));
     }
 
+    // ── parsePdfText: year-boundary correction ──────────────────────────────────
+
+    /** @test */
+    public function parsePdfText_corrects_year_across_dec_jan_rollover(): void
+    {
+        $text = "STATEMENT PERIOD 2025 2026\nWITHDRAWALS DEPOSITS BALANCE\nOPENING BALANCE 1000.00\n"
+              . "30 DEC POS GROCERY 100.00 900.00\n"
+              . "02 JAN DEPOSIT 200.00 1100.00\n";
+        $rows = $this->callPrivate('parsePdfText', $text, false)['rows'];
+
+        $this->assertCount(2, $rows);
+        $this->assertSame('2025-12-30', $rows[0]['date']); // December → prior year
+        $this->assertSame('2026-01-02', $rows[1]['date']); // January → statement year
+    }
+
+    /** @test */
+    public function parsePdfText_keeps_single_year_when_no_rollover(): void
+    {
+        $text = "STATEMENT PERIOD 2024\nWITHDRAWALS DEPOSITS BALANCE\nOPENING BALANCE 1000.00\n"
+              . "01 JUN POS A 50.00 950.00\n"
+              . "15 JUN POS B 50.00 900.00\n";
+        $rows = $this->callPrivate('parsePdfText', $text, false)['rows'];
+        $this->assertSame('2024-06-01', $rows[0]['date']);
+        $this->assertSame('2024-06-15', $rows[1]['date']);
+    }
+
+    // ── parsePdfText: balance-delta classification (#3) ─────────────────────────
+
+    /** @test */
+    public function parsePdfText_classifies_by_balance_delta_when_running_balance_present(): void
+    {
+        // No "WITHDRAWALS DEPOSITS BALANCE" header → not detected as 3-column, but a
+        // running-balance column is present; classification must follow the delta.
+        $text = "STATEMENT PERIOD 2026\n"
+              . "01 MAY POS A 50.00 950.00\n"   // baseline (sets running balance)
+              . "02 MAY DEPOSIT B 100.00 1050.00\n"  // balance up → income
+              . "03 MAY POS C 200.00 850.00\n";  // balance down → expense
+        $rows = $this->callPrivate('parsePdfText', $text, false)['rows'];
+
+        $byDate = [];
+        foreach ($rows as $r) { $byDate[$r['date']] = $r['type']; }
+        $this->assertSame('income',  $byDate['2026-05-02']);
+        $this->assertSame('expense', $byDate['2026-05-03']);
+    }
+
     // ── detectPreset() ────────────────────────────────────────────────────────
 
     /** @test */

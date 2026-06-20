@@ -175,7 +175,8 @@ try {
             }
             unset($row);
 
-            $result = $importer->commit($rows, (int)$user['id'], $bankName, $accountName, $skipDupes, $bankAccountId);
+            $balanceCheck = isset($input['balance_check']) && is_array($input['balance_check']) ? $input['balance_check'] : null;
+            $result = $importer->commit($rows, (int)$user['id'], $bankName, $accountName, $skipDupes, $bankAccountId, $balanceCheck);
             echo json_encode(['ok' => true, 'result' => $result]);
             break;
 

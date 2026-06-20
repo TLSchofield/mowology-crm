@@ -297,17 +297,28 @@ class RulesEngine
                 return (float)$tx['amount'] < (float)$rule['condition_value'];
         }
 
+        // Also compare with all spaces removed, so a rule written with spaces
+        // ("point of sale") still matches descriptions whose word boundaries were
+        // lost during PDF extraction (EBCDIC reflow → "pointofsale chv43016").
+        $haystackNs = str_replace(' ', '', $haystack);
+        $valueNs    = str_replace(' ', '', $value);
+
         // String matching — PHP 7.4 compatible
         switch ($operator) {
             case 'contains':
                 // Empty condition_value = match all (default fallback rule)
-                return $value === '' || strpos($haystack, $value) !== false;
+                return $value === ''
+                    || strpos($haystack, $value) !== false
+                    || ($valueNs !== '' && strpos($haystackNs, $valueNs) !== false);
             case 'equals':
-                return $haystack === $value;
+                return $haystack === $value || $haystackNs === $valueNs;
             case 'starts_with':
-                return substr($haystack, 0, strlen($value)) === $value;
+                return substr($haystack, 0, strlen($value)) === $value
+                    || ($valueNs !== '' && substr($haystackNs, 0, strlen($valueNs)) === $valueNs);
             case 'ends_with':
-                return $value === '' || substr($haystack, -strlen($value)) === $value;
+                return $value === ''
+                    || substr($haystack, -strlen($value)) === $value
+                    || ($valueNs !== '' && substr($haystackNs, -strlen($valueNs)) === $valueNs);
         }
 
         return false;

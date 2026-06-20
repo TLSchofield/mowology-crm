@@ -317,7 +317,8 @@ class BankImportService
         string $bankName = '',
         string $accountName = '',
         bool $skipDuplicates = true,
-        int $bankAccountId = 0
+        int $bankAccountId = 0,
+        ?array $balanceCheck = null
     ): array {
 
         $sessionId = $this->createSession([
@@ -328,6 +329,28 @@ class BankImportService
             'row_count'       => count($rows),
             'created_by'      => $userId,
         ]);
+
+        // Persist the statement reconciliation result so an import that does NOT tie
+        // out to its opening/closing balance is flagged for review (not silent).
+        $reconciledFlag = null;
+        if ($balanceCheck !== null && !empty($balanceCheck['available'])) {
+            $reconciledFlag = !empty($balanceCheck['matches']) ? 1 : 0;
+            try {
+                $this->db->prepare(
+                    "UPDATE bank_import_sessions
+                        SET balance_opening = ?, balance_closing = ?, balance_discrepancy = ?, reconciled = ?
+                      WHERE id = ?"
+                )->execute([
+                    $balanceCheck['opening']     ?? null,
+                    $balanceCheck['closing']     ?? null,
+                    $balanceCheck['discrepancy'] ?? null,
+                    $reconciledFlag,
+                    $sessionId,
+                ]);
+            } catch (\Throwable $ignored) {
+                // Columns may not exist yet (migration 1068 not run) — never block the import.
+            }
+        }
 
         $imported   = 0;
         $skipped    = 0;
@@ -631,11 +654,12 @@ class BankImportService
         }
 
         return [
-            'session_id'  => $sessionId,
-            'imported'    => $imported,
-            'skipped'     => $skipped,
-            'duplicates'  => $dupes,
-            'reconciled'  => $reconciled,
+            'session_id'        => $sessionId,
+            'imported'          => $imported,
+            'skipped'           => $skipped,
+            'duplicates'        => $dupes,
+            'reconciled'        => $reconciled,
+            'statement_reconciled' => $reconciledFlag, // 1=ties, 0=discrepancy, null=no balance data
         ];
     }
 
@@ -990,9 +1014,16 @@ class BankImportService
         $pattern      = '/^' . $datePat . '\s+(.+?)\s+' . $amtPat . '(?:\s+' . $amtPat . ')?$/i';
 
         // ── Statement year ────────────────────────────────────────────────────
-        $statementYear = date('Y');
-        if (preg_match('/\b(20\d{2})\b/', $text, $ym)) {
-            $statementYear = $ym[1];
+        // Anchor to the LATEST year attached to a date ("DD MON YYYY" / "MON DD, YYYY")
+        // — i.e. the statement-period end. This ignores stray year references (a
+        // print/due date) that would otherwise mis-date the whole statement. Earlier
+        // rows are corrected by the year-rollover pass after parsing.
+        $statementYear = (int)date('Y');
+        $monthAbbr = 'Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec';
+        if (preg_match_all('/(?:\d{1,2}\s*(?:' . $monthAbbr . ')|(?:' . $monthAbbr . ')\s*\d{1,2}),?\s*(20\d{2})/i', $text, $ym)) {
+            $statementYear = max(array_map('intval', $ym[1]));
+        } elseif (preg_match_all('/\b(20\d{2})\b/', $text, $ym2)) {
+            $statementYear = max(array_map('intval', $ym2[1]));
         }
 
         // ── 3-column format detection (WITHDRAWALS | DEPOSITS | BALANCE) ─────
@@ -1185,10 +1216,17 @@ class BankImportService
                 } else {
                     // 2-column or unknown: use ratio heuristic as fallback
                     if ($a1 !== null && $a1 > 0 && ($a2 === null || $a2 > $a1 * 3)) {
-                        // a2 is likely a running balance
-                        $type   = $isCredit ? 'income' : 'expense';
+                        // a2 is likely a running balance. Prefer the balance delta
+                        // (reliable) over description keywords whenever we have a
+                        // previous balance — this is the same signal the 3-column
+                        // path uses, applied here so a missed header still classifies.
+                        if ($a2 !== null && $prevRunningBalance !== null) {
+                            $type = ($a2 > $prevRunningBalance) ? 'income' : 'expense';
+                        } else {
+                            $type = $isCredit ? 'income' : 'expense';
+                        }
                         $amount = $a1;
-                        if ($a2 !== null) $runningBalances[] = $a2;
+                        if ($a2 !== null) { $runningBalances[] = $a2; $prevRunningBalance = $a2; }
                     } elseif ($a2 !== null && $a2 > 0) {
                         $type   = 'income';
                         $amount = $a2;
@@ -1234,6 +1272,26 @@ class BankImportService
                 'is_duplicate'    => false,
                 'duplicate_tx_id' => null,
             ];
+        }
+
+        // ── Year-boundary correction ──────────────────────────────────────────
+        // Transactions are chronological; a month that decreases vs the previous
+        // row marks a year rollover (Dec → Jan). The statement is anchored to its
+        // latest (statement-date) year, so earlier rows belong to prior years.
+        if (!empty($rows)) {
+            $months = array_map(static fn($r) => (int)substr($r['date'], 5, 2), $rows);
+            $rollovers = 0;
+            for ($i = 1; $i < count($months); $i++) {
+                if ($months[$i] < $months[$i - 1]) $rollovers++;
+            }
+            $year  = (int)$statementYear - $rollovers;
+            $prevM = null;
+            foreach ($rows as $k => $r) {
+                $m = (int)substr($r['date'], 5, 2);
+                if ($prevM !== null && $m < $prevM) $year++;
+                $rows[$k]['date'] = sprintf('%04d-%02d-%s', $year, $m, substr($r['date'], 8, 2));
+                $prevM = $m;
+            }
         }
 
         // ── Derive opening balance from running balance column if not explicit ─
@@ -1960,7 +2018,21 @@ class BankImportService
         }
         if (count($tx) < 1) return null;
 
-        $header = "WITHDRAWALS DEPOSITS BALANCE\n";
+        // Preserve the statement period dates so parsePdfText can date rows.
+        // Only "DD MON YYYY" patterns count — those appear in the period header;
+        // transaction lines have no year, and stray references (print/due dates)
+        // are NOT attached to a month, so they can't hijack the year (e.g. a
+        // December-2025 statement printed in 2026 must still date rows as 2025).
+        $periodDates = [];
+        foreach ($lines as $l) {
+            $c = str_replace(' ', '', $l);
+            if (preg_match_all('/(\d{1,2})(' . $monthRe . ')(20\d\d)/i', $c, $pm, PREG_SET_ORDER)) {
+                foreach ($pm as $mm) $periodDates[] = $mm[1] . ' ' . strtoupper($mm[2]) . ' ' . $mm[3];
+            }
+        }
+        $yearLine = $periodDates ? ('STATEMENT PERIOD ' . implode(' to ', $periodDates) . "\n") : '';
+
+        $header = $yearLine . "WITHDRAWALS DEPOSITS BALANCE\n";
         if ($opening !== null) $header .= "OPENING BALANCE $opening\n";
         return $header . implode("\n", $tx);
     }

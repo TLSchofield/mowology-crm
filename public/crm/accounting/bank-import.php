@@ -860,6 +860,7 @@ async function commitImport() {
             bank_name:       resolvedPreset || document.getElementById('preset').value,
             bank_account_id: parseInt(document.getElementById('bank-account-id').value) || 0,
             skip_duplicates: skipDuplicates,
+            balance_check:   lastBalanceCheck || null,
         }),
     });
     const d = await r.json();
