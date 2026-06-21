@@ -3323,11 +3323,17 @@ $unconvertedRequests = $db->query("
                         <span class="badge badge-success ml-1">Paid in full</span>
                       <?php endif; ?>
                     </h5>
-                    <?php if (!empty($statementLedger)): ?>
+                    <div class="d-flex gap-2">
+                      <a href="/crm/invoices/statement.php?contact_id=<?php echo (int)$clientId; ?>&period=all_outstanding"
+                         class="btn btn-sm btn-primary">
+                        <i data-feather="file-text"></i> Statement &amp; Email
+                      </a>
+                      <?php if (!empty($statementLedger)): ?>
                       <button type="button" class="btn btn-sm btn-outline-secondary" onclick="printStatement(<?php echo (int)$clientId; ?>)">
                         <i data-feather="printer"></i> Print
                       </button>
-                    <?php endif; ?>
+                      <?php endif; ?>
+                    </div>
                   </div>
                   <div class="card-body p-0">
                     <?php if (empty($statementLedger)): ?>

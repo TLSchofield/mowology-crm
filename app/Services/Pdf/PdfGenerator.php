@@ -312,6 +312,67 @@ class PdfGenerator
     }
 
     /**
+     * Generate a client Statement of Account PDF from StatementService data.
+     *
+     * @param array $statement output of StatementService::getStatementData()
+     * @return array{success:bool,path:?string,filename:?string,error:?string}
+     */
+    public function generateStatementPdf(array $statement): array
+    {
+        try {
+            $business = $this->loadBusinessSettings();
+
+            $html = $this->renderTemplate('statement.php', [
+                'statement' => $statement,
+                'business'  => $business,
+            ]);
+
+            $mpdf = $this->createMpdf();
+            $mpdf->WriteHTML($html);
+
+            $dir = $this->storagePath . '/statements';
+            if (!is_dir($dir)) { @mkdir($dir, 0755, true); }
+
+            $contact = $statement['contact'] ?? [];
+            $who = preg_replace('/[^A-Za-z0-9]+/', '-', trim(($contact['last_name'] ?? '') . '-' . ($contact['first_name'] ?? '')));
+            $who = trim($who, '-') ?: ('contact' . (int)($contact['id'] ?? 0));
+            $stamp = date('Ymd', strtotime($statement['generated_at'] ?? 'now'));
+            $filename = 'Statement_' . $who . '_' . $stamp . '.pdf';
+            $fullPath = $dir . '/' . $filename;
+
+            $mpdf->Output($fullPath, \Mpdf\Output\Destination::FILE);
+
+            return ['success' => true, 'path' => $fullPath, 'filename' => $filename, 'error' => null];
+        } catch (\Throwable $e) {
+            error_log('PdfGenerator::generateStatementPdf error: ' . $e->getMessage());
+            return ['success' => false, 'path' => null, 'filename' => null, 'error' => $e->getMessage()];
+        }
+    }
+
+    /** Load Mowology's own business settings for document headers/footers. */
+    private function loadBusinessSettings(): array
+    {
+        $business = [];
+        try {
+            $hasTagline = false;
+            try {
+                $hasTagline = (bool)$this->db->query("SHOW COLUMNS FROM business_settings LIKE 'company_tagline'")->fetch();
+            } catch (\Throwable $e) { /* ignore */ }
+            $taglineCol = $hasTagline ? ', company_tagline' : '';
+            $row = $this->db->query(
+                "SELECT company_name, company_phone, company_email, company_website,
+                        company_address, gst_registration, pst_registration, business_license,
+                        invoice_message_header, invoice_terms_text,
+                        invoice_payment_instructions, invoice_footer_text
+                        {$taglineCol}
+                 FROM business_settings WHERE id = 1"
+            )->fetch(PDO::FETCH_ASSOC);
+            if ($row) { $business = $row; }
+        } catch (\Throwable $e) { /* business_settings may not exist — ignore */ }
+        return $business;
+    }
+
+    /**
      * Stream a PDF to the browser for download.
      */
     public function streamPdf(string $filePath, string $filename): void
