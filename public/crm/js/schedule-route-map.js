@@ -1761,7 +1761,204 @@ var MwRouteMap = (function() {
         toggle: toggle,
         openToStop: openToStop,
         launchNavToStop: launchNavToStop,
-        close: close
+        close: close,
+        // Exposes the live Google map ONLY while the route view is open and
+        // initialised — returns null when closed so the truck layer (below)
+        // can pause polling and tear down its marker automatically.
+        getMap: function() { return (isOpen && mapInitialized) ? map : null; }
     };
 
 })();
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  Truck Location Layer (mobile route map)
+//  ───────────────────────────────────────
+//  Mirrors the day-view truck layer (schedule-day-map.js) but drives off the
+//  mobile MwRouteMap view. Polls /crm/api/truck-location.php every 30s while
+//  the route view is OPEN, renders the same SVG truck badge as a
+//  google.maps.OverlayView, and tears the marker down the moment the view
+//  closes. Gracefully no-ops if MwRouteMap isn't present or no tracker is
+//  configured.
+// ═══════════════════════════════════════════════════════════════════════════
+(function() {
+    'use strict';
+
+    var POLL_INTERVAL_MS = 30000;
+    var STATE_CHECK_MS   = 1000;  // How often we watch MwRouteMap open/close
+    var STALE_THRESHOLD_S = 600;  // 10 min — show grey/stale badge above this
+
+    var truckOverlay = null;
+    var truckInfoWindow = null;
+    var truckLastLoc = null;
+    var pollTimer = null;
+    var watchTimer = null;
+    var active = false;           // true while polling (route view is open)
+
+    function routeMap() {
+        return (window.MwRouteMap && MwRouteMap.getMap) ? MwRouteMap.getMap() : null;
+    }
+
+    function init() {
+        // Watch for the route view opening/closing and start/stop accordingly.
+        watchTimer = setInterval(watch, STATE_CHECK_MS);
+    }
+
+    function watch() {
+        var map = routeMap();
+        if (map && !active) startPolling();
+        else if (!map && active) stopPolling();
+    }
+
+    function startPolling() {
+        if (active) return;
+        active = true;
+        poll();
+        pollTimer = setInterval(poll, POLL_INTERVAL_MS);
+    }
+
+    function stopPolling() {
+        active = false;
+        if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+        removeTruck();
+    }
+
+    function poll() {
+        if (!routeMap()) { stopPolling(); return; }
+        fetch('/crm/api/truck-location.php', { credentials: 'same-origin' })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data || !data.ok) return;
+                if (!data.location) return; // No ping yet
+                placeTruck(data.location);
+            })
+            .catch(function() { /* silently ignore — next poll will retry */ });
+    }
+
+    function placeTruck(loc) {
+        var map = routeMap();
+        if (!map || typeof google === 'undefined') return;
+        if (typeof loc.lat !== 'number' || typeof loc.lng !== 'number') return;
+
+        truckLastLoc = loc;
+        var pos = new google.maps.LatLng(loc.lat, loc.lng);
+        var isStale = (loc.age_seconds || 0) > STALE_THRESHOLD_S;
+
+        if (!truckOverlay) {
+            truckOverlay = createTruckOverlay(pos, isStale);
+            truckOverlay.setMap(map);
+            truckInfoWindow = new google.maps.InfoWindow();
+            truckOverlay.onDivClick = function() {
+                truckInfoWindow.setContent(formatInfoBubble(truckLastLoc || loc));
+                truckInfoWindow.setPosition(truckOverlay.getPosition());
+                truckInfoWindow.open(map);
+            };
+        } else {
+            truckOverlay.setPosition(pos);
+            truckOverlay.setStale(isStale);
+            truckOverlay.setTitle(formatTruckTitle(loc));
+            if (truckInfoWindow && truckInfoWindow.getMap()) {
+                truckInfoWindow.setContent(formatInfoBubble(loc));
+            }
+        }
+    }
+
+    function removeTruck() {
+        if (truckInfoWindow) { truckInfoWindow.close(); truckInfoWindow = null; }
+        if (truckOverlay) { truckOverlay.setMap(null); truckOverlay = null; }
+        truckLastLoc = null;
+    }
+
+    /**
+     * Build a google.maps.OverlayView that renders the truck badge as an
+     * HTML element so the surrounding CSS pulse ring (.mw-truck-overlay) can
+     * animate — static Marker icons can't. Disc is centred on the LatLng.
+     */
+    function createTruckOverlay(position, isStale) {
+        var ov = new google.maps.OverlayView();
+        ov._position = position;
+        ov._div = null;
+
+        ov.onAdd = function() {
+            var div = document.createElement('div');
+            div.className = 'mw-truck-overlay' + (isStale ? ' is-stale' : '');
+            div.innerHTML = truckBadgeSvg();
+            div.title = formatTruckTitle(truckLastLoc || {});
+            div.addEventListener('click', function() {
+                if (typeof ov.onDivClick === 'function') ov.onDivClick();
+            });
+            ov._div = div;
+            this.getPanes().overlayMouseTarget.appendChild(div);
+        };
+
+        ov.draw = function() {
+            if (!ov._div) return;
+            var pos = this.getProjection().fromLatLngToDivPixel(ov._position);
+            if (!pos) return;
+            // Disc is 48×48 — anchor at centre so the badge sits on the GPS point.
+            ov._div.style.left = (pos.x - 24) + 'px';
+            ov._div.style.top  = (pos.y - 24) + 'px';
+        };
+
+        ov.onRemove = function() {
+            if (ov._div && ov._div.parentNode) ov._div.parentNode.removeChild(ov._div);
+            ov._div = null;
+        };
+
+        ov.setPosition = function(p) { ov._position = p; ov.draw(); };
+        ov.getPosition = function()  { return ov._position; };
+        ov.setStale = function(stale) {
+            if (ov._div) ov._div.classList.toggle('is-stale', !!stale);
+        };
+        ov.setTitle = function(t) {
+            if (ov._div) ov._div.title = t;
+        };
+
+        return ov;
+    }
+
+    function truckBadgeSvg() {
+        // White disc with a purple→cyan gradient line-art truck (matches day view).
+        // Outer CSS provides the cyan pulse + disc.
+        return '<div class="mw-truck-badge">' +
+                 '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" ' +
+                      'stroke-linecap="round" stroke-linejoin="round" ' +
+                      'xmlns="http://www.w3.org/2000/svg">' +
+                   '<defs>' +
+                     '<linearGradient id="mwTruckGradRM" x1="0" y1="0" x2="1" y2="1">' +
+                       '<stop offset="0%" stop-color="#553c9a"/>' +
+                       '<stop offset="100%" stop-color="#3eb5c9"/>' +
+                     '</linearGradient>' +
+                   '</defs>' +
+                   '<rect x="1" y="3" width="15" height="13" rx="2" stroke="url(#mwTruckGradRM)"/>' +
+                   '<path d="M16 8 L20 8 L23 11 L23 16 L16 16 Z" stroke="url(#mwTruckGradRM)"/>' +
+                   '<circle cx="5.5"  cy="18.5" r="2.5" stroke="url(#mwTruckGradRM)"/>' +
+                   '<circle cx="18.5" cy="18.5" r="2.5" stroke="url(#mwTruckGradRM)"/>' +
+                 '</svg>' +
+               '</div>';
+    }
+
+    function formatTruckTitle(loc) {
+        var ageMin = Math.round((loc.age_seconds || 0) / 60);
+        var ageLabel = ageMin < 1 ? 'just now' : ageMin + ' min ago';
+        return 'Truck — last seen ' + ageLabel;
+    }
+
+    function formatInfoBubble(loc) {
+        var ageMin = Math.round((loc.age_seconds || 0) / 60);
+        var ageLabel = ageMin < 1 ? 'just now' : ageMin + ' min ago';
+        var speed = (loc.speed_kph != null) ? Math.round(loc.speed_kph) + ' km/h' : '—';
+        var batt  = (loc.battery_pct != null) ? loc.battery_pct + '%' : '—';
+        return '<div style="font-family:sans-serif;font-size:13px;min-width:160px;line-height:1.5">' +
+               '<strong style="color:#e85d04">🛻 Truck</strong><br>' +
+               '<span style="color:#666">Last seen ' + ageLabel + '</span><br>' +
+               'Speed: ' + speed + '<br>' +
+               'Battery: ' + batt +
+               '</div>';
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+}());

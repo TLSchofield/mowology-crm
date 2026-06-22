@@ -324,6 +324,10 @@ $activePage = 'map';
                     <span class="mw-legend-pin mw-pin-quote"></span>
                     <span>Active Quote</span>
                   </div>
+                  <div class="mw-legend-item">
+                    <span class="mw-legend-pin" style="background:#e85d04;"></span>
+                    <span>Truck</span>
+                  </div>
                 </div>
                 <div id="legend-requests">
                   <div class="mw-legend-item">
@@ -763,6 +767,73 @@ $activePage = 'map';
               renderPropertyMarkers();
               renderRequestMarkers();
               renderDensityOverlay();
+              startTruckLayer();
+            }
+
+            // ── Trackimo Truck Layer ───────────────────────────
+            // Polls /crm/api/truck-location.php every 30s and keeps a single
+            // marker in sync. Uses a plain Marker (no OverlayView/CSS module
+            // here). No-ops silently if no tracker is configured / no ping yet.
+            let truckMarker = null;
+            let truckInfoWindow = null;
+            const TRUCK_POLL_MS = 30000;
+            const TRUCK_STALE_S = 600; // 10 min → grey
+
+            function startTruckLayer() {
+              pollTruck();
+              setInterval(pollTruck, TRUCK_POLL_MS);
+            }
+
+            function pollTruck() {
+              fetch('/crm/api/truck-location.php', { credentials: 'same-origin' })
+                .then(r => r.json())
+                .then(data => {
+                  if (!data || !data.ok || !data.location) return;
+                  placeTruck(data.location);
+                })
+                .catch(() => { /* silently ignore — next poll retries */ });
+            }
+
+            function placeTruck(loc) {
+              if (!gmap || typeof loc.lat !== 'number' || typeof loc.lng !== 'number') return;
+              const pos = { lat: loc.lat, lng: loc.lng };
+              const isStale = (loc.age_seconds || 0) > TRUCK_STALE_S;
+              const icon = {
+                path: 'M12 0C7.58 0 4 3.58 4 8c0 5.25 8 16 8 16s8-10.75 8-16c0-4.42-3.58-8-8-8z',
+                fillColor: isStale ? '#9ca3af' : '#e85d04',
+                fillOpacity: 1,
+                scale: 1.4,
+                strokeColor: '#fff',
+                strokeWeight: 2,
+                anchor: new google.maps.Point(12, 24)
+              };
+
+              if (!truckMarker) {
+                truckMarker = new google.maps.Marker({
+                  position: pos, map: gmap, icon: icon,
+                  title: 'Truck', zIndex: 9999
+                });
+                truckInfoWindow = new google.maps.InfoWindow();
+                truckMarker.addListener('click', () => {
+                  closeAllInfoWindows();
+                  truckInfoWindow.setContent(truckBubble(loc));
+                  truckInfoWindow.open(gmap, truckMarker);
+                });
+              } else {
+                truckMarker.setPosition(pos);
+                truckMarker.setIcon(icon);
+              }
+            }
+
+            function truckBubble(loc) {
+              const ageMin = Math.round((loc.age_seconds || 0) / 60);
+              const ageLabel = ageMin < 1 ? 'just now' : ageMin + ' min ago';
+              const speed = (loc.speed_kph != null) ? Math.round(loc.speed_kph) + ' km/h' : '&mdash;';
+              const batt  = (loc.battery_pct != null) ? loc.battery_pct + '%' : '&mdash;';
+              return '<div style="font-family:sans-serif;font-size:13px;min-width:160px;line-height:1.5">' +
+                     '<strong style="color:#e85d04">&#128739; Truck</strong><br>' +
+                     '<span style="color:#666">Last seen ' + ageLabel + '</span><br>' +
+                     'Speed: ' + speed + '<br>Battery: ' + batt + '</div>';
             }
 
             // ── Property Markers (pins layer) ──────────────────
