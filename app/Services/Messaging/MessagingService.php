@@ -1115,8 +1115,15 @@ function _sendEmailWithAttachment(
         $body .= "Content-Transfer-Encoding: 8bit\r\n\r\n";
         $body .= $htmlBody . "\r\n\r\n";
 
+        // Derive the attachment MIME type from the extension. Previously hardcoded
+        // application/pdf, which mislabeled non-PDF attachments (e.g. ZIP receipt bundles)
+        // so some clients refused to open them. PHPMailer auto-detects; this fallback must too.
+        $attExt  = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+        $attMime = $attExt === 'zip' ? 'application/zip'
+                 : ($attExt === 'pdf' ? 'application/pdf' : 'application/octet-stream');
+
         $body .= "--{$boundary}\r\n";
-        $body .= "Content-Type: application/pdf; name=\"{$filename}\"\r\n";
+        $body .= "Content-Type: {$attMime}; name=\"{$filename}\"\r\n";
         $body .= "Content-Disposition: attachment; filename=\"{$filename}\"\r\n";
         $body .= "Content-Transfer-Encoding: base64\r\n\r\n";
         $body .= $encodedFile . "\r\n";

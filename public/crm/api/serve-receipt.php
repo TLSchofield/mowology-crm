@@ -44,12 +44,9 @@ $mimeType = 'image/jpeg';
 if (!empty($_GET['id'])) {
     $mediaId = (int)$_GET['id'];
 
-    $stmt = $db->prepare('
-        SELECT ma.file_path, ma.mime_type, ma.stored_filename
-        FROM media_assets ma
-        WHERE ma.id = ?
-        LIMIT 1
-    ');
+    // SELECT * so this keeps working whether or not the archival columns (migration 1066)
+    // have been applied yet — absent columns simply read as null below (not-archived).
+    $stmt = $db->prepare('SELECT * FROM media_assets WHERE id = ? LIMIT 1');
     $stmt->execute([$mediaId]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -58,10 +55,25 @@ if (!empty($_GET['id'])) {
         exit('Receipt not found');
     }
 
-    // Build absolute path from web path
-    // file_path is web-root relative: /uploads/receipts/... or /_media/original/...
-    $absolutePath = PUBLIC_ROOT . $row['file_path'];
     $mimeType = $row['mime_type'] ?: 'image/jpeg';
+
+    // --- Archived receipt handling (Receipt Archival & Export) ---
+    // Once archived, the full-resolution original has been emailed off-server and removed
+    // from the web disk to reclaim space. We keep only a small thumbnail. Serve that.
+    if (!empty($row['archived_at']) && !empty($row['original_removed'])) {
+        if (!empty($row['thumb_path'])) {
+            $absolutePath = PUBLIC_ROOT . $row['thumb_path'];
+            $mimeType = 'image/jpeg'; // thumbnails are always JPEG
+        } else {
+            // No thumbnail kept — the full-res lives only in the emailed ZIP archive.
+            http_response_code(410); // Gone
+            exit('This receipt image has been archived off-server. The full-resolution copy is in the emailed receipt archive ZIP (see MANIFEST.csv).');
+        }
+    } else {
+        // Build absolute path from web path
+        // file_path is web-root relative: /uploads/receipts/... or /_media/original/...
+        $absolutePath = PUBLIC_ROOT . $row['file_path'];
+    }
 
 } else {
     http_response_code(400);

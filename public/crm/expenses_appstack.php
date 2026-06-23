@@ -59,6 +59,11 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
 <div class="mw-page-header d-flex justify-content-between align-items-center flex-wrap gap-2">
     <h1 class="mw-page-title">Expenses</h1>
+    <?php if ($canSend): ?>
+    <button type="button" class="btn btn-sm btn-outline-primary" onclick="showReceiptExportModal()" title="Bundle confirmed receipts into a ZIP, email it, and free up disk space">
+        <i data-feather="archive" style="width:15px;height:15px;"></i> Export / Archive receipts
+    </button>
+    <?php endif; ?>
     <!-- Team score widget — populated by loadTeamScoreWidget() -->
     <div id="mw-team-score-widget" style="display:none;" class="mw-team-score-widget">
         <a href="/crm/leaderboard_appstack.php" class="mw-tsw-link" title="View full leaderboard">
@@ -70,6 +75,107 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         </a>
     </div>
 </div>
+
+<?php if ($canSend): ?>
+<!-- ═══════ EXPORT / ARCHIVE RECEIPTS MODAL ═══════════════════════ -->
+<div class="modal fade" id="receiptExportModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Export &amp; Archive Receipts</h5>
+                <button type="button" class="btn-close" data-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted mb-3" style="font-size:13px;">
+                    Bundles <strong>confirmed</strong> receipts (approved or forwarded) into a ZIP, emails it to your
+                    configured recipients, then removes the full-size images from the server to reclaim disk space
+                    (a thumbnail is kept). Leave the dates blank to export everything eligible.
+                </p>
+                <div class="row g-2">
+                    <div class="col">
+                        <label class="form-label">From</label>
+                        <input type="date" class="form-control" id="rxFrom">
+                    </div>
+                    <div class="col">
+                        <label class="form-label">To</label>
+                        <input type="date" class="form-control" id="rxTo">
+                    </div>
+                </div>
+                <div id="rxResult" class="mt-3" style="display:none;font-size:13px;"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="rxSubmit" onclick="submitReceiptExport()">Email &amp; archive</button>
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+function showReceiptExportModal() {
+    document.getElementById('rxResult').style.display = 'none';
+    document.getElementById('rxResult').innerHTML = '';
+    if (window.jQuery) { jQuery('#receiptExportModal').modal('show'); }
+}
+async function submitReceiptExport() {
+    var btn = document.getElementById('rxSubmit');
+    var resEl = document.getElementById('rxResult');
+    var csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+    btn.disabled = true;
+    var original = btn.textContent;
+    btn.textContent = 'Working…';
+    resEl.style.display = 'block';
+    resEl.className = 'mt-3 text-muted';
+    resEl.textContent = 'Bundling and emailing receipts — this can take a moment for large ranges…';
+    try {
+        var r = await fetch('/crm/api/receipt-export.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                csrf_token: csrf,
+                date_from: document.getElementById('rxFrom').value || '',
+                date_to: document.getElementById('rxTo').value || ''
+            })
+        });
+        var d = await r.json();
+        if (!d.success) {
+            resEl.className = 'mt-3 text-danger';
+            resEl.textContent = d.error || 'Export failed.';
+        } else {
+            var x = d.result || {};
+            resEl.className = 'mt-3 text-success';
+            if (x.status === 'archived') {
+                var freedMb = ((x.freed_bytes || 0) / 1048576).toFixed(1);
+                resEl.innerHTML = 'Done — archived <strong>' + (x.archived || 0) + '</strong> receipt(s) in '
+                    + (x.zips || 0) + ' ZIP(s), emailed to ' + ((x.recipients || []).length) + ' recipient(s). '
+                    + 'Freed about <strong>' + freedMb + ' MB</strong>.'
+                    + (x.skipped ? ' ' + x.skipped + ' skipped.' : '');
+            } else if (x.status === 'nothing_to_archive') {
+                resEl.className = 'mt-3 text-muted';
+                resEl.textContent = 'No confirmed receipts matched that range.';
+            } else if (x.status === 'no_recipients') {
+                resEl.className = 'mt-3 text-danger';
+                resEl.textContent = 'No export recipients are configured — set them in Settings before archiving.';
+            } else if (x.status === 'email_failed') {
+                resEl.className = 'mt-3 text-danger';
+                resEl.textContent = 'Email delivery failed, so nothing was deleted. Check the email settings and try again.';
+            } else if (x.status === 'disabled') {
+                resEl.className = 'mt-3 text-danger';
+                resEl.textContent = 'Receipt archival is disabled in settings.';
+            } else {
+                resEl.textContent = 'Finished: ' + (x.status || 'ok') + '.';
+            }
+        }
+    } catch (e) {
+        resEl.style.display = 'block';
+        resEl.className = 'mt-3 text-danger';
+        resEl.textContent = 'Request failed: ' + e.message;
+    } finally {
+        btn.disabled = false;
+        btn.textContent = original;
+    }
+}
+</script>
+<?php endif; ?>
 
 <?php if ($canEdit && !empty($pendingReceipts)): ?>
 <!-- ═══════ EMAILED RECEIPTS — PENDING REVIEW ═══════════════════════ -->
