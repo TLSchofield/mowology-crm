@@ -55,8 +55,41 @@ one expense; two different attachments on one email are ingested separately.
 
 Test by browsing `/crm/cron/receipt_inbox_poll.php` as an admin (prints a log).
 
+## Archival & export (reclaim disk)
+
+Receipt images in `/uploads/receipts/` grow disk indefinitely. `ReceiptArchiveService`
+bundles **confirmed** receipts (`status IN ('approved','forwarded')`) into ZIP(s), emails
+them to the configured recipients, then — only after a confirmed send to **every**
+recipient — deletes the full-res original and replaces it with a thumbnail. The retained
+copy is the emailed ZIP (off-server); on single-disk shared hosting "moving" the file
+reclaims nothing, so deleting + keeping a thumbnail is what actually frees space. If no
+recipients are set or any send fails, **nothing is deleted**.
+
+- **Manual:** "Export / Archive receipts" button + date-range modal on the Expenses page →
+  `public/crm/api/receipt-export.php` (manual runs ignore the age gate).
+- **Cron:** `app/Modules/Expenses/Cron/receipt_archive.php` — bundles everything older than
+  `receipt_archive_after_days`. cPanel: `0 3 2 * *` (3 AM, 2nd of each month). *Not scheduled by default.*
+- **Serving:** archived receipts serve their kept thumbnail via the existing
+  `serve-receipt.php?id=<media_id>` link (410 if no thumb); full-res lives in the emailed ZIP.
+- **Audit:** one row per run in `receipt_archive_batches`.
+
+### Config (ops_settings, `receipt_*` keys)
+`receipt_archive_enabled` (default on) · `receipt_archive_after_days` (90) ·
+`receipt_archive_keep_thumb` (1) · `receipt_archive_max_zip_mb` (25) ·
+`receipt_export_email_owner` · `receipt_export_email_accountant` ·
+`receipt_accounting_email` (existing bookkeeping/QuickBooks inbox, reused as a recipient).
+
+### Activation checklist (one-time)
+1. Run migration via admin endpoint `/crm/api/run-migration-1066-receipt-archive.php`
+   (adds `media_assets` archive columns + `receipt_archive_batches`; idempotent).
+   Migrations `1066_receipt_archive_media.sql` + `1067_receipt_archive_batches.sql`.
+2. Set the recipient emails in `ops_settings` (above). With none set, nothing is deleted.
+3. (Optional) add the monthly cPanel cron above to automate.
+
 ## Key files
 
+- `app/Modules/Expenses/Services/ReceiptArchiveService.php` (+ `tests/Unit/Expenses/ReceiptArchiveServiceTest.php`)
+- `app/Modules/Expenses/Cron/receipt_archive.php`, `public/crm/api/receipt-export.php`
 - `app/Modules/Expenses/Services/ReceiptInboxService.php`
 - `app/Modules/Expenses/Cron/receipt_inbox_poll.php` (+ shim `public/crm/cron/receipt_inbox_poll.php`)
 - `public/crm/api/receipt-inbox-confirm.php`
