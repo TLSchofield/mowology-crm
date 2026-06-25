@@ -2389,9 +2389,10 @@
         });
     }
 
-    function showToast(msg) {
+    function showToast(msg, duration) {
         var existing = document.querySelector('.mw-mc-toast');
         if (existing) existing.remove();
+        var holdMs = (typeof duration === 'number' && duration > 0) ? duration : 2500;
 
         var toast = document.createElement('div');
         toast.className = 'mw-mc-toast';
@@ -2410,13 +2411,13 @@
             toast.style.opacity = '1';
         });
 
-        // Fade out and remove after 2.5s
+        // Fade out and remove after the hold duration (default 2.5s)
         setTimeout(function() {
             toast.style.opacity = '0';
             setTimeout(function() {
                 if (toast.parentNode) toast.parentNode.removeChild(toast);
             }, 300);
-        }, 2500);
+        }, holdMs);
     }
 
     // ═══════════════════════════════════════════════════════
@@ -3490,7 +3491,9 @@
                 .then(function(res) {
                     if (res.success) {
                         closeInvoiceSheet();
-                        showToast('Invoice ' + (res.invoice_number || '') + ' sent!');
+                        // Hold this confirmation longer (6s) so crew clearly see
+                        // the invoice was sent before the toast disappears.
+                        showToast('Invoice ' + (res.invoice_number || '') + ' sent!', 6000);
                         updateStopChipSent(card);
                     } else {
                         showToast(res.error || 'Could not send. Open invoice to retry.');
