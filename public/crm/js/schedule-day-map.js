@@ -528,8 +528,8 @@ var MwDayViewMap = (function() {
         var innerContent;
         if (isSkipped) {
             // Skipped stops: ✕ mark (job marked not-done in the field or desktop)
-            var xs = Math.round(w * 0.26);
-            var sw = Math.max(2, Math.round(w / 12));
+            var xs = Math.round(w * 0.17);
+            var sw = Math.max(2, Math.round(w / 14));
             innerContent = '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="white" opacity="0.3"/>' +
                 '<line x1="' + (cx - xs) + '" y1="' + (cy - xs) + '" x2="' + (cx + xs) + '" y2="' + (cy + xs) + '" stroke="white" stroke-width="' + sw + '" stroke-linecap="round"/>' +
                 '<line x1="' + (cx + xs) + '" y1="' + (cy - xs) + '" x2="' + (cx - xs) + '" y2="' + (cy + xs) + '" stroke="white" stroke-width="' + sw + '" stroke-linecap="round"/>';
