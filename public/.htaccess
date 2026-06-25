@@ -13,7 +13,10 @@ Options -Indexes
     Header always set Referrer-Policy "strict-origin-when-cross-origin"
 
     # Disable browser features not needed by this app
-    Header always set Permissions-Policy "geolocation=(self), camera=(), microphone=(), payment=()"
+    # camera=(self): required for before/after job-photo capture in the Capacitor
+    # WebView. camera=() blocks the camera at the web layer even when the OS
+    # permission is granted, surfacing as "Access denied" on photo capture.
+    Header always set Permissions-Policy "geolocation=(self), camera=(self), microphone=(), payment=()"
 
     # Content Security Policy
     # - default: self only
