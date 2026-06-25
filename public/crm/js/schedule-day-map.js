@@ -40,6 +40,10 @@ var MwDayViewMap = (function() {
         seasonal_cleanup: '#455A64'
     };
 
+    // Skipped stops (crew/desktop marked the job not-done) render as a blue pin
+    // with an ✕, distinct from the grey "completed" pins.
+    var SKIPPED_COLOR = '#3B82F6';
+
     // ═══════════════════════════════════════════════════
     //  INIT
     // ═══════════════════════════════════════════════════
@@ -511,7 +515,7 @@ var MwDayViewMap = (function() {
     //  MARKERS (teardrop pin style — consistent with crew map)
     // ═══════════════════════════════════════════════════
 
-    function createPinIcon(color, label, size, isCompleted) {
+    function createPinIcon(color, label, size, isCompleted, isSkipped) {
         // Teardrop pin SVG matching crew map style
         var w = size || 36;
         var h = Math.round(w * 44 / 36);
@@ -521,9 +525,16 @@ var MwDayViewMap = (function() {
         var fontSize = Math.round(w * 13 / 36);
         var textY = cy + Math.round(fontSize * 0.38);
 
-        // For completed stops: pale green with a checkmark
         var innerContent;
-        if (isCompleted) {
+        if (isSkipped) {
+            // Skipped stops: ✕ mark (job marked not-done in the field or desktop)
+            var xs = Math.round(w * 0.26);
+            var sw = Math.max(2, Math.round(w / 12));
+            innerContent = '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="white" opacity="0.3"/>' +
+                '<line x1="' + (cx - xs) + '" y1="' + (cy - xs) + '" x2="' + (cx + xs) + '" y2="' + (cy + xs) + '" stroke="white" stroke-width="' + sw + '" stroke-linecap="round"/>' +
+                '<line x1="' + (cx + xs) + '" y1="' + (cy - xs) + '" x2="' + (cx - xs) + '" y2="' + (cy + xs) + '" stroke="white" stroke-width="' + sw + '" stroke-linecap="round"/>';
+        } else if (isCompleted) {
+            // For completed stops: pale green with a checkmark
             var tickSize = Math.round(w * 0.3);
             var tx = cx - Math.round(tickSize * 0.5);
             var ty = cy - Math.round(tickSize * 0.15);
@@ -547,9 +558,13 @@ var MwDayViewMap = (function() {
     }
 
     function placeMarker(position, stop, index, isActive, isUnassigned) {
-        var color, size, completed = false;
+        var color, size, completed = false, skipped = false;
 
-        if (stop.status === 'completed' || stop.isInvoiced) {
+        if (stop.status === 'skipped') {
+            color = SKIPPED_COLOR;  // blue ✕ — job marked not-done
+            size = 34;
+            skipped = true;
+        } else if (stop.status === 'completed' || stop.isInvoiced) {
             color = '#9CA3AF';  // pale green
             size = 34;
             completed = true;
@@ -568,7 +583,7 @@ var MwDayViewMap = (function() {
         }
 
         var label = index !== null ? String(index + 1) : '\u2022';
-        var icon = createPinIcon(color, label, size, completed);
+        var icon = createPinIcon(color, label, size, completed, skipped);
 
         var marker = new google.maps.Marker({
             position: position,
@@ -589,7 +604,8 @@ var MwDayViewMap = (function() {
             serviceType: stop.serviceType || '',
             label: label,
             isUnassigned: !!isUnassigned,
-            isCompleted: completed
+            isCompleted: completed,
+            isSkipped: skipped
         });
     }
 
@@ -865,13 +881,13 @@ var MwDayViewMap = (function() {
         stopMarkers.forEach(function(sm) {
             if (sm.stopId === stopId) {
                 // Enlarge the highlighted marker
-                var color = sm.isCompleted ? '#9CA3AF' : (sm.stopId === pinnedStopId ? '#e85d04' : (sm.stopId === pinnedLastStopId ? '#1565C0' : (serviceColors[sm.serviceType] || '#2D8659')));
-                sm.marker.setIcon(createPinIcon(color, sm.label || '\u2022', 44, sm.isCompleted));
+                var color = sm.isSkipped ? SKIPPED_COLOR : (sm.isCompleted ? '#9CA3AF' : (sm.stopId === pinnedStopId ? '#e85d04' : (sm.stopId === pinnedLastStopId ? '#1565C0' : (serviceColors[sm.serviceType] || '#2D8659'))));
+                sm.marker.setIcon(createPinIcon(color, sm.label || '\u2022', 44, sm.isCompleted, sm.isSkipped));
                 sm.marker.setZIndex(200);
             } else {
                 // Dim others slightly via smaller size
-                var c = sm.isCompleted ? '#9CA3AF' : (sm.isUnassigned ? '#9CA3AF' : (sm.stopId === pinnedStopId ? '#e85d04' : (sm.stopId === pinnedLastStopId ? '#1565C0' : (serviceColors[sm.serviceType] || '#2D8659'))));
-                sm.marker.setIcon(createPinIcon(c, sm.label || '\u2022', sm.isUnassigned ? 26 : 30, sm.isCompleted));
+                var c = sm.isSkipped ? SKIPPED_COLOR : (sm.isCompleted ? '#9CA3AF' : (sm.isUnassigned ? '#9CA3AF' : (sm.stopId === pinnedStopId ? '#e85d04' : (sm.stopId === pinnedLastStopId ? '#1565C0' : (serviceColors[sm.serviceType] || '#2D8659')))));
+                sm.marker.setIcon(createPinIcon(c, sm.label || '\u2022', sm.isUnassigned ? 26 : 30, sm.isCompleted, sm.isSkipped));
                 sm.marker.setZIndex(10);
             }
         });
@@ -880,7 +896,9 @@ var MwDayViewMap = (function() {
     function unhighlightMarkers() {
         stopMarkers.forEach(function(sm) {
             var color, size;
-            if (sm.isCompleted) {
+            if (sm.isSkipped) {
+                color = SKIPPED_COLOR; size = 34;
+            } else if (sm.isCompleted) {
                 color = '#9CA3AF'; size = 34;
             } else if (sm.isUnassigned) {
                 color = '#9CA3AF'; size = 30;
@@ -892,7 +910,7 @@ var MwDayViewMap = (function() {
                 color = serviceColors[sm.serviceType] || '#2D8659';
                 size = 36;
             }
-            sm.marker.setIcon(createPinIcon(color, sm.label || '\u2022', size, sm.isCompleted));
+            sm.marker.setIcon(createPinIcon(color, sm.label || '\u2022', size, sm.isCompleted, sm.isSkipped));
             sm.marker.setZIndex(10);
         });
     }
