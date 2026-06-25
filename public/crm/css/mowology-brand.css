@@ -5362,6 +5362,25 @@ a.mw-clock-timer-nav:hover {
 }
 .mw-dv-btn-reopen:hover { background:#f8f9fa; color:#495057; border-color:#ced4da; }
 
+/* Skipped stop footer — blue ✕ badge + Unskip (matches the blue map pin) */
+.mw-dv-footer-skipped {
+  justify-content:space-between;
+}
+.mw-dv-skip-badge {
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  color:#1D4ED8;
+  font-size:0.75rem;
+  font-weight:700;
+  flex-shrink:0;
+}
+.mw-dv-btn-unskip {
+  color:#1D4ED8;
+  border-color:#bfd3f6;
+}
+.mw-dv-btn-unskip:hover { background:#eef4fe; color:#1D4ED8; border-color:#3B82F6; }
+
 /* Toast notification */
 .mw-dv-toast {
   position:fixed;

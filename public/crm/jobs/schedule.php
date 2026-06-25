@@ -829,6 +829,16 @@ if ($view === 'day') {
     // Build JS data for the day view map
     foreach (array_merge($assignedStops, $unassignedStops) as $stop) {
         $isAssigned = !empty($stop['crew_ids']) || !empty($stop['crew_id']);
+        // Effective status for the pin colour: prefer the stop status, but fall
+        // back to 'skipped' when every visit is skipped (covers stops skipped
+        // before stop-status propagation existed, so the pin matches the card).
+        $mapStatus = $stop['stop_status'] ?? 'scheduled';
+        if ($mapStatus !== 'skipped' && $mapStatus !== 'completed' && !empty($stop['visits'])) {
+            $mvStatuses = array_column($stop['visits'], 'visit_status');
+            if (count(array_filter($mvStatuses, fn($s) => $s === 'skipped')) === count($mvStatuses)) {
+                $mapStatus = 'skipped';
+            }
+        }
         $dayViewMapStops[] = [
             'stopId'      => (int)$stop['stop_id'],
             'lat'         => $stop['latitude'] ? (float)$stop['latitude'] : null,
@@ -844,7 +854,7 @@ if ($view === 'day') {
             'duration'    => !empty($stop['visits']) ? (int)($stop['visits'][0]['estimated_duration'] ?? 0) : 0,
             'assigned'    => $isAssigned,
             'crewNames'   => !empty($stop['crew_names']) ? $stop['crew_names'] : ($stop['crew_name'] ? [$stop['crew_name']] : []),
-            'status'      => $stop['stop_status'] ?? 'scheduled',
+            'status'      => $mapStatus,
             'isInvoiced'  => empty($stop['visits']) /* orphaned stop → treat as done */
                           || array_reduce($stop['visits'], fn($carry, $v) => $carry || !empty($v['invoice_id']), false),
         ];
@@ -2239,13 +2249,34 @@ if ($apiKey) {
                           $dvStopDone  = !$dvHasVisits
                                       || ($stop['stop_status'] ?? 'scheduled') === 'completed'
                                       || $dvInvoiceId > 0;
+                          // Skipped = crew/desktop marked the job not-done. Detected from the
+                          // stop status (set once my propagation runs) OR, for stops skipped
+                          // before that propagation existed, from all visits being 'skipped'.
+                          $dvVisitStatuses = array_column($stop['visits'] ?? [], 'visit_status');
+                          $dvAllSkipped = !empty($dvVisitStatuses)
+                              && count(array_filter($dvVisitStatuses, fn($s) => $s === 'skipped')) === count($dvVisitStatuses);
+                          $dvStopSkipped = !$dvStopDone
+                              && (($stop['stop_status'] ?? '') === 'skipped' || $dvAllSkipped);
                           // Pricing model check applies to both done + pending states.
                           $dvPerVisit = true;
                           foreach ($stop['visits'] ?? [] as $_v) {
                               if (($_v['pricing_model'] ?? 'per_visit') !== 'per_visit') { $dvPerVisit = false; break; }
                           }
                           ?>
-                          <?php if ($dvStopDone): ?>
+                          <?php if ($dvStopSkipped): ?>
+                          <div class="mw-dv-card-footer mw-dv-footer-skipped">
+                              <span class="mw-dv-skip-badge">
+                                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                  Skipped
+                              </span>
+                              <?php if (!empty($dvFooterVisitIds)): ?>
+                              <button class="mw-dv-btn-reopen mw-dv-btn-unskip"
+                                      data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
+                                      data-visit-ids="<?php echo htmlspecialchars(implode(',', $dvFooterVisitIds)); ?>"
+                                      title="Undo skip — put this stop back on the route">Unskip</button>
+                              <?php endif; ?>
+                          </div>
+                          <?php elseif ($dvStopDone): ?>
                           <div class="mw-dv-card-footer mw-dv-footer-done">
                               <span class="mw-dv-done-badge">
                                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>

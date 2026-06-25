@@ -1143,12 +1143,12 @@ var MwDayViewMap = (function() {
         );
     }
 
-    function dvReopenStop(card, visitId) {
+    function dvReopenStop(card, visitId, isUnskip) {
         dvPost(
             { action: 'reopen_visit', visit_id: visitId },
             function() {
                 setCardPendingState(card);
-                showDvToast('Stop reopened — marked as scheduled.', 'info');
+                showDvToast(isUnskip ? 'Skip undone — stop back on the route.' : 'Stop reopened — marked as scheduled.', 'info');
             },
             function(errMsg) {
                 showDvToast(errMsg, 'error');
@@ -1167,12 +1167,16 @@ var MwDayViewMap = (function() {
 
         var reopen = e.target.closest('.mw-dv-btn-reopen');
         if (reopen) {
-            if (!confirm('Reopen this stop? All visits will be marked as scheduled again.')) return;
+            var isUnskip = reopen.classList.contains('mw-dv-btn-unskip');
+            var confirmMsg = isUnskip
+                ? 'Undo skip? This stop goes back on the route as scheduled.'
+                : 'Reopen this stop? All visits will be marked as scheduled again.';
+            if (!confirm(confirmMsg)) return;
             var rCard = reopen.closest('.mw-dv-card');
             if (!rCard) return;
             var visitIds = (reopen.dataset.visitIds || '').split(',').map(Number).filter(Boolean);
             if (!visitIds.length) return;
-            dvReopenStop(rCard, visitIds[0]);
+            dvReopenStop(rCard, visitIds[0], isUnskip);
         }
     });
 
