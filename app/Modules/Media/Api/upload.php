@@ -64,12 +64,20 @@ if (!$isAdminOrStaff) {
         echo json_encode(['success' => false, 'error' => 'Access denied']);
         exit;
     }
-    // Verify this visit is actually assigned to this crew member
+    // Authorize the same way the crew schedule decides which visits to show
+    // (getUserJobsForDate): the visit is assigned to this user OR this user has
+    // a time entry on it (proximity/helper crew who clocked into the job).
     $db = getDB();
     $vs = $db->prepare("SELECT assigned_crew_id FROM job_visits WHERE id = ? LIMIT 1");
     $vs->execute([$requestId]);
     $vrow = $vs->fetch(PDO::FETCH_ASSOC);
-    if (!$vrow || (int)$vrow['assigned_crew_id'] !== (int)$user['id']) {
+    $ownsVisit = $vrow && (int)$vrow['assigned_crew_id'] === (int)$user['id'];
+    if (!$ownsVisit) {
+        $te = $db->prepare("SELECT 1 FROM job_time_entries WHERE visit_id = ? AND user_id = ? LIMIT 1");
+        $te->execute([$requestId, (int)$user['id']]);
+        $ownsVisit = (bool)$te->fetchColumn();
+    }
+    if (!$ownsVisit) {
         http_response_code(403);
         echo json_encode(['success' => false, 'error' => 'Access denied']);
         exit;
