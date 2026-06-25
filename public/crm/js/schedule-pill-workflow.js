@@ -3263,6 +3263,46 @@
         }, 320);
     }
 
+    // Full-screen success splash shown after a visit invoice is sent, so crew
+    // get an unmissable confirmation (the small toast was easy to miss in the
+    // field). Auto-dismisses after 4s; tap anywhere to dismiss sooner.
+    function showInvoiceSentSplash(invoiceNumber) {
+        var existing = document.getElementById('mw-inv-splash');
+        if (existing) existing.remove();
+
+        var BIG_CHECK =
+            '<svg viewBox="0 0 52 52" class="mw-inv-splash-svg">' +
+                '<circle class="mw-inv-splash-circle" cx="26" cy="26" r="24"/>' +
+                '<path class="mw-inv-splash-tick" d="M14 27l8 8 16-16"/>' +
+            '</svg>';
+
+        var splash = document.createElement('div');
+        splash.id = 'mw-inv-splash';
+        splash.className = 'mw-inv-splash';
+        splash.setAttribute('role', 'alert');
+        splash.innerHTML =
+            '<div class="mw-inv-splash-card">' +
+                '<div class="mw-inv-splash-check">' + BIG_CHECK + '</div>' +
+                '<div class="mw-inv-splash-title">Invoice Sent</div>' +
+                (invoiceNumber ? '<div class="mw-inv-splash-num">' + invoiceNumber + '</div>' : '') +
+                '<div class="mw-inv-splash-sub">The customer has been emailed.</div>' +
+                '<div class="mw-inv-splash-hint">Tap anywhere to dismiss</div>' +
+            '</div>';
+
+        document.body.appendChild(splash);
+        requestAnimationFrame(function() { splash.classList.add('mw-inv-splash-open'); });
+
+        var dismissed = false;
+        var dismiss = function() {
+            if (dismissed) return;
+            dismissed = true;
+            splash.classList.remove('mw-inv-splash-open');
+            setTimeout(function() { if (splash.parentNode) splash.parentNode.removeChild(splash); }, 320);
+        };
+        splash.addEventListener('click', dismiss);
+        setTimeout(dismiss, 4000);
+    }
+
     function showInvoiceSheet(card) {
         var visitId     = parseInt(card.dataset.visitId, 10);
         var extrasRate  = (window.MW_SCHEDULE_STATE && MW_SCHEDULE_STATE.extrasRate) || 5.00;
@@ -3491,9 +3531,8 @@
                 .then(function(res) {
                     if (res.success) {
                         closeInvoiceSheet();
-                        // Hold this confirmation longer (6s) so crew clearly see
-                        // the invoice was sent before the toast disappears.
-                        showToast('Invoice ' + (res.invoice_number || '') + ' sent!', 6000);
+                        // Unmissable full-screen confirmation for crew in the field.
+                        showInvoiceSentSplash(res.invoice_number || '');
                         updateStopChipSent(card);
                     } else {
                         showToast(res.error || 'Could not send. Open invoice to retry.');

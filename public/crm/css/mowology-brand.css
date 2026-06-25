@@ -36214,3 +36214,88 @@ span.mw-icon-box--missing {
     letter-spacing: 0.04em;
     border: 1px solid rgba(45, 134, 89, 0.2);
 }
+
+/* ════════════════════════════════════════════════════════════════════════
+   Invoice Sent Splash — full-screen crew confirmation after sending a
+   visit invoice (replaces the easy-to-miss toast). Built by
+   showInvoiceSentSplash() in schedule-pill-workflow.js.
+   ════════════════════════════════════════════════════════════════════════ */
+.mw-inv-splash {
+    position: fixed;
+    inset: 0;
+    z-index: 100000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(160deg, var(--mw-green) 0%, var(--mw-forest) 100%);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+.mw-inv-splash.mw-inv-splash-open { opacity: 1; }
+
+.mw-inv-splash-card {
+    text-align: center;
+    color: #fff;
+    padding: 24px;
+    transform: translateY(10px) scale(0.95);
+    transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.mw-inv-splash-open .mw-inv-splash-card { transform: translateY(0) scale(1); }
+
+.mw-inv-splash-check {
+    width: 124px;
+    height: 124px;
+    margin: 0 auto 22px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.14);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.mw-inv-splash-svg { width: 88px; height: 88px; }
+.mw-inv-splash-circle {
+    fill: none;
+    stroke: #fff;
+    stroke-width: 2.5;
+    stroke-dasharray: 151;
+    stroke-dashoffset: 151;
+    animation: mw-inv-splash-circle 0.5s ease forwards 0.1s;
+}
+.mw-inv-splash-tick {
+    fill: none;
+    stroke: #fff;
+    stroke-width: 4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-dasharray: 48;
+    stroke-dashoffset: 48;
+    animation: mw-inv-splash-tick 0.4s ease forwards 0.55s;
+}
+@keyframes mw-inv-splash-circle { to { stroke-dashoffset: 0; } }
+@keyframes mw-inv-splash-tick   { to { stroke-dashoffset: 0; } }
+
+.mw-inv-splash-title {
+    font-size: 1.65rem;
+    font-weight: 800;
+    letter-spacing: 0.01em;
+    margin-bottom: 6px;
+}
+.mw-inv-splash-num {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--mw-lime);
+    margin-bottom: 10px;
+}
+.mw-inv-splash-sub {
+    font-size: 0.95rem;
+    opacity: 0.9;
+    margin-bottom: 30px;
+}
+.mw-inv-splash-hint {
+    font-size: 0.76rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    opacity: 0.6;
+}
