@@ -400,6 +400,7 @@ class InvoiceFromVisitService
         $sentTo         = [];
 
         foreach ($recipients as $recipient) {
+          try {
             $firstName     = !empty($recipient['first_name']) ? $recipient['first_name'] : 'there';
             $recipientName = trim(($recipient['first_name'] ?? '') . ' ' . ($recipient['last_name'] ?? '')) ?: 'Valued Customer';
 
@@ -443,12 +444,19 @@ class InvoiceFromVisitService
                 );
             }
 
-            sendCrmEmail(
+            $emailOk = sendCrmEmail(
                 $recipient['email_address'],
                 $tpl['subject'],
                 $body,
                 $attachPath ?: null
             );
+
+            // Only record recipients whose email actually went out — a failed
+            // delivery must never be counted as "sent".
+            if (!$emailOk) {
+                error_log("InvoiceFromVisitService::send: email delivery failed for invoice {$invoiceId} to {$recipient['email_address']}");
+                continue;
+            }
 
             $sentTo[] = $recipient['email_address'];
 
@@ -469,23 +477,43 @@ class InvoiceFromVisitService
                     sendInvoiceNotificationSms($recipient['sms_phone'], $smsText);
                 }
             }
+          } catch (Throwable $e) {
+            // One recipient erroring must not abort the others or bubble a 500 to
+            // the caller after other emails have already gone out (that would
+            // invite a duplicate manual resend). Log and move on.
+            error_log("InvoiceFromVisitService::send: recipient {$recipient['email_address']} errored for invoice {$invoiceId}: " . $e->getMessage());
+          }
         }
 
-        // NOTE: invoices has no sent_by column on production (no migration ever
-        // added one). Referencing it threw "Unknown column 'sent_by'", which left
-        // the invoice stuck as a draft and returned a generic 500 to the caller.
-        // The desktop send handler (crm/invoices/view.php) does not track sent_by.
-        $this->db->prepare("UPDATE invoices SET status = 'sent', sent_at = NOW() WHERE id = ?")
-           ->execute([$invoiceId]);
+        // Nothing went out → safe to report failure: the invoice stays a draft and
+        // NO customer email was sent, so the caller can retry cleanly with no risk
+        // of a duplicate email.
+        if (!$sentTo) {
+            return ['success' => false, 'error' => 'Email delivery failed. Please try again, or open the invoice to resend.'];
+        }
 
-        // Mark the source visit invoiced. Join invoices.visit_id -> job_visits.id;
-        // if the invoice has no visit_id the join matches nothing (safe no-op).
-        $this->db->prepare("
-            UPDATE job_visits jv
-            JOIN invoices i ON i.visit_id = jv.id
-            SET jv.is_invoiced = 1, jv.invoice_id = i.id
-            WHERE i.id = ?
-        ")->execute([$invoiceId]);
+        // At least one email went out, so the invoice MUST be marked sent —
+        // otherwise a retry would email the customer a second time. The status
+        // guard (draft/pending) makes a concurrent double-send a no-op. Bookkeeping
+        // failures here are logged, never surfaced as an error: the customer already
+        // has the email, and returning an error would prompt a duplicate resend.
+        // NOTE: invoices has no sent_by column on production (referencing it once
+        // threw "Unknown column 'sent_by'" and stuck the invoice as a draft).
+        try {
+            $this->db->prepare("UPDATE invoices SET status = 'sent', sent_at = NOW() WHERE id = ? AND status IN ('draft','pending')")
+               ->execute([$invoiceId]);
+
+            // Mark the source visit invoiced. Join invoices.visit_id -> job_visits.id;
+            // if the invoice has no visit_id the join matches nothing (safe no-op).
+            $this->db->prepare("
+                UPDATE job_visits jv
+                JOIN invoices i ON i.visit_id = jv.id
+                SET jv.is_invoiced = 1, jv.invoice_id = i.id
+                WHERE i.id = ?
+            ")->execute([$invoiceId]);
+        } catch (Throwable $e) {
+            error_log("InvoiceFromVisitService::send: post-send bookkeeping failed for invoice {$invoiceId} (email already sent): " . $e->getMessage());
+        }
 
         return [
             'success'        => true,
