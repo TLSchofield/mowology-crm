@@ -432,6 +432,17 @@ class InvoiceFromVisitService
                 $companyInfo
             );
 
+            // Append email open tracking pixel (per-recipient). Only when this is a
+            // real invoice_contacts row — the no-rows fallback recipient has no id.
+            if (!empty($recipient['id'])) {
+                $trackPixelUrl = 'https://mowology.ca/crm/api/track-invoice-open.php?rid=' . (int)$recipient['id'];
+                $body = str_replace(
+                    '</body>',
+                    '<img src="' . $trackPixelUrl . '" width="1" height="1" alt="" style="display:block;height:1px;width:1px;border:0;" /></body>',
+                    $body
+                );
+            }
+
             sendCrmEmail(
                 $recipient['email_address'],
                 $tpl['subject'],
@@ -441,6 +452,17 @@ class InvoiceFromVisitService
 
             $sentTo[] = $recipient['email_address'];
 
+            // Record the per-recipient send timestamp so the Recipients table
+            // shows the send time (not "Pending") and persist the resolved email.
+            // Mirrors the desktop send handler in crm/invoices/view.php.
+            if (!empty($recipient['id'])) {
+                $this->db->prepare("
+                    UPDATE invoice_contacts
+                    SET invoice_sent_at = NOW(), email_address = ?
+                    WHERE id = ?
+                ")->execute([$recipient['email_address'], $recipient['id']]);
+            }
+
             if (!empty($recipient['sms_phone']) && !empty($recipient['receive_sms'])) {
                 $smsText = 'Mowology: Invoice #' . $invoice['invoice_number'] . ' for $' . number_format(floatval($invoice['balance_due']), 2) . ' is ready. Check your email for the payment link. Questions? (778) 846-9273.';
                 if (strlen($smsText) <= 160) {
@@ -449,8 +471,12 @@ class InvoiceFromVisitService
             }
         }
 
-        $this->db->prepare("UPDATE invoices SET status = 'sent', sent_at = NOW(), sent_by = ? WHERE id = ?")
-           ->execute([$userId, $invoiceId]);
+        // NOTE: invoices has no sent_by column on production (no migration ever
+        // added one). Referencing it threw "Unknown column 'sent_by'", which left
+        // the invoice stuck as a draft and returned a generic 500 to the caller.
+        // The desktop send handler (crm/invoices/view.php) does not track sent_by.
+        $this->db->prepare("UPDATE invoices SET status = 'sent', sent_at = NOW() WHERE id = ?")
+           ->execute([$invoiceId]);
 
         // Mark the source visit invoiced. Join invoices.visit_id -> job_visits.id;
         // if the invoice has no visit_id the join matches nothing (safe no-op).
