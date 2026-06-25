@@ -298,4 +298,62 @@ class ContactServiceTest extends TestCase
         $this->assertSame(0, $result['deleted']);
         $this->assertSame(0, $result['skipped']);
     }
+
+    // ── updateContactRoleAndEmployer ─────────────────────────────────────────
+
+    /** @test */
+    public function updateContactRoleAndEmployer_updates_with_valid_role(): void
+    {
+        $pdo  = $this->mockPdo();
+        $stmt = $this->mockStmt();
+
+        $pdo->expects($this->once())
+            ->method('prepare')
+            ->with($this->stringContains('UPDATE contacts'))
+            ->willReturn($stmt);
+
+        $stmt->expects($this->once())
+            ->method('execute')
+            ->with(['property_manager', 7, 99]);
+
+        $svc = new ContactService($pdo);
+        $svc->updateContactRoleAndEmployer(99, 'property_manager', 7);
+    }
+
+    /** @test */
+    public function updateContactRoleAndEmployer_nullifies_invalid_role(): void
+    {
+        $pdo  = $this->mockPdo();
+        $stmt = $this->mockStmt();
+
+        $pdo->method('prepare')->willReturn($stmt);
+
+        $stmt->expects($this->once())
+            ->method('execute')
+            ->with([null, null, 5]);
+
+        $svc = new ContactService($pdo);
+        $svc->updateContactRoleAndEmployer(5, 'not_a_valid_role', 0);
+    }
+
+    // ── getManagedProperties ─────────────────────────────────────────────────
+
+    /** @test */
+    public function getManagedProperties_returns_array_when_no_employer(): void
+    {
+        $pdo = $this->mockPdo();
+
+        $ecStmt   = $this->mockStmt(['employer_company_id' => null]);
+        $propStmt = $this->mockStmt([]);
+
+        $pdo->expects($this->exactly(2))
+            ->method('prepare')
+            ->willReturnOnConsecutiveCalls($ecStmt, $propStmt);
+
+        $svc    = new ContactService($pdo);
+        $result = $svc->getManagedProperties(42);
+
+        $this->assertIsArray($result);
+        $this->assertEmpty($result);
+    }
 }

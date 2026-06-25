@@ -2197,16 +2197,32 @@ function getCompanyContacts($companyId) {
     $company = getCompanyById($companyId);
     if (!$company) return [];
 
+    // Source A — the company's designated primary/billing contacts
     $contactIds = array_filter([
         $company['primary_contact_id'],
         $company['billing_contact_id']
     ]);
 
+    // Source B — contacts who list this company as their employer
+    $employed = [];
+    try {
+        $empStmt = $db->prepare("SELECT id FROM contacts WHERE employer_company_id = ?");
+        $empStmt->execute([$companyId]);
+        $employed = $empStmt->fetchAll(PDO::FETCH_COLUMN);
+    } catch (\Throwable $e) {
+        // employer_company_id column may not exist yet — ignore
+    }
+
+    $contactIds = array_values(array_unique(array_merge(
+        array_map('intval', $contactIds),
+        array_map('intval', $employed)
+    )));
+
     if (empty($contactIds)) return [];
 
     $placeholders = implode(',', array_fill(0, count($contactIds), '?'));
     $stmt = $db->prepare("SELECT * FROM contacts WHERE id IN ({$placeholders}) ORDER BY first_name ASC");
-    $stmt->execute(array_values($contactIds));
+    $stmt->execute($contactIds);
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 

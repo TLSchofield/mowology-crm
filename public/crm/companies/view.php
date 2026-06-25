@@ -384,6 +384,18 @@ $extraHead = '<script src="https://js.stripe.com/v3/" defer></script>'
                                                         $roles = [];
                                                         if ($ct['id'] == $company['primary_contact_id']) $roles[] = '<span class="badge badge-primary">Primary</span>';
                                                         if ($ct['id'] == $company['billing_contact_id']) $roles[] = '<span class="badge badge-info">Billing</span>';
+                                                        if (!empty($ct['contact_role'])) {
+                                                            $roleLabels = [
+                                                                'property_manager' => 'Property Manager',
+                                                                'strata_rep'       => 'Strata Rep',
+                                                                'owner'            => 'Owner',
+                                                                'billing_contact'  => 'Billing Contact',
+                                                                'site_supervisor'  => 'Site Supervisor',
+                                                                'other'            => 'Other',
+                                                            ];
+                                                            $rLabel = $roleLabels[$ct['contact_role']] ?? ucfirst(str_replace('_', ' ', $ct['contact_role']));
+                                                            $roles[] = '<span class="badge badge-success">' . htmlspecialchars($rLabel) . '</span>';
+                                                        }
                                                         echo $roles ? implode(' ', $roles) : '<span class="text-muted">—</span>';
                                                         ?>
                                                     </td>

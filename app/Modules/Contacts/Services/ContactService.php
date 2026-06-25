@@ -174,6 +174,78 @@ class ContactService
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // UPDATE — Contact Role & Employer
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Set the contact's workflow role and the company they work for.
+     * Silently nullifies $role if it is not in the allowed ENUM list.
+     */
+    public function updateContactRoleAndEmployer(
+        int     $contactId,
+        ?string $role,
+        ?int    $employerCompanyId
+    ): void {
+        $validRoles = [
+            'property_manager', 'strata_rep', 'owner',
+            'billing_contact', 'site_supervisor', 'other',
+        ];
+        $safeRole = ($role !== null && in_array($role, $validRoles, true)) ? $role : null;
+
+        $this->db->prepare("
+            UPDATE contacts
+               SET contact_role        = ?,
+                   employer_company_id = ?
+             WHERE id = ?
+        ")->execute([$safeRole, $employerCompanyId ?: null, $contactId]);
+    }
+
+    /**
+     * Return properties where this contact is the on-site contact OR where
+     * their employer company is the property manager.
+     *
+     * Each row contains: id, address, city, property_name,
+     * site_contact_id, property_manager_id, pm_company_name, link_type
+     * (link_type is 'site_contact' or 'employer_pm').
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function getManagedProperties(int $contactId): array
+    {
+        $ecStmt = $this->db->prepare(
+            "SELECT employer_company_id FROM contacts WHERE id = ? LIMIT 1"
+        );
+        $ecStmt->execute([$contactId]);
+        $row = $ecStmt->fetch(\PDO::FETCH_ASSOC);
+        $employerCompanyId = (int)($row['employer_company_id'] ?? 0);
+
+        $stmt = $this->db->prepare("
+            SELECT p.id, p.address, p.city, p.property_name,
+                   p.site_contact_id, p.property_manager_id,
+                   co.company_name AS pm_company_name,
+                   'site_contact'  AS link_type
+              FROM properties p
+              LEFT JOIN companies co ON co.id = p.property_manager_id
+             WHERE p.site_contact_id = ?
+
+             UNION
+
+            SELECT p.id, p.address, p.city, p.property_name,
+                   p.site_contact_id, p.property_manager_id,
+                   co.company_name AS pm_company_name,
+                   'employer_pm'   AS link_type
+              FROM properties p
+              LEFT JOIN companies co ON co.id = p.property_manager_id
+             WHERE p.property_manager_id = ?
+               AND (p.site_contact_id IS NULL OR p.site_contact_id != ?)
+
+            ORDER BY address ASC
+        ");
+        $stmt->execute([$contactId, $employerCompanyId ?: 0, $contactId]);
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // UPDATE — Company
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -442,6 +514,18 @@ class ContactService
                 $this->db->exec(
                     "ALTER TABLE contacts ADD COLUMN prospect_status
                      ENUM('prospect','client','inactive') DEFAULT 'prospect' AFTER is_active"
+                );
+            }
+            if (!in_array('contact_role', $cols, true)) {
+                $this->db->exec(
+                    "ALTER TABLE contacts ADD COLUMN contact_role
+                     ENUM('property_manager','strata_rep','owner','billing_contact','site_supervisor','other')
+                     NULL DEFAULT NULL AFTER notes"
+                );
+            }
+            if (!in_array('employer_company_id', $cols, true)) {
+                $this->db->exec(
+                    "ALTER TABLE contacts ADD COLUMN employer_company_id INT NULL DEFAULT NULL AFTER contact_role"
                 );
             }
         } catch (\Throwable) {

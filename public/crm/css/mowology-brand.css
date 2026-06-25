@@ -36154,3 +36154,63 @@ span.mw-icon-box--missing {
     .mw-ri-actions { width: 100%; }
     .mw-ri-actions .btn { flex: 1; }
 }
+
+
+/* ══ 51. CONTACT ROLE BADGE & MANAGED PROPERTIES PANEL ═══════════════════ */
+
+/* Teal pill displayed inline beside the lifecycle stage badge in the
+   contact header — visually distinct (uppercase, border) to distinguish
+   the person's workflow ROLE from their pipeline STAGE. */
+.mw-contact-role-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 10px;
+    border-radius: 20px;
+    background: var(--mw-light);
+    color: var(--mw-dark);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    border: 1px solid rgba(45, 134, 89, 0.25);
+    vertical-align: middle;
+    margin-left: 6px;
+}
+
+/* Managed Properties card list rows */
+.mw-managed-prop-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 16px;
+}
+
+.mw-managed-prop-address {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.mw-managed-prop-address a {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* "via employer" badge — shown when the link is through the employer PM company */
+.mw-managed-prop-via-badge {
+    flex-shrink: 0;
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 20px;
+    background: var(--mw-light);
+    color: var(--mw-dark);
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border: 1px solid rgba(45, 134, 89, 0.2);
+}

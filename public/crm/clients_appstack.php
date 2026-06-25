@@ -5,6 +5,7 @@
 require_once __DIR__ . '/../loginAuth/auth.php';
 require_once 'includes/functions.php';
 require_once 'includes/error-handler.php';
+require_once APP_ROOT . '/Modules/Contacts/Services/ContactService.php';
 
 requireLogin();
 $user = getCurrentUser();
@@ -758,6 +759,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $consentQuoteFollowup = isset($_POST['consent_quote_followup']) ? 1 : 0;
                 $hasReviewed = isset($_POST['has_reviewed']) ? 1 : 0;
                 $notes = trim($_POST['notes'] ?? '');
+                $contactRole       = trim($_POST['contact_role'] ?? '');
+                $employerCompanyId = (int)($_POST['employer_company_id'] ?? 0);
 
                 if (empty($firstName)) {
                     $message = 'Please enter a first name.';
@@ -788,6 +791,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $newLifecycleStage = trim($_POST['lifecycle_stage'] ?? '');
                         if ($newLifecycleStage) {
                             updateContactLifecycleStage($contactId, $newLifecycleStage, $user['id']);
+                        }
+
+                        // Update role & employer company
+                        try {
+                            $contactService = new ContactService($db);
+                            $contactService->updateContactRoleAndEmployer(
+                                $contactId,
+                                $contactRole ?: null,
+                                $employerCompanyId ?: null
+                            );
+                        } catch (Throwable $roleErr) {
+                            // Graceful — columns may not exist yet if migration hasn't run
                         }
 
                         // Track field changes
@@ -1012,6 +1027,25 @@ if ($action === 'view_contact' && $clientId) {
         } catch (Exception $e) {
             // billing_contact_id may not exist yet
             $contactCompany = null;
+        }
+
+        // Employer company (the firm this contact works for, distinct from primary_contact linkage)
+        $employerCompany = null;
+        if (!empty($viewContact['employer_company_id'])) {
+            try {
+                $empStmt = $db->prepare("SELECT id, company_name, company_type FROM companies WHERE id = ? LIMIT 1");
+                $empStmt->execute([(int)$viewContact['employer_company_id']]);
+                $employerCompany = $empStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+            } catch (Throwable $e) { /* ok */ }
+        }
+
+        // Properties managed by this contact (site_contact or employer PM)
+        $managedProperties = [];
+        if (!empty($viewContact['contact_role']) || !empty($viewContact['employer_company_id'])) {
+            try {
+                $contactSvc = new ContactService($db);
+                $managedProperties = $contactSvc->getManagedProperties((int)$clientId);
+            } catch (Throwable $e) { $managedProperties = []; }
         }
 
         // Fetch other contacts for property reassignment dropdown
@@ -1752,7 +1786,7 @@ if ($action === 'new' && empty($extraHead)) {
 
 // Fetch companies list for link-company dropdown (used in view_contact and new action)
 $existingCompaniesForLink = [];
-if ($action === 'view_contact' || $action === 'new') {
+if ($action === 'view_contact' || $action === 'new' || $action === 'edit_contact') {
     $existingCompaniesForLink = $db->query("SELECT id, company_name, company_type FROM companies ORDER BY company_name")->fetchAll(PDO::FETCH_ASSOC);
 }
 
@@ -2458,6 +2492,43 @@ $unconvertedRequests = $db->query("
                       <textarea class="form-control" name="notes" rows="3"><?php echo h($_POST['notes'] ?? $contact['notes'] ?? ''); ?></textarea>
                     </div>
                   </div>
+
+                  <!-- Role & Association -->
+                  <div class="card mb-3">
+                    <div class="card-header">
+                      <h5 class="card-title mb-0"><i data-feather="briefcase"></i> Role &amp; Association</h5>
+                    </div>
+                    <div class="card-body">
+                      <div class="form-group">
+                        <label>Contact Role</label>
+                        <?php $currentRole = $_POST['contact_role'] ?? $contact['contact_role'] ?? ''; ?>
+                        <select class="form-control" name="contact_role">
+                          <option value="">— No role assigned —</option>
+                          <option value="property_manager" <?php echo $currentRole === 'property_manager' ? 'selected' : ''; ?>>Property Manager</option>
+                          <option value="strata_rep"       <?php echo $currentRole === 'strata_rep'       ? 'selected' : ''; ?>>Strata Rep</option>
+                          <option value="owner"            <?php echo $currentRole === 'owner'            ? 'selected' : ''; ?>>Owner</option>
+                          <option value="billing_contact"  <?php echo $currentRole === 'billing_contact'  ? 'selected' : ''; ?>>Billing Contact</option>
+                          <option value="site_supervisor"  <?php echo $currentRole === 'site_supervisor'  ? 'selected' : ''; ?>>Site Supervisor</option>
+                          <option value="other"            <?php echo $currentRole === 'other'            ? 'selected' : ''; ?>>Other</option>
+                        </select>
+                      </div>
+                      <div class="form-group mb-0">
+                        <label>Employer / Company</label>
+                        <?php $currentEmployerId = (int)($_POST['employer_company_id'] ?? $contact['employer_company_id'] ?? 0); ?>
+                        <select class="form-control" name="employer_company_id">
+                          <option value="0">— Not linked to a company —</option>
+                          <?php foreach ($existingCompaniesForLink as $comp): ?>
+                            <option value="<?php echo (int)$comp['id']; ?>"
+                              <?php echo $currentEmployerId === (int)$comp['id'] ? 'selected' : ''; ?>>
+                              <?php echo h($comp['company_name']); ?><?php echo $comp['company_type'] === 'property_manager' ? ' (PM)' : ''; ?>
+                            </option>
+                          <?php endforeach; ?>
+                        </select>
+                        <small class="form-text text-muted">The company this person works for (e.g. their property management firm).</small>
+                      </div>
+                    </div>
+                  </div>
+
                 </div>
               </div>
 
@@ -2506,6 +2577,23 @@ $unconvertedRequests = $db->query("
                   <span class="mw-contact-stage-badge" style="background: <?php echo h($stageColor); ?>;">
                     <?php echo h($stageLabel); ?>
                   </span>
+                  <?php if (!empty($viewContact['contact_role'])): ?>
+                    <?php
+                      $roleLabels = [
+                        'property_manager' => 'Property Manager',
+                        'strata_rep'       => 'Strata Rep',
+                        'owner'            => 'Owner',
+                        'billing_contact'  => 'Billing Contact',
+                        'site_supervisor'  => 'Site Supervisor',
+                        'other'            => 'Other',
+                      ];
+                      $roleLabel = $roleLabels[$viewContact['contact_role']] ?? ucfirst(str_replace('_', ' ', $viewContact['contact_role']));
+                    ?>
+                    <span class="mw-contact-role-badge">
+                      <i data-feather="briefcase" style="width:11px;height:11px;"></i>
+                      <?php echo h($roleLabel); ?>
+                    </span>
+                  <?php endif; ?>
                 </div>
               </div>
               <a href="clients_appstack.php" class="btn btn-outline-secondary btn-sm">
@@ -2640,6 +2728,23 @@ $unconvertedRequests = $db->query("
                       </span>
                       <div class="mw-contact-field-body text-muted" style="font-size:13px;">
                         <?php echo nl2br(h($viewContact['notes'])); ?>
+                      </div>
+                    </div>
+                    <?php endif; ?>
+
+                    <!-- Employer company -->
+                    <?php if ($employerCompany): ?>
+                    <div class="mw-contact-field">
+                      <span class="mw-icon-box" title="Employer company">
+                        <i data-feather="briefcase"></i>
+                      </span>
+                      <div class="mw-contact-field-body">
+                        <a href="?action=view_company&id=<?php echo (int)$employerCompany['id']; ?>" style="color: var(--mw-green); font-weight: 600;">
+                          <?php echo h($employerCompany['company_name']); ?>
+                        </a>
+                        <?php if ($employerCompany['company_type'] === 'property_manager'): ?>
+                          <span style="font-size:11px;color:#94a3b8;margin-left:5px;">property management</span>
+                        <?php endif; ?>
                       </div>
                     </div>
                     <?php endif; ?>
@@ -3535,6 +3640,36 @@ $unconvertedRequests = $db->query("
 
               <!-- Right Column: Map + Route Intelligence -->
               <div class="col-lg-5">
+
+                <!-- Managed Properties panel (shown when contact has a role or employer PM) -->
+                <?php if (!empty($managedProperties)): ?>
+                <div class="card mb-3 mw-managed-props-card">
+                  <div class="card-header d-flex align-items-center justify-content-between">
+                    <h5 class="card-title mb-0">
+                      <i data-feather="layers"></i> Managed Properties
+                      <span class="badge badge-pill ml-1" style="background: var(--mw-light); color: var(--mw-dark); font-weight: 600;"><?php echo count($managedProperties); ?></span>
+                    </h5>
+                  </div>
+                  <div class="card-body p-0">
+                    <ul class="list-group list-group-flush">
+                      <?php foreach ($managedProperties as $mp): ?>
+                        <li class="list-group-item mw-managed-prop-row">
+                          <div class="mw-managed-prop-address">
+                            <i data-feather="home" style="width:13px;height:13px;color:var(--mw-green);flex-shrink:0;"></i>
+                            <a href="/crm/properties/view.php?id=<?php echo (int)$mp['id']; ?>" style="color: var(--bs-body-color); font-weight: 500; font-size: 13px;">
+                              <?php echo h($mp['address']); ?><?php if ($mp['city']): ?><span style="color:#94a3b8;font-weight:400;">, <?php echo h($mp['city']); ?></span><?php endif; ?>
+                            </a>
+                          </div>
+                          <?php if ($mp['link_type'] === 'employer_pm'): ?>
+                            <span class="mw-managed-prop-via-badge">via employer</span>
+                          <?php endif; ?>
+                        </li>
+                      <?php endforeach; ?>
+                    </ul>
+                  </div>
+                </div>
+                <?php endif; ?>
+
                 <div class="card mb-3">
                   <div class="card-header d-flex justify-content-between align-items-center">
                     <h5 class="card-title mb-0"><i data-feather="map"></i> Neighbourhood Map</h5>
