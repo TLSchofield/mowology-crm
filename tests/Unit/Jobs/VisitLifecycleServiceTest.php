@@ -68,6 +68,33 @@ class VisitLifecycleServiceTest extends TestCase
         $this->assertSame(['completed'], $b['params']);
     }
 
+    // ---- computeStopStatusFromCounts ---------------------------------------
+
+    public function test_stop_status_all_completed(): void
+    {
+        // every visit serviced → stop is completed
+        $this->assertSame('completed', VisitLifecycleService::computeStopStatusFromCounts(0, 3));
+    }
+
+    public function test_stop_status_all_skipped(): void
+    {
+        // nothing pending, nothing completed (all skipped/cancelled) → stop skipped.
+        // This is the bug fix: a crew-skipped visit now syncs to the desktop schedule.
+        $this->assertSame('skipped', VisitLifecycleService::computeStopStatusFromCounts(0, 0));
+    }
+
+    public function test_stop_status_partial_progress(): void
+    {
+        // some done, some still pending → in_progress
+        $this->assertSame('in_progress', VisitLifecycleService::computeStopStatusFromCounts(2, 1));
+    }
+
+    public function test_stop_status_untouched_when_only_pending(): void
+    {
+        // nothing serviced yet → leave the stop as-is (null = no change)
+        $this->assertNull(VisitLifecycleService::computeStopStatusFromCounts(2, 0));
+    }
+
     // ---- buildPropagationSet -----------------------------------------------
 
     public function test_propagation_maps_plan_cols_to_visit_cols(): void

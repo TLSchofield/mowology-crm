@@ -104,34 +104,26 @@ class VisitLifecycleService
                     }
                 }
 
-                // Propagate to calendar_stops so the stop reflects completion without
-                // requiring a page refresh. This mirrors the logic in pow-actions.php
-                // end_visit, which only runs via the direct-complete path — the clock-out
-                // path (stopJobTimer → updateVisitStatus) previously left stops stuck in
-                // 'scheduled'/'in_progress' after a page reload, causing "cannot be ended"
-                // errors when Complete Job was tapped again.
+            }
+
+            // Propagate terminal-state visits to calendar_stops so the Schedule
+            // page reflects the change without a manual refresh. Runs for BOTH
+            // 'completed' and 'skipped'.
+            //
+            // Previously only 'completed' propagated. A 'skipped' visit (from the
+            // crew app's Skip button via pow-actions.php, or the desktop view.php
+            // Skip form) left calendar_stops.status stuck on 'scheduled' — and the
+            // desktop Schedule page renders every stop card from stop_status, so a
+            // job the crew skipped still showed as un-done on the desktop. This
+            // mirrors the duplicate logic in pow-actions.php end_visit, which only
+            // covers the direct-complete path.
+            if ($newStatus === 'completed' || $newStatus === 'skipped') {
                 try {
                     $stopRow = $db->prepare("SELECT stop_id FROM job_visits WHERE id = ?");
                     $stopRow->execute([$visitId]);
                     $stopId = $stopRow->fetchColumn();
                     if ($stopId) {
-                        $pendingStmt = $db->prepare("
-                            SELECT COUNT(*) FROM job_visits
-                            WHERE stop_id = ? AND status NOT IN ('completed', 'skipped', 'cancelled')
-                        ");
-                        $pendingStmt->execute([$stopId]);
-                        $pending = (int)$pendingStmt->fetchColumn();
-                        if ($pending === 0) {
-                            $db->prepare("
-                                UPDATE calendar_stops SET status = 'completed', updated_at = NOW()
-                                WHERE id = ? AND status != 'completed'
-                            ")->execute([$stopId]);
-                        } else {
-                            $db->prepare("
-                                UPDATE calendar_stops SET status = 'in_progress', updated_at = NOW()
-                                WHERE id = ? AND status = 'scheduled'
-                            ")->execute([$stopId]);
-                        }
+                        self::propagateStopStatus((int)$stopId);
                     }
                 } catch (Throwable $e) {
                     error_log("updateVisitStatus stop propagation error for visit {$visitId}: " . $e->getMessage());
@@ -142,6 +134,58 @@ class VisitLifecycleService
         } catch (Exception $e) {
             error_log("updateVisitStatus error: " . $e->getMessage());
             return false;
+        }
+    }
+
+    /**
+     * Recompute a calendar_stop's status from the current state of its visits
+     * and persist it (only when it actually changes). Drives the stop-card
+     * styling on the Schedule page — desktop AND crew — which reads
+     * calendar_stops.status, not the individual visit statuses.
+     *
+     * The decision logic is the PURE method computeStopStatusFromCounts();
+     * this method only does the DB read/write. The UPDATEs are guarded so a
+     * stop that is already 'completed' is never downgraded to 'skipped'.
+     */
+    public static function propagateStopStatus(int $stopId): void {
+        $db = getDB();
+
+        // pending = visits not yet resolved; done = visits that were serviced.
+        // SUM over boolean expressions is MySQL 5.7+ safe.
+        $stmt = $db->prepare("
+            SELECT
+                SUM(status NOT IN ('completed', 'skipped', 'cancelled')) AS pending,
+                SUM(status = 'completed') AS completed
+            FROM job_visits
+            WHERE stop_id = ?
+        ");
+        $stmt->execute([$stopId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+        $new = self::computeStopStatusFromCounts(
+            (int)($row['pending'] ?? 0),
+            (int)($row['completed'] ?? 0)
+        );
+        if ($new === null) {
+            return; // nothing resolved yet — leave the stop as 'scheduled'
+        }
+
+        if ($new === 'in_progress') {
+            // Only promote a still-scheduled stop; never clobber a terminal one.
+            $db->prepare("
+                UPDATE calendar_stops SET status = 'in_progress', updated_at = NOW()
+                WHERE id = ? AND status = 'scheduled'
+            ")->execute([$stopId]);
+        } elseif ($new === 'completed') {
+            $db->prepare("
+                UPDATE calendar_stops SET status = 'completed', updated_at = NOW()
+                WHERE id = ? AND status <> 'completed'
+            ")->execute([$stopId]);
+        } else { // 'skipped' — all visits skipped/cancelled, none completed
+            $db->prepare("
+                UPDATE calendar_stops SET status = 'skipped', updated_at = NOW()
+                WHERE id = ? AND status NOT IN ('completed', 'skipped')
+            ")->execute([$stopId]);
         }
     }
 
@@ -535,6 +579,25 @@ class VisitLifecycleService
         }
 
         return ['set' => $setClauses, 'params' => $params];
+    }
+
+    /**
+     * Decide the calendar_stop status implied by its visits' resolution counts.
+     * PURE — no DB; the persistence guards live in propagateStopStatus().
+     *
+     *   pending > 0, completed = 0  → null         (still scheduled, untouched)
+     *   pending > 0, completed > 0  → 'in_progress' (some done, some left)
+     *   pending = 0, completed > 0  → 'completed'   (all serviced)
+     *   pending = 0, completed = 0  → 'skipped'     (all skipped/cancelled)
+     *
+     * @return string|null One of 'in_progress'|'completed'|'skipped', or null
+     *                     when the stop should be left as-is.
+     */
+    public static function computeStopStatusFromCounts(int $pending, int $completed): ?string {
+        if ($pending === 0) {
+            return $completed > 0 ? 'completed' : 'skipped';
+        }
+        return $completed > 0 ? 'in_progress' : null;
     }
 
     /**
