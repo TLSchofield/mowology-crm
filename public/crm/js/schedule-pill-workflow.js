@@ -519,8 +519,9 @@
     /**
      * Start a visit timer (clock in)
      */
-    function clockIn(visitId) {
-        console.log('[PillWorkflow] clockIn called for visit ' + visitId);
+    function clockIn(visitId, opts) {
+        opts = opts || {};
+        console.log('[PillWorkflow] clockIn called for visit ' + visitId + (opts.skipBeforePrompt ? ' (skipBeforePrompt)' : ''));
         var btn = activeDrawer ? activeDrawer.querySelector('[data-action="clock-in"]') : null;
         if (btn) {
             btn.disabled = true;
@@ -545,7 +546,7 @@
                 if (data.success) {
                     visits[visitId].entryId = data.entry_id;
                     visits[visitId].startTime = new Date();
-                    visits[visitId].status = 'prompt_before';
+                    visits[visitId].status = opts.skipBeforePrompt ? 'in_progress' : 'prompt_before';
 
                     // Store tracking requirements from API response
                     if (data.tracking_level) {
@@ -578,9 +579,13 @@
                     if (stopIdForTimer) footerSetTiming(stopIdForTimer, visitId);
                     pvSetTiming(visitId);
 
-                    // Show before photo prompt in drawer
+                    // Before photo already captured (it triggered this clock-in)?
+                    // Start the running timer directly. Otherwise show the before
+                    // photo prompt in the drawer.
                     var drawer = card ? card.querySelector('.mw-mc-pill-drawer') : null;
-                    if (drawer) {
+                    if (opts.skipBeforePrompt) {
+                        startPillTimer(visitId);
+                    } else if (drawer) {
                         renderPhotoPrompt(drawer, visitId, 'before');
                         drawer.style.display = 'block';
                         activeDrawer = drawer;
@@ -872,8 +877,15 @@
                         } else {
                             closeDrawer();
                         }
+                    } else if (curStatus !== 'in_progress' && curStatus !== 'completed') {
+                        // Before photo taken without clocking in first → the photo
+                        // IS the clock-in: start the timer now (skip the before-prompt,
+                        // we already have the photo), then show strip + confirmation.
+                        clockIn(visitId, { skipBeforePrompt: true });
+                        renderPhotoStrip(visitId);
+                        if (thumbUrl) showThumbConfirmation(card, thumbUrl, 'Before', visitId, null);
                     } else {
-                        // Placeholder tap outside workflow: just save + update strip
+                        // Timer already running/completed: just save + update strip
                         renderPhotoStrip(visitId);
                         if (thumbUrl) showThumbConfirmation(card, thumbUrl, 'Before', visitId, null);
                     }

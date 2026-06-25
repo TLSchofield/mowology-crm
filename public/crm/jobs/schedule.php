@@ -1118,6 +1118,12 @@ $userPermissions = function_exists('getUserPermissions')
     ? getUserPermissions((int)$user['id'])
     : [];
 
+// Can this user create a job / add a visit from the field? (FAB + empty-state CTA)
+$canFieldCreate = ($user['role'] ?? '') === 'admin'
+    || in_array('*', $userPermissions, true)
+    || in_array('jobs.create_field', $userPermissions, true)
+    || in_array('jobs.edit', $userPermissions, true);
+
 $totalStops = count($mobileStops);
 $completedStops = 0;
 foreach ($mobileStops as $s) {
@@ -2936,6 +2942,9 @@ if ($apiKey) {
                       <div class="mw-mc-empty-icon">&#127793;</div>
                       <div class="mw-mc-empty-text">No stops today</div>
                       <div class="mw-mc-empty-sub">Check the weekly view for upcoming work</div>
+                      <?php if ($canFieldCreate): ?>
+                      <button type="button" class="mw-fj-empty-btn" onclick="if(window.MwFieldJob)window.MwFieldJob.open();">&#10133; Add a job here</button>
+                      <?php endif; ?>
                   </div>
               <?php else: ?>
 
@@ -2994,6 +3003,15 @@ if ($apiKey) {
               <?php endif; ?>
 
               </div><!-- /.mw-mc-scroll-area -->
+
+              <?php if ($canFieldCreate): ?>
+              <!-- ── Field "Add job" FAB — opens the GPS-first add-job overlay ── -->
+              <button type="button" class="mw-fj-fab" id="mwFieldJobFab"
+                      onclick="if(window.MwFieldJob)window.MwFieldJob.open();"
+                      aria-label="Add a job">
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              </button>
+              <?php endif; ?>
 
               <!-- ── Fixed Bottom Bar ── -->
               <div class="mw-mc-bottombar">
@@ -4185,8 +4203,11 @@ function mwTogglePurchaseItem(checkbox) {
 <script src="../js/route-engine.js?v=20260219a" defer></script>
 <script src="../js/schedule-route-map.js?v=20260226b" defer></script>
 <script src="../js/batch-camera.js?v=20260421a" defer></script>
-<script src="../js/schedule-pill-workflow.js?v=20260625b" defer></script>
+<script src="../js/schedule-pill-workflow.js?v=20260625c" defer></script>
 <script src="../js/schedule-drag-drop.js" defer></script>
+<?php if ($canFieldCreate): ?>
+<script src="../js/field-job.js?v=20260625a" defer></script>
+<?php endif; ?>
 <?php if ($view === 'day'): ?>
 <script>
 var MW_DAY_VIEW_STOPS = <?php echo json_encode($dayViewMapStops); ?>;
