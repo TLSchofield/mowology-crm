@@ -3338,6 +3338,37 @@ a.mw-clock-timer-nav:hover {
   background:var(--mw-ink-50);
   flex-shrink:0
 }
+/* Status legend under the day-view map (documents the fixed-colour pins) */
+.mw-dv-map-legend {
+  display:flex;
+  align-items:center;
+  gap:16px;
+  padding:6px 14px;
+  border-top:1px solid var(--mw-ink-200);
+  background:var(--mw-ink-50);
+  flex-shrink:0;
+  font-size:12px;
+  color:var(--mw-ink-600, #495057)
+}
+.mw-dv-legend-item {
+  display:inline-flex;
+  align-items:center;
+  gap:6px
+}
+.mw-dv-legend-pin {
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:16px;
+  height:16px;
+  border-radius:50%;
+  color:#fff;
+  font-size:10px;
+  font-weight:700;
+  line-height:1
+}
+.mw-dv-legend-pin-done { background:var(--mw-ink-400, #9ca3af) }
+.mw-dv-legend-pin-skip { background:#3B82F6 }
 .mw-dv-map-title {
   font-size:13px;
   font-weight:600;
@@ -34588,6 +34619,64 @@ span.mw-icon-box--missing {
   background: #fee2e2 !important;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════════
+   AUDIT LIST — Global component. Icon chip + stacked label/value rows.
+   Pairs with .mw-icon-box and matches the .mw-info-block detail aesthetic.
+
+   Usage:
+     <ul class="mw-audit-list">
+       <li class="mw-audit-row">
+         <span class="mw-icon-box"><i data-feather="user"></i></span>
+         <div class="mw-audit-meta">
+           <span class="mw-audit-label">Created By</span>
+           <span class="mw-audit-value">Tim Schofield</span>
+         </div>
+       </li>
+     </ul>
+═══════════════════════════════════════════════════════════════════════════════ */
+.mw-audit-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.mw-audit-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--mw-light);
+}
+.mw-audit-row:first-child { padding-top: 0; }
+.mw-audit-row:last-child { padding-bottom: 0; border-bottom: none; }
+.mw-audit-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.mw-audit-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+.mw-audit-value {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #1e293b;
+  word-break: break-word;
+}
+.mw-audit-value a {
+  color: var(--mw-green);
+  font-weight: 600;
+}
+.mw-audit-value a:hover { color: var(--mw-dark); }
+.mw-audit-value--on { color: var(--mw-green); font-weight: 600; }
+.mw-audit-value--muted { color: #94a3b8; font-weight: 400; }
+
 /* Contact field row — the flex wrapper used in contact cards */
 .mw-contact-field {
   display: flex;
@@ -36298,4 +36387,263 @@ span.mw-icon-box--missing {
     text-transform: uppercase;
     letter-spacing: 0.08em;
     opacity: 0.6;
+}
+
+/* ============================================================================
+   Field Job Creation — crew "Add job / visit on the spot" overlay
+   Full-screen, GPS-first, stepped sheet for the crew mobile schedule.
+   Markup injected by /crm/js/field-job.js. Entry: .mw-fj-fab + .mw-fj-empty-btn.
+   ============================================================================ */
+
+/* Floating action button (sits above the fixed bottom bar) */
+.mw-fj-fab {
+    position: fixed;
+    right: 18px;
+    bottom: 84px;
+    width: 58px;
+    height: 58px;
+    border-radius: 50%;
+    border: none;
+    background: linear-gradient(135deg, var(--mw-green), var(--mw-dark));
+    color: #fff;
+    box-shadow: 0 8px 22px rgba(13, 59, 46, 0.38);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1200;
+    cursor: pointer;
+    transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.mw-fj-fab:active { transform: scale(0.92); box-shadow: 0 4px 12px rgba(13, 59, 46, 0.4); }
+
+.mw-fj-empty-btn {
+    margin-top: 18px;
+    padding: 11px 20px;
+    border: none;
+    border-radius: 26px;
+    background: var(--mw-green);
+    color: #fff;
+    font-weight: 600;
+    font-size: 0.95rem;
+    cursor: pointer;
+}
+.mw-fj-empty-btn:active { background: var(--mw-dark); }
+
+/* Overlay + sheet */
+.mw-fj-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(13, 59, 46, 0.55);
+    backdrop-filter: blur(2px);
+    z-index: 2000;
+    display: none;
+    align-items: flex-end;
+    justify-content: center;
+}
+.mw-fj-overlay.show { display: flex; }
+.mw-fj-sheet {
+    width: 100%;
+    max-width: 560px;
+    max-height: 92vh;
+    background: #fff;
+    border-radius: 22px 22px 0 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    animation: mwFjSlideUp 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes mwFjSlideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+
+.mw-fj-head {
+    display: flex;
+    align-items: center;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--mw-light);
+    flex-shrink: 0;
+}
+.mw-fj-title { flex: 1; text-align: center; font-weight: 700; color: var(--mw-forest); font-size: 1.05rem; }
+.mw-fj-close { background: none; border: none; font-size: 1.9rem; line-height: 1; color: #8a9a93; cursor: pointer; width: 34px; }
+.mw-fj-head-spacer { width: 34px; }
+
+.mw-fj-panel { padding: 18px 16px 24px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+
+.mw-fj-section-label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: #6b7d75;
+    font-weight: 700;
+    margin: 14px 2px 8px;
+}
+.mw-fj-section-label:first-child { margin-top: 0; }
+
+/* Locating / saving spinner */
+.mw-fj-locating { text-align: center; padding: 38px 10px; }
+.mw-fj-locating-text { color: var(--mw-forest); font-weight: 600; margin-top: 18px; }
+.mw-fj-radar { position: relative; width: 64px; height: 64px; margin: 0 auto; }
+.mw-fj-radar span {
+    position: absolute;
+    inset: 0;
+    border: 3px solid var(--mw-green);
+    border-radius: 50%;
+    opacity: 0;
+    animation: mwFjPulse 1.8s ease-out infinite;
+}
+.mw-fj-radar span:nth-child(2) { animation-delay: 0.6s; }
+.mw-fj-radar span:nth-child(3) { animation-delay: 1.2s; }
+@keyframes mwFjPulse { 0% { transform: scale(0.3); opacity: 0.8; } 100% { transform: scale(1); opacity: 0; } }
+
+/* Property / result list */
+.mw-fj-list { display: flex; flex-direction: column; gap: 9px; }
+.mw-fj-prop {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    text-align: left;
+    padding: 13px 14px;
+    border: 1.5px solid var(--mw-light);
+    border-radius: 14px;
+    background: #fff;
+    cursor: pointer;
+    transition: border-color 0.12s ease, background 0.12s ease;
+}
+.mw-fj-prop:active { background: var(--mw-light); }
+.mw-fj-prop-near { border-color: var(--mw-green); background: #f3fbf6; }
+.mw-fj-prop-main { flex: 1; min-width: 0; }
+.mw-fj-prop-addr { font-weight: 600; color: var(--mw-forest); font-size: 0.97rem; }
+.mw-fj-prop-sub { font-size: 0.82rem; color: #6b7d75; margin-top: 2px; }
+.mw-fj-dist { font-weight: 600; color: var(--mw-green); }
+
+.mw-fj-pill {
+    flex-shrink: 0;
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 4px 9px;
+    border-radius: 20px;
+    background: var(--mw-light);
+    color: var(--mw-dark);
+}
+.mw-fj-pill-go { background: var(--mw-green); color: #fff; }
+.mw-fj-pill-muted { background: #eef1f0; color: #8a9a93; }
+
+/* Pick step: search + new client pinned on top, list populates below */
+.mw-fj-pick-top { display: flex; gap: 8px; align-items: stretch; }
+.mw-fj-search { flex: 1; margin-bottom: 0; }
+.mw-fj-newbtn { flex: 0 0 auto; margin-top: 0; padding: 12px 16px; white-space: nowrap; }
+.mw-fj-results { margin-top: 14px; }
+
+.mw-fj-altrow { display: flex; gap: 10px; margin-top: 18px; }
+.mw-fj-alt {
+    flex: 1;
+    padding: 12px;
+    border: 1.5px solid var(--mw-light);
+    border-radius: 12px;
+    background: #fff;
+    color: var(--mw-forest);
+    font-weight: 600;
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+.mw-fj-alt:active { background: var(--mw-light); }
+.mw-fj-full { width: 100%; margin-top: 10px; }
+.mw-fj-link { background: none; border: none; color: var(--mw-green); font-weight: 600; margin-top: 16px; cursor: pointer; }
+
+.mw-fj-note { background: var(--mw-light); border-radius: 12px; padding: 12px 14px; color: var(--mw-dark); font-size: 0.88rem; line-height: 1.4; }
+.mw-fj-hint { font-size: 0.78rem; color: var(--mw-green); margin: -2px 2px 0; min-height: 16px; }
+
+/* Branch screen */
+.mw-fj-branch-addr { font-weight: 700; color: var(--mw-forest); font-size: 1.05rem; margin-bottom: 14px; }
+.mw-fj-or { text-align: center; color: #9aa8a2; font-size: 0.82rem; margin: 12px 0 4px; }
+
+.mw-fj-primary {
+    width: 100%;
+    padding: 15px;
+    border: none;
+    border-radius: 14px;
+    background: linear-gradient(135deg, var(--mw-green), var(--mw-dark));
+    color: #fff;
+    font-weight: 700;
+    font-size: 1rem;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(45, 134, 89, 0.3);
+}
+.mw-fj-primary:active { transform: translateY(1px); }
+.mw-fj-primary.mw-fj-inline { flex: 1; }
+
+/* Inputs */
+.mw-fj-input {
+    width: 100%;
+    padding: 13px 14px;
+    border: 1.5px solid var(--mw-light);
+    border-radius: 12px;
+    font-size: 1rem;
+    color: var(--mw-forest);
+    margin-bottom: 10px;
+    -webkit-appearance: none;
+}
+.mw-fj-input:focus { outline: none; border-color: var(--mw-green); }
+.mw-fj-textarea { min-height: 72px; resize: vertical; }
+.mw-fj-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.mw-fj-grid2 .mw-fj-input { margin-bottom: 10px; }
+
+/* Price per visit — currency-prefixed input */
+.mw-fj-pricewrap { position: relative; margin-bottom: 4px; }
+.mw-fj-price-cur {
+    position: absolute;
+    left: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--mw-green);
+    pointer-events: none;
+}
+.mw-fj-input.mw-fj-price { padding-left: 28px; margin-bottom: 0; }
+
+/* Service chips */
+.mw-fj-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.mw-fj-chip {
+    padding: 9px 14px;
+    border: 1.5px solid var(--mw-light);
+    border-radius: 22px;
+    background: #fff;
+    color: var(--mw-forest);
+    font-weight: 600;
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+.mw-fj-chip.on { background: var(--mw-green); border-color: var(--mw-green); color: #fff; }
+
+/* Segmented control */
+.mw-fj-seg { display: flex; gap: 6px; background: var(--mw-light); border-radius: 12px; padding: 4px; }
+.mw-fj-seg-btn {
+    flex: 1;
+    padding: 10px 8px;
+    border: none;
+    border-radius: 9px;
+    background: transparent;
+    color: var(--mw-dark);
+    font-weight: 600;
+    font-size: 0.88rem;
+    cursor: pointer;
+}
+.mw-fj-seg-btn.on { background: #fff; color: var(--mw-forest); box-shadow: 0 1px 4px rgba(13, 59, 46, 0.12); }
+.mw-fj-seg-sm .mw-fj-seg-btn { font-size: 0.82rem; padding: 8px 6px; }
+.mw-fj-freqwrap { margin-top: 10px; }
+
+/* Result screens */
+.mw-fj-result { text-align: center; padding: 30px 10px; }
+.mw-fj-result-check, .mw-fj-result-x {
+    width: 72px; height: 72px; line-height: 72px;
+    border-radius: 50%; margin: 0 auto 18px;
+    font-size: 2.2rem; font-weight: 700; color: #fff;
+}
+.mw-fj-result-check { background: var(--mw-green); }
+.mw-fj-result-x { background: #e85d04; }
+.mw-fj-result-title { font-weight: 700; color: var(--mw-forest); font-size: 1.15rem; margin-bottom: 16px; }
+
+/* Desktop: don't show the crew FAB on the wide layout */
+@media (min-width: 992px) {
+    .mw-fj-fab { display: none; }
 }

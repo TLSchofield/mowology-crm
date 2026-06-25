@@ -2502,6 +2502,14 @@ if ($apiKey) {
                       </button>
                   </div>
                   <div class="mw-dv-map" id="mwDvMap"></div>
+                  <div class="mw-dv-map-legend">
+                      <span class="mw-dv-legend-item">
+                          <span class="mw-dv-legend-pin mw-dv-legend-pin-done">&#10003;</span> Completed
+                      </span>
+                      <span class="mw-dv-legend-item">
+                          <span class="mw-dv-legend-pin mw-dv-legend-pin-skip">&#10005;</span> Skipped
+                      </span>
+                  </div>
               </div>
           </div>
           <?php endif; ?>
@@ -4206,7 +4214,7 @@ function mwTogglePurchaseItem(checkbox) {
 <script src="../js/schedule-pill-workflow.js?v=20260625c" defer></script>
 <script src="../js/schedule-drag-drop.js" defer></script>
 <?php if ($canFieldCreate): ?>
-<script src="../js/field-job.js?v=20260625a" defer></script>
+<script src="../js/field-job.js?v=20260625b" defer></script>
 <?php endif; ?>
 <?php if ($view === 'day'): ?>
 <script>
