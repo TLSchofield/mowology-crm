@@ -51,13 +51,15 @@ requireLogin();
 $user = getCurrentUser();
 
 $isAdminOrStaff = in_array($user['role'], ['admin', 'staff']);
-$isCrew         = ($user['role'] === 'crew');
 $requestContext = $_POST['context_type'] ?? '';
 $requestId      = (int)($_POST['context_id'] ?? 0);
 
-// Crew may only upload job_visit photos for visits assigned to them
+// Crew may only upload job_visit photos for visits assigned to them.
+// Authorize by visit ownership (assigned_crew_id), NOT by role string: there is
+// no dedicated 'crew' role — field crew are ordinary 'user' accounts. Gating on
+// role === 'crew' here rejected every real crew member with "Access denied".
 if (!$isAdminOrStaff) {
-    if (!$isCrew || $requestContext !== 'job_visit' || $requestId < 1) {
+    if ($requestContext !== 'job_visit' || $requestId < 1) {
         http_response_code(403);
         echo json_encode(['success' => false, 'error' => 'Access denied']);
         exit;
