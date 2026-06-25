@@ -524,9 +524,11 @@ $activePage = 'jobs';
 
   // ── Timer ─────────────────────────────────────────────────────────────────
   var timerEl = document.getElementById('timer-display');
-  if (timerEl && STATUS === 'in_progress' && STARTED_AT) {
-    var startMs = new Date(STARTED_AT).getTime();
-    setInterval(function() {
+  var _timerInterval = null;
+  function startTimerDisplay(startedAt) {
+    if (!timerEl || _timerInterval) return;
+    var startMs = new Date(startedAt).getTime();
+    _timerInterval = setInterval(function() {
       var elapsed = Math.floor((Date.now() - startMs) / 1000);
       var h = Math.floor(elapsed / 3600);
       var m = Math.floor((elapsed % 3600) / 60);
@@ -534,6 +536,7 @@ $activePage = 'jobs';
       timerEl.textContent = (h > 0 ? h + ':' : '') + String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
     }, 1000);
   }
+  if (STATUS === 'in_progress' && STARTED_AT) startTimerDisplay(STARTED_AT);
 
   function updateStats() {
     var pts = document.getElementById('gps-pts-display');
@@ -729,6 +732,48 @@ $activePage = 'jobs';
         doStart(null, null);
       }
     });
+  }
+
+  // ── Before photo doubles as the clock-in ──────────────────────────────────
+  // Taking a Before photo before the visit is started should START the visit
+  // (and tracking) — the photo IS the clock-in. Starts in place (no reload) so
+  // the photo upload in flight is not interrupted.
+  var _autoStartTriggered = false;
+  function autoStartVisitFromBeforePhoto() {
+    if (_autoStartTriggered || STATUS === 'in_progress' || STATUS === 'completed') return;
+    _autoStartTriggered = true;
+    function send(lat, lng) {
+      fetch(API_ACTIONS, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ action: 'start_visit', visit_id: VISIT_ID, csrf_token: CSRF,
+                               lat: lat, lng: lng })
+      }).then(function(r) { return r.json(); }).then(function(res) {
+        if (res.success) {
+          STARTED_AT = res.started_at;
+          STATUS     = 'in_progress';
+          var startedInput = document.getElementById('pow-started-at');
+          if (startedInput) startedInput.value = res.started_at;
+          startTimerDisplay(STARTED_AT);
+          try { startGPS(); } catch (e) { /* GPS optional */ }
+          var gate = document.getElementById('start-gate');
+          if (gate) gate.style.display = 'none';
+          showToast('Visit started', 'success');
+        } else {
+          _autoStartTriggered = false; // allow another attempt
+        }
+      }).catch(function() { _autoStartTriggered = false; });
+    }
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        function(p) { send(p.coords.latitude, p.coords.longitude); },
+        function()  { send(null, null); },
+        { enableHighAccuracy: true, timeout: 8000 }
+      );
+    } else {
+      send(null, null);
+    }
   }
 
   if (STATUS === 'in_progress') startGPS();
@@ -1277,6 +1322,12 @@ $activePage = 'jobs';
           validFiles.push(f);
         }
       });
+
+      // Before photo doubles as the clock-in: start the visit if not already
+      // running (in place, in parallel with the upload below).
+      if (photoType === 'before' && validFiles.length) {
+        autoStartVisitFromBeforePhoto();
+      }
 
       // Route: online → direct XHR with progress ring; offline → MwPhotoQueue
       var chain = Promise.resolve();
