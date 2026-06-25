@@ -50,36 +50,28 @@ header('Content-Type: application/json');
 requireLogin();
 $user = getCurrentUser();
 
-$isAdminOrStaff = in_array($user['role'], ['admin', 'staff']);
 $requestContext = $_POST['context_type'] ?? '';
 $requestId      = (int)($_POST['context_id'] ?? 0);
 
-// Crew may only upload job_visit photos for visits assigned to them.
-// Authorize by visit ownership (assigned_crew_id), NOT by role string: there is
-// no dedicated 'crew' role — field crew are ordinary 'user' accounts. Gating on
-// role === 'crew' here rejected every real crew member with "Access denied".
-if (!$isAdminOrStaff) {
+// Field crew (role 'user') may upload before/after photos to any active job_visit.
+// Authorization MUST NOT depend on clock-in: a "before" photo is taken before the
+// crew clocks in (and may itself start the clock), so gating on a time entry —
+// or on assigned_crew_id, which on a team/truck may not be the individual — would
+// wrongly reject legitimate crew. We only require a valid, existing job_visit.
+// Supervisory roles (admin/staff/manager/owner) may upload to any context.
+$isPrivileged = in_array($user['role'], ['admin', 'staff', 'manager', 'owner']);
+if (!$isPrivileged) {
     if ($requestContext !== 'job_visit' || $requestId < 1) {
         http_response_code(403);
         echo json_encode(['success' => false, 'error' => 'Access denied']);
         exit;
     }
-    // Authorize the same way the crew schedule decides which visits to show
-    // (getUserJobsForDate): the visit is assigned to this user OR this user has
-    // a time entry on it (proximity/helper crew who clocked into the job).
     $db = getDB();
-    $vs = $db->prepare("SELECT assigned_crew_id FROM job_visits WHERE id = ? LIMIT 1");
+    $vs = $db->prepare("SELECT id FROM job_visits WHERE id = ? LIMIT 1");
     $vs->execute([$requestId]);
-    $vrow = $vs->fetch(PDO::FETCH_ASSOC);
-    $ownsVisit = $vrow && (int)$vrow['assigned_crew_id'] === (int)$user['id'];
-    if (!$ownsVisit) {
-        $te = $db->prepare("SELECT 1 FROM job_time_entries WHERE visit_id = ? AND user_id = ? LIMIT 1");
-        $te->execute([$requestId, (int)$user['id']]);
-        $ownsVisit = (bool)$te->fetchColumn();
-    }
-    if (!$ownsVisit) {
-        http_response_code(403);
-        echo json_encode(['success' => false, 'error' => 'Access denied']);
+    if (!$vs->fetchColumn()) {
+        http_response_code(404);
+        echo json_encode(['success' => false, 'error' => 'Visit not found']);
         exit;
     }
 }
