@@ -2290,7 +2290,7 @@
             var plugins = window.Capacitor && window.Capacitor.Plugins;
             if (plugins && plugins.App && typeof plugins.App.openUrl === 'function') {
                 var pkg = (window.Capacitor.getPlatform && window.Capacitor.getPlatform() === 'android')
-                    ? 'ca.mowology.crm' : null;
+                    ? 'ca.mowology.crew' : null; // app id is .crew (not .crm)
                 var url = pkg
                     ? 'intent://' + pkg + '#Intent;scheme=package;action=android.settings.APPLICATION_DETAILS_SETTINGS;end'
                     : 'app-settings:';
