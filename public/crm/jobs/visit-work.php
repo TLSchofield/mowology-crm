@@ -1230,10 +1230,33 @@ $activePage = 'jobs';
 
   // Photo capture: HEIC guard + serial upload queue (one at a time)
   document.querySelectorAll('.photo-trigger').forEach(function(input) {
+    // Pre-tap guard: on native Android the WebView file picker throws
+    // "Access denied" when the app's CAMERA permission is off. If we already
+    // know it's denied, block the doomed picker and show guidance instead.
+    // Synchronous + capture phase so it runs before the file picker opens and
+    // preserves the user-gesture for the granted path.
+    input.addEventListener('click', function(e) {
+      if (window.MwCameraPermission && MwCameraPermission.isNativeAndroid()
+          && MwCameraPermission.isDenied()) {
+        e.preventDefault();
+        MwCameraPermission.showDeniedDialog();
+      }
+    }, true);
+
     input.addEventListener('change', function() {
       var photoType = this.dataset.type;
       var files     = Array.from(this.files);
-      if (!files.length) return;
+      if (!files.length) {
+        // No file: on native Android this can be a silent camera-permission
+        // denial (the picker fires change with no file). Re-check and surface
+        // actionable guidance instead of leaving the user stuck.
+        if (window.MwCameraPermission && MwCameraPermission.isNativeAndroid()) {
+          MwCameraPermission.refresh(function(state) {
+            if (state === 'denied') MwCameraPermission.showDeniedDialog();
+          });
+        }
+        return;
+      }
 
       // Ensure photos container is visible; apply prefetched server data if ready
       _photosRendered = true;
