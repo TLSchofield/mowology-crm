@@ -901,13 +901,22 @@ function mwRebookVisit(visitId, serviceLabel) {
       L.marker(latlngs[0], { icon: icon, interactive: false }).addTo(map);
     }
 
-    // Centre on ping centroid, zoom 19 for house-number detail
+    // Centre on ping centroid, zoom 19 for house-number detail.
+    // The map container's real width/height isn't settled yet at this point
+    // (still inside the card's flex/grid layout reflow), so Leaflet's initial
+    // setView is computed against a stale size and drifts off-centre once the
+    // container reaches its final width. Re-apply the same centre AFTER
+    // invalidateSize() has picked up the real dimensions.
     var sLat = 0, sLng = 0;
     latlngs.forEach(function(p) { sLat += p[0]; sLng += p[1]; });
-    map.setView([sLat / latlngs.length, sLng / latlngs.length], 19);
+    var center = [sLat / latlngs.length, sLng / latlngs.length];
+    map.setView(center, 19);
 
     requestAnimationFrame(function() {
-      setTimeout(function() { map.invalidateSize(true); }, 80);
+      setTimeout(function() {
+        map.invalidateSize(true);
+        map.setView(center, 19);
+      }, 80);
     });
   });
 })();
