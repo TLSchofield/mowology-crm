@@ -447,29 +447,33 @@ function statusBadge(string $status, bool $overdue = false): string {
 
       <?php if ($billingOutstanding > 0 || $billingTotalPaid > 0): ?>
         <div class="portal-billing-summary">
-          <div class="portal-billing-stat">
-            <div class="portal-billing-stat-label">Total Invoiced</div>
-            <div class="portal-billing-stat-value">$<?php echo number_format($billingTotalCharged, 2); ?></div>
-          </div>
-          <div class="portal-billing-divider"></div>
-          <div class="portal-billing-stat">
-            <div class="portal-billing-stat-label">Paid</div>
-            <div class="portal-billing-stat-value portal-billing-paid">$<?php echo number_format($billingTotalPaid, 2); ?></div>
-          </div>
-          <div class="portal-billing-divider"></div>
-          <div class="portal-billing-stat">
-            <div class="portal-billing-stat-label"><?php echo $billingOutstanding > 0 ? 'Balance Due' : 'Outstanding'; ?></div>
-            <div class="portal-billing-stat-value <?php echo $billingOutstanding > 0 ? 'portal-billing-due' : 'portal-billing-paid'; ?>">
-              $<?php echo number_format($billingOutstanding, 2); ?>
+          <div class="portal-billing-summary-head">Account Summary</div>
+          <div class="portal-billing-grid">
+            <div class="portal-billing-stat">
+              <div class="portal-billing-stat-label">Total Invoiced</div>
+              <div class="portal-billing-stat-value">$<?php echo number_format($billingTotalCharged, 2); ?></div>
             </div>
+            <div class="portal-billing-stat">
+              <div class="portal-billing-stat-label">Paid</div>
+              <div class="portal-billing-stat-value portal-billing-paid">$<?php echo number_format($billingTotalPaid, 2); ?></div>
+            </div>
+            <div class="portal-billing-stat">
+              <div class="portal-billing-stat-label"><?php echo $billingOutstanding > 0 ? 'Balance Due' : 'Outstanding'; ?></div>
+              <div class="portal-billing-stat-value <?php echo $billingOutstanding > 0 ? 'portal-billing-due' : 'portal-billing-muted'; ?>">
+                $<?php echo number_format($billingOutstanding, 2); ?>
+              </div>
+            </div>
+            <?php if ($clientCreditBalance !== null): ?>
+            <div class="portal-billing-stat portal-billing-stat-credit">
+              <div class="portal-billing-stat-label">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4"/><path d="M4 6v12c0 1.1.9 2 2 2h14v-4"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg>
+                Prepaid Credit
+              </div>
+              <div class="portal-billing-stat-value portal-billing-credit-value">$<?php echo number_format($clientCreditBalance, 2); ?></div>
+              <div class="portal-billing-stat-sub">Applied automatically to future invoices</div>
+            </div>
+            <?php endif; ?>
           </div>
-          <?php if ($clientCreditBalance !== null): ?>
-          <div class="portal-billing-divider"></div>
-          <div class="portal-billing-stat">
-            <div class="portal-billing-stat-label">Prepaid Credit</div>
-            <div class="portal-billing-stat-value portal-billing-paid">$<?php echo number_format($clientCreditBalance, 2); ?></div>
-          </div>
-          <?php endif; ?>
         </div>
       <?php endif; ?>
 
