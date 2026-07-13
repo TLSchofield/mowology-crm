@@ -1203,6 +1203,11 @@ if ($action === 'view_contact' && $clientId) {
 
             $runningBal = 0.0;
             foreach ($sortedInvoices as $inv) {
+                // Cancelled invoices represent no real financial event — exclude
+                // them from the statement so voided/duplicate bills don't inflate
+                // "total charged" or the running balance.
+                if (($inv['status'] ?? '') === 'cancelled') { continue; }
+
                 // Charge row
                 $charge = floatval($inv['total'] ?? 0);
                 $runningBal += $charge;

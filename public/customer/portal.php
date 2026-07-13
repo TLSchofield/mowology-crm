@@ -138,6 +138,7 @@ if ($contact && !$error) {
     $billingTotalPaid    = 0.0;
     $billingOutstanding  = 0.0;
     foreach ($invoices as $inv) {
+        if ($inv['status'] === 'cancelled') { continue; }
         $billingTotalCharged += floatval($inv['total_amount'] ?? 0);
         $billingTotalPaid    += floatval($inv['amount_paid'] ?? 0);
         if (in_array($inv['status'], ['sent', 'viewed', 'partial', 'overdue'])) {
