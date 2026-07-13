@@ -79,6 +79,8 @@ if (!$error && $contact) {
                 p.city            AS property_city,
                 p.province        AS property_province,
                 p.postal_code     AS property_postal,
+                p.latitude        AS property_lat,
+                p.longitude       AS property_lng,
                 p.site_contact_id
             FROM job_visits jv
             JOIN job_plans jp  ON jp.id = jv.plan_id
@@ -438,7 +440,11 @@ $pageTitle  = 'Service Visit Report' . ($visit ? ' — ' . $visitDate : '');
         <div id="pvr-map"
              class="pvr-gps-img"
              data-pings="<?php echo htmlspecialchars($pingLatLngs, ENT_QUOTES); ?>"
-             data-arrival="<?php echo htmlspecialchars($arrivalTime ?? ''); ?>">
+             data-arrival="<?php echo htmlspecialchars($arrivalTime ?? ''); ?>"
+             <?php if (!empty($visit['property_lat']) && !empty($visit['property_lng'])): ?>
+             data-property-lat="<?php echo htmlspecialchars((string)$visit['property_lat']); ?>"
+             data-property-lng="<?php echo htmlspecialchars((string)$visit['property_lng']); ?>"
+             <?php endif; ?>>
         </div>
       <?php elseif ($gmapUrl): ?>
         <img src="<?php echo htmlspecialchars($gmapUrl); ?>"
@@ -697,13 +703,34 @@ $pageTitle  = 'Service Visit Report' . ($visit ? ' — ' . $visitDate : '');
     L.marker(latlngs[0], { icon: icon, interactive: false }).addTo(map);
   }
 
-  // Always zoom 19 (house-number level), centre on centroid of all pings
-  var sumLat = 0, sumLng = 0;
-  latlngs.forEach(function(p) { sumLat += p[0]; sumLng += p[1]; });
-  map.setView([sumLat / latlngs.length, sumLng / latlngs.length], 19);
+  // Always zoom 19 (house-number level). Centre on the property's actual
+  // geocoded address when we have it — GPS pings drift and cluster unevenly
+  // (e.g. extra stationary pings near the parking/start spot), so centering
+  // on ping data (mean or bounding box) still visually shoves the real
+  // property to one side of the frame. Fall back to the pings' bounding-box
+  // midpoint only if the property has no geocoded coordinates.
+  var center;
+  if (el.dataset.propertyLat && el.dataset.propertyLng) {
+    center = [parseFloat(el.dataset.propertyLat), parseFloat(el.dataset.propertyLng)];
+  } else {
+    var lats = latlngs.map(function(p) { return p[0]; });
+    var lngs = latlngs.map(function(p) { return p[1]; });
+    center = [
+      (Math.min.apply(null, lats) + Math.max.apply(null, lats)) / 2,
+      (Math.min.apply(null, lngs) + Math.max.apply(null, lngs)) / 2
+    ];
+  }
+  map.setView(center, 19);
 
+  // The map container's real width/height isn't settled yet at this point
+  // (still mid-reflow), so the setView above is computed against a stale
+  // size and drifts off-centre once the container reaches its final width.
+  // Re-apply the same centre AFTER invalidateSize() picks up the real size.
   requestAnimationFrame(function() {
-    setTimeout(function() { map.invalidateSize(true); }, 80);
+    setTimeout(function() {
+      map.invalidateSize(true);
+      map.setView(center, 19);
+    }, 80);
   });
 })();
 </script>
