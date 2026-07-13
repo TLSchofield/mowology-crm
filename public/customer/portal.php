@@ -193,7 +193,8 @@ if ($contact && !$error) {
             SELECT jv.id, jv.visit_number, jv.scheduled_date, jv.status,
                    jv.completed_at, jv.actual_duration_minutes, jv.actual_amount,
                    jp.title AS service_name, jp.service_type,
-                   p.address AS property_address
+                   p.address AS property_address,
+                   p.latitude AS property_lat, p.longitude AS property_lng
             FROM job_visits jv
             JOIN job_plans jp ON jv.plan_id = jp.id
             JOIN properties p ON jp.property_id = p.id
@@ -694,7 +695,11 @@ function statusBadge(string $status, bool $overdue = false): string {
                        id="vmap-<?php echo (int)$v['id']; ?>"
                        data-pings="<?php echo htmlspecialchars($pingJson, ENT_QUOTES); ?>"
                        data-start="<?php echo htmlspecialchars($startTime); ?>"
-                       data-count="<?php echo $pingCount; ?>">
+                       data-count="<?php echo $pingCount; ?>"
+                       <?php if (!empty($v['property_lat']) && !empty($v['property_lng'])): ?>
+                       data-property-lat="<?php echo htmlspecialchars((string)$v['property_lat']); ?>"
+                       data-property-lng="<?php echo htmlspecialchars((string)$v['property_lng']); ?>"
+                       <?php endif; ?>>
                   </div>
                 <?php endif; ?>
               </div>
@@ -901,18 +906,26 @@ function mwRebookVisit(visitId, serviceLabel) {
       L.marker(latlngs[0], { icon: icon, interactive: false }).addTo(map);
     }
 
-    // Centre on the pings' bounding-box midpoint (not the arithmetic mean —
-    // a plain average skews toward wherever pings happened to cluster, e.g.
-    // extra stationary pings near the parking/start spot, which visually
-    // shoves the property to one side of the frame). Bounding-box centre
-    // reflects the actual spatial extent regardless of ping density.
+    // Centre on the property's actual geocoded address when we have it — GPS
+    // pings drift with signal noise and cluster unevenly (e.g. extra
+    // stationary pings near the parking/start spot), so centering on them
+    // visually shoves the real property to one side of the frame. The
+    // property's address coordinates are the authoritative "where this is,"
+    // regardless of how the crew's pings happened to fall.
+    // Fall back to the pings' bounding-box midpoint (not the arithmetic mean,
+    // same reasoning) only if the property has no geocoded coordinates.
     // Zoom stays fixed at 19 for house-number detail.
-    var lats = latlngs.map(function(p) { return p[0]; });
-    var lngs = latlngs.map(function(p) { return p[1]; });
-    var center = [
-      (Math.min.apply(null, lats) + Math.max.apply(null, lats)) / 2,
-      (Math.min.apply(null, lngs) + Math.max.apply(null, lngs)) / 2
-    ];
+    var center;
+    if (el.dataset.propertyLat && el.dataset.propertyLng) {
+      center = [parseFloat(el.dataset.propertyLat), parseFloat(el.dataset.propertyLng)];
+    } else {
+      var lats = latlngs.map(function(p) { return p[0]; });
+      var lngs = latlngs.map(function(p) { return p[1]; });
+      center = [
+        (Math.min.apply(null, lats) + Math.max.apply(null, lats)) / 2,
+        (Math.min.apply(null, lngs) + Math.max.apply(null, lngs)) / 2
+      ];
+    }
     map.setView(center, 19);
 
     // The map container's real width/height isn't settled yet at this point
