@@ -147,6 +147,13 @@ try {
         LEFT JOIN contacts  bc ON bc.id = COALESCE(cb.billing_contact_id, co.billing_contact_id)
         WHERE c.status        = 'active'
           AND c.billing_cycle = 'monthly'
+          -- A contract with no active service plan has no real work behind a flat
+          -- monthly charge — billing it here would duplicate whatever per-visit
+          -- invoicing its plan(s) generate once set up. (Root-caused a real
+          -- incident: a plan-less contract auto-billed a phantom flat invoice
+          -- with no linked plan/visit, on top of a prepayment the client had
+          -- already made.)
+          AND EXISTS (SELECT 1 FROM job_plans jp WHERE jp.contract_id = c.id AND jp.status = 'active')
         GROUP BY c.id
         ORDER BY c.id ASC
     ");

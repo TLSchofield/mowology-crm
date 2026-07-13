@@ -213,6 +213,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         }
     }
 
+    if ($action === 'apply_client_credit') {
+        if (!userHasPermission('billing.edit')) {
+            $message     = 'You do not have permission to record payments.';
+            $messageType = 'danger';
+        } else {
+            require_once APP_ROOT . '/Modules/Accounting/Services/ClientCreditService.php';
+            try {
+                $creditSvc = new ClientCreditService($db);
+                $result    = $creditSvc->applyToInvoice($invoiceId, (int)$user['id']);
+
+                trackFieldChange('invoice', $invoiceId, 'status', $result['old_status'], $result['invoice_status'], $user['id']);
+                trackFieldChange('invoice', $invoiceId, 'amount_paid', (string)$result['old_amount_paid'], (string)($result['old_amount_paid'] + $result['applied']), $user['id']);
+                trackFieldChange('invoice', $invoiceId, 'balance_due', (string)$result['old_balance_due'], (string)$result['invoice_balance_due'], $user['id']);
+                logActivityExtended($user['id'], 'Client credit applied',
+                    'Applied ' . formatCurrency($result['applied']) . ' from prepaid credit (remaining: ' . formatCurrency($result['remaining_credit']) . ')',
+                    null, null, null, $invoiceId);
+
+                $invoice['status']      = $result['invoice_status'];
+                $invoice['balance_due'] = $result['invoice_balance_due'];
+                $invoice['amount_paid'] = $result['old_amount_paid'] + $result['applied'];
+
+                $message     = 'Applied ' . formatCurrency($result['applied']) . ' from client credit. Remaining balance: ' . formatCurrency($result['remaining_credit']) . '.';
+                $messageType = 'success';
+            } catch (RuntimeException $e) {
+                $message     = $e->getMessage();
+                $messageType = 'warning';
+            } catch (Throwable $e) {
+                error_log('apply_client_credit error for invoice ' . $invoiceId . ': ' . $e->getMessage());
+                $message     = 'Could not apply credit. Please try again.';
+                $messageType = 'danger';
+            }
+        }
+    }
+
     if ($action === 'send') {
         // Load recipients FIRST — status only updates if emails actually go out.
         // Fall back to the contact's live email when the invoice_contacts snapshot
@@ -633,6 +667,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
 
 $csrfToken = generateCSRFToken();
 
+// Client prepaid credit available for this invoice's resolved client, if any.
+$invoiceCreditBalance = 0.0;
+if (!in_array($invoice['status'], ['paid', 'cancelled'], true)) {
+    require_once APP_ROOT . '/Modules/Accounting/Services/ClientCreditService.php';
+    $invoiceCreditBalance = (new ClientCreditService($db))->getBalanceForInvoiceClient($invoiceId)['balance'];
+}
+
 // Check for success messages
 if (!$message && isset($_GET['created'])) {
     $message = 'Invoice created successfully!';
@@ -748,6 +789,16 @@ $extraHead = $isPayable
                       <button type="button" class="btn btn-success" onclick="openPaymentModal()">
                           <i data-feather="check-circle" class="mr-1"></i> Record Payment
                       </button>
+                      <?php if ($invoiceCreditBalance > 0 && userHasPermission('billing.edit')): ?>
+                          <form method="POST" class="d-inline"
+                                onsubmit="return confirm('Apply up to <?php echo h(formatCurrency(min($invoiceCreditBalance, (float)$invoice['balance_due']))); ?> from this client\'s prepaid credit to this invoice?');">
+                              <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                              <input type="hidden" name="action" value="apply_client_credit">
+                              <button type="submit" class="btn btn-outline-success" title="Available client credit: <?php echo h(formatCurrency($invoiceCreditBalance)); ?>">
+                                  <i data-feather="gift" class="mr-1"></i> Apply Client Credit (<?php echo h(formatCurrency($invoiceCreditBalance)); ?> available)
+                              </button>
+                          </form>
+                      <?php endif; ?>
                   <?php endif; ?>
               </div>
           </div>
@@ -1106,13 +1157,87 @@ $extraHead = $isPayable
                       </div>
                   </div>
 
-                  <!-- Engagement Tracking -->
-                  <?php if ($invoice['status'] !== 'draft'): ?>
+                  <!-- Engagement & Activity (merged) -->
+                  <?php
+                  // ── Build one unified, newest-first event feed ──────────────────
+                  // Lifecycle events come from the invoices columns (reliable dots +
+                  // timestamps); the actor for each is resolved from activity_log
+                  // (which is the only place that records *who*). Any activity_log
+                  // row that isn't a lifecycle event (edits, cancels, manual notes)
+                  // is appended so nothing is lost.
+                  $findActor = function (array $match, array $exclude = []) use ($activities) {
+                      foreach ($activities as $a) {
+                          $act = $a['action'] ?? '';
+                          foreach ($exclude as $x) { if (stripos($act, $x) !== false) { continue 2; } }
+                          foreach ($match as $m) {
+                              if (stripos($act, $m) !== false) {
+                                  return $a['full_name'] ?: 'System';
+                              }
+                          }
+                      }
+                      return null;
+                  };
+
+                  $feed = [];
+                  $addEvent = function ($ts, $label, $actor, $dot) use (&$feed) {
+                      if (empty($ts)) { return; }
+                      $feed[] = [
+                          'ts'    => strtotime($ts),
+                          'label' => $label,
+                          'actor' => $actor ?: 'System',
+                          'dot'   => $dot,
+                      ];
+                  };
+
+                  $addEvent($invoice['created_at'] ?? null, 'Invoice created',
+                            $findActor(['created']) ?? ($invoice['created_by_name'] ?? null), 'mw-dot-created');
+                  $addEvent($invoice['sent_at'] ?? null, 'Sent to customer',
+                            $findActor(['sent'], ['resent']), 'mw-dot-sent');
+                  $addEvent($invoice['email_opened_at'] ?? null, 'Email opened', 'Customer', 'mw-dot-opened');
+                  if (!empty($invoice['viewed_at'])) {
+                      $vc = (int)($invoice['view_count'] ?? 0);
+                      $addEvent($invoice['last_viewed_at'] ?: $invoice['viewed_at'],
+                                'Viewed in portal' . ($vc > 1 ? ' (' . $vc . ' times)' : ''),
+                                'Customer', 'mw-dot-viewed');
+                  }
+                  if ((int)($invoice['resend_count'] ?? 0) > 0 && !empty($invoice['last_resent_at'])) {
+                      $rc = (int)$invoice['resend_count'];
+                      $addEvent($invoice['last_resent_at'], 'Resent by crew (' . $rc . ' time' . ($rc == 1 ? '' : 's') . ')',
+                                $findActor(['resent']), 'mw-dot-sent');
+                  }
+                  if (!empty($invoice['last_reminder_sent_at'])) {
+                      $addEvent($invoice['last_reminder_sent_at'],
+                                'Auto-reminder sent (' . (int)$invoice['reminder_count'] . ' total)',
+                                'System', 'mw-dot-reminder');
+                  }
+                  $addEvent($invoice['paid_at'] ?? null, 'Payment received',
+                            $findActor(['payment', 'paid']), 'mw-dot-paid');
+
+                  // Append non-lifecycle activity_log rows (edits, cancels, notes…).
+                  $lifecycleKeywords = ['created', 'sent', 'opened', 'viewed', 'reminder', 'paid', 'payment'];
+                  foreach ($activities as $a) {
+                      $act = $a['action'] ?? '';
+                      $isLifecycle = false;
+                      foreach ($lifecycleKeywords as $kw) { if (stripos($act, $kw) !== false) { $isLifecycle = true; break; } }
+                      if ($isLifecycle) { continue; }
+                      $feed[] = [
+                          'ts'    => strtotime($a['created_at']),
+                          'label' => $act,
+                          'actor' => $a['full_name'] ?: 'System',
+                          'dot'   => 'mw-dot-created',
+                      ];
+                  }
+
+                  // Newest first.
+                  usort($feed, function ($x, $y) { return $y['ts'] <=> $x['ts']; });
+                  $isDraft = ($invoice['status'] === 'draft');
+                  ?>
                   <div class="card">
                       <div class="card-header">
-                          <h5 class="card-title mb-0"><i data-feather="activity" style="width:16px;height:16px;margin-right:4px;vertical-align:middle;"></i> Engagement</h5>
+                          <h5 class="card-title mb-0"><i data-feather="activity" style="width:16px;height:16px;margin-right:4px;vertical-align:middle;"></i> Engagement &amp; activity</h5>
                       </div>
                       <div class="card-body">
+                          <?php if (!$isDraft): ?>
                           <div class="mw-tracking-stats">
                               <div class="mw-tracking-stat">
                                   <div class="mw-tracking-stat-value"><?php echo (int)($invoice['view_count'] ?? 0); ?></div>
@@ -1137,110 +1262,22 @@ $extraHead = $isPayable
                                   <div class="mw-tracking-stat-label">Reminders</div>
                               </div>
                           </div>
+                          <?php endif; ?>
 
+                          <?php if (!empty($feed)): ?>
                           <div class="mw-tracking-timeline">
-                              <?php if (!empty($invoice['created_at'])): ?>
+                              <?php foreach ($feed as $ev): ?>
                               <div class="mw-timeline-item">
-                                  <div class="mw-timeline-dot mw-dot-created"></div>
+                                  <div class="mw-timeline-dot <?php echo $ev['dot']; ?>"></div>
                                   <div class="mw-timeline-content">
-                                      <div class="mw-timeline-label">Invoice created</div>
-                                      <div class="mw-timeline-time"><?php echo formatDateTime($invoice['created_at'], 'M j, Y g:i A'); ?></div>
+                                      <div class="mw-timeline-label"><?php echo htmlspecialchars($ev['label']); ?></div>
+                                      <div class="mw-timeline-time"><?php echo htmlspecialchars($ev['actor']); ?> &middot; <?php echo formatDateTime(date('Y-m-d H:i:s', $ev['ts']), 'M j, Y g:i A'); ?></div>
                                   </div>
                               </div>
-                              <?php endif; ?>
-
-                              <?php if (!empty($invoice['sent_at'])): ?>
-                              <div class="mw-timeline-item">
-                                  <div class="mw-timeline-dot mw-dot-sent"></div>
-                                  <div class="mw-timeline-content">
-                                      <div class="mw-timeline-label">Sent to customer</div>
-                                      <div class="mw-timeline-time"><?php echo formatDateTime($invoice['sent_at'], 'M j, Y g:i A'); ?></div>
-                                  </div>
-                              </div>
-                              <?php endif; ?>
-
-                              <?php if (!empty($invoice['email_opened_at'])): ?>
-                              <div class="mw-timeline-item">
-                                  <div class="mw-timeline-dot mw-dot-opened"></div>
-                                  <div class="mw-timeline-content">
-                                      <div class="mw-timeline-label">Email opened</div>
-                                      <div class="mw-timeline-time"><?php echo formatDateTime($invoice['email_opened_at'], 'M j, Y g:i A'); ?></div>
-                                  </div>
-                              </div>
-                              <?php endif; ?>
-
-                              <?php if (!empty($invoice['viewed_at'])): ?>
-                              <div class="mw-timeline-item">
-                                  <div class="mw-timeline-dot mw-dot-viewed"></div>
-                                  <div class="mw-timeline-content">
-                                      <div class="mw-timeline-label">Viewed in portal<?php echo ((int)($invoice['view_count'] ?? 0)) > 1 ? ' (' . $invoice['view_count'] . ' times)' : ''; ?></div>
-                                      <div class="mw-timeline-time">
-                                          First: <?php echo formatDateTime($invoice['viewed_at'], 'M j, Y g:i A'); ?>
-                                          <?php if (!empty($invoice['last_viewed_at']) && $invoice['last_viewed_at'] !== $invoice['viewed_at']): ?>
-                                              <br>Last: <?php echo formatDateTime($invoice['last_viewed_at'], 'M j, Y g:i A'); ?>
-                                          <?php endif; ?>
-                                      </div>
-                                  </div>
-                              </div>
-                              <?php endif; ?>
-
-                              <?php if ((int)($invoice['resend_count'] ?? 0) > 0 && !empty($invoice['last_resent_at'])): ?>
-                              <div class="mw-timeline-item">
-                                  <div class="mw-timeline-dot mw-dot-sent"></div>
-                                  <div class="mw-timeline-content">
-                                      <div class="mw-timeline-label">
-                                          Resent by crew
-                                          (<?php echo (int)$invoice['resend_count']; ?> time<?php echo $invoice['resend_count'] == 1 ? '' : 's'; ?>)
-                                      </div>
-                                      <div class="mw-timeline-time">Last: <?php echo formatDateTime($invoice['last_resent_at'], 'M j, Y g:i A'); ?></div>
-                                  </div>
-                              </div>
-                              <?php endif; ?>
-
-                              <?php if (!empty($invoice['last_reminder_sent_at'])): ?>
-                              <div class="mw-timeline-item">
-                                  <div class="mw-timeline-dot mw-dot-reminder"></div>
-                                  <div class="mw-timeline-content">
-                                      <div class="mw-timeline-label">Auto-reminder sent (<?php echo (int)$invoice['reminder_count']; ?> total)</div>
-                                      <div class="mw-timeline-time"><?php echo formatDateTime($invoice['last_reminder_sent_at'], 'M j, Y g:i A'); ?></div>
-                                  </div>
-                              </div>
-                              <?php endif; ?>
-
-                              <?php if (!empty($invoice['paid_at'])): ?>
-                              <div class="mw-timeline-item">
-                                  <div class="mw-timeline-dot mw-dot-paid"></div>
-                                  <div class="mw-timeline-content">
-                                      <div class="mw-timeline-label">Payment received</div>
-                                      <div class="mw-timeline-time"><?php echo formatDateTime($invoice['paid_at'], 'M j, Y g:i A'); ?></div>
-                                  </div>
-                              </div>
-                              <?php endif; ?>
+                              <?php endforeach; ?>
                           </div>
-                      </div>
-                  </div>
-                  <?php endif; ?>
-
-                  <!-- Activity -->
-                  <div class="card">
-                      <div class="card-header">
-                          <h5 class="card-title mb-0">Activity</h5>
-                      </div>
-                      <div class="card-body">
-                          <?php if (empty($activities)): ?>
-                              <p class="text-muted mb-0" style="font-size: 14px;">No activity recorded yet.</p>
                           <?php else: ?>
-                              <ul class="mw-activity-list">
-                                  <?php foreach ($activities as $activity): ?>
-                                      <li class="mw-activity-item">
-                                          <div><?php echo htmlspecialchars($activity['action']); ?></div>
-                                          <div class="mw-activity-time">
-                                              <?php echo htmlspecialchars($activity['full_name'] ?? 'System'); ?> -
-                                              <?php echo formatDateTime($activity['created_at']); ?>
-                                          </div>
-                                      </li>
-                                  <?php endforeach; ?>
-                              </ul>
+                          <p class="text-muted mb-0" style="font-size: 14px;">No activity recorded yet.</p>
                           <?php endif; ?>
                       </div>
                   </div>

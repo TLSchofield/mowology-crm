@@ -145,6 +145,23 @@ if ($contact && !$error) {
         }
     }
 
+    // Prepaid credit balance, if this contact is linked to a client with any ledger activity.
+    $clientCreditBalance = null;
+    try {
+        $clStmt = $db->prepare("SELECT id FROM clients WHERE legacy_contact_id = ? LIMIT 1");
+        $clStmt->execute([$contact['id']]);
+        $clientIdForCredit = $clStmt->fetchColumn();
+        if ($clientIdForCredit) {
+            require_once APP_ROOT . '/Modules/Accounting/Services/ClientCreditService.php';
+            $creditBal = (new ClientCreditService($db))->getBalance((int)$clientIdForCredit);
+            if ($creditBal > 0) {
+                $clientCreditBalance = $creditBal;
+            }
+        }
+    } catch (Exception $e) {
+        $clientCreditBalance = null;
+    }
+
     // Upcoming visits: scheduled or in-progress, today onwards
     $upcomingVisits = [];
     try {
@@ -445,6 +462,13 @@ function statusBadge(string $status, bool $overdue = false): string {
               $<?php echo number_format($billingOutstanding, 2); ?>
             </div>
           </div>
+          <?php if ($clientCreditBalance !== null): ?>
+          <div class="portal-billing-divider"></div>
+          <div class="portal-billing-stat">
+            <div class="portal-billing-stat-label">Prepaid Credit</div>
+            <div class="portal-billing-stat-value portal-billing-paid">$<?php echo number_format($clientCreditBalance, 2); ?></div>
+          </div>
+          <?php endif; ?>
         </div>
       <?php endif; ?>
 
