@@ -901,16 +901,25 @@ function mwRebookVisit(visitId, serviceLabel) {
       L.marker(latlngs[0], { icon: icon, interactive: false }).addTo(map);
     }
 
-    // Centre on ping centroid, zoom 19 for house-number detail.
-    // The map container's real width/height isn't settled yet at this point
-    // (still inside the card's flex/grid layout reflow), so Leaflet's initial
-    // setView is computed against a stale size and drifts off-centre once the
-    // container reaches its final width. Re-apply the same centre AFTER
-    // invalidateSize() has picked up the real dimensions.
-    var sLat = 0, sLng = 0;
-    latlngs.forEach(function(p) { sLat += p[0]; sLng += p[1]; });
-    var center = [sLat / latlngs.length, sLng / latlngs.length];
+    // Centre on the pings' bounding-box midpoint (not the arithmetic mean —
+    // a plain average skews toward wherever pings happened to cluster, e.g.
+    // extra stationary pings near the parking/start spot, which visually
+    // shoves the property to one side of the frame). Bounding-box centre
+    // reflects the actual spatial extent regardless of ping density.
+    // Zoom stays fixed at 19 for house-number detail.
+    var lats = latlngs.map(function(p) { return p[0]; });
+    var lngs = latlngs.map(function(p) { return p[1]; });
+    var center = [
+      (Math.min.apply(null, lats) + Math.max.apply(null, lats)) / 2,
+      (Math.min.apply(null, lngs) + Math.max.apply(null, lngs)) / 2
+    ];
     map.setView(center, 19);
+
+    // The map container's real width/height isn't settled yet at this point
+    // (still inside the card's flex/grid layout reflow), so the initial
+    // setView above is computed against a stale size and drifts off-centre
+    // once the container reaches its final width. Re-apply the same centre
+    // AFTER invalidateSize() has picked up the real dimensions.
 
     requestAnimationFrame(function() {
       setTimeout(function() {
