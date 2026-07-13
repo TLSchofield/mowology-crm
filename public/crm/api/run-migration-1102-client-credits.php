@@ -38,8 +38,8 @@ try {
                 created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 INDEX idx_cc_client (client_id),
                 INDEX idx_cc_invoice (invoice_id),
-                CONSTRAINT fk_cc_client  FOREIGN KEY (client_id)  REFERENCES clients(id)  ON DELETE CASCADE,
-                CONSTRAINT fk_cc_invoice FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE SET NULL
+                CONSTRAINT fk_client_credits_client_id  FOREIGN KEY (client_id)  REFERENCES clients(id)  ON DELETE CASCADE,
+                CONSTRAINT fk_client_credits_invoice_id FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE SET NULL
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
         ");
         $done['client_credits'] = 'created';
