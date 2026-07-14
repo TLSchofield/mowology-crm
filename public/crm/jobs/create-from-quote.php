@@ -96,13 +96,17 @@ if (!$contactName) {
     $contactName = $quote['company_name'] ?? 'Unknown';
 }
 
-// Load contract's invoice_timing so plans inherit it
+// Load contract's invoice_timing + billing_cycle so plans inherit them
 $contractInvoiceTiming = 'after_visit';
+$contractBillingCycle  = null;
 if ($contractId) {
-    $cStmt = $db->prepare("SELECT invoice_timing FROM contracts WHERE id = ?");
+    $cStmt = $db->prepare("SELECT invoice_timing, billing_cycle FROM contracts WHERE id = ?");
     $cStmt->execute([$contractId]);
     $ctr = $cStmt->fetch(PDO::FETCH_ASSOC);
-    if ($ctr) $contractInvoiceTiming = $ctr['invoice_timing'] ?? 'after_visit';
+    if ($ctr) {
+        $contractInvoiceTiming = $ctr['invoice_timing'] ?? 'after_visit';
+        $contractBillingCycle  = $ctr['billing_cycle'] ?? null;
+    }
 }
 
 // Get staff for crew dropdown
@@ -294,7 +298,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
             'recurrence_day_of_week'   => $recurrenceDow,
             'plan_start_date'          => $planStartDate,
             'plan_end_date'            => $planEndDate,
-            'pricing_model'            => 'per_visit',
+            'pricing_model'            => (function () use ($contractId, $contractBillingCycle) {
+                if (!$contractId || !$contractBillingCycle || $contractBillingCycle === 'per_visit') {
+                    return 'per_visit';
+                }
+                // contracts.billing_cycle ENUM('monthly','per_visit','seasonal','annual','custom')
+                // maps onto job_plans.pricing_model ENUM('per_visit','monthly_flat','seasonal','custom')
+                return match ($contractBillingCycle) {
+                    'monthly'  => 'monthly_flat',
+                    'seasonal' => 'seasonal',
+                    default    => 'custom',
+                };
+            })(),
             'invoice_timing'           => $contractInvoiceTiming,
             'default_crew_id'          => $defaultCrewId,
             'estimated_duration_minutes' => $estimatedDuration,

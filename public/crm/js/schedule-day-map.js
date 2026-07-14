@@ -1058,10 +1058,10 @@ var MwDayViewMap = (function() {
             if (data.success) {
                 onSuccess(data);
             } else {
-                onError(data.error || 'An error occurred.');
+                onError(data.error || 'An error occurred.', data.code || null);
             }
         })
-        .catch(function(err) { onError('Network error. Please try again.'); });
+        .catch(function(err) { onError('Network error. Please try again.', null); });
     }
 
     function setCardDoneState(card, invoiceId, invoiceNumber, withInvoice) {
@@ -1104,13 +1104,31 @@ var MwDayViewMap = (function() {
         if (!footer) return;
 
         var stopId = card.dataset.stopId || '';
+
+        // Mirror schedule.php's $dvPerVisit gating: hide "Complete & Invoice" if any
+        // visit on this stop is contract-billed or has a non-per_visit pricing_model.
+        var perVisit = true;
+        try {
+            var visits = JSON.parse(card.dataset.visits || '[]');
+            perVisit = visits.every(function (v) {
+                return (v.pricing_model || 'per_visit') === 'per_visit' && !v.is_contract_billed;
+            });
+        } catch (e) { /* malformed/missing data-visits — fall back to showing both */ }
+
         footer.className = 'mw-dv-card-footer mw-dv-footer-pending';
-        footer.innerHTML =
-            '<button class="mw-dv-btn-complete mw-dv-btn-complete-invoice" data-stop-id="' + escapeHtml(stopId) + '" data-invoice="1">'
-            + '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>'
-            + ' Complete &amp; Invoice</button>'
-            + '<button class="mw-dv-btn-complete mw-dv-btn-complete-noinvoice" data-stop-id="' + escapeHtml(stopId) + '" data-invoice="0">'
-            + 'Complete &#8212; No Invoice</button>';
+        if (perVisit) {
+            footer.innerHTML =
+                '<button class="mw-dv-btn-complete mw-dv-btn-complete-invoice" data-stop-id="' + escapeHtml(stopId) + '" data-invoice="1">'
+                + '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>'
+                + ' Complete &amp; Invoice</button>'
+                + '<button class="mw-dv-btn-complete mw-dv-btn-complete-noinvoice" data-stop-id="' + escapeHtml(stopId) + '" data-invoice="0">'
+                + 'Complete &#8212; No Invoice</button>';
+        } else {
+            footer.innerHTML =
+                '<button class="mw-dv-btn-complete mw-dv-btn-complete-noinvoice" data-stop-id="' + escapeHtml(stopId) + '" data-invoice="0">'
+                + '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
+                + ' Complete</button>';
+        }
     }
 
     function escapeHtml(str) {
@@ -1136,7 +1154,15 @@ var MwDayViewMap = (function() {
                 setCardDoneState(card, data.invoice_id, data.invoice_number, withInvoice);
                 showDvToast('Stop marked complete.', 'success');
             },
-            function(errMsg) {
+            function(errMsg, errCode) {
+                if (errCode === 'CONTRACT_BILLED') {
+                    // Visit/stop was still marked complete server-side — just no
+                    // invoice was created. Reflect that instead of leaving the
+                    // buttons in a stale, re-clickable pending state.
+                    setCardDoneState(card, null, null, false);
+                    showDvToast(errMsg, 'info');
+                    return;
+                }
                 btns.forEach(function(b) { b.disabled = false; b.style.opacity = ''; });
                 showDvToast(errMsg, 'error');
             }
@@ -1150,7 +1176,7 @@ var MwDayViewMap = (function() {
                 setCardPendingState(card);
                 showDvToast(isUnskip ? 'Skip undone — stop back on the route.' : 'Stop reopened — marked as scheduled.', 'info');
             },
-            function(errMsg) {
+            function(errMsg, errCode) {
                 showDvToast(errMsg, 'error');
             }
         );

@@ -159,6 +159,21 @@ class InvoiceFromVisitService
             ];
         }
 
+        // Contract-billed plans are invoiced automatically through the contract —
+        // never via a per-visit invoice (mobile app / API path).
+        if (!empty($visit['contract_id'])) {
+            require_once APP_ROOT . '/Modules/Contracts/Services/ContractService.php';
+            $contractSvc = new ContractService($this->db);
+            if ($contractSvc->isPlanContractBilled((int)$visit['plan_id'])) {
+                return [
+                    'success' => false,
+                    'error'   => 'This visit is billed under an active contract, not per-visit. '
+                               . 'No invoice was created — billing happens automatically through the contract.',
+                    'code'    => 'CONTRACT_BILLED',
+                ];
+            }
+        }
+
         // Plan line items
         $lineItems = [];
         if ($visit['plan_id']) {
@@ -244,6 +259,16 @@ class InvoiceFromVisitService
                 $userId,
             ]);
             $invoiceId = (int)$this->db->lastInsertId();
+
+            // Back-link the source visit immediately at creation — NOT only at send().
+            // The day schedule keys "Create Invoice" vs the invoice link off
+            // job_visits.invoice_id. If we waited for send() and the draft was instead
+            // sent from the desktop (view.php, which does no back-link), the visit kept
+            // invoice_id = NULL and the schedule kept asking to invoice an already-
+            // invoiced stop. Setting it here makes the link independent of how/where
+            // the draft is later sent.
+            $this->db->prepare("UPDATE job_visits SET is_invoiced = 1, invoice_id = ? WHERE id = ?")
+               ->execute([$invoiceId, $visitId]);
 
             // Line items
             $liStmt = $this->db->prepare("

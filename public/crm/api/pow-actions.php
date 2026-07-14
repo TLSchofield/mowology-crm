@@ -314,6 +314,24 @@ try {
 
         if ($withInvoice && !empty($completableVisits)) {
             require_once APP_ROOT . '/Services/CrmFunctions.php';
+            require_once APP_ROOT . '/Modules/Contracts/Services/ContractService.php';
+
+            // Contract-billed plans are invoiced automatically through the contract —
+            // never via a per-visit invoice. The stop/visits are already marked
+            // complete above; only invoice creation is blocked here.
+            $contractSvc = new ContractService($db);
+            $stopPlanIds = array_unique(array_map(fn($cv) => (int)($cv['plan_id'] ?? 0), $completableVisits));
+            $billedMap   = $contractSvc->getContractBilledPlanIds($stopPlanIds);
+            if (in_array(true, $billedMap, true)) {
+                echo json_encode([
+                    'success' => false,
+                    'error'   => 'This visit is billed under an active contract, not per-visit. '
+                               . 'It has been marked complete, but no per-visit invoice was created. '
+                               . 'Billing happens automatically through the contract.',
+                    'code'    => 'CONTRACT_BILLED',
+                ]);
+                exit;
+            }
 
             // Idempotency: if any visit already has an invoice (created via a
             // different path), return that invoice instead of creating a duplicate.

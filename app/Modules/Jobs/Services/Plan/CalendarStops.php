@@ -131,8 +131,11 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
             jp.plan_number,
             jp.service_type,
             jp.pricing_model,
+            jp.contract_id,
             jp.price_per_visit,
             jp.estimated_duration_minutes,
+            ctr.status AS contract_status,
+            ctr.billing_cycle AS contract_billing_cycle,
             COALESCE(jv.is_flagged, 0) AS is_flagged,
             COALESCE(ct.has_reviewed, 0) AS contact_has_reviewed
         FROM calendar_stops cs
@@ -143,6 +146,7 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
         LEFT JOIN users u ON cs.crew_id = u.id
         LEFT JOIN job_visits jv ON jv.stop_id = cs.id AND jv.status NOT IN ('cancelled')
         LEFT JOIN job_plans jp ON jv.plan_id = jp.id
+        LEFT JOIN contracts ctr ON jp.contract_id = ctr.id
         WHERE cs.stop_date BETWEEN ? AND ?
     ";
     $params = [$startDate, $endDate];
@@ -328,6 +332,10 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
                 'plan_number'    => $row['plan_number'],
                 'service_type'   => $row['service_type'],
                 'pricing_model'  => $row['pricing_model'] ?? 'per_visit',
+                'contract_id'    => $row['contract_id'] ? (int)$row['contract_id'] : null,
+                'is_contract_billed' => !empty($row['contract_id'])
+                                     && ($row['contract_status'] ?? '') === 'active'
+                                     && ($row['contract_billing_cycle'] ?? '') !== 'per_visit',
                 'price_per_visit' => $row['price_per_visit'],
                 'estimated_duration' => $row['estimated_duration_minutes'],
                 'scheduled_time_start' => $row['scheduled_time_start'],

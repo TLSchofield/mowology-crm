@@ -369,4 +369,90 @@ class ContractServiceTest extends TestCase
         $svc->amendContract(1, 1, 'Rate increase');
         $this->addToAssertionCount(1);
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // isPlanContractBilled / getContractBilledPlanIds
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /** @test */
+    public function is_plan_contract_billed_false_for_invalid_plan_id(): void
+    {
+        $db = $this->createMock(PDO::class);
+        $db->expects($this->never())->method('prepare');
+
+        $svc = new ContractService($db);
+        $this->assertFalse($svc->isPlanContractBilled(0));
+    }
+
+    /** @test */
+    public function is_plan_contract_billed_false_when_no_contract_row(): void
+    {
+        // No contract_id, or the joined contracts row doesn't exist.
+        $db = $this->createMock(PDO::class);
+        $db->method('prepare')->willReturn($this->makeStmt(false));
+
+        $svc = new ContractService($db);
+        $this->assertFalse($svc->isPlanContractBilled(42));
+    }
+
+    /** @test */
+    public function is_plan_contract_billed_true_when_active_and_not_per_visit(): void
+    {
+        $db = $this->createMock(PDO::class);
+        $db->method('prepare')->willReturn($this->makeStmt(['status' => 'active', 'billing_cycle' => 'monthly']));
+
+        $svc = new ContractService($db);
+        $this->assertTrue($svc->isPlanContractBilled(42));
+    }
+
+    /** @test */
+    public function is_plan_contract_billed_false_when_contract_not_active(): void
+    {
+        $db = $this->createMock(PDO::class);
+        $db->method('prepare')->willReturn($this->makeStmt(['status' => 'cancelled', 'billing_cycle' => 'monthly']));
+
+        $svc = new ContractService($db);
+        $this->assertFalse($svc->isPlanContractBilled(42));
+    }
+
+    /** @test */
+    public function is_plan_contract_billed_false_when_contract_billing_cycle_is_per_visit(): void
+    {
+        $db = $this->createMock(PDO::class);
+        $db->method('prepare')->willReturn($this->makeStmt(['status' => 'active', 'billing_cycle' => 'per_visit']));
+
+        $svc = new ContractService($db);
+        $this->assertFalse($svc->isPlanContractBilled(42));
+    }
+
+    /** @test */
+    public function get_contract_billed_plan_ids_returns_empty_for_empty_input(): void
+    {
+        $db = $this->createMock(PDO::class);
+        $db->expects($this->never())->method('prepare');
+
+        $svc = new ContractService($db);
+        $this->assertSame([], $svc->getContractBilledPlanIds([]));
+    }
+
+    /** @test */
+    public function get_contract_billed_plan_ids_returns_mixed_results(): void
+    {
+        $rows = [
+            ['plan_id' => 1, 'status' => 'active', 'billing_cycle' => 'monthly'],
+            ['plan_id' => 3, 'status' => 'cancelled', 'billing_cycle' => 'monthly'],
+        ];
+
+        $db = $this->createMock(PDO::class);
+        $db->method('prepare')->willReturn($this->makeStmt(false, $rows));
+
+        $svc    = new ContractService($db);
+        $result = $svc->getContractBilledPlanIds([1, 2, 3]);
+
+        $this->assertSame([
+            1 => true,   // active, monthly -> contract-billed
+            2 => false,  // no contract row -> not contract-billed
+            3 => false,  // cancelled -> not contract-billed
+        ], $result);
+    }
 }

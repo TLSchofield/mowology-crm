@@ -197,6 +197,7 @@ class VisitLifecycleService
         $stmt = $db->prepare("
             SELECT jv.*, jp.plan_number, jp.title AS plan_title, jp.service_type,
                    jp.property_id, jp.company_id, jp.price_per_visit,
+                   jp.contract_id,
                    jp.quote_id AS plan_quote_id,
                    jp.is_prepaid_bundle, jp.source_bundle_id, jp.bundle_applications_used,
                    jp.checklist_template, jp.photo_types_required,
@@ -540,6 +541,16 @@ class VisitLifecycleService
             $pStmt = $db->prepare("SELECT COUNT(*) FROM visit_photos WHERE visit_id = ?");
             $pStmt->execute([$visitId]);
             $photoCount = (int)$pStmt->fetchColumn();
+        }
+
+        // Contract-billed plans are invoiced automatically through the contract —
+        // never via a per-visit invoice.
+        if (!empty($visit['contract_id'])) {
+            require_once APP_ROOT . '/Modules/Contracts/Services/ContractService.php';
+            $contractSvc = new ContractService($db);
+            if ($contractSvc->isPlanContractBilled((int)$visit['plan_id'])) {
+                $missing[] = 'This visit is billed under an active contract — invoice via the contract, not per-visit.';
+            }
         }
 
         return [

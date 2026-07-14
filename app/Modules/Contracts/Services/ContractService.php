@@ -336,6 +336,66 @@ class ContractService
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // BILLING ELIGIBILITY
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * True if the given job_plan is currently billed under a formal, active
+     * contract (i.e. NOT per-visit). Source of truth is job_plans.contract_id
+     * joined to the live contracts row — NOT job_plans.pricing_model, which
+     * can go stale relative to the contract (e.g. a plan created before the
+     * contract's billing_cycle changed, or before pricing_model was correctly
+     * derived at creation time).
+     *
+     * A plan is contract-billed only while the contract is 'active' and its
+     * billing_cycle isn't itself 'per_visit' — a paused/cancelled contract or
+     * a per-visit-billed contract must allow normal per-visit invoicing.
+     */
+    public function isPlanContractBilled(int $planId): bool
+    {
+        if ($planId < 1) return false;
+
+        $stmt = $this->db->prepare("
+            SELECT c.status, c.billing_cycle
+            FROM job_plans jp
+            JOIN contracts c ON jp.contract_id = c.id
+            WHERE jp.id = ?
+        ");
+        $stmt->execute([$planId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        if (!$row) return false; // no contract_id, or contract row missing
+
+        return $row['status'] === 'active' && $row['billing_cycle'] !== 'per_visit';
+    }
+
+    /**
+     * Batch version of isPlanContractBilled() to avoid N+1 queries.
+     *
+     * @param int[] $planIds
+     * @return array<int,bool> plan_id => is contract-billed
+     */
+    public function getContractBilledPlanIds(array $planIds): array
+    {
+        $planIds = array_values(array_unique(array_filter(array_map('intval', $planIds))));
+        $result  = array_fill_keys($planIds, false);
+        if (!$planIds) return $result;
+
+        $placeholders = implode(',', array_fill(0, count($planIds), '?'));
+        $stmt = $this->db->prepare("
+            SELECT jp.id AS plan_id, c.status, c.billing_cycle
+            FROM job_plans jp
+            JOIN contracts c ON jp.contract_id = c.id
+            WHERE jp.id IN ($placeholders)
+        ");
+        $stmt->execute($planIds);
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $result[(int)$row['plan_id']] = ($row['status'] === 'active' && $row['billing_cycle'] !== 'per_visit');
+        }
+        return $result;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Private helpers
     // ─────────────────────────────────────────────────────────────────────────
 

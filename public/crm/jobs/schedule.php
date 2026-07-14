@@ -2141,6 +2141,8 @@ if ($apiKey) {
                                       'plan_number'  => $v['plan_number'] ?? '',
                                       'service_type' => $v['service_type'] ?? '',
                                       'price'        => (float)($v['price_per_visit'] ?? 0),
+                                      'pricing_model' => $v['pricing_model'] ?? 'per_visit',
+                                      'is_contract_billed' => !empty($v['is_contract_billed']),
                                   ];
                               }
                           }
@@ -2260,7 +2262,9 @@ if ($apiKey) {
                           // Pricing model check applies to both done + pending states.
                           $dvPerVisit = true;
                           foreach ($stop['visits'] ?? [] as $_v) {
-                              if (($_v['pricing_model'] ?? 'per_visit') !== 'per_visit') { $dvPerVisit = false; break; }
+                              if (($_v['pricing_model'] ?? 'per_visit') !== 'per_visit' || !empty($_v['is_contract_billed'])) {
+                                  $dvPerVisit = false; break;
+                              }
                           }
                           ?>
                           <?php if ($dvStopSkipped): ?>
@@ -2352,6 +2356,8 @@ if ($apiKey) {
                                       'plan_number'  => $v['plan_number'] ?? '',
                                       'service_type' => $v['service_type'] ?? '',
                                       'price'        => (float)($v['price_per_visit'] ?? 0),
+                                      'pricing_model' => $v['pricing_model'] ?? 'per_visit',
+                                      'is_contract_billed' => !empty($v['is_contract_billed']),
                                   ];
                               }
                           }
@@ -2432,7 +2438,9 @@ if ($apiKey) {
                           // Pricing model check for done + pending states.
                           $dvPerVisit2 = true;
                           foreach ($stop['visits'] ?? [] as $_v) {
-                              if (($_v['pricing_model'] ?? 'per_visit') !== 'per_visit') { $dvPerVisit2 = false; break; }
+                              if (($_v['pricing_model'] ?? 'per_visit') !== 'per_visit' || !empty($_v['is_contract_billed'])) {
+                                  $dvPerVisit2 = false; break;
+                              }
                           }
                           ?>
                           <?php if ($dvStopDone): ?>
