@@ -34,5 +34,6 @@ require_once $__planDir . '/PlanCrew.php';           // crew assignments + unsch
 require_once $__planDir . '/PlanMaterials.php';      // fertilizer bundles, materials, purchase-task schedule
 require_once $__planDir . '/AdHocVisit.php';         // addAdHocVisit — field "add a visit" flow
 require_once $__planDir . '/NearbyProperties.php';   // findNearbyProperties — field property picker
+require_once $__planDir . '/DayBattleCard.php';      // computeDayBattleCard — single-date battle-card + feasibility
 
 unset($__planDir);

@@ -1,305 +1,316 @@
 /**
  * Schedule Drag-and-Drop Module
  *
- * Enables drag-and-drop functionality for stop cards on the weekly calendar.
- * - Drag stops between day columns to reschedule
- * - Calculates route_order based on drop position within the column
- * - Updates database via /crm/api/reschedule-stop.php
- * - Shows visual feedback (toast messages)
- * - Includes basic touch support for mobile devices
+ * Enables drag-and-drop for stop cards on the weekly calendar, via a single
+ * Pointer Events implementation shared by mouse, touch and pen:
+ * - A live clone of the card follows the pointer for the whole gesture.
+ * - A drop-position indicator line shows exactly where the card will land
+ *   within the target day column.
+ * - On drop, the real card node moves in place (FLIP-animated) and the
+ *   affected day column(s)' summary stats are patched from the API
+ *   response — no page reload.
+ * - Calculates route_order based on drop position within the column.
+ * - Updates the database via /crm/api/reschedule-stop.php.
+ * - Shows visual feedback (toast messages).
+ *
+ * This does NOT touch the separate "tray visit" drag-in feature wired up in
+ * schedule.php (dragging an unscheduled job from the sidebar tray onto a day
+ * column) — that stays on native HTML5 drag-and-drop, on different source
+ * elements (.mw-tray-card), and the two simply don't interact.
  */
 
 (function () {
   'use strict';
 
   // ── State ──────────────────────────────────────────────────────────────
-  let draggedCard = null;
-  let originalDate = null;
-  let originalRouteOrder = null;
+  var DRAG_THRESHOLD = 6; // px of movement before a press becomes a drag
 
-  // Touch-drag state
-  let touchClone = null;
-  let touchStartX = 0;
-  let touchStartY = 0;
-  let touchActive = false;
+  var pressCard = null;      // card under the pointer since pointerdown
+  var pressPointerId = null;
+  var pressStartX = 0;
+  var pressStartY = 0;
+
+  var dragging = false;      // true once the threshold has been exceeded
+  var draggedCard = null;
+  var originalDate = null;
+  var originalRouteOrder = null;
+
+  var cardClone = null;
+  var cloneOffsetX = 0;
+  var cloneOffsetY = 0;
+
+  var dropIndicator = null;  // the insertion-line element, created lazily
+  var currentColumn = null;  // day column currently hovered while dragging
+  var currentBefore = null;  // card the indicator/drop would land before (or null = end)
+  var currentIndex = 0;      // 0-based position among the target column's other cards
 
   // ── Feedback element references ────────────────────────────────────────
-  const feedbackEl = document.getElementById('dragFeedback');
-  const feedbackMsg = document.getElementById('dragMessage');
+  var feedbackEl = document.getElementById('dragFeedback');
+  var feedbackMsg = document.getElementById('dragMessage');
 
   // Tracks the active auto-hide timer so stale timers can be cancelled
-  let autoHideTimer = null;
+  var autoHideTimer = null;
 
   // ── Initialization ─────────────────────────────────────────────────────
 
   /**
    * Initialize (or re-initialize) all drag-and-drop event listeners.
-   * Safe to call multiple times — attaches fresh listeners to current DOM.
+   * Safe to call multiple times — identical listener+function pairs are
+   * de-duplicated by the browser, so re-binding an already-bound card is a
+   * no-op; newly added cards (e.g. injectPlaceholderStop) pick up listeners.
    */
   function initDragAndDrop() {
-    // ── Draggable stop cards ───────────────────────────────────────────
     var stopCards = document.querySelectorAll('.mw-stop-card');
-
     stopCards.forEach(function (card) {
-      // Make sure the card is draggable
-      card.setAttribute('draggable', 'true');
-
-      // Native drag events
-      card.addEventListener('dragstart', handleDragStart);
-      card.addEventListener('dragend', handleDragEnd);
-
-      // Touch events for mobile
-      card.addEventListener('touchstart', handleTouchStart, { passive: false });
-      card.addEventListener('touchmove', handleTouchMove, { passive: false });
-      card.addEventListener('touchend', handleTouchEnd);
-    });
-
-    // ── Drop targets: day columns ──────────────────────────────────────
-    var dayColumns = document.querySelectorAll('.mw-day-column');
-
-    dayColumns.forEach(function (col) {
-      col.addEventListener('dragover', handleDragOver);
-      col.addEventListener('dragenter', handleDragEnter);
-      col.addEventListener('dragleave', handleDragLeave);
-      col.addEventListener('drop', handleDrop);
+      card.addEventListener('pointerdown', handlePointerDown);
     });
   }
 
-  // ── Native Drag Handlers ───────────────────────────────────────────────
+  // ── Pointer Handlers ─────────────────────────────────────────────────────
 
-  /**
-   * Drag start — store stop metadata, apply visual class, set drag image.
-   */
-  function handleDragStart(e) {
-    draggedCard = this;
-    originalDate = this.dataset.stopDate || '';
-    originalRouteOrder = parseInt(this.dataset.routeOrder, 10) || 0;
+  function handlePointerDown(e) {
+    // Only the primary button/touch/pen contact starts a drag.
+    if (e.button !== undefined && e.button !== 0) return;
 
-    this.classList.add('dragging');
+    pressCard = this;
+    pressPointerId = e.pointerId;
+    pressStartX = e.clientX;
+    pressStartY = e.clientY;
+    dragging = false;
 
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', this.dataset.stopId || '');
-
-    // Custom green circle drag image
-    var dragImage = new Image();
-    dragImage.src =
-      'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="40" height="40"%3E' +
-      '%3Ccircle cx="20" cy="20" r="18" fill="%232D8659" opacity="0.85"/%3E%3C/svg%3E';
-    e.dataTransfer.setDragImage(dragImage, 20, 20);
+    document.addEventListener('pointermove', handlePointerMove, { passive: false });
+    document.addEventListener('pointerup', handlePointerUp);
+    document.addEventListener('pointercancel', handlePointerCancel);
   }
 
-  /**
-   * Drag end — clean up classes regardless of whether a drop occurred.
-   */
-  function handleDragEnd() {
-    if (draggedCard) {
-      draggedCard.classList.remove('dragging');
+  function handlePointerMove(e) {
+    if (!pressCard || e.pointerId !== pressPointerId) return;
+
+    if (!dragging) {
+      var dx = e.clientX - pressStartX;
+      var dy = e.clientY - pressStartY;
+      if (Math.sqrt(dx * dx + dy * dy) < DRAG_THRESHOLD) return;
+      startDrag(e);
     }
 
-    // Remove highlight from every column
+    e.preventDefault(); // stop page scroll/selection while actively dragging
+    moveCloneTo(e.clientX, e.clientY);
+    updateDropTarget(e.clientX, e.clientY);
+  }
+
+  function handlePointerUp(e) {
+    if (!pressCard || e.pointerId !== pressPointerId) return;
+    cleanupPointerListeners();
+
+    if (dragging) {
+      finishDrag();
+    }
+    resetPressState();
+  }
+
+  function handlePointerCancel(e) {
+    if (!pressCard || e.pointerId !== pressPointerId) return;
+    cleanupPointerListeners();
+    if (dragging) {
+      cancelDrag();
+    }
+    resetPressState();
+  }
+
+  function cleanupPointerListeners() {
+    document.removeEventListener('pointermove', handlePointerMove);
+    document.removeEventListener('pointerup', handlePointerUp);
+    document.removeEventListener('pointercancel', handlePointerCancel);
+  }
+
+  function resetPressState() {
+    pressCard = null;
+    pressPointerId = null;
+    dragging = false;
+  }
+
+  // ── Drag lifecycle ───────────────────────────────────────────────────────
+
+  /**
+   * Threshold exceeded — commit to a drag. Clones the real card so it can
+   * follow the pointer, and leaves a dashed placeholder in the original slot.
+   */
+  function startDrag(e) {
+    dragging = true;
+    draggedCard = pressCard;
+    originalDate = draggedCard.dataset.stopDate || '';
+    originalRouteOrder = parseInt(draggedCard.dataset.routeOrder, 10) || 0;
+
+    var rect = draggedCard.getBoundingClientRect();
+    cloneOffsetX = pressStartX - rect.left;
+    cloneOffsetY = pressStartY - rect.top;
+
+    cardClone = draggedCard.cloneNode(true);
+    cardClone.classList.add('mw-stop-card-clone');
+    cardClone.classList.remove('dragging');
+    cardClone.style.width = rect.width + 'px';
+    document.body.appendChild(cardClone);
+    moveCloneTo(e.clientX, e.clientY);
+
+    draggedCard.classList.add('dragging');
+
+    currentColumn = resolveColumn(draggedCard);
+    currentBefore = draggedCard.nextElementSibling;
+    currentIndex = originalRouteOrder > 0 ? originalRouteOrder - 1 : 0;
+  }
+
+  function moveCloneTo(clientX, clientY) {
+    if (!cardClone) return;
+    cardClone.style.left = (clientX - cloneOffsetX) + 'px';
+    cardClone.style.top  = (clientY - cloneOffsetY) + 'px';
+  }
+
+  /**
+   * Find the day column + insertion point under the pointer (hiding the
+   * clone momentarily so elementFromPoint sees what's beneath it), and move
+   * the placeholder + indicator line to that spot.
+   */
+  function updateDropTarget(clientX, clientY) {
+    cardClone.style.display = 'none';
+    var el = document.elementFromPoint(clientX, clientY);
+    cardClone.style.display = '';
+
+    var column = resolveColumn(el);
+
     document.querySelectorAll('.mw-day-column.drag-over').forEach(function (col) {
-      col.classList.remove('drag-over');
-    });
-  }
-
-  /**
-   * Drag over — allow drop and keep the column highlighted.
-   */
-  function handleDragOver(e) {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-  }
-
-  /**
-   * Drag enter — add highlight class to the day column.
-   */
-  function handleDragEnter(e) {
-    e.preventDefault();
-
-    // Resolve to the nearest .mw-day-column (in case event fires on a child)
-    var column = resolveColumn(e.target);
-    if (column) {
-      column.classList.add('drag-over');
-    }
-  }
-
-  /**
-   * Drag leave — remove highlight only when the cursor truly exits the column.
-   */
-  function handleDragLeave(e) {
-    var column = resolveColumn(e.target);
-    if (!column) return;
-
-    // Only remove if the relatedTarget is outside this column
-    if (!column.contains(e.relatedTarget)) {
-      column.classList.remove('drag-over');
-    }
-  }
-
-  /**
-   * Drop — determine new date and route_order, then call the API.
-   */
-  function handleDrop(e) {
-    e.preventDefault();
-    e.stopPropagation();
-
-    if (!draggedCard) return;
-
-    var column = resolveColumn(e.target);
-    if (!column) return;
-
-    column.classList.remove('drag-over');
-
-    var newDate = column.dataset.date;
-    if (!newDate) return;
-
-    // Calculate route order from drop Y-position within the column
-    var newRouteOrder = calcRouteOrder(column, e.clientY);
-
-    // If same date and same order, nothing to do
-    if (newDate === originalDate && newRouteOrder === originalRouteOrder) {
-      showFeedback('Stop not moved (same position)', 'warning');
-      return;
-    }
-
-    // Fire the API call
-    rescheduleStop(draggedCard, newDate, newRouteOrder);
-  }
-
-  // ── Touch Handlers (mobile support) ────────────────────────────────────
-
-  /**
-   * Touch start — record origin and prepare for possible drag.
-   * We wait for touchmove to confirm intent (avoids blocking taps/scrolls).
-   */
-  function handleTouchStart(e) {
-    if (e.touches.length !== 1) return;
-
-    var touch = e.touches[0];
-    touchStartX = touch.clientX;
-    touchStartY = touch.clientY;
-
-    draggedCard = this;
-    originalDate = this.dataset.stopDate || '';
-    originalRouteOrder = parseInt(this.dataset.routeOrder, 10) || 0;
-    touchActive = false;
-  }
-
-  /**
-   * Touch move — once the finger moves far enough, start the visual drag.
-   */
-  function handleTouchMove(e) {
-    if (!draggedCard || e.touches.length !== 1) return;
-
-    var touch = e.touches[0];
-    var dx = touch.clientX - touchStartX;
-    var dy = touch.clientY - touchStartY;
-
-    // Require at least 10px movement to start dragging (prevents accidental drags)
-    if (!touchActive && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
-      touchActive = true;
-      draggedCard.classList.add('dragging');
-
-      // Create a semi-transparent clone that follows the finger
-      touchClone = draggedCard.cloneNode(true);
-      touchClone.classList.add('mw-touch-drag-clone');
-      touchClone.style.position = 'fixed';
-      touchClone.style.pointerEvents = 'none';
-      touchClone.style.opacity = '0.75';
-      touchClone.style.zIndex = '9999';
-      touchClone.style.width = draggedCard.offsetWidth + 'px';
-      touchClone.style.transform = 'rotate(2deg)';
-      document.body.appendChild(touchClone);
-    }
-
-    if (!touchActive) return;
-
-    e.preventDefault(); // Prevent scrolling while dragging
-
-    // Position clone under the finger
-    if (touchClone) {
-      touchClone.style.left = (touch.clientX - draggedCard.offsetWidth / 2) + 'px';
-      touchClone.style.top = (touch.clientY - 20) + 'px';
-    }
-
-    // Highlight the column under the finger
-    highlightColumnAtPoint(touch.clientX, touch.clientY);
-  }
-
-  /**
-   * Touch end — if we were dragging, determine the drop target and reschedule.
-   */
-  function handleTouchEnd(e) {
-    // Clean up clone
-    if (touchClone && touchClone.parentNode) {
-      touchClone.parentNode.removeChild(touchClone);
-      touchClone = null;
-    }
-
-    if (!touchActive || !draggedCard) {
-      draggedCard = null;
-      touchActive = false;
-      return;
-    }
-
-    draggedCard.classList.remove('dragging');
-
-    // Find what column is under the last touch point
-    var touch = e.changedTouches[0];
-    var targetEl = document.elementFromPoint(touch.clientX, touch.clientY);
-    var column = targetEl ? targetEl.closest('.mw-day-column') : null;
-
-    // Clear all highlights
-    document.querySelectorAll('.mw-day-column.drag-over').forEach(function (col) {
-      col.classList.remove('drag-over');
+      if (col !== column) col.classList.remove('drag-over');
     });
 
     if (!column) {
-      draggedCard = null;
-      touchActive = false;
+      currentColumn = null;
+      removeDropIndicator();
       return;
     }
 
-    var newDate = column.dataset.date;
+    column.classList.add('drag-over');
+    currentColumn = column;
+
+    var insertion = findInsertionPoint(column, clientY);
+    currentBefore = insertion.before;
+    currentIndex = insertion.index;
+    showDropIndicatorAt(column, insertion.before);
+  }
+
+  /**
+   * Where among a column's existing cards (excluding the dragged one) does
+   * clientY fall? Mirrors the old calcRouteOrder math, but also returns the
+   * sibling to insert before, for both the live indicator and the real drop.
+   */
+  function findInsertionPoint(column, clientY) {
+    var cards = Array.prototype.slice.call(
+      column.querySelectorAll('.mw-stop-card:not(.dragging)')
+    );
+    for (var i = 0; i < cards.length; i++) {
+      var rect = cards[i].getBoundingClientRect();
+      var midY = rect.top + rect.height / 2;
+      if (clientY < midY) {
+        return { index: i, before: cards[i] };
+      }
+    }
+    return { index: cards.length, before: null };
+  }
+
+  function ensureDropIndicator() {
+    if (!dropIndicator) {
+      dropIndicator = document.createElement('div');
+      dropIndicator.className = 'mw-drop-indicator';
+    }
+    return dropIndicator;
+  }
+
+  function showDropIndicatorAt(column, before) {
+    var indicator = ensureDropIndicator();
+    if (before) {
+      column.insertBefore(indicator, before);
+    } else {
+      column.appendChild(indicator);
+    }
+  }
+
+  function removeDropIndicator() {
+    if (dropIndicator && dropIndicator.parentNode) {
+      dropIndicator.parentNode.removeChild(dropIndicator);
+    }
+  }
+
+  /**
+   * Pointer released mid-drag — finalize the drop.
+   */
+  function finishDrag() {
+    removeDropIndicator();
+    document.querySelectorAll('.mw-day-column.drag-over').forEach(function (col) {
+      col.classList.remove('drag-over');
+    });
+    if (cardClone && cardClone.parentNode) cardClone.parentNode.removeChild(cardClone);
+    cardClone = null;
+
+    var card = draggedCard;
+    draggedCard = null;
+
+    if (!currentColumn) {
+      // Dropped outside any column — snap back.
+      card.classList.remove('dragging');
+      return;
+    }
+
+    var newDate = currentColumn.dataset.date;
     if (!newDate) {
-      draggedCard = null;
-      touchActive = false;
+      card.classList.remove('dragging');
       return;
     }
 
-    var newRouteOrder = calcRouteOrder(column, touch.clientY);
+    var newRouteOrder = currentIndex + 1;
 
     if (newDate === originalDate && newRouteOrder === originalRouteOrder) {
+      card.classList.remove('dragging');
       showFeedback('Stop not moved (same position)', 'warning');
-      draggedCard = null;
-      touchActive = false;
       return;
     }
 
-    rescheduleStop(draggedCard, newDate, newRouteOrder);
-    touchActive = false;
+    rescheduleStop(card, currentColumn, currentBefore, newDate, newRouteOrder);
+  }
+
+  /**
+   * Pointer cancelled (e.g. browser gesture interruption) — snap back to
+   * the original spot with no API call.
+   */
+  function cancelDrag() {
+    removeDropIndicator();
+    document.querySelectorAll('.mw-day-column.drag-over').forEach(function (col) {
+      col.classList.remove('drag-over');
+    });
+    if (cardClone && cardClone.parentNode) cardClone.parentNode.removeChild(cardClone);
+    cardClone = null;
+    if (draggedCard) draggedCard.classList.remove('dragging');
+    draggedCard = null;
   }
 
   // ── API Call ───────────────────────────────────────────────────────────
 
   /**
-   * POST to reschedule-stop.php to move a stop to a new date / route order.
+   * POST to reschedule-stop.php, then move the real card node into place
+   * and patch the affected day column(s)' summary stats — no page reload.
    *
-   * @param {HTMLElement} card        The .mw-stop-card element being moved
-   * @param {string}      newDate     Target date (YYYY-MM-DD)
-   * @param {number}      newRouteOrder  Position within the day
+   * @param {HTMLElement} card         The .mw-stop-card element being moved
+   * @param {HTMLElement} targetColumn The .mw-day-column it's dropping into
+   * @param {HTMLElement|null} before  Sibling to insert before (null = append)
+   * @param {string} newDate           Target date (YYYY-MM-DD)
+   * @param {number} newRouteOrder     Position within the day
    */
-  function rescheduleStop(card, newDate, newRouteOrder) {
+  function rescheduleStop(card, targetColumn, before, newDate, newRouteOrder) {
     var stopId = parseInt(card.dataset.stopId, 10);
 
-    // Validate date format
     if (!newDate || !/^\d{4}-\d{2}-\d{2}$/.test(newDate)) {
+      card.classList.remove('dragging');
       showFeedback('Invalid date format: "' + newDate + '"', 'error');
       return;
     }
 
-    // Visual loading state
-    card.style.opacity = '0.5';
     showFeedback('Updating schedule...', 'loading');
 
     var payload = {
@@ -320,7 +331,6 @@
               throw new Error(data.error || 'Server error (' + response.status + ')');
             })
             .catch(function (parseErr) {
-              // If the response body isn't valid JSON, use a generic message
               if (parseErr.message && parseErr.message.indexOf('Server error') === 0) {
                 throw parseErr;
               }
@@ -330,120 +340,87 @@
         return response.json();
       })
       .then(function (data) {
-        // ── Capacity over-limit: show confirm toast, wait for user ──────
         if (data && data.warning) {
-          card.style.opacity = '1';
-          showCapacityWarning(card, newDate, newRouteOrder, data.message);
+          card.classList.remove('dragging');
+          showCapacityWarning(card, targetColumn, before, newDate, newRouteOrder, data.message);
           return;
         }
 
-        // Update the card's data attributes to reflect the new state
-        card.dataset.stopDate = newDate;
-        card.dataset.routeOrder = newRouteOrder;
-        card.style.opacity = '1';
-
-        // Format a friendly date for the toast
-        var dateObj = new Date(newDate + 'T12:00:00'); // noon to avoid timezone shifting
-        var dateStr = dateObj.toLocaleDateString('en-US', {
-          weekday: 'short',
-          month: 'short',
-          day: 'numeric'
-        });
-
-        showFeedback('Stop moved to ' + dateStr + ' (position ' + newRouteOrder + ')', 'success');
-
-        // Reload the page so the calendar re-renders with correct order
-        setTimeout(function () {
-          location.reload();
-        }, 1500);
-
-        draggedCard = null;
+        applyMove(card, targetColumn, before, newDate, newRouteOrder, data);
+        showFeedback('Stop moved to ' + formatFriendlyDate(newDate) + ' (position ' + newRouteOrder + ')', 'success');
       })
       .catch(function (error) {
-        // Restore card appearance
-        card.style.opacity = '1';
-
+        card.classList.remove('dragging');
         var msg = error.message || 'Failed to reschedule stop';
-
-        // Distinguish network errors from API errors
         if (error instanceof TypeError && error.message === 'Failed to fetch') {
           msg = 'Connection error — check your internet and try again';
         }
-
         showFeedback(msg, 'error');
         console.error('Reschedule stop error:', error);
-
-        draggedCard = null;
       });
+  }
+
+  /**
+   * Move the real card DOM node into its new slot (FLIP-animated) and patch
+   * the origin/destination day columns' summary cards from the API response.
+   */
+  function applyMove(card, targetColumn, before, newDate, newRouteOrder, data) {
+    var fromRect = card.getBoundingClientRect();
+
+    if (before) {
+      targetColumn.insertBefore(card, before);
+    } else {
+      targetColumn.appendChild(card);
+    }
+
+    card.classList.remove('dragging');
+    card.dataset.stopDate = newDate;
+    card.dataset.routeOrder = String(newRouteOrder);
+
+    var toRect = card.getBoundingClientRect();
+    var dx = fromRect.left - toRect.left;
+    var dy = fromRect.top - toRect.top;
+    if ((dx || dy) && typeof card.animate === 'function') {
+      card.animate(
+        [{ transform: 'translate(' + dx + 'px,' + dy + 'px)' }, { transform: 'none' }],
+        { duration: 200, easing: 'cubic-bezier(0.32,0.72,0,1)' }
+      );
+    }
+
+    patchDayCards((data && data.day_cards) || {});
+  }
+
+  /**
+   * Replace each affected day column's .mw-dsc summary card with the fresh,
+   * server-rendered fragment returned by reschedule-stop.php.
+   */
+  function patchDayCards(dayCards) {
+    Object.keys(dayCards).forEach(function (date) {
+      var column = document.querySelector('.mw-day-column[data-date="' + date + '"]');
+      if (!column) return;
+      var existing = column.querySelector('.mw-dsc');
+      if (existing) {
+        existing.outerHTML = dayCards[date];
+      } else {
+        column.insertAdjacentHTML('afterbegin', dayCards[date]);
+      }
+    });
+  }
+
+  function formatFriendlyDate(dateStr) {
+    var dateObj = new Date(dateStr + 'T12:00:00'); // noon to avoid timezone shifting
+    return dateObj.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────
 
   /**
    * Walk up from an element to find the nearest .mw-day-column.
-   *
-   * @param  {HTMLElement} el  Any element inside (or being) a day column
-   * @return {HTMLElement|null}
    */
   function resolveColumn(el) {
     if (!el) return null;
     if (el.classList && el.classList.contains('mw-day-column')) return el;
     return el.closest ? el.closest('.mw-day-column') : null;
-  }
-
-  /**
-   * Calculate route_order based on where the card was dropped vertically
-   * within a day column. Looks at existing stop cards in the column and
-   * returns the position the new card should occupy (1-based).
-   *
-   * @param  {HTMLElement} column   The .mw-day-column that received the drop
-   * @param  {number}      clientY  The Y coordinate of the drop point
-   * @return {number}               1-based route order
-   */
-  function calcRouteOrder(column, clientY) {
-    // Get all stop cards currently in this column (excluding the one being dragged)
-    var cards = Array.prototype.slice.call(
-      column.querySelectorAll('.mw-stop-card:not(.dragging)')
-    );
-
-    if (cards.length === 0) {
-      return 1; // First card in an empty column
-    }
-
-    // Walk through the cards and find where the drop Y falls
-    for (var i = 0; i < cards.length; i++) {
-      var rect = cards[i].getBoundingClientRect();
-      var midY = rect.top + rect.height / 2;
-
-      if (clientY < midY) {
-        return i + 1; // Insert before this card
-      }
-    }
-
-    // Dropped below all existing cards
-    return cards.length + 1;
-  }
-
-  /**
-   * During a touch drag, highlight the day column under the given point
-   * and remove highlights from all others.
-   *
-   * @param {number} x  clientX
-   * @param {number} y  clientY
-   */
-  function highlightColumnAtPoint(x, y) {
-    var columns = document.querySelectorAll('.mw-day-column');
-
-    columns.forEach(function (col) {
-      var rect = col.getBoundingClientRect();
-      var inside = (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom);
-
-      if (inside) {
-        col.classList.add('drag-over');
-      } else {
-        col.classList.remove('drag-over');
-      }
-    });
   }
 
   // ── Feedback Toast ─────────────────────────────────────────────────────
@@ -452,10 +429,9 @@
    * Show an amber toast warning about crew capacity with a "Continue" button.
    * If the user confirms, resends the reschedule with force=1.
    */
-  function showCapacityWarning(card, newDate, newRouteOrder, message) {
+  function showCapacityWarning(card, targetColumn, before, newDate, newRouteOrder, message) {
     if (!feedbackEl || !feedbackMsg) return;
 
-    // Cancel any pending auto-hide (e.g. the 'loading' timer) so this warning persists
     clearTimeout(autoHideTimer);
     autoHideTimer = null;
 
@@ -463,7 +439,6 @@
     feedbackEl.className = 'mw-drag-feedback warning';
     feedbackEl.style.display = 'block';
 
-    // Remove any leftover buttons from a previous warning
     feedbackEl.querySelectorAll('.mw-cap-confirm-btn, .mw-cap-cancel-btn').forEach(function (el) { el.remove(); });
 
     var cancelBtn = document.createElement('button');
@@ -473,7 +448,6 @@
     cancelBtn.style.cssText = 'margin-left:8px;padding:2px 10px;font-size:11px;cursor:pointer;background:transparent;color:#fff;border:1px solid rgba(255,255,255,0.4);border-radius:4px;';
     feedbackEl.appendChild(cancelBtn);
 
-    // Inject a "Continue anyway" button (removed after use)
     var btn = document.createElement('button');
     btn.type = 'button';
     btn.textContent = 'Continue anyway';
@@ -485,14 +459,11 @@
       cancelBtn.remove();
       btn.remove();
       feedbackEl.style.display = 'none';
-      draggedCard = null;
     });
 
     btn.addEventListener('click', function () {
       btn.remove();
-      // Re-run reschedule with force flag
       var stopId = parseInt(card.dataset.stopId, 10);
-      card.style.opacity = '0.5';
       showFeedback('Moving stop...', 'loading');
 
       fetch('/crm/api/reschedule-stop.php', {
@@ -507,16 +478,14 @@
       })
         .then(function (r) { return r.json(); })
         .then(function (data) {
-          card.style.opacity = '1';
           if (data && data.success) {
+            applyMove(card, targetColumn, before, newDate, newRouteOrder, data);
             showFeedback('Stop moved (over capacity)', 'success');
-            setTimeout(function () { location.reload(); }, 1500);
           } else {
-            showFeedback(data.error || 'Move failed', 'error');
+            showFeedback((data && data.error) || 'Move failed', 'error');
           }
         })
         .catch(function () {
-          card.style.opacity = '1';
           showFeedback('Connection error', 'error');
         });
     });
@@ -531,11 +500,9 @@
   function showFeedback(message, type) {
     if (!feedbackEl || !feedbackMsg) return;
 
-    // Cancel any previous auto-hide timer before showing new state
     clearTimeout(autoHideTimer);
     autoHideTimer = null;
 
-    // Remove any capacity warning buttons left over from a previous state
     feedbackEl.querySelectorAll('.mw-cap-confirm-btn, .mw-cap-cancel-btn').forEach(function (el) { el.remove(); });
 
     type = type || 'info';
@@ -552,11 +519,10 @@
 
     feedbackEl.style.display = 'block';
 
-    // Auto-hide timings
     var timeout;
     switch (type) {
       case 'error':   timeout = 10000; break;
-      case 'loading': timeout = 30000; break; // long enough for slow API responses
+      case 'loading': timeout = 30000; break;
       case 'success': timeout = 3000;  break;
       case 'warning': timeout = 6000;  break;
       default:        timeout = 3000;

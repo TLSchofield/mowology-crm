@@ -2776,29 +2776,6 @@ a.mw-clock-timer-nav:hover {
   margin-top:4px;
   letter-spacing:.2px
 }
-.mw-stop-card {
-  background:var(--mw-ink-0);
-  border:1px solid var(--mw-ink-100);
-  border-left:3px solid var(--mw-green);
-  border-radius:4px;
-  padding:8px 10px;
-  cursor:pointer;
-  user-select:none;
-  -webkit-user-select:none;
-  transition:box-shadow 0.15s ease,transform 0.15s ease;
-  position:relative;
-  min-width:0;
-  overflow:hidden
-}
-.mw-stop-card:hover {
-  box-shadow:0 2px 6px rgb(0 0 0 / .1);
-  transform:translateY(-1px)
-}
-.mw-stop-card.dragging {
-  opacity:.5;
-  transform:scale(.95);
-  cursor:grabbing
-}
 .mw-stop-status-progress {
   border-left-color:#F59E0B;
   background:rgb(245 158 11 / .04)
@@ -3952,26 +3929,6 @@ a.mw-clock-timer-nav:hover {
 .mw-day-column.mw-today {
   background:#f0fdf4
 }
-.mw-stop-card {
-  background:var(--mw-ink-0);
-  border:1px solid #e5e7eb;
-  border-radius:6px;
-  padding:8px 10px;
-  cursor:grab;
-  transition:box-shadow 0.15s ease,transform 0.15s ease,opacity 0.15s ease;
-  position:relative
-}
-.mw-stop-card:hover {
-  box-shadow:0 2px 8px rgb(0 0 0 / .1);
-  transform:translateY(-1px)
-}
-.mw-stop-card.dragging {
-  opacity:.5;
-  transform:rotate(2deg)
-}
-.mw-stop-card:active {
-  cursor:grabbing
-}
 .mw-stop-time {
   font-size:.7rem;
   font-weight:600;
@@ -4662,32 +4619,6 @@ a.mw-clock-timer-nav:hover {
   color:var(--mw-green);
   margin-top:4px;
   letter-spacing:.2px;
-}
-
-.mw-stop-card {
-  background:var(--mw-ink-0);
-  border:1px solid var(--mw-ink-100);
-  border-left:3px solid var(--mw-green);
-  border-radius:4px;
-  padding:8px 10px;
-  cursor:pointer;
-  user-select:none;
-  -webkit-user-select:none;
-  transition:box-shadow 0.15s ease,transform 0.15s ease;
-  position:relative;
-  min-width:0;
-  overflow:hidden;
-}
-
-.mw-stop-card:hover {
-  box-shadow:0 2px 6px rgb(0 0 0 / .1);
-  transform:translateY(-1px);
-}
-
-.mw-stop-card.dragging {
-  opacity:.5;
-  transform:scale(.95);
-  cursor:grabbing;
 }
 
 .mw-stop-status-progress {
@@ -5749,7 +5680,10 @@ a.mw-clock-timer-nav:hover {
   border-radius:6px;
   padding:8px 10px;
   cursor:grab;
-  transition:box-shadow 0.15s ease,transform 0.15s ease,opacity 0.15s ease;
+  touch-action:none;
+  user-select:none;
+  -webkit-user-select:none;
+  transition:box-shadow var(--mw-dur-fast) var(--mw-ease-out), transform var(--mw-dur-fast) var(--mw-ease-out);
   position:relative;
 }
 
@@ -5758,13 +5692,41 @@ a.mw-clock-timer-nav:hover {
   transform:translateY(-1px);
 }
 
+/* Placeholder left behind in the origin slot while the live clone (below)
+   follows the pointer — an empty-slot ghost, not a faded copy of the card. */
 .mw-stop-card.dragging {
   opacity:.5;
-  transform:rotate(2deg);
+  border-style:dashed;
+  border-color:var(--mw-ink-300);
+  background:var(--mw-ink-50);
+  box-shadow:none;
+  transform:none;
 }
 
 .mw-stop-card:active {
   cursor:grabbing;
+}
+
+/* Live clone that tracks the pointer during a drag (schedule-drag-drop.js) */
+.mw-stop-card-clone {
+  position:fixed;
+  top:0;
+  left:0;
+  z-index:9999;
+  pointer-events:none;
+  cursor:grabbing;
+  box-shadow:0 12px 28px rgb(13 59 46 / .28), 0 2px 8px rgb(13 59 46 / .15);
+  transform:rotate(2deg) scale(1.03);
+  opacity:.96;
+}
+
+/* Insertion-position line shown within the target day column while dragging */
+.mw-drop-indicator {
+  height:3px;
+  border-radius:2px;
+  background:var(--mw-green);
+  box-shadow:0 0 0 3px rgb(45 134 89 / .15);
+  margin:2px 0;
 }
 
 .mw-stop-time {
