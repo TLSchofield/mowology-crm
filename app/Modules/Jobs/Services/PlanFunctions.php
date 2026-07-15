@@ -32,5 +32,7 @@ require_once $__planDir . '/PlanProfitability.php';  // overhead + plan/stop pro
 require_once $__planDir . '/PlanEditing.php';        // cleanup, updateJobPlan, replacePlanLineItems
 require_once $__planDir . '/PlanCrew.php';           // crew assignments + unscheduled visits
 require_once $__planDir . '/PlanMaterials.php';      // fertilizer bundles, materials, purchase-task schedule
+require_once $__planDir . '/AdHocVisit.php';         // addAdHocVisit — field "add a visit" flow
+require_once $__planDir . '/NearbyProperties.php';   // findNearbyProperties — field property picker
 
 unset($__planDir);
