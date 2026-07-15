@@ -1,9 +1,9 @@
 <?php
 /**
- * Nearby Properties API — field "add a job" property picker.
+ * Nearby Properties API — proximity detection for the field "add a job" overlay.
  *
- * GET or POST: { lat?, lng?, q? }
- * Returns: { success: bool, properties: [...] }
+ * GET: { lat, lng, radius? }  (radius in metres, default 250)
+ * Returns: { success: bool, results: [...] }
  */
 declare(strict_types=1);
 header('Content-Type: application/json');
@@ -29,22 +29,19 @@ try {
     requireAnyPermission(['jobs.create_field', 'jobs.edit']);
     session_write_close(); // release session lock — read-only endpoint, no session writes
 
-    $input = $_SERVER['REQUEST_METHOD'] === 'POST'
-        ? (json_decode(file_get_contents('php://input'), true) ?? [])
-        : $_GET;
+    $lat = isset($_GET['lat']) && $_GET['lat'] !== '' ? (float)$_GET['lat'] : null;
+    $lng = isset($_GET['lng']) && $_GET['lng'] !== '' ? (float)$_GET['lng'] : null;
+    $radius = isset($_GET['radius']) && $_GET['radius'] !== '' ? (int)$_GET['radius'] : 250;
+    if ($radius <= 0 || $radius > 5000) $radius = 250;
 
-    $lat = isset($input['lat']) && $input['lat'] !== '' ? (float)$input['lat'] : null;
-    $lng = isset($input['lng']) && $input['lng'] !== '' ? (float)$input['lng'] : null;
-    $search = trim((string)($input['q'] ?? ''));
-
-    if ($lat === null && $search === '') {
-        echo json_encode(['success' => true, 'properties' => []]);
+    if ($lat === null || $lng === null) {
+        echo json_encode(['success' => true, 'results' => []]);
         exit;
     }
 
-    $properties = findNearbyProperties($lat, $lng, $search, 15);
+    $results = findNearbyProperties($lat, $lng, $radius, 15);
 
-    echo json_encode(['success' => true, 'properties' => $properties]);
+    echo json_encode(['success' => true, 'results' => $results]);
 
 } catch (Throwable $e) {
     error_log('nearby-properties.php error: ' . $e->getMessage());

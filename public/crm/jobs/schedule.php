@@ -4253,7 +4253,6 @@ function mwTogglePurchaseItem(checkbox) {
 <script src="../js/schedule-pill-workflow.js?v=20260625c" defer></script>
 <script src="../js/schedule-drag-drop.js" defer></script>
 <?php if ($canFieldCreate): ?>
-<script src="../js/mw-api.js?v=20260715a" defer></script>
 <script src="../js/field-job.js?v=20260715a" defer></script>
 <?php endif; ?>
 <?php if ($view === 'day'): ?>
