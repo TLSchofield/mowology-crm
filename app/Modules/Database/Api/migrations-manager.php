@@ -223,7 +223,15 @@ function handleExecuteMigration($input, $user) {
         $statements = splitSqlStatements($sql);
         $executed = 0;
         foreach ($statements as $stmt) {
-            $db->exec($stmt);
+            // Use query() + closeCursor() instead of exec(): some migrations use
+            // dynamic SQL (PREPARE/EXECUTE/DEALLOCATE) whose EXECUTE branch can be
+            // a SELECT (e.g. an idempotency no-op like `SELECT "already exists"`).
+            // exec() doesn't drain a returned result set, which leaves the
+            // connection in MySQL's "unbuffered query" state and makes the NEXT
+            // statement in this loop fail with SQLSTATE[HY000] 2014. query() reads
+            // and closeCursor() releases the result regardless of statement type.
+            $result = $db->query($stmt);
+            $result->closeCursor();
             $executed++;
         }
 
@@ -381,7 +389,9 @@ function handleDatabaseVerify() {
 
     try {
         // Get database info
-        $dbInfo = $db->query("SELECT VERSION() as version, DATABASE() as current_db")->fetch(PDO::FETCH_ASSOC);
+        $verifyStmt = $db->query("SELECT VERSION() as version, DATABASE() as current_db");
+        $dbInfo = $verifyStmt->fetch(PDO::FETCH_ASSOC);
+        $verifyStmt->closeCursor();
 
         echo json_encode([
             'success' => true,
