@@ -4251,7 +4251,7 @@ function mwTogglePurchaseItem(checkbox) {
 <script src="../js/schedule-route-map.js?v=20260226b" defer></script>
 <script src="../js/batch-camera.js?v=20260421a" defer></script>
 <script src="../js/schedule-pill-workflow.js?v=20260625c" defer></script>
-<script src="../js/schedule-drag-drop.js" defer></script>
+<script src="../js/schedule-drag-drop.js?v=20260715a" defer></script>
 <?php if ($canFieldCreate): ?>
 <script src="../js/field-job.js?v=20260715a" defer></script>
 <?php endif; ?>
