@@ -1568,7 +1568,7 @@ if ($action === 'view_contact' && $clientId) {
         // Load Google Maps API (geometry for map display, places for address autocomplete)
         $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
         if ($apiKey) {
-            $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8') . '&libraries=geometry,places" defer></script>';
+            $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8') . '&libraries=geometry,places&loading=async" defer></script>';
         }
         // Leaflet — needed for the Work Zone (geofence) polygon editor (hosted locally, CDN blocked by CSP)
         $extraHead .= '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">';
@@ -1710,7 +1710,7 @@ if ($action === 'view_company' && $clientId) {
         // Load Google Maps API for address autocomplete + map display
         $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
         if ($apiKey && empty($extraHead)) {
-            $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8') . '&libraries=geometry,places" defer></script>';
+            $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8') . '&libraries=geometry,places&loading=async" defer></script>';
         }
 
         // ── Measurement data for company properties ──
@@ -1785,7 +1785,7 @@ if ($action === 'view_company' && $clientId) {
 if ($action === 'new' && empty($extraHead)) {
     $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
     if ($apiKey) {
-        $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8') . '&libraries=places" defer></script>';
+        $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8') . '&libraries=places&loading=async" defer></script>';
     }
 }
 

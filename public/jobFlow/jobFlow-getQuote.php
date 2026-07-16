@@ -262,7 +262,7 @@ $serviceOptions = [
     <link rel="stylesheet" href="/assets/css/master.css">
     <link rel="stylesheet" href="/assets/css/pages/jobflow-quote.css?v=20260305">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <script async src="https://maps.googleapis.com/maps/api/js?key=<?php echo h(GOOGLE_MAPS_API_KEY); ?>&libraries=places"></script>
+    <script async src="https://maps.googleapis.com/maps/api/js?key=<?php echo h(GOOGLE_MAPS_API_KEY); ?>&libraries=places&loading=async"></script>
 <?php if ($useV3): ?>
     <script src="https://www.google.com/recaptcha/api.js?render=<?php echo h(RECAPTCHA_V3_SITE_KEY); ?>"></script>
 <?php else: ?>

@@ -154,7 +154,7 @@ try {
 
 $pageTitle = 'Dashboard';
 $activePage = 'dashboard';
-$extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars(GOOGLE_MAPS_API_KEY, ENT_QUOTES, 'UTF-8') . '" defer></script>';
+$extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars(GOOGLE_MAPS_API_KEY, ENT_QUOTES, 'UTF-8') . '&loading=async" defer></script>';
 ?>
 <?php include 'includes/appstack_head.php'; ?>
 

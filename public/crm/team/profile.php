@@ -195,7 +195,7 @@ $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
 if ($apiKey) {
     $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key='
         . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8')
-        . '&libraries=places" defer></script>';
+        . '&libraries=places&loading=async" defer></script>';
 }
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
