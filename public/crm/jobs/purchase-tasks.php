@@ -68,7 +68,7 @@ $activePage = 'purchase-tasks';
 if ($apiKey) {
     $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key='
         . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8')
-        . '&libraries=places&loading=async" defer></script>';
+        . '&libraries=places" defer></script>';
 }
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>

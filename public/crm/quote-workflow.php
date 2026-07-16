@@ -418,7 +418,7 @@ $pageTitle = 'Quote Workflow - ' . htmlspecialchars($contactName);
 $activePage = 'quotes';
 $mdtVer    = @filemtime(__DIR__ . '/js/map-draw/map-draw-tool.js') ?: '1';
 $extraHead = '<script src="/crm/js/map-draw/map-draw-tool.js?v=' . $mdtVer . '"></script>'
-           . '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars(GOOGLE_MAPS_API_KEY, ENT_QUOTES, 'UTF-8') . '&libraries=geometry&loading=async&callback=initMaps" async defer></script>';
+           . '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars(GOOGLE_MAPS_API_KEY, ENT_QUOTES, 'UTF-8') . '&libraries=geometry&callback=initMaps" async defer></script>';
 ?>
 <?php include 'includes/appstack_head.php'; ?>
 

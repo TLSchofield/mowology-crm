@@ -322,7 +322,7 @@ $pageTitle = $quoteId ? 'Edit Quote' : ($quoteRequestId ? 'Create Quote from Req
 $activePage = 'quotes';
 
 $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
-$extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8') . '&loading=async" defer></script>' : '';
+$extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8') . '" defer></script>' : '';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 

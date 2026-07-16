@@ -1293,7 +1293,7 @@ $activePage = 'map';
             document.addEventListener('DOMContentLoaded', () => {
               if (typeof google === 'undefined' || typeof google.maps === 'undefined') {
                 const script = document.createElement('script');
-                script.src = 'https://maps.googleapis.com/maps/api/js?key=<?php echo GOOGLE_MAPS_API_KEY; ?>&libraries=drawing,geometry&loading=async';
+                script.src = 'https://maps.googleapis.com/maps/api/js?key=<?php echo GOOGLE_MAPS_API_KEY; ?>&libraries=drawing,geometry';
                 script.onload = initMap;
                 document.head.appendChild(script);
               } else {
