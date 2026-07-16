@@ -1262,7 +1262,7 @@ $extraHead .= '<link rel="prefetch" href="/crm/timeclock/my-timesheet.php">';
 if ($apiKey) {
     $extraHead .= '<script src="https://maps.googleapis.com/maps/api/js?key='
         . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8')
-        . '&libraries=geometry" defer></script>';
+        . '&libraries=geometry&loading=async" defer></script>';
 }
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
