@@ -4112,12 +4112,12 @@ function mwTogglePurchaseItem(checkbox) {
 <script src="../js/mw-schedule-search.js?v=20260422a" defer></script>
 <script src="../js/navigation-launcher.js?v=20260225c" defer></script>
 <script src="../js/route-engine.js?v=20260219a" defer></script>
-<script src="../js/schedule-route-map.js?v=20260226b" defer></script>
+<script src="../js/schedule-route-map.js?v=20260716a" defer></script>
 <script src="../js/batch-camera.js?v=20260421a" defer></script>
 <script src="../js/schedule-pill-workflow.js?v=20260625c" defer></script>
 <script src="<?= _av('/crm/js/schedule-drag-drop.js') ?>" defer></script>
 <?php if ($canFieldCreate): ?>
-<script src="../js/field-job.js?v=20260715a" defer></script>
+<script src="../js/field-job.js?v=20260716a" defer></script>
 <?php endif; ?>
 <?php if ($view === 'day'): ?>
 <script>

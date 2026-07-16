@@ -33,6 +33,34 @@ var MwRouteMap = (function() {
         console.log.apply(console, args);
     }
 
+    // The Maps script is loaded with loading=async, which lazy-loads classes
+    // (Map, ControlPosition, Marker, Geocoder, DirectionsService, ...) rather
+    // than defining them the moment google.maps exists. Wait for importLibrary
+    // itself, then explicitly load the libraries this file touches.
+    function ensureMapsLibraries(cb) {
+        function ready() {
+            return window.google && google.maps && typeof google.maps.importLibrary === 'function';
+        }
+        function loadAll() {
+            Promise.all([
+                google.maps.importLibrary('maps'),
+                google.maps.importLibrary('marker'),
+                google.maps.importLibrary('geocoding'),
+                google.maps.importLibrary('routes')
+            ]).then(cb);
+        }
+        if (ready()) {
+            loadAll();
+            return;
+        }
+        var check = setInterval(function() {
+            if (ready()) {
+                clearInterval(check);
+                loadAll();
+            }
+        }, 200);
+    }
+
     // ── State ──
     var map = null;
     var geocoder = null;
@@ -148,16 +176,7 @@ var MwRouteMap = (function() {
             });
         }
 
-        if (typeof google === 'undefined' || typeof google.maps === 'undefined') {
-            var check = setInterval(function() {
-                if (typeof google !== 'undefined' && typeof google.maps !== 'undefined') {
-                    clearInterval(check);
-                    onMapsReady();
-                }
-            }, 200);
-        } else {
-            onMapsReady();
-        }
+        ensureMapsLibraries(onMapsReady);
     }
 
     function open(stopIndex) {
@@ -177,21 +196,14 @@ var MwRouteMap = (function() {
         document.body.style.overflow = 'hidden';
 
         if (!mapInitialized) {
-            if (typeof google === 'undefined' || typeof google.maps === 'undefined') {
-                var check = setInterval(function() {
-                    if (typeof google !== 'undefined' && typeof google.maps !== 'undefined') {
-                        clearInterval(check);
-                        initMap();
-                        getFreshGPS(function() { computeFullRoute(); });
-                    }
-                }, 200);
-                return;
-            }
-            initMap();
-        } else {
-            google.maps.event.trigger(map, 'resize');
+            ensureMapsLibraries(function() {
+                initMap();
+                getFreshGPS(function() { computeFullRoute(); });
+            });
+            return;
         }
 
+        google.maps.event.trigger(map, 'resize');
         getFreshGPS(function() { computeFullRoute(); });
     }
 

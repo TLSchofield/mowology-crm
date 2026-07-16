@@ -340,15 +340,19 @@
     }
 
     function reverseGeocode(gps, addrInput, hint) {
-        if (!(window.google && google.maps && google.maps.Geocoder)) return;
-        try {
-            new google.maps.Geocoder().geocode({ location: { lat: gps.lat, lng: gps.lng } }, function (res, status) {
-                if (status === 'OK' && res && res[0] && !addrInput.value) {
-                    addrInput.value = res[0].formatted_address;
-                    if (hint) hint.textContent = '📍 Prefilled from your location — edit if needed';
-                }
-            });
-        } catch (e) { /* ignore */ }
+        // loading=async lazy-loads Geocoder — import it explicitly rather than
+        // assuming it's already on google.maps.
+        if (!(window.google && google.maps && typeof google.maps.importLibrary === 'function')) return;
+        google.maps.importLibrary('geocoding').then(function () {
+            try {
+                new google.maps.Geocoder().geocode({ location: { lat: gps.lat, lng: gps.lng } }, function (res, status) {
+                    if (status === 'OK' && res && res[0] && !addrInput.value) {
+                        addrInput.value = res[0].formatted_address;
+                        if (hint) hint.textContent = '📍 Prefilled from your location — edit if needed';
+                    }
+                });
+            } catch (e) { /* ignore */ }
+        }, function () { /* ignore load failure */ });
     }
 
     // ── Step 4: Job details ──────────────────────────────────────────────────

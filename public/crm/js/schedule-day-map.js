@@ -68,15 +68,30 @@ var MwDayViewMap = (function() {
         });
     }
 
+    // The Maps script is loaded with loading=async, which lazy-loads classes
+    // (Map, ControlPosition, Marker, Geocoder, DirectionsService, ...) rather
+    // than defining them the moment google.maps exists. Wait for importLibrary
+    // itself, then explicitly load the libraries this file touches.
     function waitForMaps(cb) {
-        if (typeof google !== 'undefined' && typeof google.maps !== 'undefined') {
-            cb();
+        function ready() {
+            return window.google && google.maps && typeof google.maps.importLibrary === 'function';
+        }
+        function loadAll() {
+            Promise.all([
+                google.maps.importLibrary('maps'),
+                google.maps.importLibrary('marker'),
+                google.maps.importLibrary('geocoding'),
+                google.maps.importLibrary('routes')
+            ]).then(cb);
+        }
+        if (ready()) {
+            loadAll();
             return;
         }
         var check = setInterval(function() {
-            if (typeof google !== 'undefined' && typeof google.maps !== 'undefined') {
+            if (ready()) {
                 clearInterval(check);
-                cb();
+                loadAll();
             }
         }, 200);
     }
