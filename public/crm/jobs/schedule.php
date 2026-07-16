@@ -1790,7 +1790,6 @@ if ($apiKey) {
                                       }
                                   ?>
                                   <div class="mw-stop-card <?php echo stopStatusClass($stop['stop_status']); ?>"
-                                       draggable="true"
                                        data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
                                        data-stop-date="<?php echo htmlspecialchars($stop['stop_date']); ?>"
                                        data-route-order="<?php echo (int)$stop['route_order']; ?>"

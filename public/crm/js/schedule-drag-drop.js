@@ -78,6 +78,12 @@
     pressStartY = e.clientY;
     dragging = false;
 
+    // Keep receiving move/up for this pointer even if the cursor leaves the
+    // card (or briefly the viewport) mid-gesture.
+    if (this.setPointerCapture) {
+      try { this.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+    }
+
     document.addEventListener('pointermove', handlePointerMove, { passive: false });
     document.addEventListener('pointerup', handlePointerUp);
     document.addEventListener('pointercancel', handlePointerCancel);
@@ -121,6 +127,9 @@
     document.removeEventListener('pointermove', handlePointerMove);
     document.removeEventListener('pointerup', handlePointerUp);
     document.removeEventListener('pointercancel', handlePointerCancel);
+    if (pressCard && pressCard.releasePointerCapture) {
+      try { pressCard.releasePointerCapture(pressPointerId); } catch (err) { /* ignore */ }
+    }
   }
 
   function resetPressState() {
@@ -171,10 +180,9 @@
    * the placeholder + indicator line to that spot.
    */
   function updateDropTarget(clientX, clientY) {
-    cardClone.style.display = 'none';
+    // The clone has pointer-events:none (CSS), so elementFromPoint already
+    // sees through it to whatever's underneath — no need to hide/show it.
     var el = document.elementFromPoint(clientX, clientY);
-    cardClone.style.display = '';
-
     var column = resolveColumn(el);
 
     document.querySelectorAll('.mw-day-column.drag-over').forEach(function (col) {
