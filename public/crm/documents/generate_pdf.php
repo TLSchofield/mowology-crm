@@ -66,8 +66,8 @@ if ($action === 'generate') {
     }
 }
 
-// --- DOWNLOAD ---
-if ($action === 'download') {
+// --- DOWNLOAD / INLINE VIEW ---
+if ($action === 'download' || $action === 'view') {
     $path = $generator->getPdfPath($type, $id);
 
     if (!$path) {
@@ -87,14 +87,16 @@ if ($action === 'download') {
         $filename = basename($path);
     }
 
-    logActivityExtended(
-        $user['id'],
-        'PDF downloaded',
-        ucfirst($type) . " PDF downloaded",
-        null, null,
-        $type === 'quote' ? $id : null,
-        $type === 'invoice' ? $id : null
-    );
+    if ($action === 'download') {
+        logActivityExtended(
+            $user['id'],
+            'PDF downloaded',
+            ucfirst($type) . " PDF downloaded",
+            null, null,
+            $type === 'quote' ? $id : null,
+            $type === 'invoice' ? $id : null
+        );
+    }
 
-    $generator->streamPdf($path, $filename);
+    $generator->streamPdf($path, $filename, $action === 'view' ? 'inline' : 'attachment');
 }

@@ -375,7 +375,7 @@ class PdfGenerator
     /**
      * Stream a PDF to the browser for download.
      */
-    public function streamPdf(string $filePath, string $filename): void
+    public function streamPdf(string $filePath, string $filename, string $disposition = 'attachment'): void
     {
         // Validate file exists and is readable
         if (!file_exists($filePath)) {
@@ -388,9 +388,10 @@ class PdfGenerator
             die('PDF file is not readable.');
         }
 
-        // Set headers for PDF download
+        // Set headers for PDF download/preview
+        $disposition = $disposition === 'inline' ? 'inline' : 'attachment';
         header('Content-Type: application/pdf');
-        header('Content-Disposition: attachment; filename="' . basename($filename) . '"');
+        header('Content-Disposition: ' . $disposition . '; filename="' . basename($filename) . '"');
         header('Content-Length: ' . filesize($filePath));
         header('Cache-Control: private, max-age=0, must-revalidate');
         header('Pragma: public');

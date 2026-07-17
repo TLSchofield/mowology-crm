@@ -726,6 +726,10 @@ $extraHead = $isPayable
                   </button>
 
                   <!-- PDF Actions -->
+                  <button type="button" class="btn btn-outline-secondary" id="mw-pdf-preview-toggle"
+                          onclick="mwTogglePdfPreview()" title="Preview PDF inline">
+                      <i data-feather="eye" class="mr-1"></i> Preview
+                  </button>
                   <a href="../documents/generate_pdf.php?type=invoice&id=<?php echo $invoiceId; ?>&action=download"
                      class="btn btn-outline-secondary" title="Download PDF">
                       <i data-feather="download" class="mr-1"></i> PDF
@@ -800,6 +804,14 @@ $extraHead = $isPayable
                           </form>
                       <?php endif; ?>
                   <?php endif; ?>
+              </div>
+          </div>
+
+          <!-- Inline PDF Preview (hidden until toggled) -->
+          <div class="card mb-3" id="mw-pdf-preview-card" style="display:none;">
+              <div class="card-body p-0">
+                  <iframe id="mw-pdf-preview-frame" src="" title="Invoice PDF preview"
+                          style="width:100%; height:80vh; border:0; display:block;"></iframe>
               </div>
           </div>
 
@@ -1534,6 +1546,22 @@ $extraHead = $isPayable
 <?php if ($isPayable): ?>
 <script>
 var _mwInvoicePortalUrl = <?php echo json_encode($invoicePortalUrl); ?>;
+function mwTogglePdfPreview() {
+    var card  = document.getElementById('mw-pdf-preview-card');
+    var frame = document.getElementById('mw-pdf-preview-frame');
+    var open  = card.style.display !== 'none';
+    if (open) {
+        card.style.display = 'none';
+        frame.src = '';
+    } else {
+        if (!frame.src) {
+            frame.src = '../documents/generate_pdf.php?type=invoice&id=<?php echo $invoiceId; ?>&action=view';
+        }
+        card.style.display = '';
+        card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+}
+
 function mwCopyInvoiceLink(btn) {
     navigator.clipboard.writeText(_mwInvoicePortalUrl).then(function () {
         btn.innerHTML = '<i data-feather="check" class="mr-1"></i> Copied!';
