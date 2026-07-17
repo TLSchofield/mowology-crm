@@ -247,7 +247,10 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): bool
                     payment_method            = 'stripe',
                     payment_reference         = ?,
                     stripe_payment_intent_id  = ?,
-                    stripe_charge_id          = COALESCE(stripe_charge_id, ?)
+                    stripe_charge_id          = COALESCE(stripe_charge_id, ?),
+                    pdf_path                  = NULL,
+                    pdf_version               = 0,
+                    pdf_generated_at          = NULL
                 WHERE id = ?
             ");
             $updateInvoice->execute([

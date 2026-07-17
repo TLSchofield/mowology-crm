@@ -43,6 +43,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $db->prepare("
                 UPDATE invoices
                 SET bill_to_name     = ?,
+                    pdf_path         = NULL,
                     pdf_version      = 0,
                     pdf_generated_at = NULL,
                     updated_at       = NOW()

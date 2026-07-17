@@ -22,8 +22,10 @@
  *   - subtotal / tax_amount / total_amount / total recomputed from
  *     line items server-side; form totals are display hints only
  *   - balance_due = total_amount - amount_paid
- *   - pdf_version = 0 and pdf_generated_at = NULL so the next
- *     "Regenerate PDF" / download produces a fresh copy
+ *   - pdf_path = NULL, pdf_version = 0, pdf_generated_at = NULL so the
+ *     next "Regenerate PDF" / download produces a fresh copy
+ *     (getPdfPath() only trusts pdf_path — clearing just the version/
+ *     timestamp fields was a no-op for cache invalidation)
  *   - activity_log entry via logActivityExtended(..., 'Invoice updated')
  */
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
@@ -235,6 +237,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         total_amount      = ?,
                         total             = ?,
                         balance_due       = ?,
+                        pdf_path          = NULL,
                         pdf_version       = 0,
                         pdf_generated_at  = NULL,
                         updated_at        = NOW()

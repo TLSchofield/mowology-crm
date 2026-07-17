@@ -143,7 +143,10 @@ foreach ($invoices as $inv) {
                 status           = ?,
                 payment_method   = ?,
                 payment_reference= ?,
-                paid_at          = {$paidAtSql}
+                paid_at          = {$paidAtSql},
+                pdf_path         = NULL,
+                pdf_version      = 0,
+                pdf_generated_at = NULL
             WHERE id = ?
         ")->execute($params);
 
