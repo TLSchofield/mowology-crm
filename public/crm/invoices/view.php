@@ -727,8 +727,8 @@ $extraHead = $isPayable
 
                   <!-- PDF Actions -->
                   <button type="button" class="btn btn-outline-secondary" id="mw-pdf-preview-toggle"
-                          onclick="mwTogglePdfPreview()" title="Preview PDF inline">
-                      <i data-feather="eye" class="mr-1"></i> Preview
+                          onclick="mwTogglePdfPreview()" title="Toggle inline PDF preview">
+                      <i data-feather="eye-off" class="mr-1"></i> Hide Preview
                   </button>
                   <a href="../documents/generate_pdf.php?type=invoice&id=<?php echo $invoiceId; ?>&action=download"
                      class="btn btn-outline-secondary" title="Download PDF">
@@ -807,10 +807,12 @@ $extraHead = $isPayable
               </div>
           </div>
 
-          <!-- Inline PDF Preview (hidden until toggled) -->
-          <div class="card mb-3" id="mw-pdf-preview-card" style="display:none;">
+          <!-- Inline PDF Preview (shown by default; toggle to hide) -->
+          <div class="card mb-3" id="mw-pdf-preview-card">
               <div class="card-body p-0">
-                  <iframe id="mw-pdf-preview-frame" src="" title="Invoice PDF preview"
+                  <iframe id="mw-pdf-preview-frame"
+                          src="../documents/generate_pdf.php?type=invoice&id=<?php echo $invoiceId; ?>&action=view"
+                          title="Invoice PDF preview"
                           style="width:100%; height:80vh; border:0; display:block;"></iframe>
               </div>
           </div>
@@ -1548,17 +1550,19 @@ var _mwInvoicePortalUrl = <?php echo json_encode($invoicePortalUrl); ?>;
 function mwTogglePdfPreview() {
     var card  = document.getElementById('mw-pdf-preview-card');
     var frame = document.getElementById('mw-pdf-preview-frame');
+    var btn   = document.getElementById('mw-pdf-preview-toggle');
     var open  = card.style.display !== 'none';
     if (open) {
         card.style.display = 'none';
-        frame.src = '';
+        btn.innerHTML = '<i data-feather="eye" class="mr-1"></i> Preview';
     } else {
         if (!frame.getAttribute('src')) {
             frame.src = '../documents/generate_pdf.php?type=invoice&id=<?php echo $invoiceId; ?>&action=view';
         }
         card.style.display = '';
-        card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        btn.innerHTML = '<i data-feather="eye-off" class="mr-1"></i> Hide Preview';
     }
+    if (typeof feather !== 'undefined') feather.replace();
 }
 
 function mwCopyInvoiceLink(btn) {
