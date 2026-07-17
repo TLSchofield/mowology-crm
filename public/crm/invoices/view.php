@@ -1553,7 +1553,7 @@ function mwTogglePdfPreview() {
         card.style.display = 'none';
         frame.src = '';
     } else {
-        if (!frame.src) {
+        if (!frame.getAttribute('src')) {
             frame.src = '../documents/generate_pdf.php?type=invoice&id=<?php echo $invoiceId; ?>&action=view';
         }
         card.style.display = '';
