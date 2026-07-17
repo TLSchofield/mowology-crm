@@ -1543,7 +1543,6 @@ $extraHead = $isPayable
           })();
           </script>
 
-<?php if ($isPayable): ?>
 <script>
 var _mwInvoicePortalUrl = <?php echo json_encode($invoicePortalUrl); ?>;
 function mwTogglePdfPreview() {
@@ -1572,7 +1571,10 @@ function mwCopyInvoiceLink(btn) {
         }, 2000);
     });
 }
+</script>
 
+<?php if ($isPayable): ?>
+<script>
 (function () {
     'use strict';
 
