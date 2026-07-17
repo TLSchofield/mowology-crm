@@ -36624,6 +36624,21 @@ span.mw-icon-box--missing {
 .mw-fj-result-x { background: #e85d04; }
 .mw-fj-result-title { font-weight: 700; color: var(--mw-forest); font-size: 1.15rem; margin-bottom: 16px; }
 
+/* ── Invoice View — Inline PDF Preview panel (sidebar card) ─────────────── */
+.mw-pdf-fullview-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--mw-green);
+    text-decoration: none;
+}
+.mw-pdf-fullview-link:hover {
+    color: var(--mw-dark);
+    text-decoration: underline;
+}
+
 /* Desktop: don't show the crew FAB on the wide layout */
 @media (min-width: 992px) {
     .mw-fj-fab { display: none; }

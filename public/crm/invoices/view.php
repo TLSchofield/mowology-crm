@@ -807,16 +807,6 @@ $extraHead = $isPayable
               </div>
           </div>
 
-          <!-- Inline PDF Preview (shown by default; toggle to hide) -->
-          <div class="card mb-3" id="mw-pdf-preview-card">
-              <div class="card-body p-0">
-                  <iframe id="mw-pdf-preview-frame"
-                          src="../documents/generate_pdf.php?type=invoice&id=<?php echo $invoiceId; ?>&action=view"
-                          title="Invoice PDF preview"
-                          style="width:100%; height:80vh; border:0; display:block;"></iframe>
-              </div>
-          </div>
-
           <div class="mw-content-grid">
               <div>
                   <!-- Customer Info -->
@@ -1102,6 +1092,23 @@ $extraHead = $isPayable
               </div>
 
               <div>
+                  <!-- Inline PDF Preview (shown by default; toggle to hide) -->
+                  <div class="card mb-3" id="mw-pdf-preview-card">
+                      <div class="card-header d-flex justify-content-between align-items-center">
+                          <h5 class="card-title mb-0">PDF Preview</h5>
+                          <a href="../documents/generate_pdf.php?type=invoice&id=<?php echo $invoiceId; ?>&action=view"
+                             target="_blank" rel="noopener" class="mw-pdf-fullview-link" title="Open full-size PDF in a new tab">
+                              View Full PDF <i data-feather="external-link" style="width:14px;height:14px;"></i>
+                          </a>
+                      </div>
+                      <div class="card-body p-0">
+                          <iframe id="mw-pdf-preview-frame"
+                                  src="../documents/generate_pdf.php?type=invoice&id=<?php echo $invoiceId; ?>&action=view"
+                                  title="Invoice PDF preview"
+                                  style="width:100%; height:420px; border:0; display:block;"></iframe>
+                      </div>
+                  </div>
+
                   <!-- Invoice Details -->
                   <div class="card">
                       <div class="card-header">
