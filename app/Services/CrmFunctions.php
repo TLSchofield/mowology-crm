@@ -2336,7 +2336,7 @@ function getWorkQueueItems() {
                 'title' => $row['cnt'] . ' Overdue Invoice' . ($row['cnt'] > 1 ? 's' : ''),
                 'description' => formatCurrency($row['total']) . ' outstanding past due date',
                 'count' => (int)$row['cnt'],
-                'link' => 'invoices/list.php?status=overdue',
+                'link' => 'invoices/index.php?status=overdue',
                 'priority' => 1,
             ];
         }
