@@ -48,11 +48,24 @@ const CANADIAN_SMS_GATEWAYS = [
  * @param string      $senderName     Display name for email (default: Mowology)
  * @return array      ['success' => bool, 'attempts' => int, 'delivered_carriers' => [], 'errors' => []]
  */
+if (!function_exists('_stripHeaderInjection')) {
+    /**
+     * Strip CR/LF (and other control characters) from a value before it's
+     * interpolated into a raw mail() header or subject line.
+     */
+    function _stripHeaderInjection(string $value): string
+    {
+        return trim(preg_replace('/[\r\n\x00-\x1F]+/', ' ', $value));
+    }
+}
+
 function sendSmsViaMail(
     string $phoneNumber,
     string $message,
     string $senderName = 'Mowology'
 ): array {
+    $senderName = _stripHeaderInjection($senderName);
+
     // Normalize phone number: extract digits only
     $cleanPhone = preg_replace('/\D/', '', $phoneNumber);
 

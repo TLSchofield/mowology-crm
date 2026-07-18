@@ -33,8 +33,17 @@ try {
     requireLogin();
     $user = getCurrentUser();
 
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        throw new Exception('Method not allowed');
+    }
+
     // ── Parse input ──────────────────────────────────────────────────────────
     $input = json_decode(file_get_contents('php://input'), true);
+
+    $csrfToken = $input['csrf_token'] ?? $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+    if (!verifyCSRFToken($csrfToken)) {
+        throw new Exception('Invalid CSRF token');
+    }
 
     if (!$input || !isset($input['visit_id']) || !isset($input['date'])) {
         throw new Exception('Missing required fields: visit_id, date');

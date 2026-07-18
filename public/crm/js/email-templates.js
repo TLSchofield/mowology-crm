@@ -72,7 +72,7 @@
     function saveTemplate(key, subject, bodyText, showFeedback) {
         return fetch(API, {
             method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
             body:    JSON.stringify({ key: key, subject: subject, body_text: bodyText }),
         })
         .then(function (r) { return r.json(); })

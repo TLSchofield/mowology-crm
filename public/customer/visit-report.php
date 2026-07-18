@@ -30,6 +30,7 @@ if (!$visitId) {
 if (!$error && isset($_GET['contact_id'])) {
     require_once dirname(__DIR__) . '/loginAuth/auth.php';
     requireLogin();
+    requirePermission('billing.view');
     $adminMode = true;
     $contactId = (int)$_GET['contact_id'];
     if (!$contactId) {

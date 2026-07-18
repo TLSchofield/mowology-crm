@@ -36,19 +36,28 @@ try {
     $canEdit = userHasPermission('expenses.edit');
 
     $db = getDB();
-    session_write_close();
-
-    require_once APP_ROOT . '/Modules/Accounting/Services/RulesEngine.php';
-
-    $engine = new RulesEngine($db);
 
     $method = $_SERVER['REQUEST_METHOD'];
     if ($method === 'GET') {
         $action = $_GET['action'] ?? 'list';
     } else {
+        // Must run before session_write_close() below — verifyCSRFToken() reads
+        // $_SESSION, which session_write_close() clears from memory.
+        $csrfToken = $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+        if (!verifyCSRFToken($csrfToken)) {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'error' => 'Invalid CSRF token']);
+            exit;
+        }
         $input  = json_decode(file_get_contents('php://input'), true) ?? [];
         $action = $input['action'] ?? '';
     }
+
+    session_write_close();
+
+    require_once APP_ROOT . '/Modules/Accounting/Services/RulesEngine.php';
+
+    $engine = new RulesEngine($db);
 
     switch ($action) {
 

@@ -915,7 +915,7 @@ function saveBundle() {
 
   fetch(API_URL + '?action=save-bundle', {
     method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
     body:    JSON.stringify(payload)
   })
     .then(r => r.json())
@@ -944,7 +944,7 @@ function promptDelete(bundleId, bundleName) {
 function confirmDelete(bundleId) {
   fetch(API_URL + '?action=delete-bundle', {
     method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
     body:    JSON.stringify({ id: bundleId })
   })
     .then(r => r.json())

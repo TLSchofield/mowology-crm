@@ -175,6 +175,7 @@
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'X-CSRF-Token': window.MW_CSRF_TOKEN || '',
       },
       body: JSON.stringify(settings),
     })

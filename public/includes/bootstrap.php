@@ -14,6 +14,22 @@ if (session_status() === PHP_SESSION_NONE) {
   if (is_dir($sessionPath) && is_writable($sessionPath)) {
     session_save_path($sessionPath);
   }
+
+  // Cookie hardening (matches app/Core/session_config.php's CRM session) — the
+  // public site was previously starting a session with PHP's bare defaults,
+  // i.e. no HttpOnly/Secure/SameSite at all.
+  $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+         || (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https')
+         || (!empty($_SERVER['HTTP_X_FORWARDED_SSL']) && $_SERVER['HTTP_X_FORWARDED_SSL'] === 'on');
+  session_set_cookie_params([
+    'lifetime' => 0,
+    'path'     => '/',
+    'domain'   => '',
+    'secure'   => $secure,
+    'httponly' => true,
+    'samesite' => 'Lax',
+  ]);
+
   session_start();
 }
 

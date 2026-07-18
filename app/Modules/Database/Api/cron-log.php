@@ -39,9 +39,18 @@ if (!$isCli) {
         exit;
     }
 
-    // CSRF check for POST (non-record calls only; record is internal)
+    // CSRF check for POST — the comment above previously described this without
+    // the code actually doing it.
     $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
     $action = $_GET['action'] ?? ($method === 'POST' ? 'record' : 'latest');
+    if ($method === 'POST') {
+        $csrfToken = $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+        if (!verifyCSRFToken($csrfToken)) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+            exit;
+        }
+    }
 } else {
     $method = 'POST';
     $action = 'record';

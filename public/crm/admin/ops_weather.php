@@ -1039,7 +1039,7 @@ $activePage = 'ops-weather';
 
             fetch('/crm/api/ops-settings.php?action=save', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
               body: JSON.stringify({
                 key: 'weather_ops_constraints',
                 value: constraints,
@@ -1216,7 +1216,7 @@ $activePage = 'ops-weather';
 
             fetch('/crm/api/ops-settings.php?action=save-service-weather-rules', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
               body: JSON.stringify(data)
             })
             .then(r => r.json())
@@ -1296,7 +1296,7 @@ $activePage = 'ops-weather';
 
             fetch('/crm/api/ops-settings.php?action=save', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
               body: JSON.stringify({
                 key: 'salt_ops_config',
                 value: config,
@@ -1369,7 +1369,7 @@ $activePage = 'ops-weather';
             if (typeof feather !== 'undefined') feather.replace();
             result.innerHTML = '';
 
-            fetch('/crm/api/ops-settings.php?action=test-email', { method: 'POST' })
+            fetch('/crm/api/ops-settings.php?action=test-email', { method: 'POST', headers: { 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' } })
               .then(function(r) { return r.json(); })
               .then(function(data) {
                 btn.disabled = false;
@@ -1399,7 +1399,7 @@ $activePage = 'ops-weather';
             if (typeof feather !== 'undefined') feather.replace();
             result.innerHTML = '';
 
-            fetch('/crm/api/ops-settings.php?action=test-sms', { method: 'POST' })
+            fetch('/crm/api/ops-settings.php?action=test-sms', { method: 'POST', headers: { 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' } })
               .then(function(r) { return r.json(); })
               .then(function(data) {
                 btn.disabled = false;

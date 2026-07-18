@@ -25,6 +25,14 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 ?>
 <?php include 'includes/appstack_head.php'; ?>
 
+<script>
+// Global CSRF helper — this page calls csrf() in several save handlers below,
+// but nothing on this page previously defined it (it only existed in the
+// unrelated field-job.js, which isn't loaded here), so every one of those
+// save buttons was throwing a ReferenceError before the fetch() even ran.
+function csrf() { return window.MW_CSRF_TOKEN || ''; }
+</script>
+
 <!-- Session Alert Display -->
 <?php if (isset($_SESSION['alert'])):
     $alert = $_SESSION['alert'];

@@ -60,6 +60,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     header('Content-Type: application/json');
 
     if ($_POST['action'] === 'save_measurements') {
+        if (!verifyCSRFToken($_POST['csrf_token'] ?? '')) {
+            echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+            exit;
+        }
+        requirePermission('products.edit');
+
         $propId = (int)($_POST['property_id'] ?? 0);
         $measurements = json_decode($_POST['measurements'] ?? '[]', true);
 
@@ -935,6 +941,7 @@ $extraHead = '<script src="/crm/js/map-draw/map-draw-tool.js?v=' . $mdtVer . '">
             formData.append('action', 'save_measurements');
             formData.append('property_id', propertyId.value);
             formData.append('measurements', JSON.stringify(measurements));
+            formData.append('csrf_token', window.MW_CSRF_TOKEN || '');
 
             fetch(window.location.href, {
                 method: 'POST',

@@ -101,6 +101,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         $input = json_decode(file_get_contents('php://input'), true);
 
+        $csrfToken = $input['csrf_token'] ?? $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+        if (!verifyCSRFToken($csrfToken)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Invalid CSRF token']);
+            exit;
+        }
+
         if (!isset($input['key'], $input['subject'], $input['body_text'])) {
             http_response_code(400);
             echo json_encode(['error' => 'Missing required fields: key, subject, body_text']);

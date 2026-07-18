@@ -1982,7 +1982,7 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
             try {
                 const resp = await fetch('/crm/products/api-products.php?action=save-product', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
                     body: JSON.stringify({
                         name: name,
                         category_id: parseInt(categoryId),

@@ -30,6 +30,19 @@ if (($user['role'] ?? '') !== 'admin') {
     exit;
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // Most actions here send csrf_token inside the JSON body rather than as a
+    // form field or header, so check all three places it could arrive.
+    $rawBody = file_get_contents('php://input');
+    $jsonBody = json_decode($rawBody, true) ?? [];
+    $csrfToken = $jsonBody['csrf_token'] ?? $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+    if (!verifyCSRFToken($csrfToken)) {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+        exit;
+    }
+}
+
 header('Content-Type: application/json');
 
 $action = $_GET['action'] ?? null;

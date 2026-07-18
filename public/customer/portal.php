@@ -43,6 +43,7 @@ $error      = '';
 if (isset($_GET['contact_id'])) {
     require_once dirname(__DIR__) . '/loginAuth/auth.php';
     requireLogin();
+    requirePermission('billing.view');
     $adminMode = true;
     $contactId = intval($_GET['contact_id']);
 

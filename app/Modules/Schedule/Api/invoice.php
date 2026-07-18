@@ -58,7 +58,7 @@ try {
 
     switch ($action) {
         case 'preview':
-            echo json_encode($service->preview((int)($input['visit_id'] ?? 0)));
+            echo json_encode($service->preview((int)($input['visit_id'] ?? 0), $userId));
             break;
 
         case 'create':

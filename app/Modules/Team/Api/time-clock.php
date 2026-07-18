@@ -32,6 +32,23 @@ try {
     $user = getCurrentUser();
     requirePermission('timer.start');
 
+    // Determine action from GET or POST
+    if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+        $action = $_GET['action'] ?? '';
+    } else {
+        $input = json_decode(file_get_contents('php://input'), true);
+        $action = $input['action'] ?? '';
+
+        // Must run before session_write_close() below — verifyCSRFToken() reads
+        // $_SESSION, which session_write_close() clears from memory.
+        $csrfToken = $input['csrf_token'] ?? $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+        if (!verifyCSRFToken($csrfToken)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Invalid CSRF token']);
+            exit;
+        }
+    }
+
     // Release the PHP session lock immediately — this API only reads session data
     // (user identity) and does not write to $_SESSION. Holding the lock blocks
     // concurrent page navigations on Android WebView, causing ERR_FAILED (~5s timeout).
@@ -42,14 +59,6 @@ try {
         http_response_code(403);
         echo json_encode(['error' => 'Time clock not enabled for your role']);
         exit;
-    }
-
-    // Determine action from GET or POST
-    if ($_SERVER['REQUEST_METHOD'] === 'GET') {
-        $action = $_GET['action'] ?? '';
-    } else {
-        $input = json_decode(file_get_contents('php://input'), true);
-        $action = $input['action'] ?? '';
     }
 
     $db = getDB();

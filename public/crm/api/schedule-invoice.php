@@ -37,7 +37,7 @@ $service = new InvoiceFromVisitService($db);
 
 try {
     if ($action === 'preview') {
-        siOut($service->preview((int)($input['visit_id'] ?? 0)));
+        siOut($service->preview((int)($input['visit_id'] ?? 0), (int)$user['id']));
     }
     elseif ($action === 'create') {
         siOut($service->createFromVisit(

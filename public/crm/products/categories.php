@@ -207,7 +207,8 @@ function saveCategory() {
     fetch('api-products.php?action=' + action, {
         method: 'POST',
         headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': window.MW_CSRF_TOKEN || ''
         },
         body: JSON.stringify(payload)
     })
@@ -243,7 +244,8 @@ function deleteCategory(id, name) {
     fetch('api-products.php?action=delete-category', {
         method: 'POST',
         headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': window.MW_CSRF_TOKEN || ''
         },
         body: JSON.stringify({ id: parseInt(id) })
     })

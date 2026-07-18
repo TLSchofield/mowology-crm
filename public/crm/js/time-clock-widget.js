@@ -544,7 +544,7 @@
         fetch('/crm/api/crew-location.php', {
             method: 'POST',
             credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
             body: JSON.stringify({
                 lat: latestPosition.lat,
                 lng: latestPosition.lng,
@@ -642,7 +642,7 @@
                 fetch('/crm/api/crew-location.php', {
                     method: 'POST',
                     credentials: 'same-origin',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
                     body: JSON.stringify(pos)
                 }).then(function(r) {
                     if (r.status === 401) {
@@ -666,7 +666,7 @@
             fetch('/crm/api/time-clock.php', {
                 method: 'POST',
                 credentials: 'same-origin',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
                 body: JSON.stringify({ action: 'clock_in', lat: lat, lng: lng })
             })
             .then(function(r) { return r.json(); })
@@ -730,7 +730,7 @@
             fetch('/crm/api/time-clock.php', {
                 method: 'POST',
                 credentials: 'same-origin',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
                 body: JSON.stringify({ action: 'clock_out', lat: lat, lng: lng })
             })
             .then(function(r) {
@@ -891,7 +891,7 @@
                 fetch('/crm/api/crew-location.php', {
                     method: 'POST',
                     credentials: 'same-origin',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
                     body: JSON.stringify({
                         lat: lat,
                         lng: lng,

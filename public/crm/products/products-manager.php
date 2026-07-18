@@ -1168,7 +1168,7 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
 
               fetch('api-products.php?action=add-category', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
                 body: JSON.stringify({ name: name, description: desc || null })
               })
               .then(r => r.json())
@@ -1191,7 +1191,7 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
 
               fetch('api-products.php?action=delete-category', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
                 body: JSON.stringify({ id: categoryId })
               })
               .then(r => r.json())
@@ -1292,7 +1292,7 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
 
               fetch('api-products.php?action=archive-product', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
                 body: JSON.stringify({ id: productId })
               })
               .then(r => r.json())
@@ -1311,7 +1311,7 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
             function restoreProduct(productId) {
               fetch('api-products.php?action=restore-product', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
                 body: JSON.stringify({ id: productId })
               })
               .then(r => r.json())
@@ -1515,7 +1515,7 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
 
               fetch('api-products.php?action=save-product', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
                 body: JSON.stringify(data)
               })
               .then(r => r.json())
@@ -2051,7 +2051,7 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
 
               fetch('api-products.php?action=bulk-delete', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
                 body: JSON.stringify({ ids: Array.from(mwProductsBulkSelected) })
               })
               .then(function(r) { return r.json(); })
@@ -2284,7 +2284,7 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
               // Delete all existing pricing rules first, then re-create remaining ones
               const rulesChain = fetch('api-products.php?action=delete-all-pricing-rules', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
                 body: JSON.stringify({ product_id: productId })
               })
               .then(r => r.json())
@@ -2295,7 +2295,7 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
                   delete saveData.id;
                   return fetch('api-products.php?action=save-pricing-rule', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
                     body: JSON.stringify(saveData)
                   }).then(r => r.json());
                 }));
@@ -2304,7 +2304,7 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
               // Delete all existing upsells first, then re-create remaining ones
               const upsellsChain = fetch('api-products.php?action=delete-all-upsells', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
                 body: JSON.stringify({ product_id: productId })
               })
               .then(r => r.json())
@@ -2314,7 +2314,7 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
                   delete saveData.id;
                   return fetch('api-products.php?action=save-upsell', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
                     body: JSON.stringify(saveData)
                   }).then(r => r.json());
                 }));
@@ -2518,7 +2518,7 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
               const productId = document.getElementById('productForm').elements['id'].value;
               fetch('api-products.php?action=unlink-vendor-product', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
                 body: JSON.stringify({ vendor_product_id: vendorProductId })
               })
               .then(r => r.json())
@@ -2554,7 +2554,7 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
                   // Link it
                   fetch('api-products.php?action=link-vendor-product', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
                     body: JSON.stringify({ vendor_product_id: data.results[idx].id, product_id: productId })
                   })
                   .then(r => r.json())

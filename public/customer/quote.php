@@ -25,6 +25,7 @@ if ($previewQuoteId > 0) {
         header('Location: /loginAuth/login.php?redirect=' . urlencode($_SERVER['REQUEST_URI']));
         exit;
     }
+    requirePermission('billing.view');
     $isAdminPreview = true;
 
     $stmt = $db->prepare("

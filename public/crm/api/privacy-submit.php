@@ -97,11 +97,18 @@ try {
     $typeLabels = ['access' => 'Access', 'deletion' => 'Erasure', 'correction' => 'Correction'];
     $typeLabel  = $typeLabels[$type] ?? ucfirst($type);
 
+    // These emails render as HTML — escape the anonymous, unauthenticated submitter's
+    // name/notes before interpolating so an HTML/script payload can't render in the
+    // recipient's mail client. The unescaped $name/$notes above are still used for the
+    // DB record and createRequest() — the admin UI already escapes on display.
+    $nameHtml  = htmlspecialchars($name, ENT_QUOTES, 'UTF-8');
+    $notesHtml = nl2br(htmlspecialchars($notes, ENT_QUOTES, 'UTF-8'));
+
     if (function_exists('sendCrmEmail')) {
         sendCrmEmail(
             $email,
             "Privacy Request Received — Mowology",
-            "Hi {$name},\n\n"
+            "Hi {$nameHtml},\n\n"
             . "We have received your Privacy {$typeLabel} Request (reference #{$id}).\n\n"
             . "We will respond within 30 days as required by PIPEDA.\n\n"
             . "If you have questions, contact us at office@mowology.ca or (778) 846-9273.\n\n"
@@ -114,10 +121,10 @@ try {
             defined('SITE_EMAIL') ? SITE_EMAIL : 'office@mowology.ca',
             "New Privacy Request #{$id} ({$typeLabel})",
             "A new privacy {$typeLabel} request was submitted.\n\n"
-            . "Name:  {$name}\n"
+            . "Name:  {$nameHtml}\n"
             . "Email: {$email}\n"
             . "Type:  {$typeLabel}\n"
-            . "Notes: {$notes}\n\n"
+            . "Notes: {$notesHtml}\n\n"
             . "Log in to the CRM to manage this request:\n"
             . "https://mowology.ca/crm/privacy_appstack.php",
             'Mowology Admin'

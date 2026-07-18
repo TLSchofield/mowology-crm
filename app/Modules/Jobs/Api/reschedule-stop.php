@@ -29,10 +29,22 @@ try {
 
     requireLogin();
     $user = getCurrentUser();
-    session_write_close(); // release session lock — no session writes needed beyond this point
+
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        throw new Exception('Method not allowed');
+    }
 
     // Get input
     $input = json_decode(file_get_contents('php://input'), true);
+
+    // Must run before session_write_close() below — verifyCSRFToken() reads
+    // $_SESSION, which session_write_close() clears from memory.
+    $csrfToken = $input['csrf_token'] ?? $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+    if (!verifyCSRFToken($csrfToken)) {
+        throw new Exception('Invalid CSRF token');
+    }
+
+    session_write_close(); // release session lock — no session writes needed beyond this point
 
     if (!$input || !isset($input['stop_id']) || !isset($input['new_date'])) {
         throw new Exception('Missing required fields: stop_id, new_date');

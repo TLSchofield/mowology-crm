@@ -250,6 +250,16 @@ function startJobTimer($jobId, $userId, $lat = null, $lng = null, $autoStarted =
         throw new Exception('Job not found');
     }
 
+    // Enforce the ownership check promised above — this was previously only fetched,
+    // never compared, letting any crew JWT start a timer on any visit company-wide.
+    $callerRoleStmt = $db->prepare("SELECT role FROM users WHERE id = ?");
+    $callerRoleStmt->execute([$userId]);
+    $callerRole = (string)($callerRoleStmt->fetchColumn() ?: '');
+    $callerIsAdmin = in_array($callerRole, ['admin', 'manager'], true);
+    if (!$callerIsAdmin && (int)($job['assigned_crew_id'] ?? 0) !== (int)$userId) {
+        throw new Exception('You are not assigned to this visit');
+    }
+
     // Check no active timer already running for this visit by this user
     $existingStmt = $db->prepare("
         SELECT id FROM job_time_entries

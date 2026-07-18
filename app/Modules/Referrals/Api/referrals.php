@@ -21,6 +21,18 @@ header('Content-Type: application/json; charset=utf-8');
 
 requireLogin();
 $user = getCurrentUser();
+
+// Must run before session_write_close() below — verifyCSRFToken() reads
+// $_SESSION, which session_write_close() clears from memory.
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $csrfToken = $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+    if (!verifyCSRFToken($csrfToken)) {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+        exit;
+    }
+}
+
 session_write_close();
 
 requirePermission('marketing.view');

@@ -125,6 +125,8 @@ function sendSms(
     string $message,
     string $senderName = 'Mowology'
 ): array {
+    $senderName = _stripHeaderInjection($senderName);
+
     // Normalize phone: extract digits only
     $cleanPhone = preg_replace('/\D/', '', $phone);
 
@@ -1054,6 +1056,17 @@ function _sendViaPhpMailer(
 // ═══════════════════════════════════════════════════════════════════════
 
 /**
+ * Strip CR/LF (and other control characters) from a value before it's
+ * interpolated into a raw mail() header or the subject line, so a request-derived
+ * string (contact name, e-signature name, etc.) can't inject extra headers
+ * (e.g. an extra "Bcc:" line) into the native-mail() fallback path.
+ */
+function _stripHeaderInjection(string $value): string
+{
+    return trim(preg_replace('/[\r\n\x00-\x1F]+/', ' ', $value));
+}
+
+/**
  * Send simple HTML email via native mail().
  */
 function _sendSimpleHtmlEmail(
@@ -1064,6 +1077,8 @@ function _sendSimpleHtmlEmail(
 ): bool {
     try {
         $fromEmail = 'no-reply@mowology.ca';
+        $fromName  = _stripHeaderInjection($fromName);
+        $subject   = _stripHeaderInjection($subject);
 
         $headers = "From: {$fromName} <{$fromEmail}>\r\n";
         $headers .= "Reply-To: office@mowology.ca\r\n";
@@ -1098,6 +1113,8 @@ function _sendEmailWithAttachment(
     string $fromName = 'Mowology'
 ): bool {
     try {
+        $fromName = _stripHeaderInjection($fromName);
+        $subject  = _stripHeaderInjection($subject);
         $filename = basename($attachmentPath);
 
         $fileContent = file_get_contents($attachmentPath);

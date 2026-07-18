@@ -254,6 +254,18 @@ function _sendViaPhpMailer(
 /**
  * Send simple HTML email via native mail() (fallback)
  */
+if (!function_exists('_stripHeaderInjection')) {
+    /**
+     * Strip CR/LF (and other control characters) from a value before it's
+     * interpolated into a raw mail() header or subject line, so a request-derived
+     * string can't inject extra headers into the native-mail() fallback path.
+     */
+    function _stripHeaderInjection(string $value): string
+    {
+        return trim(preg_replace('/[\r\n\x00-\x1F]+/', ' ', $value));
+    }
+}
+
 function sendSimpleHtmlEmail(
     string $to,
     string $subject,
@@ -262,6 +274,8 @@ function sendSimpleHtmlEmail(
 ): bool {
     try {
         $fromEmail = 'no-reply@mowology.ca';
+        $from      = _stripHeaderInjection($from);
+        $subject   = _stripHeaderInjection($subject);
 
         $headers = "From: {$from} <{$fromEmail}>\r\n";
         $headers .= "Reply-To: office@mowology.ca\r\n";
@@ -305,6 +319,8 @@ function sendEmailWithAttachment(
     string $from = 'Mowology'
 ): bool {
     try {
+        $from     = _stripHeaderInjection($from);
+        $subject  = _stripHeaderInjection($subject);
         $filename = basename($attachmentPath);
 
         $fileContent = file_get_contents($attachmentPath);

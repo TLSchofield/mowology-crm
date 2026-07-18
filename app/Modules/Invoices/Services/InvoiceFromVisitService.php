@@ -33,6 +33,25 @@ class InvoiceFromVisitService
         $this->db = $db;
     }
 
+    /**
+     * True if $userId is an admin/manager, or is the crew member assigned to
+     * $assignedCrewId. Callers use this so any crew member may only preview,
+     * create, or send an invoice for a visit they were actually assigned to —
+     * both the session-auth desktop caller and the JWT mobile caller only
+     * call requireLogin()/requireJwt() with no role gate, so this is the one
+     * place that actually enforces per-visit ownership.
+     */
+    private function isOwnerOrAdmin(int $userId, ?int $assignedCrewId): bool
+    {
+        $roleStmt = $this->db->prepare("SELECT role FROM users WHERE id = ?");
+        $roleStmt->execute([$userId]);
+        $role = (string)($roleStmt->fetchColumn() ?: '');
+        if (in_array($role, ['admin', 'manager'], true)) {
+            return true;
+        }
+        return $assignedCrewId !== null && $assignedCrewId === $userId;
+    }
+
     // ══════════════════════════════════════════════════════════════════════════
     // EXTRAS CALC — single source of truth
     // ══════════════════════════════════════════════════════════════════════════
@@ -71,13 +90,13 @@ class InvoiceFromVisitService
     // PREVIEW
     // ══════════════════════════════════════════════════════════════════════════
 
-    public function preview(int $visitId): array
+    public function preview(int $visitId, int $userId): array
     {
         if (!$visitId) return ['success' => false, 'error' => 'visit_id required'];
 
         $stmt = $this->db->prepare("
             SELECT jv.id AS visit_id, jv.actual_amount, jv.plan_id, jv.scheduled_date,
-                   jv.extras_minutes, jv.invoice_id AS existing_invoice_id,
+                   jv.extras_minutes, jv.invoice_id AS existing_invoice_id, jv.assigned_crew_id,
                    jp.title, jp.price_per_visit, jp.estimated_amount,
                    p.address, p.city,
                    COALESCE(con.first_name, '') AS first_name,
@@ -93,6 +112,10 @@ class InvoiceFromVisitService
         $visit = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$visit) return ['success' => false, 'error' => 'Visit not found or not completed'];
+
+        if (!$this->isOwnerOrAdmin($userId, isset($visit['assigned_crew_id']) ? (int)$visit['assigned_crew_id'] : null)) {
+            return ['success' => false, 'error' => 'You are not assigned to this visit'];
+        }
 
         $amount = floatval($visit['actual_amount'] ?: $visit['price_per_visit'] ?: $visit['estimated_amount']);
         $addr   = trim(($visit['address'] ?? '') . ($visit['city'] ? ', ' . $visit['city'] : ''));
@@ -130,7 +153,7 @@ class InvoiceFromVisitService
         // Load visit + related data
         $stmt = $this->db->prepare("
             SELECT jv.id AS visit_id, jv.actual_amount, jv.plan_id, jv.scheduled_date,
-                   jv.invoice_id AS existing_invoice_id, jv.visit_number,
+                   jv.invoice_id AS existing_invoice_id, jv.visit_number, jv.assigned_crew_id,
                    jp.title, jp.price_per_visit, jp.estimated_amount,
                    jp.property_id, jp.company_id, jp.plan_number, jp.contract_id,
                    p.address, p.city, p.province, p.postal_code, p.site_contact_id,
@@ -150,6 +173,10 @@ class InvoiceFromVisitService
         $visit = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$visit) return ['success' => false, 'error' => 'Visit not found or not completed'];
+
+        if (!$this->isOwnerOrAdmin($userId, isset($visit['assigned_crew_id']) ? (int)$visit['assigned_crew_id'] : null)) {
+            return ['success' => false, 'error' => 'You are not assigned to this visit'];
+        }
 
         if (!empty($visit['existing_invoice_id'])) {
             return [
@@ -372,15 +399,25 @@ class InvoiceFromVisitService
             SELECT i.*,
                    COALESCE(con.first_name, '') AS contact_first,
                    COALESCE(con.last_name, '')  AS contact_last,
-                   con.email AS contact_email
+                   con.email AS contact_email,
+                   jv.assigned_crew_id
             FROM invoices i
             LEFT JOIN contacts con ON i.contact_id = con.id
+            LEFT JOIN job_visits jv ON jv.id = i.visit_id
             WHERE i.id = ? AND i.status IN ('draft','pending')
         ");
         $invStmt->execute([$invoiceId]);
         $invoice = $invStmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$invoice) return ['success' => false, 'error' => 'Invoice not found or already sent'];
+
+        // Invoices not created from a visit (visit_id NULL) have no per-visit owner —
+        // only invoices created via createFromVisit() are subject to this check.
+        if ($invoice['visit_id'] !== null
+            && !$this->isOwnerOrAdmin($userId, isset($invoice['assigned_crew_id']) ? (int)$invoice['assigned_crew_id'] : null)
+        ) {
+            return ['success' => false, 'error' => 'You are not assigned to this visit'];
+        }
 
         // Recipients
         $recStmt = $this->db->prepare("
