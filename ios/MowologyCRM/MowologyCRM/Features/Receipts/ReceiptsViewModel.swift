@@ -24,6 +24,10 @@ final class ReceiptsViewModel: ObservableObject {
     @Published var isSaving     = false
     @Published var saveError:    String?
 
+    // MARK: - Action state (approve / reject / send)
+    @Published var isPerformingAction = false
+    @Published var actionError: String?
+
     private let apiClient: APIClient
 
     init(apiClient: APIClient) {
@@ -153,5 +157,84 @@ final class ReceiptsViewModel: ObservableObject {
         }
         isSaving = false
         return false
+    }
+
+    // MARK: - Actions (approve / reject / send)
+
+    /// Approve a receipt already saved as an expense. Fails server-side with
+    /// "Cannot approve your own expense" if the current user created it.
+    func approve(expenseId: Int) async -> Bool {
+        await performAction(expenseId: expenseId, action: "approve", reason: nil)
+    }
+
+    /// Reject a receipt with a required reason, visible to the creator via the web Review Queue.
+    func reject(expenseId: Int, reason: String) async -> Bool {
+        await performAction(expenseId: expenseId, action: "reject", reason: reason)
+    }
+
+    /// Forward an approved receipt's image to the configured accounting inbox.
+    /// Idempotent server-side — a second call on an already-forwarded receipt fails cleanly.
+    func send(expenseId: Int) async -> Bool {
+        await performAction(expenseId: expenseId, action: "send", reason: nil)
+    }
+
+    // MARK: - Offline Action Queue Monitor
+
+    /// Wires up NWPathMonitor so queued approve/reject/send actions drain automatically
+    /// on reconnect. Safe to call multiple times — the monitor ignores duplicate starts.
+    func startActionQueueMonitor() {
+        ReceiptActionQueue.shared.startMonitoring { [weak self] expenseId, action, reason in
+            guard let self else { throw APIError.invalidURL }
+            return try await self.sendAction(expenseId: expenseId, action: action, reason: reason)
+        }
+    }
+
+    /// Drain pending actions whenever the receipts view appears or the app foregrounds —
+    /// mirrors drainPendingQueue()'s coverage for the case where connectivity was up the
+    /// whole time but a single call timed out and was enqueued.
+    func drainPendingActionQueue() async {
+        await ReceiptActionQueue.shared.drain { [weak self] expenseId, action, reason in
+            guard let self else { throw APIError.invalidURL }
+            return try await self.sendAction(expenseId: expenseId, action: action, reason: reason)
+        }
+        await loadExpenses()
+    }
+
+    private func performAction(expenseId: Int, action: String, reason: String?) async -> Bool {
+        isPerformingAction = true
+        actionError = nil
+        do {
+            let response = try await sendAction(expenseId: expenseId, action: action, reason: reason)
+            if response.success {
+                await loadExpenses()
+                isPerformingAction = false
+                return true
+            }
+            actionError = response.error ?? response.message ?? "Action failed."
+        } catch let err as APIError {
+            // Same policy as uploadImage(): queue on transient/server-side failure so
+            // the tap isn't lost, surface a clear message, don't queue on programmer/auth errors.
+            switch err {
+            case .networkError, .serverError, .decodingError:
+                ReceiptActionQueue.shared.enqueue(expenseId: expenseId, action: action, reason: reason)
+                if case .networkError = err {
+                    actionError = "No connection — this will be applied automatically when you reconnect."
+                } else {
+                    actionError = "That took too long — queued and will retry automatically."
+                }
+            case .unauthorized, .invalidURL:
+                actionError = err.errorDescription
+            }
+        } catch {
+            actionError = "Action failed."
+        }
+        isPerformingAction = false
+        return false
+    }
+
+    private func sendAction(expenseId: Int, action: String, reason: String?) async throws -> ReceiptActionResponse {
+        var body: [String: Any] = ["action": action, "expense_id": expenseId]
+        if let reason { body["rejection_reason"] = reason }
+        return try await apiClient.request(.receiptAction, body: body)
     }
 }

@@ -430,6 +430,12 @@ function handleCreate(PDO $db, ?array $input, array $user): void
         throw new Exception('Total amount or description is required');
     }
 
+    // Status on create is restricted to non-approval states — 'approved'/'rejected'/
+    // 'forwarded' require the audited handleApprove()/handleReject()/sendReceiptToAccounting()
+    // paths, which stamp approved_by/approved_at. Never let a caller set those directly here.
+    $requestedStatus = $input['status'] ?? 'draft';
+    $status = in_array($requestedStatus, ['draft', 'pending_approval'], true) ? $requestedStatus : 'draft';
+
     // ── Run anomaly detection ─────────────────────────────────────
     $anomalyFlags = '';
     $anomalyScore = 0;
@@ -489,7 +495,7 @@ function handleCreate(PDO $db, ?array $input, array $user): void
         !empty($input['property_id']) ? (int)$input['property_id'] : null,
         !empty($input['contact_id']) ? (int)$input['contact_id'] : null,
         $input['notes'] ?? null,
-        $input['status'] ?? 'draft',
+        $status,
         !empty($input['odometer_start']) ? (int)$input['odometer_start'] : null,
         !empty($input['odometer_end']) ? (int)$input['odometer_end'] : null,
         !empty($input['fuel_litres']) ? (float)$input['fuel_litres'] : null,
@@ -591,13 +597,22 @@ function handleUpdate(PDO $db, ?array $input, array $user): void
     if (!$id) throw new Exception('Expense ID required');
 
     // Verify exists and fetch OCR text for learning
-    $check = $db->prepare("SELECT id, raw_ocr_json, vendor_id FROM expenses WHERE id = ?");
+    $check = $db->prepare("SELECT id, raw_ocr_json, vendor_id, status FROM expenses WHERE id = ?");
     $check->execute([$id]);
     $existing = $check->fetch(PDO::FETCH_ASSOC);
     if (!$existing) throw new Exception('Expense not found');
 
     $expenseDate = $input['expense_date'] ?? date('Y-m-d');
     $total = (float)($input['total'] ?? 0);
+
+    // Status can only move between non-approval states here — 'approved'/'rejected'/
+    // 'forwarded' require the audited handleApprove()/handleReject()/sendReceiptToAccounting()
+    // paths, which stamp approved_by/approved_at. A plain edit never downgrades or upgrades
+    // past that boundary; anything outside the safe set falls back to whatever it already was.
+    $requestedStatus = $input['status'] ?? $existing['status'];
+    $status = in_array($requestedStatus, ['draft', 'pending_approval'], true)
+        ? $requestedStatus
+        : $existing['status'];
 
     // ── Re-run anomaly detection on update ──────────────────────────
     $anomalyFlags = '';
@@ -665,7 +680,7 @@ function handleUpdate(PDO $db, ?array $input, array $user): void
         !empty($input['property_id']) ? (int)$input['property_id'] : null,
         !empty($input['contact_id']) ? (int)$input['contact_id'] : null,
         $input['notes'] ?? null,
-        $input['status'] ?? 'draft',
+        $status,
         !empty($input['odometer_start']) ? (int)$input['odometer_start'] : null,
         !empty($input['odometer_end']) ? (int)$input['odometer_end'] : null,
         !empty($input['fuel_litres']) ? (float)$input['fuel_litres'] : null,
@@ -1263,30 +1278,9 @@ function handleApprove(PDO $db, ?array $input, array $user): void
         throw new Exception('Invalid security token');
     }
 
-    $id = (int)($input['id'] ?? 0);
-    if (!$id) throw new Exception('Expense ID required');
-
-    // Verify expense exists
-    $check = $db->prepare("SELECT id, status, created_by FROM expenses WHERE id = ?");
-    $check->execute([$id]);
-    $expense = $check->fetch(PDO::FETCH_ASSOC);
-    if (!$expense) throw new Exception('Expense not found');
-
-    // Prevent self-approval (the creator cannot approve their own expense)
-    if ((int)$expense['created_by'] === (int)$user['id']) {
-        throw new Exception('Cannot approve your own expense');
-    }
-
-    $stmt = $db->prepare("
-        UPDATE expenses SET
-            status = 'approved',
-            approved_by = ?,
-            approved_at = NOW()
-        WHERE id = ?
-    ");
-    $stmt->execute([$user['id'], $id]);
-
-    echo json_encode(['success' => true, 'message' => 'Expense approved']);
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseApprovalService.php';
+    $result = (new ExpenseApprovalService($db))->approve((int)($input['id'] ?? 0), $user);
+    echo json_encode($result);
 }
 
 
@@ -1301,39 +1295,13 @@ function handleReject(PDO $db, ?array $input, array $user): void
         throw new Exception('Invalid security token');
     }
 
-    $id = (int)($input['id'] ?? 0);
-    if (!$id) throw new Exception('Expense ID required');
-
-    $reason = trim($input['rejection_reason'] ?? '');
-    if (empty($reason)) throw new Exception('Rejection reason is required');
-
-    // Verify expense exists
-    $check = $db->prepare("SELECT id, created_by FROM expenses WHERE id = ?");
-    $check->execute([$id]);
-    $expense = $check->fetch(PDO::FETCH_ASSOC);
-    if (!$expense) throw new Exception('Expense not found');
-
-    $stmt = $db->prepare("
-        UPDATE expenses SET
-            status = 'rejected',
-            approved_by = ?,
-            approved_at = NOW(),
-            rejection_reason = ?
-        WHERE id = ?
-    ");
-    $stmt->execute([$user['id'], $reason, $id]);
-
-    // Notify the expense creator via activity log
-    try {
-        $db->prepare("
-            INSERT INTO activity_log (user_id, action, entity_type, entity_id, details, created_at)
-            VALUES (?, 'expense_rejected', 'expense', ?, ?, NOW())
-        ")->execute([$user['id'], $id, json_encode(['reason' => $reason])]);
-    } catch (Throwable $e) {
-        // Activity log is non-critical
-    }
-
-    echo json_encode(['success' => true, 'message' => 'Expense rejected']);
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseApprovalService.php';
+    $result = (new ExpenseApprovalService($db))->reject(
+        (int)($input['id'] ?? 0),
+        $user,
+        (string)($input['rejection_reason'] ?? '')
+    );
+    echo json_encode($result);
 }
 
 

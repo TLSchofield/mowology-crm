@@ -28,6 +28,8 @@ require_once __DIR__ . '/../app/Modules/Invoices/Services/StatementService.php';
 // Expenses
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptInboxService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptArchiveService.php';
+require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptIntakeService.php';
+require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseApprovalService.php';
 
 // Contacts
 require_once __DIR__ . '/../app/Modules/Contacts/Services/ContactService.php';

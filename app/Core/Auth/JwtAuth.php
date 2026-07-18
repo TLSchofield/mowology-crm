@@ -174,3 +174,36 @@ function jwtIsAdmin(string $role): bool
 {
     return in_array($role, ['admin', 'manager'], true);
 }
+
+/**
+ * RBAC permission check for a JWT-authenticated request.
+ *
+ * Mirrors userHasPermission() (app/Core/Auth/authz.php) for callers that have no PHP
+ * session — JWT endpoints. getUserPermissions() only *uses* $_SESSION as an optional
+ * cache; with none active it queries user_roles/role_permissions directly, so this
+ * works correctly under JWT with no changes to authz.php itself. Requires authz.php
+ * to already be loaded (it's pulled in by auth.php, which every JWT endpoint using
+ * this function also requires for getDB()/CSRF-adjacent helpers).
+ *
+ * @param array  $jwtUser  Payload from requireJwt() — ['id'=>int, 'role'=>string, ...]
+ * @param string $perm     Permission key, e.g. 'expenses.approve'
+ */
+function jwtUserHasPermission(array $jwtUser, string $perm): bool
+{
+    if (($jwtUser['role'] ?? '') === 'admin') {
+        return true;
+    }
+
+    $userId = (int)($jwtUser['id'] ?? 0);
+    if (!$userId || !function_exists('getUserPermissions')) {
+        return false;
+    }
+
+    $perms = getUserPermissions($userId);
+
+    if (in_array('*', $perms, true)) {
+        return true;
+    }
+
+    return in_array($perm, $perms, true);
+}

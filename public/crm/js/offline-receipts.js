@@ -8,11 +8,11 @@
  * Database: mowology-receipts  (version 1)
  * Store:    pending-receipts   (keyPath: id, autoIncrement)
  *
- * Each record: { id, blob, lat, lng, csrf, timestamp }
+ * Each record: { id, blob, lat, lng, csrf, jobId, timestamp }
  *
  * Usage:
  *   OfflineReceipts.init()           — open DB, set up listeners
- *   OfflineReceipts.queue(file, lat, lng, csrf)  — save to IDB + register sync
+ *   OfflineReceipts.queue(file, lat, lng, csrf, jobId)  — save to IDB + register sync
  *   OfflineReceipts.getPendingCount() — returns Promise<number>
  *   OfflineReceipts.syncNow()        — manually trigger upload of all pending
  */
@@ -60,9 +60,10 @@
      * @param {number|null} lat — GPS latitude
      * @param {number|null} lng — GPS longitude
      * @param {string} csrf     — CSRF token
+     * @param {number|null} jobId — job to link the receipt to, if one was selected before going offline
      * @returns {Promise<number>} — the stored record ID
      */
-    function queue(file, lat, lng, csrf) {
+    function queue(file, lat, lng, csrf, jobId) {
         return openDB().then(function(database) {
             return new Promise(function(resolve, reject) {
                 var tx = database.transaction(STORE_NAME, 'readwrite');
@@ -73,6 +74,7 @@
                     lat: lat || null,
                     lng: lng || null,
                     csrf: csrf || '',
+                    jobId: jobId || null,
                     timestamp: Date.now()
                 };
 
@@ -214,6 +216,7 @@
         formData.append('csrf_token', csrf);
         if (receipt.lat) formData.append('lat', receipt.lat);
         if (receipt.lng) formData.append('lng', receipt.lng);
+        if (receipt.jobId) formData.append('job_id', receipt.jobId);
 
         return fetch('/crm/api/receipt-intake.php', {
             method: 'POST',

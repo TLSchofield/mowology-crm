@@ -66,6 +66,10 @@ enum APIEndpoint {
     /// GET /api/expenses/expense-list — paginated list of the user's expenses (JWT).
     case expenseList(page: Int)
 
+    /// POST /api/expenses/receipt-actions — approve, reject, or send a receipt to
+    /// accounting (JWT). Body: { action: "approve"|"reject"|"send", expense_id, rejection_reason? }
+    case receiptAction
+
     /// POST /api/device/token — register APNs device token for push notifications.
     case deviceTokenRegister
 
@@ -159,6 +163,9 @@ enum APIEndpoint {
             components?.queryItems = [URLQueryItem(name: "page", value: "\(page)")]
             return components?.url
 
+        case .receiptAction:
+            return URL(string: "\(baseURLString)/expenses/receipt-actions")
+
         case .deviceTokenRegister:
             return URL(string: "\(baseURLString)/device/token")
 
@@ -203,6 +210,7 @@ enum APIEndpoint {
              .receiptUpload,
              .expenseSave,
              .expenseList,
+             .receiptAction,
              .deviceTokenRegister,
              .quizAction,
              .quizQuestion,
@@ -230,6 +238,7 @@ enum APIEndpoint {
              .powGpsSync,
              .receiptUpload,
              .expenseSave,
+             .receiptAction,
              .deviceTokenRegister: return "POST"
 
         case .expenseList,

@@ -52,8 +52,6 @@
 		52B9F6F7B03C21A7B3B2D326 /* ReceiptReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020A7702F7F98D53EF42EBAC /* ReceiptReviewView.swift */; };
 		7E370E37A35300E0427971F9 /* ActivityMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDD36DA83B03006206BEC033 /* ActivityMonitor.swift */; };
 		5D133D3B226E9B76CE60E3E6 /* JobPhotoSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B448B82DBF4BE3E971A5357D /* JobPhotoSection.swift */; };
-		830366ECB2EB0FD75F3B29CB /* VisitWorkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B19463DBBCA2314B237BE00C /* VisitWorkView.swift */; };
-		86E989C600C80A671765708E /* VisitWorkViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FDD84813573A6DC8A7E4DB7 /* VisitWorkViewModel.swift */; };
 		28DDF3EB718E233882AA85C8 /* CrewTrail.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAFA16A03CBB34877128A74E /* CrewTrail.swift */; };
 		BB1234567890ABCDEF123401 /* QuizModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1234567890ABCDEF123401 /* QuizModels.swift */; };
 		BB1234567890ABCDEF123402 /* QuizView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1234567890ABCDEF123402 /* QuizView.swift */; };
@@ -67,6 +65,12 @@
 		0E8BD469E6536724AE4F425C /* InvoiceModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92E56ACC6D7EF8F4EDA36AED /* InvoiceModels.swift */; };
 		5C089B5E2F20B5713536F07E /* VisitCompletionViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6BA08B82EF419A25EC2AB73 /* VisitCompletionViewModel.swift */; };
 		D5811C582B278D90ABABED99 /* VisitCompletionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = E526A13618A59178167DFC63 /* VisitCompletionSheet.swift */; };
+		970EB2F3BD47AF0706E594FF /* ReceiptDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D721F3EF37850625E05177 /* ReceiptDetailView.swift */; };
+		F8190255B0C1E4AEA62B2D70 /* ReceiptActionResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = A291EF631E6F72287BAA852F /* ReceiptActionResponse.swift */; };
+		017CC6F86454321D6D579F43 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 783EC7CAE7D0D0D827FDEDBF /* AppDelegate.swift */; };
+		91DE03C2BB805CE4DB87C4CB /* DeviceTokenService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D504DC78E053FE292176721 /* DeviceTokenService.swift */; };
+		8C489D348DBAAC03DE15B991 /* DeviceTokenResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAA32370295931F4177A5345 /* DeviceTokenResponse.swift */; };
+		9E9948A505D043E56F240C06 /* ReceiptActionQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B977BC71DF7EEFB41F5B333 /* ReceiptActionQueue.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -117,8 +121,6 @@
 		020A7702F7F98D53EF42EBAC /* ReceiptReviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptReviewView.swift; sourceTree = "<group>"; };
 		BDD36DA83B03006206BEC033 /* ActivityMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityMonitor.swift; sourceTree = "<group>"; };
 		B448B82DBF4BE3E971A5357D /* JobPhotoSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JobPhotoSection.swift; sourceTree = "<group>"; };
-		B19463DBBCA2314B237BE00C /* VisitWorkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitWorkView.swift; sourceTree = "<group>"; };
-		3FDD84813573A6DC8A7E4DB7 /* VisitWorkViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitWorkViewModel.swift; sourceTree = "<group>"; };
 		EAFA16A03CBB34877128A74E /* CrewTrail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrewTrail.swift; sourceTree = "<group>"; };
 		AA1234567890ABCDEF123401 /* QuizModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuizModels.swift; sourceTree = "<group>"; };
 		AA1234567890ABCDEF123402 /* QuizView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuizView.swift; sourceTree = "<group>"; };
@@ -132,6 +134,12 @@
 		92E56ACC6D7EF8F4EDA36AED /* InvoiceModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InvoiceModels.swift; sourceTree = "<group>"; };
 		B6BA08B82EF419A25EC2AB73 /* VisitCompletionViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitCompletionViewModel.swift; sourceTree = "<group>"; };
 		E526A13618A59178167DFC63 /* VisitCompletionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitCompletionSheet.swift; sourceTree = "<group>"; };
+		C0D721F3EF37850625E05177 /* ReceiptDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptDetailView.swift; sourceTree = "<group>"; };
+		A291EF631E6F72287BAA852F /* ReceiptActionResponse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptActionResponse.swift; sourceTree = "<group>"; };
+		783EC7CAE7D0D0D827FDEDBF /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		6D504DC78E053FE292176721 /* DeviceTokenService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceTokenService.swift; sourceTree = "<group>"; };
+		FAA32370295931F4177A5345 /* DeviceTokenResponse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceTokenResponse.swift; sourceTree = "<group>"; };
+		3B977BC71DF7EEFB41F5B333 /* ReceiptActionQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptActionQueue.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -147,6 +155,7 @@
 				020780B1CE91FCD6C5F342B3 /* JobPhotoQueue.swift */,
 				AD1CBB45AF36E4DCB8B81C51 /* ScheduleCache.swift */,
 				04649C7082A9C0FC920D58AD /* AppTransitionDrainService.swift */,
+				3B977BC71DF7EEFB41F5B333 /* ReceiptActionQueue.swift */,
 			);
 			path = Offline;
 			sourceTree = "<group>";
@@ -156,7 +165,7 @@
 			children = (
 				51F215642B22B1FCC54B663F /* MowologyCRM */,
 				636F64D13F9CF99C7CCAD7EA /* Products */,
-);
+			);
 			sourceTree = "<group>";
 		};
 		3CAC498CFC84EC47A1CECC6B /* Network */ = {
@@ -166,6 +175,7 @@
 				68F3A974B3D602E24E8A79E8 /* APIEndpoints.swift */,
 				E2318C0D8CC141570D7D494B /* APIError.swift */,
 				A3914DFABD5F183B4DC1E39D /* VersionCheckService.swift */,
+				6D504DC78E053FE292176721 /* DeviceTokenService.swift */,
 			);
 			path = Network;
 			sourceTree = "<group>";
@@ -188,6 +198,7 @@
 				6ADD8A18FF486977AA4DB924 /* MainTabView.swift */,
 				A756819D930BDD10EFFEC4FA /* MowologyCRMApp.swift */,
 				44859802708EFA50B0DE7353 /* RootView.swift */,
+				783EC7CAE7D0D0D827FDEDBF /* AppDelegate.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -267,8 +278,6 @@
 				68D4D6F730154942832B001A /* WeekStripView.swift */,
 				A16DCCA87E60FAD86C6FAE71 /* DayMapView.swift */,
 				B448B82DBF4BE3E971A5357D /* JobPhotoSection.swift */,
-				B19463DBBCA2314B237BE00C /* VisitWorkView.swift */,
-				3FDD84813573A6DC8A7E4DB7 /* VisitWorkViewModel.swift */,
 			);
 			path = Schedule;
 			sourceTree = "<group>";
@@ -307,6 +316,8 @@
 				FA520C17803E2ABBC60EB495 /* AppExtrasConfig.swift */,
 				15B038E603948161013BAE5A /* ReceiptIntakeResponse.swift */,
 				D2304800F25344F166EF4441 /* Expense.swift */,
+				A291EF631E6F72287BAA852F /* ReceiptActionResponse.swift */,
+				FAA32370295931F4177A5345 /* DeviceTokenResponse.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -316,7 +327,7 @@
 			children = (
 				C8040C6DF2C66988040204FE /* Assets.xcassets */,
 				9DD091BEACD0F5E731BE8B0E /* Info.plist */,
-);
+			);
 			path = Resources;
 			sourceTree = "<group>";
 		};
@@ -335,6 +346,7 @@
 				41A00EA0662C14163182538D /* ReceiptsView.swift */,
 				C0ED400491FC08BF80DB7ED9 /* ReceiptCaptureView.swift */,
 				020A7702F7F98D53EF42EBAC /* ReceiptReviewView.swift */,
+				C0D721F3EF37850625E05177 /* ReceiptDetailView.swift */,
 			);
 			path = Receipts;
 			sourceTree = "<group>";
@@ -449,8 +461,6 @@
 				59F63DF93D0D83CCF97DC0EE /* ReceiptsViewModel.swift in Sources */,
 				7E370E37A35300E0427971F9 /* ActivityMonitor.swift in Sources */,
 				5D133D3B226E9B76CE60E3E6 /* JobPhotoSection.swift in Sources */,
-				830366ECB2EB0FD75F3B29CB /* VisitWorkView.swift in Sources */,
-				86E989C600C80A671765708E /* VisitWorkViewModel.swift in Sources */,
 				28DDF3EB718E233882AA85C8 /* CrewTrail.swift in Sources */,
 				BB1234567890ABCDEF123401 /* QuizModels.swift in Sources */,
 				BB1234567890ABCDEF123402 /* QuizView.swift in Sources */,
@@ -464,6 +474,12 @@
 				0E8BD469E6536724AE4F425C /* InvoiceModels.swift in Sources */,
 				5C089B5E2F20B5713536F07E /* VisitCompletionViewModel.swift in Sources */,
 				D5811C582B278D90ABABED99 /* VisitCompletionSheet.swift in Sources */,
+				970EB2F3BD47AF0706E594FF /* ReceiptDetailView.swift in Sources */,
+				F8190255B0C1E4AEA62B2D70 /* ReceiptActionResponse.swift in Sources */,
+				017CC6F86454321D6D579F43 /* AppDelegate.swift in Sources */,
+				91DE03C2BB805CE4DB87C4CB /* DeviceTokenService.swift in Sources */,
+				8C489D348DBAAC03DE15B991 /* DeviceTokenResponse.swift in Sources */,
+				9E9948A505D043E56F240C06 /* ReceiptActionQueue.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

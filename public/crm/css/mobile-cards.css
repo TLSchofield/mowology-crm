@@ -2711,6 +2711,30 @@
         transform: scale(0.97);
     }
 
+    .mw-mc-expense-save-send-btn {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        padding: 14px;
+        background: #059669;
+        color: #fff;
+        border: none;
+        border-radius: var(--mc-radius-md);
+        font-size: 0.95rem;
+        font-weight: 700;
+        cursor: pointer;
+        min-height: 50px;
+        -webkit-tap-highlight-color: transparent;
+        transition: background 0.15s ease, transform 0.1s ease;
+    }
+
+    .mw-mc-expense-save-send-btn:active {
+        background: #047857;
+        transform: scale(0.97);
+    }
+
     .mw-mc-expense-send-btn {
         flex: 0 0 auto;
         display: flex;

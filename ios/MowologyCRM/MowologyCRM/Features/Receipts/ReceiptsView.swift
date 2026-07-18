@@ -20,6 +20,7 @@ struct ReceiptsView: View {
     @State private var showReview   = false
     @State private var pickerItem: PhotosPickerItem?
     @State private var showErrorAlert = false
+    @State private var selectedExpense: Expense?
 
     private let impact          = UIImpactFeedbackGenerator(style: .medium)
     private let locationManager = CLLocationManager()
@@ -43,15 +44,18 @@ struct ReceiptsView: View {
             await viewModel.loadExpenses()
             // Wire up auto-drain for receipts that were queued while offline.
             viewModel.startReceiptQueueMonitor()
-            // Also drain on view appear — covers timed-out uploads enqueued while
-            // network status never actually changed (so NWPathMonitor never re-fired).
+            viewModel.startActionQueueMonitor()
+            // Also drain on view appear — covers timed-out uploads/actions enqueued
+            // while network status never actually changed (so NWPathMonitor never re-fired).
             await viewModel.drainPendingQueue()
+            await viewModel.drainPendingActionQueue()
         }
         .onChange(of: scenePhase) { _, phase in
-            // App foregrounded — retry any receipts queued by a previous timeout.
+            // App foregrounded — retry any receipts/actions queued by a previous timeout.
             // NWPathMonitor only fires on connectivity *changes*; this is the catch-all.
             if phase == .active {
                 Task { await viewModel.drainPendingQueue() }
+                Task { await viewModel.drainPendingActionQueue() }
             }
         }
         // Camera opens as fullScreenCover directly on this view — no intermediate sheet.
@@ -81,6 +85,11 @@ struct ReceiptsView: View {
             if let intake = viewModel.intakeResponse {
                 ReceiptReviewView(viewModel: viewModel, intake: intake, isPresented: $showReview)
             }
+        }
+        // Detail/action sheet — tapping a row lets the user approve/reject/send a
+        // saved receipt, closing the gap where iOS could only ever create drafts.
+        .sheet(item: $selectedExpense) { expense in
+            ReceiptDetailView(viewModel: viewModel, expense: expense)
         }
         // Upload spinner overlay
         .overlay {
@@ -133,8 +142,13 @@ struct ReceiptsView: View {
             } else {
                 List {
                     ForEach(viewModel.expenses) { expense in
-                        ExpenseRow(expense: expense)
-                            .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                        Button {
+                            selectedExpense = expense
+                        } label: {
+                            ExpenseRow(expense: expense)
+                        }
+                        .buttonStyle(.plain)
+                        .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                     }
                     if viewModel.currentPage < viewModel.totalPages {
                         HStack { Spacer(); ProgressView(); Spacer() }
@@ -239,8 +253,8 @@ struct ReceiptsView: View {
         ToolbarItem(placement: .principal) {
             HStack(spacing: 6) {
                 Text("Receipts").font(.headline.weight(.semibold))
-                if ReceiptQueue.shared.pendingCount > 0 {
-                    Text("\(ReceiptQueue.shared.pendingCount) pending")
+                if ReceiptQueue.shared.pendingCount + ReceiptActionQueue.shared.pendingCount > 0 {
+                    Text("\(ReceiptQueue.shared.pendingCount + ReceiptActionQueue.shared.pendingCount) pending")
                         .font(.caption2.weight(.semibold))
                         .padding(.horizontal, 6).padding(.vertical, 2)
                         .background(Color.MW.orange.opacity(0.15))
@@ -288,9 +302,16 @@ private struct ExpenseRow: View {
         HStack(spacing: 12) {
             receiptThumb
             VStack(alignment: .leading, spacing: 3) {
-                Text(expense.displayVendor)
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
+                HStack(spacing: 4) {
+                    Text(expense.displayVendor)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    if expense.isArchived {
+                        Image(systemName: "archivebox.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 HStack(spacing: 6) {
                     Text(formattedDate)
                         .font(.caption)

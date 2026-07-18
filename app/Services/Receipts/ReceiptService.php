@@ -41,13 +41,20 @@ require_once APP_ROOT . '/Services/Messaging/MessagingService.php';
  *   @type string|null $client_name  Client/property name for reference
  *   @type string|null $description  Optional description
  * }
+ * @param int|null $userIdOverride  Explicit user id for the email log's created_by column.
+ *   Defaults to getCurrentUser() when null, which requires an active PHP session — pass
+ *   this explicitly for JWT-authenticated callers (no session), e.g. app/Modules/Expenses/Api/receipt-actions.php.
  * @return array ['success' => bool, 'message' => string, 'log_id' => int|null]
  */
-function sendReceiptToAccounting(array $opts): array
+function sendReceiptToAccounting(array $opts, ?int $userIdOverride = null): array
 {
     $db = getDB();
-    $user = getCurrentUser();
-    $userId = $user['id'] ?? 0;
+    if ($userIdOverride !== null) {
+        $userId = $userIdOverride;
+    } else {
+        $user = getCurrentUser();
+        $userId = $user['id'] ?? 0;
+    }
 
     // 1. Check if forwarding is enabled
     $config = getReceiptForwardingConfig($db);

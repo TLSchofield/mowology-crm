@@ -1039,6 +1039,12 @@ async function submitReceiptExport() {
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
                         Save
                     </button>
+                    <?php if ($canSend): ?>
+                    <button type="button" class="mw-mc-expense-save-send-btn" onclick="mobileSaveExpense(true)" title="Save and send to QuickBooks">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                        Save &amp; Send
+                    </button>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
@@ -1225,11 +1231,11 @@ async function submitReceiptExport() {
                                 <div class="col-md-4">
                                     <label class="form-label">Status</label>
                                     <div class="mw-status-toggle-wrap">
-                                        <input type="checkbox" id="expApproved" class="mw-status-toggle-input">
+                                        <input type="checkbox" id="expApproved" class="mw-status-toggle-input" disabled title="Use the Approve/Reject buttons below to change status">
                                         <label for="expApproved" class="mw-status-toggle-label">
                                             <span class="mw-status-toggle-pill">
                                                 <i data-feather="check" class="mw-status-check-icon"></i>
-                                                <span class="mw-status-toggle-text">Approved</span>
+                                                <span class="mw-status-toggle-text" id="expStatusText">Approved</span>
                                             </span>
                                         </label>
                                     </div>
@@ -1362,6 +1368,19 @@ async function submitReceiptExport() {
             </div>
             <div class="modal-footer border-0 pt-0">
                 <button type="button" class="btn mw-btn-dismiss" data-dismiss="modal">Cancel</button>
+                <?php if ($canApprove): ?>
+                <button type="button" class="btn btn-outline-danger" id="expRejectBtn" onclick="rejectExpenseFromModal()" style="display:none;">
+                    <i data-feather="x" style="width:16px;height:16px;margin-right:4px;"></i> Reject
+                </button>
+                <button type="button" class="btn btn-outline-success" id="expApproveBtn" onclick="approveExpenseFromModal()" style="display:none;">
+                    <i data-feather="check" style="width:16px;height:16px;margin-right:4px;"></i> Approve
+                </button>
+                <?php endif; ?>
+                <?php if ($canSend): ?>
+                <button type="button" class="btn btn-success" id="expSendBtn" onclick="sendExpenseFromModal()" style="display:none;" title="Send to QuickBooks">
+                    <i data-feather="send" style="width:16px;height:16px;margin-right:4px;"></i> Send to Accounting
+                </button>
+                <?php endif; ?>
                 <?php if ($canEdit): ?>
                 <button type="button" class="btn btn-outline-primary" id="expAttachReceiptBtn" onclick="document.getElementById('expReceiptUploadInput').click()" title="Upload a receipt image for this expense">
                     <i data-feather="upload" style="width:16px;height:16px;margin-right:4px;"></i> Attach Receipt
@@ -1747,6 +1766,15 @@ async function submitReceiptExport() {
     window.triggerCamera = function() {
         cleanupPendingReceiptInput();
 
+        // Pre-tap guard: on native Android the WebView file picker throws
+        // "Access denied" when the app's CAMERA permission is off. If we already
+        // know it's denied, block the doomed picker and show guidance instead.
+        if (window.MwCameraPermission && MwCameraPermission.isNativeAndroid()
+            && MwCameraPermission.isDenied()) {
+            MwCameraPermission.showDeniedDialog();
+            return;
+        }
+
         var input = document.createElement('input');
         input.type = 'file';
         input.accept = 'image/*';
@@ -1768,6 +1796,14 @@ async function submitReceiptExport() {
             detachListeners();
             if (input.parentNode) input.parentNode.removeChild(input);
             pendingReceiptInput = null;
+            // No file: on native Android this can be a silent camera-permission
+            // denial (the picker never really opened). Re-check and surface
+            // actionable guidance instead of leaving the user stuck.
+            if (window.MwCameraPermission && MwCameraPermission.isNativeAndroid()) {
+                MwCameraPermission.refresh(function(state) {
+                    if (state === 'denied') MwCameraPermission.showDeniedDialog();
+                });
+            }
             window.showExpenseHistory();
         }
 
@@ -3533,7 +3569,20 @@ async function submitReceiptExport() {
             // Job link — populate the search field display and hidden ID
             var jobSub = [e.job_service_type, e.job_contact_name, e.job_address].filter(Boolean).join(' · ');
             setJobLink(e.job_id || null, e.job_plan_number || (e.job_id ? '#' + e.job_id : null), null, jobSub || null);
-            document.getElementById('expApproved').checked = (e.status === 'approved');
+            document.getElementById('expApproved').checked = (e.status === 'approved' || e.status === 'forwarded');
+            document.getElementById('expStatusText').textContent =
+                e.status === 'approved' ? 'Approved' :
+                e.status === 'forwarded' ? 'Sent' :
+                e.status === 'rejected' ? 'Rejected' :
+                e.status === 'pending_approval' ? 'Pending Approval' : 'Draft';
+            window._currentExpenseStatus = e.status;
+            var approveBtn = document.getElementById('expApproveBtn');
+            var rejectBtn = document.getElementById('expRejectBtn');
+            var sendBtn = document.getElementById('expSendBtn');
+            var canAct = e.status !== 'approved' && e.status !== 'rejected' && e.status !== 'forwarded';
+            if (approveBtn) approveBtn.style.display = canAct ? '' : 'none';
+            if (rejectBtn) rejectBtn.style.display = canAct ? '' : 'none';
+            if (sendBtn) sendBtn.style.display = (e.status === 'approved') ? '' : 'none';
             document.getElementById('expDescription').value = e.description || '';
             document.getElementById('expNotes').value = e.notes || '';
 
@@ -3631,7 +3680,6 @@ async function submitReceiptExport() {
                 accounting_category: document.getElementById('expAcctCategory').value,
                 gbp_category: document.getElementById('expGbpCategory').value,
                 job_id: document.getElementById('expJobId').value || null,
-                status: document.getElementById('expApproved').checked ? 'approved' : 'draft',
                 description: document.getElementById('expDescription').value,
                 notes: document.getElementById('expNotes').value,
                 odometer_start: document.getElementById('expOdometerStart')?.value || null,
@@ -3657,6 +3705,47 @@ async function submitReceiptExport() {
             loadExpenses(currentPage);
             loadStats();
         } catch(e) { alert('Error: ' + e.message); }
+    };
+
+    // ── Approve / Reject / Send from the edit modal ──────────────
+    // These route through the same audited endpoints as the desktop Review Queue
+    // (action:'approve'/'reject', not the generic action:'update') so self-approval
+    // checks and approved_by/approved_at stamping always apply, on any viewport.
+    window.approveExpenseFromModal = async function() {
+        var id = document.getElementById('expenseId').value;
+        if (!id) return;
+        var ok = await window.approveExpense(parseInt(id));
+        if (ok) $('#expenseModal').modal('hide');
+    };
+
+    window.rejectExpenseFromModal = function() {
+        var id = document.getElementById('expenseId').value;
+        if (!id) return;
+        $('#expenseModal').modal('hide');
+        window.showRejectModal(parseInt(id));
+    };
+
+    window.sendExpenseFromModal = async function() {
+        var id = document.getElementById('expenseId').value;
+        if (!id) return;
+        var btn = document.getElementById('expSendBtn');
+        if (btn) btn.disabled = true;
+        try {
+            var r = await fetch('/crm/api/receipt-send.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ csrf_token: CSRF, expense_id: parseInt(id) }),
+            });
+            var d = await r.json();
+            if (!d.success) throw new Error(d.error || 'Send failed');
+            $('#expenseModal').modal('hide');
+            loadExpenses(currentPage);
+            loadStats();
+        } catch(e) {
+            alert('Error: ' + e.message);
+        } finally {
+            if (btn) btn.disabled = false;
+        }
     };
 
     // ── Attach Receipt to existing expense ──────────────────────
@@ -5951,7 +6040,7 @@ async function submitReceiptExport() {
     }
 
     window.approveExpense = async function(id) {
-        if (!confirm('Approve this expense?')) return;
+        if (!confirm('Approve this expense?')) return false;
         try {
             var r = await fetch('/crm/api/expenses.php', {
                 method: 'POST',
@@ -5962,7 +6051,8 @@ async function submitReceiptExport() {
             if (!d.success) throw new Error(d.error);
             loadApprovals();
             loadExpenses(currentPage);
-        } catch(e) { alert('Error: ' + e.message); }
+            return true;
+        } catch(e) { alert('Error: ' + e.message); return false; }
     };
 
     // ── Emailed Receipts — pending review panel ───────────────────

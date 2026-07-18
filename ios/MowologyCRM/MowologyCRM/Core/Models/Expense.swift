@@ -23,6 +23,8 @@ struct Expense: Decodable, Identifiable {
     let jobId: Int?
     let anomalyScore: Int?
     let createdAt: String
+    let createdBy: Int?
+    let archivedAt: String?
 
     enum CodingKeys: String, CodingKey {
         case id, description, status
@@ -40,6 +42,8 @@ struct Expense: Decodable, Identifiable {
         case jobId                  = "job_id"
         case anomalyScore           = "anomaly_score"
         case createdAt              = "created_at"
+        case createdBy              = "created_by"
+        case archivedAt             = "archived_at"
     }
 
     var displayVendor: String {
@@ -47,6 +51,8 @@ struct Expense: Decodable, Identifiable {
     }
 
     var isForwarded: Bool { (forwardedToAccounting ?? 0) != 0 }
+
+    var isArchived: Bool { archivedAt != nil }
 
     var statusColor: String {
         switch status {

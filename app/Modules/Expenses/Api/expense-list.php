@@ -76,7 +76,8 @@ try {
                e.payment_method, e.status, e.forwarded_to_accounting,
                e.receipt_media_id, e.job_id, e.anomaly_score, e.created_at,
                COALESCE(v.name, e.vendor_name_raw) AS vendor_name,
-               ma.stored_filename AS receipt_filename
+               ma.stored_filename AS receipt_filename,
+               ma.archived_at, ma.thumb_path, ma.original_removed
         FROM expenses e
         LEFT JOIN vendors v ON v.id = e.vendor_id
         LEFT JOIN media_assets ma ON ma.id = e.receipt_media_id
@@ -87,12 +88,18 @@ try {
     $listStmt->execute($params);
     $rows = $listStmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // Build direct receipt image URLs for iOS display
+    // Build direct receipt image URLs for iOS display. Once a receipt is archived
+    // (ReceiptArchiveService), the full-res original is deleted from web disk — serve
+    // the retained thumbnail instead so the URL doesn't 404.
     foreach ($rows as &$row) {
-        $row['receipt_url'] = !empty($row['receipt_filename'])
-            ? 'https://mowology.ca/uploads/receipts/' . $row['receipt_filename']
-            : null;
-        unset($row['receipt_filename']);
+        if (!empty($row['original_removed']) && !empty($row['thumb_path'])) {
+            $row['receipt_url'] = 'https://mowology.ca' . $row['thumb_path'];
+        } else {
+            $row['receipt_url'] = !empty($row['receipt_filename'])
+                ? 'https://mowology.ca/uploads/receipts/' . $row['receipt_filename']
+                : null;
+        }
+        unset($row['receipt_filename'], $row['thumb_path'], $row['original_removed']);
     }
     unset($row);
 
