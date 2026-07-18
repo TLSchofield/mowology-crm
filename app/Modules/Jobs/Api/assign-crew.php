@@ -183,6 +183,28 @@ try {
         }
     }
 
+    // Push notification: tell newly assigned crew members about the job
+    if (!empty($crewIds)) {
+        try {
+            require_once APP_ROOT . '/Services/Push/ApnsService.php';
+            require_once APP_ROOT . '/Services/Push/PushDispatcher.php';
+            $propStmt = $db->prepare("SELECT address, city FROM properties WHERE id = ?");
+            $propStmt->execute([$stop['property_id']]);
+            $prop = $propStmt->fetch(PDO::FETCH_ASSOC);
+            $addressLine = $prop ? ($prop['address'] . ', ' . $prop['city']) : 'your next stop';
+            $dateLabel = date('D, M j', strtotime($stop['stop_date']));
+            PushDispatcher::notifyUsers(
+                $crewIds,
+                'Job Assigned',
+                "{$dateLabel} — {$addressLine}",
+                ['stop_id' => $stopId, 'screen' => 'schedule']
+            );
+        } catch (Throwable $pushErr) {
+            // Push failure must never block the crew assignment response
+            error_log('[assign-crew] push error: ' . $pushErr->getMessage());
+        }
+    }
+
     // Log activity
     $logDetail = "Stop #{$stopId} crew changed to {$crewDisplay}";
     if ($scope === 'all_future' && $planId > 0) {

@@ -10,6 +10,7 @@ import UserNotifications
 @main
 struct MowologyCRMApp: App {
 
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var authSession = AuthSession()
     @Environment(\.scenePhase) private var scenePhase
 
@@ -49,6 +50,9 @@ struct MowologyCRMApp: App {
                 // connectivity restored while the app was backgrounded.
                 Task { await AppTransitionDrainService.shared.drain() }
                 Task { await AppPhotoQueueDrainService.shared.drain() }
+                // Re-registering is idempotent server-side (upsert) and gives retry
+                // coverage if the token arrived while offline on a previous launch.
+                UIApplication.shared.registerForRemoteNotifications()
             }
         }
     }
@@ -119,6 +123,15 @@ struct MowologyCRMApp: App {
     private func requestNotificationPermission() {
         UNUserNotificationCenter.current().requestAuthorization(
             options: [.alert, .sound, .badge]
-        ) { _, _ in }
+        ) { granted, _ in
+            // Authorization alone doesn't get us a device token — registerForRemoteNotifications()
+            // is what triggers iOS to actually contact APNs and deliver one via
+            // AppDelegate.didRegisterForRemoteNotificationsWithDeviceToken. Must hop to the
+            // main thread — UIApplication APIs aren't safe to call from this completion handler's queue.
+            guard granted else { return }
+            DispatchQueue.main.async {
+                UIApplication.shared.registerForRemoteNotifications()
+            }
+        }
     }
 }
