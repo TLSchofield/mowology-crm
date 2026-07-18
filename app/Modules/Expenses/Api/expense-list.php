@@ -100,6 +100,14 @@ try {
                 : null;
         }
         unset($row['receipt_filename'], $row['thumb_path'], $row['original_removed']);
+
+        // PDO returns DECIMAL columns as PHP strings regardless of prepare mode, so
+        // these would otherwise serialize as JSON strings ("45.67"). iOS decodes
+        // `total` as a non-optional Double — a string value fails the whole array
+        // decode, silently landing the app on its empty state with no error shown.
+        $row['amount'] = $row['amount'] !== null ? (float)$row['amount'] : null;
+        $row['gst_amount'] = $row['gst_amount'] !== null ? (float)$row['gst_amount'] : null;
+        $row['total'] = (float)$row['total'];
     }
     unset($row);
 
