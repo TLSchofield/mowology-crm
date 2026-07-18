@@ -22,6 +22,7 @@ for ($__i = 0; $__i < 5; $__i++) {
 unset($__dir, $__i);
 
 require_once APP_ROOT . '/Core/config.php';
+require_once APP_ROOT . '/Core/Auth/auth.php';
 require_once APP_ROOT . '/Services/Messaging/EmailHelper.php';
 
 // ── Handle POST ───────────────────────────────────────────────────────────
@@ -33,7 +34,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         $error = 'Please enter a valid email address.';
+    } elseif (isLoginRateLimited($email)) {
+        // Reuses the login_attempts rate limiter — nothing previously throttled
+        // repeated reset requests, letting an attacker flood a target's inbox
+        // or hammer the mail-send path indefinitely.
+        $error = 'Too many requests. Please try again in a few minutes.';
     } else {
+        recordFailedLogin($email);
         $db   = getDB();
         $user = $db->prepare("SELECT id, full_name FROM users WHERE LOWER(email) = ? AND is_active = 1 LIMIT 1");
         $user->execute([$email]);

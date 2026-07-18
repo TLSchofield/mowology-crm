@@ -68,8 +68,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $tokenValid && $tokenRow) {
     $password  = $_POST['password']  ?? '';
     $password2 = $_POST['password2'] ?? '';
 
-    if (strlen($password) < 8) {
-        $error = 'Password must be at least 8 characters.';
+    if (strlen($password) < 12) {
+        $error = 'Password must be at least 12 characters.';
         $tokenValid = true; // keep form visible
     } elseif ($password !== $password2) {
         $error = 'Passwords do not match.';

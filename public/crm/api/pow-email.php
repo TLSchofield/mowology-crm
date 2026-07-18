@@ -103,10 +103,17 @@ session_write_close();
     }
 
     $visitNum    = $visit['visit_number'] ?? "Visit #{$visitId}";
-    $clientName  = trim(($visit['contact_first']??'') . ' ' . ($visit['contact_last']??'')) ?: 'Valued Client';
-    $address     = trim(($visit['property_address']??'') . ', ' . ($visit['property_city']??''));
-    $planTitle   = $visit['plan_title'] ?? '';
+    $clientNameRaw = trim(($visit['contact_first']??'') . ' ' . ($visit['contact_last']??'')) ?: 'Valued Client';
+    $addressRaw    = trim(($visit['property_address']??'') . ', ' . ($visit['property_city']??''));
+    $planTitleRaw  = $visit['plan_title'] ?? '';
     $visitDate   = $visit['started_at'] ? date('F j, Y', strtotime($visit['started_at'])) : $visit['scheduled_date'];
+
+    // This email renders as HTML — contact_first/last is settable by the customer
+    // themselves via the portal profile API with no HTML validation on input, so
+    // escape here at output time (consistent with how the rest of the app handles it).
+    $clientName = htmlspecialchars($clientNameRaw, ENT_QUOTES, 'UTF-8');
+    $address    = htmlspecialchars($addressRaw, ENT_QUOTES, 'UTF-8');
+    $planTitle  = htmlspecialchars($planTitleRaw, ENT_QUOTES, 'UTF-8');
 
     // Build email HTML
     $customMsg = $message

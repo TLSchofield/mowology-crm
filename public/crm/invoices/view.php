@@ -953,7 +953,7 @@ $extraHead = $isPayable
                                                           'cc' => 'CC',
                                                           'bcc' => 'BCC'
                                                       ];
-                                                      echo $roles[$recipient['contact_role']] ?? $recipient['contact_role'];
+                                                      echo $roles[$recipient['contact_role']] ?? htmlspecialchars($recipient['contact_role'], ENT_QUOTES, 'UTF-8');
                                                       ?>
                                                   </span>
                                               </td>

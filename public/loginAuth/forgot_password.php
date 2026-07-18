@@ -20,7 +20,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
             $message = 'Please enter a valid email address.';
             $messageType = 'error';
+        } elseif (isLoginRateLimited($email)) {
+            // Reuses the login_attempts rate limiter — nothing previously throttled
+            // repeated reset requests, letting an attacker flood a target's inbox
+            // or hammer the mail-send path indefinitely.
+            $message = 'Too many requests. Please try again in a few minutes.';
+            $messageType = 'error';
         } else {
+            recordFailedLogin($email);
             $db = getDB();
 
             try {

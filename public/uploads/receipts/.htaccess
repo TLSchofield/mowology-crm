@@ -1,4 +1,4 @@
 # Block all direct HTTP access to receipt images.
 # Receipts are served through /crm/api/serve-receipt.php (auth-gated).
 Options -Indexes
-Deny from all
+Require all denied
