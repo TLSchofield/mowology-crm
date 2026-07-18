@@ -51,8 +51,10 @@ if (!is_dir($uploadDir)) {
     }
 }
 
-// Generate unique filename
-$ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+// Generate unique filename — derive the extension from the validated MIME type,
+// never from the client-supplied filename (prevents extension-spoofing / polyglot uploads).
+$extByMime = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/gif' => 'gif', 'image/webp' => 'webp'];
+$ext = $extByMime[$mimeType];
 $storedName = 'portfolio-gallery-' . uniqid() . '.' . $ext;
 $filePath = $uploadDir . $storedName;
 $webPath = '/uploads/cms/' . $storedName;

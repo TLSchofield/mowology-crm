@@ -3428,7 +3428,7 @@ function getServiceLabel(type) {
 
         fetch('/crm/api/assign-crew.php', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
             body: JSON.stringify(payload)
         })
         .then(function(resp) {

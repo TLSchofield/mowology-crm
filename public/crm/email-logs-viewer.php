@@ -3,6 +3,8 @@
  * Simple Email Logs Viewer - No dependencies
  * View email send attempts for debugging
  */
+require_once __DIR__ . '/../loginAuth/auth.php';
+requireLogin();
 
 $logDir = __DIR__ . '/email-logs';
 $logFile = $logDir . '/email-' . date('Y-m-d') . '.log';

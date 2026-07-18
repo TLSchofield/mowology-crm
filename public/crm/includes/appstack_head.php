@@ -150,6 +150,10 @@ function _av(string $webPath): string {
 
   <script>window.MW_USER_ROLE = '<?= htmlspecialchars($user['role'] ?? 'crew', ENT_QUOTES, 'UTF-8') ?>';</script>
 
+  <!-- Global CSRF token for JSON-body fetch() calls (form POSTs already carry their own
+       hidden csrf_token field via generateCSRFToken() in each form). -->
+  <script>window.MW_CSRF_TOKEN = '<?= htmlspecialchars(function_exists('generateCSRFToken') ? generateCSRFToken() : '', ENT_QUOTES, 'UTF-8') ?>';</script>
+
   <?php echo $extraHead; ?>
 
   <!-- Service Worker registration — see /crm/js/sw-register.js.

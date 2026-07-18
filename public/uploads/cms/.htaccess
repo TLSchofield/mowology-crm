@@ -1,0 +1,13 @@
+# Directory-specific backstop (in addition to the parent public/uploads/.htaccess):
+# CMS/portfolio uploads are the only upload path without a server-side extension
+# whitelist enforced at write time before this fix, so this directory gets its own
+# explicit script-execution block rather than relying solely on inheritance.
+<FilesMatch "\.ph(p[3457]?|t|tml)$">
+    Require all denied
+</FilesMatch>
+
+<FilesMatch "\.(cgi|pl|py|sh|asp|aspx|jsp)$">
+    Require all denied
+</FilesMatch>
+
+Options -Indexes

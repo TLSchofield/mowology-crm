@@ -27,6 +27,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if (empty($email) || empty($password)) {
             $error = 'Please enter both email and password.';
+        } elseif (isLoginRateLimited($email)) {
+            $error = 'Too many login attempts. Please try again in a few minutes.';
         } else {
             if (loginUser($email, $password)) {
                 header('Location: dashboard_appstack.php');

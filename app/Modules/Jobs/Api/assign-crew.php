@@ -29,6 +29,16 @@ try {
 
     requireLogin();
     $user = getCurrentUser();
+    requirePermission('jobs.edit');
+
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        throw new Exception('Method not allowed');
+    }
+
+    $csrfToken = $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+    if (!verifyCSRFToken($csrfToken)) {
+        throw new Exception('Invalid CSRF token');
+    }
 
     $input = json_decode(file_get_contents('php://input'), true);
 

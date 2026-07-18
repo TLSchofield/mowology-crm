@@ -92,7 +92,15 @@ if (!is_dir($uploadDir)) {
     mkdir($uploadDir, 0755, true);
 }
 
-$ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+// Derive the extension from the validated MIME type, never from the client-supplied
+// filename (prevents extension-spoofing / polyglot uploads).
+$extByMime = [
+    'image/jpeg' => 'jpg', 'image/png' => 'png', 'image/gif' => 'gif', 'image/webp' => 'webp',
+    'video/mp4' => 'mp4', 'video/webm' => 'webm',
+    'application/pdf' => 'pdf', 'application/msword' => 'doc',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document' => 'docx',
+];
+$ext = $extByMime[$mimeType] ?? 'bin';
 $storedName = uniqid('media-') . '.' . $ext;
 $filePath = $uploadDir . $storedName;
 $webPath = '/uploads/cms/' . $storedName;
