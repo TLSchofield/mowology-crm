@@ -21,6 +21,7 @@ struct ReceiptDetailView: View {
     @State private var showRejectSheet = false
     @State private var rejectReason = ""
     @State private var showErrorAlert = false
+    @State private var showFullImage = false
 
     var body: some View {
         NavigationStack {
@@ -63,6 +64,16 @@ struct ReceiptDetailView: View {
         } message: {
             Text(viewModel.actionError ?? "")
         }
+        .fullScreenCover(isPresented: $showFullImage) {
+            if let url = receiptURL {
+                ZoomableReceiptView(url: url)
+            }
+        }
+    }
+
+    private var receiptURL: URL? {
+        guard let s = expense.receiptUrl else { return nil }
+        return URL(string: s)
     }
 
     /// Draft/pending expenses can be approved or rejected; approved ones can be sent.
@@ -77,9 +88,21 @@ struct ReceiptDetailView: View {
         Section {
             HStack {
                 Spacer()
-                if let urlStr = expense.receiptUrl, let url = URL(string: urlStr) {
+                if let url = receiptURL {
                     AsyncImage(url: url) { img in
-                        img.resizable().scaledToFit().frame(maxHeight: 220).clipShape(RoundedRectangle(cornerRadius: 10))
+                        img.resizable().scaledToFit()
+                            .frame(maxHeight: 220)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                            .overlay(alignment: .bottomTrailing) {
+                                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                    .font(.caption.weight(.bold))
+                                    .foregroundStyle(.white)
+                                    .padding(6)
+                                    .background(.black.opacity(0.55), in: Circle())
+                                    .padding(8)
+                            }
+                            .contentShape(Rectangle())
+                            .onTapGesture { showFullImage = true }
                     } placeholder: {
                         ProgressView().frame(height: 160)
                     }
@@ -229,5 +252,80 @@ struct ReceiptDetailView: View {
 
     private func performSend() async {
         if await viewModel.send(expenseId: expense.id) { dismiss() }
+    }
+}
+
+// MARK: - Full-screen zoomable receipt
+
+/// Tap a receipt thumbnail to inspect it full-screen. Supports pinch-to-zoom,
+/// double-tap to toggle zoom, and drag-to-pan while zoomed — for reading faint
+/// handwritten totals/GST that are illegible at thumbnail size.
+private struct ZoomableReceiptView: View {
+    let url: URL
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var scale: CGFloat = 1
+    @GestureState private var pinch: CGFloat = 1
+    @State private var offset: CGSize = .zero
+    @GestureState private var drag: CGSize = .zero
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+
+            AsyncImage(url: url) { phase in
+                if let img = phase.image {
+                    img.resizable().scaledToFit()
+                        .scaleEffect(max(1, scale * pinch))
+                        .offset(x: offset.width + drag.width, y: offset.height + drag.height)
+                        .gesture(
+                            MagnificationGesture()
+                                .updating($pinch) { value, state, _ in state = value }
+                                .onEnded { value in
+                                    scale = min(max(scale * value, 1), 5)
+                                    if scale == 1 { offset = .zero }
+                                }
+                        )
+                        .simultaneousGesture(
+                            DragGesture()
+                                .updating($drag) { value, state, _ in
+                                    if scale > 1 { state = value.translation }
+                                }
+                                .onEnded { value in
+                                    guard scale > 1 else { return }
+                                    offset.width += value.translation.width
+                                    offset.height += value.translation.height
+                                }
+                        )
+                        .onTapGesture(count: 2) {
+                            withAnimation(.spring(response: 0.3)) {
+                                if scale > 1 { scale = 1; offset = .zero } else { scale = 2.5 }
+                            }
+                        }
+                } else if phase.error != nil {
+                    VStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle").font(.largeTitle)
+                        Text("Couldn't load image").font(.footnote)
+                    }
+                    .foregroundStyle(.white.opacity(0.8))
+                } else {
+                    ProgressView().tint(.white)
+                }
+            }
+
+            VStack {
+                HStack {
+                    Spacer()
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 30))
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(.white, .black.opacity(0.4))
+                            .padding()
+                    }
+                }
+                Spacer()
+            }
+        }
     }
 }
