@@ -159,6 +159,43 @@ final class ReceiptsViewModel: ObservableObject {
         return false
     }
 
+    // MARK: - Edit
+
+    /// Edit an existing expense's user-correctable fields (fix OCR mistakes from the phone).
+    /// Server-side: ownership- and status-guarded, and rejected if already sent to accounting.
+    func updateExpense(
+        expenseId: Int,
+        vendorName: String, date: String,
+        amount: Double, gst: Double, total: Double,
+        category: String, paymentMethod: String, description: String
+    ) async -> Bool {
+        isSaving  = true
+        saveError = nil
+        let body: [String: Any] = [
+            "id":                  expenseId,
+            "expense_date":        date,
+            "vendor_name_raw":     vendorName,
+            "amount":              amount,
+            "gst_amount":          gst,
+            "total":               total,
+            "accounting_category": category,
+            "payment_method":      paymentMethod,
+            "description":         description,
+        ]
+        do {
+            let _: ExpenseSaveResponse = try await apiClient.request(.expenseUpdate, body: body)
+            await loadExpenses()
+            isSaving = false
+            return true
+        } catch let err as APIError {
+            saveError = err.errorDescription
+        } catch {
+            saveError = "Failed to update expense."
+        }
+        isSaving = false
+        return false
+    }
+
     // MARK: - Actions (approve / reject / send)
 
     /// Approve a receipt already saved as an expense. Fails server-side with

@@ -22,6 +22,7 @@ struct ReceiptDetailView: View {
     @State private var rejectReason = ""
     @State private var showErrorAlert = false
     @State private var showFullImage = false
+    @State private var showEditSheet = false
 
     var body: some View {
         NavigationStack {
@@ -44,6 +45,12 @@ struct ReceiptDetailView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }
                         .foregroundStyle(Color.MW.green)
+                }
+                if isEditable {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button("Edit") { showEditSheet = true }
+                            .foregroundStyle(Color.MW.green)
+                    }
                 }
             }
             .safeAreaInset(edge: .bottom) {
@@ -69,11 +76,21 @@ struct ReceiptDetailView: View {
                 ZoomableReceiptView(url: url)
             }
         }
+        .sheet(isPresented: $showEditSheet) {
+            EditExpenseView(viewModel: viewModel, expense: expense, isPresented: $showEditSheet) {
+                dismiss()   // pop back to the (now refreshed) list so edits are reflected
+            }
+        }
     }
 
     private var receiptURL: URL? {
         guard let s = expense.receiptUrl else { return nil }
         return URL(string: s)
+    }
+
+    /// Editable in any status except sent (forwarded to accounting) — matches the server guard.
+    private var isEditable: Bool {
+        expense.status != "forwarded" && !expense.isForwarded
     }
 
     /// Draft/pending expenses can be approved or rejected; approved ones can be sent.
@@ -252,6 +269,161 @@ struct ReceiptDetailView: View {
 
     private func performSend() async {
         if await viewModel.send(expenseId: expense.id) { dismiss() }
+    }
+}
+
+// MARK: - Edit expense
+
+/// Edit an existing receipt's fields from the phone — the piece needed to actually run
+/// the business on mobile: fixing OCR mistakes (wrong dates/vendors/totals) without the
+/// web app. Mirrors the OCR-review form; saves via ExpenseService::update() server-side,
+/// which is ownership- and status-guarded (blocked once sent to accounting).
+private struct EditExpenseView: View {
+
+    @ObservedObject var viewModel: ReceiptsViewModel
+    let expense: Expense
+    @Binding var isPresented: Bool
+    let onSaved: () -> Void
+
+    @State private var vendorName:     String
+    @State private var expenseDate:    Date
+    @State private var amount:         String
+    @State private var gst:            String
+    @State private var total:          String
+    @State private var category:       String
+    @State private var paymentMethod:  String
+    @State private var descriptionText: String
+
+    private let categories = [
+        "Materials", "Fuel", "Equipment", "Subcontractor", "Disposal",
+        "Safety", "Tools", "Office", "Meals", "Other",
+    ]
+    private let paymentMethods = ["credit_card", "debit", "cash", "etransfer", "company_card"]
+
+    init(viewModel: ReceiptsViewModel, expense: Expense, isPresented: Binding<Bool>, onSaved: @escaping () -> Void) {
+        self.viewModel    = viewModel
+        self.expense      = expense
+        self._isPresented = isPresented
+        self.onSaved      = onSaved
+        _vendorName      = State(initialValue: expense.vendorNameRaw ?? expense.vendorName ?? "")
+        _expenseDate     = State(initialValue: Self.parseDate(expense.expenseDate))
+        _amount          = State(initialValue: expense.amount.map { String(format: "%.2f", $0) } ?? "")
+        _gst             = State(initialValue: expense.gstAmount.map { String(format: "%.2f", $0) } ?? "")
+        _total           = State(initialValue: String(format: "%.2f", expense.total))
+        _category        = State(initialValue: expense.accountingCategory ?? "")
+        _paymentMethod   = State(initialValue: expense.paymentMethod ?? "credit_card")
+        _descriptionText = State(initialValue: expense.description ?? "")
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Vendor") {
+                    TextField("Vendor name", text: $vendorName)
+                    DatePicker("Date", selection: $expenseDate, displayedComponents: .date)
+                        .tint(Color.MW.green)
+                }
+                Section("Amounts") {
+                    amountRow("Subtotal", $amount)
+                    amountRow("GST", $gst)
+                    Divider()
+                    amountRow("Total", $total, bold: true)
+                }
+                Section("Category") {
+                    Picker("Category", selection: $category) {
+                        Text("—").tag("")
+                        ForEach(categories, id: \.self) { Text($0).tag($0) }
+                        if !category.isEmpty && !categories.contains(category) {
+                            Text(category).tag(category)   // preserve a non-standard existing value
+                        }
+                    }
+                    Picker("Payment", selection: $paymentMethod) {
+                        ForEach(paymentMethods, id: \.self) { Text(paymentLabel($0)).tag($0) }
+                    }
+                }
+                Section("Description") {
+                    TextField("Optional note", text: $descriptionText, axis: .vertical)
+                        .lineLimit(2...4)
+                }
+                if let err = viewModel.saveError {
+                    Section { Text(err).foregroundStyle(.red).font(.subheadline) }
+                }
+            }
+            .navigationTitle("Edit Receipt")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { isPresented = false }
+                        .foregroundStyle(Color.MW.green)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button {
+                        Task { await save() }
+                    } label: {
+                        if viewModel.isSaving {
+                            ProgressView().tint(Color.MW.green)
+                        } else {
+                            Text("Save").font(.subheadline.weight(.semibold))
+                                .foregroundStyle(Color.MW.green)
+                        }
+                    }
+                    .disabled(viewModel.isSaving || total.isEmpty)
+                }
+            }
+        }
+        .presentationDragIndicator(.visible)
+    }
+
+    private func amountRow(_ label: String, _ value: Binding<String>, bold: Bool = false) -> some View {
+        HStack {
+            Text(label)
+                .font(bold ? .subheadline.weight(.semibold) : .body)
+                .foregroundStyle(bold ? .primary : .secondary)
+            Spacer()
+            TextField("0.00", text: value)
+                .keyboardType(.decimalPad)
+                .multilineTextAlignment(.trailing)
+                .font(bold ? .subheadline.weight(.semibold) : .body)
+                .frame(width: 100)
+        }
+    }
+
+    private func paymentLabel(_ v: String) -> String {
+        switch v {
+        case "credit_card":  return "Credit Card"
+        case "company_card": return "Company Card"
+        case "etransfer":    return "e-Transfer"
+        default:             return v.capitalized
+        }
+    }
+
+    private func save() async {
+        let ok = await viewModel.updateExpense(
+            expenseId:     expense.id,
+            vendorName:    vendorName.trimmingCharacters(in: .whitespacesAndNewlines),
+            date:          Self.isoFormatter.string(from: expenseDate),
+            amount:        Double(amount) ?? 0,
+            gst:           Double(gst)    ?? 0,
+            total:         Double(total)  ?? 0,
+            category:      category,
+            paymentMethod: paymentMethod,
+            description:   descriptionText
+        )
+        if ok {
+            isPresented = false
+            onSaved()
+        }
+    }
+
+    private static let isoFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f
+    }()
+
+    private static func parseDate(_ s: String) -> Date {
+        Self.isoFormatter.date(from: String(s.prefix(10))) ?? Date()
     }
 }
 
