@@ -142,12 +142,7 @@ struct ReceiptDetailView: View {
                 statusBadge
             }
             if let score = expense.anomalyScore, score > 0 {
-                HStack {
-                    Text("Risk score")
-                    Spacer()
-                    Text("\(score)")
-                        .foregroundStyle(score >= 60 ? .red : (score >= 30 ? Color.MW.orange : .secondary))
-                }
+                RiskRingView(score: score)
             }
         }
     }
@@ -269,6 +264,61 @@ struct ReceiptDetailView: View {
 
     private func performSend() async {
         if await viewModel.send(expenseId: expense.id) { dismiss() }
+    }
+}
+
+// MARK: - Risk ring
+
+/// Anomaly risk shown as an activity-ring gauge instead of a bare number — a lone integer
+/// ("20") gives the approver no scale or reference. The ring fills by score, colored by tier,
+/// with a plain-language label + hint so the Approve/Reject call is obvious at a glance.
+///
+/// Bands match the rest of the system (AnomalyDetector.php, web/Android anomaly icon,
+/// Expense.anomalyTier): >30 high, 16–30 medium, 1–15 low.
+private struct RiskRingView: View {
+    let score: Int
+
+    /// Score is the max of triggered anomaly rules (top rule = 35), so realistic values are
+    /// ~0–35. Cap the ring at 40 rather than 100 so a real score reads as a meaningful fill
+    /// instead of a near-empty ring that looks "safe".
+    private var fraction: Double { min(Double(score) / 40.0, 1.0) }
+
+    private var tier: (label: String, hint: String, color: Color) {
+        switch score {
+        case 31...:   return ("High risk",   "Verify before approving", .red)
+        case 16...30: return ("Medium risk", "Review before approving", Color.MW.orange)
+        default:      return ("Low risk",    "Looks routine",           Color.MW.green)
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 14) {
+            ZStack {
+                Circle()
+                    .stroke(Color(.systemGray5), lineWidth: 6)
+                Circle()
+                    .trim(from: 0, to: fraction)
+                    .stroke(tier.color, style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                Text("\(score)")
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(.primary)
+            }
+            .frame(width: 54, height: 54)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(tier.label)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(tier.color)
+                Text(tier.hint)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Risk score \(score), \(tier.label)")
     }
 }
 
@@ -498,6 +548,22 @@ private struct ZoomableReceiptView: View {
                 }
                 Spacer()
             }
+        }
+    }
+}
+
+// MARK: - Preview
+
+#Preview("Risk ring — tiers") {
+    Form {
+        Section("Risk tiers") {
+            RiskRingView(score: 10)   // Low   → green
+            RiskRingView(score: 15)   // Low   → green (band edge)
+            RiskRingView(score: 16)   // Med   → orange (band edge)
+            RiskRingView(score: 20)   // Med   → orange (the example receipt)
+            RiskRingView(score: 30)   // Med   → orange (band edge)
+            RiskRingView(score: 31)   // High  → red (band edge)
+            RiskRingView(score: 35)   // High  → red
         }
     }
 }
