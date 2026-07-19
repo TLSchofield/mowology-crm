@@ -20,7 +20,14 @@ struct ReceiptsView: View {
     @State private var showReview   = false
     @State private var pickerItem: PhotosPickerItem?
     @State private var showErrorAlert = false
+    @State private var showActionErrorAlert = false
     @State private var selectedExpense: Expense?
+
+    // Multi-select bulk approve/reject — mirrors the Android mobile card "Select" mode.
+    @State private var isSelectMode = false
+    @State private var selectedIds: Set<Int> = []
+    @State private var showBulkRejectSheet = false
+    @State private var bulkRejectReason = ""
 
     private let impact          = UIImpactFeedbackGenerator(style: .medium)
     private let locationManager = CLLocationManager()
@@ -35,10 +42,18 @@ struct ReceiptsView: View {
         NavigationStack {
             ZStack(alignment: .bottomTrailing) {
                 expenseList
-                captureButton
+                if !isSelectMode { captureButton }
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
+            .safeAreaInset(edge: .bottom) {
+                if isSelectMode && !selectedIds.isEmpty {
+                    bulkActionBar
+                }
+            }
+        }
+        .sheet(isPresented: $showBulkRejectSheet) {
+            bulkRejectSheet
         }
         .task {
             await viewModel.loadExpenses()
@@ -105,6 +120,16 @@ struct ReceiptsView: View {
         } message: {
             Text(viewModel.uploadError ?? "")
         }
+        // Bulk approve/reject and archive/export are triggered from this view directly
+        // (not through ReceiptDetailView's sheet), so they need their own error surface.
+        .onChange(of: viewModel.actionError) { _, err in
+            if err != nil { showActionErrorAlert = true }
+        }
+        .alert("Action Failed", isPresented: $showActionErrorAlert) {
+            Button("OK") { viewModel.actionError = nil }
+        } message: {
+            Text(viewModel.actionError ?? "")
+        }
         .onChange(of: pickerItem) { _, newItem in
             guard let newItem else { return }
             showLibrary = false
@@ -143,9 +168,14 @@ struct ReceiptsView: View {
                 List {
                     ForEach(viewModel.expenses) { expense in
                         Button {
-                            selectedExpense = expense
+                            if isSelectMode {
+                                if selectedIds.contains(expense.id) { selectedIds.remove(expense.id) }
+                                else { selectedIds.insert(expense.id) }
+                            } else {
+                                selectedExpense = expense
+                            }
                         } label: {
-                            ExpenseRow(expense: expense)
+                            ExpenseRow(expense: expense, isSelectMode: isSelectMode, isSelected: selectedIds.contains(expense.id))
                         }
                         .buttonStyle(.plain)
                         .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
@@ -246,6 +276,86 @@ struct ReceiptsView: View {
         }
     }
 
+    // MARK: - Bulk select actions
+
+    private var bulkActionBar: some View {
+        HStack(spacing: 10) {
+            if viewModel.isPerformingAction {
+                ProgressView().frame(maxWidth: .infinity)
+            } else {
+                bulkActionButton(title: "Reject (\(selectedIds.count))", systemImage: "xmark", color: .red) {
+                    bulkRejectReason = ""
+                    showBulkRejectSheet = true
+                }
+                bulkActionButton(title: "Approve (\(selectedIds.count))", systemImage: "checkmark", color: Color.MW.green) {
+                    Task { await performBulkApprove() }
+                }
+            }
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 10)
+        .background(.bar)
+    }
+
+    private func bulkActionButton(title: String, systemImage: String, color: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.subheadline.weight(.semibold))
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .background(color)
+                .foregroundStyle(.white)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+        }
+    }
+
+    private var bulkRejectSheet: some View {
+        NavigationStack {
+            Form {
+                Section("Reason for rejection (applies to all \(selectedIds.count) selected)") {
+                    TextField("Explain why these expenses are being rejected…", text: $bulkRejectReason, axis: .vertical)
+                        .lineLimit(3...6)
+                }
+            }
+            .navigationTitle("Reject \(selectedIds.count) Receipts")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { showBulkRejectSheet = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Reject") {
+                        Task { await performBulkReject() }
+                    }
+                    .foregroundStyle(.red)
+                    .disabled(bulkRejectReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+
+    private func performBulkApprove() async {
+        let ids = Array(selectedIds)
+        if await viewModel.batchApprove(expenseIds: ids) {
+            isSelectMode = false
+            selectedIds.removeAll()
+        }
+    }
+
+    private func performBulkReject() async {
+        let reason = bulkRejectReason.trimmingCharacters(in: .whitespacesAndNewlines)
+        let ids = Array(selectedIds)
+        if await viewModel.batchReject(expenseIds: ids, reason: reason) {
+            showBulkRejectSheet = false
+            isSelectMode = false
+            selectedIds.removeAll()
+        }
+    }
+
+    private func performArchiveExport() async {
+        _ = await viewModel.archiveExport()
+    }
+
     // MARK: - Toolbar
 
     @ToolbarContentBuilder
@@ -264,10 +374,34 @@ struct ReceiptsView: View {
             }
         }
         ToolbarItem(placement: .navigationBarTrailing) {
-            Button { Task { await viewModel.loadExpenses() } } label: {
-                Image(systemName: "arrow.clockwise").foregroundStyle(Color.MW.green)
+            Button {
+                isSelectMode.toggle()
+                if !isSelectMode { selectedIds.removeAll() }
+            } label: {
+                Text(isSelectMode ? "Cancel" : "Select")
+                    .foregroundStyle(Color.MW.green)
             }
-            .disabled(viewModel.isLoadingList)
+        }
+        if !isSelectMode {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                // Not role-gated client-side, same rationale as ReceiptDetailView's action
+                // bar — the server enforces expenses.send via jwtUserHasPermission().
+                Menu {
+                    Button {
+                        Task { await performArchiveExport() }
+                    } label: {
+                        Label("Archive & Export Old Receipts", systemImage: "archivebox")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle").foregroundStyle(Color.MW.green)
+                }
+            }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button { Task { await viewModel.loadExpenses() } } label: {
+                    Image(systemName: "arrow.clockwise").foregroundStyle(Color.MW.green)
+                }
+                .disabled(viewModel.isLoadingList)
+            }
         }
     }
 
@@ -297,9 +431,16 @@ struct ReceiptsView: View {
 
 private struct ExpenseRow: View {
     let expense: Expense
+    var isSelectMode: Bool = false
+    var isSelected: Bool = false
 
     var body: some View {
         HStack(spacing: 12) {
+            if isSelectMode {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .foregroundStyle(isSelected ? Color.MW.green : Color(.systemGray3))
+            }
             receiptThumb
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 4) {
@@ -311,6 +452,7 @@ private struct ExpenseRow: View {
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
+                    anomalyIcon
                 }
                 HStack(spacing: 6) {
                     Text(formattedDate)
@@ -328,12 +470,34 @@ private struct ExpenseRow: View {
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 3) {
-                Text("$\(expense.total, specifier: "%.2f")")
-                    .font(.subheadline.weight(.semibold))
+                HStack(spacing: 4) {
+                    confidenceDot
+                    Text("$\(expense.total, specifier: "%.2f")")
+                        .font(.subheadline.weight(.semibold))
+                }
                 statusBadge
             }
         }
         .padding(.vertical, 2)
+    }
+
+    /// OCR extraction trust signal — matches Android's mw-mc-conf-dot thresholds.
+    @ViewBuilder
+    private var confidenceDot: some View {
+        if let tier = expense.confidenceTier {
+            let color: Color = tier == "high" ? Color.MW.green : (tier == "medium" ? Color.MW.orange : .red)
+            Circle().fill(color).frame(width: 6, height: 6)
+        }
+    }
+
+    /// Anomaly risk signal — matches the desktop/Android alert-triangle / alert-circle icons.
+    @ViewBuilder
+    private var anomalyIcon: some View {
+        if let tier = expense.anomalyTier {
+            Image(systemName: tier == "high" ? "exclamationmark.triangle.fill" : "exclamationmark.circle.fill")
+                .font(.caption2)
+                .foregroundStyle(tier == "high" ? .red : Color.MW.orange)
+        }
     }
 
     private var receiptThumb: some View {

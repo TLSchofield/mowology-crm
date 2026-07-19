@@ -74,7 +74,7 @@ try {
         SELECT e.id, e.expense_date, e.vendor_name_raw, e.description,
                e.amount, e.gst_amount, e.total, e.accounting_category,
                e.payment_method, e.status, e.forwarded_to_accounting,
-               e.receipt_media_id, e.job_id, e.anomaly_score, e.created_at,
+               e.receipt_media_id, e.job_id, e.anomaly_score, e.match_confidence, e.created_at,
                COALESCE(v.name, e.vendor_name_raw) AS vendor_name,
                ma.stored_filename AS receipt_filename,
                ma.archived_at, ma.thumb_path, ma.original_removed

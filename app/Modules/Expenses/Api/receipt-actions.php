@@ -3,6 +3,8 @@
  * iOS Receipt Actions API — JWT-authenticated
  *
  * POST {action: 'approve'|'reject'|'send', expense_id: int, rejection_reason?: string}
+ * POST {action: 'batch_approve'|'batch_reject', expense_ids: int[], rejection_reason?: string}
+ * POST {action: 'archive_export', date_from?: 'YYYY-MM-DD', date_to?: 'YYYY-MM-DD'}
  *
  * Auth: Authorization: Bearer <jwt>  (no CSRF token needed)
  *
@@ -73,6 +75,58 @@ try {
                 (string)($input['rejection_reason'] ?? '')
             );
             echo json_encode($result);
+            break;
+
+        case 'batch_approve':
+            if (!jwtUserHasPermission($jwtUser, 'expenses.approve')) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'error' => 'Permission denied: expenses.approve required']);
+                exit;
+            }
+            $result = (new ExpenseApprovalService($db))->approveBatch($input['expense_ids'] ?? [], $currentUser);
+            echo json_encode($result);
+            break;
+
+        case 'batch_reject':
+            if (!jwtUserHasPermission($jwtUser, 'expenses.approve')) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'error' => 'Permission denied: expenses.approve required']);
+                exit;
+            }
+            $result = (new ExpenseApprovalService($db))->rejectBatch(
+                $input['expense_ids'] ?? [],
+                $currentUser,
+                (string)($input['rejection_reason'] ?? '')
+            );
+            echo json_encode($result);
+            break;
+
+        case 'archive_export':
+            // Same expenses.send gate as the desktop trigger (public/crm/api/receipt-export.php)
+            // — CRA-retention archival is a deliberate, permissioned action, not a routine one.
+            if (!jwtUserHasPermission($jwtUser, 'expenses.send')) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'error' => 'Permission denied: expenses.send required']);
+                exit;
+            }
+            require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptArchiveService.php';
+
+            $validDate = static function ($d): ?string {
+                $d = trim((string) $d);
+                if ($d === '') return null;
+                $dt = DateTime::createFromFormat('Y-m-d', $d);
+                return ($dt && $dt->format('Y-m-d') === $d) ? $d : null;
+            };
+            $from = $validDate($input['date_from'] ?? '');
+            $to   = $validDate($input['date_to'] ?? '');
+
+            // Archival + email delivery can be slow on shared hosting.
+            @set_time_limit(0);
+            ignore_user_abort(true);
+
+            $svc    = new ReceiptArchiveService($db);
+            $result = $svc->run($from, $to, 'manual', $currentUser['id'], 0);
+            echo json_encode(['success' => true, 'result' => $result]);
             break;
 
         case 'send':

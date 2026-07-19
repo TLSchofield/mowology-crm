@@ -106,4 +106,63 @@ class ExpenseApprovalService
 
         return ['success' => true, 'message' => 'Expense rejected'];
     }
+
+    /**
+     * Approve multiple expenses in one call — the mobile bulk-approval entry point.
+     * Mirrors handleBatchForward()'s capped-array pattern (expenses.php) but continues
+     * past per-item failures (e.g. one self-approval attempt in a mixed batch) instead
+     * of aborting the whole batch, so a bad id doesn't block the rest.
+     *
+     * @param int[] $expenseIds
+     * @param array $currentUser Must include 'id'.
+     * @return array ['success' => true, 'approved' => int[], 'failed' => [['id' => int, 'error' => string], ...]]
+     */
+    public function approveBatch(array $expenseIds, array $currentUser): array
+    {
+        return $this->runBatch($expenseIds, fn(int $id) => $this->approve($id, $currentUser));
+    }
+
+    /**
+     * Reject multiple expenses with the same reason in one call.
+     *
+     * @param int[]  $expenseIds
+     * @param array  $currentUser Must include 'id'.
+     * @param string $reason      Required — applied to every expense in the batch.
+     * @return array ['success' => true, 'rejected' => int[], 'failed' => [['id' => int, 'error' => string], ...]]
+     */
+    public function rejectBatch(array $expenseIds, array $currentUser, string $reason): array
+    {
+        return $this->runBatch($expenseIds, fn(int $id) => $this->reject($id, $currentUser, $reason), 'rejected');
+    }
+
+    /**
+     * @param int[]    $expenseIds
+     * @param callable $action     fn(int $id): array — approve() or reject() for one id
+     * @param string   $successKey Response key for the list of succeeded ids
+     */
+    private function runBatch(array $expenseIds, callable $action, string $successKey = 'approved'): array
+    {
+        $ids = array_map('intval', $expenseIds);
+        $ids = array_values(array_unique(array_filter($ids, fn($id) => $id > 0)));
+
+        if (empty($ids)) {
+            throw new Exception('expense_ids array is required');
+        }
+        if (count($ids) > 50) {
+            throw new Exception('Maximum 50 expenses per batch');
+        }
+
+        $succeeded = [];
+        $failed    = [];
+        foreach ($ids as $id) {
+            try {
+                $action($id);
+                $succeeded[] = $id;
+            } catch (Throwable $e) {
+                $failed[] = ['id' => $id, 'error' => $e->getMessage()];
+            }
+        }
+
+        return ['success' => true, $successKey => $succeeded, 'failed' => $failed];
+    }
 }

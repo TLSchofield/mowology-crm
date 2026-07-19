@@ -178,6 +178,72 @@ final class ReceiptsViewModel: ObservableObject {
         await performAction(expenseId: expenseId, action: "send", reason: nil)
     }
 
+    // MARK: - Bulk actions (multi-select)
+
+    /// Approve multiple receipts in one call. A partial failure (e.g. one self-approval
+    /// attempt in a mixed batch) still returns true — the surviving items are approved
+    /// and actionError surfaces a summary of what failed, mirroring the Android bulk bar.
+    func batchApprove(expenseIds: [Int]) async -> Bool {
+        await performBatchAction(expenseIds: expenseIds, action: "batch_approve", reason: nil)
+    }
+
+    /// Reject multiple receipts with the same reason in one call.
+    func batchReject(expenseIds: [Int], reason: String) async -> Bool {
+        await performBatchAction(expenseIds: expenseIds, action: "batch_reject", reason: reason)
+    }
+
+    private func performBatchAction(expenseIds: [Int], action: String, reason: String?) async -> Bool {
+        isPerformingAction = true
+        actionError = nil
+        var body: [String: Any] = ["action": action, "expense_ids": expenseIds]
+        if let reason { body["rejection_reason"] = reason }
+        do {
+            let response: BatchActionResponse = try await apiClient.request(.receiptAction, body: body)
+            if response.success {
+                await loadExpenses()
+                isPerformingAction = false
+                if let failed = response.failed, !failed.isEmpty {
+                    let succeededCount = (response.approved ?? response.rejected ?? []).count
+                    actionError = "\(succeededCount) succeeded, \(failed.count) failed: \(failed[0].error)"
+                }
+                return true
+            }
+            actionError = response.error ?? "Bulk action failed."
+        } catch let err as APIError {
+            actionError = err.errorDescription
+        } catch {
+            actionError = "Bulk action failed."
+        }
+        isPerformingAction = false
+        return false
+    }
+
+    // MARK: - Archive & export
+
+    /// Manually triggers ReceiptArchiveService — the same run the desktop admin has via
+    /// receipt-export.php, now reachable from the phone. Permission-gated server-side
+    /// (expenses.send) given the CRA-retention stakes of removing originals from disk.
+    func archiveExport() async -> Bool {
+        isPerformingAction = true
+        actionError = nil
+        do {
+            let response: ArchiveExportResponse = try await apiClient.request(.receiptAction, body: ["action": "archive_export"])
+            isPerformingAction = false
+            if response.success {
+                await loadExpenses()
+                return true
+            }
+            actionError = response.error ?? "Archive failed."
+        } catch let err as APIError {
+            actionError = err.errorDescription
+            isPerformingAction = false
+        } catch {
+            actionError = "Archive failed."
+            isPerformingAction = false
+        }
+        return false
+    }
+
     // MARK: - Offline Action Queue Monitor
 
     /// Wires up NWPathMonitor so queued approve/reject/send actions drain automatically

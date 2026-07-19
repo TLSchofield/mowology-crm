@@ -329,6 +329,60 @@
     }
 
     /* ════════════════════════════════════════════════════
+       BULK APPROVE/REJECT BAR
+       ════════════════════════════════════════════════════ */
+
+    .mw-mc-bulk-action-bar {
+        flex-shrink: 0;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 16px;
+        background: var(--mc-card-bg);
+        border-top: 1px solid #ebe8e2;
+        box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.04);
+        z-index: 10;
+    }
+
+    .mw-mc-bulk-count {
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: #6b6459;
+        flex-shrink: 0;
+    }
+
+    .mw-mc-bulk-action-buttons {
+        display: flex;
+        gap: 8px;
+    }
+
+    .mw-mc-bulk-btn {
+        min-height: 40px;
+        padding: 0 18px;
+        border: none;
+        border-radius: 999px;
+        font-size: 0.8rem;
+        font-weight: 700;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .mw-mc-bulk-approve {
+        background: var(--mw-green, #2D8659);
+        color: #fff;
+    }
+
+    .mw-mc-bulk-reject {
+        background: #fdeaea;
+        color: #dc3545;
+    }
+
+    .mw-mc-bulk-btn:active {
+        opacity: 0.75;
+        transform: scale(0.97);
+    }
+
+    /* ════════════════════════════════════════════════════
        FIXED BOTTOM BAR
        ════════════════════════════════════════════════════ */
 
@@ -1265,6 +1319,43 @@
         letter-spacing: 1.5px;
         color: #b0a89e;
         padding: 16px 4px 8px;
+    }
+
+    .mw-mc-section-label-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .mw-mc-section-label-row .mw-mc-section-label {
+        padding-right: 4px;
+    }
+
+    .mw-mc-section-label-actions {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 10px 4px 4px;
+    }
+
+    .mw-mc-section-action-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 32px;
+        padding: 0 12px;
+        border: 1px solid #ebe8e2;
+        border-radius: 999px;
+        background: var(--mc-card-bg);
+        color: #6b6459;
+        font-size: 0.75rem;
+        font-weight: 600;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .mw-mc-section-action-btn:active {
+        opacity: 0.6;
     }
 
     /* ════════════════════════════════════════════════════
@@ -2851,6 +2942,25 @@
     .mw-mc-expense-item:active {
         transform: scale(0.98);
         box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+    }
+
+    .mw-mc-expense-item-selected {
+        box-shadow: 0 0 0 2px var(--mw-green, #2D8659), 0 2px 8px rgba(0, 0, 0, 0.04);
+    }
+
+    .mw-mc-expense-item-select {
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 24px;
+        height: 24px;
+    }
+
+    .mw-mc-expense-item-select input[type="checkbox"] {
+        width: 20px;
+        height: 20px;
+        accent-color: var(--mw-green, #2D8659);
     }
 
     /* Receipt Thumbnail */

@@ -1069,7 +1069,19 @@ async function submitReceiptExport() {
         </div>
 
         <!-- Recent Expenses -->
-        <div class="mw-mc-section-label" id="mobileExpenseListLabel">Recent Expenses</div>
+        <div class="mw-mc-section-label-row">
+            <div class="mw-mc-section-label" id="mobileExpenseListLabel">Recent Expenses</div>
+            <div class="mw-mc-section-label-actions">
+                <?php if ($canSend): ?>
+                <button type="button" class="mw-mc-section-action-btn" id="mobileArchiveBtn" onclick="mobileTriggerArchiveExport()" title="Archive & export confirmed receipts to accounting">
+                    <i data-feather="archive" style="width:14px;height:14px;"></i>
+                </button>
+                <?php endif; ?>
+                <?php if ($canApprove): ?>
+                <button type="button" class="mw-mc-section-action-btn" id="mobileSelectToggle" onclick="toggleMobileSelectMode()">Select</button>
+                <?php endif; ?>
+            </div>
+        </div>
         <div id="mobileExpenseList">
             <div class="mw-mc-empty">
                 <div class="mw-mc-empty-icon">
@@ -1080,6 +1092,15 @@ async function submitReceiptExport() {
         </div>
 
     </div><!-- /.mw-mc-scroll-area -->
+
+    <!-- Bulk Approve/Reject Bar — shown while select mode has 1+ items checked -->
+    <div class="mw-mc-bulk-action-bar" id="mobileBulkActionBar" style="display:none;">
+        <span class="mw-mc-bulk-count" id="mobileBulkCount">0 selected</span>
+        <div class="mw-mc-bulk-action-buttons">
+            <button type="button" class="mw-mc-bulk-btn mw-mc-bulk-reject" onclick="mobileBulkReject()">Reject</button>
+            <button type="button" class="mw-mc-bulk-btn mw-mc-bulk-approve" onclick="mobileBulkApprove()">Approve</button>
+        </div>
+    </div>
 
     <!-- Fixed Bottom Bar -->
     <div class="mw-mc-bottombar">
@@ -1595,6 +1616,116 @@ async function submitReceiptExport() {
     const CAN_EDIT = <?php echo $canEdit ? 'true' : 'false'; ?>;
     const CAN_SEND = <?php echo $canSend ? 'true' : 'false'; ?>;
     const CAN_APPROVE = <?php echo $canApprove ? 'true' : 'false'; ?>;
+
+    // Mobile multi-select state — bulk approve/reject from the receipt card list
+    var mobileSelectMode = false;
+    var mobileSelectedIds = new Set();
+    var mobileLastRenderedExpenses = [];
+
+    function toggleMobileSelectMode() {
+        mobileSelectMode = !mobileSelectMode;
+        mobileSelectedIds.clear();
+        renderMobileExpenses(mobileLastRenderedExpenses);
+        updateMobileSelectUI();
+    }
+
+    function toggleMobileExpenseSelect(id) {
+        if (mobileSelectedIds.has(id)) mobileSelectedIds.delete(id);
+        else mobileSelectedIds.add(id);
+        renderMobileExpenses(mobileLastRenderedExpenses);
+        updateMobileSelectUI();
+    }
+
+    function updateMobileSelectUI() {
+        var toggleBtn = document.getElementById('mobileSelectToggle');
+        if (toggleBtn) toggleBtn.textContent = mobileSelectMode ? 'Cancel' : 'Select';
+        var bar = document.getElementById('mobileBulkActionBar');
+        if (!bar) return;
+        var count = mobileSelectedIds.size;
+        if (mobileSelectMode && count > 0) {
+            bar.style.display = 'flex';
+            var countEl = document.getElementById('mobileBulkCount');
+            if (countEl) countEl.textContent = count + ' selected';
+        } else {
+            bar.style.display = 'none';
+        }
+    }
+
+    async function mobileBulkApprove() {
+        if (!mobileSelectedIds.size) return;
+        var ids = Array.from(mobileSelectedIds);
+        try {
+            var r = await fetch('/crm/api/expenses.php?action=batch_approve', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ csrf_token: CSRF, expense_ids: ids })
+            });
+            var d = await r.json();
+            if (d.failed && d.failed.length) {
+                mobileToast((d.approved || []).length + ' approved, ' + d.failed.length + ' failed');
+            } else {
+                mobileToast((d.approved || []).length + ' expense(s) approved');
+            }
+            mobileSelectMode = false;
+            mobileSelectedIds.clear();
+            updateMobileSelectUI();
+            loadExpenses();
+        } catch (e) {
+            mobileToast('Bulk approve failed');
+        }
+    }
+
+    async function mobileBulkReject() {
+        if (!mobileSelectedIds.size) return;
+        var reason = prompt('Reason for rejecting ' + mobileSelectedIds.size + ' expense(s):');
+        if (!reason || !reason.trim()) return;
+        var ids = Array.from(mobileSelectedIds);
+        try {
+            var r = await fetch('/crm/api/expenses.php?action=batch_reject', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ csrf_token: CSRF, expense_ids: ids, rejection_reason: reason.trim() })
+            });
+            var d = await r.json();
+            if (d.failed && d.failed.length) {
+                mobileToast((d.rejected || []).length + ' rejected, ' + d.failed.length + ' failed');
+            } else {
+                mobileToast((d.rejected || []).length + ' expense(s) rejected');
+            }
+            mobileSelectMode = false;
+            mobileSelectedIds.clear();
+            updateMobileSelectUI();
+            loadExpenses();
+        } catch (e) {
+            mobileToast('Bulk reject failed');
+        }
+    }
+
+    // Mobile-reachable trigger for the same manual archive/export ReceiptArchiveService run
+    // the desktop admin has via receipt-export.php — CRA-retention archival previously
+    // required switching to a desktop browser to run.
+    async function mobileTriggerArchiveExport() {
+        if (!confirm('Archive and export all confirmed receipts now? Originals are emailed then removed from the server, keeping a thumbnail.')) return;
+        var btn = document.getElementById('mobileArchiveBtn');
+        if (btn) btn.disabled = true;
+        try {
+            var r = await fetch('/crm/api/receipt-export.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ csrf_token: CSRF })
+            });
+            var d = await r.json();
+            if (d.success) {
+                mobileToast('Archive complete');
+            } else {
+                mobileToast(d.error || 'Archive failed', true);
+            }
+        } catch (e) {
+            mobileToast('Archive failed', true);
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    }
 
     // Auto-refresh CSRF token when session has rotated (e.g. re-login on another tab)
     async function refreshCSRF() {
@@ -4828,6 +4959,7 @@ async function submitReceiptExport() {
     function renderMobileExpenses(expenses) {
         var list = document.getElementById('mobileExpenseList');
         if (!list) return;
+        mobileLastRenderedExpenses = expenses || [];
 
         if (!expenses || !expenses.length) {
             list.innerHTML = '<div class="mw-mc-empty">' +
@@ -4885,17 +5017,33 @@ async function submitReceiptExport() {
 
                 var catLabel = e.accounting_category ? '<span class="mw-mc-expense-item-cat">' + esc(e.accounting_category) + '</span>' : '';
 
-                // Confidence dot for mobile
+                // Confidence dot for mobile — OCR extraction trust signal
                 var mConf = parseInt(e.match_confidence) || 0;
                 var mConfDot = '';
-                if (mConf >= 70) mConfDot = '<span class="mw-mc-conf-dot mw-mc-conf-high"></span>';
-                else if (mConf >= 40) mConfDot = '<span class="mw-mc-conf-dot mw-mc-conf-medium"></span>';
-                else if (mConf > 0) mConfDot = '<span class="mw-mc-conf-dot mw-mc-conf-low"></span>';
+                if (mConf >= 70) mConfDot = '<span class="mw-mc-conf-dot mw-mc-conf-high" title="High OCR confidence (' + mConf + '%)"></span>';
+                else if (mConf >= 40) mConfDot = '<span class="mw-mc-conf-dot mw-mc-conf-medium" title="Medium OCR confidence (' + mConf + '%)"></span>';
+                else if (mConf > 0) mConfDot = '<span class="mw-mc-conf-dot mw-mc-conf-low" title="Low OCR confidence (' + mConf + '%)"></span>';
 
-                html += '<div class="mw-mc-expense-item" data-expense-id="' + e.id + '" onclick="editExpense(' + e.id + ')">' +
+                // Anomaly risk icon — same thresholds as the desktop table view
+                var mAnomaly = parseInt(e.anomaly_score) || 0;
+                var mAnomalyHtml = '';
+                if (mAnomaly > 30) {
+                    mAnomalyHtml = '<span class="mw-anomaly-icon mw-anomaly-high" title="High risk: ' + esc(e.anomaly_flags || '') + '"><i data-feather="alert-triangle" style="width:12px;height:12px;"></i></span>';
+                } else if (mAnomaly > 15) {
+                    mAnomalyHtml = '<span class="mw-anomaly-icon mw-anomaly-med" title="Medium risk: ' + esc(e.anomaly_flags || '') + '"><i data-feather="alert-circle" style="width:12px;height:12px;"></i></span>';
+                }
+
+                var selectCbHtml = mobileSelectMode
+                    ? '<div class="mw-mc-expense-item-select" onclick="event.stopPropagation(); toggleMobileExpenseSelect(' + e.id + ')">' +
+                        '<input type="checkbox" ' + (mobileSelectedIds.has(e.id) ? 'checked' : '') + ' onclick="event.stopPropagation(); toggleMobileExpenseSelect(' + e.id + ')">' +
+                      '</div>'
+                    : '';
+
+                html += '<div class="mw-mc-expense-item' + (mobileSelectMode && mobileSelectedIds.has(e.id) ? ' mw-mc-expense-item-selected' : '') + '" data-expense-id="' + e.id + '" onclick="' + (mobileSelectMode ? 'toggleMobileExpenseSelect(' + e.id + ')' : 'editExpense(' + e.id + ')') + '">' +
+                    selectCbHtml +
                     thumbHtml +
                     '<div class="mw-mc-expense-item-left">' +
-                        '<div class="mw-mc-expense-item-vendor">' + esc(vendorName) + '</div>' +
+                        '<div class="mw-mc-expense-item-vendor">' + esc(vendorName) + mAnomalyHtml + '</div>' +
                         '<div class="mw-mc-expense-item-meta">' + catLabel +
                             (e.job_id ? '<span class="mw-mc-expense-item-job">Job #' + e.job_id + '</span>' : '') +
                         '</div>' +
@@ -4911,6 +5059,7 @@ async function submitReceiptExport() {
         });
 
         list.innerHTML = html;
+        if (window.feather) feather.replace();
     }
 
     // Mobile auto-calc total (amount + gst + pst + recycling = total)

@@ -22,6 +22,7 @@ struct Expense: Decodable, Identifiable {
     let receiptUrl: String?
     let jobId: Int?
     let anomalyScore: Int?
+    let matchConfidence: Int?
     let createdAt: String
     let createdBy: Int?
     let archivedAt: String?
@@ -41,6 +42,7 @@ struct Expense: Decodable, Identifiable {
         case receiptUrl             = "receipt_url"
         case jobId                  = "job_id"
         case anomalyScore           = "anomaly_score"
+        case matchConfidence        = "match_confidence"
         case createdAt              = "created_at"
         case createdBy              = "created_by"
         case archivedAt             = "archived_at"
@@ -61,6 +63,23 @@ struct Expense: Decodable, Identifiable {
         case "rejected":  return "red"
         default:          return "orange"
         }
+    }
+
+    /// OCR extraction trust signal — same thresholds as the Android confidence dot
+    /// (mw-mc-conf-dot in expenses_appstack.php) so the two clients agree on what
+    /// "high/medium/low confidence" means.
+    var confidenceTier: String? {
+        guard let c = matchConfidence, c > 0 else { return nil }
+        if c >= 70 { return "high" }
+        if c >= 40 { return "medium" }
+        return "low"
+    }
+
+    /// Anomaly risk tier — same thresholds as the desktop/Android anomaly icon
+    /// (mw-anomaly-icon: >30 high, >15 medium).
+    var anomalyTier: String? {
+        guard let s = anomalyScore, s > 15 else { return nil }
+        return s > 30 ? "high" : "medium"
     }
 }
 

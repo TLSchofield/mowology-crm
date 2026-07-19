@@ -121,6 +121,18 @@ try {
             handleReject($db, $input, $user);
             break;
 
+        case 'batch_approve':
+            $canApprove = userHasPermission('expenses.approve');
+            if (!$canApprove) throw new Exception('Permission denied: expenses.approve required');
+            handleBatchApprove($db, $input, $user);
+            break;
+
+        case 'batch_reject':
+            $canApprove = userHasPermission('expenses.approve');
+            if (!$canApprove) throw new Exception('Permission denied: expenses.approve required');
+            handleBatchReject($db, $input, $user);
+            break;
+
         case 'pending_approval':
             $canApprove = userHasPermission('expenses.approve');
             if (!$canApprove) throw new Exception('Permission denied: expenses.approve required');
@@ -1298,6 +1310,44 @@ function handleReject(PDO $db, ?array $input, array $user): void
     require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseApprovalService.php';
     $result = (new ExpenseApprovalService($db))->reject(
         (int)($input['id'] ?? 0),
+        $user,
+        (string)($input['rejection_reason'] ?? '')
+    );
+    echo json_encode($result);
+}
+
+
+/**
+ * POST {action: 'batch_approve', expense_ids: [1,2,3]}
+ * Approves multiple expenses in one call — mobile multi-select approval.
+ */
+function handleBatchApprove(PDO $db, ?array $input, array $user): void
+{
+    if (!$input) throw new Exception('No data provided');
+    if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
+        throw new Exception('Invalid security token');
+    }
+
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseApprovalService.php';
+    $result = (new ExpenseApprovalService($db))->approveBatch($input['expense_ids'] ?? [], $user);
+    echo json_encode($result);
+}
+
+
+/**
+ * POST {action: 'batch_reject', expense_ids: [1,2,3], rejection_reason: '...'}
+ * Rejects multiple expenses with the same reason — mobile multi-select rejection.
+ */
+function handleBatchReject(PDO $db, ?array $input, array $user): void
+{
+    if (!$input) throw new Exception('No data provided');
+    if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
+        throw new Exception('Invalid security token');
+    }
+
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseApprovalService.php';
+    $result = (new ExpenseApprovalService($db))->rejectBatch(
+        $input['expense_ids'] ?? [],
         $user,
         (string)($input['rejection_reason'] ?? '')
     );
