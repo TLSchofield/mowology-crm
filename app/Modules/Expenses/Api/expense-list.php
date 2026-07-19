@@ -66,6 +66,22 @@ try {
 
     $db = getDB();
 
+    // Receipt-archival columns (media_assets.archived_at / thumb_path / original_removed)
+    // were added by a later migration that has NOT been run on every environment —
+    // production's media_assets currently lacks them. Selecting them unconditionally made
+    // the whole query throw "Column not found", which silently emptied the iOS receipts
+    // list (endpoint 500'd; the app fell back to its empty state). Detect the columns and
+    // degrade gracefully when absent so this works with or without archival deployed.
+    $hasArchivalCols = false;
+    try {
+        $hasArchivalCols = $db->query("SHOW COLUMNS FROM media_assets LIKE 'original_removed'")->fetch() !== false;
+    } catch (Throwable $e) {
+        $hasArchivalCols = false;
+    }
+    $archivalSelect = $hasArchivalCols
+        ? 'ma.archived_at, ma.thumb_path, ma.original_removed'
+        : 'NULL AS archived_at, NULL AS thumb_path, 0 AS original_removed';
+
     $countStmt = $db->prepare("SELECT COUNT(*) FROM expenses e WHERE {$whereClause}");
     $countStmt->execute($params);
     $total = (int)$countStmt->fetchColumn();
@@ -77,7 +93,7 @@ try {
                e.receipt_media_id, e.job_id, e.anomaly_score, e.match_confidence, e.created_at,
                COALESCE(v.name, e.vendor_name_raw) AS vendor_name,
                ma.stored_filename AS receipt_filename,
-               ma.archived_at, ma.thumb_path, ma.original_removed
+               {$archivalSelect}
         FROM expenses e
         LEFT JOIN vendors v ON v.id = e.vendor_id
         LEFT JOIN media_assets ma ON ma.id = e.receipt_media_id
