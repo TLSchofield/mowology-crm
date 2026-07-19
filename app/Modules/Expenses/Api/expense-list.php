@@ -104,16 +104,20 @@ try {
     $listStmt->execute($params);
     $rows = $listStmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // Build direct receipt image URLs for iOS display. Once a receipt is archived
-    // (ReceiptArchiveService), the full-res original is deleted from web disk — serve
-    // the retained thumbnail instead so the URL doesn't 404.
+    // Receipt image URLs for iOS display. The raw /uploads/receipts path is
+    // `Require all denied` (403) and SwiftUI AsyncImage can't send an auth header, so we
+    // hand the app a short-lived HMAC-signed URL to the public receipt-image endpoint,
+    // which validates the signature and streams the bytes (archival-aware). Signed with
+    // BLUEMOON_JWT_SECRET via jwtSecret(); the receipt-image endpoint re-derives it.
+    $urlExpiry = time() + 21600; // 6 hours — comfortably longer than a viewing session
     foreach ($rows as &$row) {
-        if (!empty($row['original_removed']) && !empty($row['thumb_path'])) {
-            $row['receipt_url'] = 'https://mowology.ca' . $row['thumb_path'];
+        if (!empty($row['receipt_media_id'])) {
+            $mid = (int)$row['receipt_media_id'];
+            $sig = hash_hmac('sha256', $mid . '.' . $urlExpiry, jwtSecret());
+            $row['receipt_url'] = 'https://mowology.ca/api/expenses/receipt-image'
+                . '?m=' . $mid . '&e=' . $urlExpiry . '&s=' . $sig;
         } else {
-            $row['receipt_url'] = !empty($row['receipt_filename'])
-                ? 'https://mowology.ca/uploads/receipts/' . $row['receipt_filename']
-                : null;
+            $row['receipt_url'] = null;
         }
         unset($row['receipt_filename'], $row['thumb_path'], $row['original_removed']);
 
