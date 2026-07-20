@@ -225,106 +225,181 @@ class EtransferInboxService
         return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
     }
 
-    /** Pending notifications, newest first, with the suggested invoice's details. */
+    /** Pending (incl. partially-allocated) notifications, newest first, with the suggested invoice's details. */
     public function listPending(): array
     {
         $sql = "SELECT n.*, i.invoice_number AS matched_invoice_number, i.balance_due AS matched_balance,
                        i.status AS matched_invoice_status
                   FROM etransfer_notifications n
              LEFT JOIN invoices i ON n.matched_invoice_id = i.id
-                 WHERE n.status = 'pending'
+                 WHERE n.status IN ('pending', 'partially_recorded')
               ORDER BY n.email_date DESC, n.id DESC";
         return $this->db->query($sql)->fetchAll(PDO::FETCH_ASSOC);
     }
 
     public function countPending(): int
     {
-        return (int) $this->db->query("SELECT COUNT(*) FROM etransfer_notifications WHERE status = 'pending'")->fetchColumn();
+        return (int) $this->db->query(
+            "SELECT COUNT(*) FROM etransfer_notifications WHERE status IN ('pending', 'partially_recorded')"
+        )->fetchColumn();
     }
 
     /**
-     * Record the e-Transfer as a payment against an invoice and mark the
-     * notification handled. Mirrors public/crm/invoices/record-payment.php so
-     * accounting (which syncs income from invoices) stays consistent — we touch
-     * the invoice only, never accounting_transactions directly.
+     * Record the e-Transfer as a payment against one or more invoices (a single
+     * e-Transfer sometimes covers several invoices at once). Delegates the
+     * per-invoice apply/cap/ledger work to InvoiceReconciliationService::applyAllocation()
+     * so e-Transfers and bank-deposit reconciliation share one allocation ledger
+     * (invoice_payment_allocations) instead of two independent "record a payment"
+     * code paths — see that method for why.
      *
-     * @return array{ok:bool,message:string}
+     * A notification can be recorded across more than one call: each call applies
+     * against the amount still unallocated, and status stays 'partially_recorded'
+     * until the full transfer amount has been assigned.
+     *
+     * @param array $allocations [ ['invoice_id'=>int, 'amount'=>?float], ... ] — a
+     *   single allocation with a null amount defaults to "whatever's left on the
+     *   transfer" (the common single-invoice case, unchanged from before).
+     * @return array{ok:bool,message:string,fully_allocated?:bool,remaining?:float}
      */
-    public function recordPayment(int $notificationId, int $invoiceId, ?float $amount, int $userId): array
+    public function recordPayment(int $notificationId, array $allocations, int $userId): array
     {
         $note = $this->find($notificationId);
         if (!$note) {
             return ['ok' => false, 'message' => 'Notification not found'];
         }
-        if ($note['status'] !== 'pending') {
+        if (!in_array($note['status'], ['pending', 'partially_recorded'], true)) {
             return ['ok' => false, 'message' => 'Already ' . $note['status']];
         }
 
-        // Load unconditionally so we can give a precise reason when it can't take
-        // a payment (already paid → likely a duplicate; cancelled → can't apply).
-        $stmt = $this->db->prepare(
-            "SELECT id, invoice_number, balance_due, amount_paid, total, status
-               FROM invoices WHERE id = ? LIMIT 1"
-        );
-        $stmt->execute([$invoiceId]);
-        $inv = $stmt->fetch(PDO::FETCH_ASSOC);
-        if (!$inv) {
-            return ['ok' => false, 'message' => 'Invoice not found'];
+        $clean = [];
+        foreach ($allocations as $a) {
+            $iid = (int) ($a['invoice_id'] ?? 0);
+            $amt = isset($a['amount']) && $a['amount'] !== null && $a['amount'] !== ''
+                ? round((float) $a['amount'], 2) : null;
+            if ($iid > 0) {
+                $clean[] = ['invoice_id' => $iid, 'amount' => $amt];
+            }
         }
-        if ($block = self::paymentBlockReason((string) $inv['status'], (string) $inv['invoice_number'])) {
-            return ['ok' => false, 'message' => $block];
+        if (empty($clean)) {
+            return ['ok' => false, 'message' => 'Enter an invoice number to record against'];
         }
 
-        $balanceDue = (float) $inv['balance_due'];
-        $payAmount  = $amount !== null && $amount > 0 ? $amount : $balanceDue;
-        if ($payAmount <= 0) {
-            return ['ok' => false, 'message' => 'Payment amount must be greater than zero'];
+        $totalAmount = (float) $note['amount'];
+        $remaining   = round($totalAmount - (float) $note['allocated_amount'], 2);
+
+        // A single allocation with no explicit amount defaults to "whatever's left"
+        // — the common single-invoice path, unchanged behaviour.
+        if (count($clean) === 1 && $clean[0]['amount'] === null) {
+            $clean[0]['amount'] = $remaining > 0 ? $remaining : null;
+        }
+        foreach ($clean as $a) {
+            if ($a['amount'] === null || $a['amount'] <= 0) {
+                return ['ok' => false, 'message' => 'Enter an amount for each invoice'];
+            }
         }
 
-        $newPaid    = (float) $inv['amount_paid'] + $payAmount;
-        $newBalance = max(0, $balanceDue - $payAmount);
-        $newStatus  = $newBalance <= 0.005 ? 'paid' : 'partial';
-        $ref        = $note['reference_number'] ?: ('e-Transfer ' . $note['id']);
+        $sum = round(array_sum(array_column($clean, 'amount')), 2);
+        if ($totalAmount > 0 && $sum > $remaining + 0.005) {
+            return ['ok' => false, 'message' => sprintf(
+                'Allocation total $%.2f exceeds the $%.2f left on this e-Transfer.', $sum, $remaining
+            )];
+        }
+
+        require_once __DIR__ . '/InvoiceReconciliationService.php';
+        $recon   = new InvoiceReconciliationService($this->db);
+        $ref     = $note['reference_number'] ?: ('e-Transfer ' . $note['id']);
+        $payDate = date('Y-m-d');
 
         try {
             $this->db->beginTransaction();
 
-            $this->db->prepare(
-                "UPDATE invoices
-                    SET amount_paid = ?, balance_due = ?, status = ?,
-                        payment_method = 'e_transfer', payment_reference = ?, paid_at = NOW()
-                  WHERE id = ?"
-            )->execute([$newPaid, $newBalance, $newStatus, $ref, $invoiceId]);
+            $recorded = [];
+            foreach ($clean as $a) {
+                // Load unconditionally so we can give a precise reason when it can't
+                // take a payment (already paid → likely a duplicate; cancelled → can't apply).
+                $stmt = $this->db->prepare("SELECT invoice_number, status FROM invoices WHERE id = ? LIMIT 1");
+                $stmt->execute([$a['invoice_id']]);
+                $inv = $stmt->fetch(PDO::FETCH_ASSOC);
+                if (!$inv) {
+                    throw new RuntimeException("Invoice #{$a['invoice_id']} not found.");
+                }
+                if ($block = self::paymentBlockReason((string) $inv['status'], (string) $inv['invoice_number'])) {
+                    throw new RuntimeException($block);
+                }
+
+                $result = $recon->applyAllocation(
+                    $a['invoice_id'], $a['amount'], 'e_transfer', $ref, $payDate, null, $userId, $notificationId
+                );
+                if ($result) {
+                    $recorded[] = $result;
+                }
+            }
+
+            if (empty($recorded)) {
+                throw new RuntimeException('Nothing to record — the selected invoice(s) are already settled.');
+            }
+
+            $appliedSum    = round(array_sum(array_column($recorded, 'applied')), 2);
+            $newAllocated  = round((float) $note['allocated_amount'] + $appliedSum, 2);
+            $fullyRecorded = $totalAmount <= 0 || $newAllocated >= $totalAmount - 0.005;
 
             $this->db->prepare(
                 "UPDATE etransfer_notifications
-                    SET status = 'recorded', recorded_invoice_id = ?, recorded_by = ?, processed_at = NOW()
+                    SET allocated_amount = ?, status = ?, recorded_invoice_id = COALESCE(recorded_invoice_id, ?),
+                        recorded_by = ?, processed_at = ?
                   WHERE id = ?"
-            )->execute([$invoiceId, $userId, $notificationId]);
+            )->execute([
+                $newAllocated,
+                $fullyRecorded ? 'recorded' : 'partially_recorded',
+                $recorded[0]['invoice_id'],
+                $userId,
+                $fullyRecorded ? date('Y-m-d H:i:s') : null,
+                $notificationId,
+            ]);
 
             $this->db->commit();
-        } catch (PDOException $e) {
+        } catch (Throwable $e) {
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
+            }
+            if ($e instanceof RuntimeException) {
+                return ['ok' => false, 'message' => $e->getMessage()];
             }
             error_log('[EtransferInboxService] recordPayment error: ' . $e->getMessage());
             return ['ok' => false, 'message' => 'Database error while recording payment'];
         }
 
         // Attribution hook (best-effort, mirrors record-payment.php).
-        if ($newStatus === 'paid' && defined('APP_ROOT')) {
+        if (defined('APP_ROOT')) {
             $attr = APP_ROOT . '/Modules/Marketing/Services/AttributionService.php';
             if (is_file($attr)) {
                 require_once $attr;
-                try {
-                    AttributionService::onInvoicePaid($this->db, $invoiceId, $payAmount);
-                } catch (\Throwable $e) {
-                    error_log('[EtransferInboxService] attribution error: ' . $e->getMessage());
+                foreach ($recorded as $r) {
+                    if ($r['fully_paid']) {
+                        try {
+                            AttributionService::onInvoicePaid($this->db, $r['invoice_id'], $r['applied']);
+                        } catch (\Throwable $e) {
+                            error_log('[EtransferInboxService] attribution error: ' . $e->getMessage());
+                        }
+                    }
                 }
             }
         }
 
-        return ['ok' => true, 'message' => "Recorded {$payAmount} against {$inv['invoice_number']}"];
+        $remainingAfter = round($totalAmount - $newAllocated, 2);
+        $message = count($recorded) === 1
+            ? sprintf('Recorded $%.2f against %s', $recorded[0]['applied'], $recorded[0]['invoice_number'])
+            : sprintf('Recorded $%.2f across %d invoices', $appliedSum, count($recorded));
+        if (!$fullyRecorded) {
+            $message .= sprintf(' — $%.2f left to assign', max(0, $remainingAfter));
+        }
+
+        return [
+            'ok'              => true,
+            'message'         => $message,
+            'fully_allocated' => $fullyRecorded,
+            'remaining'       => max(0, $remainingAfter),
+        ];
     }
 
     public function dismiss(int $notificationId, int $userId): array
@@ -332,7 +407,7 @@ class EtransferInboxService
         $upd = $this->db->prepare(
             "UPDATE etransfer_notifications
                 SET status = 'dismissed', recorded_by = ?, processed_at = NOW()
-              WHERE id = ? AND status = 'pending'"
+              WHERE id = ? AND status IN ('pending', 'partially_recorded')"
         );
         $upd->execute([$userId, $notificationId]);
         return ['ok' => $upd->rowCount() > 0, 'message' => $upd->rowCount() > 0 ? 'Dismissed' : 'Nothing to dismiss'];

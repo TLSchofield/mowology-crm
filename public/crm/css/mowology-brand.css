@@ -36102,14 +36102,23 @@ span.mw-icon-box--missing {
 .mw-et-badge.none  { background: #f1f1ee; color: #6b6b66; }
 .mw-et-badge.claim { background: #fff3e0; color: #b45309; }
 
-.mw-et-actions { display: flex; align-items: center; gap: .4rem; flex: 0 0 auto; }
+.mw-et-actions { display: flex; flex-direction: column; align-items: flex-end; gap: .35rem; flex: 0 0 auto; }
+.mw-et-splits { display: flex; flex-direction: column; gap: .35rem; }
+.mw-et-split-line { display: flex; align-items: center; gap: .4rem; }
 .mw-et-actions .mw-et-inv { width: 130px; }
 .mw-et-actions .mw-et-amt { width: 95px; }
+.mw-et-remove-split { padding: 0 .3rem; line-height: 1; color: #94a3a0; }
+.mw-et-remove-split:hover { color: #b45309; }
+.mw-et-add-split { padding: 0; font-size: .78rem; color: var(--mw-dark, #1A5F4A); align-self: flex-end; }
+.mw-et-add-split:hover { color: var(--mw-green, #2D8659); text-decoration: underline; }
+.mw-et-buttons { display: flex; align-items: center; gap: .4rem; }
 .mw-et-actions .mw-et-dismiss { line-height: 1; padding: .25rem .55rem; }
 
 @media (max-width: 640px) {
-    .mw-et-actions { width: 100%; flex-wrap: wrap; }
+    .mw-et-actions { width: 100%; align-items: stretch; }
+    .mw-et-split-line { flex-wrap: wrap; }
     .mw-et-actions .mw-et-inv, .mw-et-actions .mw-et-amt { flex: 1 1 auto; width: auto; }
+    .mw-et-add-split { align-self: flex-start; }
 }
 
 /* Dashboard banner: pending e-Transfers awaiting recording (links to Invoices panel) */

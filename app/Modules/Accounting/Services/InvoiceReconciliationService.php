@@ -148,54 +148,12 @@ class InvoiceReconciliationService
         try {
             $recorded = [];
             foreach ($clean as $a) {
-                $inv = $this->lockInvoice($a['invoice_id']);
-                if (!$inv) {
-                    throw new RuntimeException("Invoice #{$a['invoice_id']} not found.");
+                $result = $this->applyAllocation(
+                    $a['invoice_id'], $a['amount'], $method, $ref, $payDate, $transactionId, $userId
+                );
+                if ($result) {
+                    $recorded[] = $result;
                 }
-
-                $balance = round((float)$inv['balance_due'], 2);
-                $applied = round(min($a['amount'], max(0, $balance)), 2);
-                if ($applied <= 0) {
-                    // Invoice already settled — skip rather than create a negative payment
-                    continue;
-                }
-
-                $this->db->prepare("
-                    INSERT INTO invoice_payment_allocations
-                        (invoice_id, transaction_id, amount, payment_date, method, reference, created_by)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                ")->execute([$a['invoice_id'], $transactionId, $applied, $payDate, $method, $ref, $userId]);
-
-                $newPaid    = round((float)$inv['amount_paid'] + $applied, 2);
-                $newBalance = round(max(0, $balance - $applied), 2);
-                $newStatus  = $newBalance <= 0.005 ? 'paid' : 'partial';
-
-                $this->db->prepare("
-                    UPDATE invoices SET
-                        amount_paid       = ?,
-                        balance_due       = ?,
-                        status            = ?,
-                        payment_method    = ?,
-                        payment_reference = COALESCE(NULLIF(payment_reference, ''), ?),
-                        paid_at           = COALESCE(paid_at, ?)
-                    WHERE id = ?
-                ")->execute([
-                    $newPaid, $newBalance, $newStatus, $method, $ref,
-                    $payDate . ' 12:00:00', $a['invoice_id'],
-                ]);
-
-                // Recognize income on the invoice ledger row (per-job attribution)
-                $this->upsertInvoiceIncomeRow($a['invoice_id']);
-
-                $recorded[] = [
-                    'invoice_id'     => $a['invoice_id'],
-                    'invoice_number' => $inv['invoice_number'],
-                    'requested'      => $a['amount'],
-                    'applied'        => $applied,
-                    'capped'         => $applied < $a['amount'] - 0.005,
-                    'status'         => $newStatus,
-                    'fully_paid'     => $newStatus === 'paid',
-                ];
             }
 
             $singleInvoiceId = count($clean) === 1 ? $clean[0]['invoice_id'] : null;
@@ -212,6 +170,86 @@ class InvoiceReconciliationService
             'recorded'          => $recorded,
             'deposit_remaining' => $remainingAfter,
             'fully_allocated'   => $remainingAfter <= 0.005,
+        ];
+    }
+
+    /**
+     * Apply one payment amount to one invoice: caps to the invoice's remaining
+     * balance_due, writes an invoice_payment_allocations row, updates the invoice,
+     * and upserts its income ledger row. Caller must already be inside a
+     * transaction (this locks the invoice row via FOR UPDATE).
+     *
+     * Shared by attach() (bank-deposit reconciliation, $transactionId set) and
+     * EtransferInboxService (e-Transfer inbox, $transactionId null — no bank
+     * deposit exists yet) so both "record a payment" paths write to the same
+     * allocation ledger instead of maintaining two.
+     *
+     * @return array|null  allocation summary, or null if the invoice was already
+     *                      settled and nothing was applied (not an error — caller
+     *                      should just skip it, mirroring attach()'s prior behaviour).
+     */
+    public function applyAllocation(
+        int $invoiceId,
+        float $requestedAmount,
+        string $method,
+        ?string $reference,
+        string $paymentDate,
+        ?int $transactionId,
+        int $userId,
+        ?int $etransferNotificationId = null
+    ): ?array {
+        $inv = $this->lockInvoice($invoiceId);
+        if (!$inv) {
+            throw new RuntimeException("Invoice #{$invoiceId} not found.");
+        }
+
+        $balance = round((float)$inv['balance_due'], 2);
+        $applied = round(min($requestedAmount, max(0, $balance)), 2);
+        if ($applied <= 0) {
+            // Invoice already settled — skip rather than create a negative payment
+            return null;
+        }
+
+        $this->db->prepare("
+            INSERT INTO invoice_payment_allocations
+                (invoice_id, transaction_id, etransfer_notification_id, amount, payment_date, method, reference, created_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ")->execute([
+            $invoiceId, $transactionId, $etransferNotificationId, $applied, $paymentDate, $method, $reference, $userId,
+        ]);
+
+        $newPaid    = round((float)$inv['amount_paid'] + $applied, 2);
+        $newBalance = round(max(0, $balance - $applied), 2);
+        $newStatus  = $newBalance <= 0.005 ? 'paid' : 'partial';
+
+        $this->db->prepare("
+            UPDATE invoices SET
+                amount_paid       = ?,
+                balance_due       = ?,
+                status            = ?,
+                payment_method    = ?,
+                payment_reference = COALESCE(NULLIF(payment_reference, ''), ?),
+                paid_at           = COALESCE(paid_at, ?),
+                pdf_path          = NULL,
+                pdf_version       = NULL,
+                pdf_generated_at  = NULL
+            WHERE id = ?
+        ")->execute([
+            $newPaid, $newBalance, $newStatus, $method, $reference,
+            $paymentDate . ' 12:00:00', $invoiceId,
+        ]);
+
+        // Recognize income on the invoice ledger row (per-job attribution)
+        $this->upsertInvoiceIncomeRow($invoiceId);
+
+        return [
+            'invoice_id'     => $invoiceId,
+            'invoice_number' => $inv['invoice_number'],
+            'requested'      => round($requestedAmount, 2),
+            'applied'        => $applied,
+            'capped'         => $applied < $requestedAmount - 0.005,
+            'status'         => $newStatus,
+            'fully_paid'     => $newStatus === 'paid',
         ];
     }
 

@@ -265,12 +265,19 @@ $activePage = 'invoices';
                             <?php endif; ?>
                         </div>
                         <div class="mw-et-actions">
-                            <input type="text" class="form-control form-control-sm mw-et-inv" placeholder="INV-…"
-                                   value="<?php echo htmlspecialchars($prefillNo); ?>" aria-label="Invoice number">
-                            <input type="number" step="0.01" min="0" class="form-control form-control-sm mw-et-amt"
-                                   value="<?php echo $etAmount > 0 ? number_format($etAmount, 2, '.', '') : ''; ?>" aria-label="Amount">
-                            <button class="btn btn-primary btn-sm mw-et-record">Record</button>
-                            <button class="btn btn-outline-secondary btn-sm mw-et-dismiss" title="Dismiss">&times;</button>
+                            <div class="mw-et-splits">
+                                <div class="mw-et-split-line">
+                                    <input type="text" class="form-control form-control-sm mw-et-inv" placeholder="INV-…"
+                                           value="<?php echo htmlspecialchars($prefillNo); ?>" aria-label="Invoice number">
+                                    <input type="number" step="0.01" min="0" class="form-control form-control-sm mw-et-amt"
+                                           value="<?php echo $etAmount > 0 ? number_format($etAmount, 2, '.', '') : ''; ?>" aria-label="Amount">
+                                </div>
+                            </div>
+                            <button type="button" class="btn btn-link btn-sm mw-et-add-split">+ split across another invoice</button>
+                            <div class="mw-et-buttons">
+                                <button class="btn btn-primary btn-sm mw-et-record">Record</button>
+                                <button class="btn btn-outline-secondary btn-sm mw-et-dismiss" title="Dismiss">&times;</button>
+                            </div>
                         </div>
                     </div>
                 <?php endforeach; ?>
@@ -1031,25 +1038,52 @@ $activePage = 'invoices';
     var etPanel = document.getElementById('etransfers');
     if (etPanel) {
         etPanel.addEventListener('click', function (e) {
-            var recordBtn  = e.target.closest('.mw-et-record');
-            var dismissBtn = e.target.closest('.mw-et-dismiss');
-            if (!recordBtn && !dismissBtn) return;
+            var addSplitBtn = e.target.closest('.mw-et-add-split');
+            var recordBtn   = e.target.closest('.mw-et-record');
+            var dismissBtn  = e.target.closest('.mw-et-dismiss');
+            if (!addSplitBtn && !recordBtn && !dismissBtn) return;
 
             var row = e.target.closest('.mw-et-row');
             if (!row) return;
-            var id = row.getAttribute('data-id');
 
+            if (addSplitBtn) {
+                var splits = row.querySelector('.mw-et-splits');
+                var line = document.createElement('div');
+                line.className = 'mw-et-split-line';
+                line.innerHTML =
+                    '<input type="text" class="form-control form-control-sm mw-et-inv" placeholder="INV-…" aria-label="Invoice number">' +
+                    '<input type="number" step="0.01" min="0" class="form-control form-control-sm mw-et-amt" aria-label="Amount">' +
+                    '<button type="button" class="btn btn-link btn-sm mw-et-remove-split" aria-label="Remove split">&times;</button>';
+                splits.appendChild(line);
+                line.querySelector('.mw-et-inv').focus();
+                return;
+            }
+
+            var removeSplitBtn = e.target.closest('.mw-et-remove-split');
+            if (removeSplitBtn) {
+                var lineToRemove = removeSplitBtn.closest('.mw-et-split-line');
+                if (lineToRemove) lineToRemove.parentNode.removeChild(lineToRemove);
+                return;
+            }
+
+            var id = row.getAttribute('data-id');
             var body = new FormData();
             body.append('csrf_token', CSRF_TOKEN);
             body.append('notification_id', id);
 
             if (recordBtn) {
-                var inv = (row.querySelector('.mw-et-inv') || {}).value || '';
-                var amt = (row.querySelector('.mw-et-amt') || {}).value || '';
-                if (!inv.trim()) { showToast('Enter an invoice number first.', 'error'); return; }
+                var lines = Array.prototype.slice.call(row.querySelectorAll('.mw-et-split-line'));
+                var any = false;
+                lines.forEach(function (line) {
+                    var inv = (line.querySelector('.mw-et-inv') || {}).value || '';
+                    var amt = (line.querySelector('.mw-et-amt') || {}).value || '';
+                    if (!inv.trim()) return;
+                    any = true;
+                    body.append('invoice_numbers[]', inv.trim());
+                    body.append('amounts[]', amt);
+                });
+                if (!any) { showToast('Enter an invoice number first.', 'error'); return; }
                 body.append('action', 'record');
-                body.append('invoice_number', inv.trim());
-                body.append('amount', amt);
                 recordBtn.disabled = true;
                 recordBtn.textContent = 'Recording…';
             } else {
@@ -1063,6 +1097,23 @@ $activePage = 'invoices';
                 .then(function (data) {
                     if (data.ok) {
                         showToast(data.message || 'Done.', 'success');
+                        if (data.fully_allocated === false) {
+                            // Partially recorded — keep the row so staff can assign the remainder.
+                            var splitsEl = row.querySelector('.mw-et-splits');
+                            splitsEl.innerHTML =
+                                '<div class="mw-et-split-line">' +
+                                '<input type="text" class="form-control form-control-sm mw-et-inv" placeholder="INV-…" aria-label="Invoice number">' +
+                                '<input type="number" step="0.01" min="0" class="form-control form-control-sm mw-et-amt" ' +
+                                'value="' + (typeof data.remaining === 'number' ? data.remaining.toFixed(2) : '') + '" aria-label="Amount">' +
+                                '</div>';
+                            var amountEl = row.querySelector('.mw-et-amount');
+                            if (amountEl && typeof data.remaining === 'number') {
+                                amountEl.textContent = '$' + data.remaining.toFixed(2) + ' left';
+                            }
+                            recordBtn.disabled = false;
+                            recordBtn.textContent = 'Record';
+                            return;
+                        }
                         row.parentNode.removeChild(row);
                         var remaining = etPanel.querySelectorAll('.mw-et-row').length;
                         var cnt = etPanel.querySelector('.mw-et-count');
