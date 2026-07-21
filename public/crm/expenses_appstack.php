@@ -1191,6 +1191,12 @@ async function submitReceiptExport() {
                             </div>
                         </div>
 
+                        <!-- Section: Matched Transaction -->
+                        <div class="mw-expense-form-section">
+                            <h6 class="mw-expense-form-section-title"><i data-feather="link"></i> Matched Transaction</h6>
+                            <div id="expMatchArea"></div>
+                        </div>
+
                         <!-- Section: Amounts -->
                         <div class="mw-expense-form-section">
                             <h6 class="mw-expense-form-section-title"><i data-feather="dollar-sign"></i> Amounts</h6>
@@ -3787,9 +3793,112 @@ async function submitReceiptExport() {
                 anomalySection.style.display = 'none';
             }
 
+            renderExpenseMatchArea(e);
+
             if (window.feather) feather.replace();
             $('#expenseModal').modal('show');
         } catch(e) { alert('Error: ' + e.message); }
+    };
+
+    // ── Matched Transaction (bank ↔ expense manual reconciliation) ────────────
+    // The automatic matcher only runs once, at bank-statement import time, and
+    // only considers approved/forwarded expenses — anything it misses (receipt
+    // still draft at import time, amount/date drift) stays unmatched forever
+    // with no rescan. This lets a user close that gap by hand.
+    function renderExpenseMatchArea(e) {
+        var area = document.getElementById('expMatchArea');
+        if (!area) return;
+        var m = e.matched_transaction;
+        if (m) {
+            area.innerHTML =
+                '<div class="mw-match-item">' +
+                    '<div class="mw-match-info">' +
+                        '<div class="mw-match-desc">' + esc(m.description || 'Bank transaction') + '</div>' +
+                        '<div class="mw-match-meta">' + esc(m.date) + ' &middot; $' + parseFloat(m.amount).toFixed(2) +
+                            (m.bank_account ? ' &middot; ' + esc(m.bank_account) : '') + '</div>' +
+                    '</div>' +
+                    '<div class="mw-match-apply">' +
+                        '<button type="button" class="mw-match-dismiss" onclick="mwDetachExpenseMatch(' + m.transaction_id + ', ' + e.id + ')">Detach</button>' +
+                    '</div>' +
+                '</div>';
+        } else {
+            area.innerHTML =
+                '<div class="text-muted small mb-2">No bank transaction linked yet.</div>' +
+                '<button type="button" class="btn btn-sm btn-outline-primary" onclick="mwFindExpenseMatch(' + e.id + ')">' +
+                    '<i data-feather="search"></i> Find Match</button>';
+        }
+        if (window.feather) feather.replace();
+    }
+
+    window.mwFindExpenseMatch = async function(expenseId) {
+        var area = document.getElementById('expMatchArea');
+        if (!area) return;
+        area.innerHTML = '<div class="text-muted small"><span class="spinner-border spinner-border-sm"></span> Searching&hellip;</div>';
+        try {
+            var r = await fetch('/crm/api/accounting-reconciliation.php?action=expense_candidates&expense_id=' + expenseId);
+            var d = await r.json();
+            if (!d.ok) throw new Error(d.error || 'Search failed');
+            if (!d.candidates.length) {
+                area.innerHTML = '<div class="text-muted small mb-2">No matching transactions found.</div>' +
+                    '<button type="button" class="btn btn-sm btn-outline-secondary" onclick="mwFindExpenseMatch(' + expenseId + ')">' +
+                        '<i data-feather="refresh-cw"></i> Retry</button>';
+                if (window.feather) feather.replace();
+                return;
+            }
+            area.innerHTML = d.candidates.map(function(c) {
+                var confClass = c.confidence >= 70 ? 'high' : (c.confidence >= 45 ? 'med' : 'low');
+                var reasonsHtml = (c.reasons || []).map(function(rz) {
+                    return '<span class="mw-match-reason">' + esc(rz) + '</span>';
+                }).join('');
+                return '<div class="mw-match-item">' +
+                    '<span class="mw-conf-badge mw-conf-' + confClass + '">' + c.confidence + '%</span>' +
+                    '<div class="mw-match-info">' +
+                        '<div class="mw-match-desc">' + esc(c.description || 'Bank transaction') + '</div>' +
+                        '<div class="mw-match-meta">' + esc(c.date) + ' &middot; $' + c.amount.toFixed(2) +
+                            (c.bank_account ? ' &middot; ' + esc(c.bank_account) : '') + reasonsHtml +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="mw-match-apply">' +
+                        '<button type="button" class="mw-action-btn mw-action-btn-paid" onclick="mwAttachExpenseMatch(' + c.transaction_id + ', ' + expenseId + ')">Attach</button>' +
+                    '</div>' +
+                '</div>';
+            }).join('') +
+            '<button type="button" class="mw-match-dismiss mt-2" onclick="editExpense(' + expenseId + ')">Close</button>';
+            if (window.feather) feather.replace();
+        } catch (err) {
+            area.innerHTML = '<div class="text-danger small">Error: ' + esc(err.message) + '</div>';
+        }
+    };
+
+    window.mwAttachExpenseMatch = async function(transactionId, expenseId) {
+        try {
+            var r = await fetch('/crm/api/accounting-reconciliation.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'attach_expense', csrf_token: CSRF, transaction_id: transactionId, expense_id: expenseId }),
+            });
+            var d = await r.json();
+            if (!d.ok) throw new Error(d.error || 'Attach failed');
+            await editExpense(expenseId);
+        } catch (err) {
+            alert('Attach error: ' + err.message);
+        }
+    };
+
+    window.mwDetachExpenseMatch = async function(transactionId, expenseId) {
+        if (!confirm('Detach this bank transaction from the receipt?')) return;
+        try {
+            var r = await fetch('/crm/api/accounting-reconciliation.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'detach_expense', csrf_token: CSRF, transaction_id: transactionId }),
+            });
+            var d = await r.json();
+            if (!d.ok) throw new Error(d.error || 'Detach failed');
+            await editExpense(expenseId);
+        } catch (err) {
+            alert('Detach error: ' + err.message);
+        }
     };
 
     window.saveExpense = async function() {

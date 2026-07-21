@@ -2761,6 +2761,251 @@ class BankImportService
         return ['expense' => $best, 'confidence' => min($bestScore, 100)];
     }
 
+    // ══════════════════════════════════════════════════════════════════════════
+    // MANUAL RECONCILIATION — expense ↔ bank transaction
+    //
+    // findExpenseMatch() above only runs once, inline during import commit, and
+    // only considers approved/forwarded expenses. There is no later rescan, so
+    // any transaction that misses that single pass (receipt still draft at
+    // import time, amount/date drift) stays unmatched forever. These methods
+    // back a human "find match → attach" flow reachable from both the Edit
+    // Expense modal and the transactions list, mirroring
+    // InvoiceReconciliationService's candidates/attach/detach pattern.
+    // ══════════════════════════════════════════════════════════════════════════
+
+    private const EXPENSE_MATCH_THRESHOLD = 30; // lower bar than auto-match — a human confirms
+    private const EXPENSE_MATCH_WINDOW_DAYS = 14; // wider than findExpenseMatch()'s ±3d, same reason
+
+    /**
+     * Score an expense against a bank transaction for manual-match candidates.
+     * Same signal as findExpenseMatch() (amount, date proximity, vendor/description
+     * overlap) but with wider tolerances and a ranked reasons[] list for display,
+     * since a human reviews before confirming rather than a silent auto-commit.
+     *
+     * @return array{confidence:int, reasons:string[]}|null
+     */
+    private function scoreExpenseTransactionPair(array $expense, array $transaction): ?array
+    {
+        $expAmt = round((float)$expense['total'], 2);
+        $txAmt  = round((float)$transaction['amount'], 2);
+        $reasons = [];
+
+        if (abs($expAmt - $txAmt) < 0.01) {
+            $score = 50; $reasons[] = 'Exact amount match';
+        } elseif (abs($expAmt - $txAmt) <= max(0.5, $expAmt * 0.02)) {
+            $score = 35; $reasons[] = 'Amount close (within 2%)';
+        } else {
+            return null; // amounts unrelated
+        }
+
+        $dayDiff = (int) round(
+            abs(strtotime((string)$transaction['transaction_date']) - strtotime((string)$expense['expense_date'])) / 86400
+        );
+        if ($dayDiff === 0)      { $score += 20; $reasons[] = 'Same day'; }
+        elseif ($dayDiff <= 1)   { $score += 15; }
+        elseif ($dayDiff <= 3)   { $score += 10; }
+        elseif ($dayDiff <= 7)   { $score += 5;  $reasons[] = 'Within a week'; }
+        elseif ($dayDiff <= self::EXPENSE_MATCH_WINDOW_DAYS) { $score += 2; }
+        else return null; // beyond the manual-review window
+
+        $vendorLower = strtolower((string)($expense['vendor_name_raw'] ?? ''));
+        if ($vendorLower !== '') {
+            $descWords = array_filter(
+                array_map('strtolower', preg_split('/[\s\-\/]+/', (string)$transaction['description'])),
+                fn($w) => strlen($w) >= 4
+            );
+            foreach ($descWords as $word) {
+                if (strpos($vendorLower, $word) !== false) {
+                    $score += 20;
+                    $reasons[] = 'Vendor name matches statement description';
+                    break;
+                }
+            }
+        }
+
+        $score = min(100, $score);
+        if ($score < self::EXPENSE_MATCH_THRESHOLD) return null;
+        return ['confidence' => $score, 'reasons' => $reasons];
+    }
+
+    /**
+     * Candidate bank transactions for a single expense — "Find Match" from the
+     * Edit Expense modal. Only offers transactions not already claimed by another
+     * expense (mirrors findExpenseMatch()'s bt.id IS NULL guard).
+     */
+    public function candidateTransactionsForExpense(int $expenseId, int $limit = 8): array
+    {
+        $stmt = $this->db->prepare("
+            SELECT id, expense_date, total, vendor_name_raw FROM expenses WHERE id = ?
+        ");
+        $stmt->execute([$expenseId]);
+        $expense = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$expense) return [];
+
+        $stmt = $this->db->prepare("
+            SELECT at.id, at.transaction_date, at.description, at.amount, at.bank_account
+            FROM accounting_transactions at
+            WHERE at.type = 'expense'
+              AND at.reference_type = 'bank_import'
+              AND at.matched_expense_id IS NULL
+              AND ABS(at.amount - ?) <= GREATEST(0.5, ? * 0.02)
+              AND at.transaction_date BETWEEN DATE_SUB(?, INTERVAL " . self::EXPENSE_MATCH_WINDOW_DAYS . " DAY)
+                                          AND DATE_ADD(?, INTERVAL " . self::EXPENSE_MATCH_WINDOW_DAYS . " DAY)
+            ORDER BY ABS(DATEDIFF(at.transaction_date, ?)) ASC
+            LIMIT 50
+        ");
+        $stmt->execute([
+            $expense['total'], $expense['total'],
+            $expense['expense_date'], $expense['expense_date'],
+            $expense['expense_date'],
+        ]);
+
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $tx) {
+            $score = $this->scoreExpenseTransactionPair($expense, $tx);
+            if ($score === null) continue;
+            $out[] = [
+                'transaction_id' => (int)$tx['id'],
+                'date'           => substr((string)$tx['transaction_date'], 0, 10),
+                'description'    => (string)$tx['description'],
+                'bank_account'   => (string)($tx['bank_account'] ?? ''),
+                'amount'         => round((float)$tx['amount'], 2),
+                'confidence'     => $score['confidence'],
+                'reasons'        => $score['reasons'],
+            ];
+        }
+        usort($out, fn($a, $b) => $b['confidence'] <=> $a['confidence']);
+        return array_slice($out, 0, $limit);
+    }
+
+    /**
+     * Candidate expenses for a single unmatched bank transaction — "Find Expense
+     * Match" from the transactions list. Deliberately includes draft/pending_approval
+     * expenses, not just approved/forwarded like findExpenseMatch() — a human is
+     * confirming the link here, and an unapproved-at-import-time receipt is exactly
+     * the gap the automatic matcher can never recover from. Attaching does not
+     * change the expense's own approval status.
+     */
+    public function candidateExpensesForTransaction(int $transactionId, int $limit = 8): array
+    {
+        $stmt = $this->db->prepare("
+            SELECT id, transaction_date, description, amount, matched_expense_id
+            FROM accounting_transactions
+            WHERE id = ? AND type = 'expense' AND reference_type = 'bank_import'
+        ");
+        $stmt->execute([$transactionId]);
+        $transaction = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$transaction || $transaction['matched_expense_id']) return [];
+
+        $stmt = $this->db->prepare("
+            SELECT e.id, e.expense_date, e.total, e.vendor_name_raw, e.status, e.accounting_category
+            FROM expenses e
+            LEFT JOIN accounting_transactions bt ON bt.matched_expense_id = e.id
+            WHERE e.status IN ('draft','pending_approval','approved','forwarded')
+              AND bt.id IS NULL
+              AND ABS(e.total - ?) <= GREATEST(0.5, ? * 0.02)
+              AND e.expense_date BETWEEN DATE_SUB(?, INTERVAL " . self::EXPENSE_MATCH_WINDOW_DAYS . " DAY)
+                                     AND DATE_ADD(?, INTERVAL " . self::EXPENSE_MATCH_WINDOW_DAYS . " DAY)
+            ORDER BY ABS(DATEDIFF(e.expense_date, ?)) ASC
+            LIMIT 50
+        ");
+        $stmt->execute([
+            $transaction['amount'], $transaction['amount'],
+            $transaction['transaction_date'], $transaction['transaction_date'],
+            $transaction['transaction_date'],
+        ]);
+
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $exp) {
+            $score = $this->scoreExpenseTransactionPair($exp, $transaction);
+            if ($score === null) continue;
+            $out[] = [
+                'expense_id' => (int)$exp['id'],
+                'date'       => substr((string)$exp['expense_date'], 0, 10),
+                'vendor'     => (string)($exp['vendor_name_raw'] ?: 'Unknown vendor'),
+                'category'   => (string)($exp['accounting_category'] ?? ''),
+                'amount'     => round((float)$exp['total'], 2),
+                'status'     => (string)$exp['status'],
+                'confidence' => $score['confidence'],
+                'reasons'    => $score['reasons'],
+            ];
+        }
+        usort($out, fn($a, $b) => $b['confidence'] <=> $a['confidence']);
+        return array_slice($out, 0, $limit);
+    }
+
+    /**
+     * Manually attach a bank transaction to an expense — the human-confirmed
+     * counterpart to findExpenseMatch()'s silent auto-match at import time.
+     * Does not touch the expense's own status (draft/approved/etc.) — purely
+     * records the bookkeeping link between the two rows.
+     */
+    public function attachExpenseMatch(int $transactionId, int $expenseId, int $userId): array
+    {
+        $stmt = $this->db->prepare("
+            SELECT id, matched_expense_id, transaction_date, description, amount
+            FROM accounting_transactions
+            WHERE id = ? AND type = 'expense' AND reference_type = 'bank_import'
+        ");
+        $stmt->execute([$transactionId]);
+        $transaction = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$transaction) throw new RuntimeException('Bank transaction not found.');
+        if ($transaction['matched_expense_id']) throw new RuntimeException('Transaction is already matched to an expense.');
+
+        $stmt = $this->db->prepare("SELECT id, expense_date, total, vendor_name_raw FROM expenses WHERE id = ?");
+        $stmt->execute([$expenseId]);
+        $expense = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$expense) throw new RuntimeException('Expense not found.');
+
+        $stmt = $this->db->prepare("SELECT id FROM accounting_transactions WHERE matched_expense_id = ?");
+        $stmt->execute([$expenseId]);
+        if ($stmt->fetch()) throw new RuntimeException('This expense is already matched to another transaction.');
+
+        // Recorded for reporting even though the user picked it manually — falls
+        // back to 0 if the pair is outside the normal scoring window (a deliberate
+        // human override of what the candidate list would have suggested).
+        $score = $this->scoreExpenseTransactionPair($expense, $transaction);
+        $confidence = $score['confidence'] ?? 0;
+
+        $this->db->prepare("
+            UPDATE accounting_transactions SET
+              status             = 'reconciled',
+              matched_expense_id = ?,
+              match_confidence   = ?,
+              matched_at         = NOW(),
+              matched_by         = ?
+            WHERE id = ?
+        ")->execute([$expenseId, $confidence, (string)$userId, $transactionId]);
+
+        return ['transaction_id' => $transactionId, 'expense_id' => $expenseId, 'confidence' => $confidence];
+    }
+
+    /**
+     * Reverse a manual (or automatic) expense match — restores the transaction to
+     * 'cleared'/unmatched so it can be re-matched or matched to a different expense.
+     */
+    public function detachExpenseMatch(int $transactionId, int $userId): array
+    {
+        $stmt = $this->db->prepare("SELECT id, matched_expense_id FROM accounting_transactions WHERE id = ?");
+        $stmt->execute([$transactionId]);
+        $transaction = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$transaction || !$transaction['matched_expense_id']) {
+            throw new RuntimeException('Transaction is not currently matched.');
+        }
+
+        $this->db->prepare("
+            UPDATE accounting_transactions SET
+              status             = 'cleared',
+              matched_expense_id = NULL,
+              match_confidence   = NULL,
+              matched_at         = NULL,
+              matched_by         = NULL
+            WHERE id = ?
+        ")->execute([$transactionId]);
+
+        return ['transaction_id' => $transactionId, 'expense_id' => (int)$transaction['matched_expense_id']];
+    }
+
     /**
      * Resolve a COA account_id from an expense accounting_category string.
      * Uses the expense_category_alias column on chart_of_accounts.

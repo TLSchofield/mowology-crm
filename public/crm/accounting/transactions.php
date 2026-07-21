@@ -432,7 +432,10 @@ function renderTable(rows) {
         // All linked rows expand; clicking the strip navigates to the item
         const isExpense = tx.reference_type === 'expense';
         const isBankMatchExpandable = isBankImport && tx.bank_match_exists == 1;
-        const isExpandable = ((isInvoice || isExpense) && tx.reference_id) || isBankMatchExpandable;
+        // Unmatched bank rows expand too — into a "Find Expense Match" candidates
+        // panel, not a navigation target (see fetchAndShowExpenseCandidates()).
+        const isBankUnmatchedExpandable = isBankImport && tx.bank_match_exists != 1;
+        const isExpandable = ((isInvoice || isExpense) && tx.reference_id) || isBankMatchExpandable || isBankUnmatchedExpandable;
 
         const rowClass = [
             tx.needs_review == 1 ? 'mw-acct-row-review' : '',
@@ -458,6 +461,7 @@ function renderTable(rows) {
                         <li><a class="dropdown-item small" href="#" onclick="event.stopPropagation();openRecat(${tx.id}, ${tx.account_id})">Change Account</a></li>
                         ${isInvoice ? `<li><a class="dropdown-item small" href="/crm/invoices/view.php?id=${tx.reference_id}" onclick="event.stopPropagation()">View Invoice</a></li>` : ''}
                         ${tx.reference_type === 'expense' ? `<li><a class="dropdown-item small" href="/crm/expenses_appstack.php?edit=${tx.reference_id}" onclick="event.stopPropagation()">Edit Expense</a></li>` : ''}
+                        ${isBankUnmatchedExpandable ? `<li><a class="dropdown-item small" href="#" onclick="event.stopPropagation();expandTxDetail(${tx.id})">Find Expense Match</a></li>` : ''}
                         <li><a class="dropdown-item small" href="#" onclick="event.stopPropagation();toggleReview(${tx.id}, ${tx.needs_review == 1 ? 0 : 1})">${tx.needs_review == 1 ? 'Clear Review Flag' : 'Flag for Review'}</a></li>
                         ${tx.reference_type === 'manual' ? `<li><hr class="dropdown-divider"></li><li><a class="dropdown-item small text-danger" href="#" onclick="event.stopPropagation();deleteTx(${tx.id})">Delete</a></li>` : ''}
                     </ul>
@@ -471,7 +475,15 @@ function renderTable(rows) {
                 // Bank import: lazy-load via API; fetchAndShowMatch will set onclick after fetch
                 html.push(`<tr class="mw-tx-detail-row" id="det-${tx.id}" style="display:none">
                     <td colspan="7">
-                        <div id="det-content-${tx.id}" class="mw-tx-detail-strip text-muted">Loading match…</div>
+                        <div id="det-content-${tx.id}" class="mw-tx-detail-strip text-muted" data-mode="match">Loading match…</div>
+                    </td>
+                </tr>`);
+            } else if (isBankUnmatchedExpandable) {
+                // Unmatched bank import: lazy-load candidate expenses to attach —
+                // manual counterpart to findExpenseMatch()'s one-shot auto-match.
+                html.push(`<tr class="mw-tx-detail-row" id="det-${tx.id}" style="display:none">
+                    <td colspan="7">
+                        <div id="det-content-${tx.id}" class="text-muted small p-2" data-mode="expense-candidates">Searching for matching receipts…</div>
                     </td>
                 </tr>`);
             } else if (isInvoice) {
@@ -620,11 +632,23 @@ function toggleTxDetail(id) {
     if (!row) return;
     const isHidden = row.style.display === 'none';
     row.style.display = isHidden ? '' : 'none';
-    // Lazy-load bank import match on first expand
+    // Lazy-load on first expand — mode set server-side via data-mode.
     const contentEl = document.getElementById('det-content-' + id);
-    if (isHidden && contentEl && contentEl.textContent === 'Loading match…') {
-        fetchAndShowMatch(id, contentEl);
+    if (isHidden && contentEl && contentEl.dataset.loaded !== '1') {
+        contentEl.dataset.loaded = '1';
+        if (contentEl.dataset.mode === 'expense-candidates') {
+            fetchAndShowExpenseCandidates(id, contentEl);
+        } else {
+            fetchAndShowMatch(id, contentEl);
+        }
     }
+}
+
+/** Expand (not toggle) a detail row — used by the "Find Expense Match" dropdown
+ *  action so it always opens the panel rather than collapsing an open one. */
+function expandTxDetail(id) {
+    const row = document.getElementById('det-' + id);
+    if (row && row.style.display === 'none') toggleTxDetail(id);
 }
 
 async function fetchAndShowMatch(txId, contentEl) {
@@ -663,6 +687,57 @@ async function fetchAndShowMatch(txId, contentEl) {
             </div>`;
     } catch (e) {
         contentEl.innerHTML = '<span class="text-danger">Error loading match</span>';
+    }
+}
+
+// ── Manual expense match (unmatched bank rows) ──────────────────────────────────
+// findExpenseMatch() only runs once, at import time, and only considers
+// approved/forwarded expenses — this is the human-reviewed fallback for whatever
+// it missed (receipt still draft at import time, amount/date drift), reachable
+// from a row's "Find Expense Match" dropdown action / by expanding the row.
+async function fetchAndShowExpenseCandidates(txId, contentEl) {
+    try {
+        const r = await fetch('/crm/api/accounting-reconciliation.php?action=transaction_expense_candidates&transaction_id=' + txId);
+        const d = await r.json();
+        if (!d.ok) throw new Error(d.error || 'Search failed');
+        if (!d.candidates.length) {
+            contentEl.innerHTML = '<span class="text-muted">No matching receipts found.</span>';
+            return;
+        }
+        contentEl.innerHTML = d.candidates.map(c => {
+            const confClass = c.confidence >= 70 ? 'high' : (c.confidence >= 45 ? 'med' : 'low');
+            const statusTag = (c.status === 'draft' || c.status === 'pending_approval')
+                ? `<span class="badge bg-light text-dark border ms-1" style="font-size:9px">${c.status === 'draft' ? 'Draft' : 'Pending'}</span>`
+                : '';
+            const reasonsHtml = (c.reasons || []).map(rz => `<span class="mw-match-reason">${esc(rz)}</span>`).join('');
+            return `<div class="mw-match-item">
+                <span class="mw-conf-badge mw-conf-${confClass}">${c.confidence}%</span>
+                <div class="mw-match-info">
+                    <div class="mw-match-desc">${esc(c.vendor)}${statusTag}</div>
+                    <div class="mw-match-meta">${esc(c.date)} &middot; ${fmtMoney(c.amount)}${c.category ? ' &middot; ' + esc(c.category) : ''}${reasonsHtml}</div>
+                </div>
+                <div class="mw-match-apply">
+                    <button type="button" class="mw-action-btn mw-action-btn-paid" onclick="event.stopPropagation();attachTxToExpense(${txId}, ${c.expense_id})">Attach</button>
+                </div>
+            </div>`;
+        }).join('');
+    } catch (e) {
+        contentEl.innerHTML = '<span class="text-danger">Error: ' + esc(e.message) + '</span>';
+    }
+}
+
+async function attachTxToExpense(txId, expenseId) {
+    try {
+        const r = await fetch('/crm/api/accounting-reconciliation.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'attach_expense', csrf_token: CSRF, transaction_id: txId, expense_id: expenseId }),
+        });
+        const d = await r.json();
+        if (!d.ok) throw new Error(d.error || 'Attach failed');
+        loadTransactions(currentPage);
+    } catch (e) {
+        alert('Attach error: ' + e.message);
     }
 }
 

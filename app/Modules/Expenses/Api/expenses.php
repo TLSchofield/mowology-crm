@@ -393,6 +393,18 @@ function handleGet(PDO $db): void
     $logStmt->execute([$id]);
     $expense['send_history'] = $logStmt->fetchAll(PDO::FETCH_ASSOC);
 
+    // Matched bank transaction, if any (drives the "Matched Transaction" section
+    // in the Edit Expense modal — see BankImportService::attachExpenseMatch()).
+    $matchStmt = $db->prepare("
+        SELECT id AS transaction_id, transaction_date, description, amount,
+               bank_account, matched_at, matched_by
+        FROM accounting_transactions
+        WHERE matched_expense_id = ?
+        LIMIT 1
+    ");
+    $matchStmt->execute([$id]);
+    $expense['matched_transaction'] = $matchStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+
     // Load stored line items (with product details)
     $liStmt = $db->prepare("
         SELECT eli.*,

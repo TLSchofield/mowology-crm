@@ -550,4 +550,128 @@ class BankImportServiceTest extends TestCase
         $this->assertFalse($out['handled']);
         $this->assertSame('expense', $out['row']['type']);
     }
+
+    // ── Manual reconciliation: scoreExpenseTransactionPair() ────────────────────
+    //
+    // Candidate scoring is pure (no DB) and unit-tested directly. The transactional
+    // attach()/detach() write paths follow this codebase's existing convention for
+    // side-effecting reconciliation services (see InvoiceReconciliationServiceTest's
+    // header comment) — verified on production per the feature's plan, not mocked
+    // here, since a faithful PDO-mock of a multi-step guarded UPDATE adds test
+    // complexity without adding real coverage over what the guards themselves need.
+
+    private function expenseRow(array $overrides = []): array
+    {
+        return array_merge([
+            'expense_date'    => '2026-07-10',
+            'total'           => 84.50,
+            'vendor_name_raw' => 'Home Depot',
+        ], $overrides);
+    }
+
+    private function transactionRow(array $overrides = []): array
+    {
+        return array_merge([
+            'transaction_date' => '2026-07-10',
+            'description'      => 'HOME DEPOT #1234 VANCOUVER',
+            'amount'           => 84.50,
+        ], $overrides);
+    }
+
+    /** @test */
+    public function scoreExpenseTransactionPair_exact_amount_same_day_vendor_match_scores_high(): void
+    {
+        $score = $this->callPrivate('scoreExpenseTransactionPair', $this->expenseRow(), $this->transactionRow());
+
+        $this->assertNotNull($score);
+        $this->assertSame(90, $score['confidence']); // 50 amount + 20 same-day + 20 vendor
+        $this->assertContains('Exact amount match', $score['reasons']);
+        $this->assertContains('Same day', $score['reasons']);
+        $this->assertContains('Vendor name matches statement description', $score['reasons']);
+    }
+
+    /** @test */
+    public function scoreExpenseTransactionPair_close_amount_within_tolerance_scores_lower(): void
+    {
+        // $0.75 off on an $84.50 total is within max(0.5, 2%) but not exact.
+        $score = $this->callPrivate('scoreExpenseTransactionPair', $this->expenseRow(), $this->transactionRow(['amount' => 85.25]));
+
+        $this->assertNotNull($score);
+        $this->assertContains('Amount close (within 2%)', $score['reasons']);
+        $this->assertLessThan(90, $score['confidence']);
+    }
+
+    /** @test */
+    public function scoreExpenseTransactionPair_unrelated_amount_returns_null(): void
+    {
+        $score = $this->callPrivate('scoreExpenseTransactionPair', $this->expenseRow(), $this->transactionRow(['amount' => 250.00]));
+        $this->assertNull($score);
+    }
+
+    /** @test */
+    public function scoreExpenseTransactionPair_beyond_match_window_returns_null(): void
+    {
+        // 15 days apart — findExpenseMatch()'s auto-match window is ±3d, this
+        // manual path widens to ±14d, but still has to draw a line somewhere.
+        $score = $this->callPrivate('scoreExpenseTransactionPair', $this->expenseRow(), $this->transactionRow(['transaction_date' => '2026-07-25']));
+        $this->assertNull($score);
+    }
+
+    /** @test */
+    public function scoreExpenseTransactionPair_no_vendor_overlap_still_scores_on_amount_and_date(): void
+    {
+        $score = $this->callPrivate('scoreExpenseTransactionPair', $this->expenseRow(), $this->transactionRow(['description' => 'POS PURCHASE 5591']));
+
+        $this->assertNotNull($score);
+        $this->assertNotContains('Vendor name matches statement description', $score['reasons']);
+        $this->assertSame(70, $score['confidence']); // 50 amount + 20 same-day, no vendor bonus
+    }
+
+    // ── Manual reconciliation: candidateTransactionsForExpense() ────────────────
+
+    /** Build a service whose expense lookup and transaction-candidate queries return canned rows. */
+    private function bankImportServiceWith(?array $expenseRow, array $transactionRows): BankImportService
+    {
+        $expenseStmt = $this->createMock(PDOStatement::class);
+        $expenseStmt->method('execute')->willReturn(true);
+        $expenseStmt->method('fetch')->willReturn($expenseRow ?: false);
+
+        $txStmt = $this->createMock(PDOStatement::class);
+        $txStmt->method('execute')->willReturn(true);
+        $txStmt->method('fetchAll')->willReturn($transactionRows);
+
+        $pdo = $this->createMock(PDO::class);
+        $pdo->method('prepare')->willReturnCallback(
+            function (string $sql) use ($expenseStmt, $txStmt) {
+                return strpos($sql, 'FROM accounting_transactions at') !== false ? $txStmt : $expenseStmt;
+            }
+        );
+
+        return new BankImportService($pdo);
+    }
+
+    /** @test */
+    public function candidateTransactionsForExpense_ranks_high_confidence_first(): void
+    {
+        $svc = $this->bankImportServiceWith(
+            ['id' => 1, 'expense_date' => '2026-07-10', 'total' => 84.50, 'vendor_name_raw' => 'Home Depot'],
+            [
+                ['id' => 201, 'transaction_date' => '2026-07-15', 'description' => 'POS PURCHASE', 'amount' => 85.00, 'bank_account' => 'Vancity'],
+                ['id' => 202, 'transaction_date' => '2026-07-10', 'description' => 'HOME DEPOT #1234', 'amount' => 84.50, 'bank_account' => 'Vancity'],
+            ]
+        );
+
+        $candidates = $svc->candidateTransactionsForExpense(1);
+
+        $this->assertCount(2, $candidates);
+        $this->assertSame(202, $candidates[0]['transaction_id']); // exact amount + same day + vendor wins
+        $this->assertGreaterThan($candidates[1]['confidence'], $candidates[0]['confidence']);
+    }
+
+    /** @test */
+    public function candidateTransactionsForExpense_returns_empty_for_unknown_expense(): void
+    {
+        $svc = $this->bankImportServiceWith(null, []);
+        $this->assertSame([], $svc->candidateTransactionsForExpense(999));
+    }
 }
