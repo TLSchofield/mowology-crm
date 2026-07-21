@@ -86,6 +86,22 @@ recipients are set or any send fails, **nothing is deleted**.
 2. Set the recipient emails in `ops_settings` (above). With none set, nothing is deleted.
 3. (Optional) add the monthly cPanel cron above to automate.
 
+## Bank-transaction matching
+
+`BankImportService::findExpenseMatch()` auto-matches a bank statement row to an
+expense once, inline during import `commit()` — amount ±$0.01, date ±3 days,
+`approved`/`forwarded` expenses only. There's no rescan afterward, so anything
+that misses that single pass (receipt still `draft` at import time, amount/date
+drift) stays unmatched forever unless someone attaches it by hand.
+
+Manual attach: `BankImportService::candidateTransactionsForExpense()` /
+`candidateExpensesForTransaction()` (±14 day window, includes draft/pending
+expenses — a human confirms) + `attachExpenseMatch()` / `detachExpenseMatch()`.
+Reachable from the Edit Expense modal's "Matched Transaction" section and from
+unmatched rows on `public/crm/accounting/transactions.php` ("Find Expense
+Match"). API: `app/Modules/Accounting/Api/reconciliation.php`
+(`expense_candidates`/`transaction_expense_candidates`/`attach_expense`/`detach_expense`).
+
 ## Key files
 
 - `app/Modules/Expenses/Services/ReceiptArchiveService.php` (+ `tests/Unit/Expenses/ReceiptArchiveServiceTest.php`)
@@ -94,4 +110,5 @@ recipients are set or any send fails, **nothing is deleted**.
 - `app/Modules/Expenses/Cron/receipt_inbox_poll.php` (+ shim `public/crm/cron/receipt_inbox_poll.php`)
 - `public/crm/api/receipt-inbox-confirm.php`
 - Review panel + JS in `public/crm/expenses_appstack.php`; styles `.mw-receipt-inbox` in `mowology-brand.css`
+- `app/Modules/Accounting/Services/BankImportService.php` (manual matching methods, + `tests/Unit/Accounting/BankImportServiceTest.php`), `app/Modules/Accounting/Api/reconciliation.php`
 - `tests/Unit/Expenses/ReceiptInboxServiceTest.php`
