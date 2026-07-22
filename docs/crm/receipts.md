@@ -86,6 +86,16 @@ recipients are set or any send fails, **nothing is deleted**.
 2. Set the recipient emails in `ops_settings` (above). With none set, nothing is deleted.
 3. (Optional) add the monthly cPanel cron above to automate.
 
+## Approval
+
+`ExpenseApprovalService::approve()` blocks self-approval (the creator of an
+expense can't approve their own) — deliberate, since a past bug let any
+edit-permission user bypass it. Exception: `users.can_approve_own_expenses`
+(migration 1108, off by default), toggled per employee in Team management —
+for someone with no one else to approve their purchases (e.g. an owner who
+also submits a lot of his own receipts). Checked fresh from the DB inside
+`approve()`, not trusted from the session/JWT payload.
+
 ## Bank-transaction matching
 
 `BankImportService::findExpenseMatch()` auto-matches a bank statement row to an
