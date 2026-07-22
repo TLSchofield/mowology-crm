@@ -69,6 +69,45 @@ class ExpenseApprovalServiceTest extends TestCase
         $this->assertSame('Expense approved', $result['message']);
     }
 
+    private function makeColumnStmt(mixed $columnReturn): PDOStatement
+    {
+        $s = $this->createMock(PDOStatement::class);
+        $s->method('execute')->willReturn(true);
+        $s->method('fetchColumn')->willReturn($columnReturn);
+        return $s;
+    }
+
+    public function test_approve_allows_self_approval_when_flag_enabled(): void
+    {
+        $checkStmt  = $this->makeStmt(['id' => 42, 'status' => 'draft', 'created_by' => 5]);
+        $flagStmt   = $this->makeColumnStmt(1);
+        $updateStmt = $this->makeStmt();
+
+        $db = $this->createMock(PDO::class);
+        $db->method('prepare')->willReturnOnConsecutiveCalls($checkStmt, $flagStmt, $updateStmt);
+
+        $svc = new ExpenseApprovalService($db);
+        $result = $svc->approve(42, ['id' => 5]); // same user created + approves
+
+        $this->assertTrue($result['success']);
+        $this->assertSame('Expense approved', $result['message']);
+    }
+
+    public function test_approve_still_blocks_self_approval_when_flag_disabled(): void
+    {
+        $checkStmt = $this->makeStmt(['id' => 42, 'status' => 'draft', 'created_by' => 5]);
+        $flagStmt  = $this->makeColumnStmt(0);
+
+        $db = $this->createMock(PDO::class);
+        $db->method('prepare')->willReturnOnConsecutiveCalls($checkStmt, $flagStmt);
+
+        $svc = new ExpenseApprovalService($db);
+
+        $this->expectException(Exception::class);
+        $this->expectExceptionMessage('Cannot approve your own expense');
+        $svc->approve(42, ['id' => 5]);
+    }
+
     // ── reject ───────────────────────────────────────────────────────────
 
     public function test_reject_requires_expense_id(): void
@@ -163,13 +202,15 @@ class ExpenseApprovalServiceTest extends TestCase
     public function test_approveBatch_continues_past_a_failed_item(): void
     {
         // id 42: created by someone else — approves cleanly (check + update).
-        // id 43: created by the same user who's approving — self-approval, fails at check.
+        // id 43: created by the same user who's approving — self-approval, fails at
+        // the check + own-flag lookup (flag disabled, so it's still blocked).
         $check42  = $this->makeStmt(['id' => 42, 'status' => 'draft', 'created_by' => 5]);
         $update42 = $this->makeStmt();
         $check43  = $this->makeStmt(['id' => 43, 'status' => 'draft', 'created_by' => 9]);
+        $flag43   = $this->makeColumnStmt(0);
 
         $db = $this->createMock(PDO::class);
-        $db->method('prepare')->willReturnOnConsecutiveCalls($check42, $update42, $check43);
+        $db->method('prepare')->willReturnOnConsecutiveCalls($check42, $update42, $check43, $flag43);
 
         $svc = new ExpenseApprovalService($db);
         $result = $svc->approveBatch([42, 43], ['id' => 9]);

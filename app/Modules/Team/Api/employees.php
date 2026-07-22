@@ -89,7 +89,8 @@ try {
                        location_tracking_enabled, last_login, created_at,
                        IFNULL(receive_weather_sms, 1)     AS receive_weather_sms,
                        IFNULL(device_type, 'personal')    AS device_type,
-                       IFNULL(location_ping_rate, 'high') AS location_ping_rate
+                       IFNULL(location_ping_rate, 'high') AS location_ping_rate,
+                       IFNULL(can_approve_own_expenses, 0) AS can_approve_own_expenses
                 FROM users WHERE id = ?
             ");
             $stmt->execute([$id]);
@@ -186,11 +187,14 @@ try {
             $emergencyContact = trim($input['emergency_contact'] ?? '') ?: null;
             $notes          = trim($input['notes'] ?? '') ?: null;
             $receiveWeatherSms = isset($input['receive_weather_sms']) ? ($input['receive_weather_sms'] ? 1 : 0) : 1;
+            // Off by default — the self-approval exemption is a deliberate, per-person grant.
+            $canApproveOwn  = isset($input['can_approve_own_expenses']) ? ($input['can_approve_own_expenses'] ? 1 : 0) : 0;
 
             $stmt = $db->prepare("
                 INSERT INTO users (email, password_hash, full_name, first_name, last_name, phone, role,
-                                   hourly_rate, hire_date, emergency_contact, notes, is_active, receive_weather_sms)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+                                   hourly_rate, hire_date, emergency_contact, notes, is_active, receive_weather_sms,
+                                   can_approve_own_expenses)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
             ");
             $stmt->execute([
                 $email,
@@ -205,6 +209,7 @@ try {
                 $emergencyContact,
                 $notes,
                 $receiveWeatherSms,
+                $canApproveOwn,
             ]);
 
             $newId = (int)$db->lastInsertId();
@@ -281,6 +286,9 @@ try {
             }
             if (isset($input['is_driver'])) {
                 $updates[] = 'is_driver = ?'; $params[] = $input['is_driver'] ? 1 : 0;
+            }
+            if (isset($input['can_approve_own_expenses'])) {
+                $updates[] = 'can_approve_own_expenses = ?'; $params[] = $input['can_approve_own_expenses'] ? 1 : 0;
             }
             if (isset($input['pesticide_training_required'])) {
                 $updates[] = 'pesticide_training_required = ?'; $params[] = $input['pesticide_training_required'] ? 1 : 0;

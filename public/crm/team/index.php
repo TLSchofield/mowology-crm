@@ -440,6 +440,18 @@ $activePage = 'team';
                         </div>
                     </div>
 
+                    <!-- Approvals -->
+                    <div class="mt-3 pt-3" style="border-top:1px solid #eee;">
+                        <label class="d-block mb-2"><strong>Approvals</strong></label>
+                        <div class="custom-control custom-switch">
+                            <input type="checkbox" class="custom-control-input" id="empCanApproveOwn" name="can_approve_own_expenses" value="1">
+                            <label class="custom-control-label" for="empCanApproveOwn">
+                                Allow approving own submitted expenses
+                            </label>
+                        </div>
+                        <small class="form-text text-muted">Off by default — normally the person who submits a receipt can't also approve it. Enable only for someone with no one else to approve their purchases (e.g. an owner).</small>
+                    </div>
+
                     <!-- Location Tracking -->
                     <div class="mt-3 pt-3" style="border-top:1px solid #eee;">
                         <label class="d-block mb-2"><strong>Location Tracking</strong></label>
@@ -681,6 +693,7 @@ $activePage = 'team';
                 document.getElementById('empNotes').value = emp.notes || '';
                 document.getElementById('empActive').checked = emp.is_active == 1;
                 document.getElementById('empWeatherSms').checked = emp.receive_weather_sms != 0;
+                document.getElementById('empCanApproveOwn').checked = emp.can_approve_own_expenses == 1;
                 document.getElementById('empDeviceType').value = emp.device_type || 'personal';
                 document.getElementById('empPingRate').value = emp.location_ping_rate || 'high';
 
@@ -716,6 +729,7 @@ $activePage = 'team';
 
         // Checkbox handling
         body.receive_weather_sms = document.getElementById('empWeatherSms').checked ? '1' : '0';
+        body.can_approve_own_expenses = document.getElementById('empCanApproveOwn').checked ? '1' : '0';
         if (id) {
             body.is_active = document.getElementById('empActive').checked ? '1' : '0';
         }

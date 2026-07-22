@@ -42,9 +42,19 @@ class ExpenseApprovalService
             throw new Exception('Expense not found');
         }
 
-        // Prevent self-approval (the creator cannot approve their own expense)
+        // Prevent self-approval (the creator cannot approve their own expense),
+        // unless this specific user has been given the exemption in Team
+        // management (users.can_approve_own_expenses) — e.g. an owner who does
+        // a lot of the purchasing himself, with no one else to approve it.
+        // Queried fresh rather than trusted from $currentUser: the session copy
+        // (getCurrentUser()) would be stale until re-login, and the JWT payload
+        // in receipt-actions.php only ever carries ['id' => ...].
         if ((int)$expense['created_by'] === (int)$currentUser['id']) {
-            throw new Exception('Cannot approve your own expense');
+            $flagStmt = $this->db->prepare("SELECT can_approve_own_expenses FROM users WHERE id = ?");
+            $flagStmt->execute([$currentUser['id']]);
+            if (!(int)$flagStmt->fetchColumn()) {
+                throw new Exception('Cannot approve your own expense');
+            }
         }
 
         $stmt = $this->db->prepare("
