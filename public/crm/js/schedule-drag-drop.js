@@ -324,25 +324,23 @@
     var payload = {
       stop_id: stopId,
       new_date: newDate,
-      new_route_order: newRouteOrder
+      new_route_order: newRouteOrder,
+      csrf_token: window.MW_CSRF || ''
     };
 
     fetch('/crm/api/reschedule-stop.php', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF || '' },
       body: JSON.stringify(payload)
     })
       .then(function (response) {
         if (!response.ok) {
           return response.json()
-            .then(function (data) {
-              throw new Error(data.error || 'Server error (' + response.status + ')');
+            .catch(function () {
+              return null; // body wasn't valid JSON — no server-provided message available
             })
-            .catch(function (parseErr) {
-              if (parseErr.message && parseErr.message.indexOf('Server error') === 0) {
-                throw parseErr;
-              }
-              throw new Error('Server error (' + response.status + ')');
+            .then(function (data) {
+              throw new Error((data && data.error) || 'Server error (' + response.status + ')');
             });
         }
         return response.json();
@@ -476,12 +474,13 @@
 
       fetch('/crm/api/reschedule-stop.php', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF || '' },
         body: JSON.stringify({
           stop_id: stopId,
           new_date: newDate,
           new_route_order: newRouteOrder,
-          force: 1
+          force: 1,
+          csrf_token: window.MW_CSRF || ''
         })
       })
         .then(function (r) { return r.json(); })

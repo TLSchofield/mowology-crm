@@ -222,10 +222,11 @@ try {
         'day_cards' => $dayCards
     ]);
 
-} catch (Exception $e) {
+} catch (Throwable $e) {
     if (isset($db) && $db->inTransaction()) {
         $db->rollBack();
     }
+    error_log('reschedule-stop.php: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
     http_response_code(500);
     echo json_encode(['error' => $e->getMessage()]);
 }
