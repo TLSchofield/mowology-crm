@@ -117,6 +117,12 @@ platform :ios do
       keychain_password: keychain_password
     )
 
+    # Diagnostic — confirms the identity actually landed with a usable private
+    # key pairing (not just "cert imported") before we spend a full archive
+    # attempt finding out. A "0 valid identities found" here means the WWDR/
+    # trust chain is the real problem, not the CODE_SIGN_IDENTITY string.
+    sh("security find-identity -v -p codesigning #{FastlaneCore::Helper.keychain_path(keychain_name)} || true")
+
     install_provisioning_profile(
       path: ENV.fetch("IOS_PROVISIONING_PROFILE_PATH")
     )
