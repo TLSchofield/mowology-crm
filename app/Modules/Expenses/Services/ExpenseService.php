@@ -40,7 +40,7 @@ class ExpenseService
         }
 
         $check = $this->db->prepare(
-            "SELECT id, created_by, status, forwarded_to_accounting, vendor_id, vendor_name_raw
+            "SELECT id, created_by, status, forwarded_to_accounting, vendor_id, vendor_name_raw, raw_ocr_json
              FROM expenses WHERE id = ?"
         );
         $check->execute([$expenseId]);
@@ -100,6 +100,20 @@ class ExpenseService
             $this->nullIfBlank($input['payment_method'] ?? null),
             $expenseId,
         ]);
+
+        // Record corrections for learning — mirrors expenses.php's handleUpdate() so a
+        // fix made from the phone teaches the vendor parse profile the same as a fix
+        // made on desktop, instead of only the initial post-scan review save counting.
+        if (!empty($expense['raw_ocr_json'])) {
+            try {
+                require_once APP_ROOT . '/Services/Receipts/ReceiptParser.php';
+                require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
+                $ocrParsed = parseReceiptText($expense['raw_ocr_json']);
+                recordCorrections($vendorId, $vendorRaw, $ocrParsed, $input, $expense['raw_ocr_json']);
+            } catch (Throwable $e) {
+                error_log('Receipt learning error (mobile update): ' . $e->getMessage());
+            }
+        }
 
         return ['success' => true, 'message' => 'Expense updated', 'expense_id' => $expenseId];
     }
