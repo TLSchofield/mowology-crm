@@ -2,8 +2,21 @@ default_platform(:ios)
 
 PROJECT    = "../ios/MowologyCRM/MowologyCRM.xcodeproj"
 SCHEME     = "MowologyCRM"
+TARGET     = "MowologyCRM"
+BUNDLE_ID  = "ca.mowology.crm-field"
 ARCHIVE    = "/tmp/MowologyCRM.xcarchive"
 EXPORT_DIR = "/tmp/MowologyCRM-export"
+
+# Signing mode is auto-detected by presence of IOS_DIST_CERT_P12_PATH env,
+# same pattern as the monkeymind project's Fastfile.
+# - Set    → manual signing using a stored Distribution cert + profile
+#            (permanent fix — never asks Apple to create a cert, so the
+#            2-certificate cap that's been failing every CI run can't be hit).
+# - Unset  → legacy automatic signing via -allowProvisioningUpdates. This is
+#            the path that's been failing since 2026-07-18 (dev-cert cap hit
+#            on every fresh runner). Kept only as a fallback until the
+#            stored-cert secrets below are set on this repo.
+STORED_CERT_MODE = !ENV.fetch("IOS_DIST_CERT_P12_PATH", "").empty?
 
 platform :ios do
   desc "Build and upload Mowology CRM to TestFlight"
@@ -16,12 +29,38 @@ platform :ios do
       in_house: false
     )
 
-    build     = ENV["GITHUB_RUN_NUMBER"] || "1"
-    team      = ENV.fetch("APPLE_TEAM_ID")
+    build = ENV["GITHUB_RUN_NUMBER"] || "1"
+    team  = ENV.fetch("APPLE_TEAM_ID")
+
+    if STORED_CERT_MODE
+      UI.success("Signing: stored Distribution cert + profile (permanent path)")
+      profile_uuid = setup_signing_with_stored_cert(team)
+      build_manual(build, team, profile_uuid)
+    else
+      UI.important("Signing: legacy -allowProvisioningUpdates path (hits the dev-cert cap)")
+      archive_and_export_automatic(build, team)
+    end
+
+    ipa_path = Dir.glob("#{EXPORT_DIR}/*.ipa").first
+    UI.user_error!("No IPA found in #{EXPORT_DIR}") unless ipa_path
+    UI.message("Uploading #{ipa_path}")
+
+    upload_to_testflight(
+      api_key: api_key,
+      ipa: ipa_path,
+      skip_waiting_for_build_processing: true,
+      distribute_external: false
+    )
+  end
+
+  # ── Legacy path (unchanged) — Automatic signing with API key auth ──────────
+  # xcodebuild reuses/creates a development cert (limit: 2) and a development
+  # provisioning profile, then the export step re-signs with the App Store
+  # distribution cert via ExportOptions.plist method=app-store.
+  def archive_and_export_automatic(build, team)
     key_id    = ENV.fetch("ASC_KEY_ID")
     issuer_id = ENV.fetch("ASC_ISSUER_ID")
     key_path  = "/tmp/asc_key.p8"
-
     File.write(key_path, Base64.decode64(ENV.fetch("ASC_KEY_P8")))
 
     auth = "-allowProvisioningUpdates " \
@@ -29,10 +68,6 @@ platform :ios do
            "-authenticationKeyID #{key_id} " \
            "-authenticationKeyIssuerID #{issuer_id}"
 
-    # Archive — Automatic signing with API key auth.
-    # xcodebuild reuses the existing development cert (limit: 2) and creates
-    # a development provisioning profile. The export step re-signs with the
-    # App Store distribution cert via ExportOptions.plist method=app-store.
     sh "xcodebuild " \
        "-project #{PROJECT} " \
        "-scheme #{SCHEME} " \
@@ -45,23 +80,77 @@ platform :ios do
        "CURRENT_PROJECT_VERSION=#{build} " \
        "clean archive"
 
-    # Export
     sh "xcodebuild " \
        "-exportArchive " \
        "-archivePath #{ARCHIVE} " \
        "-exportOptionsPlist ../ios/ExportOptions.plist " \
        "-exportPath #{EXPORT_DIR} " \
        "#{auth}"
+  end
 
-    ipa_path = Dir.glob("#{EXPORT_DIR}/*.ipa").first
-    UI.user_error!("No IPA found in #{EXPORT_DIR}") unless ipa_path
-    UI.message("Uploading #{ipa_path}")
+  # ── Permanent path — stored Distribution cert + profile ────────────────────
+  # Ephemeral CI keychain, import the pre-created .p12, install the matching
+  # App Store profile. No calls to Apple to provision anything — cert count
+  # stays flat no matter how many times CI runs. Mirrors monkeymind/fastlane/Fastfile.
+  def setup_signing_with_stored_cert(team)
+    keychain_name     = "mowology-ci.keychain-db"
+    keychain_password = ENV.fetch("CI_KEYCHAIN_PASSWORD", SecureRandom.uuid)
 
-    upload_to_testflight(
-      api_key: api_key,
-      ipa: ipa_path,
-      skip_waiting_for_build_processing: true,
-      distribute_external: false
+    create_keychain(
+      name: keychain_name,
+      password: keychain_password,
+      default_keychain: true,
+      unlock: true,
+      timeout: 3600,
+      lock_when_sleeps: false
+    )
+
+    import_certificate(
+      certificate_path: ENV.fetch("IOS_DIST_CERT_P12_PATH"),
+      certificate_password: ENV.fetch("IOS_DIST_CERT_PASSWORD"),
+      keychain_name: keychain_name,
+      keychain_password: keychain_password
+    )
+
+    install_provisioning_profile(
+      path: ENV.fetch("IOS_PROVISIONING_PROFILE_PATH")
+    )
+
+    profile_uuid = ENV.fetch("IOS_PROVISIONING_PROFILE_UUID")
+    profile_name = ENV.fetch("IOS_PROVISIONING_PROFILE_NAME")
+
+    update_code_signing_settings(
+      use_automatic_signing: false,
+      path: PROJECT,
+      team_id: team,
+      code_sign_identity: "Apple Distribution",
+      profile_name: profile_name,
+      profile_uuid: profile_uuid,
+      bundle_identifier: BUNDLE_ID,
+      targets: [TARGET]
+    )
+
+    profile_uuid
+  end
+
+  def build_manual(build, team, profile_uuid)
+    # Signing settings are ALREADY applied per-target in the .pbxproj by
+    # setup_signing_with_stored_cert → update_code_signing_settings. Don't
+    # duplicate them in xcargs.
+    build_app(
+      project: PROJECT,
+      scheme: SCHEME,
+      configuration: "Release",
+      clean: true,
+      output_directory: EXPORT_DIR,
+      xcargs: "CURRENT_PROJECT_VERSION=#{build}",
+      export_options: {
+        method: "app-store",
+        teamID: team,
+        uploadSymbols: true,
+        signingStyle: "manual",
+        provisioningProfiles: { BUNDLE_ID => profile_uuid }
+      }
     )
   end
 end
