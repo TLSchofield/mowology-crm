@@ -1,6 +1,11 @@
 default_platform(:ios)
 
-PROJECT    = "../ios/MowologyCRM/MowologyCRM.xcodeproj"
+# Absolute, not relative — update_code_signing_settings and build_app (gym) both
+# validate this via File.expand_path(value) against the PROCESS's cwd (repo root
+# in CI), not the Fastfile's directory. A relative "../ios/..." path only works
+# for the plain `sh "xcodebuild ..."` calls below, which fastlane always runs
+# from the fastlane/ directory — it breaks both of those actions' own validators.
+PROJECT    = File.expand_path("../ios/MowologyCRM/MowologyCRM.xcodeproj", __dir__)
 SCHEME     = "MowologyCRM"
 TARGET     = "MowologyCRM"
 BUNDLE_ID  = "ca.mowology.crm-field"
