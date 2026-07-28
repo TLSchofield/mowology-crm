@@ -36,6 +36,16 @@ function recordCorrections(?int $vendorId, ?string $vendorName, array $ocrParsed
 {
     $db = getDB();
 
+    // A vendor's earliest corrections are often recorded before it has a vendor_id (the
+    // receipt wasn't matched yet), landing in the vendor_id-IS-NULL bucket keyed by name.
+    // Once this receipt resolves to a real vendor, fold any prior orphaned lessons for that
+    // name in — otherwise they're stranded forever and the vendor's learning restarts at
+    // zero the moment it gets linked, which defeats the point for exactly the vendors that
+    // most need the early lessons.
+    if ($vendorId && !empty($vendorName)) {
+        adoptOrphanedLessons($db, $vendorId, $vendorName);
+    }
+
     // Fields to compare
     $fieldMap = [
         'total'    => ['ocr' => $ocrParsed['total'] ?? null,    'user' => $userSaved['total'] ?? null],
@@ -302,6 +312,27 @@ function getFrequentCorrections(PDO $db, int $vendorId, int $minSeen = 3): array
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     } catch (Throwable $e) {
         return [];
+    }
+}
+
+
+/**
+ * Reassign vendor_id-IS-NULL lessons whose vendor_name matches this now-resolved vendor,
+ * so corrections recorded before the receipt was matched aren't stranded once it is.
+ * Matched case/whitespace-insensitively since vendor_name is free-typed at correction time.
+ * Idempotent: after the first run there are no more NULL rows left for this name.
+ */
+function adoptOrphanedLessons(PDO $db, int $vendorId, string $vendorName): void
+{
+    try {
+        $stmt = $db->prepare("
+            UPDATE receipt_parse_lessons
+            SET vendor_id = ?, updated_at = NOW()
+            WHERE vendor_id IS NULL AND UPPER(TRIM(vendor_name)) = UPPER(TRIM(?))
+        ");
+        $stmt->execute([$vendorId, $vendorName]);
+    } catch (Throwable $e) {
+        error_log('adoptOrphanedLessons error (non-fatal): ' . $e->getMessage());
     }
 }
 
