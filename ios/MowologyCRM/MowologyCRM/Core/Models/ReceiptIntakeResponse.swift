@@ -35,16 +35,37 @@ struct ParsedReceipt: Codable {
     let vendorHint: String?
     let paymentMethod: String?
     let gstEstimated: Bool?
+    let lineItems: [ReceiptLineItem]?
 
     enum CodingKeys: String, CodingKey {
         case total, gst, subtotal, pst, date
         case vendorHint    = "vendor_hint"
         case paymentMethod = "payment_method"
         case gstEstimated  = "gst_estimated"
+        case lineItems     = "line_items"
     }
 
     var totalDouble: Double? { total.flatMap(Double.init) }
     var gstDouble: Double?   { gst.flatMap(Double.init) }
+}
+
+/// An OCR-detected line item. Read-only on the phone — mirrors Android's mobile review
+/// card, which shows detected items ("N items detected") but doesn't let the user edit
+/// individual lines either; both platforms just send the OCR result through unmodified.
+struct ReceiptLineItem: Codable {
+    let name: String?
+    let amount: String?
+    let quantity: Double?
+    let unitPrice: Double?
+    let skuRaw: String?
+
+    enum CodingKeys: String, CodingKey {
+        case name, amount, quantity
+        case unitPrice = "unit_price"
+        case skuRaw    = "sku_raw"
+    }
+
+    var amountDouble: Double? { amount.flatMap(Double.init) }
 }
 
 struct ReceiptSuggestions: Decodable {

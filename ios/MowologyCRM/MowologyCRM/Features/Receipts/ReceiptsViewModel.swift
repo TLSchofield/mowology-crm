@@ -143,6 +143,22 @@ final class ReceiptsViewModel: ObservableObject {
                let str  = String(data: data, encoding: .utf8) {
                 body["ocr_parsed"] = str
             }
+            // Pass detected line items straight through — same shape Android's mobile
+            // review sends (name/quantity/unit_price/line_total/sku_raw), unedited by
+            // the user. Feeds expense_line_items + vendor price intelligence, which iOS
+            // receipts silently skipped before.
+            if let items = p.lineItems, !items.isEmpty {
+                body["line_items"] = items.map { item -> [String: Any] in
+                    var dict: [String: Any] = [
+                        "name":       item.name ?? "Unknown Item",
+                        "quantity":   item.quantity ?? 1,
+                        "line_total": item.amountDouble ?? 0,
+                    ]
+                    if let unitPrice = item.unitPrice { dict["unit_price"] = unitPrice }
+                    if let sku = item.skuRaw { dict["sku_raw"] = sku }
+                    return dict
+                }
+            }
         }
 
         do {

@@ -52,6 +52,7 @@ struct ReceiptReviewView: View {
                 receiptImageSection
                 vendorSection
                 amountsSection
+                lineItemsSection
                 categorySection
                 notesSection
 
@@ -139,6 +140,34 @@ struct ReceiptReviewView: View {
                     .multilineTextAlignment(.trailing)
                     .font(.subheadline.weight(.semibold))
                     .frame(width: 90)
+            }
+        }
+    }
+
+    /// Detected line items — read-only, collapsed by default, same behaviour as
+    /// Android's mobile review card ("N items detected"). Neither platform lets the
+    /// user edit individual lines here; they're sent through to the save as-is.
+    @ViewBuilder
+    private var lineItemsSection: some View {
+        if let items = intake.parsed?.lineItems, !items.isEmpty {
+            Section {
+                DisclosureGroup("\(items.count) item\(items.count == 1 ? "" : "s") detected") {
+                    ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                        HStack {
+                            Text(item.name ?? "Unknown Item")
+                                .font(.subheadline)
+                            if let qty = item.quantity, qty > 1 {
+                                Text("×\(qty, specifier: "%g")")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Text(item.amount.map { "$\($0)" } ?? "—")
+                                .font(.subheadline)
+                                .foregroundStyle((item.amountDouble ?? 0) < 0 ? .red : .primary)
+                        }
+                    }
+                }
             }
         }
     }

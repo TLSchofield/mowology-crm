@@ -99,6 +99,21 @@ try {
 
     $expenseId = (int)$db->lastInsertId();
 
+    // Save line items if the OCR/review payload included them
+    if (!empty($input['line_items']) && is_array($input['line_items'])) {
+        require_once APP_ROOT . '/Services/Receipts/ExpenseLineItems.php';
+        saveLineItems($db, $expenseId, $input['line_items']);
+
+        if (!empty($input['vendor_id'])) {
+            try {
+                require_once APP_ROOT . '/Services/Receipts/PriceIntelligence.php';
+                recordLineItemPrices($expenseId, (int)$input['vendor_id'], $input['line_items'], $expenseDate);
+            } catch (Throwable $e) {
+                error_log('Price intelligence error: ' . $e->getMessage());
+            }
+        }
+    }
+
     // Record OCR corrections for self-learning
     if (!empty($input['raw_ocr_json']) && !empty($input['ocr_parsed'])) {
         try {
