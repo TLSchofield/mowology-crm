@@ -60,6 +60,8 @@ if (!$isCli) {
 
 require_once APP_ROOT . '/Services/Messaging/EmailWrapper.php';
 require_once APP_ROOT . '/Services/Messaging/MessagingService.php'; // defines loadEmailTemplate() used below
+require_once APP_ROOT . '/Services/Pdf/pdf_bootstrap.php';
+require_once APP_ROOT . '/Services/Pdf/PdfGenerator.php';
 
 $startMs    = (int)(microtime(true) * 1000);
 $today      = date('Y-m-d');
@@ -316,7 +318,24 @@ foreach ($contracts as $ctr) {
             $companyInfo
         );
 
-        $emailSent = sendCrmEmail($billingEmail, $tpl['subject'], $emailBody);
+        // Generate the invoice PDF so the automated send carries the same
+        // attachment a manually-sent invoice gets (InvoiceFromVisitService::send()).
+        // Root cause of a real incident: contract-billed clients never received
+        // a PDF on the automated monthly send, only a "View Online" link.
+        $attachPath = null;
+        try {
+            $pdfGen    = new PdfGenerator();
+            $pdfResult = $pdfGen->generateInvoicePdf($invoiceId);
+            if (!empty($pdfResult['success']) && !empty($pdfResult['path']) && file_exists($pdfResult['path'])) {
+                $attachPath = $pdfResult['path'];
+            } else {
+                error_log("[contract_billing] PDF generation failed for invoice {$invoiceNumber}: " . ($pdfResult['error'] ?? 'unknown error'));
+            }
+        } catch (Throwable $e) {
+            error_log("[contract_billing] PDF generation exception for invoice {$invoiceNumber}: " . $e->getMessage());
+        }
+
+        $emailSent = sendCrmEmail($billingEmail, $tpl['subject'], $emailBody, $attachPath);
 
         if ($emailSent) {
             // Mark sent
