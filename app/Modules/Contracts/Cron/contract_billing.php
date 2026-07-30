@@ -222,7 +222,7 @@ foreach ($contracts as $ctr) {
         // Build the INSERT dynamically so older databases without
         // invoices.bill_to_name still work. Migration 1010 adds it.
         $insertCols = [
-            'invoice_number','contract_id','contact_id','property_id',
+            'invoice_number','contract_id','contact_id','company_id','property_id',
             'invoice_date','issue_date','due_date',
             'subtotal','tax_rate','tax_amount',
             'total_amount','total','balance_due',
@@ -231,7 +231,7 @@ foreach ($contracts as $ctr) {
             'status','created_by',
         ];
         $insertPlaceholders = [
-            '?','?','?','?',
+            '?','?','?','?','?',
             'CURDATE()','CURDATE()','?',
             '?','?','?',
             '?','?','?',
@@ -243,6 +243,7 @@ foreach ($contracts as $ctr) {
             $invoiceNumber,
             $contractId,
             $contactId,
+            $ctr['company_id'] ?: null,
             $ctr['property_id'] ?: null,
             $dueDate,
             $subtotal, $taxRate, $taxAmount,
