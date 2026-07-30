@@ -49,6 +49,10 @@ function apLog(string $msg): void
 
 apLog('=== Autopay Charge Cron started ===');
 
+$__startTime = microtime(true);
+
+try {
+
 $autopay   = new AutopayService($db);
 $processed = 0;
 $skipped   = 0;
@@ -123,6 +127,15 @@ while ($row = $retryStmt->fetch(\PDO::FETCH_ASSOC)) {
 
 apLog("=== Done. Processed: {$processed}, Skipped: {$skipped}, Errors: {$errors} ===");
 
+recordCronRun(
+    'autopay_charge',
+    $errors > 0 ? 'warning' : 'success',
+    "{$processed} processed, {$skipped} skipped, {$errors} errors",
+    (int) round((microtime(true) - $__startTime) * 1000),
+    null,
+    PHP_SAPI !== 'cli'
+);
+
 // Return JSON when called via HTTP
 if (PHP_SAPI !== 'cli') {
     header('Content-Type: application/json');
@@ -132,4 +145,22 @@ if (PHP_SAPI !== 'cli') {
         'errors'    => $errors,
         'log'       => $log,
     ]);
+}
+
+} catch (\Throwable $e) {
+    apLog('FATAL: ' . $e->getMessage());
+    error_log('[AutopayCron] Fatal error: ' . $e->getMessage());
+    recordCronRun(
+        'autopay_charge',
+        'error',
+        'Fatal error',
+        (int) round((microtime(true) - $__startTime) * 1000),
+        $e->getMessage(),
+        PHP_SAPI !== 'cli'
+    );
+    if (PHP_SAPI !== 'cli') {
+        header('Content-Type: application/json');
+        http_response_code(500);
+        echo json_encode(['processed' => 0, 'skipped' => 0, 'errors' => 1, 'log' => $log, 'fatal' => $e->getMessage()]);
+    }
 }
