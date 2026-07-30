@@ -212,6 +212,14 @@ function _bulkResendOne(PDO $db, array $user, int $invoiceId): array {
         } else {
             $db->prepare("UPDATE invoices SET status = 'sent', sent_at = NOW() WHERE id = ?")
                ->execute([$invoiceId]);
+
+            // Autopay: first-send transition to 'sent' — attempt an off-session
+            // charge if the bill-to is enrolled. See AutopayService::triggerOnSend().
+            $autopayServicePath = APP_ROOT . '/Services/Payments/AutopayService.php';
+            if (is_file($autopayServicePath)) {
+                require_once $autopayServicePath;
+                AutopayService::triggerOnSend($db, $invoiceId, 'bulk-resend.php');
+            }
         }
 
         $verb        = $isResend ? 'resent' : 'sent';

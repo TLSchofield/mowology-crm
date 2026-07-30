@@ -329,6 +329,14 @@ foreach ($contracts as $ctr) {
                 WHERE invoice_id = ? AND contact_id = ?
             ")->execute([$invoiceId, $contactId]);
 
+            // Autopay: first-send transition to 'sent' — attempt an off-session
+            // charge if the bill-to is enrolled. See AutopayService::triggerOnSend().
+            $autopayServicePath = APP_ROOT . '/Services/Payments/AutopayService.php';
+            if (is_file($autopayServicePath)) {
+                require_once $autopayServicePath;
+                AutopayService::triggerOnSend($db, $invoiceId, 'contract_billing.php');
+            }
+
             // ── 3g. SMS ───────────────────────────────────────────────────────
             if (!empty($ctr['receive_sms']) && !empty($ctr['contact_mobile'])) {
                 sendInvoiceNotificationSms(

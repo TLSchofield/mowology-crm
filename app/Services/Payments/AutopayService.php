@@ -75,6 +75,29 @@ class AutopayService
     }
 
     /**
+     * Fire-and-log an autopay attempt when an invoice first transitions to 'sent'.
+     * Call this from EVERY code path that marks an invoice 'sent' for the first
+     * time — desktop send, visit invoicing, contract billing, bulk resend, any
+     * future one. Swallows all errors so a charge-trigger failure never blocks or
+     * breaks the caller's send flow. See Known-Failure-Patterns "Touching Autopay"
+     * for why this must not be duplicated inline per-caller again — that's exactly
+     * how the visit-invoicing and contract-billing paths silently never charged.
+     */
+    public static function triggerOnSend(\PDO $db, int $invoiceId, string $context = ''): void
+    {
+        try {
+            $autopay = new self($db);
+            if ($autopay->isAutopayEligible($invoiceId)) {
+                $result = $autopay->attemptCharge($invoiceId);
+                error_log('[Autopay] ' . $context . ' send invoice ' . $invoiceId . ' → '
+                    . ($result['status'] ?? '?') . ': ' . ($result['message'] ?? ''));
+            }
+        } catch (\Throwable $e) {
+            error_log('[Autopay] ' . $context . ' charge trigger failed for invoice ' . $invoiceId . ': ' . $e->getMessage());
+        }
+    }
+
+    /**
      * Attempt an off-session charge for the given invoice.
      *
      * Returns an array with keys:

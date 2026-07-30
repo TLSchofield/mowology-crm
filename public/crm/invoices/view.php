@@ -536,25 +536,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
     }
 
     // ── Autopay: when an invoice first transitions to 'sent', immediately
-    //    attempt an off-session charge if the bill-to is enrolled. Mirrors the
-    //    schedule auto-invoice path (app/Modules/Schedule/Api/invoice-create-send.php).
-    //    AutopayService self-guards on live-mode, payable status, enrollment,
-    //    saved payment method, and balance > 0. The is_file() guard keeps this a
-    //    no-op anywhere the service is not deployed (e.g. local dev).
+    //    attempt an off-session charge if the bill-to is enrolled.
+    //    AutopayService::triggerOnSend() self-guards on live-mode, payable status,
+    //    enrollment, saved payment method, and balance > 0. The is_file() guard
+    //    keeps this a no-op anywhere the service is not deployed (e.g. local dev).
     if (!empty($autopayJustSent)) {
         $autopayServicePath = APP_ROOT . '/Services/Payments/AutopayService.php';
         if (is_file($autopayServicePath)) {
-            try {
-                require_once $autopayServicePath;
-                $autopay = new AutopayService($db);
-                if ($autopay->isAutopayEligible($invoiceId)) {
-                    $apResult = $autopay->attemptCharge($invoiceId);
-                    error_log('[Autopay] view.php send invoice ' . $invoiceId . ' → '
-                        . ($apResult['status'] ?? '?') . ': ' . ($apResult['message'] ?? ''));
-                }
-            } catch (Throwable $e) {
-                error_log('[Autopay] view.php charge trigger failed for invoice ' . $invoiceId . ': ' . $e->getMessage());
-            }
+            require_once $autopayServicePath;
+            AutopayService::triggerOnSend($db, $invoiceId, 'view.php');
         }
     }
 

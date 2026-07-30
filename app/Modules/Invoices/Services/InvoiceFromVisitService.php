@@ -577,6 +577,14 @@ class InvoiceFromVisitService
             error_log("InvoiceFromVisitService::send: post-send bookkeeping failed for invoice {$invoiceId} (email already sent): " . $e->getMessage());
         }
 
+        // Autopay: first-send transition to 'sent' — attempt an off-session charge
+        // if the bill-to is enrolled. See AutopayService::triggerOnSend().
+        $autopayServicePath = APP_ROOT . '/Services/Payments/AutopayService.php';
+        if (is_file($autopayServicePath)) {
+            require_once $autopayServicePath;
+            AutopayService::triggerOnSend($this->db, $invoiceId, 'InvoiceFromVisitService::send');
+        }
+
         return [
             'success'        => true,
             'invoice_number' => $invoice['invoice_number'],
