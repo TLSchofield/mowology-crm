@@ -7,7 +7,7 @@ requirePermission('expenses.view');
 
 $pageTitle  = 'Client Lifetime Value';
 $activePage = 'reports';
-$extraHead  = '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>';
+$extraHead  = '<script src="https://unpkg.com/chart.js@4.4.7/dist/chart.umd.js"></script>';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 

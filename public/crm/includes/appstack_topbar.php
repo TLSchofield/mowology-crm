@@ -87,6 +87,40 @@ if (!isset($user)) $user = ['name' => 'Admin'];
           <?php endif; ?>
         </button>
 
+        <!-- OPcache Reset — admin only. This host runs OPcache with
+             validate_timestamps off, so deployed PHP changes don't take
+             effect until this is hit once. Previously a URL admins had to
+             visit manually after every lftp deploy. -->
+        <?php if (function_exists('isAdmin') && isAdmin()): ?>
+        <button
+          type="button"
+          class="mw-opcache-btn"
+          id="mwOpcacheResetBtn"
+          title="Reset OPcache (needed after every deploy)"
+          onclick="(function(btn){
+            btn.classList.remove('mw-opcache-btn--ok', 'mw-opcache-btn--err');
+            btn.classList.add('mw-opcache-btn--busy');
+            btn.disabled = true;
+            fetch('/crm/api/opcache-reset.php').then(function(r){ return r.json(); }).then(function(d){
+              btn.classList.remove('mw-opcache-btn--busy');
+              btn.classList.add(d.opcache_reset ? 'mw-opcache-btn--ok' : 'mw-opcache-btn--err');
+              btn.title = d.opcache_reset ? 'OPcache reset ✓' : 'OPcache reset failed';
+              btn.disabled = false;
+              setTimeout(function(){
+                btn.classList.remove('mw-opcache-btn--ok', 'mw-opcache-btn--err');
+                btn.title = 'Reset OPcache (needed after every deploy)';
+              }, 3000);
+            }).catch(function(){
+              btn.classList.remove('mw-opcache-btn--busy');
+              btn.classList.add('mw-opcache-btn--err');
+              btn.title = 'OPcache reset failed';
+              btn.disabled = false;
+            });
+          })(this)">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.13-9.36L23 10"></path></svg>
+        </button>
+        <?php endif; ?>
+
         <!-- User / Settings icon dropdown -->
         <div class="dropdown">
             <button class="mw-topbar-settings-btn dropdown-toggle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="<?php echo htmlspecialchars($user['name'] ?? 'Admin'); ?>">

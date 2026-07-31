@@ -34012,13 +34012,14 @@ a.mw-clock-timer-nav:hover {
   padding: 6px 8px;
   cursor: pointer;
   border-radius: 4px;
-  color: var(--mw-ink-400, #999);
-  opacity: 0.4;
+  color: var(--mw-ink-500, #666);
+  opacity: 0.75;
   transition: opacity 0.15s, color 0.15s, background 0.15s;
   line-height: 1;
 }
 .mw-opcache-btn:hover {
-  opacity: 0.75;
+  opacity: 1;
+  color: var(--mw-ink-900);
   background: rgba(0,0,0,0.06);
 }
 .mw-opcache-btn--busy {

@@ -27,12 +27,12 @@ try {
     require_once CRM_INCLUDES . '/functions.php';
     require_once CRM_INCLUDES . '/timeclock-functions.php';
     require_once CRM_INCLUDES . '/plan-functions.php';
-
-    // Load location functions if available
-    $locFuncsPath = CRM_INCLUDES . '/location-functions.php';
-    if (file_exists($locFuncsPath)) {
-        require_once $locFuncsPath;
-    }
+    // NOT loading location-functions.php here: it defines its own, different
+    // findNearbyProperties($crewLat, $crewLng, $radiusKm) — a name collision
+    // with plan-functions.php's findNearbyProperties(float $lat, float $lng,
+    // int $radiusM, int $limit) (different signature/units/purpose). Loading
+    // both fatals with "Cannot redeclare findNearbyProperties()". This file
+    // doesn't call either variant, so it never needed the include.
 
     $user = requireLoginOrJwt();
     requirePermission('timer.start');
@@ -547,7 +547,10 @@ try {
             echo json_encode(['error' => 'Invalid action. Use: active, start, stop, pause, plan_time_log, gps_pings']);
     }
 
-} catch (Exception $e) {
+} catch (Throwable $e) {
+    // Was `catch (Exception $e)` — missed Error-class throwables (TypeError,
+    // etc.), which PHP then fails with an empty 500 response instead of the
+    // JSON error body below.
     http_response_code(500);
     echo json_encode(['error' => $e->getMessage()]);
 }

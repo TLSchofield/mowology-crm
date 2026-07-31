@@ -45,7 +45,7 @@ try {
         if ($action === 'live') {
             // Admin/manager only — get latest position for all tracked employees
             if (!in_array($user['role'], ['admin', 'manager'])) {
-                throw new Exception('Access denied');
+                throw new Exception('Access denied', 403);
             }
 
             // Get latest location per tracked, clocked-in user.
@@ -97,7 +97,7 @@ try {
         } elseif ($action === 'day_routes') {
             // Admin/manager only — get all location points for a given date, grouped by crew
             if (!in_array($user['role'], ['admin', 'manager'])) {
-                throw new Exception('Access denied');
+                throw new Exception('Access denied', 403);
             }
 
             $date = $_GET['date'] ?? (new DateTime('now', new DateTimeZone('America/Vancouver')))->format('Y-m-d');
@@ -337,7 +337,8 @@ try {
     http_response_code(500);
     echo json_encode(['error' => 'Database error']);
 } catch (Exception $e) {
-    http_response_code(400);
+    $code = ($e->getCode() >= 400 && $e->getCode() < 600) ? $e->getCode() : 400;
+    http_response_code($code);
     echo json_encode(['error' => $e->getMessage()]);
 }
 

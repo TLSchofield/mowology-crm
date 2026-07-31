@@ -2596,7 +2596,7 @@ if ($hasPropCoords) {
                 <!-- Contract Rate Calculator -->
                 <div class="mw-contract-calc mw-contract-calc-open" id="editContractCalc">
                     <div class="mw-contract-calc-header" onclick="this.parentElement.classList.toggle('mw-contract-calc-open')">
-                        <i data-feather="calculator" style="width:14px;height:14px;"></i>
+                        <i data-feather="dollar-sign" style="width:14px;height:14px;"></i>
                         <span>Rate Calculator</span>
                         <i data-feather="chevron-down" class="mw-calc-chevron" style="width:14px;height:14px;margin-left:auto;"></i>
                     </div>

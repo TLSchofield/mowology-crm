@@ -194,7 +194,20 @@ function crawlPage(PantherClient $client, string $baseUrl, string $path, string 
     $currentUrl = $client->getCurrentURL();
     $body = $client->getPageSource() ?? '';
 
-    $result->stillLoggedIn = !str_contains($currentUrl, '/loginAuth/login.php');
+    // "Access denied" in this codebase shows up three different ways:
+    // requireLogin() redirects to /loginAuth/login.php; requirePermission()
+    // sends a direct 401/403 and stops (no redirect at all); and several
+    // pages do a manual userHasPermission() check + redirect to
+    // /crm/dashboard_appstack.php. Only checking for the login redirect (the
+    // original implementation) missed the latter two entirely, misreporting
+    // properly-gated admin pages as accessible.
+    $bouncedToLogin = str_contains($currentUrl, '/loginAuth/login.php');
+    $deniedByStatus = in_array($result->httpStatus, [401, 403], true);
+    $requestedPath  = parse_url($url, PHP_URL_PATH);
+    $currentPath    = parse_url($currentUrl, PHP_URL_PATH);
+    $redirectedAway = $requestedPath !== null && $currentPath !== null && $requestedPath !== $currentPath && !$bouncedToLogin;
+
+    $result->stillLoggedIn = !$bouncedToLogin && !$deniedByStatus && !$redirectedAway;
 
     foreach (['Parse error', 'Fatal error', 'Warning:', 'Notice:', 'Deprecated:'] as $marker) {
         if (str_contains($body, $marker)) {

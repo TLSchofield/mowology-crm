@@ -293,8 +293,12 @@ function showFeedback(message) {
 }
 
 // Reset form when modal is hidden
-$('#addCategoryModal').on('hidden.bs.modal', function() {
-    resetCategoryForm();
+// (deferred to DOMContentLoaded — $ is bundled inside app.js, loaded in the
+// footer, so a top-level $(...) call here runs before jQuery exists)
+document.addEventListener('DOMContentLoaded', function() {
+    $('#addCategoryModal').on('hidden.bs.modal', function() {
+        resetCategoryForm();
+    });
 });
 </script>
 

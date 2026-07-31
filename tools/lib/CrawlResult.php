@@ -41,7 +41,7 @@ class CrawlResult
 
         if ($bounced) {
             $this->verdict = self::FAIL;
-            $this->note = 'unexpectedly bounced to login — session dropped or permission missing';
+            $this->note = 'unexpectedly denied access (login redirect, 401/403, or redirected elsewhere) — session dropped or permission missing';
             return;
         }
 

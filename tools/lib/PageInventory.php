@@ -53,7 +53,9 @@ class PageInventory
         $add('timeclock', 'Time Clock', '/crm/timeclock/my-schedule.php', 'schedule.view');
         $add('timeclock-timesheet', 'My Timesheet', '/crm/timeclock/my-timesheet.php', 'schedule.view');
         $add('work-zones', 'Work Zones', '/crm/zone-report_appstack.php', 'jobs.view');
-        $add('clusters', 'Route Clusters', '/crm/jobs/clusters_appstack.php', 'jobs.view');
+        // clusters_appstack.php gates on the legacy role field directly
+        // (admin/manager only), not jobs.view — expected to redirect away.
+        $add('clusters', 'Route Clusters', '/crm/jobs/clusters_appstack.php', 'jobs.view', expectGate: true);
 
         // ── Financials ────────────────────────────────────────────────────
         $add('accounting', 'Accounting', '/crm/accounting_appstack.php', 'expenses.view');
@@ -78,7 +80,9 @@ class PageInventory
         $add('cms', 'Website CMS', '/crm/cms-pages_appstack.php', 'marketing.edit', expectGate: true);
 
         // ── Fleet ─────────────────────────────────────────────────────────
-        $add('driver', 'Driver Portal', '/crm/driver-portal.php');
+        // driver-portal.php redirects any non-driver user to / by design
+        // (business-logic routing, not a permission failure) — expected.
+        $add('driver', 'Driver Portal', '/crm/driver-portal.php', null, expectGate: true);
         $add('trip-reports', 'Trip Reports', '/crm/trip-reports_appstack.php', 'team.view');
 
         // ── Communications ───────────────────────────────────────────────

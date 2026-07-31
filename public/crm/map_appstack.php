@@ -756,7 +756,7 @@ $activePage = 'map';
                   { elementType: 'labels.text.fill', stylers: [{ color: '#616161' }] },
                   { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#c9e7f2' }] },
                   { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#e8e8e8' }] },
-                  { featureType: 'park', elementType: 'geometry', stylers: [{ color: '#d4edda' }] }
+                  { featureType: 'poi.park', elementType: 'geometry', stylers: [{ color: '#d4edda' }] }
                 ]
               });
 

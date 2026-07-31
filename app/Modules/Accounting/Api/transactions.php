@@ -95,7 +95,7 @@ try {
 
         // ── Sync from invoices + expenses ────────────────────────────────────
         case 'sync':
-            if (!$canEdit) throw new Exception('Permission denied');
+            if (!$canEdit) throw new Exception('Permission denied', 403);
             $result = $svc->syncAll();
             echo json_encode(['ok' => true, 'result' => $result]);
             break;
@@ -108,7 +108,7 @@ try {
 
         // ── Create manual transaction ─────────────────────────────────────────
         case 'create':
-            if (!$canEdit) throw new Exception('Permission denied');
+            if (!$canEdit) throw new Exception('Permission denied', 403);
 
             // Validate required fields
             foreach (['transaction_date', 'type', 'account_id', 'amount'] as $f) {
@@ -121,7 +121,7 @@ try {
 
         // ── Update ────────────────────────────────────────────────────────────
         case 'update':
-            if (!$canEdit) throw new Exception('Permission denied');
+            if (!$canEdit) throw new Exception('Permission denied', 403);
             $id = (int)($input['id'] ?? 0);
             if (!$id) throw new Exception('Missing id');
             $svc->updateTransaction($id, $input);
@@ -130,7 +130,7 @@ try {
 
         // ── Delete (manual only) ──────────────────────────────────────────────
         case 'delete':
-            if (!$canEdit) throw new Exception('Permission denied');
+            if (!$canEdit) throw new Exception('Permission denied', 403);
             $id = (int)($input['id'] ?? 0);
             if (!$id) throw new Exception('Missing id');
             $ok = $svc->deleteTransaction($id);
@@ -140,7 +140,7 @@ try {
 
         // ── Recategorize (change account) ─────────────────────────────────────
         case 'recategorize':
-            if (!$canEdit) throw new Exception('Permission denied');
+            if (!$canEdit) throw new Exception('Permission denied', 403);
             $id        = (int)($input['id']        ?? 0);
             $accountId = (int)($input['account_id'] ?? 0);
             if (!$id || !$accountId) throw new Exception('Missing id or account_id');
@@ -154,7 +154,7 @@ try {
 
         // ── Flag / unflag for review ──────────────────────────────────────────
         case 'flag_review':
-            if (!$canEdit) throw new Exception('Permission denied');
+            if (!$canEdit) throw new Exception('Permission denied', 403);
             $id   = (int)($input['id']   ?? 0);
             $flag = (int)($input['flag'] ?? 1);
             if (!$id) throw new Exception('Missing id');
