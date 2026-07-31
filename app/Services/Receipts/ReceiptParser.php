@@ -528,7 +528,16 @@ function extractLineItems(array $lines): array
             continue;
         }
 
-        // Pattern: Standalone price line — assign to next pending item
+        // Pattern: Standalone price line — assign to next pending item, or
+        // (if nothing is queued) look back for a bare product-name line that
+        // no more specific pattern captured — e.g. "Topsoil x4 / 30L Bag /
+        // Original Price / $59.96" where the name has no barcode/SKU and no
+        // price on its own line. Mirrors the backward-lookback already used
+        // by the "Qty: Price:" pattern above: a name is only ever pulled in
+        // once we have a confirmed price to attach it to, never queued
+        // speculatively — so header/vendor/address lines earlier in the
+        // receipt (which never reach a bare price line of their own) can't
+        // get mistaken for a product.
         if (preg_match('/^-?\$?(\d{1,6}\.\d{2})\s*[A-Z]?\s*$/', $line, $pm)) {
             $amount = $pm[1];
             if (strpos($line, '-') === 0) {
@@ -549,6 +558,11 @@ function extractLineItems(array $lines): array
                         'unit_price' => $ctx['unit_price'] ?? null,
                         'sku_raw' => $ctx['sku_raw'] ?? null,
                     ];
+                }
+            } else {
+                $bareName = findBareItemNameBackward($lines, $i);
+                if ($bareName !== null) {
+                    $items[] = ['name' => $bareName, 'amount' => $amount, 'quantity' => 1, 'unit_price' => null, 'sku_raw' => null];
                 }
             }
             $inItemZone = true;
@@ -639,6 +653,59 @@ function netDiscountIntoLastItem(array $items, string $discount): array
     }
 
     return $items;
+}
+
+
+/**
+ * Look backward (up to 4 lines) from a confirmed price line for a plausible
+ * bare product-name line — one with no barcode/SKU prefix and no price on
+ * its own line, so nothing else in extractLineItems() ever captured it.
+ * Only ever called once a price has actually been found (see the "Standalone
+ * price line" pattern), never speculatively — so vendor/address/header text
+ * earlier in the receipt (which never sits directly above a bare price line)
+ * can't get mistaken for a product name.
+ *
+ * Skips (without stopping the search) common non-name lines that can
+ * legitimately sit between a name and its price: attribute lines
+ * ("Clr: Red"), generic price labels ("Original Price"), city/province
+ * lines, Canadian postal codes, and website domains. Returns the single
+ * closest qualifying line — a name split across multiple lines (e.g.
+ * "Topsoil x4" + "30L Bag") only recovers the line closest to the price,
+ * which is still a real improvement over the item being dropped entirely.
+ *
+ * @param array $lines Full OCR line array
+ * @param int   $priceLineIdx Index of the line containing the confirmed price
+ * @return string|null The recovered name, or null if nothing qualified
+ */
+function findBareItemNameBackward(array $lines, int $priceLineIdx): ?string
+{
+    for ($j = $priceLineIdx - 1; $j >= max(0, $priceLineIdx - 4); $j--) {
+        $prevLine = trim($lines[$j]);
+        if ($prevLine === '') continue;
+
+        // Skip attribute/continuation and generic price-label lines — keep
+        // searching further back rather than treating them as a boundary.
+        if (preg_match('/^(?:Clr|Colour|Color|Sz|Size|Style)\s*:/i', $prevLine)) continue;
+        if (preg_match('/^(?:Original|List|Regular|Retail|Reg\.?)\s*Price\s*:?\s*$/i', $prevLine)) continue;
+        if (preg_match('/^Price\s*:?\s*$/i', $prevLine)) continue;
+        if (preg_match('/^\d+\.?\d*\s*%?\s*$/', $prevLine)) continue; // a bare number/rate, not a name
+
+        // Skip known receipt-noise shapes — also just keep searching further back.
+        if (preg_match('/^(?:Receipt|Authorization|Auth|Order|Invoice|Ref|Transaction)\s*#?\s*:/i', $prevLine)) continue;
+        if (preg_match('/^[A-Za-z][A-Za-z\s]+,\s*[A-Z]{2}\s*$/', $prevLine)) continue; // "VANCOUVER, BC"
+        if (preg_match('/^[A-Za-z]\d[A-Za-z]\s?\d[A-Za-z]\d\s*$/', $prevLine)) continue; // Canadian postal code
+        if (preg_match('/\.(com|ca|net|org)\b/i', $prevLine)) continue; // website domain
+        if (preg_match('/^\d+\s+(st|ave|blvd|rd|dr|way|street|avenue)\b/i', $prevLine)) continue; // street address
+        if (preg_match('/^\(\d{3}\)\s*\d{3}[\-\.]\d{4}/', $prevLine)) continue; // phone number
+
+        // A plausible name: 3+ alpha chars, not a SALE/Date/Cashier marker.
+        if (strlen($prevLine) >= 3 && preg_match('/[A-Za-z]{3,}/', $prevLine)
+            && !preg_match('/^(?:SALE|Date:|Cashier:)/i', $prevLine)) {
+            return $prevLine;
+        }
+    }
+
+    return null;
 }
 
 
