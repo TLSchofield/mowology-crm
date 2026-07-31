@@ -62,6 +62,7 @@ require_once APP_ROOT . '/Services/Messaging/EmailWrapper.php';
 require_once APP_ROOT . '/Services/Messaging/MessagingService.php'; // defines loadEmailTemplate() used below
 require_once APP_ROOT . '/Services/Pdf/pdf_bootstrap.php';
 require_once APP_ROOT . '/Services/Pdf/PdfGenerator.php';
+require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceRouting.php'; // resolveManagementBillingRecipient()
 
 $startMs    = (int)(microtime(true) * 1000);
 $today      = date('Y-m-d');
@@ -190,10 +191,28 @@ foreach ($contracts as $ctr) {
         }
 
         // ── 3b. Resolve the preferred billing email ──────────────────────────
-        // Priority: companies.billing_email → billing_contact.email → contact.email
-        $billingEmail = $ctr['company_billing_email']
-            ?: $ctr['billing_contact_email']
-            ?: $ctr['contact_email'];
+        // PM-managed properties (properties.property_manager_id set) must bill
+        // the management company's accounts contact, honoring its
+        // invoice_routing_method — same rule the manual invoice-creation UI
+        // uses (InvoiceRouting::resolveManagementBillingRecipient). This cron
+        // previously only checked p.billing_company_id / the contact's own
+        // company links, which never matches a property_manager_id-based
+        // relationship, so PM-managed contracts fell through to the on-site
+        // contact's personal email instead of the firm's.
+        $billingContactId = $contactId;
+        $pmRecipients = !empty($ctr['property_id'])
+            ? resolveManagementBillingRecipient((int)$ctr['property_id'])
+            : [];
+
+        if (!empty($pmRecipients)) {
+            $billingContactId = $pmRecipients[0]['contact_id'] ?: null; // null = contactless (email_address routing)
+            $billingEmail     = $pmRecipients[0]['email_address'];
+        } else {
+            // Priority: companies.billing_email → billing_contact.email → contact.email
+            $billingEmail = $ctr['company_billing_email']
+                ?: $ctr['billing_contact_email']
+                ?: $ctr['contact_email'];
+        }
 
         if (empty($billingEmail)) {
             $skipped[] = $ctr['contract_number'] . ' (no email on contact)';
@@ -276,13 +295,15 @@ foreach ($contracts as $ctr) {
             VALUES (?, ?, 1, ?, ?)
         ")->execute([$invoiceId, $lineDesc, $subtotal, $subtotal]);
 
-        // ── 3e. Invoice contact — use the resolved billing email so the
+        // ── 3e. Invoice contact — use the resolved billing email/contact so the
         //       view.php recipients table shows where it actually went.
+        //       contact_id is nullable (migration 211) for contactless
+        //       email_address-routing recipients (e.g. a PM firm's ingestion inbox).
         $db->prepare("
             INSERT INTO invoice_contacts
                 (invoice_id, contact_id, contact_role, email_address)
             VALUES (?, ?, 'primary_recipient', ?)
-        ")->execute([$invoiceId, $contactId, $billingEmail]);
+        ")->execute([$invoiceId, $billingContactId, $billingEmail]);
 
         $db->commit();
 
@@ -346,8 +367,8 @@ foreach ($contracts as $ctr) {
 
             $db->prepare("
                 UPDATE invoice_contacts SET invoice_sent_at = NOW()
-                WHERE invoice_id = ? AND contact_id = ?
-            ")->execute([$invoiceId, $contactId]);
+                WHERE invoice_id = ?
+            ")->execute([$invoiceId]);
 
             // Autopay: first-send transition to 'sent' — attempt an off-session
             // charge if the bill-to is enrolled. See AutopayService::triggerOnSend().
