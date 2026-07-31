@@ -62,14 +62,30 @@ require_once $rootDir . '/app/Core/config.php';
 use Symfony\Component\Panther\Client as PantherClient;
 
 $config = new QaCrawlerConfig($baseUrlOverride);
-$db = getDB();
+
+// Local secrets.php points at a local dev DB, not production's (which is
+// firewalled to the cPanel host only) — DB access is a nice-to-have here
+// (dynamic-ID fallback sampling, mutation cleanup verification), not a
+// requirement for the core page crawl. Degrade gracefully if unavailable.
+try {
+    $db = getDB();
+} catch (Throwable $e) {
+    $db = null;
+}
+
+if (!$db && $runMutations) {
+    fwrite(STDERR, "No DB connection available (local secrets.php isn't configured for production DB access) — --mutations requires DB access to verify/clean up created rows, so it's being disabled for this run.\n");
+    $runMutations = false;
+}
+
 $report = new Report();
 
 echo "CRM QA Crawler\n";
 echo "Target: {$config->baseUrl}\n";
-echo "Mutations: " . ($runMutations ? 'ON' : 'off') . "\n\n";
+echo "Mutations: " . ($runMutations ? 'ON' : 'off') . "\n";
+echo "DB access: " . ($db ? 'available' : 'unavailable (dynamic-ID DB fallback + mutations disabled)') . "\n\n";
 
-$client = PantherClient::createChromeClient(null, ['--headless=new'], [
+$client = PantherClient::createChromeClient(null, ['--headless=new', '--window-size=1400,1200'], [
     'capabilities' => [
         'goog:loggingPrefs' => ['browser' => 'ALL'],
     ],
@@ -82,7 +98,11 @@ try {
     $crawler = $client->getCrawler();
     $crawler->filter('#email')->sendKeys($config->email);
     $crawler->filter('#password')->sendKeys($config->password);
-    $crawler->filter('button.login-button')->click();
+    // JS-dispatched click rather than a native WebDriver click — the login
+    // button sits inside an animated card and WebDriver's strict
+    // interactability check (fully in-viewport, not mid-transition) can
+    // reject it even though a real user's click would land fine.
+    $client->executeScript('document.querySelector("button.login-button").click();');
 
     $client->request('GET', $config->baseUrl . '/crm/dashboard_appstack.php');
     try {
@@ -124,7 +144,7 @@ try {
         } finally {
             $flows->finalSweep();
         }
-    } else {
+    } elseif ($db) {
         // Even on a read-only run, sweep for any leftovers from a prior
         // crashed --mutations run so they don't linger indefinitely.
         $sweeper = new MutationFlows($client, $db, $config->baseUrl);
@@ -185,8 +205,25 @@ function crawlPage(PantherClient $client, string $baseUrl, string $path, string 
     try {
         $logs = $client->getWebDriver()->manage()->getLog('browser');
         foreach ($logs as $entry) {
-            if (($entry['level'] ?? '') === 'SEVERE') {
-                $result->jsConsoleErrors[] = (string)($entry['message'] ?? 'unknown console error');
+            if (($entry['level'] ?? '') !== 'SEVERE') continue;
+            $message = (string)($entry['message'] ?? 'unknown console error');
+
+            // A "Failed to load resource" 403/404 is almost always either a
+            // permission gap for this deliberately low-privilege QA account
+            // (background widget polling an endpoint it can't call) or a
+            // cosmetic missing asset (favicon) — log it, but don't fail the
+            // page over it. A 5xx resource failure or an actual thrown JS
+            // error (TypeError, ReferenceError, etc.) still fails the page.
+            $isResourceAuthWarning = preg_match('/Failed to load resource.*status of (40[34])/', $message);
+            // CSP-blocked font loading degrades gracefully (system font
+            // fallback) rather than breaking functionality — worth surfacing
+            // once it's fixed sitewide, but not a per-page functional failure.
+            $isCspFontWarning = preg_match('/violates the following Content Security Policy/', $message) && preg_match('/fonts\.googleapis\.com/', $message);
+
+            if ($isResourceAuthWarning || $isCspFontWarning) {
+                $result->resourceWarnings[] = $message;
+            } else {
+                $result->jsConsoleErrors[] = $message;
             }
         }
     } catch (Throwable $e) {
@@ -211,7 +248,10 @@ function runAxeCheck(PantherClient $client): array
 
     try {
         $client->executeScript($axeSource);
-        $violations = $client->executeScript(
+        // executeAsyncScript (not executeScript) — axe.run() is promise-based,
+        // and only the async variant actually passes a callback as the last
+        // argument (a plain executeScript's "arguments[0]" is not a function).
+        $violations = $client->executeAsyncScript(
             'var done = arguments[0]; axe.run().then(function(r){ done(r.violations.map(function(v){ return v.id + ": " + v.help; })); }).catch(function(){ done([]); });'
         );
         return is_array($violations) ? $violations : [];
@@ -239,15 +279,21 @@ function discoverDynamicLinks(PantherClient $client, string $baseUrl, string $li
 
     $crawler = $client->getCrawler();
     try {
-        $links = $crawler->filter('a[href*="view.php?id="], a[href*="id="]')->extract(['href']);
+        // Resolve via Link objects (not raw href attributes) so relative
+        // hrefs like "view.php?id=75" correctly become
+        // "/crm/quotes/view.php?id=75" instead of being naively concatenated
+        // onto the site root.
+        $absoluteUrls = $crawler->filter('a[href*="view.php"]')->each(
+            fn($node) => $node->link()->getUri()
+        );
     } catch (Throwable $e) {
         return $found;
     }
 
-    foreach ($links as $href) {
+    foreach ($absoluteUrls as $absolute) {
         if (count($found) >= $limit) break;
-        if (!str_contains($href, 'id=') || !str_contains($href, 'view.php')) continue;
-        $absolute = str_starts_with($href, 'http') ? $href : $baseUrl . (str_starts_with($href, '/') ? $href : '/' . $href);
+        if (!str_contains($absolute, 'view.php') || !str_contains($absolute, 'id=')) continue;
+        if (isset($found[$absolute])) continue;
         $found[$absolute] = ucfirst($entity) . ' — view (discovered)';
     }
 

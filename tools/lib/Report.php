@@ -26,13 +26,15 @@ class Report
         foreach ($this->results as $r) {
             $consoleCount = count($r->jsConsoleErrors);
             $a11yCount = count($r->a11yIssues);
+            $warnCount = count($r->resourceWarnings);
             printf(
-                "[%-4s] %-55s %3d  console:%d  a11y:%d%s\n",
+                "[%-4s] %-55s %3d  console:%d  a11y:%d  warn:%d%s\n",
                 $r->verdict,
                 $r->url,
                 $r->httpStatus,
                 $consoleCount,
                 $a11yCount,
+                $warnCount,
                 $r->note !== '' ? "  <- {$r->note}" : ''
             );
         }
@@ -84,6 +86,7 @@ class Report
                 'detail'      => $r->note,
                 'phpErrors'   => $r->phpErrors,
                 'jsConsoleErrors' => $r->jsConsoleErrors,
+                'resourceWarnings' => $r->resourceWarnings,
                 'a11yIssues'  => $r->a11yIssues,
             ];
         }

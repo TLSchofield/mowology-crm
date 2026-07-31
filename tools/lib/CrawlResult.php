@@ -15,6 +15,8 @@ class CrawlResult
     public array $phpErrors = [];
     /** @var string[] */
     public array $jsConsoleErrors = [];
+    /** @var string[] Resource-load 403/404s (e.g. permission-gated background API calls, missing favicon) — logged, not fatal. */
+    public array $resourceWarnings = [];
     /** @var string[] */
     public array $a11yIssues = [];
     public bool $expectedGate = false;
@@ -76,6 +78,7 @@ class CrawlResult
             'stillLoggedIn' => $this->stillLoggedIn,
             'phpErrors'     => $this->phpErrors,
             'jsConsoleErrors' => $this->jsConsoleErrors,
+            'resourceWarnings' => $this->resourceWarnings,
             'a11yIssues'    => $this->a11yIssues,
             'note'          => $this->note,
         ];
