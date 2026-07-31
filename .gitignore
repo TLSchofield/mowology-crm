@@ -1,6 +1,7 @@
 # Sensitive files & secrets
 crm/config.php
 public/app_config/secrets.php
+public/app_config/qa-test-credentials.php
 .env
 *.log
 
@@ -18,6 +19,13 @@ crm/backup/
 
 # Composer vendor directory — committed to repo for cPanel hosting (no CLI access)
 # /public/vendor/
+
+# Root dev-tooling Composer world (PHPUnit, Panther) — never deployed, not committed
+/vendor/
+/drivers/
+
+# QA crawler output (local scan artifacts, may include page snapshots/errors)
+/tools/output/
 
 # Generated PDFs (keep directory structure via .gitkeep)
 /storage/pdfs/quotes/*.pdf
