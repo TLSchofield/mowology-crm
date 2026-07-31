@@ -385,7 +385,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $selectedRecipients = [];
         if (!empty($_POST['selected_recipients'])) {
             $selectedRecipients = json_decode($_POST['selected_recipients'], true) ?? [];
-            $selectedRecipients = array_filter(array_map('intval', $selectedRecipients));
+            // contact_id 0 is a legitimate sentinel — the PM-managed "email address"
+            // routing recipient (no linked contact row, e.g. a firm's ingestion inbox).
+            // array_filter()'s default callback treats 0 as falsy and drops it, which
+            // silently loses that recipient (or blocks creation entirely if it was the
+            // only one selected), so filter only genuinely invalid (negative) values.
+            $selectedRecipients = array_values(array_filter(
+                array_map('intval', $selectedRecipients),
+                fn($v) => $v >= 0
+            ));
         }
 
         $addressDiffers = (
@@ -555,10 +563,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ) VALUES (?, ?, ?, ?)
                 ");
 
+                // contact_id 0 has no row in `contacts` — it's the PM-managed
+                // "email address" routing recipient (e.g. a firm's ingestion
+                // inbox with no linked contact). Re-resolve it from the property
+                // rather than trusting anything client-submitted, since the
+                // checkbox carries no email of its own.
+                $pmContactlessRecipient = null;
+                if (in_array(0, $selectedRecipients, true) && $propertyId) {
+                    require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceRouting.php';
+                    foreach (resolveManagementBillingRecipient($propertyId) as $r) {
+                        if ((int)$r['contact_id'] === 0) { $pmContactlessRecipient = $r; break; }
+                    }
+                }
+
                 $recipientNames = [];
                 $smsRecipients  = [];
 
                 foreach ($selectedRecipients as $rcptContactId) {
+                    if ($rcptContactId === 0) {
+                        if (!$pmContactlessRecipient) continue; // nothing resolvable — skip safely
+                        $insertRecipient->execute([
+                            $invoiceId,
+                            null,
+                            'billing_contact',
+                            $pmContactlessRecipient['email_address']
+                        ]);
+                        $recipientNames[] = $pmContactlessRecipient['contact_name'];
+                        continue;
+                    }
+
                     $recipientContacts->execute([$rcptContactId]);
                     $contact = $recipientContacts->fetch(PDO::FETCH_ASSOC);
 
