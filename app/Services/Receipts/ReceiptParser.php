@@ -34,6 +34,7 @@ function parseReceiptText(string $ocrText, ?array $rawResponse = null): array
     $result = [
         'total'          => null,
         'gst'            => null,
+        'pst'            => null,
         'subtotal'       => null,
         'date'           => null,
         'vendor_hint'    => null,
@@ -55,6 +56,9 @@ function parseReceiptText(string $ocrText, ?array $rawResponse = null): array
 
     // GST (5% — BC standard; also catches generic "TAX" labels)
     $result['gst'] = extractGST($ocrText);
+
+    // PST (also matches its provincial alias RST)
+    $result['pst'] = extractPST($ocrText);
 
     // Subtotal
     $result['subtotal'] = extractSubtotal($ocrText);
@@ -99,7 +103,7 @@ function parseReceiptText(string $ocrText, ?array $rawResponse = null): array
 
     // Fallback: handle column-separated OCR where labels and amounts are in separate blocks
     // e.g. "SUBTOTAL\nPST\nGST\n...\nTOTAL\n...\n41.96\n2.94\n2.10\n...\n47.00"
-    if ($result['total'] === null || $result['gst'] === null || $result['subtotal'] === null) {
+    if ($result['total'] === null || $result['gst'] === null || $result['subtotal'] === null || $result['pst'] === null) {
         $columnParsed = extractColumnSeparatedAmounts($lines);
         if ($result['subtotal'] === null && $columnParsed['subtotal'] !== null) {
             $result['subtotal'] = $columnParsed['subtotal'];
@@ -110,7 +114,7 @@ function parseReceiptText(string $ocrText, ?array $rawResponse = null): array
         if ($result['total'] === null && $columnParsed['total'] !== null) {
             $result['total'] = $columnParsed['total'];
         }
-        if ($columnParsed['pst'] !== null) {
+        if ($result['pst'] === null && $columnParsed['pst'] !== null) {
             $result['pst'] = $columnParsed['pst'];
         }
     }
@@ -745,47 +749,106 @@ function extractTotal(string $text, array $lines): ?string
  */
 function extractGST(string $text): ?string
 {
-    // Same-line patterns — use [^\S\n] (horizontal whitespace) to prevent cross-line matching
-    // e.g., "GST 5.000%" on its own line must NOT match "5.00" as a dollar amount
-    $gstPatterns = [
-        '/GST[^\S\n]*(?:\/HST)?[^\S\n]*(?:[\d.]+%)?[^\S\n]*:?[^\S\n]*\$[^\S\n]*(\d{1,6}[.,]\d{2})/i',
-        '/GST[^\S\n]*(?:\/HST)?[^\S\n]*:?[^\S\n]*\$?[^\S\n]*(\d{1,6}[.,]\d{2})(?!\d*%)/i',
-        // Gas station / fuel receipts: "GST INCLUDED $ 0.95", "GST INCL $0.95", "HST INCLUDED $2.60"
-        '/(?:GST|HST)[^\S\n]*(?:INCLUDED|INCL\.?)[^\S\n]*:?[^\S\n]*\$?[^\S\n]*(\d{1,6}[.,]\d{2})/i',
-        '/(?<!\w)TAX[^\S\n]*(?:[\d.]+%)?[^\S\n]*:?[^\S\n]*\$?[^\S\n]*(\d{1,6}[.,]\d{2})(?!\d*%)/i',
-    ];
+    $gst = extractLabeledTax($text, 'GST(?:\/HST)?', true);
+    if ($gst !== null) {
+        return $gst;
+    }
 
-    $totalGst = 0;
+    // Generic "TAX" label fallback (assumed GST for BC) — only tried when no
+    // GST/HST-labeled line was found, since "TAX" is a much broader word and
+    // shouldn't preempt a real GST/HST match.
+    if (preg_match_all('/(?<!\w)TAX[^\n$]*\$[^\S\n]*(\d{1,6}[.,]\d{2})/i', $text, $matches)
+        || preg_match_all('/(?<!\w)TAX[^\n%$]*?(\d{1,6}[.,]\d{2})(?!\d*%)/i', $text, $matches)
+    ) {
+        $total = 0;
+        foreach ($matches[1] as $amount) {
+            $total += (float)str_replace(',', '.', $amount);
+        }
+        return number_format($total, 2, '.', '');
+    }
+
+    // Split-line "TAX\n$X.XX" fallback
+    $lines = preg_split('/\r?\n/', $text);
+    $lineCount = count($lines);
+    for ($i = 0; $i < $lineCount - 1; $i++) {
+        if (preg_match('/^TAX\s*:?\s*$/i', trim($lines[$i]))) {
+            $nextLine = trim($lines[$i + 1]);
+            if (preg_match('/^\$?(\d{1,6}[.,]\d{2})\s*$/', $nextLine, $m)) {
+                return str_replace(',', '.', $m[1]);
+            }
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Extract PST amount from receipt text (also matches its provincial alias RST).
+ * Same matching strategy as extractGST() — see extractLabeledTax().
+ */
+function extractPST(string $text): ?string
+{
+    return extractLabeledTax($text, '(?:PST|RST)', false);
+}
+
+/**
+ * Shared same-line/split-line tax extraction for a labeled amount (GST/PST/etc).
+ *
+ * Same-line patterns use [^\n$] / [^\S\n] (never \n) so a match can't cross
+ * into the next receipt line. The label-to-amount gap tolerates arbitrary
+ * filler text — "Sales Tax", a parenthesized rate like "(5%)", a colon —
+ * by matching "any non-$, non-newline character" up to the first literal $
+ * on the line, e.g. "GST Sales Tax (5%) $2.25" or "PST Sales Tax (7%) $3.15",
+ * not just the terser "GST $3.45" / "GST 5%: $3.45" the older patterns assumed.
+ *
+ * @param string $labelPattern Regex fragment for the label (no delimiters/flags), e.g. 'GST(?:\/HST)?'
+ * @param bool   $withIncludedVariant Also match "<LABEL> INCLUDED $X.XX" (fuel receipts; GST/HST only)
+ */
+function extractLabeledTax(string $text, string $labelPattern, bool $withIncludedVariant): ?string
+{
+    $patterns = [
+        // Same-line, tolerant of filler between the label and the $ amount.
+        '/' . $labelPattern . '[^\n$]*\$[^\S\n]*(\d{1,6}[.,]\d{2})/i',
+        // Same-line, no $ sign — filler tolerated, but must not swallow a rate like "5%".
+        '/' . $labelPattern . '[^\n%$]*?(\d{1,6}[.,]\d{2})(?!\d*%)/i',
+    ];
+    if ($withIncludedVariant) {
+        // Gas station / fuel receipts: "GST INCLUDED $ 0.95", "HST INCL $0.95"
+        $patterns[] = '/' . $labelPattern . '[^\S\n]*(?:INCLUDED|INCL\.?)[^\S\n]*:?[^\S\n]*\$?[^\S\n]*(\d{1,6}[.,]\d{2})/i';
+    }
+
+    $totalTax = 0;
     $found = false;
 
-    foreach ($gstPatterns as $pattern) {
+    foreach ($patterns as $pattern) {
         if (preg_match_all($pattern, $text, $matches)) {
             foreach ($matches[1] as $amount) {
-                $totalGst += (float)str_replace(',', '.', $amount);
+                $totalTax += (float)str_replace(',', '.', $amount);
                 $found = true;
             }
             break;
         }
     }
 
-    // Split-line fallback: "GST/HST\n2.88" or "GST\n$3.45" or "GST 5%\n$\n9.04"
+    // Split-line fallback: "GST/HST\n2.88", "PST\n$3.15", or "GST 5%\n$\n9.04" —
+    // the label (plus optional "Sales Tax" wording / parenthesized rate) is
+    // alone on its own line, and the amount is on the next line (or two).
     if (!$found) {
         $lines = preg_split('/\r?\n/', $text);
         $lineCount = count($lines);
         for ($i = 0; $i < $lineCount - 1; $i++) {
             $line = trim($lines[$i]);
-            if (preg_match('/^GST(?:\s*\/\s*HST)?(?:\s*\d+%?)?\s*:?\s*$/i', $line) ||
-                preg_match('/^TAX\s*:?\s*$/i', $line)) {
+            if (preg_match('/^' . $labelPattern . '(?:\s*Sales\s*Tax)?\s*\(?[\d.]*%?\)?\s*:?\s*$/i', $line)) {
                 $nextLine = trim($lines[$i + 1]);
                 if (preg_match('/^\$?(\d{1,6}[.,]\d{2})\s*$/', $nextLine, $m)) {
-                    $totalGst += (float)str_replace(',', '.', $m[1]);
+                    $totalTax += (float)str_replace(',', '.', $m[1]);
                     $found = true;
                 }
                 // Handle three-line: "GST 5%\n$\n9.04"
                 elseif ($nextLine === '$' && $i + 2 < $lineCount) {
                     $amountLine = trim($lines[$i + 2]);
                     if (preg_match('/^\$?(\d{1,6}[.,]\d{2})\s*$/', $amountLine, $m)) {
-                        $totalGst += (float)str_replace(',', '.', $m[1]);
+                        $totalTax += (float)str_replace(',', '.', $m[1]);
                         $found = true;
                     }
                 }
@@ -793,7 +856,7 @@ function extractGST(string $text): ?string
         }
     }
 
-    return $found ? number_format($totalGst, 2, '.', '') : null;
+    return $found ? number_format($totalTax, 2, '.', '') : null;
 }
 
 /**
