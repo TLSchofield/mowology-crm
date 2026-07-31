@@ -41,8 +41,8 @@ if (!$isCli) {
     // Web access (manual test trigger) must be an authenticated admin.
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
     requireLogin();
-    if (!isAdmin()) { http_response_code(403); exit('Admin only'); }
-    header('Content-Type: text/plain; charset=utf-8');
+    if (!isAdmin()) { http_response_code(403); exit(json_encode(['success' => false, 'error' => 'Admin only'])); }
+    header('Content-Type: application/json; charset=utf-8');
 }
 
 $log = [];
@@ -50,8 +50,9 @@ function pollLog(string $m): void { global $log; $log[] = '[' . date('Y-m-d H:i:
 
 if (!function_exists('imap_open')) {
     pollLog('FATAL: PHP imap extension not available.');
-    echo implode("\n", $log) . "\n";
-    exit(1);
+    if ($isCli) { echo implode("\n", $log) . "\n"; exit(1); }
+    echo json_encode(['success' => false, 'error' => 'PHP imap extension not available.', 'log' => $log]);
+    exit;
 }
 
 $db      = getDB();
@@ -203,4 +204,13 @@ if (!empty($newItems)) {
     pollLog("Notification email to {$to}: " . ($ok ? 'sent' : 'FAILED'));
 }
 
-echo implode("\n", $log) . "\n";
+if ($isCli) {
+    echo implode("\n", $log) . "\n";
+} else {
+    $count = count($newItems);
+    echo json_encode([
+        'success' => true,
+        'message' => "Scanned {$seen} email(s), {$count} new.",
+        'log'     => $log,
+    ]);
+}

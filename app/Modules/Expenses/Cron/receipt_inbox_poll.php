@@ -43,22 +43,26 @@ $isCli = (PHP_SAPI === 'cli');
 if (!$isCli) {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
     requireLogin();
-    if (!isAdmin()) { http_response_code(403); exit('Admin only'); }
-    header('Content-Type: text/plain; charset=utf-8');
+    if (!isAdmin()) { http_response_code(403); exit(json_encode(['success' => false, 'error' => 'Admin only'])); }
+    header('Content-Type: application/json; charset=utf-8');
 }
 
 $log = [];
 function rpLog(string $m): void { global $log; $log[] = '[' . date('Y-m-d H:i:s') . '] ' . $m; }
 
+function rpFail(string $msg): void {
+    global $log, $isCli;
+    rpLog($msg);
+    if ($isCli) { echo implode("\n", $log) . "\n"; exit(1); }
+    echo json_encode(['success' => false, 'error' => $msg, 'log' => $log]);
+    exit;
+}
+
 if (!function_exists('imap_open')) {
-    rpLog('FATAL: PHP imap extension not available.');
-    echo implode("\n", $log) . "\n";
-    exit(1);
+    rpFail('FATAL: PHP imap extension not available.');
 }
 if (!defined('RECEIPTS_IMAP_PASS') || RECEIPTS_IMAP_PASS === '') {
-    rpLog('FATAL: RECEIPTS_IMAP_PASS not configured in secrets.php.');
-    echo implode("\n", $log) . "\n";
-    exit(1);
+    rpFail('FATAL: RECEIPTS_IMAP_PASS not configured in secrets.php.');
 }
 
 $db      = getDB();
@@ -75,9 +79,7 @@ if ($systemUserId <= 0) {
     $systemUserId = (int) ($db->query("SELECT MIN(id) FROM users")->fetchColumn() ?: 0);
 }
 if ($systemUserId <= 0) {
-    rpLog('FATAL: no users found to attribute expenses to.');
-    echo implode("\n", $log) . "\n";
-    exit(1);
+    rpFail('FATAL: no users found to attribute expenses to.');
 }
 
 imap_timeout(IMAP_OPENTIMEOUT,  15);
@@ -153,9 +155,7 @@ if ($mbox === false) {
     $mbox = @imap_open("{{$host}:{$port}/imap/ssl/novalidate-cert}INBOX", $user, RECEIPTS_IMAP_PASS, 0, 1);
 }
 if ($mbox === false) {
-    rpLog("ERROR: could not log into {$user}: " . implode('; ', imap_errors() ?: ['unknown']));
-    echo implode("\n", $log) . "\n";
-    exit(1);
+    rpFail("ERROR: could not log into {$user}: " . implode('; ', imap_errors() ?: ['unknown']));
 }
 
 $hits = @imap_search($mbox, 'SINCE "' . $since . '"');
@@ -261,4 +261,12 @@ if (!empty($autoPosted) || !empty($pending)) {
     rpLog("Summary email to {$to}: " . ($ok ? 'sent' : 'FAILED'));
 }
 
-echo implode("\n", $log) . "\n";
+if ($isCli) {
+    echo implode("\n", $log) . "\n";
+} else {
+    echo json_encode([
+        'success' => true,
+        'message' => "Scanned {$seen} attachment(s): " . count($autoPosted) . ' auto-posted, ' . count($pending) . ' pending.',
+        'log'     => $log,
+    ]);
+}
