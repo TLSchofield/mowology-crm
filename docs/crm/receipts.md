@@ -96,6 +96,33 @@ for someone with no one else to approve their purchases (e.g. an owner who
 also submits a lot of his own receipts). Checked fresh from the DB inside
 `approve()`, not trusted from the session/JWT payload.
 
+## Line items
+
+`ReceiptParser::extractLineItems()` parses each OCR'd product line and persists them
+to `expense_line_items` (`ExpenseLineItems.php`'s `saveLineItems()`). Discount/markdown
+lines (`RSN:`/`DISCOUNT`/`MARKDOWN`/`MKDN`, or a standalone negative amount) are **netted
+into the most recently committed product line** rather than becoming their own item —
+e.g. "Topsoil x4 $59.96" + "Discount -$14.99" persists as one $44.97 line, with
+`original_unit_price` retaining the pre-discount price for a struck-through display in
+the Edit Expense modal. A discount only falls back to a standalone row (flagged
+`is_adjustment=1`, no CRM Product link affordance) when there's genuinely no preceding
+product to net into — an order-level coupon, or the discount line is first in the
+receipt. `DEPOSIT` lines always stay standalone (`is_adjustment=1`) — a container/bottle
+deposit is a real separate charge, not a price reduction. Migration `1111` added the two
+columns; run via admin endpoint `/crm/run-migration-1111.php`.
+
+Note: a bare product-name line with no barcode/SKU prefix and no price on the same OCR
+line is never captured as a pending item at all (a separate, pre-existing parser gap) —
+if that happens, a following discount line still falls back to a standalone
+`is_adjustment` row rather than netting into a product that was never captured.
+
+**Editing a stored line item**: the Edit (pencil) button in the Line Items table calls
+`ExpenseLineItemService::update()` via `action: 'update_line_item'` in
+`app/Modules/Expenses/Api/expenses.php` — corrects name/quantity/unit_price/line_total
+in place (re-syncing `products.current_stock` if quantity changes on a linked product).
+This does **not** touch the expense header's Subtotal/Total — those stay independently
+staff-verified fields, same as `add_line_item`/`delete_line_item`.
+
 ## Bank-transaction matching
 
 `BankImportService::findExpenseMatch()` auto-matches a bank statement row to an
@@ -117,6 +144,8 @@ Match"). API: `app/Modules/Accounting/Api/reconciliation.php`
 - `app/Modules/Expenses/Services/ReceiptArchiveService.php` (+ `tests/Unit/Expenses/ReceiptArchiveServiceTest.php`)
 - `app/Modules/Expenses/Cron/receipt_archive.php`, `public/crm/api/receipt-export.php`
 - `app/Modules/Expenses/Services/ReceiptInboxService.php`
+- `app/Services/Receipts/ReceiptParser.php` (line-item discount netting), `app/Services/Receipts/ExpenseLineItems.php` (persistence)
+- `app/Modules/Expenses/Services/ExpenseLineItemService.php` (+ `tests/Unit/Expenses/ExpenseLineItemServiceTest.php`, `tests/Unit/Expenses/ReceiptParserDiscountTest.php`)
 - `app/Modules/Expenses/Cron/receipt_inbox_poll.php` (+ shim `public/crm/cron/receipt_inbox_poll.php`)
 - `public/crm/api/receipt-inbox-confirm.php`
 - Review panel + JS in `public/crm/expenses_appstack.php`; styles `.mw-receipt-inbox` in `mowology-brand.css`
