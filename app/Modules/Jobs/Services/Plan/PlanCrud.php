@@ -43,11 +43,29 @@ function createJobPlan(array $planData, int $userId): array {
 
         $planNumber = generatePlanNumber();
 
-        // Get company_id from property if not provided
+        // Get company_id from property if not provided: explicit company_properties
+        // link first, then the same inferred fallback getCompanyProperties()/
+        // BillToResolver use (the property's site contact being a company's
+        // primary/billing contact) — otherwise plans for inferred-only company
+        // relationships silently invoice the individual contact instead of the
+        // company (see companies/view.php Jobs tab + invoice bill-to).
         $companyId = !empty($planData['company_id']) ? (int)$planData['company_id'] : null;
         if (!$companyId) {
             $stmt = $db->prepare("
                 SELECT cp.company_id FROM company_properties cp WHERE cp.property_id = ? LIMIT 1
+            ");
+            $stmt->execute([$planData['property_id']]);
+            $found = $stmt->fetchColumn();
+            $companyId = $found ? (int)$found : null;
+        }
+        if (!$companyId) {
+            $stmt = $db->prepare("
+                SELECT co.id
+                FROM properties p
+                JOIN contacts con ON con.id = p.site_contact_id
+                JOIN companies co ON (co.primary_contact_id = con.id OR co.billing_contact_id = con.id)
+                WHERE p.id = ?
+                LIMIT 1
             ");
             $stmt->execute([$planData['property_id']]);
             $found = $stmt->fetchColumn();
