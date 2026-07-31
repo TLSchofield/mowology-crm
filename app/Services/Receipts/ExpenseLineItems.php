@@ -27,8 +27,8 @@ function saveLineItems(PDO $db, int $expenseId, array $lineItems): void
 {
     $stmt = $db->prepare("
         INSERT INTO expense_line_items
-            (expense_id, product_id, name, quantity, unit_price, line_total, sku_raw, sort_order)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (expense_id, product_id, name, quantity, unit_price, original_unit_price, is_adjustment, line_total, sku_raw, sort_order)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ");
 
     foreach ($lineItems as $idx => $li) {
@@ -37,6 +37,10 @@ function saveLineItems(PDO $db, int $expenseId, array $lineItems): void
         $unitPrice = isset($li['unit_price']) && $li['unit_price'] !== null && $li['unit_price'] !== ''
             ? (float)$li['unit_price']
             : null;
+        $originalUnitPrice = isset($li['original_unit_price']) && $li['original_unit_price'] !== null && $li['original_unit_price'] !== ''
+            ? (float)$li['original_unit_price']
+            : null;
+        $isAdjustment = !empty($li['is_adjustment']) ? 1 : 0;
         $lineTotal = (float)($li['line_total'] ?? $li['amount'] ?? 0);
         $name = $li['name'] ?? 'Unknown Item';
         $skuRaw = $li['sku_raw'] ?? null;
@@ -47,6 +51,8 @@ function saveLineItems(PDO $db, int $expenseId, array $lineItems): void
             $name,
             $qty,
             $unitPrice,
+            $originalUnitPrice,
+            $isAdjustment,
             $lineTotal,
             $skuRaw,
             $idx,

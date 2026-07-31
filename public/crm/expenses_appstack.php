@@ -5559,6 +5559,7 @@ async function submitReceiptExport() {
     };
 
     function renderLineItemsTable(items, stored) {
+        window._currentLineItems = items || [];
         if (!items || !items.length) {
             return '<tr><td colspan="5" class="text-muted text-center py-2" style="font-size:.8rem;">No items detected — use <strong>Rescan</strong> or <strong>+ Add Item</strong></td></tr>';
         }
@@ -5570,7 +5571,7 @@ async function submitReceiptExport() {
         if (hasUp)  header += '<th class="text-end">Unit $</th>';
         header += '<th class="text-end">Total</th>';
         header += '<th class="text-center">CRM Product</th>';  // Always show
-        header += '<th></th>';                                  // Delete col
+        header += '<th></th>';                                  // Edit/Delete col
         header += '</tr>';
 
         var rows = items.map(function(item) {
@@ -5583,14 +5584,25 @@ async function submitReceiptExport() {
             var row = '<tr data-li-id="' + liId + '">';
             row += '<td>' + esc(item.name);
             if (item.sku_raw) row += ' <small class="text-muted">(' + esc(item.sku_raw) + ')</small>';
+            if (item.is_adjustment) row += ' <span class="badge bg-light text-muted border" style="font-size:.65rem;">adjustment</span>';
             row += '</td>';
             if (hasQty) row += '<td class="text-center">' + (qty !== 1 ? qty : '') + '</td>';
             if (hasUp)  row += '<td class="text-end">'  + (up ? '$' + up.toFixed(2) : '') + '</td>';
-            row += '<td class="text-end ' + totalClass + '">$' + total.toFixed(2) + '</td>';
+            row += '<td class="text-end ' + totalClass + '">';
+            var origUp = item.original_unit_price ? parseFloat(item.original_unit_price) : null;
+            if (origUp) {
+                var origTotal = origUp * qty;
+                if (origTotal > total) {
+                    row += '<span class="text-muted text-decoration-line-through" style="font-size:.75rem;margin-right:4px;">$' + origTotal.toFixed(2) + '</span>';
+                }
+            }
+            row += '$' + total.toFixed(2) + '</td>';
 
             // Product link column — always present
             row += '<td class="text-center" style="min-width:90px;">';
-            if (item.product_id) {
+            if (item.is_adjustment) {
+                row += '<span class="text-muted" style="font-size:.7rem;">n/a</span>';
+            } else if (item.product_id) {
                 row += '<span class="badge bg-success mw-li-product-badge" title="' + esc(item.product_name || '') + '">' + esc(item.product_name || 'Linked') + '</span>';
                 if (liId) row += ' <button type="button" class="btn btn-link btn-sm p-0 mw-li-unlink" onclick="unlinkProduct(' + liId + ')" title="Unlink">&times;</button>';
             } else if (liId) {
@@ -5600,8 +5612,9 @@ async function submitReceiptExport() {
             }
             row += '</td>';
 
-            // Delete column — only for stored items
-            row += '<td class="text-center">';
+            // Edit/Delete column — only for stored items
+            row += '<td class="text-center text-nowrap">';
+            if (liId) row += '<button type="button" class="btn btn-link btn-sm p-0 me-1" onclick="editLineItemRow(' + liId + ', this)" title="Edit"><i data-feather="edit-2" style="width:12px;height:12px;"></i></button>';
             if (liId) row += '<button type="button" class="btn btn-link btn-sm p-0 text-danger" onclick="deleteLineItem(' + liId + ')" title="Remove"><i data-feather="trash-2" style="width:12px;height:12px;"></i></button>';
             row += '</td>';
 
@@ -6082,6 +6095,71 @@ async function submitReceiptExport() {
             if (!d.success) throw new Error(d.error);
             if (expId) editExpense(parseInt(expId));
         } catch(err) { alert('Delete failed: ' + err.message); }
+    };
+
+    // ── Edit an existing line item in place ───────────────────────
+    // The table's Qty/Unit-$ columns are conditionally rendered
+    // (hasQty/hasUp above), so instead of swapping individual <td>s we
+    // replace the whole row with one wide cell holding a small form —
+    // same input styling as the Add Item panel.
+    window.editLineItemRow = function(lineItemId, btn) {
+        var tr = btn.closest('tr');
+        var table = tr.closest('table');
+        var headerCells = table.querySelector('.mw-li-header');
+        var colCount = headerCells ? headerCells.children.length : 5;
+        var item = (window._currentLineItems || []).find(function(i) { return i.id == lineItemId; }) || {};
+        var qty = item.quantity != null ? item.quantity : 1;
+        var up = item.unit_price != null ? item.unit_price : '';
+        var tot = item.line_total != null ? item.line_total : (item.amount != null ? item.amount : '');
+
+        tr.innerHTML = '<td colspan="' + colCount + '">' +
+            '<div class="mw-add-item-row" style="border:none;margin:0;padding:0;">' +
+                '<input type="text" class="form-control form-control-sm" id="editLiName_' + lineItemId + '" placeholder="Item name" value="' + esc(String(item.name || '')).replace(/"/g, '&quot;') + '">' +
+                '<input type="number" class="form-control form-control-sm" id="editLiQty_' + lineItemId + '" placeholder="Qty" min="0.001" step="0.001" value="' + qty + '" style="width:70px;">' +
+                '<input type="number" class="form-control form-control-sm" id="editLiUp_' + lineItemId + '" placeholder="$/unit" min="0" step="0.01" value="' + up + '" style="width:80px;">' +
+                '<input type="number" class="form-control form-control-sm" id="editLiTotal_' + lineItemId + '" placeholder="Total" min="0" step="0.01" value="' + tot + '" style="width:80px;">' +
+                '<button type="button" class="btn btn-sm btn-success" onclick="commitEditLineItem(' + lineItemId + ')"><i data-feather="check" style="width:12px;height:12px;"></i></button>' +
+                '<button type="button" class="mw-modal-close" onclick="cancelEditLineItem()" title="Cancel"><i data-feather="x"></i></button>' +
+            '</div>' +
+        '</td>';
+        if (window.feather) feather.replace();
+        var nameEl = document.getElementById('editLiName_' + lineItemId);
+        if (nameEl) nameEl.focus();
+    };
+
+    window.cancelEditLineItem = function() {
+        var expId = document.getElementById('expenseId').value;
+        if (expId) editExpense(parseInt(expId));
+    };
+
+    window.commitEditLineItem = async function(lineItemId) {
+        var nameEl = document.getElementById('editLiName_' + lineItemId);
+        var name = (nameEl.value || '').trim();
+        if (!name) { nameEl.focus(); return; }
+        var qty = parseFloat(document.getElementById('editLiQty_' + lineItemId).value) || 1;
+        var up  = document.getElementById('editLiUp_' + lineItemId).value;
+        var tot = document.getElementById('editLiTotal_' + lineItemId).value;
+        if (!tot && up) tot = (parseFloat(up) * qty).toFixed(2);
+
+        try {
+            var r = await fetch('/crm/api/expenses.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'update_line_item',
+                    csrf_token: CSRF,
+                    line_item_id: lineItemId,
+                    name: name,
+                    quantity: qty,
+                    unit_price: up || null,
+                    line_total: tot || null,
+                }),
+            });
+            var d = await r.json();
+            if (!d.success) throw new Error(d.error);
+            var expId = document.getElementById('expenseId').value;
+            if (expId) editExpense(parseInt(expId));
+        } catch(err) { alert('Could not update item: ' + err.message); }
     };
 
     // ── GST Math Auto-fix ─────────────────────────────────────────

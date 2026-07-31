@@ -501,18 +501,24 @@ function extractLineItems(array $lines): array
             if ($i + 1 < $lineCount) {
                 $nextLine = trim($lines[$i + 1]);
                 if (preg_match('/^(\d{1,6}\.\d{2})\s*[A-Z]?\s*$/', $nextLine, $pm)) {
-                    $items[] = ['name' => 'Deposit', 'amount' => $pm[1], 'quantity' => 1, 'unit_price' => null, 'sku_raw' => null];
+                    $items[] = ['name' => 'Deposit', 'amount' => $pm[1], 'quantity' => 1, 'unit_price' => null, 'sku_raw' => null, 'is_adjustment' => true];
                     $i++;
                 }
             }
             continue;
         }
 
-        // Pattern: Markdown/discount line
+        // Pattern: Markdown/discount line — net against the most recently
+        // committed product line when one exists, so "Topsoil x4 $59.96 /
+        // Discount: Landscapers (25%) -$14.99" becomes ONE net-$44.97 line
+        // instead of a bogus standalone "Discount" item that silently
+        // replaces the actual product. Falls back to a standalone adjustment
+        // row (tagged is_adjustment) only when there's genuinely no
+        // preceding product to attach to (e.g. an order-level coupon).
         if (preg_match('/^(?:RSN:|DISCOUNT|MARKDOWN|MKDN)/i', $line)) {
             if (preg_match('/(-?\d{1,6}\.\d{2})/', $line, $m)) {
-                $amount = $m[1];
-                $items[] = ['name' => 'Discount', 'amount' => '-' . ltrim($amount, '-'), 'quantity' => 1, 'unit_price' => null, 'sku_raw' => null];
+                $amount = '-' . ltrim($m[1], '-');
+                $items = netDiscountIntoLastItem($items, $amount);
                 $inItemZone = true;
             }
             continue;
@@ -522,7 +528,7 @@ function extractLineItems(array $lines): array
         if (preg_match('/^-?\$?(\d{1,6}\.\d{2})\s*[A-Z]?\s*$/', $line, $pm)) {
             $amount = $pm[1];
             if (strpos($line, '-') === 0) {
-                $items[] = ['name' => 'Discount', 'amount' => '-' . ltrim($amount, '-'), 'quantity' => 1, 'unit_price' => null, 'sku_raw' => null];
+                $items = netDiscountIntoLastItem($items, '-' . ltrim($amount, '-'));
             } elseif (!empty($pendingItems)) {
                 $itemName = array_shift($pendingItems);
                 $ctx = array_shift($pendingContext);
@@ -587,6 +593,46 @@ function extractLineItems(array $lines): array
         }
     }
     unset($item);
+
+    return $items;
+}
+
+
+/**
+ * Net a discount/markdown amount (always negative) into the most recently
+ * committed line item, preserving the pre-discount price in
+ * original_unit_price for display. Falls back to a standalone adjustment
+ * row when there's no eligible preceding item (empty list, a non-positive
+ * last item, or the last item is itself already an adjustment row — you
+ * don't discount a discount).
+ *
+ * @param array  $items    Items committed so far
+ * @param string $discount Negative decimal string, e.g. '-14.99'
+ * @return array Updated items array
+ */
+function netDiscountIntoLastItem(array $items, string $discount): array
+{
+    $discount = -abs((float)$discount);
+    $lastIdx = count($items) - 1;
+
+    if ($lastIdx >= 0 && (float)$items[$lastIdx]['amount'] > 0 && empty($items[$lastIdx]['is_adjustment'])) {
+        $prevTotal = (float)$items[$lastIdx]['amount'];
+        $qty = (float)($items[$lastIdx]['quantity'] ?? 1);
+        if (!isset($items[$lastIdx]['original_unit_price'])) {
+            $items[$lastIdx]['original_unit_price'] = $items[$lastIdx]['unit_price']
+                ?? ($qty > 0 ? round($prevTotal / $qty, 2) : null);
+        }
+        $newTotal = round($prevTotal + $discount, 2);
+        $items[$lastIdx]['amount'] = number_format($newTotal, 2, '.', '');
+        if ($items[$lastIdx]['unit_price'] !== null && $qty > 0) {
+            $items[$lastIdx]['unit_price'] = round($newTotal / $qty, 2);
+        }
+    } else {
+        $items[] = [
+            'name' => 'Discount', 'amount' => number_format($discount, 2, '.', ''),
+            'quantity' => 1, 'unit_price' => null, 'sku_raw' => null, 'is_adjustment' => true,
+        ];
+    }
 
     return $items;
 }

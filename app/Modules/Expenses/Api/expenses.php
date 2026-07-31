@@ -188,6 +188,11 @@ try {
             handleDeleteLineItem($db, $input);
             break;
 
+        case 'update_line_item':
+            if (!$canEdit) throw new Exception('Permission denied: expenses.edit required');
+            handleUpdateLineItem($db, $input);
+            break;
+
         default:
             throw new Exception('Invalid action: ' . htmlspecialchars($action));
     }
@@ -1647,6 +1652,26 @@ function handleDeleteLineItem(PDO $db, ?array $input): void
     $del->execute([$lineItemId]);
 
     echo json_encode(['success' => true]);
+}
+
+
+/**
+ * Update a single line item's name/quantity/unit_price/line_total —
+ * a correction path for OCR mistakes (mis-parsed discounts, wrong qty,
+ * bad item name) that previously required delete + re-add.
+ */
+function handleUpdateLineItem(PDO $db, ?array $input): void
+{
+    if (!$input) throw new Exception('No data provided');
+    if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
+        throw new Exception('Invalid security token');
+    }
+
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseLineItemService.php';
+    $service = new ExpenseLineItemService($db);
+    $item = $service->update((int)($input['line_item_id'] ?? 0), $input);
+
+    echo json_encode(['success' => true, 'line_item' => $item]);
 }
 
 
