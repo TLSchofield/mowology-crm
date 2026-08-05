@@ -170,6 +170,32 @@ foreach ($mailboxes as $mb) {
 
 pollLog("Scanned {$seen} email(s), " . count($newItems) . ' new.');
 
+// Auto-record the narrow set of transfers that are 100% certain (hard
+// identity match + high-confidence bank deposit + exact amount) — runs over
+// ALL pending notifications each cycle, not just this run's new ones, since
+// a bank deposit can import after the email arrives. See
+// EtransferInboxService::autoRecordFullyCertain() for the exact bar.
+$autoRecorded = ['recorded' => 0, 'recorded_ids' => []];
+$systemUserId = (int) ($db->query("SELECT id FROM users WHERE role = 'admin' ORDER BY id LIMIT 1")->fetchColumn() ?: 0);
+if ($systemUserId <= 0) {
+    $systemUserId = (int) ($db->query("SELECT MIN(id) FROM users")->fetchColumn() ?: 0);
+}
+if ($systemUserId > 0) {
+    $autoRecorded = $service->autoRecordFullyCertain($systemUserId);
+    if ($autoRecorded['recorded'] > 0) {
+        pollLog("Auto-recorded {$autoRecorded['recorded']} fully-certain transfer(s) — bank deposit + invoice + email all matched, exact amount.");
+    }
+}
+
+// Drop anything just auto-recorded from the "please review" notification —
+// it's already closed, staff don't need to look at it.
+if (!empty($autoRecorded['recorded_ids'])) {
+    $newItems = array_values(array_filter(
+        $newItems,
+        fn($n) => !in_array((int) $n['id'], $autoRecorded['recorded_ids'], true)
+    ));
+}
+
 // Notify the office about new arrivals.
 if (!empty($newItems)) {
     $rows = '';
@@ -208,11 +234,13 @@ if (!empty($newItems)) {
     pollLog("Notification email to {$to}: " . ($ok ? 'sent' : 'FAILED'));
 }
 
-$count = count($newItems);
+$count   = count($newItems);
+$summary = "Scanned {$seen} email(s), {$count} new"
+         . ($autoRecorded['recorded'] > 0 ? ", {$autoRecorded['recorded']} auto-recorded" : '') . '.';
 recordCronRun(
     'etransfer_inbox_poll',
     $mailboxErrors > 0 ? 'warning' : 'success',
-    "Scanned {$seen} email(s), {$count} new.",
+    $summary,
     (int)(microtime(true) * 1000) - $startMs,
     $mailboxErrors > 0 ? "{$mailboxErrors} mailbox(es) failed login" : null,
     !$isCli
@@ -223,7 +251,7 @@ if ($isCli) {
 } else {
     echo json_encode([
         'success' => true,
-        'message' => "Scanned {$seen} email(s), {$count} new.",
+        'message' => $summary,
         'log'     => $log,
     ]);
 }

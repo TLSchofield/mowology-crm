@@ -9,10 +9,17 @@
  * mailbox. parseInteracEmail() is a pure static function — the test exercises it
  * against a real captured email.
  *
- * Design note (why we never auto-record): the e-Transfer amount frequently
- * differs from the invoice total — customers add GST, round up, or combine
- * invoices. So we surface a best-guess match and let staff confirm. The strong
- * signal is the invoice number in the customer's memo; amount is only a fallback.
+ * Design note (why we mostly don't auto-record): the e-Transfer amount
+ * frequently differs from the invoice total — customers add GST, round up, or
+ * combine invoices. So by default we surface a best-guess match and let staff
+ * confirm. The strong signal is the invoice number in the customer's memo;
+ * amount is only a fallback.
+ *
+ * The one exception is autoRecordFullyCertain(): when a hard identity match
+ * (invoice # in the memo, or the transfer's own reference # already on an
+ * invoice) is corroborated by a high-confidence bank deposit AND the amount
+ * exactly equals the invoice balance, staff shouldn't have to click through
+ * something this unambiguous — see that method for the exact bar.
  */
 class EtransferInboxService
 {
@@ -583,6 +590,67 @@ class EtransferInboxService
         }
 
         return ['checked' => $checked, 'updated' => $updated];
+    }
+
+    /** Bank-match confidence floor for auto-recording — same-day + sender-name overlap, not just amount. */
+    private const AUTO_RECORD_BANK_CONFIDENCE_FLOOR = 90;
+
+    /**
+     * Auto-record e-Transfers that clear a deliberately narrow "100% certain"
+     * bar so staff never have to click through something this unambiguous.
+     * All three must hold:
+     *   1. Hard identity match on the invoice — invoice # literally in the
+     *      customer's memo, or the transfer's own reference # already sitting
+     *      in that invoice's payment_reference. Not the amount-fallback guess.
+     *   2. The bank deposit is linked with high confidence (same-day +
+     *      sender-name overlap) — not just "an amount happened to match."
+     *   3. The transfer amount exactly equals the invoice's outstanding
+     *      balance (to the cent) — no GST/rounding ambiguity to second-guess.
+     *
+     * Anything short of all three still waits for a human, exactly as before.
+     * Safe to call repeatedly (only touches pending/partially_recorded rows).
+     *
+     * @return array{checked:int,recorded:int,skipped:array}
+     */
+    public function autoRecordFullyCertain(int $systemUserId): array
+    {
+        $rows = $this->db->prepare(
+            "SELECT n.id, n.amount, n.matched_invoice_id, i.balance_due AS invoice_balance
+               FROM etransfer_notifications n
+               JOIN invoices i ON i.id = n.matched_invoice_id
+              WHERE n.status IN ('pending', 'partially_recorded')
+                AND n.match_method IN ('invoice_number', 'reference_number')
+                AND n.match_confidence = 'high'
+                AND n.bank_transaction_id IS NOT NULL
+                AND n.bank_match_confidence >= ?"
+        );
+        $rows->execute([self::AUTO_RECORD_BANK_CONFIDENCE_FLOOR]);
+        $candidates = $rows->fetchAll(PDO::FETCH_ASSOC);
+
+        $result = ['checked' => count($candidates), 'recorded' => 0, 'recorded_ids' => [], 'skipped' => []];
+
+        foreach ($candidates as $c) {
+            $amount  = round((float) $c['amount'], 2);
+            $balance = round((float) $c['invoice_balance'], 2);
+            if (abs($amount - $balance) > 0.01) {
+                $result['skipped'][] = ['id' => (int) $c['id'], 'reason' => 'amount does not exactly match the invoice balance'];
+                continue;
+            }
+
+            $res = $this->recordPayment(
+                (int) $c['id'],
+                [['invoice_id' => (int) $c['matched_invoice_id'], 'amount' => null]],
+                $systemUserId
+            );
+            if ($res['ok'] ?? false) {
+                $result['recorded']++;
+                $result['recorded_ids'][] = (int) $c['id'];
+            } else {
+                $result['skipped'][] = ['id' => (int) $c['id'], 'reason' => $res['message'] ?? 'unknown'];
+            }
+        }
+
+        return $result;
     }
 
     /**
