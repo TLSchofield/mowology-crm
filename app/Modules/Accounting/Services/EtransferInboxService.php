@@ -127,6 +127,27 @@ class EtransferInboxService
      */
     public function matchInvoice(array $parsed): array
     {
+        // 0. Exact: this transfer's own Interac reference # already sitting in an
+        // invoice's payment_reference — i.e. staff already recorded this exact
+        // transfer manually before the poller ever saw it. Outranks the memo-based
+        // invoice number below because it's a hard identity match, not a hint.
+        if (!empty($parsed['reference_number'])) {
+            $stmt = $this->db->prepare(
+                "SELECT id, invoice_number, balance_due, total, status
+                   FROM invoices WHERE payment_reference = ? LIMIT 1"
+            );
+            $stmt->execute([$parsed['reference_number']]);
+            $inv = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($inv) {
+                return [
+                    'invoice_id' => (int) $inv['id'],
+                    'method'     => 'reference_number',
+                    'confidence' => 'high',
+                    'candidates' => [$inv],
+                ];
+            }
+        }
+
         // 1. Exact: invoice number from the memo.
         if (!empty($parsed['invoice_hint'])) {
             $stmt = $this->db->prepare(
@@ -314,16 +335,26 @@ class EtransferInboxService
         // record) or a confusing duplicate-payment error. Multi-invoice splits keep
         // the strict all-or-nothing behaviour below.
         if (count($clean) === 1) {
-            $stmt = $this->db->prepare("SELECT invoice_number, status FROM invoices WHERE id = ? LIMIT 1");
+            $stmt = $this->db->prepare("SELECT invoice_number, status, payment_reference FROM invoices WHERE id = ? LIMIT 1");
             $stmt->execute([$clean[0]['invoice_id']]);
             $invRow = $stmt->fetch(PDO::FETCH_ASSOC);
             if ($invRow && ($block = self::paymentBlockReason((string) $invRow['status'], (string) $invRow['invoice_number']))) {
+                // Cross-reference the Interac reference # on this transfer against
+                // whatever staff typed into the invoice's payment reference when it
+                // was manually recorded — an exact match is a near-certain signal
+                // this is the same transfer, not a coincidental duplicate.
+                $invRef  = trim((string) ($invRow['payment_reference'] ?? ''));
+                $noteRef = trim((string) ($note['reference_number'] ?? ''));
+                $refMatch = ($invRef !== '' && $noteRef !== '' && $invRef === $noteRef);
+
                 return [
                     'ok'                   => false,
                     'message'              => $block,
                     'can_merge'            => true,
                     'merge_invoice_id'     => (int) $clean[0]['invoice_id'],
                     'merge_invoice_number' => $invRow['invoice_number'],
+                    'reference_match'      => $refMatch,
+                    'invoice_payment_reference' => $invRef !== '' ? $invRef : null,
                 ];
             }
         }

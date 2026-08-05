@@ -36135,6 +36135,16 @@ span.mw-icon-box--missing {
 }
 .mw-et-merged-note .mw-et-unmerge { padding: 0; font-size: .78rem; }
 
+.mw-et-ref-note {
+    font-size: .78rem;
+    max-width: 260px;
+    text-align: right;
+    margin-top: .3rem;
+}
+.mw-et-ref-note--match    { color: var(--mw-green, #2D8659); font-weight: 600; }
+.mw-et-ref-note--mismatch { color: #b45309; }
+.mw-et-ref-note--unknown  { color: #6b6b66; }
+
 @media (max-width: 640px) {
     .mw-et-actions { width: 100%; align-items: stretch; }
     .mw-et-split-line { flex-wrap: wrap; }

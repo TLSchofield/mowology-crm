@@ -1206,6 +1206,20 @@ $activePage = 'invoices';
                                 newMergeBtn.setAttribute('data-invoice-number', data.merge_invoice_number);
                                 newMergeBtn.textContent = 'Link to ' + data.merge_invoice_number + ' (already closed)';
                                 actionsRow.insertBefore(newMergeBtn, dismissBtn);
+
+                                var noteEl = document.createElement('div');
+                                noteEl.className = 'mw-et-ref-note';
+                                if (data.reference_match) {
+                                    noteEl.classList.add('mw-et-ref-note--match');
+                                    noteEl.textContent = '✓ Same reference # as the recorded payment — confirmed duplicate.';
+                                } else if (data.invoice_payment_reference) {
+                                    noteEl.classList.add('mw-et-ref-note--mismatch');
+                                    noteEl.textContent = '⚠ Reference differs from the recorded payment (' + data.invoice_payment_reference + ') — verify before linking.';
+                                } else {
+                                    noteEl.classList.add('mw-et-ref-note--unknown');
+                                    noteEl.textContent = 'No payment reference on file for this invoice — verify before linking.';
+                                }
+                                actionsRow.parentNode.insertBefore(noteEl, actionsRow.nextSibling);
                             }
                         }
                     }
