@@ -78,6 +78,9 @@ class EtransferInboxServiceTest extends TestCase
     {
         $this->assertSame('INV-2026-0096', EtransferInboxService::extractInvoiceNumber('paid inv 2026 96'));
         $this->assertSame('INV-2026-0096', EtransferInboxService::extractInvoiceNumber('INV-2026-0096'));
+        $this->assertSame('INV-2026-0308', EtransferInboxService::extractInvoiceNumber('invoice 2026-0308'));
+        $this->assertSame('INV-2026-0224', EtransferInboxService::extractInvoiceNumber('Invoice 2026 0224'));
+        $this->assertSame('INV-2026-0226', EtransferInboxService::extractInvoiceNumber('invoice 2026-0226'));
         $this->assertNull(EtransferInboxService::extractInvoiceNumber('no invoice here'));
     }
 

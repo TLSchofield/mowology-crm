@@ -112,7 +112,9 @@ class EtransferInboxService
         if ($text === '') {
             return null;
         }
-        if (preg_match('/\bINV[-\s]?(\d{4})[-\s]?(\d{2,5})\b/i', $text, $m)) {
+        // Accept both the "INV" abbreviation and the full word "invoice" — customers
+        // typing memos write "invoice 2026-0308" at least as often as "INV-2026-0308".
+        if (preg_match('/\b(?:INV|invoice)[-\s]?(\d{4})[-\s]?(\d{2,5})\b/i', $text, $m)) {
             return 'INV-' . $m[1] . '-' . str_pad($m[2], 4, '0', STR_PAD_LEFT);
         }
         return null;
@@ -400,6 +402,53 @@ class EtransferInboxService
             'fully_allocated' => $fullyRecorded,
             'remaining'       => max(0, $remainingAfter),
         ];
+    }
+
+    /**
+     * Re-run invoice_hint extraction + matching against already-ingested pending
+     * notifications. One-time backfill for parser improvements (e.g. recognising
+     * "invoice 2026-0308" as well as "INV-2026-0308") that don't retroactively
+     * apply — matching only ran once, at ingest time. Only touches rows still
+     * awaiting action; never re-matches something already recorded/dismissed.
+     *
+     * @return array{checked:int,updated:int}
+     */
+    public function rematchPending(): array
+    {
+        $rows = $this->db->query(
+            "SELECT id, memo, email_subject, invoice_hint, matched_invoice_id, match_method, match_confidence
+               FROM etransfer_notifications
+              WHERE status IN ('pending', 'partially_recorded')"
+        )->fetchAll(PDO::FETCH_ASSOC);
+
+        $checked = 0;
+        $updated = 0;
+
+        foreach ($rows as $row) {
+            $checked++;
+            $hint = self::extractInvoiceNumber($row['memo'] ?? '')
+                 ?? self::extractInvoiceNumber($row['email_subject'] ?? '');
+            if ($hint === null || $hint === $row['invoice_hint']) {
+                continue;
+            }
+
+            $match = $this->matchInvoice(['invoice_hint' => $hint, 'amount' => null]);
+            if ((int) $match['invoice_id'] === (int) $row['matched_invoice_id']
+                && $hint === $row['invoice_hint']) {
+                continue;
+            }
+
+            $this->db->prepare(
+                "UPDATE etransfer_notifications
+                    SET invoice_hint = ?, matched_invoice_id = ?, match_method = ?, match_confidence = ?
+                  WHERE id = ?"
+            )->execute([
+                $hint, $match['invoice_id'], $match['method'], $match['confidence'], $row['id'],
+            ]);
+            $updated++;
+        }
+
+        return ['checked' => $checked, 'updated' => $updated];
     }
 
     public function dismiss(int $notificationId, int $userId): array
