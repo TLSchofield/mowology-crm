@@ -623,7 +623,12 @@ $activePage = 'invoices';
                 </div>
                 <div class="mw-form-group">
                     <label class="form-label" for="mw-pay-date">Payment Date</label>
-                    <input type="date" id="mw-pay-date" class="form-control"
+                    <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#mw-pay-date" aria-haspopup="true" aria-expanded="false">
+                        <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                        <span class="mw-datepicker-date" data-mw-dp-label></span>
+                        <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                    </button>
+                    <input type="date" id="mw-pay-date" class="form-control" hidden
                            value="<?php echo date('Y-m-d'); ?>">
                 </div>
             </div>
@@ -849,7 +854,10 @@ $activePage = 'invoices';
 
         // Reset form fields
         document.getElementById('mw-pay-method').value = 'e_transfer';
-        document.getElementById('mw-pay-date').value   = new Date().toISOString().slice(0, 10);
+        var payDateEl = document.getElementById('mw-pay-date');
+        payDateEl.value = new Date().toISOString().slice(0, 10);
+        payDateEl.dispatchEvent(new Event('input', { bubbles: true }));
+        payDateEl.dispatchEvent(new Event('change', { bubbles: true }));
         document.getElementById('mw-pay-ref').value    = '';
         document.getElementById('mw-pay-notes').value  = '';
         clearPayError();
@@ -1041,10 +1049,75 @@ $activePage = 'invoices';
             var addSplitBtn = e.target.closest('.mw-et-add-split');
             var recordBtn   = e.target.closest('.mw-et-record');
             var dismissBtn  = e.target.closest('.mw-et-dismiss');
-            if (!addSplitBtn && !recordBtn && !dismissBtn) return;
+            var mergeBtn    = e.target.closest('.mw-et-merge');
+            var unmergeBtn  = e.target.closest('.mw-et-unmerge');
+            if (!addSplitBtn && !recordBtn && !dismissBtn && !mergeBtn && !unmergeBtn) return;
 
             var row = e.target.closest('.mw-et-row');
             if (!row) return;
+
+            if (unmergeBtn) {
+                unmergeBtn.disabled = true;
+                var undoBody = new FormData();
+                undoBody.append('csrf_token', CSRF_TOKEN);
+                undoBody.append('notification_id', row.getAttribute('data-id'));
+                undoBody.append('action', 'unmerge');
+                fetch('/crm/api/etransfer-confirm.php', { method: 'POST', body: undoBody })
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) {
+                        if (data.ok) {
+                            showToast(data.message || 'Undone.', 'success');
+                            window.location.reload();
+                        } else {
+                            showToast(data.message || 'Could not undo.', 'error');
+                            unmergeBtn.disabled = false;
+                        }
+                    })
+                    .catch(function () {
+                        showToast('Network error — please try again.', 'error');
+                        unmergeBtn.disabled = false;
+                    });
+                return;
+            }
+
+            if (mergeBtn) {
+                var mergeInvoiceNo = mergeBtn.getAttribute('data-invoice-number');
+                if (!confirm('Link this e-Transfer to ' + mergeInvoiceNo + '? No new payment will be recorded — ' +
+                             'this just marks the transfer as already accounted for.')) return;
+                mergeBtn.disabled = true;
+                var mergeBody = new FormData();
+                mergeBody.append('csrf_token', CSRF_TOKEN);
+                mergeBody.append('notification_id', row.getAttribute('data-id'));
+                mergeBody.append('action', 'merge');
+                mergeBody.append('invoice_id', mergeBtn.getAttribute('data-invoice-id'));
+                fetch('/crm/api/etransfer-confirm.php', { method: 'POST', body: mergeBody })
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) {
+                        if (data.ok && data.merged) {
+                            showToast(data.message || 'Linked.', 'success');
+                            var actionsWrap = row.querySelector('.mw-et-actions');
+                            actionsWrap.innerHTML = '';
+                            var note = document.createElement('div');
+                            note.className = 'mw-et-merged-note';
+                            note.appendChild(document.createTextNode(data.message || 'Linked — no new payment recorded.'));
+                            var undo = document.createElement('button');
+                            undo.type = 'button';
+                            undo.className = 'btn btn-link btn-sm mw-et-unmerge';
+                            undo.textContent = 'Undo';
+                            note.appendChild(document.createTextNode(' '));
+                            note.appendChild(undo);
+                            actionsWrap.appendChild(note);
+                        } else {
+                            showToast(data.message || 'Could not link.', 'error');
+                            mergeBtn.disabled = false;
+                        }
+                    })
+                    .catch(function () {
+                        showToast('Network error — please try again.', 'error');
+                        mergeBtn.disabled = false;
+                    });
+                return;
+            }
 
             if (addSplitBtn) {
                 var splits = row.querySelector('.mw-et-splits');
@@ -1123,6 +1196,18 @@ $activePage = 'invoices';
                         showToast(data.message || 'Could not record.', 'error');
                         if (recordBtn) { recordBtn.disabled = false; recordBtn.textContent = 'Record'; }
                         if (dismissBtn) dismissBtn.disabled = false;
+                        if (data.can_merge && recordBtn) {
+                            var actionsRow = recordBtn.closest('.mw-et-buttons');
+                            if (actionsRow && !actionsRow.querySelector('.mw-et-merge')) {
+                                var newMergeBtn = document.createElement('button');
+                                newMergeBtn.type = 'button';
+                                newMergeBtn.className = 'btn btn-outline-warning btn-sm mw-et-merge';
+                                newMergeBtn.setAttribute('data-invoice-id', data.merge_invoice_id);
+                                newMergeBtn.setAttribute('data-invoice-number', data.merge_invoice_number);
+                                newMergeBtn.textContent = 'Link to ' + data.merge_invoice_number + ' (already closed)';
+                                actionsRow.insertBefore(newMergeBtn, dismissBtn);
+                            }
+                        }
                     }
                 })
                 .catch(function (err) {

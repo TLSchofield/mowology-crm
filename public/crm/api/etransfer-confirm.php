@@ -4,7 +4,7 @@
  *
  * POST:
  *   csrf_token        string   (required)
- *   action            string   'record' | 'dismiss'
+ *   action            string   'record' | 'dismiss' | 'merge' | 'unmerge'
  *   notification_id   int      (required)
  *
  *   Single-invoice form (unchanged):
@@ -15,7 +15,15 @@
  *     invoice_numbers[]  string[]  invoice number per split line
  *     amounts[]          float[]   amount per split line, index-aligned with invoice_numbers[]
  *
- * Returns JSON: { ok: bool, message: string, fully_allocated?: bool, remaining?: float }
+ *   merge (invoice is already closed — link without recording a new payment):
+ *     invoice_id       int    (required)
+ *
+ *   unmerge (undo a merge — back to pending; refuses if a real payment exists):
+ *     (no extra fields)
+ *
+ * Returns JSON: { ok: bool, message: string, fully_allocated?: bool, remaining?: float,
+ *                 can_merge?: bool, merge_invoice_id?: int, merge_invoice_number?: string,
+ *                 merged?: bool }
  */
 declare(strict_types=1);
 header('Content-Type: application/json');
@@ -59,6 +67,15 @@ $service = new EtransferInboxService(getDB());
 try {
     if ($action === 'dismiss') {
         $result = $service->dismiss($noteId, (int) $user['id']);
+    } elseif ($action === 'merge') {
+        $invoiceId = (int) ($_POST['invoice_id'] ?? 0);
+        if ($invoiceId <= 0) {
+            echo json_encode(['ok' => false, 'message' => 'Missing invoice_id']);
+            exit;
+        }
+        $result = $service->mergeAlreadyRecorded($noteId, $invoiceId, (int) $user['id']);
+    } elseif ($action === 'unmerge') {
+        $result = $service->unmerge($noteId, (int) $user['id']);
     } elseif ($action === 'record') {
         $db = getDB();
 

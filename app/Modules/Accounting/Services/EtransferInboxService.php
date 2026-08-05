@@ -307,6 +307,27 @@ class EtransferInboxService
             )];
         }
 
+        // Single-invoice attempt against an invoice that can't take a real payment
+        // (already closed) — surface a "merge" option instead of a hard error, so
+        // staff can link this notification to the invoice that already reflects
+        // the payment, rather than being stuck choosing between Dismiss (loses the
+        // record) or a confusing duplicate-payment error. Multi-invoice splits keep
+        // the strict all-or-nothing behaviour below.
+        if (count($clean) === 1) {
+            $stmt = $this->db->prepare("SELECT invoice_number, status FROM invoices WHERE id = ? LIMIT 1");
+            $stmt->execute([$clean[0]['invoice_id']]);
+            $invRow = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($invRow && ($block = self::paymentBlockReason((string) $invRow['status'], (string) $invRow['invoice_number']))) {
+                return [
+                    'ok'                   => false,
+                    'message'              => $block,
+                    'can_merge'            => true,
+                    'merge_invoice_id'     => (int) $clean[0]['invoice_id'],
+                    'merge_invoice_number' => $invRow['invoice_number'],
+                ];
+            }
+        }
+
         require_once __DIR__ . '/InvoiceReconciliationService.php';
         $recon   = new InvoiceReconciliationService($this->db);
         $ref     = $note['reference_number'] ?: ('e-Transfer ' . $note['id']);
@@ -449,6 +470,79 @@ class EtransferInboxService
         }
 
         return ['checked' => $checked, 'updated' => $updated];
+    }
+
+    /**
+     * Link a pending notification to an invoice that's already closed (paid
+     * elsewhere, e.g. manually) WITHOUT applying a payment allocation — this is
+     * "yes, this e-Transfer is the thing that already closed that invoice, just
+     * stop asking me to record it." Never touches invoices, accounting_transactions,
+     * or invoice_payment_allocations, so it's always safely reversible via unmerge().
+     */
+    public function mergeAlreadyRecorded(int $notificationId, int $invoiceId, int $userId): array
+    {
+        $note = $this->find($notificationId);
+        if (!$note) {
+            return ['ok' => false, 'message' => 'Notification not found'];
+        }
+        if (!in_array($note['status'], ['pending', 'partially_recorded'], true)) {
+            return ['ok' => false, 'message' => 'Already ' . $note['status']];
+        }
+
+        $stmt = $this->db->prepare("SELECT invoice_number, status FROM invoices WHERE id = ? LIMIT 1");
+        $stmt->execute([$invoiceId]);
+        $inv = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$inv) {
+            return ['ok' => false, 'message' => 'Invoice not found'];
+        }
+        if (self::paymentBlockReason((string) $inv['status'], (string) $inv['invoice_number']) === null) {
+            return ['ok' => false, 'message' => "{$inv['invoice_number']} can still take a real payment — use Record instead."];
+        }
+
+        $this->db->prepare(
+            "UPDATE etransfer_notifications
+                SET status = 'recorded', matched_invoice_id = ?, recorded_invoice_id = ?,
+                    allocated_amount = amount, recorded_by = ?, processed_at = NOW()
+              WHERE id = ?"
+        )->execute([$invoiceId, $invoiceId, $userId, $notificationId]);
+
+        return [
+            'ok'      => true,
+            'merged'  => true,
+            'message' => "Linked to {$inv['invoice_number']} (already closed) — no new payment recorded.",
+        ];
+    }
+
+    /**
+     * Undo mergeAlreadyRecorded() — puts the notification back in the pending
+     * queue. Refuses if a real payment was ever applied against this notification
+     * (invoice_payment_allocations row exists), since reversing an actual ledger
+     * entry needs the invoice's own payment-reversal path, not this shortcut.
+     */
+    public function unmerge(int $notificationId, int $userId): array
+    {
+        $note = $this->find($notificationId);
+        if (!$note) {
+            return ['ok' => false, 'message' => 'Notification not found'];
+        }
+        if ($note['status'] !== 'recorded') {
+            return ['ok' => false, 'message' => 'Nothing to undo'];
+        }
+
+        $chk = $this->db->prepare("SELECT COUNT(*) FROM invoice_payment_allocations WHERE etransfer_notification_id = ?");
+        $chk->execute([$notificationId]);
+        if ((int) $chk->fetchColumn() > 0) {
+            return ['ok' => false, 'message' => 'This e-Transfer was recorded as a real payment — reverse it from the invoice\'s payment history instead.'];
+        }
+
+        $this->db->prepare(
+            "UPDATE etransfer_notifications
+                SET status = 'pending', recorded_invoice_id = NULL, allocated_amount = 0,
+                    recorded_by = NULL, processed_at = NULL
+              WHERE id = ?"
+        )->execute([$notificationId]);
+
+        return ['ok' => true, 'message' => 'Back in the pending queue.'];
     }
 
     public function dismiss(int $notificationId, int $userId): array

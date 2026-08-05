@@ -2382,29 +2382,33 @@ a.mw-clock-timer-nav:hover {
   background:var(--mw-light);
   box-shadow:0 0 0 3px rgb(45 134 89 / .1)
 }
-.mw-dp-cal-icon {
+.mw-datepicker-cal-icon {
   color:var(--mw-green);
   flex-shrink:0
 }
-.mw-dp-weekday {
+.mw-datepicker-weekday {
   font-size:11px;
   font-weight:700;
   text-transform:uppercase;
   letter-spacing:.5px;
   color:var(--mw-green)
 }
-.mw-dp-date {
+.mw-datepicker-date {
   font-size:15px;
   font-weight:600;
   color:var(--mw-ink-900)
 }
-.mw-dp-chevron {
+.mw-datepicker-chevron {
   color:var(--mw-ink-400);
   transition:transform 0.2s;
   flex-shrink:0
 }
-.mw-datepicker-open .mw-dp-chevron {
+.mw-datepicker-open .mw-datepicker-chevron {
   transform:rotate(180deg)
+}
+@keyframes mwDpFadeIn {
+  from { opacity:0; transform:translateY(-4px) }
+  to   { opacity:1; transform:translateY(0) }
 }
 .mw-datepicker-popup {
   position:fixed;
@@ -2417,20 +2421,20 @@ a.mw-clock-timer-nav:hover {
   overflow:hidden;
   animation:mwDpFadeIn 0.15s ease
 }
-.mw-dp-header {
+.mw-datepicker-header {
   display:flex;
   align-items:center;
   justify-content:space-between;
   padding:14px 16px 10px;
   background:var(--mw-forest)
 }
-.mw-dp-month-label {
+.mw-datepicker-month-label {
   font-size:14px;
   font-weight:700;
   color:var(--mw-ink-0);
   letter-spacing:.3px
 }
-.mw-dp-nav-btn {
+.mw-datepicker-nav-btn {
   display:inline-flex;
   align-items:center;
   justify-content:center;
@@ -2443,16 +2447,16 @@ a.mw-clock-timer-nav:hover {
   cursor:pointer;
   transition:background 0.15s
 }
-.mw-dp-nav-btn:hover {
+.mw-datepicker-nav-btn:hover {
   background:rgb(255 255 255 / .25)
 }
-.mw-dp-weekdays {
+.mw-datepicker-weekdays {
   display:grid;
   grid-template-columns:repeat(7,1fr);
   padding:10px 12px 4px;
   background:var(--mw-forest)
 }
-.mw-dp-weekdays span {
+.mw-datepicker-weekdays span {
   text-align:center;
   font-size:10px;
   font-weight:700;
@@ -2460,13 +2464,13 @@ a.mw-clock-timer-nav:hover {
   letter-spacing:.5px;
   color:rgb(255 255 255 / .55)
 }
-.mw-dp-grid {
+.mw-datepicker-grid {
   display:grid;
   grid-template-columns:repeat(7,1fr);
   gap:2px;
   padding:10px 12px
 }
-.mw-dp-cell {
+.mw-datepicker-cell {
   display:flex;
   align-items:center;
   justify-content:center;
@@ -2480,23 +2484,23 @@ a.mw-clock-timer-nav:hover {
   cursor:pointer;
   transition:background 0.12s,color 0.12s
 }
-.mw-dp-cell:hover {
+.mw-datepicker-cell:hover {
   background:var(--mw-light);
   color:var(--mw-green)
 }
-.mw-dp-cell-other {
+.mw-datepicker-cell-other {
   color:var(--mw-ink-300)
 }
-.mw-dp-cell-other:hover {
+.mw-datepicker-cell-other:hover {
   background:var(--mw-ink-50);
   color:var(--mw-ink-400)
 }
-.mw-dp-cell-today {
+.mw-datepicker-cell-today {
   font-weight:700;
   color:var(--mw-green);
   position:relative
 }
-.mw-dp-cell-today::after {
+.mw-datepicker-cell-today::after {
   content:'';
   position:absolute;
   bottom:4px;
@@ -2507,38 +2511,43 @@ a.mw-clock-timer-nav:hover {
   border-radius:50%;
   background:var(--mw-green)
 }
-.mw-dp-cell-selected {
+.mw-datepicker-cell-selected {
   background:var(--mw-green)!important;
   color:var(--mw-ink-0)!important;
   font-weight:700
 }
-.mw-dp-cell-selected::after {
+.mw-datepicker-cell-selected::after {
   background:rgb(255 255 255 / .7)
 }
-.mw-dp-cell-in-week {
+.mw-datepicker-cell-in-week {
   background:rgb(45 134 89 / .1);
   border-radius:0;
   color:var(--mw-forest);
   font-weight:600
 }
-.mw-dp-cell-week-start {
+.mw-datepicker-cell-week-start {
   border-radius:6px 0 0 6px;
   background:var(--mw-green)!important;
   color:var(--mw-ink-0)!important;
   font-weight:700
 }
-.mw-dp-cell-week-end {
+.mw-datepicker-cell-week-end {
   border-radius:0 6px 6px 0;
   background:rgb(45 134 89 / .2)!important;
   color:var(--mw-forest)!important;
   font-weight:700
 }
-.mw-dp-footer {
+.mw-datepicker-cell-disabled {
+  color:var(--mw-ink-300);
+  cursor:not-allowed;
+  pointer-events:none
+}
+.mw-datepicker-footer {
   border-top:1px solid #f0f0f0;
   padding:8px 12px;
   text-align:center
 }
-.mw-dp-today-link {
+.mw-datepicker-today-link {
   background:none;
   border:none;
   color:var(--mw-green);
@@ -2549,7 +2558,7 @@ a.mw-clock-timer-nav:hover {
   border-radius:4px;
   transition:background 0.12s
 }
-.mw-dp-today-link:hover {
+.mw-datepicker-today-link:hover {
   background:var(--mw-light)
 }
 .mw-schedule-filters {
@@ -36114,6 +36123,17 @@ span.mw-icon-box--missing {
 .mw-et-add-split:hover { color: var(--mw-green, #2D8659); text-decoration: underline; }
 .mw-et-buttons { display: flex; align-items: center; gap: .4rem; }
 .mw-et-actions .mw-et-dismiss { line-height: 1; padding: .25rem .55rem; }
+.mw-et-merge { white-space: nowrap; }
+.mw-et-merged-note {
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+    font-size: .82rem;
+    color: var(--mw-dark, #1A5F4A);
+    max-width: 260px;
+    text-align: right;
+}
+.mw-et-merged-note .mw-et-unmerge { padding: 0; font-size: .78rem; }
 
 @media (max-width: 640px) {
     .mw-et-actions { width: 100%; align-items: stretch; }
