@@ -766,6 +766,161 @@ class BankImportService
     }
 
     // ══════════════════════════════════════════════════════════════════════════
+    // COMMITTED-DUPLICATE CLEANUP
+    //
+    // checkTrueDuplicate() prevents new duplicates going forward, but doesn't
+    // help with rows that were already committed before that fix — e.g. a
+    // statement re-imported over an already-covered period. These two methods
+    // find and safely remove that kind of already-committed duplicate.
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Find groups of committed bank_import_rows that share the same
+     * (transaction_date, amount, description) — i.e. the same real bank line,
+     * imported more than once. Within each group, the oldest row (lowest id)
+     * is the one to keep; every other row is a removal candidate.
+     *
+     * A candidate is only `removable` when it's safe to delete outright:
+     *   - its accounting_transactions row is type='transfer' (already
+     *     reconciled elsewhere — not raw, unrecognized income)
+     *   - it has no invoice_payment_allocations rows
+     *   - no etransfer_notifications row points at it via bank_transaction_id
+     * Anything short of that is still surfaced, flagged not removable, so a
+     * human decides rather than the tool silently skipping it.
+     *
+     * @return array<int, array{transaction_date:string,amount:float,description:string,keep:array,candidates:array}>
+     */
+    public function findDuplicateGroups(): array
+    {
+        $groups = $this->db->query("
+            SELECT transaction_date, amount, description, COUNT(*) AS n,
+                   GROUP_CONCAT(id ORDER BY id) AS row_ids
+              FROM bank_import_rows
+             GROUP BY transaction_date, amount, description
+            HAVING COUNT(*) > 1
+             ORDER BY transaction_date DESC
+        ")->fetchAll(PDO::FETCH_ASSOC);
+
+        if (empty($groups)) {
+            return [];
+        }
+
+        $result = [];
+        foreach ($groups as $g) {
+            $rowIds = array_map('intval', explode(',', $g['row_ids']));
+            $rows   = $this->loadDuplicateCandidateRows($rowIds);
+            if (count($rows) < 2) {
+                continue; // a sibling was already removed since the GROUP BY ran
+            }
+
+            usort($rows, fn($a, $b) => $a['row_id'] <=> $b['row_id']);
+            $keep       = array_shift($rows);
+            $candidates = [];
+            foreach ($rows as $r) {
+                $r['removable'] = $r['tx_type'] === 'transfer'
+                    && $r['allocation_count'] === 0
+                    && $r['notification_count'] === 0;
+                $candidates[] = $r;
+            }
+
+            $result[] = [
+                'transaction_date' => $g['transaction_date'],
+                'amount'           => (float) $g['amount'],
+                'description'      => $g['description'],
+                'keep'             => $keep,
+                'candidates'       => $candidates,
+            ];
+        }
+
+        return $result;
+    }
+
+    private function loadDuplicateCandidateRows(array $rowIds): array
+    {
+        if (empty($rowIds)) {
+            return [];
+        }
+        $in = implode(',', $rowIds);
+        $stmt = $this->db->query("
+            SELECT bir.id AS row_id, bir.session_id, bir.transaction_id, bir.created_at,
+                   at.type AS tx_type,
+                   (SELECT COUNT(*) FROM invoice_payment_allocations ipa WHERE ipa.transaction_id = at.id) AS allocation_count,
+                   (SELECT COUNT(*) FROM etransfer_notifications en WHERE en.bank_transaction_id = at.id) AS notification_count
+              FROM bank_import_rows bir
+              LEFT JOIN accounting_transactions at ON at.id = bir.transaction_id
+             WHERE bir.id IN ($in)
+        ");
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Remove one committed duplicate bank row (and its accounting_transactions
+     * row) after re-verifying it's still safe — never trusts a caller-supplied
+     * "this is fine" flag from an earlier read. Refuses (does not force) if
+     * anything has changed since the row was surfaced as a candidate.
+     */
+    public function removeDuplicateRow(int $bankImportRowId, int $userId): array
+    {
+        $row = $this->db->prepare("
+            SELECT bir.id, bir.session_id, bir.transaction_id, bir.transaction_date, bir.amount, bir.description,
+                   at.type AS tx_type
+              FROM bank_import_rows bir
+              LEFT JOIN accounting_transactions at ON at.id = bir.transaction_id
+             WHERE bir.id = ?
+        ");
+        $row->execute([$bankImportRowId]);
+        $row = $row->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            throw new RuntimeException('Row not found.');
+        }
+        if (!$row['transaction_id']) {
+            throw new RuntimeException('Row has no linked transaction — nothing to remove.');
+        }
+        if ($row['tx_type'] !== 'transfer') {
+            throw new RuntimeException('Refusing to remove a row that is not type=transfer — it may represent unrecognized real income.');
+        }
+
+        $sibling = $this->db->prepare("
+            SELECT COUNT(*) FROM bank_import_rows
+             WHERE transaction_date = ? AND amount = ? AND description = ? AND id != ?
+        ");
+        $sibling->execute([$row['transaction_date'], $row['amount'], $row['description'], $bankImportRowId]);
+        if ((int) $sibling->fetchColumn() < 1) {
+            throw new RuntimeException('No other copy of this transaction remains — refusing to delete the only record of it.');
+        }
+
+        $allocCheck = $this->db->prepare("SELECT COUNT(*) FROM invoice_payment_allocations WHERE transaction_id = ?");
+        $allocCheck->execute([$row['transaction_id']]);
+        if ((int) $allocCheck->fetchColumn() > 0) {
+            throw new RuntimeException('This transaction is referenced by an invoice payment allocation — cannot remove.');
+        }
+
+        $noteCheck = $this->db->prepare("SELECT COUNT(*) FROM etransfer_notifications WHERE bank_transaction_id = ?");
+        $noteCheck->execute([$row['transaction_id']]);
+        if ((int) $noteCheck->fetchColumn() > 0) {
+            throw new RuntimeException('This transaction is linked from a pending e-Transfer notification — cannot remove.');
+        }
+
+        $this->db->beginTransaction();
+        try {
+            $this->db->prepare("DELETE FROM bank_import_rows WHERE id = ?")->execute([$bankImportRowId]);
+            $this->db->prepare("DELETE FROM accounting_transactions WHERE id = ? AND type = 'transfer'")
+                ->execute([$row['transaction_id']]);
+            $this->db->commit();
+        } catch (Throwable $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            throw $e;
+        }
+
+        return [
+            'removed_row_id' => $bankImportRowId,
+            'removed_tx_id'  => (int) $row['transaction_id'],
+            'description'    => $row['description'],
+            'amount'         => (float) $row['amount'],
+        ];
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
     // SESSION HISTORY
     // ══════════════════════════════════════════════════════════════════════════
 

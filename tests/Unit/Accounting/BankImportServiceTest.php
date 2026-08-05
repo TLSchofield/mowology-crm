@@ -776,4 +776,96 @@ class BankImportServiceTest extends TestCase
 
         $this->assertSame(24440, $result);
     }
+
+    // ── removeDuplicateRow() ─────────────────────────────────────────────────
+    // Guard clauses only — the happy-path DELETE transaction is exercised on
+    // production (same convention as attach()/detach() elsewhere in this
+    // module). Each guard re-verifies against the DB rather than trusting a
+    // caller-supplied "this is safe" flag from an earlier read.
+
+    /** Build a PDO mock whose prepare() dispatches by SQL substring. */
+    private function pdoDispatching(array $handlers): PDO
+    {
+        $pdo = $this->createMock(PDO::class);
+        $pdo->method('prepare')->willReturnCallback(function (string $sql) use ($handlers) {
+            foreach ($handlers as $needle => $makeStmt) {
+                if (str_contains($sql, $needle)) {
+                    return $makeStmt();
+                }
+            }
+            $this->fail('Unexpected query: ' . $sql);
+        });
+        return $pdo;
+    }
+
+    private function stmtReturning($fetchValue, string $fetchMethod = 'fetch'): PDOStatement
+    {
+        $stmt = $this->createMock(PDOStatement::class);
+        $stmt->method('execute')->willReturn(true);
+        $stmt->method($fetchMethod)->willReturn($fetchValue);
+        return $stmt;
+    }
+
+    public function test_removeDuplicateRow_throws_when_row_not_found(): void
+    {
+        $pdo = $this->pdoDispatching([
+            'FROM bank_import_rows bir' => fn() => $this->stmtReturning(false),
+        ]);
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('Row not found');
+        (new BankImportService($pdo))->removeDuplicateRow(999, 1);
+    }
+
+    public function test_removeDuplicateRow_refuses_non_transfer_type(): void
+    {
+        // A row still type='income' may represent real, unrecognized money —
+        // must never be silently deleted, only a 'transfer' (already
+        // reconciled elsewhere) is safe to remove.
+        $row = ['id'=>1,'session_id'=>35,'transaction_id'=>100,'transaction_date'=>'2026-07-19','amount'=>63.68,'description'=>'x','tx_type'=>'income'];
+        $pdo = $this->pdoDispatching([
+            'FROM bank_import_rows bir' => fn() => $this->stmtReturning($row),
+        ]);
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('not type=transfer');
+        (new BankImportService($pdo))->removeDuplicateRow(1, 1);
+    }
+
+    public function test_removeDuplicateRow_refuses_when_no_sibling_remains(): void
+    {
+        $row = ['id'=>1,'session_id'=>35,'transaction_id'=>100,'transaction_date'=>'2026-07-19','amount'=>63.68,'description'=>'x','tx_type'=>'transfer'];
+        $pdo = $this->pdoDispatching([
+            'FROM bank_import_rows bir' => fn() => $this->stmtReturning($row),
+            'AND id != ?'               => fn() => $this->stmtReturning(0, 'fetchColumn'),
+        ]);
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('only record');
+        (new BankImportService($pdo))->removeDuplicateRow(1, 1);
+    }
+
+    public function test_removeDuplicateRow_refuses_when_allocation_exists(): void
+    {
+        $row = ['id'=>1,'session_id'=>35,'transaction_id'=>100,'transaction_date'=>'2026-07-19','amount'=>63.68,'description'=>'x','tx_type'=>'transfer'];
+        $pdo = $this->pdoDispatching([
+            'FROM bank_import_rows bir'          => fn() => $this->stmtReturning($row),
+            'AND id != ?'                        => fn() => $this->stmtReturning(1, 'fetchColumn'),
+            'FROM invoice_payment_allocations'   => fn() => $this->stmtReturning(1, 'fetchColumn'),
+        ]);
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('payment allocation');
+        (new BankImportService($pdo))->removeDuplicateRow(1, 1);
+    }
+
+    public function test_removeDuplicateRow_refuses_when_etransfer_notification_references_it(): void
+    {
+        $row = ['id'=>1,'session_id'=>35,'transaction_id'=>100,'transaction_date'=>'2026-07-19','amount'=>63.68,'description'=>'x','tx_type'=>'transfer'];
+        $pdo = $this->pdoDispatching([
+            'FROM bank_import_rows bir'          => fn() => $this->stmtReturning($row),
+            'AND id != ?'                        => fn() => $this->stmtReturning(1, 'fetchColumn'),
+            'FROM invoice_payment_allocations'   => fn() => $this->stmtReturning(0, 'fetchColumn'),
+            'FROM etransfer_notifications'       => fn() => $this->stmtReturning(1, 'fetchColumn'),
+        ]);
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('pending e-Transfer notification');
+        (new BankImportService($pdo))->removeDuplicateRow(1, 1);
+    }
 }

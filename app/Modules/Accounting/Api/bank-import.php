@@ -234,6 +234,23 @@ try {
             echo json_encode(['ok' => true, 'dismissed' => $count]);
             break;
 
+        // ── Committed-duplicate cleanup (rows already imported more than once) ──
+        case 'find_duplicates':
+            $groups = $importer->findDuplicateGroups();
+            echo json_encode(['ok' => true, 'groups' => $groups]);
+            break;
+
+        case 'remove_duplicate':
+            if (($user['role'] ?? '') !== 'admin') throw new Exception('Admin only', 403);
+            $rowId = (int)($input['row_id'] ?? 0);
+            if (!$rowId) throw new Exception('Missing row_id');
+            $result = $importer->removeDuplicateRow($rowId, (int)$user['id']);
+            logActivityExtended((int)$user['id'], 'Duplicate bank transaction removed',
+                $result['description'] . ' — ' . formatCurrency($result['amount'])
+                . ' (row #' . $result['removed_row_id'] . ', tx #' . $result['removed_tx_id'] . ')');
+            echo json_encode(['ok' => true] + $result);
+            break;
+
         // ── Budget vs Actual ────────────────────────────────────────────────────
         case 'budget_vs_actual':
             $month = $_GET['month'] ?? date('Y-m');

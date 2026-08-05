@@ -84,6 +84,7 @@ $activePage = 'accounting';
                         <option value="scotiabank">Scotiabank</option>
                         <option value="vancity">Vancity (Bank)</option>
                         <option value="generic">Generic bank (single amount column)</option>
+                        <option value="generic_dc">Generic bank (debit/credit columns)</option>
                     </optgroup>
                     <optgroup label="Credit cards">
                         <option value="td_cc">TD Credit Card</option>
@@ -322,6 +323,17 @@ $activePage = 'accounting';
     </div>
 </div>
 
+<!-- ── Duplicate Transactions (already-committed rows imported more than once) ── -->
+<div class="card" id="duplicates-card" style="display:none;">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="card-title mb-0">Duplicate Transactions</h5>
+        <button class="btn btn-sm btn-outline-secondary" onclick="loadDuplicates()">Refresh</button>
+    </div>
+    <div class="card-body p-0">
+        <div id="duplicates-body"></div>
+    </div>
+</div>
+
 <script>
 const API     = '/crm/api/accounting-bank-import.php';
 const API_ACC = '/crm/api/accounting-accounts.php';
@@ -341,6 +353,7 @@ const PRESET_HINTS = {
     scotiabank:  'Columns: Date, Description, Withdrawal, Deposit, Balance',
     vancity:     'Columns: Date, Description, Withdrawal, Deposit, Balance',
     generic:     'Columns: Date, Description, Amount (positive=income, negative=expense)',
+    generic_dc:  'Columns: Date, Description, Debit, Credit, Balance',
     td_cc:       'Credit card — charges import as expenses; the monthly payment is flagged to reconcile.',
     vancity_cc:  'Credit card — charges import as expenses; the monthly payment is flagged to reconcile.',
     generic_cc:  'Credit card — Date, Description, Amount (charge positive, payment/credit negative).',
@@ -353,6 +366,7 @@ const CC_PRESETS = ['td_cc', 'vancity_cc', 'generic_cc'];
 document.addEventListener('DOMContentLoaded', () => {
     loadAccounts();
     loadSessions();
+    loadDuplicates();
     updatePresetHint();
     initDropZone();
 });
@@ -952,6 +966,58 @@ async function rollbackSession(sessionId) {
     const d = await r.json();
     mwToast(d.ok ? `Rolled back — ${d.deleted} transactions removed.` : 'Error: ' + d.error, d.ok ? 'success' : 'error');
     loadSessions();
+}
+
+async function loadDuplicates() {
+    const r = await fetch(API + '?action=find_duplicates');
+    const d = await r.json();
+    const card = document.getElementById('duplicates-card');
+    if (!d.ok || !d.groups.length) {
+        card.style.display = 'none';
+        return;
+    }
+    card.style.display = '';
+
+    const body = document.getElementById('duplicates-body');
+    body.innerHTML = d.groups.map(g => {
+        const rows = g.candidates.map(c => `
+            <div class="d-flex justify-content-between align-items-center py-2 px-3" style="border-top:1px solid #eee;">
+                <span class="small text-muted">
+                    Row #${c.row_id} · imported ${esc((c.created_at||'').substring(0,10))}
+                    ${c.removable ? '' : '<span class="badge bg-warning text-dark ml-2">Needs review</span>'}
+                </span>
+                ${c.removable
+                    ? `<button class="btn btn-xs btn-outline-danger" onclick="removeDuplicate(${c.row_id}, this)">Remove duplicate</button>`
+                    : `<span class="small text-muted" title="Not type=transfer, or referenced by an allocation/e-Transfer notification — remove manually if you're sure.">Can't auto-remove</span>`
+                }
+            </div>`).join('');
+        return `
+            <div class="mb-2">
+                <div class="d-flex justify-content-between align-items-center py-2 px-3" style="background:#f8f9fa;">
+                    <strong class="small">${esc(g.transaction_date)} · ${fmtMoney(g.amount)} · ${esc(g.description)}</strong>
+                    <span class="small text-success">Row #${g.keep.row_id} kept (original)</span>
+                </div>
+                ${rows}
+            </div>`;
+    }).join('');
+}
+
+async function removeDuplicate(rowId, btn) {
+    if (!confirm('Remove this duplicate transaction? The original copy is untouched.')) return;
+    btn.disabled = true;
+    const r = await fetch(API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'remove_duplicate', row_id: rowId }),
+    });
+    const d = await r.json();
+    if (d.ok) {
+        mwToast('Removed.', 'success');
+        loadDuplicates();
+    } else {
+        mwToast('Error: ' + d.error, 'error');
+        btn.disabled = false;
+    }
 }
 
 function fmtMoney(v) {
