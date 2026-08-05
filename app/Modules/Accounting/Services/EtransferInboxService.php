@@ -249,10 +249,22 @@ class EtransferInboxService
         $best = null;
         $bestScore = 0;
         foreach ($candidates as $c) {
-            $score = 50; // amount matched
+            // Date proximity is a HARD gate, not just a scoring bonus — an
+            // e-Transfer notification email arrives essentially the same day
+            // the money moves, so a deposit weeks away can't be this transfer
+            // no matter how well amount + sender name line up. Without this,
+            // amount(50) + name(25) alone clears the 60-point bar and silently
+            // links to an unrelated deposit from a different month.
             if ($emailDate) {
                 $dayDiff = abs((strtotime($c['transaction_date']) - strtotime($emailDate)) / 86400);
-                $score += $dayDiff <= 1 ? 20 : ($dayDiff <= 3 ? 12 : ($dayDiff <= 7 ? 6 : 0));
+                if ($dayDiff > 10) {
+                    continue;
+                }
+                $score = 50 + ($dayDiff <= 1 ? 20 : ($dayDiff <= 3 ? 12 : ($dayDiff <= 7 ? 6 : 0)));
+            } else {
+                // No email date to compare — amount alone can't clear the bar,
+                // sender-name overlap is required to even be considered.
+                $score = 50;
             }
             $descLower = strtolower((string) $c['description']);
             foreach ($senderWords as $w) {

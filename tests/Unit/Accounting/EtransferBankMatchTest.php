@@ -81,6 +81,29 @@ class EtransferBankMatchTest extends TestCase
         $this->assertNull($result);
     }
 
+    public function testFarApartDateDoesNotMatchEvenWithAmountAndNameOverlap(): void
+    {
+        // Regression: amount(50) + sender-name overlap(25) = 75, which used to
+        // clear the 60-point bar even when the bank deposit was weeks away from
+        // the email — silently linking two unrelated transfers just because
+        // they happened to share an amount and a name. Real case: a July 3
+        // deposit got linked to an August 1 notification this way. Date
+        // proximity must now be a hard gate (<=10 days), not just a bonus.
+        $svc = $this->serviceWith([[
+            'tx_id'            => 24493,
+            'transaction_date' => '2026-07-03',
+            'description'      => 'e-Transfer credit Ref 20260702225910818756 ALEXSHIKEWANG',
+        ]]);
+
+        $result = $svc->matchBankTransaction([
+            'amount'      => 378.16,
+            'sender_name' => 'ALEX SHI KE WANG',
+            'email_date'  => '2026-08-01',
+        ]);
+
+        $this->assertNull($result);
+    }
+
     public function testPicksHighestScoringCandidateWhenMultipleMatch(): void
     {
         $svc = $this->serviceWith([
