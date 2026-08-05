@@ -247,6 +247,54 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         }
     }
 
+    if ($action === 'correct_payment') {
+        if (!isAdmin()) {
+            $message     = 'Only admins can correct a recorded payment.';
+            $messageType = 'danger';
+        } else {
+            $correctedAmount = isset($_POST['corrected_amount']) ? (float) $_POST['corrected_amount'] : null;
+            $correctionReason = trim($_POST['correction_reason'] ?? '');
+
+            if ($correctedAmount === null || $correctionReason === '') {
+                $message     = 'Enter both a corrected amount and a reason.';
+                $messageType = 'warning';
+            } else {
+                require_once APP_ROOT . '/Modules/Accounting/Services/InvoiceReconciliationService.php';
+                try {
+                    $recon  = new InvoiceReconciliationService($db);
+                    $result = $recon->correctManualPayment($invoiceId, $correctedAmount, $correctionReason, (int) $user['id']);
+
+                    trackFieldChange('invoice', $invoiceId, 'amount_paid', (string) $result['old_amount_paid'], (string) $result['new_amount_paid'], $user['id']);
+                    trackFieldChange('invoice', $invoiceId, 'balance_due', (string) $result['old_balance_due'], (string) $result['new_balance_due'], $user['id']);
+                    if ($result['old_status'] !== $result['new_status']) {
+                        trackFieldChange('invoice', $invoiceId, 'status', $result['old_status'], $result['new_status'], $user['id']);
+                    }
+                    logActivityExtended($user['id'], 'Payment corrected',
+                        'Corrected recorded payment from ' . formatCurrency($result['old_amount_paid'])
+                        . ' to ' . formatCurrency($result['new_amount_paid']) . '. Reason: ' . $correctionReason,
+                        null, null, null, $invoiceId);
+
+                    $invoice['amount_paid'] = $result['new_amount_paid'];
+                    $invoice['balance_due'] = $result['new_balance_due'];
+                    $invoice['status']      = $result['new_status'];
+
+                    $message     = 'Payment corrected to ' . formatCurrency($result['new_amount_paid']) . '.';
+                    $messageType = 'success';
+                } catch (InvalidArgumentException $e) {
+                    $message     = $e->getMessage();
+                    $messageType = 'warning';
+                } catch (RuntimeException $e) {
+                    $message     = $e->getMessage();
+                    $messageType = 'warning';
+                } catch (Throwable $e) {
+                    error_log('correct_payment error for invoice ' . $invoiceId . ': ' . $e->getMessage());
+                    $message     = 'Could not correct payment. Please try again.';
+                    $messageType = 'danger';
+                }
+            }
+        }
+    }
+
     if ($action === 'send') {
         // Load recipients FIRST — status only updates if emails actually go out.
         // Fall back to the contact's live email when the invoice_contacts snapshot
@@ -1027,7 +1075,12 @@ $extraHead = $isPayable
                               </div>
                               <?php if (floatval($invoice['amount_paid'] ?? 0) > 0): ?>
                                   <div class="mw-total-row">
-                                      <span>Paid</span>
+                                      <span>
+                                          Paid
+                                          <?php if (isAdmin()): ?>
+                                              <button type="button" class="mw-correct-payment-btn" onclick="openCorrectPaymentModal()" title="Correct this payment amount">Correct</button>
+                                          <?php endif; ?>
+                                      </span>
                                       <span class="mw-totals-value" style="color: var(--mw-green);">-<?php echo formatCurrency($invoice['amount_paid']); ?></span>
                                   </div>
                                   <div class="mw-total-row mw-grand">
@@ -1391,7 +1444,12 @@ $extraHead = $isPayable
                               <div class="mw-pm-field">
                                   <label for="vm-pay-date">Payment Date</label>
                                   <div class="mw-pm-input-wrap">
-                                      <input type="date" id="vm-pay-date" name="payment_date"
+                                      <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#vm-pay-date" aria-haspopup="true" aria-expanded="false">
+                                          <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                          <span class="mw-datepicker-date" data-mw-dp-label></span>
+                                          <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                                      </button>
+                                      <input type="date" id="vm-pay-date" name="payment_date" hidden
                                              value="<?php echo date('Y-m-d'); ?>">
                                   </div>
                               </div>
@@ -1785,6 +1843,52 @@ function mwCopyInvoiceLink(btn) {
 function openCancelModal()  { document.getElementById('cancelModal').style.display = 'flex'; document.getElementById('cancellation_reason').focus(); }
 function closeCancelModal() { document.getElementById('cancelModal').style.display = 'none'; }
 document.getElementById('cancelModal').addEventListener('click', function(e) { if (e.target === this) closeCancelModal(); });
+</script>
+<?php endif; ?>
+
+<!-- Correct Payment Modal -->
+<?php if (isAdmin() && floatval($invoice['amount_paid'] ?? 0) > 0): ?>
+<div id="correctPaymentModal" class="mw-modal-overlay" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="correctPaymentModalTitle">
+    <div class="mw-modal" style="max-width:480px;">
+        <div class="mw-modal-header">
+            <h5 class="mb-0" id="correctPaymentModalTitle">Correct Payment — <?php echo htmlspecialchars($invoice['invoice_number']); ?></h5>
+            <button type="button" class="mw-modal-close" onclick="closeCorrectPaymentModal()" aria-label="Close">&times;</button>
+        </div>
+        <form method="POST">
+            <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+            <input type="hidden" name="action" value="correct_payment">
+            <div class="mw-modal-body">
+                <div class="alert alert-warning" style="font-size:13px;margin-bottom:16px;">
+                    Fixes a mis-recorded payment amount (e.g. a data-entry slip). Only available for
+                    payments recorded directly on this invoice — not for payments reconciled against
+                    a bank deposit or e-Transfer, which are corrected via unmerge/detach instead.
+                </div>
+                <div class="mw-form-group">
+                    <label class="form-label">Currently recorded as paid</label>
+                    <div class="mw-totals-value" style="font-size:18px;"><?php echo formatCurrency($invoice['amount_paid']); ?></div>
+                </div>
+                <div class="mw-form-group">
+                    <label class="form-label" for="corrected_amount">Corrected amount <span style="color:#dc2626;">*</span></label>
+                    <input type="number" step="0.01" min="0" id="corrected_amount" name="corrected_amount" class="form-control"
+                           value="<?php echo number_format((float) $invoice['amount_paid'], 2, '.', ''); ?>" required>
+                </div>
+                <div class="mw-form-group">
+                    <label class="form-label" for="correction_reason">Reason <span style="color:#dc2626;">*</span></label>
+                    <textarea id="correction_reason" name="correction_reason" class="form-control" rows="3"
+                              placeholder="e.g. Recorded as $756.32 by mistake — real payment was $378.16" required></textarea>
+                </div>
+            </div>
+            <div class="mw-modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeCorrectPaymentModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save Correction</button>
+            </div>
+        </form>
+    </div>
+</div>
+<script>
+function openCorrectPaymentModal()  { document.getElementById('correctPaymentModal').style.display = 'flex'; document.getElementById('corrected_amount').focus(); }
+function closeCorrectPaymentModal() { document.getElementById('correctPaymentModal').style.display = 'none'; }
+document.getElementById('correctPaymentModal').addEventListener('click', function(e) { if (e.target === this) closeCorrectPaymentModal(); });
 </script>
 <?php endif; ?>
 

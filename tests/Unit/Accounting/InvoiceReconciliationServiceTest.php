@@ -166,4 +166,44 @@ class InvoiceReconciliationServiceTest extends TestCase
         $this->assertSame(202, $candidates[0]['tx_id'], 'Strongest match should be first');
         $this->assertGreaterThan($candidates[1]['confidence'], $candidates[0]['confidence'] + 1);
     }
+
+    // ── correctManualPayment() guard clauses ────────────────────────────────
+    // These validate before any DB write, so a bare PDO mock (no expectations)
+    // is enough — a real write would need the full lock/update transaction,
+    // which is verified on production like attach()/detach() are (per this
+    // file's own docblock).
+
+    public function testCorrectManualPaymentRejectsEmptyReason(): void
+    {
+        $svc = new InvoiceReconciliationService($this->createMock(PDO::class));
+        $this->expectException(InvalidArgumentException::class);
+        $svc->correctManualPayment(28, 378.16, '   ', 1);
+    }
+
+    public function testCorrectManualPaymentRejectsNegativeAmount(): void
+    {
+        $svc = new InvoiceReconciliationService($this->createMock(PDO::class));
+        $this->expectException(InvalidArgumentException::class);
+        $svc->correctManualPayment(28, -10.00, 'Typo fix', 1);
+    }
+
+    public function testCorrectManualPaymentRefusesWhenAllocationsExist(): void
+    {
+        // Real scenario this guards against: an invoice reconciled via
+        // attach()/e-Transfer recording (invoice_payment_allocations rows
+        // exist) must be corrected through detach()/unmerge(), not by
+        // editing amount_paid directly — that would desync the allocation
+        // ledger against the bank deposit it's tied to.
+        $stmt = $this->createMock(PDOStatement::class);
+        $stmt->method('execute')->willReturn(true);
+        $stmt->method('fetchColumn')->willReturn(1); // 1 existing allocation row
+
+        $pdo = $this->createMock(PDO::class);
+        $pdo->method('prepare')->willReturn($stmt);
+
+        $svc = new InvoiceReconciliationService($pdo);
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('unmerge/detach');
+        $svc->correctManualPayment(231, 378.16, 'Should be refused', 1);
+    }
 }

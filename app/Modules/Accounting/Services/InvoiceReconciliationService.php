@@ -326,6 +326,83 @@ class InvoiceReconciliationService
         return ['reversed' => $reversed, 'deposit_remaining' => $this->remainingForDeposit($transactionId)];
     }
 
+    /**
+     * Correct a previously-recorded payment amount on an invoice that was paid
+     * via the legacy direct-entry path (no bank deposit / e-Transfer allocation
+     * behind it) — e.g. a data-entry slip like $756.32 recorded for a $378.16
+     * invoice. Deliberately narrow: refuses on any invoice tracked through
+     * invoice_payment_allocations (bank-deposit attach / e-Transfer recording),
+     * since editing amount_paid directly there would desync the allocation
+     * ledger — those must be corrected via detach()/unmerge() instead.
+     *
+     * @return array{invoice_id:int,invoice_number:string,old_amount_paid:float,new_amount_paid:float,old_status:string,new_status:string,old_balance_due:float,new_balance_due:float}
+     */
+    public function correctManualPayment(int $invoiceId, float $newAmountPaid, string $reason, int $userId): array
+    {
+        if (trim($reason) === '') {
+            throw new InvalidArgumentException('A reason is required to correct a payment.');
+        }
+        if ($newAmountPaid < 0) {
+            throw new InvalidArgumentException('Corrected amount cannot be negative.');
+        }
+
+        $allocCheck = $this->db->prepare("SELECT COUNT(*) FROM invoice_payment_allocations WHERE invoice_id = ?");
+        $allocCheck->execute([$invoiceId]);
+        if ((int) $allocCheck->fetchColumn() > 0) {
+            throw new RuntimeException(
+                'This invoice is reconciled against a bank deposit or e-Transfer allocation — '
+                . 'use unmerge/detach on that record instead of a manual correction.'
+            );
+        }
+
+        $this->db->beginTransaction();
+        try {
+            $inv = $this->lockInvoice($invoiceId);
+            if (!$inv) {
+                throw new RuntimeException("Invoice #{$invoiceId} not found.");
+            }
+
+            $total      = round((float) $inv['total'], 2);
+            $newPaid    = round($newAmountPaid, 2);
+            $newBalance = round(max(0, $total - $newPaid), 2);
+            $newStatus  = $newBalance <= 0.005
+                ? 'paid'
+                : ($newPaid > 0 ? 'partial' : $this->unpaidStatusFor($inv));
+
+            $this->db->prepare("
+                UPDATE invoices SET amount_paid = ?, balance_due = ?, status = ?
+                WHERE id = ?
+            ")->execute([$newPaid, $newBalance, $newStatus, $invoiceId]);
+
+            if ($newPaid > 0) {
+                $this->upsertInvoiceIncomeRow($invoiceId);
+            } else {
+                // Nothing paid anymore — remove the invoice income ledger row entirely,
+                // same as detach()'s full-reversal branch.
+                $this->db->prepare("
+                    DELETE FROM accounting_transactions
+                    WHERE reference_type = 'invoice' AND reference_id = ?
+                ")->execute([$invoiceId]);
+            }
+
+            $this->db->commit();
+        } catch (Throwable $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            throw $e;
+        }
+
+        return [
+            'invoice_id'       => $invoiceId,
+            'invoice_number'   => $inv['invoice_number'],
+            'old_amount_paid'  => round((float) $inv['amount_paid'], 2),
+            'new_amount_paid'  => $newPaid,
+            'old_status'       => $inv['status'],
+            'new_status'       => $newStatus,
+            'old_balance_due'  => round((float) $inv['balance_due'], 2),
+            'new_balance_due'  => $newBalance,
+        ];
+    }
+
     // ══════════════════════════════════════════════════════════════════════════
     // SCORING INTERNALS
     // ══════════════════════════════════════════════════════════════════════════

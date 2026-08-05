@@ -7085,6 +7085,18 @@ a.mw-clock-timer-nav:hover {
   padding-top:.75rem;
   margin-top:.5rem;
 }
+.mw-correct-payment-btn {
+  background:none;
+  border:none;
+  padding:0;
+  margin-left:.4rem;
+  font-size:.72rem;
+  font-weight:600;
+  color:var(--mw-dark, #1A5F4A);
+  text-decoration:underline;
+  cursor:pointer;
+}
+.mw-correct-payment-btn:hover { color:var(--mw-green, #2D8659); }
 .mw-measure-map-container {
   height:350px;
   border-radius:.25rem;
