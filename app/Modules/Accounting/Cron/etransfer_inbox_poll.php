@@ -45,11 +45,13 @@ if (!$isCli) {
     header('Content-Type: application/json; charset=utf-8');
 }
 
+$startMs = (int)(microtime(true) * 1000);
 $log = [];
 function pollLog(string $m): void { global $log; $log[] = '[' . date('Y-m-d H:i:s') . '] ' . $m; }
 
 if (!function_exists('imap_open')) {
     pollLog('FATAL: PHP imap extension not available.');
+    recordCronRun('etransfer_inbox_poll', 'error', 'PHP imap extension not available.', (int)(microtime(true) * 1000) - $startMs, null, !$isCli);
     if ($isCli) { echo implode("\n", $log) . "\n"; exit(1); }
     echo json_encode(['success' => false, 'error' => 'PHP imap extension not available.', 'log' => $log]);
     exit;
@@ -119,6 +121,7 @@ function pollBody($mbox, int $msgNo): string {
 
 $newItems = [];
 $seen = 0;
+$mailboxErrors = 0;
 
 foreach ($mailboxes as $mb) {
     $ref = "{{$host}:{$port}/imap/ssl}INBOX";
@@ -128,6 +131,7 @@ foreach ($mailboxes as $mb) {
     }
     if ($mbox === false) {
         pollLog("ERROR: could not log into {$mb['user']}: " . implode('; ', imap_errors() ?: ['unknown']));
+        $mailboxErrors++;
         continue;
     }
 
@@ -204,10 +208,19 @@ if (!empty($newItems)) {
     pollLog("Notification email to {$to}: " . ($ok ? 'sent' : 'FAILED'));
 }
 
+$count = count($newItems);
+recordCronRun(
+    'etransfer_inbox_poll',
+    $mailboxErrors > 0 ? 'warning' : 'success',
+    "Scanned {$seen} email(s), {$count} new.",
+    (int)(microtime(true) * 1000) - $startMs,
+    $mailboxErrors > 0 ? "{$mailboxErrors} mailbox(es) failed login" : null,
+    !$isCli
+);
+
 if ($isCli) {
     echo implode("\n", $log) . "\n";
 } else {
-    $count = count($newItems);
     echo json_encode([
         'success' => true,
         'message' => "Scanned {$seen} email(s), {$count} new.",

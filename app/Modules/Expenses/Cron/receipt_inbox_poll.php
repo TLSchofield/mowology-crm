@@ -47,12 +47,14 @@ if (!$isCli) {
     header('Content-Type: application/json; charset=utf-8');
 }
 
+$startMs = (int)(microtime(true) * 1000);
 $log = [];
 function rpLog(string $m): void { global $log; $log[] = '[' . date('Y-m-d H:i:s') . '] ' . $m; }
 
 function rpFail(string $msg): void {
-    global $log, $isCli;
+    global $log, $isCli, $startMs;
     rpLog($msg);
+    recordCronRun('receipt_inbox_poll', 'error', $msg, (int)(microtime(true) * 1000) - $startMs, null, !$isCli);
     if ($isCli) { echo implode("\n", $log) . "\n"; exit(1); }
     echo json_encode(['success' => false, 'error' => $msg, 'log' => $log]);
     exit;
@@ -261,12 +263,15 @@ if (!empty($autoPosted) || !empty($pending)) {
     rpLog("Summary email to {$to}: " . ($ok ? 'sent' : 'FAILED'));
 }
 
+$summary = "Scanned {$seen} attachment(s): " . count($autoPosted) . ' auto-posted, ' . count($pending) . ' pending.';
+recordCronRun('receipt_inbox_poll', 'success', $summary, (int)(microtime(true) * 1000) - $startMs, null, !$isCli);
+
 if ($isCli) {
     echo implode("\n", $log) . "\n";
 } else {
     echo json_encode([
         'success' => true,
-        'message' => "Scanned {$seen} attachment(s): " . count($autoPosted) . ' auto-posted, ' . count($pending) . ' pending.',
+        'message' => $summary,
         'log'     => $log,
     ]);
 }
