@@ -196,6 +196,82 @@ class EtransferInboxService
     }
 
     /**
+     * Find an already-imported bank deposit that likely corresponds to this
+     * e-Transfer notification — the bank↔email leg of three-way reconciliation
+     * (bank record + invoice + email all need to agree before staff can treat
+     * a transfer as officially closed). Scoring mirrors
+     * BankImportService::findInvoiceMatchForETransfer(): amount match is
+     * required, date proximity and sender-name overlap against the bank
+     * description raise confidence.
+     *
+     * @param array $note Fields: amount, sender_name, email_date (either a
+     *   freshly-parsed transfer or an existing etransfer_notifications row).
+     * @return array{tx_id:int,confidence:int,description:string}|null
+     */
+    public function matchBankTransaction(array $note): ?array
+    {
+        $amount = $note['amount'] ?? null;
+        if ($amount === null || (float) $amount <= 0) {
+            return null;
+        }
+
+        $stmt = $this->db->prepare(
+            "SELECT at.id AS tx_id, at.transaction_date, bir.description
+               FROM accounting_transactions at
+               JOIN bank_import_rows bir ON bir.transaction_id = at.id
+              WHERE at.type = 'income'
+                AND at.reference_type = 'bank_import'
+                AND ABS(at.amount - ?) < 0.01
+              ORDER BY at.transaction_date DESC
+              LIMIT 25"
+        );
+        $stmt->execute([$amount]);
+        $candidates = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        if (empty($candidates)) {
+            return null;
+        }
+
+        $emailDate   = $note['email_date'] ?? null;
+        $senderWords = [];
+        foreach (preg_split('/\s+/', strtolower((string) ($note['sender_name'] ?? ''))) as $w) {
+            if (strlen($w) >= 3) {
+                $senderWords[] = $w;
+            }
+        }
+
+        $best = null;
+        $bestScore = 0;
+        foreach ($candidates as $c) {
+            $score = 50; // amount matched
+            if ($emailDate) {
+                $dayDiff = abs((strtotime($c['transaction_date']) - strtotime($emailDate)) / 86400);
+                $score += $dayDiff <= 1 ? 20 : ($dayDiff <= 3 ? 12 : ($dayDiff <= 7 ? 6 : 0));
+            }
+            $descLower = strtolower((string) $c['description']);
+            foreach ($senderWords as $w) {
+                if (strpos($descLower, $w) !== false) {
+                    $score += 25;
+                    break;
+                }
+            }
+            if ($score > $bestScore) {
+                $bestScore = $score;
+                $best = $c;
+            }
+        }
+
+        if (!$best || $bestScore < 60) {
+            return null;
+        }
+
+        return [
+            'tx_id'       => (int) $best['tx_id'],
+            'confidence'  => min($bestScore, 100),
+            'description' => (string) $best['description'],
+        ];
+    }
+
+    /**
      * Insert a parsed notification (deduped) and run matching.
      * Returns ['inserted'=>bool, 'id'=>int|null, 'row'=>array|null].
      */
@@ -210,22 +286,25 @@ class EtransferInboxService
             return ['inserted' => false, 'id' => (int) $existing, 'row' => null];
         }
 
-        $match = $this->matchInvoice($parsed);
-        $dt    = $emailDate ? date('Y-m-d H:i:s', strtotime($emailDate)) : null;
+        $match     = $this->matchInvoice($parsed);
+        $dt        = $emailDate ? date('Y-m-d H:i:s', strtotime($emailDate)) : null;
+        $bankMatch = $this->matchBankTransaction(['amount' => $parsed['amount'], 'sender_name' => $parsed['sender_name'], 'email_date' => $dt]);
 
         try {
             $stmt = $this->db->prepare(
                 "INSERT INTO etransfer_notifications
                    (mailbox, dedup_key, reference_number, message_id, sender_name, amount, memo,
                     invoice_hint, transfer_type, email_subject, email_date,
-                    matched_invoice_id, match_method, match_confidence, status, created_at)
-                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'pending', NOW())"
+                    matched_invoice_id, match_method, match_confidence,
+                    bank_transaction_id, bank_match_confidence, status, created_at)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'pending', NOW())"
             );
             $stmt->execute([
                 $mailbox, $dedup, $parsed['reference_number'], $messageId, $parsed['sender_name'],
                 $parsed['amount'], $parsed['memo'], $parsed['invoice_hint'], $parsed['transfer_type'],
                 $emailSubject, $dt,
                 $match['invoice_id'], $match['method'], $match['confidence'],
+                $bankMatch['tx_id'] ?? null, $bankMatch['confidence'] ?? null,
             ]);
         } catch (PDOException $e) {
             // Lost an insert race against a concurrent poll → already seen.
@@ -248,13 +327,16 @@ class EtransferInboxService
         return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
     }
 
-    /** Pending (incl. partially-allocated) notifications, newest first, with the suggested invoice's details. */
+    /** Pending (incl. partially-allocated) notifications, newest first, with the suggested invoice's + bank deposit's details. */
     public function listPending(): array
     {
         $sql = "SELECT n.*, i.invoice_number AS matched_invoice_number, i.balance_due AS matched_balance,
-                       i.status AS matched_invoice_status
+                       i.status AS matched_invoice_status,
+                       bir.description AS bank_description, at.transaction_date AS bank_transaction_date
                   FROM etransfer_notifications n
              LEFT JOIN invoices i ON n.matched_invoice_id = i.id
+             LEFT JOIN accounting_transactions at ON n.bank_transaction_id = at.id
+             LEFT JOIN bank_import_rows bir ON bir.transaction_id = at.id
                  WHERE n.status IN ('pending', 'partially_recorded')
               ORDER BY n.email_date DESC, n.id DESC";
         return $this->db->query($sql)->fetchAll(PDO::FETCH_ASSOC);

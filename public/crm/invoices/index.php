@@ -249,6 +249,13 @@ $activePage = 'invoices';
                     $prefillNo  = $matchedNo ?: ($et['invoice_hint'] ?? '');
                     $conf       = $et['match_confidence'] ?? 'none';
                     $isClaim    = ($et['transfer_type'] ?? '') === 'claim';
+
+                    // Three-way reconciliation: email notification always exists (1);
+                    // invoice matched + bank deposit matched are the other two legs.
+                    // Only when all three agree is a transfer shown as fully closed off.
+                    $hasInvoiceMatch = $conf === 'high';
+                    $hasBankMatch    = !empty($et['bank_transaction_id']);
+                    $reconciledCount = 1 + ($hasInvoiceMatch ? 1 : 0) + ($hasBankMatch ? 1 : 0);
                     ?>
                     <div class="mw-et-row" data-id="<?php echo (int)$et['id']; ?>">
                         <div class="mw-et-main">
@@ -263,6 +270,19 @@ $activePage = 'invoices';
                             <?php if (!empty($et['memo'])): ?>
                                 <div class="mw-et-memo">“<?php echo htmlspecialchars($et['memo']); ?>”</div>
                             <?php endif; ?>
+                            <div class="mw-et-recon mw-et-recon--<?php echo $reconciledCount; ?>">
+                                <?php if ($reconciledCount === 3): ?>
+                                    ✓ Fully reconciled — bank deposit, invoice &amp; email all match
+                                <?php else: ?>
+                                    <?php echo $reconciledCount; ?>/3 confirmed — missing
+                                    <?php
+                                    $missing = [];
+                                    if (!$hasInvoiceMatch) $missing[] = 'invoice match';
+                                    if (!$hasBankMatch)    $missing[] = 'bank deposit';
+                                    echo htmlspecialchars(implode(' & ', $missing));
+                                    ?>
+                                <?php endif; ?>
+                            </div>
                         </div>
                         <div class="mw-et-actions">
                             <div class="mw-et-splits">

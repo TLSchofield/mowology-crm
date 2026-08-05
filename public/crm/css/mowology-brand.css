@@ -36145,6 +36145,15 @@ span.mw-icon-box--missing {
 .mw-et-ref-note--mismatch { color: #b45309; }
 .mw-et-ref-note--unknown  { color: #6b6b66; }
 
+.mw-et-recon {
+    margin-top: .25rem;
+    font-size: .78rem;
+    font-weight: 600;
+}
+.mw-et-recon--3 { color: var(--mw-green, #2D8659); }
+.mw-et-recon--2 { color: #b45309; }
+.mw-et-recon--1 { color: #94a3a0; }
+
 @media (max-width: 640px) {
     .mw-et-actions { width: 100%; align-items: stretch; }
     .mw-et-split-line { flex-wrap: wrap; }
