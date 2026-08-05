@@ -78,6 +78,11 @@ try {
           AND (i.reminder_count IS NULL OR i.reminder_count < ?)
           AND (i.last_reminder_sent_at IS NULL OR i.last_reminder_sent_at < DATE_SUB(NOW(), INTERVAL ? DAY))
           AND i.due_date <= DATE_ADD(CURDATE(), INTERVAL ? DAY)
+          AND NOT EXISTS (
+              SELECT 1 FROM etransfer_notifications en
+               WHERE en.matched_invoice_id = i.id
+                 AND en.status IN ('pending', 'partially_recorded')
+          )
         ORDER BY i.due_date ASC
     ");
     $stmt->execute([$MAX_REMINDERS, $COOLDOWN_DAYS, $APPROACHING_DAYS]);

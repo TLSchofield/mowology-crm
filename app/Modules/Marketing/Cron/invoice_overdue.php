@@ -44,12 +44,21 @@ try {
     //  - status is 'sent', 'viewed', or 'partial'
     //  - due_date has passed
     //  - not already paid
+    // Skip invoices with an e-Transfer already sitting in the pending-review
+    // queue — a customer who's already sent payment shouldn't get flagged
+    // overdue (and trigger downstream reminder automations) just because
+    // staff haven't clicked Record yet.
     $rows = $db->exec("
-        UPDATE invoices
+        UPDATE invoices i
         SET status = 'overdue'
         WHERE status IN ('sent', 'viewed', 'partial')
           AND due_date < CURDATE()
           AND (paid_at IS NULL OR balance_due > 0.01)
+          AND NOT EXISTS (
+              SELECT 1 FROM etransfer_notifications en
+               WHERE en.matched_invoice_id = i.id
+                 AND en.status IN ('pending', 'partially_recorded')
+          )
     ");
     ovLog("Marked {$rows} invoice(s) as overdue");
 

@@ -254,6 +254,11 @@ function getContactsForTrigger(PDO $db, string $type, array $config, array $rule
                   AND i.status IN ('sent','overdue')
                   AND i.due_date < DATE_SUB(NOW(), INTERVAL ? DAY)
                   AND i.paid_at IS NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM etransfer_notifications en
+                       WHERE en.matched_invoice_id = i.id
+                         AND en.status IN ('pending', 'partially_recorded')
+                  )
             ");
             $stmt->execute([$days]);
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
