@@ -211,8 +211,9 @@ class EtransferInboxService
      * required, date proximity and sender-name overlap against the bank
      * description raise confidence.
      *
-     * @param array $note Fields: amount, sender_name, email_date (either a
-     *   freshly-parsed transfer or an existing etransfer_notifications row).
+     * @param array $note Fields: amount, sender_name, email_date, and
+     *   optionally matched_invoice_id (either a freshly-parsed transfer or an
+     *   existing etransfer_notifications row).
      * @return array{tx_id:int,confidence:int,description:string}|null
      */
     public function matchBankTransaction(array $note): ?array
@@ -220,6 +221,31 @@ class EtransferInboxService
         $amount = $note['amount'] ?? null;
         if ($amount === null || (float) $amount <= 0) {
             return null;
+        }
+
+        // Stage 0 — deterministic: BankImportService's own import-time matcher
+        // (findInvoiceMatchForETransfer) may have already reconciled this exact
+        // invoice's bank deposit and booked it as a cash-clearing 'transfer' row
+        // (see BankImportService.php's "Book the bank deposit as a cash-clearing
+        // TRANSFER" branch) — bypassing invoice_payment_allocations entirely, so
+        // our own fuzzy scoring below (which only looks at still-unmatched
+        // type='income' rows) can never see it. A transfer already tied to this
+        // invoice is a stronger signal than anything our own scoring produces.
+        if (!empty($note['matched_invoice_id'])) {
+            $stmt = $this->db->prepare(
+                "SELECT id FROM accounting_transactions
+                  WHERE type = 'transfer' AND reference_type = 'bank_import'
+                    AND matched_invoice_id = ? LIMIT 1"
+            );
+            $stmt->execute([(int) $note['matched_invoice_id']]);
+            $txId = $stmt->fetchColumn();
+            if ($txId) {
+                return [
+                    'tx_id'       => (int) $txId,
+                    'confidence'  => 100,
+                    'description' => 'Already reconciled to this invoice via bank import',
+                ];
+            }
         }
 
         $stmt = $this->db->prepare(
@@ -307,7 +333,12 @@ class EtransferInboxService
 
         $match     = $this->matchInvoice($parsed);
         $dt        = $emailDate ? date('Y-m-d H:i:s', strtotime($emailDate)) : null;
-        $bankMatch = $this->matchBankTransaction(['amount' => $parsed['amount'], 'sender_name' => $parsed['sender_name'], 'email_date' => $dt]);
+        $bankMatch = $this->matchBankTransaction([
+            'amount'             => $parsed['amount'],
+            'sender_name'        => $parsed['sender_name'],
+            'email_date'         => $dt,
+            'matched_invoice_id' => $match['invoice_id'],
+        ]);
 
         try {
             $stmt = $this->db->prepare(

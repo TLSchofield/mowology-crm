@@ -53,6 +53,9 @@ class BankImportService
         'td_cc'      => ['name' => 'TD Credit Card',     'kind' => 'credit_card', 'date' => 0, 'description' => 1, 'debit' => 2, 'credit' => 3, 'skip' => 1],
         'vancity_cc' => ['name' => 'Vancity Credit Card','kind' => 'credit_card', 'date' => 0, 'description' => 1, 'debit' => 2, 'credit' => 3, 'skip' => 1],
         'generic'    => ['name' => 'Generic',            'kind' => 'bank', 'date' => 0, 'description' => 1, 'amount' => 2,               'skip' => 1],
+        // Unrecognized institution but with separate Debit/Credit columns (e.g.
+        // Vancity's downloadable statement, which has no bank name in the file).
+        'generic_dc' => ['name' => 'Generic (Debit/Credit)', 'kind' => 'bank', 'date' => 0, 'description' => 1, 'debit' => 2, 'credit' => 3, 'skip' => 1],
         'generic_cc' => ['name' => 'Generic Credit Card','kind' => 'credit_card', 'date' => 0, 'description' => 1, 'amount' => 2,        'skip' => 1],
     ];
 
@@ -131,12 +134,14 @@ class BankImportService
         // Credit-card signals: explicit card wording, or a "posted"/"transaction"
         // date pairing typical of card exports.
         $looksCC = (bool)preg_match('/\b(credit\s*card|visa|mastercard|master\s*card|amex|american\s+express|card\s*(no|number|holder)?|posted\s+date)\b/', $hay);
-        // Bank signals: chequing/withdrawal/deposit columns.
-        $looksBank = (bool)preg_match('/\b(withdrawal|deposit|cheque|chequing|chequed|opening\s+balance|account\s+balance)\b/', $hay);
+        // Bank signals: chequing/withdrawal/deposit columns, or a plain "debits/credits"
+        // header pair (e.g. Vancity's downloadable "Date,Description,Debits,Credits,Balance"
+        // export, which carries no institution name at all).
+        $looksBank = (bool)preg_match('/\b(withdrawal|deposit|cheque|chequing|chequed|opening\s+balance|account\s+balance|debits|credits)\b/', $hay);
 
-        // Single signed amount column (no separate debit/credit)?
-        $hasDebitCredit = (bool)preg_match('/\b(debit|withdrawal)\b/', $hay)
-                       && (bool)preg_match('/\b(credit|deposit)\b/', $hay);
+        // Separate debit/credit columns (as opposed to a single signed amount column)?
+        $hasDebitCredit = (bool)preg_match('/\b(debit|withdrawal)s?\b/', $hay)
+                       && (bool)preg_match('/\b(credit|deposit)s?\b/', $hay);
 
         $isVancity = (bool)preg_match('/\b(vancity|vcty)\b/', $hay);
         $isTd      = (bool)preg_match('/\b(td|toronto\s*dominion)\b/', $hay);
@@ -151,9 +156,18 @@ class BankImportService
             return 'td';
         }
 
-        // Institution unknown — still classify bank vs CC so routing is correct.
+        // Institution unknown — still classify bank vs CC, and split vs single-amount,
+        // so routing and column mapping are correct. Without this, an unrecognized
+        // bank export with separate Debit/Credit columns fell through to the
+        // 'generic' preset (a SINGLE signed amount column), which silently misreads
+        // the Debits column as a positive "amount" and flips every expense to income —
+        // and breaks true-duplicate detection since the row's type no longer matches
+        // the type already recorded for that transaction.
         if ($looksCC && !$looksBank) {
-            return $hasDebitCredit ? 'generic_cc' : 'generic_cc';
+            return 'generic_cc';
+        }
+        if ($looksBank && $hasDebitCredit) {
+            return 'generic_dc';
         }
         return '';
     }
@@ -2671,19 +2685,35 @@ class BankImportService
      */
     private function checkTrueDuplicate(string $date, float $amount, string $type): ?int
     {
+        // Match directly against accounting_transactions rather than requiring a
+        // bank_import_rows audit entry — historical imports (or transactions created
+        // outside the standard commit path) may lack a bank_import_rows row for the
+        // same transaction, which previously made this check silently miss real
+        // duplicates and let bulk re-uploads re-import already-recorded transactions.
+        //
+        // type IN (?, 'transfer') — not just type = ? — because a prior import of
+        // this exact row may have already been reclassified to 'transfer': an
+        // income deposit auto-matched to an invoice (see the "Book the bank
+        // deposit as a cash-clearing TRANSFER" branch above) or a credit-card
+        // settlement, both relabel the row post-import. Checking only the
+        // incoming row's own type missed every such row on re-import — the
+        // duplicate silently got re-created instead of skipped. Real case: a
+        // July statement re-imported over an already-covered period created 22
+        // duplicate rows this way. 'transfer' is still narrower than dropping
+        // the type filter entirely, which would risk matching an unrelated
+        // expense against an income of the same amount/date.
         $stmt = $this->db->prepare("
-            SELECT r.transaction_id
-            FROM bank_import_rows r
-            JOIN accounting_transactions t ON t.id = r.transaction_id
-            WHERE t.type = ?
-              AND ABS(t.amount - ?) < 0.01
-              AND ABS(DATEDIFF(t.transaction_date, ?)) <= 1
-              AND t.reference_type = 'bank_import'
+            SELECT id
+            FROM accounting_transactions
+            WHERE type IN (?, 'transfer')
+              AND ABS(amount - ?) < 0.01
+              AND ABS(DATEDIFF(transaction_date, ?)) <= 1
+              AND reference_type = 'bank_import'
             LIMIT 1
         ");
         $stmt->execute([$type, $amount, $date]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        return $row ? (int)$row['transaction_id'] : null;
+        return $row ? (int)$row['id'] : null;
     }
 
     /**

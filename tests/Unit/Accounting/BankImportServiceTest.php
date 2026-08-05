@@ -410,6 +410,25 @@ class BankImportServiceTest extends TestCase
         $this->assertSame('td', $this->service->detectStatementType($header, 'td_chequing.csv'));
     }
 
+    /**
+     * Regression: Vancity's downloadable statement export ("Date,Description,
+     * Debits,Credits,Balance") carries no institution name in the header or
+     * filename. Before this fix it fell through to the 'generic' preset
+     * (single signed amount column), which misread the Debits column as a
+     * positive amount and flipped every expense row to income.
+     * @test
+     */
+    public function detectStatementType_unbranded_debit_credit_export_uses_generic_dc(): void
+    {
+        $header = 'Date,Description,Debits,Credits,Balance';
+        $this->assertSame('generic_dc', $this->service->detectStatementType($header, 'Account_Statement_6801_05-Aug-2026.csv'));
+
+        $preset = $this->service->getPreset('generic_dc');
+        $this->assertSame('bank', $preset['kind']);
+        $this->assertSame(2, $preset['debit']);
+        $this->assertSame(3, $preset['credit']);
+    }
+
     /** @test */
     public function detectStatementType_unknown_returns_empty(): void
     {
@@ -673,5 +692,88 @@ class BankImportServiceTest extends TestCase
     {
         $svc = $this->bankImportServiceWith(null, []);
         $this->assertSame([], $svc->candidateTransactionsForExpense(999));
+    }
+
+    // ── checkTrueDuplicate() ─────────────────────────────────────────────────
+
+    /**
+     * A transaction with reference_type='bank_import' must be detected as a
+     * duplicate even when it has no corresponding bank_import_rows entry —
+     * e.g. historical imports created outside the standard commit path.
+     * Regression test: the query used to require a bank_import_rows JOIN,
+     * which silently missed real duplicates when that audit row was absent.
+     */
+    public function test_checkTrueDuplicate_matches_without_bank_import_rows_entry(): void
+    {
+        $stmt = $this->createMock(PDOStatement::class);
+        $stmt->expects($this->once())->method('execute')
+            ->with(['expense', 23.61, '2026-07-31']);
+        $stmt->method('fetch')->willReturn(['id' => 555]);
+
+        $pdo = $this->createMock(PDO::class);
+        $pdo->expects($this->once())->method('prepare')
+            ->with($this->callback(function (string $sql) {
+                return strpos($sql, 'bank_import_rows') === false
+                    && strpos($sql, 'FROM accounting_transactions') !== false
+                    && strpos($sql, "reference_type = 'bank_import'") !== false;
+            }))
+            ->willReturn($stmt);
+
+        $svc = new BankImportService($pdo);
+        $m = $this->ref->getMethod('checkTrueDuplicate');
+        $m->setAccessible(true);
+        $result = $m->invoke($svc, '2026-07-31', 23.61, 'expense');
+
+        $this->assertSame(555, $result);
+    }
+
+    public function test_checkTrueDuplicate_returns_null_when_no_match(): void
+    {
+        $stmt = $this->createMock(PDOStatement::class);
+        $stmt->method('execute')->willReturn(true);
+        $stmt->method('fetch')->willReturn(false);
+
+        $pdo = $this->createMock(PDO::class);
+        $pdo->method('prepare')->willReturn($stmt);
+
+        $svc = new BankImportService($pdo);
+        $m = $this->ref->getMethod('checkTrueDuplicate');
+        $m->setAccessible(true);
+        $result = $m->invoke($svc, '2026-08-05', 66.15, 'income');
+
+        $this->assertNull($result);
+    }
+
+    /**
+     * Regression: a prior import of this exact row may have already been
+     * reclassified from 'income' to 'transfer' — either auto-matched to an
+     * invoice (see the "Book the bank deposit as a cash-clearing TRANSFER"
+     * branch in enrichRows/previewImport) or a credit-card settlement. Checking
+     * only `type = ?` (the incoming row's own type) missed every such row on
+     * re-import, since the earlier copy no longer carries that type — a
+     * duplicate silently got re-created instead of skipped. Real case: a July
+     * statement re-imported over an already-covered period created 22
+     * duplicate rows this way. The query must also match type='transfer'.
+     */
+    public function test_checkTrueDuplicate_matches_row_already_reclassified_to_transfer(): void
+    {
+        $stmt = $this->createMock(PDOStatement::class);
+        $stmt->expects($this->once())->method('execute')
+            ->with(['income', 63.68, '2026-07-19']);
+        $stmt->method('fetch')->willReturn(['id' => 24440]);
+
+        $pdo = $this->createMock(PDO::class);
+        $pdo->expects($this->once())->method('prepare')
+            ->with($this->callback(function (string $sql) {
+                return strpos($sql, "type IN (?, 'transfer')") !== false;
+            }))
+            ->willReturn($stmt);
+
+        $svc = new BankImportService($pdo);
+        $m = $this->ref->getMethod('checkTrueDuplicate');
+        $m->setAccessible(true);
+        $result = $m->invoke($svc, '2026-07-19', 63.68, 'income');
+
+        $this->assertSame(24440, $result);
     }
 }

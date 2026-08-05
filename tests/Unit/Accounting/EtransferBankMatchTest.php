@@ -81,6 +81,53 @@ class EtransferBankMatchTest extends TestCase
         $this->assertNull($result);
     }
 
+    public function testAlreadyReconciledTransferIsRecognizedBeforeFuzzyScoring(): void
+    {
+        // BankImportService's own import-time matcher can already reconcile a
+        // deposit to an invoice by booking it as type='transfer' with
+        // matched_invoice_id set — entirely bypassing invoice_payment_allocations.
+        // Our fuzzy scoring (Stage 2) only looks at still-unmatched type='income'
+        // rows, so without this Stage-0 check such a deposit is permanently
+        // invisible to the reconciliation panel even though it's real. Real case:
+        // Tove Pashkowski's $63.68 deposit, reconciled this way, showed "missing
+        // bank deposit" until this fix.
+        $stage0Stmt = $this->createMock(PDOStatement::class);
+        $stage0Stmt->method('execute')->willReturn(true);
+        $stage0Stmt->method('fetchColumn')->willReturn(24440);
+
+        $pdo = $this->createMock(PDO::class);
+        $pdo->method('prepare')->willReturnCallback(function (string $sql) use ($stage0Stmt) {
+            if (str_contains($sql, "type = 'transfer'")) {
+                return $stage0Stmt;
+            }
+            $this->fail('Stage 2 fuzzy query should not run once Stage 0 finds a match: ' . $sql);
+        });
+
+        $svc = new EtransferInboxService($pdo);
+        $result = $svc->matchBankTransaction([
+            'amount'             => 63.68,
+            'sender_name'        => 'TOVE MARIE PASHKOWSKI',
+            'email_date'         => '2026-07-13',
+            'matched_invoice_id' => 270,
+        ]);
+
+        $this->assertNotNull($result);
+        $this->assertSame(24440, $result['tx_id']);
+        $this->assertSame(100, $result['confidence']);
+    }
+
+    public function testNoMatchedInvoiceIdSkipsStage0AndFallsThroughToFuzzyScoring(): void
+    {
+        $svc = $this->serviceWith([]);
+        $result = $svc->matchBankTransaction([
+            'amount'      => 63.68,
+            'sender_name' => 'SOMEONE',
+            'email_date'  => '2026-07-13',
+            // no matched_invoice_id
+        ]);
+        $this->assertNull($result);
+    }
+
     public function testFarApartDateDoesNotMatchEvenWithAmountAndNameOverlap(): void
     {
         // Regression: amount(50) + sender-name overlap(25) = 75, which used to
