@@ -31,12 +31,93 @@ class YardiEftInboxService
     }
 
     /**
-     * Parse a Yardi remittance email (subject + plain-text body) into the
-     * transaction reference/date and one or more invoice line items.
+     * Parse a Yardi remittance email (subject + body — HTML or plain text)
+     * into the transaction reference/date and one or more invoice line items.
+     * The real email (captured 2026-08-05) is HTML-only, built from nested
+     * MS-Office-style tables; a plain-text body is also accepted (e.g. a
+     * manually forwarded/exported copy) as a fallback.
      *
      * @return array{transaction_reference:?string,transaction_date:?string,total:?float,lines:array<int,array{property:?string,invoice_number:?string,invoice_date:?string,amount:float}>}
      */
     public static function parseRemittanceEmail(string $subject, string $body): array
+    {
+        if (preg_match('/<[a-z][^>]*>/i', $body)) {
+            return self::parseHtmlBody($body);
+        }
+        return self::parseTextBody($body);
+    }
+
+    /** @return array{transaction_reference:?string,transaction_date:?string,total:?float,lines:array} */
+    private static function parseHtmlBody(string $html): array
+    {
+        $empty = ['transaction_reference' => null, 'transaction_date' => null, 'total' => null, 'lines' => []];
+
+        $doc = new DOMDocument();
+        libxml_use_internal_errors(true);
+        $ok = $doc->loadHTML('<?xml encoding="utf-8"?>' . $html);
+        libxml_clear_errors();
+        if (!$ok) {
+            return $empty;
+        }
+        $xpath = new DOMXPath($doc);
+
+        // The label text sits inside a <span> child, not as a direct text node
+        // of the <td> — normalize-space(.) matches the td's full text content
+        // (descendants included), text() alone would match nothing.
+        $labelValue = static function (string $label) use ($xpath): ?string {
+            $nodes = $xpath->query(
+                "//td[normalize-space(.)='" . $label . "']/following-sibling::td[1]"
+            );
+            if ($nodes && $nodes->length > 0) {
+                return trim($nodes->item(0)->textContent);
+            }
+            return null;
+        };
+
+        $reference = $labelValue('Transaction Reference No');
+        $txnDate   = $labelValue('Transaction Date');
+        $totalRaw  = $labelValue('Total');
+        $total     = ($totalRaw && preg_match('/([0-9,]+\.[0-9]{2})/', $totalRaw, $m))
+            ? (float) str_replace(',', '', $m[1]) : null;
+
+        // The "Invoice Details" table: identified by its header row containing
+        // "Invoice #" rather than position, since surrounding layout tables vary.
+        $lines = [];
+        $headerCells = $xpath->query("//tr[th[normalize-space(.)='Invoice #']]");
+        if ($headerCells && $headerCells->length > 0) {
+            $table = $headerCells->item(0)->parentNode->parentNode; // tr -> thead -> table
+            $rows  = $xpath->query(".//tbody/tr", $table);
+            foreach ($rows as $row) {
+                $cells = $xpath->query('./td', $row);
+                if ($cells->length < 4) {
+                    continue;
+                }
+                $amtRaw = trim($cells->item(3)->textContent);
+                if (!preg_match('/([0-9,]+\.[0-9]{2})/', $amtRaw, $am)) {
+                    continue;
+                }
+                $property = trim($cells->item(0)->textContent);
+                $invNo    = trim($cells->item(1)->textContent);
+                $invDate  = trim($cells->item(2)->textContent);
+                $lines[] = [
+                    'property'       => $property !== '' ? $property : null,
+                    'invoice_number' => $invNo !== '' ? $invNo : null,
+                    'invoice_date'   => $invDate !== '' ? $invDate : null,
+                    'amount'         => (float) str_replace(',', '', $am[1]),
+                ];
+            }
+        }
+
+        return [
+            'transaction_reference' => $reference,
+            'transaction_date'      => $txnDate,
+            'total'                 => $total,
+            'lines'                 => $lines,
+        ];
+    }
+
+    /** @return array{transaction_reference:?string,transaction_date:?string,total:?float,lines:array} */
+    private static function parseTextBody(string $body): array
     {
         $body = str_replace("\r\n", "\n", $body);
 

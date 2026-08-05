@@ -98,6 +98,10 @@ function yardiPollWalk($mbox, int $msgNo, $part, string $pn, array &$acc): void 
     elseif ($type === 'html' && $acc['html'] === '') { $acc['html'] = $data; }
 }
 
+// Unlike the Interac poller, the HTML body is kept as-is (not strip_tags'd) —
+// the real Yardi email is HTML-only, built from nested tables, and
+// YardiEftInboxService::parseRemittanceEmail() parses the table structure
+// directly via DOMDocument rather than relying on stripped-text line layout.
 function yardiPollBody($mbox, int $msgNo): string {
     $struct = @imap_fetchstructure($mbox, $msgNo);
     if (!$struct) { return ''; }
@@ -107,7 +111,7 @@ function yardiPollBody($mbox, int $msgNo): string {
     } else {
         $acc['plain'] = yardiPollDecode(imap_body($mbox, $msgNo), (int)($struct->encoding ?? 0));
     }
-    return $acc['plain'] !== '' ? $acc['plain'] : strip_tags($acc['html']);
+    return $acc['plain'] !== '' ? $acc['plain'] : $acc['html'];
 }
 
 $seen = 0;
@@ -144,7 +148,10 @@ if ($mbox === false) {
             $msgId   = $hdr->message_id ?? null;
             $date    = $hdr->date ?? null;
 
-            if ($date && $floorTs && strtotime($date) < $floorTs) { continue; }
+            if ($date && $floorTs && strtotime($date) < $floorTs) {
+                yardiPollLog("SKIP msg {$msgNo}: dated before launch floor (subject: {$subject})");
+                continue;
+            }
 
             $body   = yardiPollBody($mbox, $msgNo);
             $parsed = YardiEftInboxService::parseRemittanceEmail($subject, $body);
