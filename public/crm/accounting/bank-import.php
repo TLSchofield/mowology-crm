@@ -1052,8 +1052,28 @@ async function submitVerification() {
 }
 
 async function removeDuplicate(rowId, btn) {
-    if (!confirm('Remove this duplicate transaction? The original copy is untouched.')) return;
+    // Inline confirm instead of a native confirm() dialog — native dialogs
+    // block silently (no dialog rendered, no error, page just freezes) inside
+    // some embedded/webview browser contexts this app runs in.
+    if (btn.dataset.confirming !== '1') {
+        btn.dataset.confirming = '1';
+        btn.dataset.originalText = btn.textContent;
+        btn.textContent = 'Confirm remove?';
+        btn.classList.add('btn-danger');
+        btn.classList.remove('btn-outline-danger');
+        setTimeout(() => {
+            if (btn.dataset.confirming === '1' && document.body.contains(btn)) {
+                btn.dataset.confirming = '0';
+                btn.textContent = btn.dataset.originalText;
+                btn.classList.remove('btn-danger');
+                btn.classList.add('btn-outline-danger');
+            }
+        }, 4000);
+        return;
+    }
+
     btn.disabled = true;
+    btn.textContent = 'Removing…';
     const r = await fetch(API, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1066,6 +1086,10 @@ async function removeDuplicate(rowId, btn) {
     } else {
         mwToast('Error: ' + d.error, 'error');
         btn.disabled = false;
+        btn.dataset.confirming = '0';
+        btn.textContent = btn.dataset.originalText;
+        btn.classList.remove('btn-danger');
+        btn.classList.add('btn-outline-danger');
     }
 }
 
