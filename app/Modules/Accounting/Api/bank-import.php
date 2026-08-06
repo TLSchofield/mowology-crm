@@ -251,6 +251,19 @@ try {
             echo json_encode(['ok' => true] + $result);
             break;
 
+        // ── Statement verification (ground truth for the checks above) ──────────
+        case 'verify_statement':
+            if (($user['role'] ?? '') !== 'admin') throw new Exception('Admin only', 403);
+            $csv = (string)($input['csv'] ?? '');
+            if (trim($csv) === '') throw new Exception('Paste the statement export first.');
+            $counts = $importer->parseVerificationCsv($csv);
+            if (empty($counts)) throw new Exception('Could not parse any transactions — expected "Date,Description,Debits,Credits,Balance" rows.');
+            $n = $importer->recordStatementVerification($counts, (int)$user['id']);
+            logActivityExtended((int)$user['id'], 'Bank statement verification recorded',
+                "{$n} (date, amount) combinations verified against a real statement export");
+            echo json_encode(['ok' => true, 'recorded' => $n]);
+            break;
+
         // ── Budget vs Actual ────────────────────────────────────────────────────
         case 'budget_vs_actual':
             $month = $_GET['month'] ?? date('Y-m');

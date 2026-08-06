@@ -329,7 +329,20 @@ $activePage = 'accounting';
         <h5 class="card-title mb-0">Duplicate Transactions</h5>
         <button class="btn btn-sm btn-outline-secondary" onclick="loadDuplicates()">Refresh</button>
     </div>
-    <div class="card-body p-0">
+    <div class="card-body">
+        <div class="mw-verify-box mb-3">
+            <button type="button" class="btn btn-sm btn-outline-primary" onclick="toggleVerifyBox()">Verify against a real statement export</button>
+            <div id="verify-box" style="display:none; margin-top:10px;">
+                <p class="small text-muted mb-2">
+                    Paste the raw "Date,Description,Debits,Credits,Balance" statement CSV (e.g. a Vancity export).
+                    This confirms exactly how many times each (date, amount) transaction really happened — so a
+                    payer sending several separate same-amount payments on one day (e.g. a property manager
+                    paying multiple units the same fee) is never mistaken for a duplicate.
+                </p>
+                <textarea id="verify-csv" class="form-control" rows="6" placeholder="Date,Description,Debits,Credits,Balance&#10;19-Mar-2026,Preauthorized credit DORSET REALTY GROUP,,409.92,..."></textarea>
+                <button type="button" class="btn btn-sm btn-primary mt-2" onclick="submitVerification()">Verify</button>
+            </div>
+        </div>
         <div id="duplicates-body"></div>
     </div>
 </div>
@@ -972,34 +985,70 @@ async function loadDuplicates() {
     const r = await fetch(API + '?action=find_duplicates');
     const d = await r.json();
     const card = document.getElementById('duplicates-card');
-    if (!d.ok || !d.groups.length) {
-        card.style.display = 'none';
-        return;
-    }
     card.style.display = '';
 
     const body = document.getElementById('duplicates-body');
+    if (!d.ok || !d.groups.length) {
+        body.innerHTML = '<p class="text-muted small mb-0">No duplicate transactions found.</p>';
+        return;
+    }
+
     body.innerHTML = d.groups.map(g => {
-        const rows = g.candidates.map(c => `
+        const rows = g.candidates.map(c => {
+            let statusBadge = '';
+            let action;
+            if (c.verified_phantom) {
+                statusBadge = '<span class="badge bg-danger ml-2">No match in verified statement</span>';
+                action = `<span class="small text-muted" title="This (date, amount) doesn't match any real transaction in the verified statement — likely a parsing error, not a duplicate. Needs manual investigation.">Needs manual review</span>`;
+            } else if (c.removable) {
+                action = `<button class="btn btn-xs btn-outline-danger" onclick="removeDuplicate(${c.row_id}, this)">Remove duplicate</button>`;
+            } else {
+                statusBadge = '<span class="badge bg-warning text-dark ml-2">Needs review</span>';
+                action = `<span class="small text-muted" title="Not type=transfer and not verified against a real statement — remove manually if you're sure.">Can't auto-remove</span>`;
+            }
+            return `
             <div class="d-flex justify-content-between align-items-center py-2 px-3" style="border-top:1px solid #eee;">
                 <span class="small text-muted">
-                    Row #${c.row_id} · imported ${esc((c.created_at||'').substring(0,10))}
-                    ${c.removable ? '' : '<span class="badge bg-warning text-dark ml-2">Needs review</span>'}
+                    Row #${c.row_id} · imported ${esc((c.created_at||'').substring(0,10))}${statusBadge}
                 </span>
-                ${c.removable
-                    ? `<button class="btn btn-xs btn-outline-danger" onclick="removeDuplicate(${c.row_id}, this)">Remove duplicate</button>`
-                    : `<span class="small text-muted" title="Not type=transfer, or referenced by an allocation/e-Transfer notification — remove manually if you're sure.">Can't auto-remove</span>`
-                }
-            </div>`).join('');
+                ${action}
+            </div>`;
+        }).join('');
+        const verifiedNote = g.verified
+            ? `<span class="badge bg-success ml-2" title="Confirmed against a real statement export">Verified: ${g.real_count} real</span>`
+            : '<span class="badge bg-secondary ml-2" title="Not yet checked against a real statement">Unverified</span>';
         return `
             <div class="mb-2">
                 <div class="d-flex justify-content-between align-items-center py-2 px-3" style="background:#f8f9fa;">
-                    <strong class="small">${esc(g.transaction_date)} · ${fmtMoney(g.amount)} · ${esc(g.description)}</strong>
+                    <strong class="small">${esc(g.transaction_date)} · ${fmtMoney(g.amount)} · ${esc(g.description)}${verifiedNote}</strong>
                     <span class="small text-success">Row #${g.keep.row_id} kept (original)</span>
                 </div>
                 ${rows}
             </div>`;
     }).join('');
+}
+
+function toggleVerifyBox() {
+    const box = document.getElementById('verify-box');
+    box.style.display = box.style.display === 'none' ? '' : 'none';
+}
+
+async function submitVerification() {
+    const csv = document.getElementById('verify-csv').value;
+    if (!csv.trim()) { mwToast('Paste the statement CSV first.', 'error'); return; }
+    const r = await fetch(API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'verify_statement', csv }),
+    });
+    const d = await r.json();
+    if (d.ok) {
+        mwToast(`Verified ${d.recorded} (date, amount) combinations.`, 'success');
+        document.getElementById('verify-csv').value = '';
+        loadDuplicates();
+    } else {
+        mwToast('Error: ' + d.error, 'error');
+    }
 }
 
 async function removeDuplicate(rowId, btn) {

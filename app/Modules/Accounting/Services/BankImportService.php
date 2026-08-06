@@ -775,30 +775,114 @@ class BankImportService
     // ══════════════════════════════════════════════════════════════════════════
 
     /**
+     * Parse a raw "Date,Description,Debits,Credits,Balance" statement export
+     * (Vancity's CSV format — same shape as the regular import, but this path
+     * exists purely to establish ground truth for duplicate verification, not
+     * to categorize/commit transactions) into per-(date, amount) counts.
+     *
+     * @return array [ ['date'=>'YYYY-MM-DD', 'amount'=>float, 'count'=>int], ... ]
+     */
+    public function parseVerificationCsv(string $csvText): array
+    {
+        $months = ['Jan'=>'01','Feb'=>'02','Mar'=>'03','Apr'=>'04','May'=>'05','Jun'=>'06',
+                   'Jul'=>'07','Aug'=>'08','Sep'=>'09','Oct'=>'10','Nov'=>'11','Dec'=>'12'];
+
+        $lines  = preg_split('/\r\n|\r|\n/', trim($csvText));
+        $counts = []; // "date|amount" => count
+
+        foreach ($lines as $line) {
+            if (trim($line) === '') continue;
+            $cols = str_getcsv($line);
+            if (count($cols) < 4) continue;
+            [$date, , $debit, $credit] = $cols;
+
+            if (!preg_match('/^(\d{2})-([A-Za-z]{3})-(\d{4})$/', trim($date), $m)) continue;
+            if (!isset($months[$m[2]])) continue;
+            $iso = $m[3] . '-' . $months[$m[2]] . '-' . $m[1];
+
+            $amt = trim((string) $debit) !== '' ? (float) $debit : (float) $credit;
+            if ($amt <= 0) continue;
+
+            $key = $iso . '|' . number_format($amt, 2, '.', '');
+            $counts[$key] = ($counts[$key] ?? 0) + 1;
+        }
+
+        $result = [];
+        foreach ($counts as $key => $count) {
+            [$date, $amount] = explode('|', $key);
+            $result[] = ['date' => $date, 'amount' => (float) $amount, 'count' => $count];
+        }
+        return $result;
+    }
+
+    /**
+     * Record the TRUE per-(date, amount) count from a real bank statement, as
+     * confirmed by an admin uploading/pasting the actual export. Ground truth
+     * for findDuplicateGroups()/removeDuplicateRow() — see migration 1113.
+     *
+     * @param array $counts [ ['date'=>'YYYY-MM-DD', 'amount'=>float, 'count'=>int], ... ]
+     * @return int rows upserted
+     */
+    public function recordStatementVerification(array $counts, int $userId): int
+    {
+        $stmt = $this->db->prepare("
+            INSERT INTO bank_statement_verifications (transaction_date, amount, real_count, verified_by, verified_at)
+            VALUES (?, ?, ?, ?, NOW())
+            ON DUPLICATE KEY UPDATE real_count = VALUES(real_count), verified_by = VALUES(verified_by), verified_at = NOW()
+        ");
+        $n = 0;
+        foreach ($counts as $c) {
+            $date = $c['date'] ?? null;
+            $amt  = isset($c['amount']) ? round((float) $c['amount'], 2) : null;
+            $cnt  = isset($c['count']) ? (int) $c['count'] : null;
+            if (!$date || $amt === null || $cnt === null) continue;
+            $stmt->execute([$date, $amt, $cnt, $userId]);
+            $n++;
+        }
+        return $n;
+    }
+
+    /**
      * Find groups of committed bank_import_rows that share the same
-     * (transaction_date, amount, description) — i.e. the same real bank line,
-     * imported more than once. Within each group, the oldest row (lowest id)
-     * is the one to keep; every other row is a removal candidate.
+     * (transaction_date, amount) — i.e. the same real bank line, imported
+     * more than once. Grouped by (date, amount) only, not description, since
+     * the same real transaction's description text varies cosmetically
+     * between import batches/formats (spacing, casing) — see migration 1113.
      *
-     * A candidate is only `removable` when it's safe to delete outright:
-     *   - its accounting_transactions row is type='transfer' (already
-     *     reconciled elsewhere — not raw, unrecognized income)
-     *   - it has no invoice_payment_allocations rows
-     *   - no etransfer_notifications row points at it via bank_transaction_id
-     * Anything short of that is still surfaced, flagged not removable, so a
-     * human decides rather than the tool silently skipping it.
+     * How many copies to KEEP depends on whether this (date, amount) has been
+     * verified against a real statement (bank_statement_verifications):
+     *   - Verified: keep exactly `real_count` (the oldest N rows by id) —
+     *     this correctly handles a payer sending several separate real
+     *     transactions of the identical amount on the same day (e.g. a
+     *     property manager paying multiple units the same fee), which a
+     *     naive "any duplicate date+amount is one extra copy" rule would
+     *     wrongly collapse to 1.
+     *   - Verified with real_count=0: no real transaction matches at all —
+     *     flagged `verified_phantom`, never auto-removable (likely a parsing
+     *     error, not a duplicate — needs a human to figure out what it
+     *     actually is before anything is deleted).
+     *   - Unverified: fall back to the original heuristic — keep 1, and only
+     *     offer removal when the extra copy is already type='transfer'
+     *     (reconciled elsewhere, not raw unrecognized income).
      *
-     * @return array<int, array{transaction_date:string,amount:float,description:string,keep:array,candidates:array}>
+     * Every candidate also requires zero invoice_payment_allocations rows and
+     * no etransfer_notifications reference, verified or not.
+     *
+     * @return array<int, array{transaction_date:string,amount:float,description:string,verified:bool,real_count:?int,keep:array,candidates:array}>
      */
     public function findDuplicateGroups(): array
     {
         $groups = $this->db->query("
-            SELECT transaction_date, amount, description, COUNT(*) AS n,
-                   GROUP_CONCAT(id ORDER BY id) AS row_ids
-              FROM bank_import_rows
-             GROUP BY transaction_date, amount, description
+            SELECT bir.transaction_date, bir.amount, COUNT(*) AS n,
+                   GROUP_CONCAT(bir.id ORDER BY bir.id) AS row_ids,
+                   MIN(bir.description) AS description,
+                   bsv.real_count AS verified_real_count
+              FROM bank_import_rows bir
+              LEFT JOIN bank_statement_verifications bsv
+                     ON bsv.transaction_date = bir.transaction_date AND bsv.amount = bir.amount
+             GROUP BY bir.transaction_date, bir.amount, bsv.real_count
             HAVING COUNT(*) > 1
-             ORDER BY transaction_date DESC
+             ORDER BY bir.transaction_date DESC
         ")->fetchAll(PDO::FETCH_ASSOC);
 
         if (empty($groups)) {
@@ -814,12 +898,28 @@ class BankImportService
             }
 
             usort($rows, fn($a, $b) => $a['row_id'] <=> $b['row_id']);
-            $keep       = array_shift($rows);
+
+            $verified   = $g['verified_real_count'] !== null;
+            $realCount  = $verified ? (int) $g['verified_real_count'] : null;
+            $isPhantom  = $verified && $realCount === 0;
+            $keepCount  = $verified ? max(0, $realCount) : 1;
+
+            $keepRows   = array_slice($rows, 0, max(1, $keepCount)); // always visually keep >=1 as "original"
+            $candidateRows = array_slice($rows, count($keepRows));
+
             $candidates = [];
-            foreach ($rows as $r) {
-                $r['removable'] = $r['tx_type'] === 'transfer'
-                    && $r['allocation_count'] === 0
-                    && $r['notification_count'] === 0;
+            foreach ($candidateRows as $r) {
+                $safe = $r['allocation_count'] === 0 && $r['notification_count'] === 0;
+                if ($isPhantom) {
+                    $r['removable']        = false;
+                    $r['verified_phantom'] = true;
+                } elseif ($verified) {
+                    $r['removable']        = $safe;
+                    $r['verified_phantom'] = false;
+                } else {
+                    $r['removable']        = $safe && $r['tx_type'] === 'transfer';
+                    $r['verified_phantom'] = false;
+                }
                 $candidates[] = $r;
             }
 
@@ -827,7 +927,9 @@ class BankImportService
                 'transaction_date' => $g['transaction_date'],
                 'amount'           => (float) $g['amount'],
                 'description'      => $g['description'],
-                'keep'             => $keep,
+                'verified'         => $verified,
+                'real_count'       => $realCount,
+                'keep'             => $keepRows[0],
                 'candidates'       => $candidates,
             ];
         }
@@ -858,6 +960,12 @@ class BankImportService
      * row) after re-verifying it's still safe — never trusts a caller-supplied
      * "this is fine" flag from an earlier read. Refuses (does not force) if
      * anything has changed since the row was surfaced as a candidate.
+     *
+     * Two independent grounds for safety, either is sufficient:
+     *   (a) type='transfer' — already reconciled elsewhere, structurally safe
+     *   (b) verified excess — bank_statement_verifications proves fewer real
+     *       copies exist than are currently in the DB, and this row is not
+     *       among the oldest `real_count` (the ones being kept)
      */
     public function removeDuplicateRow(int $bankImportRowId, int $userId): array
     {
@@ -876,17 +984,39 @@ class BankImportService
         if (!$row['transaction_id']) {
             throw new RuntimeException('Row has no linked transaction — nothing to remove.');
         }
-        if ($row['tx_type'] !== 'transfer') {
-            throw new RuntimeException('Refusing to remove a row that is not type=transfer — it may represent unrecognized real income.');
+
+        // All rows for this (date, amount), oldest first — the true sibling
+        // set regardless of description-text formatting differences.
+        $siblingStmt = $this->db->prepare("
+            SELECT id FROM bank_import_rows
+             WHERE transaction_date = ? AND amount = ?
+             ORDER BY id
+        ");
+        $siblingStmt->execute([$row['transaction_date'], $row['amount']]);
+        $allIds = array_map('intval', $siblingStmt->fetchAll(PDO::FETCH_COLUMN));
+        if (count($allIds) < 2) {
+            throw new RuntimeException('No other copy of this transaction remains — refusing to delete the only record of it.');
         }
 
-        $sibling = $this->db->prepare("
-            SELECT COUNT(*) FROM bank_import_rows
-             WHERE transaction_date = ? AND amount = ? AND description = ? AND id != ?
+        $verifyStmt = $this->db->prepare("
+            SELECT real_count FROM bank_statement_verifications
+             WHERE transaction_date = ? AND amount = ?
         ");
-        $sibling->execute([$row['transaction_date'], $row['amount'], $row['description'], $bankImportRowId]);
-        if ((int) $sibling->fetchColumn() < 1) {
-            throw new RuntimeException('No other copy of this transaction remains — refusing to delete the only record of it.');
+        $verifyStmt->execute([$row['transaction_date'], $row['amount']]);
+        $realCount = $verifyStmt->fetchColumn();
+
+        $verifiedExcess = false;
+        if ($realCount !== false) {
+            $realCount = (int) $realCount;
+            if ($realCount <= 0) {
+                throw new RuntimeException('This (date, amount) has zero matches in the verified statement — needs manual review, not auto-removal.');
+            }
+            $keepIds        = array_slice($allIds, 0, $realCount);
+            $verifiedExcess = !in_array($bankImportRowId, $keepIds, true);
+        }
+
+        if (!$verifiedExcess && $row['tx_type'] !== 'transfer') {
+            throw new RuntimeException('Refusing to remove — not verified against a real statement, and not type=transfer (may represent unrecognized real income).');
         }
 
         $allocCheck = $this->db->prepare("SELECT COUNT(*) FROM invoice_payment_allocations WHERE transaction_id = ?");
@@ -904,7 +1034,7 @@ class BankImportService
         $this->db->beginTransaction();
         try {
             $this->db->prepare("DELETE FROM bank_import_rows WHERE id = ?")->execute([$bankImportRowId]);
-            $this->db->prepare("DELETE FROM accounting_transactions WHERE id = ? AND type = 'transfer'")
+            $this->db->prepare("DELETE FROM accounting_transactions WHERE id = ?")
                 ->execute([$row['transaction_id']]);
             $this->db->commit();
         } catch (Throwable $e) {

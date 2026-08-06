@@ -816,39 +816,104 @@ class BankImportServiceTest extends TestCase
         (new BankImportService($pdo))->removeDuplicateRow(999, 1);
     }
 
-    public function test_removeDuplicateRow_refuses_non_transfer_type(): void
-    {
-        // A row still type='income' may represent real, unrecognized money —
-        // must never be silently deleted, only a 'transfer' (already
-        // reconciled elsewhere) is safe to remove.
-        $row = ['id'=>1,'session_id'=>35,'transaction_id'=>100,'transaction_date'=>'2026-07-19','amount'=>63.68,'description'=>'x','tx_type'=>'income'];
-        $pdo = $this->pdoDispatching([
-            'FROM bank_import_rows bir' => fn() => $this->stmtReturning($row),
-        ]);
-        $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('not type=transfer');
-        (new BankImportService($pdo))->removeDuplicateRow(1, 1);
-    }
-
     public function test_removeDuplicateRow_refuses_when_no_sibling_remains(): void
     {
         $row = ['id'=>1,'session_id'=>35,'transaction_id'=>100,'transaction_date'=>'2026-07-19','amount'=>63.68,'description'=>'x','tx_type'=>'transfer'];
         $pdo = $this->pdoDispatching([
             'FROM bank_import_rows bir' => fn() => $this->stmtReturning($row),
-            'AND id != ?'               => fn() => $this->stmtReturning(0, 'fetchColumn'),
+            'ORDER BY id'                => fn() => $this->stmtReturning([1], 'fetchAll'),
         ]);
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('only record');
         (new BankImportService($pdo))->removeDuplicateRow(1, 1);
     }
 
+    public function test_removeDuplicateRow_refuses_non_transfer_type_when_unverified(): void
+    {
+        // A row still type='income' with no bank_statement_verifications
+        // record may represent real, unrecognized money — must never be
+        // silently deleted. Only type='transfer', or a verified-excess row,
+        // is safe to remove.
+        $row = ['id'=>2,'session_id'=>35,'transaction_id'=>100,'transaction_date'=>'2026-07-19','amount'=>63.68,'description'=>'x','tx_type'=>'income'];
+        $pdo = $this->pdoDispatching([
+            'FROM bank_import_rows bir'            => fn() => $this->stmtReturning($row),
+            'ORDER BY id'                          => fn() => $this->stmtReturning([1, 2], 'fetchAll'),
+            'FROM bank_statement_verifications'    => fn() => $this->stmtReturning(false, 'fetchColumn'),
+        ]);
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('not type=transfer');
+        (new BankImportService($pdo))->removeDuplicateRow(2, 1);
+    }
+
+    public function test_removeDuplicateRow_refuses_when_verified_real_count_is_zero(): void
+    {
+        // A verification record with real_count=0 means NO real transaction
+        // matches this (date, amount) at all — a parsing artifact, not a
+        // duplicate. Must never be auto-deleted, needs a human to figure out
+        // what it actually is.
+        $row = ['id'=>2,'session_id'=>35,'transaction_id'=>100,'transaction_date'=>'2026-03-18','amount'=>7774.70,'description'=>'x','tx_type'=>'income'];
+        $pdo = $this->pdoDispatching([
+            'FROM bank_import_rows bir'            => fn() => $this->stmtReturning($row),
+            'ORDER BY id'                          => fn() => $this->stmtReturning([1, 2], 'fetchAll'),
+            'FROM bank_statement_verifications'    => fn() => $this->stmtReturning(0, 'fetchColumn'),
+        ]);
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('zero matches');
+        (new BankImportService($pdo))->removeDuplicateRow(2, 1);
+    }
+
+    public function test_removeDuplicateRow_allows_verified_excess_even_when_type_is_income(): void
+    {
+        // The real case this exists for: Dorset Realty Group sent 2 real
+        // $409.92 payments on the same day, but 6 copies ended up in the DB
+        // (re-imported 3x). Verified real_count=2 means ids [59,60] (the two
+        // oldest) are kept, and every later id — still type='income', never
+        // reclassified to transfer — is legitimately removable.
+        $row = ['id'=>172,'session_id'=>35,'transaction_id'=>500,'transaction_date'=>'2026-03-19','amount'=>409.92,'description'=>'x','tx_type'=>'income'];
+        $deleteRowsStmt = $this->stmtReturning(null);
+        $deleteTxStmt   = $this->stmtReturning(null);
+        $pdo = $this->pdoDispatching([
+            'FROM bank_import_rows bir'            => fn() => $this->stmtReturning($row),
+            'ORDER BY id'                          => fn() => $this->stmtReturning([59, 60, 171, 172, 286, 287], 'fetchAll'),
+            'FROM bank_statement_verifications'    => fn() => $this->stmtReturning(2, 'fetchColumn'),
+            'FROM invoice_payment_allocations'     => fn() => $this->stmtReturning(0, 'fetchColumn'),
+            'FROM etransfer_notifications'         => fn() => $this->stmtReturning(0, 'fetchColumn'),
+            'DELETE FROM bank_import_rows'         => fn() => $deleteRowsStmt,
+            'DELETE FROM accounting_transactions'  => fn() => $deleteTxStmt,
+        ]);
+        $pdo->method('beginTransaction')->willReturn(true);
+        $pdo->method('commit')->willReturn(true);
+
+        $result = (new BankImportService($pdo))->removeDuplicateRow(172, 1);
+
+        $this->assertSame(172, $result['removed_row_id']);
+        $this->assertSame(500, $result['removed_tx_id']);
+    }
+
+    public function test_removeDuplicateRow_refuses_verified_keep_row_even_though_amount_matches(): void
+    {
+        // id=59 is among the two oldest (the ones being KEPT per real_count=2)
+        // — must refuse even though the (date,amount) is verified, since this
+        // specific row is not excess.
+        $row = ['id'=>59,'session_id'=>34,'transaction_id'=>400,'transaction_date'=>'2026-03-19','amount'=>409.92,'description'=>'x','tx_type'=>'income'];
+        $pdo = $this->pdoDispatching([
+            'FROM bank_import_rows bir'            => fn() => $this->stmtReturning($row),
+            'ORDER BY id'                          => fn() => $this->stmtReturning([59, 60, 171, 172, 286, 287], 'fetchAll'),
+            'FROM bank_statement_verifications'    => fn() => $this->stmtReturning(2, 'fetchColumn'),
+        ]);
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('not type=transfer');
+        (new BankImportService($pdo))->removeDuplicateRow(59, 1);
+    }
+
     public function test_removeDuplicateRow_refuses_when_allocation_exists(): void
     {
         $row = ['id'=>1,'session_id'=>35,'transaction_id'=>100,'transaction_date'=>'2026-07-19','amount'=>63.68,'description'=>'x','tx_type'=>'transfer'];
         $pdo = $this->pdoDispatching([
-            'FROM bank_import_rows bir'          => fn() => $this->stmtReturning($row),
-            'AND id != ?'                        => fn() => $this->stmtReturning(1, 'fetchColumn'),
-            'FROM invoice_payment_allocations'   => fn() => $this->stmtReturning(1, 'fetchColumn'),
+            'FROM bank_import_rows bir'            => fn() => $this->stmtReturning($row),
+            'ORDER BY id'                          => fn() => $this->stmtReturning([1, 2], 'fetchAll'),
+            'FROM bank_statement_verifications'    => fn() => $this->stmtReturning(false, 'fetchColumn'),
+            'FROM invoice_payment_allocations'     => fn() => $this->stmtReturning(1, 'fetchColumn'),
         ]);
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('payment allocation');
@@ -859,13 +924,54 @@ class BankImportServiceTest extends TestCase
     {
         $row = ['id'=>1,'session_id'=>35,'transaction_id'=>100,'transaction_date'=>'2026-07-19','amount'=>63.68,'description'=>'x','tx_type'=>'transfer'];
         $pdo = $this->pdoDispatching([
-            'FROM bank_import_rows bir'          => fn() => $this->stmtReturning($row),
-            'AND id != ?'                        => fn() => $this->stmtReturning(1, 'fetchColumn'),
-            'FROM invoice_payment_allocations'   => fn() => $this->stmtReturning(0, 'fetchColumn'),
-            'FROM etransfer_notifications'       => fn() => $this->stmtReturning(1, 'fetchColumn'),
+            'FROM bank_import_rows bir'            => fn() => $this->stmtReturning($row),
+            'ORDER BY id'                          => fn() => $this->stmtReturning([1, 2], 'fetchAll'),
+            'FROM bank_statement_verifications'    => fn() => $this->stmtReturning(false, 'fetchColumn'),
+            'FROM invoice_payment_allocations'     => fn() => $this->stmtReturning(0, 'fetchColumn'),
+            'FROM etransfer_notifications'         => fn() => $this->stmtReturning(1, 'fetchColumn'),
         ]);
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('pending e-Transfer notification');
         (new BankImportService($pdo))->removeDuplicateRow(1, 1);
+    }
+
+    // ── parseVerificationCsv() ───────────────────────────────────────────────
+
+    public function test_parseVerificationCsv_counts_debits_and_credits(): void
+    {
+        $csv = "Date,Description,Debits,Credits,Balance\n"
+             . "19-Mar-2026,Preauthorized credit DORSET REALTY GROUP,,409.92,100.00\n"
+             . "19-Mar-2026,Preauthorized credit DORSET REALTY GROUP,,409.92,509.92\n"
+             . "20-Mar-2026,Point of sale SHELL,20.00,,489.92\n";
+
+        $svc = new BankImportService($this->createMock(PDO::class));
+        $counts = $svc->parseVerificationCsv($csv);
+
+        $byKey = [];
+        foreach ($counts as $c) { $byKey[$c['date'] . '|' . $c['amount']] = $c['count']; }
+
+        $this->assertSame(2, $byKey['2026-03-19|409.92'] ?? null);
+        $this->assertSame(1, $byKey['2026-03-20|20'] ?? null);
+    }
+
+    public function test_parseVerificationCsv_ignores_header_and_blank_lines(): void
+    {
+        $csv = "Date,Description,Debits,Credits,Balance\n\n01-Jan-2026,Test,5.00,,10.00\n\n";
+        $svc = new BankImportService($this->createMock(PDO::class));
+        $counts = $svc->parseVerificationCsv($csv);
+        $this->assertCount(1, $counts);
+        $this->assertSame('2026-01-01', $counts[0]['date']);
+        $this->assertSame(5.0, $counts[0]['amount']);
+    }
+
+    public function test_parseVerificationCsv_skips_unparseable_rows(): void
+    {
+        $csv = "Date,Description,Debits,Credits,Balance\n"
+             . "not-a-date,Junk,1.00,,1.00\n"
+             . "01-Jan-2026,OK row,2.00,,2.00\n";
+        $svc = new BankImportService($this->createMock(PDO::class));
+        $counts = $svc->parseVerificationCsv($csv);
+        $this->assertCount(1, $counts);
+        $this->assertSame(2.0, $counts[0]['amount']);
     }
 }
