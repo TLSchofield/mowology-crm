@@ -594,6 +594,46 @@ function mwInjectFlatlineCSS() {
         }
     }
 
+    // Mobile clock-in/out buttons — request logic (CSRF refresh-and-retry,
+    // GPS lookup) lives once in time-clock-widget.js's window.MwTimeClock
+    // API and is reused here instead of being duplicated.
+    function mwClockPost(action, lat, lng, callback) {
+        if (window.MwTimeClock && window.MwTimeClock.post) {
+            window.MwTimeClock.post(action, lat, lng, callback);
+            return;
+        }
+        // Fallback if the topbar widget script hasn't loaded for some reason.
+        fetch('/crm/api/time-clock.php', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
+            body: JSON.stringify({ action: action, lat: lat, lng: lng })
+        })
+        .then(function(r) { return r.json().then(function(data) { return { status: r.status, data: data }; }); })
+        .then(function(res) { callback(res.status, res.data); })
+        .catch(function() { callback(0, null); });
+    }
+
+    function mwGetGPS(callback) {
+        if (window.MwTimeClock && window.MwTimeClock.getGPS) {
+            window.MwTimeClock.getGPS(callback);
+            return;
+        }
+        if (window.MwNative && window.MwNative.geo) {
+            window.MwNative.geo.getCurrentPosition()
+                .then(function(pos) { callback(pos.lat, pos.lng); })
+                .catch(function() { callback(null, null); });
+        } else if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                function(pos) { callback(pos.coords.latitude, pos.coords.longitude); },
+                function() { callback(null, null); },
+                { timeout: 5000, maximumAge: 60000 }
+            );
+        } else {
+            callback(null, null);
+        }
+    }
+
     // Mobile clock-in button
     var btnIn = document.getElementById('mobileClockIn');
     if (btnIn) {
@@ -601,20 +641,14 @@ function mwInjectFlatlineCSS() {
             btnIn.disabled = true;
             btnIn.textContent = 'Clocking in...';
 
-            // Get GPS first, then clock in
-            var lat = null, lng = null;
-            function doClockIn() {
-                fetch('/crm/api/time-clock.php', {
-                    method: 'POST',
-                    credentials: 'same-origin',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRF-Token': window.MW_CSRF_TOKEN || ''
-                    },
-                    body: JSON.stringify({ action: 'clock_in', lat: lat, lng: lng })
-                })
-                .then(function(r) { return r.json(); })
-                .then(function(data) {
+            mwGetGPS(function(lat, lng) {
+                mwClockPost('clock_in', lat, lng, function(status, data) {
+                    if (data === null) {
+                        alert('Network error — please try again');
+                        btnIn.disabled = false;
+                        btnIn.textContent = 'Clock In';
+                        return;
+                    }
                     if (data.success) {
                         // Flatline animation — clock section + day stats card vanish before reload
                         mwInjectFlatlineCSS();
@@ -630,51 +664,42 @@ function mwInjectFlatlineCSS() {
                         btnIn.disabled = false;
                         btnIn.textContent = 'Clock In';
                     }
-                })
-                .catch(function() {
-                    alert('Network error — please try again');
-                    btnIn.disabled = false;
-                    btnIn.textContent = 'Clock In';
                 });
-            }
-
-            if (window.MwNative && window.MwNative.geo) {
-                window.MwNative.geo.getCurrentPosition()
-                    .then(function(pos) { lat = pos.lat; lng = pos.lng; doClockIn(); })
-                    .catch(function() { doClockIn(); });
-            } else if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(
-                    function(pos) { lat = pos.coords.latitude; lng = pos.coords.longitude; doClockIn(); },
-                    function() { doClockIn(); },
-                    { timeout: 5000, maximumAge: 60000 }
-                );
-            } else {
-                doClockIn();
-            }
+            });
         });
     }
 
     // Mobile clock-out button
+    // Do NOT use confirm() — Android WebView silently returns false, blocking
+    // all clock-outs from this button. Use a tap-twice inline confirmation instead.
     var btnOut = document.getElementById('mobileClockOut');
     if (btnOut) {
         btnOut.addEventListener('click', function() {
-            if (!confirm('Clock out now?')) return;
+            if (btnOut.dataset.confirming === '1') {
+                btnOut.dataset.confirming = '0';
+            } else {
+                btnOut.dataset.confirming = '1';
+                btnOut.textContent = 'Confirm?';
+                setTimeout(function() {
+                    if (btnOut.dataset.confirming === '1') {
+                        btnOut.dataset.confirming = '0';
+                        btnOut.textContent = 'Clock Out';
+                    }
+                }, 3000);
+                return;
+            }
+
             btnOut.disabled = true;
             btnOut.textContent = 'Clocking out...';
 
-            var lat = null, lng = null;
-            function doClockOut() {
-                fetch('/crm/api/time-clock.php', {
-                    method: 'POST',
-                    credentials: 'same-origin',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRF-Token': window.MW_CSRF_TOKEN || ''
-                    },
-                    body: JSON.stringify({ action: 'clock_out', lat: lat, lng: lng })
-                })
-                .then(function(r) { return r.json(); })
-                .then(function(data) {
+            mwGetGPS(function(lat, lng) {
+                mwClockPost('clock_out', lat, lng, function(status, data) {
+                    if (data === null) {
+                        alert('Network error — please try again');
+                        btnOut.disabled = false;
+                        btnOut.textContent = 'Clock Out';
+                        return;
+                    }
                     if (data.success) {
                         location.reload();
                     } else {
@@ -682,27 +707,8 @@ function mwInjectFlatlineCSS() {
                         btnOut.disabled = false;
                         btnOut.textContent = 'Clock Out';
                     }
-                })
-                .catch(function() {
-                    alert('Network error — please try again');
-                    btnOut.disabled = false;
-                    btnOut.textContent = 'Clock Out';
                 });
-            }
-
-            if (window.MwNative && window.MwNative.geo) {
-                window.MwNative.geo.getCurrentPosition()
-                    .then(function(pos) { lat = pos.lat; lng = pos.lng; doClockOut(); })
-                    .catch(function() { doClockOut(); });
-            } else if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(
-                    function(pos) { lat = pos.coords.latitude; lng = pos.coords.longitude; doClockOut(); },
-                    function() { doClockOut(); },
-                    { timeout: 5000, maximumAge: 60000 }
-                );
-            } else {
-                doClockOut();
-            }
+            });
         });
     }
 })();

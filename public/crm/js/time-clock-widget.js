@@ -658,19 +658,53 @@
 
     // ── Actions ──
 
+    // Posts a clock action with automatic CSRF-token refresh + single retry.
+    // window.MW_CSRF_TOKEN is baked into the page at render time; on a
+    // long-lived kiosk/tablet WebView that's never reloaded across a shift,
+    // it can drift out of sync with the live server session. Mirrors the
+    // same refresh-and-retry pattern already used for media uploads
+    // (schedule-pill-workflow.js doUploadPhoto).
+    // callback(status, data) — data is null on network failure.
+    function postClockAction(action, lat, lng, callback, _isRetry) {
+        fetch('/crm/api/time-clock.php', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
+            body: JSON.stringify({ action: action, lat: lat, lng: lng })
+        })
+        .then(function(r) {
+            return r.json().then(function(data) { return { status: r.status, data: data }; });
+        })
+        .then(function(res) {
+            var data = res.data;
+            if (!_isRetry && data && !data.success && data.error && data.error.indexOf('CSRF') !== -1) {
+                fetch('/crm/api/get-csrf.php', { method: 'GET', credentials: 'same-origin' })
+                    .then(function(r) { return r.json(); })
+                    .then(function(d) {
+                        if (d && d.token) window.MW_CSRF_TOKEN = d.token;
+                        postClockAction(action, lat, lng, callback, true);
+                    })
+                    .catch(function() { callback(res.status, data); });
+                return;
+            }
+            callback(res.status, data);
+        })
+        .catch(function() {
+            callback(0, null);
+        });
+    }
+
     function doClockIn() {
         var btn = document.getElementById('btnClockIn');
         if (btn) btn.disabled = true;
 
         getGPS(function(lat, lng) {
-            fetch('/crm/api/time-clock.php', {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
-                body: JSON.stringify({ action: 'clock_in', lat: lat, lng: lng })
-            })
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
+            postClockAction('clock_in', lat, lng, function(status, data) {
+                if (data === null) {
+                    showToast('Network error', 'error');
+                    if (btn) btn.disabled = false;
+                    return;
+                }
                 if (data.success) {
                     clockInTime = new Date();
                     // Re-fetch status to get tracking flag and render properly
@@ -689,10 +723,6 @@
                     showToast(data.error || 'Clock in failed', 'error');
                     renderClockedOut();
                 }
-            })
-            .catch(function() {
-                showToast('Network error', 'error');
-                if (btn) btn.disabled = false;
             });
         });
     }
@@ -727,19 +757,14 @@
         }
 
         getGPS(function(lat, lng) {
-            fetch('/crm/api/time-clock.php', {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
-                body: JSON.stringify({ action: 'clock_out', lat: lat, lng: lng })
-            })
-            .then(function(r) {
-                return r.json().then(function(data) { return { status: r.status, data: data }; });
-            })
-            .then(function(res) {
-                var data = res.data;
+            postClockAction('clock_out', lat, lng, function(status, data) {
+                if (data === null) {
+                    showToast('Network error', 'error');
+                    if (btn) btn.disabled = false;
+                    return;
+                }
                 // 409 + post_trip_required: driver must submit post-trip form first.
-                if (res.status === 409 && data && data.error_code === 'post_trip_required') {
+                if (status === 409 && data.error_code === 'post_trip_required') {
                     if (btn) {
                         btn.disabled = false;
                         btn.innerHTML = SVG_STOP + '<span class="mw-clock-label">Out</span>';
@@ -752,17 +777,13 @@
                     return;
                 }
 
-                if (data && data.success) {
+                if (data.success) {
                     renderClockedOut();
                     showToast('Clocked out — Total: ' + data.total_formatted, 'success');
                 } else {
-                    showToast((data && data.error) || 'Clock out failed', 'error');
+                    showToast(data.error || 'Clock out failed', 'error');
                     if (btn) btn.disabled = false;
                 }
-            })
-            .catch(function() {
-                showToast('Network error', 'error');
-                if (btn) btn.disabled = false;
             });
         });
     }
@@ -953,6 +974,11 @@
     window.MwTimeClock = {
         fetchStatus: fetchStatus,
         isActive: function() { return clockInTime !== null; },
+        // Shared clock_in/clock_out POST with CSRF-refresh-and-retry, and the
+        // native/browser GPS lookup — reused by my-schedule.php's mobile clock
+        // buttons so there's one implementation of the request logic, not two.
+        post: postClockAction,
+        getGPS: getGPS,
         isTracking: function() {
             return gpsWatchId !== null ||
                    (window.MwNative && window.MwNative.geo && window.MwNative.geo.watchId !== null);
