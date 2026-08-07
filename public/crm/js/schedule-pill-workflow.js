@@ -372,14 +372,14 @@
     // ═══════════════════════════════════════════════════════
 
     /**
-     * "Clock In" button for a scheduled visit
+     * "Start" button for a scheduled visit
      */
     function renderClockInDrawer(drawer, visitId) {
         drawer.innerHTML =
             '<div class="mw-mc-drawer-row">' +
             '  <button class="mw-mc-drawer-btn mw-mc-drawer-btn-primary" data-action="clock-in">' +
             '    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>' +
-            '    Clock In' +
+            '    Start' +
             '  </button>' +
             '</div>';
 
@@ -598,7 +598,7 @@
                     showToast('Could not start timer: ' + (data.error || data.message || 'Unknown error'));
                     if (btn) {
                         btn.disabled = false;
-                        btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Clock In';
+                        btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Start';
                     }
                 }
             })
@@ -606,7 +606,7 @@
                 showToast('Network error. Check your connection.');
                 if (btn) {
                     btn.disabled = false;
-                    btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Clock In';
+                    btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Start';
                 }
             });
         });
@@ -2739,7 +2739,7 @@
     }
 
     // ═══════════════════════════════════════════════════════
-    //  CARD ACTION FOOTER (Clock In / Timer + Complete Job)
+    //  CARD ACTION FOOTER (Start / Timer + Complete Job)
     // ═══════════════════════════════════════════════════════
 
     /**
@@ -2772,7 +2772,7 @@
             clockInBtn.disabled = false;
             clockInBtn.classList.remove('is-clocked-in');
             clockInBtn.innerHTML =
-                '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Clock In';
+                '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Start';
             clockInBtn.style.display = 'flex';
         }
     }
@@ -2785,7 +2785,7 @@
 
     /**
      * Initialise per-visit section footers in expand-detail.
-     * Wires Clock In and Complete Job buttons for each visit section.
+     * Wires Start and Complete Job buttons for each visit section.
      */
     function initPerVisitFooters() {
         document.querySelectorAll('[data-pv-footer]').forEach(function(footer) {
@@ -2813,7 +2813,7 @@
                 if (clockInBtn) clockInBtn.style.display = 'flex';
             }
 
-            // Clock In button — clocks in for this specific visit
+            // Start button — starts the timer for this specific visit
             if (clockInBtn) {
                 clockInBtn.addEventListener('click', function(e) {
                     e.stopPropagation();
@@ -2849,13 +2849,13 @@
                             } else {
                                 showToast('Could not start timer: ' + (data.error || data.message || 'Unknown error'));
                                 clockInBtn.disabled = false;
-                                clockInBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Clock In';
+                                clockInBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Start';
                             }
                         })
                         .catch(function() {
                             showToast('Network error. Check your connection.');
                             clockInBtn.disabled = false;
-                            clockInBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Clock In';
+                            clockInBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Start';
                         });
                     });
                 });
@@ -2921,7 +2921,7 @@
      * Initialise all card footer elements after pill registration is complete.
      * Each footer shows either:
      *   - A running timer display + styled "Complete Job" button (is-timing state)
-     *   - A "Clock In" button + default "Complete Job" button (no active timer)
+     *   - A "Start" button + default "Complete Job" button (no active timer)
      */
     function initCardFooters() {
         var footers = document.querySelectorAll('.mw-mc-card-footer');
@@ -3152,7 +3152,7 @@
                     showToast('Could not start timer: ' + (data.error || data.message || 'Unknown error'));
                     if (clockInBtn) {
                         clockInBtn.disabled = false;
-                        clockInBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Clock In';
+                        clockInBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Start';
                     }
                 }
             })
@@ -3160,7 +3160,7 @@
                 showToast('Network error. Check your connection.');
                 if (clockInBtn) {
                     clockInBtn.disabled = false;
-                    clockInBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Clock In';
+                    clockInBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Start';
                 }
             });
         });
