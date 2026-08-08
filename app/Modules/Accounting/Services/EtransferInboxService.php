@@ -77,8 +77,11 @@ class EtransferInboxService
         }
 
         // Customer memo — between "Message:" and the "Transfer Details" block.
+        // Anchored to the start of a line (^ with /m) so a forwarded email's
+        // "Begin forwarded message:" line — "message:" matches case-insensitively
+        // but isn't the real field — doesn't get captured as the memo.
         $memo = null;
-        if (preg_match('/Message:\s*(.+?)\s*Transfer Details/is', $body, $m)) {
+        if (preg_match('/^Message:\s*(.+?)\s*Transfer Details/ims', $body, $m)) {
             $memo = trim(preg_replace('/\s+/', ' ', $m[1]));
         }
 

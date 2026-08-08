@@ -160,4 +160,27 @@ class EtransferInboxServiceTest extends TestCase
         $p = EtransferInboxService::parseInteracEmail(self::FORWARDED_SUBJECT, self::FORWARDED_BODY);
         $this->assertSame(1050.95, $p['amount']);
     }
+
+    /**
+     * Regression: "Begin forwarded message:" contains "message:" which the
+     * old unanchored /i memo regex matched case-insensitively, capturing the
+     * entire forwarded blob (headers, tracking URLs, the works) as the
+     * "customer memo" and dumping it into the Pending e-Transfers panel.
+     * This transfer has no real Message: field — memo must come back null.
+     */
+    public function test_forwarded_email_does_not_mistake_forwarded_header_for_memo(): void
+    {
+        $p = EtransferInboxService::parseInteracEmail(self::FORWARDED_SUBJECT, self::FORWARDED_BODY);
+        $this->assertNull($p['memo']);
+    }
+
+    public function test_real_memo_still_extracted_when_forwarded(): void
+    {
+        $body = "> Begin forwarded message:\r\n>\r\n"
+            . "> From: \"ALEX WANG\" <notify@payments.interac.ca>\r\n\r\n"
+            . "> Message:\r\n> Payment for INV-2026-0096, thanks!\r\n\r\n"
+            . "> Transfer Details\r\n> Reference Number:\r\n> CAkvXmaZ\r\n";
+        $p = EtransferInboxService::parseInteracEmail('Fwd: test', $body);
+        $this->assertSame('Payment for INV-2026-0096, thanks!', $p['memo']);
+    }
 }
