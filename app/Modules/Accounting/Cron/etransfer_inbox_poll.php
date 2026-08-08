@@ -135,8 +135,21 @@ foreach ($mailboxes as $mb) {
         continue;
     }
 
-    $hits = @imap_search($mbox, 'FROM "' . $interac . '" SINCE "' . $since . '"');
-    $hits = is_array($hits) ? $hits : [];
+    // Staff sometimes manually forward a customer's Interac notification
+    // instead of it arriving directly from notify@payments.interac.ca (e.g.
+    // it landed in a personal inbox first) — the From: header on a forward
+    // is the forwarder's own address, not Interac's, so a FROM-only search
+    // misses it entirely. A forward keeps the original subject line (mail
+    // clients just prefix "Fwd:"), so also search by subject substring and
+    // merge — done as two searches, not a single "OR" query, because PHP's
+    // imap_search() doesn't reliably support server-side OR against Dovecot
+    // ("Unknown search criterion: OR" observed in production testing).
+    $fromHits    = @imap_search($mbox, 'FROM "' . $interac . '" SINCE "' . $since . '"');
+    $subjectHits = @imap_search($mbox, 'SUBJECT "Interac e-Transfer" SINCE "' . $since . '"');
+    $hits = array_values(array_unique(array_merge(
+        is_array($fromHits) ? $fromHits : [],
+        is_array($subjectHits) ? $subjectHits : []
+    )));
     pollLog("{$mb['user']}: " . count($hits) . ' Interac email(s) in window');
 
     foreach ($hits as $msgNo) {

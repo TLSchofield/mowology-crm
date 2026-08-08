@@ -42,6 +42,13 @@ class EtransferInboxService
     public static function parseInteracEmail(string $subject, string $body): array
     {
         $body    = str_replace("\r\n", "\n", $body);
+        // Strip forwarded-message quote markers ("> ", ">> ", ...) so a
+        // manually forwarded Interac notification (staff hit Forward instead
+        // of it arriving directly from notify@payments.interac.ca) parses
+        // identically to a direct one — otherwise every field below
+        // ("Sent From:", "Reference Number:", etc.) would need the same
+        // leading-quote tolerance individually.
+        $body    = preg_replace('/^>+[ \t]?/m', '', $body);
         $subject = trim($subject);
 
         // Amount — prefer the structured "Amount: $X (CAD)" line, fall back to

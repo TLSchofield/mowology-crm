@@ -121,4 +121,43 @@ class EtransferInboxServiceTest extends TestCase
         $this->assertStringContainsString('cancelled', $msg);
         $this->assertStringContainsString("can't take a payment", $msg);
     }
+
+    /**
+     * A manually forwarded Interac notification (staff hit Forward instead of
+     * it arriving directly from notify@payments.interac.ca) — Apple Mail
+     * prefixes every original line with "> ", which used to leak into
+     * sender_name/reference_number/amount extraction. Captured 2026-08-07.
+     */
+    private const FORWARDED_SUBJECT = 'Fwd: Interac e-Transfer: 1355183 B.C. LTD. sent you $1,050.95. Claim your deposit!';
+    private const FORWARDED_BODY = "\r\n\r\n> Begin forwarded message:\r\n>\r\n"
+        . "> From: \"1355183 B.C. LTD.\" <notify@payments.interac.ca>\r\n"
+        . "> Subject: Interac e-Transfer: 1355183 B.C. LTD. sent you \$1,050.95. Claim your deposit!\r\n"
+        . "> Date: August 7, 2026 at 10:06:22 AM PDT\r\n"
+        . "> To: Mowology <mowology@icloud.com>\r\n\r\n"
+        . "> Hi Mowology,\r\n> Your funds await!\r\n> \$1,050.95\r\n"
+        . "> Select your financial institution to deposit funds.\r\n"
+        . "> Expiry: Sept 5, 2026\r\n"
+        . "> Transfer Details\r\n"
+        . "> Date:\r\n> Aug 7, 2026\r\n"
+        . "> Reference Number:\r\n> CAQFjfaF\r\n"
+        . "> Sent From:\r\n> 1355183 B.C. LTD.\r\n"
+        . "> Amount:\r\n> \$1,050.95 (CAD)\r\n";
+
+    public function test_forwarded_email_strips_quote_markers_from_sender(): void
+    {
+        $p = EtransferInboxService::parseInteracEmail(self::FORWARDED_SUBJECT, self::FORWARDED_BODY);
+        $this->assertSame('1355183 B.C. LTD.', $p['sender_name']);
+    }
+
+    public function test_forwarded_email_parses_reference_number(): void
+    {
+        $p = EtransferInboxService::parseInteracEmail(self::FORWARDED_SUBJECT, self::FORWARDED_BODY);
+        $this->assertSame('CAQFjfaF', $p['reference_number']);
+    }
+
+    public function test_forwarded_email_parses_amount(): void
+    {
+        $p = EtransferInboxService::parseInteracEmail(self::FORWARDED_SUBJECT, self::FORWARDED_BODY);
+        $this->assertSame(1050.95, $p['amount']);
+    }
 }
