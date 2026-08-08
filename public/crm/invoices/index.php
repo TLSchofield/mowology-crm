@@ -187,12 +187,14 @@ $csrfToken = generateCSRFToken();
 
 // Pending Interac e-Transfer notifications (filled by the inbox poller cron).
 $pendingEtransfers = [];
+$etransferSvc = null;
 if (defined('APP_ROOT')) {
     $__etSvc = APP_ROOT . '/Modules/Accounting/Services/EtransferInboxService.php';
     if (is_file($__etSvc)) {
         require_once $__etSvc;
         try {
-            $pendingEtransfers = (new EtransferInboxService(getDB()))->listPending();
+            $etransferSvc      = new EtransferInboxService(getDB());
+            $pendingEtransfers = $etransferSvc->listPending();
         } catch (\Throwable $__e) {
             error_log('[invoices] e-Transfer panel load failed: ' . $__e->getMessage());
         }
@@ -256,6 +258,17 @@ $activePage = 'invoices';
                     $hasInvoiceMatch = $conf === 'high';
                     $hasBankMatch    = !empty($et['bank_transaction_id']);
                     $reconciledCount = 1 + ($hasInvoiceMatch ? 1 : 0) + ($hasBankMatch ? 1 : 0);
+
+                    // No hard identity match (invoice #/reference #) yet — see whether
+                    // the transfer amount exceeds what any single one of the sender's
+                    // open invoices can absorb. If so, suggest how staff would apply
+                    // it under standard AR practice: oldest invoice first, each one
+                    // topped up before moving to the next.
+                    $fifoSpread = [];
+                    if (!$hasInvoiceMatch && $etAmount > 0 && $etransferSvc) {
+                        $fifoSpread = $etransferSvc->suggestFifoAllocation($et['sender_name'] ?? null, $etAmount);
+                    }
+                    $spansMultiple = count($fifoSpread) > 1;
                     ?>
                     <div class="mw-et-row" data-id="<?php echo (int)$et['id']; ?>">
                         <div class="mw-et-main">
@@ -265,10 +278,14 @@ $activePage = 'invoices';
                                 <?php if ($isClaim): ?><span class="mw-et-badge claim">needs claiming in online banking</span><?php endif; ?>
                                 <?php if ($conf === 'high'): ?><span class="mw-et-badge high">match: <?php echo htmlspecialchars($matchedNo); ?></span>
                                 <?php elseif ($conf === 'medium'): ?><span class="mw-et-badge med">likely: <?php echo htmlspecialchars($matchedNo); ?></span>
+                                <?php elseif ($spansMultiple): ?><span class="mw-et-badge med">spans <?php echo count($fifoSpread); ?> invoices — oldest first</span>
                                 <?php else: ?><span class="mw-et-badge none">no match — enter invoice #</span><?php endif; ?>
                             </div>
                             <?php if (!empty($et['memo'])): ?>
                                 <div class="mw-et-memo">“<?php echo htmlspecialchars($et['memo']); ?>”</div>
+                            <?php endif; ?>
+                            <?php if ($spansMultiple): ?>
+                                <div class="mw-et-memo">Suggested spread — oldest invoice first (standard AR application), applied to balance before moving to the next:</div>
                             <?php endif; ?>
                             <div class="mw-et-recon mw-et-recon--<?php echo $reconciledCount; ?>">
                                 <?php if ($reconciledCount === 3): ?>
@@ -286,12 +303,23 @@ $activePage = 'invoices';
                         </div>
                         <div class="mw-et-actions">
                             <div class="mw-et-splits">
-                                <div class="mw-et-split-line">
-                                    <input type="text" class="form-control form-control-sm mw-et-inv" placeholder="INV-…"
-                                           value="<?php echo htmlspecialchars($prefillNo); ?>" aria-label="Invoice number">
-                                    <input type="number" step="0.01" min="0" class="form-control form-control-sm mw-et-amt"
-                                           value="<?php echo $etAmount > 0 ? number_format($etAmount, 2, '.', '') : ''; ?>" aria-label="Amount">
-                                </div>
+                                <?php if ($spansMultiple): ?>
+                                    <?php foreach ($fifoSpread as $alloc): ?>
+                                        <div class="mw-et-split-line">
+                                            <input type="text" class="form-control form-control-sm mw-et-inv" placeholder="INV-…"
+                                                   value="<?php echo htmlspecialchars($alloc['invoice_number']); ?>" aria-label="Invoice number">
+                                            <input type="number" step="0.01" min="0" class="form-control form-control-sm mw-et-amt"
+                                                   value="<?php echo number_format($alloc['apply_amount'], 2, '.', ''); ?>" aria-label="Amount">
+                                        </div>
+                                    <?php endforeach; ?>
+                                <?php else: ?>
+                                    <div class="mw-et-split-line">
+                                        <input type="text" class="form-control form-control-sm mw-et-inv" placeholder="INV-…"
+                                               value="<?php echo htmlspecialchars($prefillNo); ?>" aria-label="Invoice number">
+                                        <input type="number" step="0.01" min="0" class="form-control form-control-sm mw-et-amt"
+                                               value="<?php echo $etAmount > 0 ? number_format($etAmount, 2, '.', '') : ''; ?>" aria-label="Amount">
+                                    </div>
+                                <?php endif; ?>
                             </div>
                             <button type="button" class="btn btn-link btn-sm mw-et-add-split">+ split across another invoice</button>
                             <div class="mw-et-buttons">

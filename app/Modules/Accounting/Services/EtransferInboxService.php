@@ -213,6 +213,83 @@ class EtransferInboxService
     }
 
     /**
+     * When a transfer's amount exceeds what any single one of the sender's
+     * open invoices can absorb, suggest how staff would apply it under
+     * standard AR practice: oldest invoice first (FIFO), each invoice topped
+     * up to its balance before moving to the next, until the transfer amount
+     * is exhausted or invoices run out. Matches invoices by their stored
+     * bill_to_name against the transfer's sender_name (normalised — strip
+     * punctuation/case so "1355183 B.C. LTD." matches "1355183 BC Ltd").
+     *
+     * This is presentation-only — it does not touch matchInvoice()'s
+     * hard-identity matching (invoice #, reference #) or write anything to
+     * the DB; it just pre-fills the split-line suggestion staff still
+     * confirms before recording.
+     *
+     * @return array<int,array{invoice_id:int,invoice_number:string,balance_due:float,apply_amount:float}>
+     */
+    public function suggestFifoAllocation(?string $senderName, float $amount): array
+    {
+        if (!$senderName || $amount <= 0) {
+            return [];
+        }
+        $target = self::normalizeName($senderName);
+        if ($target === '') {
+            return [];
+        }
+
+        // Payer name resolution: bill_to_name is only ever set for a manual
+        // one-off override and is NULL on virtually every normal invoice —
+        // the real name lives behind company_id (company clients) via
+        // companies.company_name. clients.display_name is NOT a reliable
+        // fallback here even though invoices.client_id is often populated:
+        // that id frequently points at an individual *contact* (e.g. a
+        // property manager) rather than the paying entity, so it's excluded.
+        $placeholders = implode(',', array_fill(0, count(self::PAYABLE), '?'));
+        $stmt = $this->db->prepare(
+            "SELECT i.id, i.invoice_number, i.balance_due,
+                    COALESCE(NULLIF(i.bill_to_name, ''), co.company_name) AS payer_name,
+                    COALESCE(i.due_date, i.invoice_date) AS order_date
+               FROM invoices i
+               LEFT JOIN companies co ON co.id = i.company_id
+              WHERE i.status IN ($placeholders)
+                AND i.balance_due > 0
+              ORDER BY order_date ASC, i.id ASC"
+        );
+        $stmt->execute(self::PAYABLE);
+
+        $remaining   = round($amount, 2);
+        $allocation  = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $inv) {
+            if ($remaining <= 0.005) {
+                break;
+            }
+            if (self::normalizeName((string) $inv['payer_name']) !== $target) {
+                continue;
+            }
+            $apply = min($remaining, round((float) $inv['balance_due'], 2));
+            if ($apply <= 0) {
+                continue;
+            }
+            $allocation[] = [
+                'invoice_id'     => (int) $inv['id'],
+                'invoice_number' => (string) $inv['invoice_number'],
+                'balance_due'    => (float) $inv['balance_due'],
+                'apply_amount'   => $apply,
+            ];
+            $remaining = round($remaining - $apply, 2);
+        }
+
+        return $allocation;
+    }
+
+    /** Loose name equality for matching a transfer's sender against bill_to_name — case/punctuation-insensitive. */
+    private static function normalizeName(string $name): string
+    {
+        return strtoupper(preg_replace('/[^A-Za-z0-9]/', '', $name) ?? '');
+    }
+
+    /**
      * Find an already-imported bank deposit that likely corresponds to this
      * e-Transfer notification — the bank↔email leg of three-way reconciliation
      * (bank record + invoice + email all need to agree before staff can treat
