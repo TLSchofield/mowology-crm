@@ -1,12 +1,12 @@
 {
     "android": {
-        "version": "1.1.2",
-        "build": 7,
+        "version": "1.2.0",
+        "build": 8,
         "min_version": "1.1.2",
         "min_build": 7,
         "apk_url": "/crm/downloads/mowology-crew.apk",
-        "released": "2026-06-25",
-        "release_notes": "Fixes camera access for before/after job photos.",
+        "released": "2026-08-12",
+        "release_notes": "Live schedule sync across devices + push notification support.",
         "force_update": false
     },
     "ios": {
