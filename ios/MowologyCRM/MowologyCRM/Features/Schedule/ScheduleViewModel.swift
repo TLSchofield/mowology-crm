@@ -105,10 +105,18 @@ final class ScheduleViewModel: ObservableObject {
 
     /// Loads both the week strip summary and the day stops for the given date.
     /// Also gates on the daily pre-shift quiz.
+    ///
+    /// Always busts the in-memory day cache first. `refresh()` is the target of
+    /// both the initial `.task` load and pull-to-refresh — it must reflect
+    /// completions made by teammates on other devices, not silently re-serve
+    /// whatever was cached earlier in the session. (`selectDate`'s swipe-between-
+    /// dates cache is left alone — that one is an intentional same-session
+    /// optimization, not a "give me current truth" action.)
     func refresh() async {
         ScheduleCache.shared.evictOlderThan()
         quizRequired = !QuizViewModel.hasAttemptedToday()
         guard !quizRequired else { return }
+        stopCache.removeValue(forKey: isoDateString(from: selectedDate))
         await loadSchedule(for: selectedDate, reloadWeek: true)
     }
 
