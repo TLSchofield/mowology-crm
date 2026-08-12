@@ -77,6 +77,29 @@ in `Plan/VisitLifecycle.php` → `VisitLifecycleService::updateVisitStatus`). If
 stays `scheduled` and map pins stay green. Any endpoint that completes a visit
 **must** require the plan-functions chain. See `project_timer_status_persistence`.
 
+## Cross-platform completion sync (added 2026-08-12)
+
+Neither the web/Capacitor schedule page nor the iOS app previously re-fetched
+data on their own — a completion on one device wasn't visible on another
+until a manual reload, and iOS's pull-to-refresh was a separate, since-fixed
+bug (an in-memory day cache that never busted itself, see
+`project_ios_schedule_cache_staleness` in memory / Known-Failure-Patterns).
+Two independent mechanisms now cover this:
+
+- **Polling (live today):** iOS `ScheduleViewModel` silently re-fetches the
+  selected day every 20s while foregrounded (`startPolling()`/`stopPolling()`,
+  paused on `scenePhase` changes). `schedule-pill-workflow.js` polls the
+  existing session-authed `calendar-stops.php` on the same cadence and patches
+  pills via the existing `updatePillVisual()`/`checkStopComplete()` — no new
+  DOM-rendering logic. Crew polls scoped to their own `?crew=` id (that
+  endpoint doesn't default-scope to the caller like the JWT `day.php` does).
+- **Push (built, not yet live):** `VisitLifecycleService::notifyCompletion()`
+  is called from **both** completion write paths (`updateVisitStatus()` here
+  and `pow-actions.php`'s `end_visit`) — one shared method, not two copies —
+  and notifies admins/managers plus any other crew on a multi-crew stop via
+  `PushDispatcher`. Needs `FcmService` (Android) and `ApnsService` (iOS)
+  credentials provisioned in `secrets.php` before anything actually sends.
+
 ## Safety net
 
 `tests/Unit/Jobs/PlanFunctionsLoadTest.php` is a characterization test asserting
