@@ -164,16 +164,27 @@
         // Re-arm running timers whenever the app returns to the foreground.
         // Android WebViews freeze setInterval while backgrounded; without this
         // the timer can stay stuck at 0:00 after the screen locks. (Bug fix)
+        // Also poll for status changes made elsewhere on the same resume —
+        // same rationale, see startStatusPoll() below.
+        function onForeground() {
+            refreshAllPillTimers();
+            pollStatuses();
+        }
         document.addEventListener('visibilitychange', function() {
-            if (document.visibilityState === 'visible') refreshAllPillTimers();
+            if (document.visibilityState === 'visible') onForeground();
         });
-        window.addEventListener('pageshow', refreshAllPillTimers);
-        window.addEventListener('focus', refreshAllPillTimers);
+        window.addEventListener('pageshow', onForeground);
+        window.addEventListener('focus', onForeground);
         if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App) {
             try {
-                window.Capacitor.Plugins.App.addListener('resume', refreshAllPillTimers);
+                window.Capacitor.Plugins.App.addListener('resume', onForeground);
             } catch (e) { /* App plugin unavailable — DOM events still cover it */ }
         }
+
+        // Background poll so a job completed elsewhere (another crew member,
+        // another platform, or this same crew member on a second device)
+        // shows up here without a manual refresh.
+        startStatusPoll();
 
         // Cache camera permission state up front so the very first photo tap can
         // be guarded on native Android. (Bug fix — "Access denied" on before photo)
@@ -1782,6 +1793,74 @@
             }
         }
         return false;
+    }
+
+    // ═══════════════════════════════════════════════════════
+    //  STATUS POLLING — pick up completions made elsewhere
+    // ═══════════════════════════════════════════════════════
+    // Background poll so a job completed by a teammate (another crew member,
+    // an admin, or the iOS app) shows up here within ~20s without a manual
+    // refresh — feeds the existing updatePillVisual()/checkStopComplete()
+    // DOM patchers a second data source rather than reinventing them.
+
+    var statusPollInterval = null;
+    var statusPollInFlight = false;
+
+    function startStatusPoll() {
+        if (statusPollInterval) return; // already running
+        statusPollInterval = setInterval(pollStatuses, 20000);
+    }
+
+    function pollStatuses() {
+        if (statusPollInFlight) return; // don't overlap a slow tick
+        statusPollInFlight = true;
+
+        var url = '/crm/api/calendar-stops.php?date=' + encodeURIComponent(state.mobileDate);
+        if (state.isCrew) {
+            url += '&crew=' + encodeURIComponent(state.userId);
+        }
+
+        fetch(url, { headers: { 'Accept': 'application/json' } })
+            .then(function(r) {
+                var ct = r.headers.get('content-type') || '';
+                if (!r.ok || ct.indexOf('application/json') === -1) {
+                    throw new Error('non-JSON response (likely session expired)');
+                }
+                return r.json();
+            })
+            .then(function(data) {
+                if (!data || !data.success || !Array.isArray(data.stops)) return;
+                data.stops.forEach(function(stop) {
+                    (stop.visits || []).forEach(function(v) {
+                        applyPolledVisitStatus(v.visit_id, v.visit_status);
+                    });
+                });
+            })
+            .catch(function() {
+                // Silent by design — a poll tick failing (offline, session
+                // hiccup, redirect-to-login) isn't worth surfacing; the next
+                // tick, or a manual pull-to-refresh, recovers.
+            })
+            .finally(function() {
+                statusPollInFlight = false;
+            });
+    }
+
+    function applyPolledVisitStatus(visitId, newStatus) {
+        var v = visits[visitId];
+        if (!v || !newStatus || v.status === newStatus) return;
+
+        // Don't clobber a visit the user is actively mid-action on locally —
+        // an in-flight timer, a paused mid-workflow state, or the visit
+        // behind the currently-open action drawer takes priority over a poll
+        // tick; the next tick picks up the resolved state once they're done.
+        if (v.timerInterval || v.paused || activeDrawerVisitId === visitId) return;
+
+        v.status = newStatus;
+        updatePillVisual(visitId, newStatus);
+
+        var card = v.pill ? v.pill.closest('.mw-mc-card') : null;
+        if (card) checkStopComplete(card);
     }
 
     /**

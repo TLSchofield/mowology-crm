@@ -788,6 +788,16 @@ try {
                 ReferralRewardService::maybeAwardCompletion($visitId, $db, (int)$user['id']);
             }
 
+            // Push-notify admins/other crew that the job is done — shared
+            // with the JWT/web-timer completion path
+            // (VisitLifecycleService::updateVisitStatus()) so this isn't a
+            // second copy of the same notify logic.
+            $vlsService = APP_ROOT . '/Modules/Jobs/Services/VisitLifecycleService.php';
+            if (file_exists($vlsService)) {
+                require_once $vlsService;
+                VisitLifecycleService::notifyCompletion($visitId, (int)$user['id']);
+            }
+
             // Propagate to calendar_stops: if ALL visits in the same stop
             // are now completed/skipped/cancelled, mark the stop as completed.
             // This drives the green "done" styling on the Schedule page.

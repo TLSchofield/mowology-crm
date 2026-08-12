@@ -8,6 +8,7 @@
  *   MwNative.geo          — background GPS + one-shot position
  *   MwNative.tracking     — session management, health, compliance, geofencing
  *   MwNative.notifications — local push notifications
+ *   MwNative.push          — FCM registration (remote push notifications)
  *   MwNative.network      — online/offline detection
  *
  * Uses two Capacitor plugins:
@@ -27,6 +28,7 @@
     var BackgroundGeolocation = Plugins.BackgroundGeolocation;
     var Geolocation = Plugins.Geolocation;
     var LocalNotifications = Plugins.LocalNotifications;
+    var PushNotifications = Plugins.PushNotifications;
     var Network = Plugins.Network;
     var MwTracking = Plugins.MwTracking; // Custom plugin
     var App = Plugins.App; // For hardware back button + app state
@@ -531,6 +533,63 @@
             }
         },
 
+        // ── Push Notifications (FCM) ─────────────────────────
+        // Registers this device for Firebase Cloud Messaging and reports the
+        // resulting token to the backend so PushDispatcher can address this
+        // device (job-completed, job-assigned, etc — mirrors the iOS
+        // DeviceTokenService flow, POSTing to the same /api/device/token
+        // endpoint). Inert until a real Firebase project is provisioned —
+        // Play Services just never delivers a token in the meantime, so
+        // always calling init() is safe.
+        push: {
+            _initialized: false,
+
+            init: function() {
+                if (this._initialized || !PushNotifications) return;
+                this._initialized = true;
+
+                PushNotifications.addListener('registration', function(tokenResult) {
+                    window.MwNative.push._registerToken(tokenResult.value);
+                });
+                PushNotifications.addListener('registrationError', function(err) {
+                    console.warn('[MwNative] Push registration error:', err);
+                });
+
+                PushNotifications.requestPermissions().then(function(result) {
+                    if (result.receive === 'granted') {
+                        PushNotifications.register();
+                    } else {
+                        console.log('[MwNative] Push permission not granted:', result.receive);
+                    }
+                }).catch(function(err) {
+                    console.warn('[MwNative] Push permission request failed:', err);
+                });
+            },
+
+            // Re-registers (without re-prompting for permission) on every
+            // foreground transition — retry coverage for a token that failed
+            // to arrive earlier, mirrors iOS's DeviceTokenService behavior.
+            // Safe/idempotent: the backend upsert just refreshes last_seen_at
+            // if the token is unchanged.
+            reregister: function() {
+                if (!this._initialized || !PushNotifications) return;
+                PushNotifications.register();
+            },
+
+            _registerToken: function(token) {
+                fetch('/api/device/token', {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ device_token: token, platform: 'android' })
+                }).then(function(r) { return r.json(); }).then(function(data) {
+                    if (!data.success) console.warn('[MwNative] Device token registration rejected:', data.error);
+                }).catch(function(err) {
+                    console.warn('[MwNative] Device token registration failed:', err);
+                });
+            }
+        },
+
         // ── Network Status ──────────────────────────────────
         network: {
             isOnline: true,
@@ -662,6 +721,16 @@
     // ── Auto-initialize ─────────────────────────────────────
     window.MwNative.network.init();
     window.MwNative.notifications.init();
+    window.MwNative.push.init();
+
+    // Re-check registration on every foreground transition, mirroring the
+    // iOS DeviceTokenService's "re-register on every foreground" retry
+    // coverage — cheap and idempotent server-side (upsert keyed on token).
+    if (App && App.addListener) {
+        App.addListener('resume', function () {
+            window.MwNative.push.reregister();
+        });
+    }
 
     // Listen for activity changes and adjust the BG plugin's distance filter
     if (MwTracking && MwTracking.addListener) {

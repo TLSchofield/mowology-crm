@@ -72,6 +72,11 @@ final class ScheduleViewModel: ObservableObject {
     private var scheduleTask: Task<Void, Never>?
     private var trailsTask:   Task<Void, Never>?
 
+    /// Background poll loop — re-fetches the selected day silently so completions
+    /// made on another device/platform show up without a manual refresh.
+    private var pollTask: Task<Void, Never>?
+    private static let pollIntervalNanoseconds: UInt64 = 20_000_000_000 // 20s
+
     // Stored once — DateFormatter and Calendar construction is expensive.
     private let calendar: Calendar = {
         var cal = Calendar(identifier: .gregorian)
@@ -138,6 +143,49 @@ final class ScheduleViewModel: ObservableObject {
     func invalidateAndRefresh() async {
         stopCache.removeValue(forKey: isoDateString(from: selectedDate))
         await refresh()
+    }
+
+    /// Starts a background poll loop that silently re-checks the selected day
+    /// every ~20s so a completion made elsewhere (another crew member, another
+    /// platform) shows up without the user having to do anything. No-op if a
+    /// loop is already running. Caller is responsible for calling
+    /// `stopPolling()` when the schedule view leaves the screen or the app
+    /// backgrounds — this deliberately does not watch scenePhase itself so it
+    /// stays a plain, testable loop.
+    func startPolling() {
+        guard pollTask == nil else { return }
+        pollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: Self.pollIntervalNanoseconds)
+                guard !Task.isCancelled else { break }
+                await self?.silentRefresh()
+            }
+        }
+    }
+
+    func stopPolling() {
+        pollTask?.cancel()
+        pollTask = nil
+    }
+
+    /// Re-fetches the selected day in the background with no loading spinner,
+    /// no cancellation of other in-flight work, and no week-strip refetch —
+    /// just "is there anything new," applied only if it actually changed so a
+    /// no-op tick never triggers a view diff.
+    private func silentRefresh() async {
+        let dateString = isoDateString(from: selectedDate)
+        do {
+            let response: DayResponse = try await apiClient.request(.scheduleDay(date: dateString))
+            guard !Task.isCancelled else { return }
+            if response.stops != stops {
+                stops = response.stops
+            }
+            cacheStops(response.stops, forDate: dateString)
+            ScheduleCache.shared.save(response.stops, forDate: dateString)
+        } catch {
+            // Silent by design — a poll tick failing (offline, session hiccup)
+            // isn't worth surfacing; the next tick or a manual refresh recovers.
+        }
     }
 
     /// Moves the selected date forward or backward by the given number of weeks.

@@ -104,6 +104,10 @@ class VisitLifecycleService
                     }
                 }
 
+                // Push-notify admins/other crew that the job is done — see
+                // notifyCompletion() doc comment for why this is one shared
+                // method instead of being duplicated at each write path.
+                self::notifyCompletion($visitId, $userId);
             }
 
             // Propagate terminal-state visits to calendar_stops so the Schedule
@@ -186,6 +190,69 @@ class VisitLifecycleService
                 UPDATE calendar_stops SET status = 'skipped', updated_at = NOW()
                 WHERE id = ? AND status NOT IN ('completed', 'skipped')
             ")->execute([$stopId]);
+        }
+    }
+
+    /**
+     * Push-notify admins/managers and any other crew on the same stop that a
+     * visit was just completed, so a completion made on one platform/device
+     * shows up as a real-time notification on everyone else's, not just a
+     * pull-refreshed schedule.
+     *
+     * Called from BOTH completion write paths — this method (via
+     * updateVisitStatus()) AND pow-actions.php's end_visit — so the notify
+     * logic lives in exactly one place. This codebase has been bitten before
+     * by "same behavior needed at two write sites, only one gets updated"
+     * (autopay triggering, PDF attachment on invoice-send) — don't repeat
+     * that shape here by copy-pasting this into pow-actions.php too.
+     *
+     * Fire-and-forget: a push failure must never affect visit completion.
+     * No-ops gracefully if push isn't configured yet (ApnsService/FcmService
+     * isConfigured() checks, see PushDispatcher).
+     */
+    public static function notifyCompletion(int $visitId, int $actorUserId): void {
+        try {
+            $db = getDB();
+
+            $visit = self::getVisitWithPlan($visitId);
+            if (!$visit) return;
+
+            $actorStmt = $db->prepare("SELECT full_name FROM users WHERE id = ?");
+            $actorStmt->execute([$actorUserId]);
+            $actorName = $actorStmt->fetchColumn() ?: 'A crew member';
+
+            $address = trim(($visit['property_address'] ?? '') . ', ' . ($visit['property_city'] ?? ''), ' ,');
+
+            // Recipients: admins/managers, plus any other crew on the same
+            // stop (multi-crew jobs) — never the person who just completed it.
+            $adminStmt = $db->prepare("
+                SELECT id FROM users WHERE role IN ('admin', 'manager') AND is_active = 1 AND id != ?
+            ");
+            $adminStmt->execute([$actorUserId]);
+            $recipients = array_column($adminStmt->fetchAll(PDO::FETCH_ASSOC), 'id');
+
+            if (!empty($visit['stop_id'])) {
+                $crewStmt = $db->prepare("
+                    SELECT user_id FROM calendar_stop_crew WHERE stop_id = ? AND user_id != ?
+                ");
+                $crewStmt->execute([$visit['stop_id'], $actorUserId]);
+                $recipients = array_merge($recipients, array_column($crewStmt->fetchAll(PDO::FETCH_ASSOC), 'user_id'));
+            }
+
+            $recipients = array_values(array_unique(array_map('intval', $recipients)));
+            if (empty($recipients)) return;
+
+            require_once APP_ROOT . '/Services/Push/ApnsService.php';
+            require_once APP_ROOT . '/Services/Push/PushDispatcher.php';
+
+            PushDispatcher::notifyUsers(
+                $recipients,
+                'Job Completed',
+                trim("{$actorName} completed {$address}"),
+                ['visit_id' => $visitId, 'screen' => 'schedule']
+            );
+        } catch (Throwable $e) {
+            error_log("notifyCompletion error for visit {$visitId}: " . $e->getMessage());
         }
     }
 

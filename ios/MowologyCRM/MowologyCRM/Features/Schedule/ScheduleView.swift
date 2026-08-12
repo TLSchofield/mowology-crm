@@ -11,6 +11,7 @@ struct ScheduleView: View {
 
     @EnvironmentObject private var authSession: AuthSession
     @StateObject private var viewModel: ScheduleViewModel
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var showDatePicker = false
     @State private var pickerDate     = Date()
@@ -86,6 +87,17 @@ struct ScheduleView: View {
         }
         .task {
             await viewModel.refresh()
+            viewModel.startPolling()
+        }
+        .onDisappear {
+            viewModel.stopPolling()
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active {
+                viewModel.startPolling()
+            } else {
+                viewModel.stopPolling()
+            }
         }
         .sheet(isPresented: $showDatePicker) {
             datePicker

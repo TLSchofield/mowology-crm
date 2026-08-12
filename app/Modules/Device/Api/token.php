@@ -1,12 +1,15 @@
 <?php
 /**
- * POST /api/device/token — JWT-authenticated
+ * POST /api/device/token — JWT Bearer OR session-authenticated
  *
  * Registers or updates a push-notification device token for the authenticated
- * user. Called by the iOS app on every launch when the token changes (see
- * APIEndpoints.swift's `deviceTokenRegister` case).
+ * user. Called by the iOS app (JWT) on every launch when the token changes
+ * (see APIEndpoints.swift's `deviceTokenRegister` case), and by the Android
+ * Capacitor app (session cookie, via MwNative.push in capacitor-bridge.js) on
+ * the same trigger — Android has no JWT to send, so this endpoint accepts
+ * either auth scheme via requireLoginOrJwt().
  *
- * Body (JSON): { "device_token": "<hex>", "platform": "ios" }
+ * Body (JSON): { "device_token": "<hex or fcm token>", "platform": "ios"|"android" }
  * Response 200: { "success": true }
  */
 declare(strict_types=1);
@@ -26,12 +29,11 @@ if (!defined('APP_ROOT')) {
 header('Content-Type: application/json');
 
 try {
-    require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
     require_once CRM_INCLUDES . '/functions.php';
 
-    $jwtUser = requireJwt();
-    $userId  = (int)$jwtUser['id'];
+    $authedUser = requireLoginOrJwt(); // JWT Bearer (iOS) or session cookie (Android/web)
+    $userId     = (int)$authedUser['id'];
 
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
         http_response_code(405);
@@ -42,6 +44,7 @@ try {
     $input = json_decode(file_get_contents('php://input'), true) ?? [];
     $deviceToken = trim($input['device_token'] ?? '');
     $platform    = trim($input['platform'] ?? 'ios');
+    $platform    = in_array($platform, ['ios', 'android'], true) ? $platform : 'ios';
 
     if (strlen($deviceToken) < 32) {
         http_response_code(400);
@@ -49,9 +52,21 @@ try {
         exit;
     }
 
-    // Sanitize — APNs tokens are hex; reject anything else outright
-    $deviceToken = preg_replace('/[^a-f0-9]/i', '', $deviceToken);
-    $platform    = in_array($platform, ['ios', 'android'], true) ? $platform : 'ios';
+    // Sanitize — token format differs by platform. APNs tokens are hex, so
+    // strip anything else outright (unchanged iOS behavior). FCM registration
+    // tokens are much longer and use a broader charset (letters, digits, and
+    // -_.: separators) — hex-stripping would silently mangle every Android
+    // token, so it gets its own charset + a length floor instead.
+    if ($platform === 'ios') {
+        $deviceToken = preg_replace('/[^a-f0-9]/i', '', $deviceToken);
+    } else {
+        $deviceToken = preg_replace('/[^A-Za-z0-9_.:-]/', '', $deviceToken);
+        if (strlen($deviceToken) < 100) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Invalid device token']);
+            exit;
+        }
+    }
 
     $db = getDB();
 

@@ -166,15 +166,23 @@ class PushDispatcher
 
     private static function sendOne(array $row): array
     {
-        if ($row['platform'] !== 'ios') {
-            // Android via FCM not yet implemented — skip gracefully
-            return ['success' => false, 'error' => 'android_not_implemented', 'unregistered' => false];
-        }
-
         $data = [];
         if (!empty($row['data_payload'])) {
             $decoded = json_decode($row['data_payload'], true);
             if (is_array($decoded)) $data = $decoded;
+        }
+
+        if ($row['platform'] === 'android') {
+            if (!class_exists('FcmService')) {
+                require_once __DIR__ . '/FcmService.php';
+            }
+            return FcmService::send(
+                $row['device_token'],
+                $row['title'],
+                $row['body'],
+                $data,
+                (int)$row['badge']
+            );
         }
 
         return ApnsService::send(
