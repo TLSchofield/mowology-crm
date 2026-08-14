@@ -209,6 +209,18 @@ try {
         // Report position — employee sends this every 30 seconds
         $input = json_decode(file_get_contents('php://input'), true);
 
+        // Must run before session_write_close() below — verifyCSRFToken() reads
+        // $_SESSION, which session_write_close() clears from memory. The JS widget
+        // (time-clock-widget.js) already sends this header on every ping via
+        // window.MW_CSRF_TOKEN, set globally in appstack_head.php — this was
+        // previously the only session-authed timeclock endpoint not checking it.
+        $csrfToken = $input['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+        if (!verifyCSRFToken($csrfToken)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Invalid CSRF token']);
+            exit;
+        }
+
         $lat = isset($input['lat']) ? (float)$input['lat'] : null;
         $lng = isset($input['lng']) ? (float)$input['lng'] : null;
         $accuracy = isset($input['accuracy']) ? (int)round((float)$input['accuracy']) : null;

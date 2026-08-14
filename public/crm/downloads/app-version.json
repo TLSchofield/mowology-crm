@@ -1,12 +1,12 @@
 {
     "android": {
-        "version": "1.2.0",
-        "build": 8,
+        "version": "1.2.1",
+        "build": 9,
         "min_version": "1.1.2",
         "min_build": 7,
         "apk_url": "/crm/downloads/mowology-crew.apk",
-        "released": "2026-08-12",
-        "release_notes": "Live schedule sync across devices + push notification support.",
+        "released": "2026-08-13",
+        "release_notes": "Fixes GPS tracking staying on after clock-out, and the update banner showing incorrectly at login.",
         "force_update": false
     },
     "ios": {

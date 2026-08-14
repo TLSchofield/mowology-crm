@@ -57,12 +57,24 @@ function getActiveClockEntry($userId) {
 
 /**
  * Clock in a user. Returns the new entry ID or throws on error.
+ *
+ * @param bool $enforceGpsRequirement Whether the require_gps_for_clock_in admin
+ *   setting applies to this call. Pass false for an admin clocking in a different
+ *   user on their behalf — that override case has no reason to have the acting
+ *   admin's location, and previously this setting silently did nothing at all for
+ *   anyone. Self clock-ins (mobile and desktop) should always leave this true.
  */
-function clockIn($userId, $lat = null, $lng = null) {
+function clockIn($userId, $lat = null, $lng = null, $enforceGpsRequirement = true) {
     // Check for existing active entry
     $existing = getActiveClockEntry($userId);
     if ($existing) {
         throw new Exception('Already clocked in since ' . $existing['clock_in']);
+    }
+
+    if ($enforceGpsRequirement
+        && getTimeClockSetting('require_gps_for_clock_in', '0') === '1'
+        && ($lat === null || $lng === null)) {
+        throw new Exception('Location is required to clock in. Enable location services and try again.');
     }
 
     $db = getDB();
@@ -241,6 +253,14 @@ function ensurePlanFunctionsLoaded(): void {
 
 function startJobTimer($jobId, $userId, $lat = null, $lng = null, $autoStarted = false) {
     $db = getDB();
+
+    // Geofence auto-starts already imply a real GPS fix (that's what triggered them) —
+    // only enforce this on a manual start, where the setting previously did nothing.
+    if (!$autoStarted
+        && getTimeClockSetting('require_gps_for_job_start', '1') === '1'
+        && ($lat === null || $lng === null)) {
+        throw new Exception('Location is required to start a job timer. Enable location services and try again.');
+    }
 
     // Check visit exists and is assigned to this user (or user is admin/manager)
     $stmt = $db->prepare("SELECT jv.id, jv.assigned_crew_id, jv.status FROM job_visits jv WHERE jv.id = ?");

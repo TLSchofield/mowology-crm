@@ -714,6 +714,17 @@ function dpClockOut() {
         .then(function(r){ return r.json(); })
         .then(function(data) {
             if (data.success || !data.clocked_in) {
+                // Stop the native MwTracking resilience service (wake lock, Activity
+                // Recognition, boot-restart flag) started on clock-in — previously never
+                // called here, so tracking kept running after clock-out.
+                try {
+                    if (window.MwNative && window.MwNative.geo) {
+                        window.MwNative.geo.stopBackgroundTracking();
+                    }
+                    if (window.MwNative && window.MwNative.tracking) {
+                        window.MwNative.tracking.stopSession();
+                    }
+                } catch (e) { /* non-critical */ }
                 dpToast('Clocked out. Good work today!');
                 setTimeout(function(){ location.reload(); }, 1000);
             } else if (data.post_trip_required) {

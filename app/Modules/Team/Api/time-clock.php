@@ -166,7 +166,10 @@ try {
                 $entryId = (int)$existingEntry['id'];
                 $alreadyClockedIn = true;
             } else {
-                $entryId = clockIn($targetUserId, $lat, $lng);
+                // Only enforce require_gps_for_clock_in for self clock-ins — an
+                // admin clocking in a different user has no reason to supply
+                // that user's location.
+                $entryId = clockIn($targetUserId, $lat, $lng, $targetUserId === $user['id']);
                 $alreadyClockedIn = false;
             }
 

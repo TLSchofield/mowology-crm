@@ -100,13 +100,10 @@ try {
             $lat = isset($input['lat']) ? (float)$input['lat'] : null;
             $lng = isset($input['lng']) ? (float)$input['lng'] : null;
 
-            $stmt = $db->prepare(
-                "INSERT INTO time_clock_entries
-                 (user_id, clock_in, clock_in_lat, clock_in_lng, status, created_at)
-                 VALUES (?, NOW(), ?, ?, 'active', NOW())"
-            );
-            $stmt->execute([$userId, $lat, $lng]);
-            $entryId = (int)$db->lastInsertId();
+            // Delegates to the shared Team clock-in path (TimeclockFunctions::clockIn)
+            // instead of reimplementing the INSERT — keeps the GPS-ping-to-crew-map
+            // side effect in sync with the desktop path too.
+            $entryId = clockIn($userId, $lat, $lng);
 
             echo json_encode([
                 'success'    => true,
@@ -132,20 +129,12 @@ try {
             $lng   = isset($input['lng'])   ? (float)$input['lng']  : null;
             $notes = $input['notes'] ?? null;
 
-            // Compute total_minutes DB-side via TIMESTAMPDIFF so this matches the Team
-            // clock-out path (TimeclockFunctions::clockOut) exactly. Avoids the round()
-            // vs truncate divergence and the PHP time() vs MySQL NOW() timezone coupling.
-            $db->prepare(
-                "UPDATE time_clock_entries
-                 SET clock_out = NOW(), clock_out_lat = ?, clock_out_lng = ?,
-                     total_minutes = TIMESTAMPDIFF(MINUTE, clock_in, NOW()),
-                     notes = ?, status = 'completed'
-                 WHERE id = ?"
-            )->execute([$lat, $lng, $notes, (int)$entry['id']]);
-
-            $totStmt = $db->prepare("SELECT total_minutes FROM time_clock_entries WHERE id = ?");
-            $totStmt->execute([(int)$entry['id']]);
-            $total = (int)$totStmt->fetchColumn();
+            // Delegates to the shared Team clock-out path (TimeclockFunctions::clockOut)
+            // instead of reimplementing the UPDATE. This was previously duplicated inline
+            // and skipped ensureTimesheetExists() — a mobile-only clock-out never created
+            // or updated the weekly timesheet row, so the shift could never surface for
+            // approval or payroll. Calling the shared function fixes that.
+            $total = clockOut($userId, $lat, $lng, $notes);
 
             echo json_encode([
                 'success'         => true,

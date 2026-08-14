@@ -858,6 +858,15 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
                         if (window.MwNative && window.MwNative.geo) {
                             window.MwNative.geo.stopBackgroundTracking();
                         }
+                        // Also stop the MwTracking resilience service (wake lock,
+                        // Activity Recognition, boot-restart flag) started by
+                        // tracking.startSession() on clock-in — geo.stopBackgroundTracking()
+                        // only stops the community background-geolocation watcher, not this.
+                        // Previously never called, so tracking kept running for up to
+                        // 10 hours (and across a reboot) after clock-out.
+                        if (window.MwNative && window.MwNative.tracking) {
+                            window.MwNative.tracking.stopSession();
+                        }
                     } catch (e) { /* non-critical */ }
                     if (window.MwHaptics) window.MwHaptics.success();
                     hbToast('Clocked out. Great work today! 👊');
