@@ -46,7 +46,7 @@ struct RecommendationOption: Codable, Identifiable, Hashable {
     }
 }
 
-/// GET /api/schedule/recommendation?action=options
+/// GET /api/schedule/recommendation?mode=options
 struct RecommendationOptionsResponse: Decodable {
     let success: Bool
     let options: [RecommendationOption]

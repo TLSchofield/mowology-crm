@@ -108,7 +108,7 @@ Observations tables (migrations 602/605), not a parallel system.
 
 - **Web/Android:** a "Recommend" button in `schedule-pill-workflow.js`'s working
   drawer opens a chip picker (`openRecommendModal`). Chips come from
-  `/api/schedule/recommendation?action=options`; photos reuse the existing
+  `/api/schedule/recommendation?mode=options`; photos reuse the existing
   `uploadObservationPhoto()` path and their `media_id`s are passed to `create`.
 - **iOS:** `Features/Schedule/RecommendationSection.swift`, embedded in
   `VisitDetailView` next to `JobPhotoSection`. Offline captures queue in

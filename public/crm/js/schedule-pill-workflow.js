@@ -2781,7 +2781,7 @@
         if (recommendOptions) {
             renderChips(recommendOptions);
         } else {
-            fetch('/api/schedule/recommendation?action=options')
+            fetch('/api/schedule/recommendation?mode=options')
                 .then(function(r) { return r.json(); })
                 .then(function(data) {
                     recommendOptions = (data && data.options) || [];

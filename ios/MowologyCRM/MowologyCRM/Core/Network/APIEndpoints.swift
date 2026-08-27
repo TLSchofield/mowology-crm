@@ -42,7 +42,7 @@ enum APIEndpoint {
     /// POST /api/schedule/visit-flag — toggle crew endorsement heart on a visit.
     case visitFlag
 
-    /// GET /api/schedule/recommendation?action=options — services crew may offer.
+    /// GET /api/schedule/recommendation?mode=options — services crew may offer.
     case recommendationOptions
 
     /// POST /api/schedule/recommendation — log a crew service recommendation.
@@ -138,7 +138,7 @@ enum APIEndpoint {
 
         case .recommendationOptions:
             var components = URLComponents(string: "\(baseURLString)/schedule/recommendation")
-            components?.queryItems = [URLQueryItem(name: "action", value: "options")]
+            components?.queryItems = [URLQueryItem(name: "mode", value: "options")]
             return components?.url
 
         case .recommendationCreate:

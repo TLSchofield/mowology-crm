@@ -13,7 +13,7 @@ declare(strict_types=1);
  *   - iOS       → Authorization: Bearer <jwt>   (stateless, no CSRF)
  *   - Android/web → session cookie              (CSRF token required)
  *
- * GET  /api/schedule/recommendation?action=options
+ * GET  /api/schedule/recommendation?mode=options
  *      Response 200: { "success": true, "options": [
  *          { "product_id": 12, "label": "Half Day Cleanup", "price": 450.00,
  *            "auto_send": true, "fixed_price": true, "description": "..." } ] }
@@ -67,7 +67,9 @@ try {
 
     // ── Route ────────────────────────────────────────────────────────────────
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {
-        $action = trim((string)($_GET['action'] ?? 'options'));
+        // NOT 'action': the /api/ rewrite passes its own action= to index.php with
+        // QSA, so a query param of that name would collide and win.
+        $action = trim((string)($_GET['mode'] ?? 'options'));
         $body   = [];
     } else {
         $body   = json_decode(file_get_contents('php://input'), true) ?? [];
