@@ -42,6 +42,12 @@ enum APIEndpoint {
     /// POST /api/schedule/visit-flag — toggle crew endorsement heart on a visit.
     case visitFlag
 
+    /// GET /api/schedule/recommendation?action=options — services crew may offer.
+    case recommendationOptions
+
+    /// POST /api/schedule/recommendation — log a crew service recommendation.
+    case recommendationCreate
+
     /// POST /crm/api/pow-actions.php — PoW visit lifecycle (start/end/notes).
     case powActions
 
@@ -130,6 +136,14 @@ enum APIEndpoint {
         case .visitFlag:
             return URL(string: "\(baseURLString)/schedule/visit-flag")
 
+        case .recommendationOptions:
+            var components = URLComponents(string: "\(baseURLString)/schedule/recommendation")
+            components?.queryItems = [URLQueryItem(name: "action", value: "options")]
+            return components?.url
+
+        case .recommendationCreate:
+            return URL(string: "\(baseURLString)/schedule/recommendation")
+
         case .powActions:
             return URL(string: "https://mowology.ca/crm/api/pow-actions.php")
 
@@ -208,6 +222,8 @@ enum APIEndpoint {
              .scheduleClock,
              .scheduleClockStatus,
              .visitFlag,
+             .recommendationOptions,
+             .recommendationCreate,
              .powActions,
              .powGpsSync,
              .scheduleJobs,
@@ -253,9 +269,11 @@ enum APIEndpoint {
              .scheduleJobs,
              .scheduleInvoices,
              .scheduleQuotes,
+             .recommendationOptions,
              .quizQuestion: return "GET"
 
         case .quizAction,
+             .recommendationCreate,
              .scheduleJobPhoto,
              .scheduleInvoice: return "POST"
         }

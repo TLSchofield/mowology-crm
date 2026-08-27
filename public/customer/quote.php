@@ -131,6 +131,28 @@ if (empty($token)) {
         $stmt = $db->prepare("SELECT * FROM quote_line_items WHERE quote_id = ? ORDER BY sort_order");
         $stmt->execute([$quote['id']]);
         $lineItems = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Photos the crew took on site, if this quote came from a field
+        // recommendation. Showing them is the whole point of the feature — the
+        // client sees exactly what prompted the suggestion.
+        try {
+            $recoStmt = $db->prepare("
+                SELECT ma.file_path, mv.file_path AS thumb_url
+                FROM field_observations fo
+                JOIN media_links ml
+                  ON ml.context_type = 'field_observation' AND ml.context_id = fo.id
+                JOIN media_assets ma ON ma.id = ml.media_id AND ma.status <> 'deleted'
+                LEFT JOIN media_variants mv
+                  ON mv.media_id = ma.id AND mv.variant_type = 'thumb_square' AND mv.format = 'jpeg'
+                WHERE fo.quote_id = ?
+                ORDER BY ml.sort_order ASC, ma.id ASC
+            ");
+            $recoStmt->execute([$quote['id']]);
+            $recommendationPhotos = $recoStmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Exception $e) {
+            // field_observations may predate migration 1114 — never block the quote.
+            $recommendationPhotos = [];
+        }
     }
 }
 } // end normal token block
@@ -387,6 +409,28 @@ if (!empty($quote)) {
                 </a>
             </div>
         </div>
+
+        <?php if (!empty($recommendationPhotos)): ?>
+        <!-- What the crew spotted on site -->
+        <div class="portal-info-card">
+            <div class="portal-info-card-header">What our crew noticed</div>
+            <div class="portal-info-card-body">
+                <div class="mw-reco-gallery">
+                    <?php foreach ($recommendationPhotos as $photo):
+                        $full  = $photo['file_path'] ?? '';
+                        $thumb = $photo['thumb_url'] ?: $full;
+                        if (!$full) { continue; }
+                    ?>
+                        <a href="<?php echo htmlspecialchars($full); ?>" target="_blank" rel="noopener">
+                            <img src="<?php echo htmlspecialchars($thumb); ?>"
+                                 alt="Photo taken on site by our crew"
+                                 class="mw-reco-gallery-img" loading="lazy">
+                        </a>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+        </div>
+        <?php endif; ?>
 
         <!-- Services / Line Items -->
         <div class="portal-info-card">

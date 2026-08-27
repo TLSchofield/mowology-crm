@@ -933,6 +933,46 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
                           </div>
                         </div>
                       </div>
+
+                      <!-- Crew field recommendations (migration 1114) -->
+                      <hr>
+                      <h6 class="mw-product-section-heading">Field Recommendations</h6>
+                      <p class="text-muted small">
+                        Let crew offer this service straight from the job card. Auto-send
+                        emails the client a quote without office review &mdash; only enable it
+                        for genuinely fixed-price packages.
+                      </p>
+                      <div class="row">
+                        <div class="col-md-6">
+                          <div class="form-group">
+                            <label>Chip label</label>
+                            <input type="text" class="form-control" name="field_label"
+                                   maxlength="80" placeholder="e.g. Half Day Cleanup">
+                            <small class="form-text text-muted">Short text on the crew's button. Defaults to the product name.</small>
+                          </div>
+                        </div>
+                        <div class="col-md-3">
+                          <div class="form-group">
+                            <label>Chip order</label>
+                            <input type="number" class="form-control" name="field_sort_order" value="0">
+                          </div>
+                        </div>
+                        <div class="col-md-3">
+                          <div class="form-group">
+                            <label>Availability</label>
+                            <div class="d-flex flex-column mt-2" style="gap: .5rem;">
+                              <label class="mw-product-checkbox-label">
+                                <input type="checkbox" name="field_recommendable">
+                                Offer in the field
+                              </label>
+                              <label class="mw-product-checkbox-label">
+                                <input type="checkbox" name="field_auto_send">
+                                Auto-send quote
+                              </label>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     </div>
 
                   </form>
@@ -1403,6 +1443,14 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
               document.getElementById('trackingCustomOptions').style.display =
                 (tLevel === 'heightened' || tLevel === 'custom') ? 'grid' : 'none';
 
+              // Field recommendations (absent until migration 1114 has run)
+              if (form.elements['field_recommendable']) {
+                form.elements['field_recommendable'].checked = product.field_recommendable == 1;
+                form.elements['field_auto_send'].checked = product.field_auto_send == 1;
+                form.elements['field_label'].value = product.field_label || '';
+                form.elements['field_sort_order'].value = product.field_sort_order || 0;
+              }
+
               // Data Sheets & Application fields
               form.elements['sds_sheet_url'].value = product.sds_sheet_url || '';
               form.elements['dilution_rate'].value = product.dilution_rate || '';
@@ -1480,6 +1528,10 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
               data.track_inventory = form.elements['track_inventory'] && form.elements['track_inventory'].checked ? 1 : 0;
               data.featured = form.elements['featured'] && form.elements['featured'].checked ? 1 : 0;
               data.active = form.elements['active'] && form.elements['active'].checked ? 1 : 0;
+
+              // Field recommendations
+              data.field_recommendable = form.elements['field_recommendable'] && form.elements['field_recommendable'].checked ? 1 : 0;
+              data.field_auto_send = form.elements['field_auto_send'] && form.elements['field_auto_send'].checked ? 1 : 0;
 
               // Schedule rollover
               data.auto_rollover = form.elements['auto_rollover'] && form.elements['auto_rollover'].checked ? 1 : 0;

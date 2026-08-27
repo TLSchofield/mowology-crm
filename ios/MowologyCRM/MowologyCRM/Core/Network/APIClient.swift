@@ -187,6 +187,17 @@ final class APIClient: ObservableObject {
     /// Uploads a single before/after job photo for a visit.
     @discardableResult
     func uploadJobPhoto(imageData: Data, visitId: Int, photoType: JobPhotoType) async throws -> [String: Any] {
+        try await uploadVisitPhoto(imageData: imageData, visitId: visitId, photoTypeRaw: photoType.rawValue)
+    }
+
+    /// Upload a visit photo under any of the server's photo_type values.
+    ///
+    /// Recommendation photos go up as "issue" — deliberately not before/after,
+    /// which the server treats as implied visit start/completion timestamps.
+    /// The returned dictionary carries `media_id`, which is what links a photo to
+    /// a recommendation.
+    @discardableResult
+    func uploadVisitPhoto(imageData: Data, visitId: Int, photoTypeRaw: String) async throws -> [String: Any] {
         guard let url = APIEndpoint.scheduleJobPhoto.url else {
             throw APIError.invalidURL
         }
@@ -203,7 +214,7 @@ final class APIClient: ObservableObject {
         body.appendField(name: "photo", filename: "photo.jpg", mimeType: "image/jpeg",
                          data: imageData, boundary: boundary)
         body.appendField(name: "visit_id",   value: "\(visitId)",       boundary: boundary)
-        body.appendField(name: "photo_type", value: photoType.rawValue,   boundary: boundary)
+        body.appendField(name: "photo_type", value: photoTypeRaw,         boundary: boundary)
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)
         request.httpBody = body
 

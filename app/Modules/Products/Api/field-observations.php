@@ -214,6 +214,17 @@ try {
         $countStmt->execute($params);
         $total = (int)$countStmt->fetchColumn();
 
+        // Migration 1114 adds field_observations.quote_id. Guard the join so this
+        // page keeps working if the code ships before the migration is run.
+        $hasQuoteLink = false;
+        try {
+            $hasQuoteLink = $db->query("SHOW COLUMNS FROM field_observations LIKE 'quote_id'")->rowCount() > 0;
+        } catch (Exception $e) {
+            $hasQuoteLink = false;
+        }
+        $quoteSelect = $hasQuoteLink ? 'q.quote_number, q.status AS quote_status,' : '';
+        $quoteJoin   = $hasQuoteLink ? 'LEFT JOIN quotes q ON q.id = fo.quote_id' : '';
+
         // Fetch page
         $params[] = $perPage;
         $params[] = $offset;
@@ -222,8 +233,11 @@ try {
                    c.first_name AS contact_first, c.last_name AS contact_last, c.email AS contact_email,
                    pr.address AS property_address, pr.city AS property_city,
                    p.name AS product_name, p.image_url AS product_image,
+                   p.base_price AS product_price,
+                   {$quoteSelect}
                    u.full_name AS crew_name
             FROM field_observations fo
+            {$quoteJoin}
             LEFT JOIN contacts c ON c.id = fo.contact_id
             LEFT JOIN properties pr ON pr.id = fo.property_id
             LEFT JOIN products p ON p.id = fo.recommended_product_id
@@ -234,6 +248,17 @@ try {
         ");
         $listStmt->execute($params);
         $observations = $listStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Attach every linked photo. The crew often shoot 2-3 angles and the
+        // office needs to see all of them to price the work, not just the cover.
+        if ($observations) {
+            require_once APP_ROOT . '/Modules/Products/Services/FieldRecommendationService.php';
+            $recoSvc = new FieldRecommendationService($db);
+            foreach ($observations as &$obsRow) {
+                $obsRow['photos'] = $recoSvc->getPhotos((int)$obsRow['id']);
+            }
+            unset($obsRow);
+        }
 
         // Status counts for tabs
         $countsByStatus = [];
@@ -264,8 +289,8 @@ try {
                    c.first_name AS contact_first, c.last_name AS contact_last, c.email AS contact_email,
                    c.phone AS contact_phone,
                    pr.address AS property_address, pr.city AS property_city,
-                   p.name AS product_name, p.selling_price AS product_price,
-                   p.short_description AS product_description, p.image_url AS product_image,
+                   p.name AS product_name, p.base_price AS product_price,
+                   p.description AS product_description, p.image_url AS product_image,
                    u.full_name AS crew_name,
                    ma.file_path AS photo_path, ma.thumbnail_path AS photo_thumb
             FROM field_observations fo
@@ -334,8 +359,8 @@ try {
             SELECT fo.*,
                    c.first_name, c.last_name, c.email AS contact_email, c.receive_marketing,
                    pr.address AS property_address, pr.city AS property_city,
-                   p.name AS product_name, p.selling_price AS product_price,
-                   p.short_description AS product_description,
+                   p.name AS product_name, p.base_price AS product_price,
+                   p.description AS product_description,
                    ma.file_path AS photo_path
             FROM field_observations fo
             JOIN contacts c ON c.id = fo.contact_id
@@ -487,6 +512,54 @@ HTML;
                 : 'Email send failed: ' . ($result['error'] ?? 'Unknown error'),
         ]);
 
+    // ── APPROVE & QUOTE ──────────────────────────────────────────
+    // Turns a crew recommendation into a real Quote and emails it. Unlike the
+    // legacy 'approve' action (which only sends a rules-engine recommendation
+    // email), this produces something the client can actually accept online.
+    } elseif ($action === 'approve-quote') {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') throw new Exception('POST required');
+        if (($user['role'] ?? '') !== 'admin') {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'error' => 'Admin access required']);
+            exit;
+        }
+
+        $data = json_decode(file_get_contents('php://input'), true) ?? [];
+        if (!verifyCSRFToken($data['csrf_token'] ?? '')) {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+            exit;
+        }
+
+        $obsId = intval($data['id'] ?? 0);
+        if (!$obsId) throw new Exception('Observation ID required');
+
+        // The office can correct the price before it reaches the client.
+        $priceOverride = isset($data['price']) && $data['price'] !== ''
+            ? (float)$data['price']
+            : null;
+
+        require_once APP_ROOT . '/Modules/Products/Services/FieldRecommendationService.php';
+        $recoSvc = new FieldRecommendationService($db);
+
+        $quoteId = $recoSvc->buildQuote($obsId, (int)$user['id'], $priceOverride);
+        $sent    = $recoSvc->send($obsId, (int)$user['id']);
+
+        $qStmt = $db->prepare('SELECT quote_number FROM quotes WHERE id = ? LIMIT 1');
+        $qStmt->execute([$quoteId]);
+        $quoteNumber = $qStmt->fetchColumn() ?: null;
+
+        echo json_encode([
+            'success'      => (bool)$sent['success'],
+            'quote_id'     => $quoteId,
+            'quote_number' => $quoteNumber,
+            'status'       => $sent['success'] ? 'email_sent' : 'quote_created',
+            'message'      => $sent['success']
+                ? 'Quote ' . $quoteNumber . ' sent to ' . $sent['email']
+                : 'Quote ' . $quoteNumber . ' created but not sent: ' . ($sent['error'] ?? 'unknown error'),
+            'error'        => $sent['error'] ?? null,
+        ]);
+
     // ── DISMISS ──────────────────────────────────────────────────
     } elseif ($action === 'dismiss') {
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') throw new Exception('POST required');
@@ -525,7 +598,7 @@ HTML;
             echo json_encode(['success' => true, 'rules' => []]);
         } else {
             $rules = $db->query("
-                SELECT opr.*, p.name AS product_name, p.selling_price AS product_price
+                SELECT opr.*, p.name AS product_name, p.base_price AS product_price
                 FROM observation_product_rules opr
                 LEFT JOIN products p ON p.id = opr.recommended_product_id
                 WHERE opr.is_active = 1

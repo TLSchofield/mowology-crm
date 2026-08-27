@@ -436,6 +436,10 @@
             '  </button>' +
             '</div>' +
             '<div class="mw-mc-drawer-row-secondary">' +
+            '  <button class="mw-mc-drawer-btn mw-mc-drawer-btn-recommend" data-action="recommend">' +
+            '    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l2.4 7.4H22l-6 4.4 2.3 7.2-6.3-4.6-6.3 4.6L7.9 13.8 2 9.4h7.6z"/></svg>' +
+            '    Recommend' +
+            '  </button>' +
             '  <button class="mw-mc-drawer-btn mw-mc-drawer-btn-stop" data-action="stop-timer">' +
             '    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>' +
             '    Stop Timer' +
@@ -452,6 +456,12 @@
             .addEventListener('click', function(e) {
                 e.stopPropagation();
                 openObservationModal(visitId);
+            });
+
+        drawer.querySelector('[data-action="recommend"]')
+            .addEventListener('click', function(e) {
+                e.stopPropagation();
+                openRecommendModal(visitId);
             });
 
         drawer.querySelector('[data-action="finish"]')
@@ -2688,6 +2698,193 @@
         } else {
             sendObservation(visitId, obsType, obsValue, notes, null, submitBtn, errBox);
         }
+    }
+
+    // ── Crew service recommendations ─────────────────────────────────────────
+    // Crew photograph work that needs doing and tap a service. Fixed-price
+    // packages quote the client immediately; anything else queues for the office.
+    // Backed by /api/schedule/recommendation (session auth here, JWT on iOS).
+
+    var recommendOptions = null;   // cached catalogue chips
+
+    function openRecommendModal(visitId) {
+        var existing = document.getElementById('mw-reco-modal');
+        if (existing) existing.remove();
+
+        var modal = document.createElement('div');
+        modal.id = 'mw-reco-modal';
+        modal.className = 'mw-obs-modal';
+        modal.innerHTML =
+            '<div class="mw-obs-modal-content">' +
+            '  <div class="mw-obs-modal-header">' +
+            '    <h3>Recommend a Service</h3>' +
+            '    <button class="mw-obs-modal-close" data-action="close">&times;</button>' +
+            '  </div>' +
+            '  <div class="mw-obs-modal-body">' +
+            '    <div class="mw-obs-field">' +
+            '      <label>Service *</label>' +
+            '      <div id="mw-reco-chips" class="mw-reco-chips">Loading services...</div>' +
+            '    </div>' +
+            '    <div class="mw-obs-field">' +
+            '      <label>Photos</label>' +
+            '      <input type="file" id="mw-reco-photos" accept="image/*" capture="environment" multiple>' +
+            '      <small>Show the client what you spotted.</small>' +
+            '    </div>' +
+            '    <div class="mw-obs-field">' +
+            '      <label>Note to the client</label>' +
+            '      <textarea id="mw-reco-note" rows="2" placeholder="e.g. Back garden is knee deep in leaves"></textarea>' +
+            '    </div>' +
+            '    <div class="mw-obs-error" id="mw-reco-error"></div>' +
+            '  </div>' +
+            '  <div class="mw-obs-modal-footer">' +
+            '    <button class="mw-obs-btn-cancel" data-action="close">Cancel</button>' +
+            '    <button class="mw-obs-btn-save" id="mw-reco-submit" disabled>Send Recommendation</button>' +
+            '  </div>' +
+            '</div>';
+
+        document.body.appendChild(modal);
+
+        modal.querySelectorAll('[data-action="close"]').forEach(function(btn) {
+            btn.addEventListener('click', closeRecommendModal);
+        });
+
+        var selectedProductId = null;
+        var chipBox = modal.querySelector('#mw-reco-chips');
+        var submitBtn = modal.querySelector('#mw-reco-submit');
+
+        function renderChips(options) {
+            if (!options.length) {
+                chipBox.innerHTML = '<span class="mw-reco-empty">No services published to the field yet. ' +
+                                    'An admin can enable them under Products.</span>';
+                return;
+            }
+            chipBox.innerHTML = '';
+            options.forEach(function(opt) {
+                var chip = document.createElement('button');
+                chip.type = 'button';
+                chip.className = 'mw-reco-chip';
+                chip.setAttribute('data-product-id', opt.product_id);
+                chip.innerHTML = '<span class="mw-reco-chip-label">' + escHtml(opt.label) + '</span>' +
+                                 '<span class="mw-reco-chip-price">$' + Number(opt.price).toFixed(2) + '</span>';
+                chip.addEventListener('click', function() {
+                    selectedProductId = opt.product_id;
+                    chipBox.querySelectorAll('.mw-reco-chip').forEach(function(c) {
+                        c.classList.remove('is-selected');
+                    });
+                    chip.classList.add('is-selected');
+                    submitBtn.disabled = false;
+                });
+                chipBox.appendChild(chip);
+            });
+        }
+
+        if (recommendOptions) {
+            renderChips(recommendOptions);
+        } else {
+            fetch('/api/schedule/recommendation?action=options')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    recommendOptions = (data && data.options) || [];
+                    renderChips(recommendOptions);
+                })
+                .catch(function() {
+                    chipBox.innerHTML = '<span class="mw-reco-empty">Could not load services.</span>';
+                });
+        }
+
+        submitBtn.addEventListener('click', function() {
+            var errBox = modal.querySelector('#mw-reco-error');
+            errBox.style.display = 'none';
+
+            if (!selectedProductId) {
+                errBox.textContent = 'Pick a service first.';
+                errBox.style.display = 'block';
+                return;
+            }
+
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Sending...';
+
+            var files = Array.prototype.slice.call(modal.querySelector('#mw-reco-photos').files || []);
+            var note = modal.querySelector('#mw-reco-note').value.trim();
+
+            uploadRecommendPhotos(files, visitId, function(mediaIds) {
+                sendRecommendation(visitId, selectedProductId, note, mediaIds, submitBtn, errBox);
+            }, function(msg) {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Send Recommendation';
+                errBox.textContent = msg;
+                errBox.style.display = 'block';
+            });
+        });
+    }
+
+    function closeRecommendModal() {
+        var modal = document.getElementById('mw-reco-modal');
+        if (modal) modal.remove();
+    }
+
+    /**
+     * Upload each photo, collecting media_ids. A single failure aborts rather
+     * than sending the client a half-documented recommendation.
+     */
+    function uploadRecommendPhotos(files, visitId, onDone, onError) {
+        if (!files.length) {
+            onDone([]);
+            return;
+        }
+
+        var mediaIds = [];
+        var index = 0;
+
+        function next() {
+            if (index >= files.length) {
+                onDone(mediaIds);
+                return;
+            }
+            uploadObservationPhoto(files[index], visitId, function(mediaId) {
+                mediaIds.push(mediaId);
+                index++;
+                next();
+            }, function(msg) {
+                onError('Photo upload failed: ' + msg);
+            });
+        }
+
+        next();
+    }
+
+    function sendRecommendation(visitId, productId, note, mediaIds, submitBtn, errBox) {
+        fetch('/api/schedule/recommendation', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'create',
+                visit_id: visitId,
+                product_id: productId,
+                note: note || null,
+                media_ids: mediaIds,
+                csrf_token: state.csrf
+            })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                closeRecommendModal();
+                showToast(data.message || 'Recommendation sent');
+            } else {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Send Recommendation';
+                errBox.textContent = data.error || 'Could not send the recommendation';
+                errBox.style.display = 'block';
+            }
+        })
+        .catch(function() {
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Send Recommendation';
+            errBox.textContent = 'Network error — try again when you have signal';
+            errBox.style.display = 'block';
+        });
     }
 
     /**

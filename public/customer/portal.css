@@ -1361,3 +1361,27 @@ a:hover { text-decoration: underline; }
   letter-spacing: 0.02em;
 }
 
+
+/* ── Crew recommendation photos on a quote ─────────────────────────────────
+   Shown above the line items so the client sees what prompted the suggestion
+   before they see the price. */
+.mw-reco-gallery {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.mw-reco-gallery-img {
+  width: 140px;
+  height: 140px;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 1px solid var(--p-border, #e5e7eb);
+  display: block;
+  transition: transform .15s ease;
+}
+.mw-reco-gallery-img:hover {
+  transform: scale(1.03);
+}
+@media (max-width: 480px) {
+  .mw-reco-gallery-img { width: 100px; height: 100px; }
+}

@@ -16219,10 +16219,96 @@ a.mw-clock-timer-nav:hover {
   font-weight:500;
   margin-bottom:.75rem;
 }
+/* Crew "Recommend a Service" modal — chips of field-recommendable products */
+.mw-reco-chips {
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+}
+.mw-reco-chip {
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+  gap:2px;
+  padding:10px 14px;
+  min-width:120px;
+  background:#fff;
+  border:2px solid var(--mw-light,#E8F3F0);
+  border-radius:10px;
+  cursor:pointer;
+  text-align:left;
+  transition:border-color .15s ease, background .15s ease;
+}
+.mw-reco-chip:active { transform:scale(.98); }
+.mw-reco-chip.is-selected {
+  border-color:var(--mw-green,#2D8659);
+  background:var(--mw-light,#E8F3F0);
+}
+.mw-reco-chip-label {
+  font-size:.88rem;
+  font-weight:600;
+  color:var(--mw-forest,#0D3B2E);
+}
+.mw-reco-chip-price {
+  font-size:.8rem;
+  font-weight:500;
+  color:var(--mw-green,#2D8659);
+}
+.mw-reco-empty {
+  font-size:.82rem;
+  color:#6b7280;
+}
+.mw-mc-drawer-btn-recommend {
+  background:var(--mw-lime,#7FD858);
+  color:var(--mw-forest,#0D3B2E);
+}
+
+/* Crew recommendation photos — the office prices from these */
+.mw-obs-card-photos {
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+  margin-bottom:.75rem;
+}
+.mw-obs-photo {
+  width:96px;
+  height:96px;
+  object-fit:cover;
+  border-radius:8px;
+  border:1px solid var(--mw-light,#E8F3F0);
+  display:block;
+}
+.mw-obs-card-quote {
+  display:inline-block;
+  padding:4px 10px;
+  background:var(--mw-forest,#0D3B2E);
+  color:#fff;
+  border-radius:6px;
+  font-size:.78rem;
+  font-weight:500;
+  margin-bottom:.75rem;
+}
+.mw-obs-price-label {
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  margin:0;
+  font-size:.8rem;
+  font-weight:600;
+  color:var(--mw-forest,#0D3B2E);
+}
+.mw-obs-price {
+  width:90px;
+  padding:4px 8px;
+  border:1px solid var(--mw-light,#E8F3F0);
+  border-radius:6px;
+  font-size:.8rem;
+}
 .mw-obs-card-actions {
   display:flex;
   gap:8px;
   flex-wrap:wrap;
+  align-items:center;
 }
 .mw-obs-card-actions .btn {
   font-size:.8rem;

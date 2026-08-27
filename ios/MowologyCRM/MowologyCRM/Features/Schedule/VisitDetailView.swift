@@ -364,6 +364,15 @@ struct VisitDetailView: View {
                     onFlagToggle:  { await viewModel.toggleFlag(visit) }
                 )
 
+                // MARK: Crew Service Recommendations
+                // Photograph work that needs doing and offer the client a quote
+                // for it without the office re-keying anything.
+                Divider()
+                RecommendationSection(
+                    visitId:     visit.visitId,
+                    authSession: authSession
+                )
+
                 // Review earned strip — visible once the client has actually reviewed.
                 if isVisitFlagged && visit.contactHasReviewed {
                     HStack(spacing: 0) {

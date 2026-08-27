@@ -202,10 +202,38 @@ $activePage = 'products';
                           html += '  </div>';
                       }
 
+                      // Everything the crew photographed — the office needs all
+                      // the angles to price the work, not just the cover shot.
+                      if (obs.photos && obs.photos.length) {
+                          html += '  <div class="mw-obs-card-photos">';
+                          obs.photos.forEach(function(photo) {
+                              var src = photo.thumb_url || photo.file_path;
+                              if (!src) return;
+                              html += '<a href="' + escHtml(photo.file_path) + '" target="_blank" rel="noopener">';
+                              html += '<img src="' + escHtml(src) + '" alt="Site photo" class="mw-obs-photo">';
+                              html += '</a>';
+                          });
+                          html += '  </div>';
+                      }
+
+                      if (obs.quote_number) {
+                          html += '  <div class="mw-obs-card-quote">Quote ' + escHtml(obs.quote_number);
+                          if (obs.quote_status) html += ' &middot; ' + escHtml(obs.quote_status);
+                          html += '</div>';
+                      }
+
                       // Actions (admin only, for pending observations)
                       if (isAdmin && obs.status === 'pending') {
                           html += '  <div class="mw-obs-card-actions">';
-                          html += '    <button class="btn btn-sm btn-success" onclick="approveObs(' + obs.id + ')">Approve & Send</button>';
+                          if (obs.recommended_product_id) {
+                              var suggested = obs.recommended_price || obs.product_price || '';
+                              html += '    <label class="mw-obs-price-label">$';
+                              html += '      <input type="number" step="0.01" min="0" class="mw-obs-price" ';
+                              html += '             id="price-' + obs.id + '" value="' + escHtml(String(suggested)) + '">';
+                              html += '    </label>';
+                              html += '    <button class="btn btn-sm btn-success" onclick="approveQuote(' + obs.id + ')">Approve &amp; Send Quote</button>';
+                          }
+                          html += '    <button class="btn btn-sm btn-outline-primary" onclick="approveObs(' + obs.id + ')">Send Info Email</button>';
                           html += '    <button class="btn btn-sm btn-outline-secondary" onclick="dismissObs(' + obs.id + ')">Dismiss</button>';
                           html += '  </div>';
                       }
@@ -264,6 +292,28 @@ $activePage = 'products';
                       }
                   })
                   .catch(function() { alert('Network error'); });
+              };
+
+              // Builds a real Quote from the recommendation and emails it to
+              // whoever authorises spend on that property, then refreshes.
+              window.approveQuote = function(obsId) {
+                  var priceEl = document.getElementById('price-' + obsId);
+                  var price = priceEl ? priceEl.value : '';
+
+                  if (!confirm('Create a quote' + (price ? ' for $' + price : '') + ' and email it to the client?')) return;
+
+                  fetch('/crm/api/field-observations.php?action=approve-quote', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ id: obsId, price: price, csrf_token: csrf })
+                  })
+                  .then(function(r) { return r.json(); })
+                  .then(function(data) {
+                      if (data.message) alert(data.message);
+                      if (!data.success && data.error) showError(data.error);
+                      loadObservations();
+                  })
+                  .catch(function() { showError('Could not create the quote.'); });
               };
 
               window.dismissObs = function(obsId) {

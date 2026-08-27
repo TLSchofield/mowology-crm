@@ -24,7 +24,11 @@ require_once __DIR__ . '/../app/Services/Messaging/EmailWrapper.php';
 
 // Quotes
 require_once __DIR__ . '/../app/Modules/Quotes/Services/QuoteService.php';
+
 require_once __DIR__ . '/../app/Modules/Invoices/Services/StatementService.php';
+
+// Products
+require_once __DIR__ . '/../app/Modules/Products/Services/FieldRecommendationService.php';
 
 // Expenses
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptInboxService.php';

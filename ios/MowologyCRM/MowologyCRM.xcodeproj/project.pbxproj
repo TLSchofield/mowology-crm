@@ -71,6 +71,9 @@
 		91DE03C2BB805CE4DB87C4CB /* DeviceTokenService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D504DC78E053FE292176721 /* DeviceTokenService.swift */; };
 		8C489D348DBAAC03DE15B991 /* DeviceTokenResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAA32370295931F4177A5345 /* DeviceTokenResponse.swift */; };
 		9E9948A505D043E56F240C06 /* ReceiptActionQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B977BC71DF7EEFB41F5B333 /* ReceiptActionQueue.swift */; };
+		FE7E8A8815051EB2E10528DD /* RecommendationOption.swift in Sources */ = {isa = PBXBuildFile; fileRef = E50EB154921E020A70E7BA46 /* RecommendationOption.swift */; };
+		4FB22F42D3EE08BB5C268EE0 /* RecommendationQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD7FBBB86BFB6DE6A50849E7 /* RecommendationQueue.swift */; };
+		887E8393F19A468781219085 /* RecommendationSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8BB2AC6F5B2A933301F642A /* RecommendationSection.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -140,6 +143,9 @@
 		6D504DC78E053FE292176721 /* DeviceTokenService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceTokenService.swift; sourceTree = "<group>"; };
 		FAA32370295931F4177A5345 /* DeviceTokenResponse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceTokenResponse.swift; sourceTree = "<group>"; };
 		3B977BC71DF7EEFB41F5B333 /* ReceiptActionQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptActionQueue.swift; sourceTree = "<group>"; };
+		E50EB154921E020A70E7BA46 /* RecommendationOption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecommendationOption.swift; sourceTree = "<group>"; };
+		CD7FBBB86BFB6DE6A50849E7 /* RecommendationQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecommendationQueue.swift; sourceTree = "<group>"; };
+		A8BB2AC6F5B2A933301F642A /* RecommendationSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecommendationSection.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -153,6 +159,7 @@
 				C38B412AFB12D52D9679198C /* ClockQueue.swift */,
 				88FD0AEC402CBA0866DBF37B /* AppPhotoQueueDrainService.swift */,
 				020780B1CE91FCD6C5F342B3 /* JobPhotoQueue.swift */,
+				CD7FBBB86BFB6DE6A50849E7 /* RecommendationQueue.swift */,
 				AD1CBB45AF36E4DCB8B81C51 /* ScheduleCache.swift */,
 				04649C7082A9C0FC920D58AD /* AppTransitionDrainService.swift */,
 				3B977BC71DF7EEFB41F5B333 /* ReceiptActionQueue.swift */,
@@ -165,7 +172,7 @@
 			children = (
 				51F215642B22B1FCC54B663F /* MowologyCRM */,
 				636F64D13F9CF99C7CCAD7EA /* Products */,
-			);
+);
 			sourceTree = "<group>";
 		};
 		3CAC498CFC84EC47A1CECC6B /* Network */ = {
@@ -278,6 +285,7 @@
 				68D4D6F730154942832B001A /* WeekStripView.swift */,
 				A16DCCA87E60FAD86C6FAE71 /* DayMapView.swift */,
 				B448B82DBF4BE3E971A5357D /* JobPhotoSection.swift */,
+				A8BB2AC6F5B2A933301F642A /* RecommendationSection.swift */,
 			);
 			path = Schedule;
 			sourceTree = "<group>";
@@ -312,6 +320,7 @@
 				AD88E66FE7C3D2F54EEB6953 /* TimeClockModels.swift */,
 				C9C49661C41333A49EE1D301 /* User.swift */,
 				46E2EA872345FA9825A6DF2E /* Visit.swift */,
+				E50EB154921E020A70E7BA46 /* RecommendationOption.swift */,
 				92E56ACC6D7EF8F4EDA36AED /* InvoiceModels.swift */,
 				FA520C17803E2ABBC60EB495 /* AppExtrasConfig.swift */,
 				15B038E603948161013BAE5A /* ReceiptIntakeResponse.swift */,
@@ -327,7 +336,7 @@
 			children = (
 				C8040C6DF2C66988040204FE /* Assets.xcassets */,
 				9DD091BEACD0F5E731BE8B0E /* Info.plist */,
-			);
+);
 			path = Resources;
 			sourceTree = "<group>";
 		};
@@ -480,6 +489,9 @@
 				91DE03C2BB805CE4DB87C4CB /* DeviceTokenService.swift in Sources */,
 				8C489D348DBAAC03DE15B991 /* DeviceTokenResponse.swift in Sources */,
 				9E9948A505D043E56F240C06 /* ReceiptActionQueue.swift in Sources */,
+				FE7E8A8815051EB2E10528DD /* RecommendationOption.swift in Sources */,
+				4FB22F42D3EE08BB5C268EE0 /* RecommendationQueue.swift in Sources */,
+				887E8393F19A468781219085 /* RecommendationSection.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

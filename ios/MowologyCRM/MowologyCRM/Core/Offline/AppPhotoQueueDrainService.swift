@@ -53,8 +53,17 @@ final class AppPhotoQueueDrainService {
         isDraining = true
         defer { isDraining = false }
 
-        guard JobPhotoQueue.shared.pendingCount > 0 else { return }
-        print("[AppPhotoQueueDrain] Draining \(JobPhotoQueue.shared.pendingCount) pending photo(s)")
-        await JobPhotoQueue.shared.drain(using: apiClient)
+        if JobPhotoQueue.shared.pendingCount > 0 {
+            print("[AppPhotoQueueDrain] Draining \(JobPhotoQueue.shared.pendingCount) pending photo(s)")
+            await JobPhotoQueue.shared.drain(using: apiClient)
+        }
+
+        // Crew recommendations captured out of signal. Drained here rather than
+        // in RecommendationSection so they retry even when that job card is not
+        // on screen — the sale should not depend on where the user navigated.
+        if RecommendationQueue.shared.pendingCount > 0 {
+            print("[AppPhotoQueueDrain] Draining \(RecommendationQueue.shared.pendingCount) pending recommendation(s)")
+            await RecommendationQueue.shared.drain(using: apiClient)
+        }
     }
 }
