@@ -100,6 +100,36 @@ Two independent mechanisms now cover this:
   `PushDispatcher`. Needs `FcmService` (Android) and `ApnsService` (iOS)
   credentials provisioned in `secrets.php` before anything actually sends.
 
+## Crew service recommendations (added 2026-08-27)
+
+Crew can offer extra work from the job card: photograph what needs doing, tap a
+service chip, and the client gets a priced quote. Built on the existing Field
+Observations tables (migrations 602/605), not a parallel system.
+
+- **Web/Android:** a "Recommend" button in `schedule-pill-workflow.js`'s working
+  drawer opens a chip picker (`openRecommendModal`). Chips come from
+  `/api/schedule/recommendation?action=options`; photos reuse the existing
+  `uploadObservationPhoto()` path and their `media_id`s are passed to `create`.
+- **iOS:** `Features/Schedule/RecommendationSection.swift`, embedded in
+  `VisitDetailView` next to `JobPhotoSection`. Offline captures queue in
+  `RecommendationQueue` and drain app-wide via `AppPhotoQueueDrainService`.
+- **Backend:** `FieldRecommendationService` (all the rules) behind
+  `app/Modules/Schedule/Api/recommendation.php`, which uses `requireLoginOrJwt()`
+  so one endpoint serves JWT (iOS) and session+CSRF (Android WebView).
+
+Auto-send is deliberately narrow — the office must flag the product
+(`products.field_auto_send`), the price must not depend on measurements, and it
+must be non-zero. Everything else queues in `/crm/products/recommendations.php`
+for review. It fails closed: any doubt routes to a human.
+
+The quote is a **real** `quotes` row created through `QuoteService`, which is why
+portal display, signature acceptance, decline and follow-up nagging all work
+without new code — and why PM/strata properties route to whoever authorises
+spend, exactly as invoices do.
+
+Needs migration 1114. All new-column reads are `SHOW COLUMNS`-guarded, so the
+code is inert rather than broken if it ships first.
+
 ## Safety net
 
 `tests/Unit/Jobs/PlanFunctionsLoadTest.php` is a characterization test asserting
