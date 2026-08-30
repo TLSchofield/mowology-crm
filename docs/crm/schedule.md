@@ -113,6 +113,17 @@ Observations tables (migrations 602/605), not a parallel system.
 - **iOS:** `Features/Schedule/RecommendationSection.swift`, embedded in
   `VisitDetailView` next to `JobPhotoSection`. Offline captures queue in
   `RecommendationQueue` and drain app-wide via `AppPhotoQueueDrainService`.
+
+Available on `scheduled`, `in_progress` **and `completed`** visits on both
+platforms — deliberately wider than the before/after photo gate, because crews
+spot sellable work while packing up, after they have hit Finish. On web this is
+the `completed` case in the drawer switch (`renderCompletedDrawer`).
+
+Queued payloads persist via `Core/Offline/QueueStorage.swift` (Application
+Support, non-purgeable) — **not** `temporaryDirectory`, which iOS reclaims under
+storage pressure without telling the app, silently destroying photo proof that
+had not drained yet. Reads fall back to the legacy temp path for items queued by
+older builds.
 - **Backend:** `FieldRecommendationService` (all the rules) behind
   `app/Modules/Schedule/Api/recommendation.php`, which uses `requireLoginOrJwt()`
   so one endpoint serves JWT (iOS) and session+CSRF (Android WebView).
