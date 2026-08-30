@@ -4,8 +4,8 @@
 //
 //  Crew are regularly out of signal on site. Without this a recommendation —
 //  photos, service, note — would vanish the moment the request failed, and the
-//  sale with it. Photos are written to the temp directory; metadata lives in
-//  UserDefaults. Drained on mwPingQueueOnline, same as JobPhotoQueue.
+//  sale with it. Photo bytes go to QueueStorage (durable, non-purgeable);
+//  metadata lives in UserDefaults. Drained on mwPingQueueOnline, same as JobPhotoQueue.
 //
 
 import Foundation
@@ -61,8 +61,7 @@ final class RecommendationQueue: ObservableObject {
 
         for data in images {
             let name = "mw-reco-\(UUID().uuidString).jpg"
-            let url  = FileManager.default.temporaryDirectory.appendingPathComponent(name)
-            if (try? data.write(to: url)) != nil {
+            if QueueStorage.write(data, filename: name) {
                 filenames.append(name)
             }
         }
@@ -92,8 +91,13 @@ final class RecommendationQueue: ObservableObject {
                 var mediaIds: [Int] = []
 
                 for filename in item.imageFilenames {
-                    let url = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
-                    guard let data = try? Data(contentsOf: url) else { continue }
+                    guard let data = QueueStorage.read(filename) else {
+                        // Payload purged or never written — the photo is gone. Log
+                        // rather than silently sending a recommendation with no
+                        // evidence attached.
+                        print("[RecommendationQueue] Missing payload \(filename) for visit \(item.visitId)")
+                        continue
+                    }
 
                     let response = try await apiClient.uploadVisitPhoto(
                         imageData: data,
@@ -135,8 +139,7 @@ final class RecommendationQueue: ObservableObject {
 
     private func cleanUpFiles(for item: PendingItem) {
         for filename in item.imageFilenames {
-            let url = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
-            try? FileManager.default.removeItem(at: url)
+            QueueStorage.remove(filename)
         }
     }
 }

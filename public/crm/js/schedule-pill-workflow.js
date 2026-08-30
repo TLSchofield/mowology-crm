@@ -351,6 +351,12 @@
             case 'prompt_after':
                 renderPhotoPrompt(drawer, visitId, 'after');
                 break;
+            case 'completed':
+                // Crews spot sellable work while packing up, after they have
+                // finished. Without this the drawer vanished on completion and
+                // took the Recommend button with it.
+                renderCompletedDrawer(drawer, visitId);
+                break;
         }
 
         drawer.style.display = 'block';
@@ -418,6 +424,26 @@
     /**
      * "Photo" + "Finish" buttons for an in-progress visit
      */
+    /**
+     * Post-completion drawer. Deliberately minimal: the visit is finished, so the
+     * only thing still worth offering is a service recommendation.
+     */
+    function renderCompletedDrawer(drawer, visitId) {
+        drawer.innerHTML =
+            '<div class="mw-mc-drawer-row-secondary">' +
+            '  <button class="mw-mc-drawer-btn mw-mc-drawer-btn-recommend" data-action="recommend">' +
+            '    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l2.4 7.4H22l-6 4.4 2.3 7.2-6.3-4.6-6.3 4.6L7.9 13.8 2 9.4h7.6z"/></svg>' +
+            '    Recommend a Service' +
+            '  </button>' +
+            '</div>';
+
+        drawer.querySelector('[data-action="recommend"]')
+            .addEventListener('click', function(e) {
+                e.stopPropagation();
+                openRecommendModal(visitId);
+            });
+    }
+
     function renderWorkingDrawer(drawer, visitId) {
         var v = visits[visitId];
         drawer.innerHTML =

@@ -3,7 +3,8 @@
 //  MowologyCRM
 //
 //  Disk-backed offline queue for job before/after photo uploads.
-//  Images are written to the temp directory; metadata is stored in UserDefaults.
+//  Image bytes go to QueueStorage (durable, non-purgeable); metadata is
+//  stored in UserDefaults.
 //  Call drain(using:) when connectivity is restored (TimeClockViewModel and
 //  JobPhotoViewModel both observe mwPingQueueOnline to do this automatically).
 //
@@ -58,17 +59,14 @@ final class JobPhotoQueue: ObservableObject {
         // Remove any stale entry for this slot and clean up its file.
         var current = items
         for stale in current where stale.visitId == visitId && stale.photoType == photoType.rawValue {
-            let staleURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent(stale.imageFilename)
-            try? FileManager.default.removeItem(at: staleURL)
+            QueueStorage.remove(stale.imageFilename)
         }
         current.removeAll { $0.visitId == visitId && $0.photoType == photoType.rawValue }
 
         // Write the new image file.
         let id       = UUID().uuidString
         let filename = "jobphoto-\(id).jpg"
-        let fileURL  = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
-        try? imageData.write(to: fileURL)
+        QueueStorage.write(imageData, filename: filename)
 
         current.append(PendingItem(
             id:            id,
@@ -93,12 +91,13 @@ final class JobPhotoQueue: ObservableObject {
     func drain(using apiClient: APIClient) async {
         let pending = items
         for item in pending {
-            let fileURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent(item.imageFilename)
-            guard let data = try? Data(contentsOf: fileURL),
+            guard let data = QueueStorage.read(item.imageFilename),
                   let slot = JobPhotoType(rawValue: item.photoType)
             else {
-                // File missing or type unknown — discard.
+                // File missing or type unknown — discard. A missing file here means
+                // the payload was purged or never written; log it, because it is a
+                // silent loss of photo proof and the only signal we get.
+                print("[JobPhotoQueue] Discarding visit \(item.visitId) \(item.photoType) — payload unreadable")
                 items = items.filter { $0.id != item.id }
                 continue
             }
@@ -106,7 +105,7 @@ final class JobPhotoQueue: ObservableObject {
             do {
                 try await apiClient.uploadJobPhoto(imageData: data, visitId: item.visitId, photoType: slot)
                 items = items.filter { $0.id != item.id }
-                try? FileManager.default.removeItem(at: fileURL)
+                QueueStorage.remove(item.imageFilename)
             } catch let err as APIError {
                 if case .networkError = err {
                     // Still offline — preserve queue, stop draining.
@@ -114,7 +113,7 @@ final class JobPhotoQueue: ObservableObject {
                 }
                 // Server rejected (duplicate, visit closed, etc.) — discard and continue.
                 items = items.filter { $0.id != item.id }
-                try? FileManager.default.removeItem(at: fileURL)
+                QueueStorage.remove(item.imageFilename)
             } catch {
                 return
             }

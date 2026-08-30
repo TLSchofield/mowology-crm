@@ -349,6 +349,21 @@ struct VisitDetailView: View {
             Divider()
             actionButtons(for: visit, currentStatus: currentStatus)
 
+            // MARK: Crew Service Recommendations
+            // Photograph work that needs doing and offer the client a quote for it.
+            //
+            // Deliberately NOT gated to scheduled/in_progress like the before/after
+            // proof below: crews spot sellable work while packing up and walking the
+            // property, which is usually after they have hit Finish. Gating this the
+            // same way removed the feature at the exact moment it gets used.
+            if ["scheduled", "in_progress", "completed"].contains(visit.visitStatus.lowercased()) {
+                Divider()
+                RecommendationSection(
+                    visitId:     visit.visitId,
+                    authSession: authSession
+                )
+            }
+
             // MARK: Before/After Photo Proof + Heart Endorsement
             if ["scheduled", "in_progress"].contains(visit.visitStatus.lowercased()) {
                 let isVisitFlagged  = viewModel.isFlagged(for: visit)
@@ -362,15 +377,6 @@ struct VisitDetailView: View {
                     isFlagged:     isVisitFlagged,
                     isFlagLoading: isFlagLoading,
                     onFlagToggle:  { await viewModel.toggleFlag(visit) }
-                )
-
-                // MARK: Crew Service Recommendations
-                // Photograph work that needs doing and offer the client a quote
-                // for it without the office re-keying anything.
-                Divider()
-                RecommendationSection(
-                    visitId:     visit.visitId,
-                    authSession: authSession
                 )
 
                 // Review earned strip — visible once the client has actually reviewed.
