@@ -257,4 +257,25 @@ Reference catalog of shared, reusable JS/CSS UI components under `public/crm/js/
 
 ---
 
-**Total: 18 components documented.**
+## Server-Rendered Partials
+
+### Seasonal Outlook Card
+- **Renderer:** `public/crm/modules/weather/seasonal-outlook-card.php` — `renderSeasonalOutlookCard(array $outlook, string $variant)`
+- **Data:** `app/Modules/Jobs/Services/SeasonalOutlookService.php` — `activeOutlook()` returns the payload or `null` when out of season.
+- **CSS:** `mowology-brand.css` section 52 (`.mw-seasonal*`).
+- **Purpose:** Renders the Nov–Mar winter outlook — expected frost nights, snow days and snowfall per month, each shown against its 28-winter YVR normal — so scheduling and snow/ice staffing have a season-level number, not just the 7-day forecast.
+- **Variants:** `'compact'` (month strip, used on the dashboard) and `'full'` (month table + notes + sources, used on Weather Actions). Both render from the same array, so the two pages cannot drift apart.
+- **Usage:**
+  ```php
+  require_once APP_ROOT . '/Modules/Jobs/Services/SeasonalOutlookService.php';
+  require_once dirname(__DIR__) . '/modules/weather/seasonal-outlook-card.php';
+  $outlook = (new SeasonalOutlookService(getDB()))->activeOutlook();
+  if ($outlook) renderSeasonalOutlookCard($outlook, 'compact');
+  ```
+- **When to reach for it:** Any page that needs seasonal (multi-month) weather context. For "what is the weather on Thursday" use `WeatherService` instead — the two are deliberately separate so a probabilistic outlook is never read as a deterministic forecast.
+- **Updating for next season:** put a replacement JSON payload in `ops_settings` under `seasonal_outlook_current` (no migration needed, no deploy needed), or replace `SeasonalOutlookService::bundledOutlook()`. Every outlook carries `review_by`; once that date passes the card flags itself **Review overdue** rather than silently showing stale numbers.
+- **Not auto-loaded** — `require_once` both files on the page that renders it.
+
+---
+
+**Total: 19 components documented.**

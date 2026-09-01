@@ -21,7 +21,8 @@ app/Modules/Jobs/
 │   ├── Plan/                    ← 11 domain files, 50 global functions (see schedule.md)
 │   ├── ClusterService.php       ← geographic clustering of stops
 │   ├── ClusterDetectionService.php
-│   └── VisitCompletionService.php
+│   ├── VisitCompletionService.php
+│   └── SeasonalOutlookService.php ← Nov–Mar freeze/snow outlook (not a forecast)
 ├── Api/                         ← thin JSON controllers (one endpoint per file)
 └── Cron/                        ← scheduled batch jobs
 ```
@@ -59,6 +60,33 @@ relevant service) and returns JSON. Current endpoints:
 `job-timer.php` is on the **revenue-critical completion path** — it must load
 `plan-functions.php` so `updateVisitStatus()` is defined (see schedule.md).
 
+### SeasonalOutlookService
+
+Answers the season-level question the 7-day forecast cannot: *how many freeze
+mornings and snow events should be staffed and quoted for between November and
+March.* Returns per-month expected frost nights, snow days, days ≥ 2 cm and
+snowfall, each paired with its observed normal so the card renders the anomaly
+rather than a bare number.
+
+Baseline is ECCC daily observations for Vancouver Intl A (climate ID 1108447),
+28 complete Nov–Mar seasons in 1995/96–2024/25. The projection blends the
+strong-El Niño analog winters with climatology — see the class docblock for the
+method and its limits.
+
+Kept **separate from `app/Services/Weather/WeatherService.php` on purpose**: that
+service is a 7-day deterministic forecast, this is a 5-month probabilistic
+outlook. Merging them is how an outlook gets read as a forecast.
+
+- `activeOutlook()` returns the payload or `null` out of season — callers render
+  nothing rather than an empty panel.
+- Every outlook carries `review_by`. Once it passes, the card flags itself
+  **Review overdue** instead of presenting stale numbers as current.
+- Next season is an `ops_settings` edit under `seasonal_outlook_current` (JSON),
+  not a deploy. No migration needed — `ops_settings` ships in migration 202.
+- Rendered by `public/crm/modules/weather/seasonal-outlook-card.php` in two
+  variants (`compact` on the dashboard, `full` on Weather Actions). See
+  `COMPONENTS.md`.
+
 ### Cron (`Cron/`)
 
 | Cron | Purpose |
@@ -73,6 +101,7 @@ registry-driven Cron Jobs tab — see `project_cron_manager_registry`.
 ## Testing & deployment
 
 - Safety net: `tests/Unit/Jobs/PlanFunctionsLoadTest.php` (function presence +
-  arity). Run `vendor/bin/phpunit` before every commit.
+  arity) and `tests/Unit/Jobs/SeasonalOutlookServiceTest.php` (pure helpers,
+  no DB). Run `vendor/bin/phpunit` before every commit.
 - `app/` is not in cPanel auto-deploy. Deploy module changes via `lftp` to
   `/app/Modules/Jobs/...` and hit `/crm/api/opcache-reset.php` afterward.

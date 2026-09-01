@@ -73,6 +73,7 @@ require_once __DIR__ . '/../app/Modules/Jobs/Services/PlanProfitabilityService.p
 require_once __DIR__ . '/../app/Modules/Jobs/Services/PlanMaterialsService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/PlanHelpersService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/VisitLifecycleService.php';
+require_once __DIR__ . '/../app/Modules/Jobs/Services/SeasonalOutlookService.php';
 
 // Integration test base class (needed when --testsuite Integration is run)
 require_once __DIR__ . '/Integration/ApiTestCase.php';

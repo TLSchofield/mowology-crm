@@ -36790,3 +36790,338 @@ span.mw-icon-box--missing {
 @media (min-width: 992px) {
     .mw-fj-fab { display: none; }
 }
+
+/* ══ 52. SEASONAL OUTLOOK CARD (.mw-seasonal*) ════════════════════════════ */
+/* Winter seasonal outlook. Rendered by
+   /crm/modules/weather/seasonal-outlook-card.php in two variants:
+   .mw-seasonal-compact (dashboard strip) and .mw-seasonal-full (Weather Actions).
+   The two share every token below so the dashboard can never visually drift
+   from the operations page. */
+
+.mw-seasonal {
+    background: #fff;
+    border: 1px solid var(--mw-light);
+    border-left: 4px solid var(--mw-forest);
+    border-radius: 6px;
+    padding: 1rem 1.15rem;
+    margin-bottom: 1.5rem;
+}
+
+.mw-seasonal-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.35rem;
+}
+
+.mw-seasonal-title-wrap {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.mw-seasonal-title {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--mw-forest);
+    letter-spacing: 0.01em;
+}
+
+.mw-seasonal-region {
+    font-size: 0.75rem;
+    color: #6c757d;
+}
+
+.mw-seasonal-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+}
+
+.mw-seasonal-badge {
+    font-size: 0.68rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 0.2rem 0.5rem;
+    border-radius: 10px;
+    white-space: nowrap;
+}
+
+.mw-seasonal-badge-driver {
+    background: var(--mw-light);
+    color: var(--mw-dark);
+}
+
+.mw-seasonal-badge-review {
+    background: #f1f3f5;
+    color: #6c757d;
+}
+
+/* Stale is a state, not a footnote — it must read louder than the driver badge. */
+.mw-seasonal-badge-stale {
+    background: var(--mw-orange);
+    color: #fff;
+}
+
+.mw-seasonal-headline {
+    font-size: 0.85rem;
+    color: #495057;
+    margin-bottom: 0.75rem;
+}
+
+.mw-seasonal-partial {
+    font-size: 0.73rem;
+    color: #6c757d;
+    font-style: italic;
+    margin-bottom: 0.6rem;
+}
+
+/* ── Compact variant: month strip ─────────────────────────────────────── */
+
+.mw-seasonal-strip {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.5rem;
+    margin-bottom: 0.85rem;
+}
+
+.mw-seasonal-month {
+    background: #f8f9fa;
+    border: 1px solid #edf0f2;
+    border-radius: 5px;
+    padding: 0.55rem 0.4rem;
+    text-align: center;
+}
+
+.mw-seasonal-month-current {
+    background: var(--mw-light);
+    border-color: var(--mw-green);
+}
+
+.mw-seasonal-month-name {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--mw-forest);
+    margin-bottom: 0.3rem;
+}
+
+.mw-seasonal-metric {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.1;
+    margin-bottom: 0.25rem;
+}
+
+.mw-seasonal-metric-val {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #343a40;
+}
+
+.mw-seasonal-metric-val.mw-seasonal-snow {
+    color: #3490dc;
+}
+
+.mw-seasonal-metric-lbl {
+    font-size: 0.62rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #868e96;
+}
+
+.mw-seasonal-metric-sub {
+    font-size: 0.68rem;
+    color: #868e96;
+}
+
+.mw-seasonal-trend-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    margin-left: 3px;
+    vertical-align: middle;
+}
+
+/* ── Full variant: month table ────────────────────────────────────────── */
+
+.mw-seasonal-table th {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #6c757d;
+    border-top: none;
+    vertical-align: bottom;
+}
+
+.mw-seasonal-table th small {
+    font-size: 0.62rem;
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 400;
+}
+
+.mw-seasonal-table td {
+    font-size: 0.85rem;
+    vertical-align: middle;
+}
+
+.mw-seasonal-num {
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    color: #343a40;
+}
+
+/* Normals sit beside every projection — muted, so the eye lands on the
+   projection first and reads the baseline only when it wants the anomaly. */
+.mw-seasonal-norm {
+    font-variant-numeric: tabular-nums;
+    color: #adb5bd;
+    font-size: 0.8rem;
+}
+
+.mw-seasonal-row-current {
+    background: var(--mw-light);
+}
+
+.mw-seasonal-now {
+    font-size: 0.6rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    background: var(--mw-green);
+    color: #fff;
+    padding: 0.1rem 0.35rem;
+    border-radius: 8px;
+    margin-left: 0.35rem;
+    vertical-align: middle;
+}
+
+.mw-seasonal-trend {
+    font-size: 0.72rem;
+    font-weight: 600;
+}
+
+/* Below-normal snow is the good/quiet direction here, so it takes the green. */
+.mw-seasonal-trend-down { color: var(--mw-green); }
+.mw-seasonal-trend-up   { color: var(--mw-orange); }
+.mw-seasonal-trend-flat { color: #868e96; }
+
+.mw-seasonal-trend-dot.mw-seasonal-trend-down { background: var(--mw-green); }
+.mw-seasonal-trend-dot.mw-seasonal-trend-up   { background: var(--mw-orange); }
+.mw-seasonal-trend-dot.mw-seasonal-trend-flat { background: #ced4da; }
+
+/* ── Footer, notes, provenance ────────────────────────────────────────── */
+
+.mw-seasonal-footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding-top: 0.6rem;
+    border-top: 1px solid #f1f3f5;
+}
+
+.mw-seasonal-totals {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.mw-seasonal-total {
+    font-size: 0.78rem;
+    color: #495057;
+}
+
+.mw-seasonal-total strong {
+    color: var(--mw-forest);
+    font-variant-numeric: tabular-nums;
+}
+
+.mw-seasonal-total em {
+    color: #adb5bd;
+    font-style: normal;
+    font-size: 0.72rem;
+}
+
+.mw-seasonal-peak {
+    color: var(--mw-orange);
+}
+
+.mw-seasonal-peak strong {
+    color: var(--mw-orange);
+}
+
+.mw-seasonal-link {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--mw-green);
+    white-space: nowrap;
+}
+
+.mw-seasonal-link:hover {
+    color: var(--mw-dark);
+}
+
+.mw-seasonal-link svg {
+    width: 13px;
+    height: 13px;
+    vertical-align: -2px;
+}
+
+.mw-seasonal-driver-note {
+    font-size: 0.78rem;
+    color: #6c757d;
+    margin: 0.75rem 0 0;
+}
+
+.mw-seasonal-notes {
+    font-size: 0.8rem;
+    color: #495057;
+    margin: 0.6rem 0 0;
+    padding-left: 1.1rem;
+}
+
+.mw-seasonal-notes li {
+    margin-bottom: 0.3rem;
+}
+
+.mw-seasonal-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 0.85rem;
+    padding-top: 0.6rem;
+    border-top: 1px solid #f1f3f5;
+    font-size: 0.7rem;
+    color: #adb5bd;
+}
+
+.mw-seasonal-meta a {
+    color: #868e96;
+    text-decoration: underline;
+}
+
+.mw-seasonal-meta a:hover {
+    color: var(--mw-green);
+}
+
+/* Phones: the 5-across strip becomes unreadable, so drop to a scroll row. */
+@media (max-width: 575.98px) {
+    .mw-seasonal-strip {
+        grid-template-columns: repeat(5, 5.2rem);
+        overflow-x: auto;
+        padding-bottom: 0.35rem;
+    }
+
+    .mw-seasonal-footer {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+}

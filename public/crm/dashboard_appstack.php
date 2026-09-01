@@ -2,6 +2,8 @@
 require_once __DIR__ . '/../loginAuth/auth.php';
 require_once 'includes/functions.php';
 require_once 'includes/weather-service.php';
+require_once APP_ROOT . '/Modules/Jobs/Services/SeasonalOutlookService.php';
+require_once __DIR__ . '/modules/weather/seasonal-outlook-card.php';
 require_once 'includes/error-handler.php';
 
 requireLogin();
@@ -13,6 +15,15 @@ $GLOBALS['crm_error_handler'] = $errorHandler;
 
 // Get 7-day weather forecast for dashboard (today + 6 days forward)
 $weekWeather = getWeekForecast('Vancouver', 'BC');
+
+// Winter seasonal outlook (Nov-Mar freeze/snow expectations). Null out of season,
+// so the card simply disappears in summer rather than showing a dead panel.
+$seasonalOutlook = null;
+try {
+    $seasonalOutlook = (new SeasonalOutlookService(getDB()))->activeOutlook();
+} catch (Throwable $e) {
+    error_log('Dashboard seasonal outlook unavailable: ' . $e->getMessage());
+}
 
 // Get 7-day profitability data (3 past + today + 3 future, aligned with weather)
 $profitStart = date('Y-m-d', strtotime('-3 days'));
@@ -333,6 +344,9 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                   ?>
               </div>
           </div>
+
+          <!-- Winter Seasonal Outlook (Nov-Mar) — hidden out of season -->
+          <?php if ($seasonalOutlook): renderSeasonalOutlookCard($seasonalOutlook, 'compact'); endif; ?>
 
           <!-- Work Queue — 4-lane attention system -->
           <?php

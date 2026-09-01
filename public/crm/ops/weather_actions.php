@@ -1,12 +1,24 @@
 <?php
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
+require_once APP_ROOT . '/Modules/Jobs/Services/SeasonalOutlookService.php';
+require_once dirname(__DIR__) . '/modules/weather/seasonal-outlook-card.php';
 
 requireLogin();
 $user = getCurrentUser();
 
 $pageTitle = 'Weather Actions';
 $activePage = 'weather-ops';
+
+// Seasonal context for the flagged-visit list below. The action list answers
+// "what moves this week"; the outlook answers "how much winter work should be
+// staffed at all". Null out of season, so nothing renders in summer.
+$seasonalOutlook = null;
+try {
+    $seasonalOutlook = (new SeasonalOutlookService(getDB()))->activeOutlook();
+} catch (Throwable $e) {
+    error_log('Weather actions seasonal outlook unavailable: ' . $e->getMessage());
+}
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
@@ -25,6 +37,9 @@ $activePage = 'weather-ops';
               </a>
             </div>
           </div>
+
+          <!-- Winter Seasonal Outlook (Nov-Mar) — hidden out of season -->
+          <?php if ($seasonalOutlook): renderSeasonalOutlookCard($seasonalOutlook, 'full'); endif; ?>
 
           <!-- Summary Cards -->
           <div class="row mb-3" id="summaryCards">
@@ -67,8 +82,20 @@ $activePage = 'weather-ops';
             <div class="card-header d-flex justify-content-between align-items-center">
               <h5 class="card-title mb-0">Flagged Visits</h5>
               <div class="d-flex" style="gap:0.5rem;">
-                <input type="date" class="form-control form-control-sm" id="filterFrom" style="width:auto;">
-                <input type="date" class="form-control form-control-sm" id="filterTo" style="width:auto;">
+                <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#filterFrom"
+                        data-mw-dp-range-group="weather-range" data-mw-dp-range-role="start" aria-haspopup="true" aria-expanded="false">
+                    <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                    <span class="mw-datepicker-date" data-mw-dp-label></span>
+                    <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                <input type="date" class="form-control form-control-sm" id="filterFrom" hidden>
+                <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#filterTo"
+                        data-mw-dp-range-group="weather-range" data-mw-dp-range-role="end" aria-haspopup="true" aria-expanded="false">
+                    <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                    <span class="mw-datepicker-date" data-mw-dp-label></span>
+                    <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                <input type="date" class="form-control form-control-sm" id="filterTo" hidden>
                 <button class="btn btn-sm btn-outline-primary" onclick="loadActions()">Filter</button>
               </div>
             </div>
@@ -125,7 +152,11 @@ $activePage = 'weather-ops';
             const today = new Date().toISOString().split('T')[0];
             const nextWeek = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
             document.getElementById('filterFrom').value = today;
+            document.getElementById('filterFrom').dispatchEvent(new Event('input', { bubbles: true }));
+            document.getElementById('filterFrom').dispatchEvent(new Event('change', { bubbles: true }));
             document.getElementById('filterTo').value = nextWeek;
+            document.getElementById('filterTo').dispatchEvent(new Event('input', { bubbles: true }));
+            document.getElementById('filterTo').dispatchEvent(new Event('change', { bubbles: true }));
 
             loadActions();
           });
