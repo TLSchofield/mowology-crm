@@ -80,12 +80,16 @@ outlook. Merging them is how an outlook gets read as a forecast.
 
 - `activeOutlook()` returns the payload or `null` out of season — callers render
   nothing rather than an empty panel.
-- Two frost metrics, because they gate different decisions: `frost` (Tmin ≤ 0 °C,
-  air frost — pipes and irrigation) and `ground_frost` (Tmin ≤ 4 °C, a proxy for
-  turf frost — mowing delays). Ground frost runs ~2.5× the air-frost count, since
-  grass frosts on clear calm nights while the thermometer still reads +2 to +4 °C.
-  The ≤4 °C proxy is an upper bound: no cloud/wind filter, no grass-minimum
-  thermometer at the station.
+- Two frost metrics, and **only one is a measurement**. `frost` (Tmin ≤ 0 °C) is a
+  raw count of nights the station's daily minimum air temperature reached zero —
+  nothing about frost formation is inferred; it drives pipe and irrigation freeze.
+  `ground_frost` (Tmin ≤ 4 °C) *is* an inference: a proxy for turf frost, which
+  delays mowing. Grass frosts on clear calm nights while the thermometer still
+  reads +2 to +4 °C, so it runs ~2.5× the ≤0 count. The proxy is an upper bound —
+  no cloud/wind filter, and no grass-minimum thermometer at the station to check
+  it against. Label them by their threshold in the UI, not as "air/ground frost":
+  putting an interpretation where a measurement belongs is exactly what confuses
+  a reader about which number is which.
 - Every outlook carries `review_by`. Once it passes, the card flags itself
   **Review overdue** instead of presenting stale numbers as current. That is about
   the *prose*; `isDataStale()` is the separate check for "the refresh cron died".

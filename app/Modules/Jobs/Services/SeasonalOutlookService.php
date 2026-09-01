@@ -22,10 +22,20 @@
  * Definitions match ECCC: a frost night is daily Tmin <= 0.0 °C, an ice day is
  * daily Tmax <= 0.0 °C, a snow day is Total Snow >= 0.2 cm.
  *
- * TWO frost metrics are tracked, because they gate different decisions:
- *   frost        Tmin <= 0.0 °C  — AIR frost at screen height (~1.5 m). Drives
- *                pipe/irrigation freeze and hard-freeze call-outs.
- *   ground_frost Tmin <= 4.0 °C  — proxy for GROUND frost. On clear, calm nights
+ * TWO frost metrics are tracked, because they gate different decisions. Only ONE
+ * of them is a measurement; the other is an inference, and they must never be
+ * presented as if they were the same kind of number:
+ *   frost        Tmin <= 0.0 °C  — a MEASURED count, straight off the station's
+ *                daily minimum air temperature at screen height (~1.5 m). No frost
+ *                formation is inferred: it is simply the nights that reached zero.
+ *                Drives pipe/irrigation freeze and hard-freeze call-outs. The
+ *                boundary is <= 0.0 per WMO/ECCC convention rather than < 0.0;
+ *                the difference is ~1.1 nights a winter at this station.
+ *                Note the station reports a CALENDAR-DAY minimum, so a night that
+ *                spans midnight is attributed to the day its low fell in — in
+ *                practice the dawn low, which is what "night" means here.
+ *   ground_frost Tmin <= 4.0 °C  — an INFERRED proxy for GROUND frost, not an
+ *                observation of it. On clear, calm nights
  *                the turf surface radiates and runs 2-5 °C colder than screen
  *                height, so grass frosts while the reported minimum is still
  *                +2 to +4 °C. This is the number that gates mowing, since cutting
@@ -129,8 +139,9 @@ class SeasonalOutlookService
                 'January is the month to hold capacity for - it carries more than half the projected '
                 . 'season snowfall on its own (14.2 of 25.5 cm) and is the one month the analog winters '
                 . 'do not push below normal.',
-                'Air frost barely drops: about 34 nights vs 37 normal. Ground frost - the one that '
-                . 'delays mowing - is about 90 nights vs 97 normal. Mild does not mean frost-free.',
+                'Nights reaching 0 C barely drop: about 34 vs 37 normal - that is a measured count, '
+                . 'not a frost estimate. Nights at or below 4 C, the proxy for turf frost that delays '
+                . 'mowing, run about 90 vs 97 normal. Mild does not mean frost-free.',
                 'El Niño shifts probabilities, it does not remove cold outbreaks. Lowland snow here comes '
                 . 'from short Arctic outflow events that punch through any seasonal pattern - 2023/24 was a '
                 . 'strong El Niño and still delivered 40.8 cm at YVR. Keep the snow/ice response crewed.',

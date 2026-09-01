@@ -121,8 +121,8 @@ if (!function_exists('renderSeasonalOutlookCard')) {
                 <thead>
                   <tr>
                     <th>Month</th>
-                    <th class="text-right">Air frost<br><small>min &le; 0&deg;C &middot; pipes</small></th>
-                    <th class="text-right">Ground frost<br><small>min &le; 4&deg;C &middot; mowing</small></th>
+                    <th class="text-right">Nights &le; 0&deg;C<br><small>measured &middot; pipes, irrigation</small></th>
+                    <th class="text-right">Nights &le; 4&deg;C<br><small>ground-frost proxy &middot; mowing</small></th>
                     <th class="text-right">Snow days</th>
                     <th class="text-right">Days &ge; 2cm</th>
                     <th class="text-right">Snow (cm)</th>
@@ -130,7 +130,7 @@ if (!function_exists('renderSeasonalOutlookCard')) {
                   </tr>
                 </thead>
                 <tbody class="mw-seasonal-legend-row">
-                  <tr><td colspan="7"><small>Each cell shows the <strong>projection</strong> with the <span class="mw-seasonal-norm">normal</span> beneath.</small></td></tr>
+                  <tr><td colspan="7"><small>Each cell shows the <strong>projection</strong> with the <span class="mw-seasonal-norm">normal</span> beneath. Counts are of daily minimum air temperature at YVR; the &le;&nbsp;4&deg;C column is a proxy for turf frost, not a measurement of it.</small></td></tr>
                 </tbody>
                 <tbody>
                   <?php foreach ($months as $m): ?>
@@ -143,8 +143,8 @@ if (!function_exists('renderSeasonalOutlookCard')) {
                         <?php if (isset($m['actual_days'])): ?>
                           <div class="mw-seasonal-actual">
                             so far (<?php echo (int) $m['actual_days']; ?>d):
-                            <strong><?php echo (int) $m['actual_frost']; ?></strong> air frost,
-                            <strong><?php echo (int) ($m['actual_ground_frost'] ?? 0); ?></strong> ground,
+                            <strong><?php echo (int) $m['actual_frost']; ?></strong> at &le;&nbsp;0&deg;C,
+                            <strong><?php echo (int) ($m['actual_ground_frost'] ?? 0); ?></strong> at &le;&nbsp;4&deg;C,
                             <strong><?php echo (int) $m['actual_snow_days']; ?></strong> snow
                             (<?php echo number_format((float) ($m['actual_snow_cm'] ?? 0), 1); ?> cm)
                           </div>
@@ -192,7 +192,7 @@ if (!function_exists('renderSeasonalOutlookCard')) {
                   <div class="mw-seasonal-month-name"><?php echo $e(substr((string) $m['name'], 0, 3)); ?></div>
                   <div class="mw-seasonal-metric">
                     <span class="mw-seasonal-metric-val"><?php echo number_format((float) $m['frost'], 0); ?></span>
-                    <span class="mw-seasonal-metric-lbl">frost</span>
+                    <span class="mw-seasonal-metric-lbl">&le; 0&deg;C</span>
                   </div>
                   <div class="mw-seasonal-metric">
                     <span class="mw-seasonal-metric-val mw-seasonal-snow"><?php echo number_format((float) $m['snow_days'], 1); ?></span>
@@ -200,7 +200,7 @@ if (!function_exists('renderSeasonalOutlookCard')) {
                   </div>
                   <div class="mw-seasonal-metric-sub">
                     <?php if (isset($m['ground_frost'])): ?>
-                      <?php echo number_format((float) $m['ground_frost'], 0); ?> gnd &middot;
+                      <?php echo number_format((float) $m['ground_frost'], 0); ?> &le;4&deg; &middot;
                     <?php endif; ?>
                     <?php echo number_format((float) $m['snow_cm'], 1); ?> cm
                     <span class="mw-seasonal-trend-dot mw-seasonal-trend-<?php
@@ -219,11 +219,11 @@ if (!function_exists('renderSeasonalOutlookCard')) {
           <div class="mw-seasonal-footer">
             <div class="mw-seasonal-totals">
               <span class="mw-seasonal-total">
-                <strong><?php echo number_format((float) ($t['frost'] ?? 0), 0); ?></strong> frost nights
+                <strong><?php echo number_format((float) ($t['frost'] ?? 0), 0); ?></strong> nights &le; 0&deg;C
                 <em>(normal <?php echo number_format((float) ($t['normal_frost'] ?? 0), 0); ?>)</em>
               </span>
               <span class="mw-seasonal-total">
-                <strong><?php echo number_format((float) ($t['ground_frost'] ?? 0), 0); ?></strong> ground-frost
+                <strong><?php echo number_format((float) ($t['ground_frost'] ?? 0), 0); ?></strong> nights &le; 4&deg;C
                 <em>(normal <?php echo number_format((float) ($t['normal_ground_frost'] ?? 0), 0); ?>)</em>
               </span>
               <span class="mw-seasonal-total">
