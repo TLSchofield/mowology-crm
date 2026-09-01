@@ -37112,6 +37112,46 @@ span.mw-icon-box--missing {
     color: var(--mw-green);
 }
 
+/* Refresh has stopped — louder than "review overdue", because this one means the
+   numbers are not being maintained at all, not merely that prose needs a re-read. */
+.mw-seasonal-badge-broken {
+    background: #dc3545;
+    color: #fff;
+}
+
+/* Season-to-date actuals: what has really happened, under each month. */
+.mw-seasonal-actual {
+    font-size: 0.68rem;
+    color: #6c757d;
+    margin-top: 0.15rem;
+    line-height: 1.3;
+}
+
+.mw-seasonal-actual strong {
+    color: var(--mw-forest);
+    font-variant-numeric: tabular-nums;
+}
+
+.mw-seasonal-actual-compact {
+    font-size: 0.62rem;
+    color: var(--mw-dark);
+    font-variant-numeric: tabular-nums;
+    margin-top: 0.15rem;
+}
+
+.mw-seasonal-legend-row td {
+    border-top: none;
+    padding-top: 0;
+    padding-bottom: 0.4rem;
+    color: #adb5bd;
+}
+
+/* Paired projection/normal cells stack, so give the rows room to breathe. */
+.mw-seasonal-table td,
+.mw-seasonal-table tfoot th {
+    line-height: 1.35;
+}
+
 /* Phones: the 5-across strip becomes unreadable, so drop to a scroll row. */
 @media (max-width: 575.98px) {
     .mw-seasonal-strip {

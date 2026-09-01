@@ -22,7 +22,8 @@ app/Modules/Jobs/
 │   ├── ClusterService.php       ← geographic clustering of stops
 │   ├── ClusterDetectionService.php
 │   ├── VisitCompletionService.php
-│   └── SeasonalOutlookService.php ← Nov–Mar freeze/snow outlook (not a forecast)
+│   ├── SeasonalOutlookService.php ← Nov–Mar freeze/snow outlook (read side)
+│   └── SeasonalOutlookRefreshService.php ← rebuilds it from NOAA + ECCC (write side)
 ├── Api/                         ← thin JSON controllers (one endpoint per file)
 └── Cron/                        ← scheduled batch jobs
 ```
@@ -79,13 +80,54 @@ outlook. Merging them is how an outlook gets read as a forecast.
 
 - `activeOutlook()` returns the payload or `null` out of season — callers render
   nothing rather than an empty panel.
+- Two frost metrics, because they gate different decisions: `frost` (Tmin ≤ 0 °C,
+  air frost — pipes and irrigation) and `ground_frost` (Tmin ≤ 4 °C, a proxy for
+  turf frost — mowing delays). Ground frost runs ~2.5× the air-frost count, since
+  grass frosts on clear calm nights while the thermometer still reads +2 to +4 °C.
+  The ≤4 °C proxy is an upper bound: no cloud/wind filter, no grass-minimum
+  thermometer at the station.
 - Every outlook carries `review_by`. Once it passes, the card flags itself
-  **Review overdue** instead of presenting stale numbers as current.
+  **Review overdue** instead of presenting stale numbers as current. That is about
+  the *prose*; `isDataStale()` is the separate check for "the refresh cron died".
 - Next season is an `ops_settings` edit under `seasonal_outlook_current` (JSON),
   not a deploy. No migration needed — `ops_settings` ships in migration 202.
 - Rendered by `public/crm/modules/weather/seasonal-outlook-card.php` in two
   variants (`compact` on the dashboard, `full` on Weather Actions). See
   `COMPONENTS.md`.
+
+### SeasonalOutlookRefreshService
+
+The write side. Pulls NOAA CPC's ONI index and the ECCC bulk daily CSV for
+Vancouver Intl A, recomputes the projection, and stores it in `ops_settings`.
+Driven by the `seasonal_outlook_refresh` cron (daily, 5 AM).
+
+**Why daily** when ONI updates monthly: the daily value is the *season-to-date
+actuals*. Once November starts, each run refreshes how many frost nights and snow
+days have actually occurred against what was projected, so a wrong outlook becomes
+visible while the season can still be acted on. The 30-winter climatology is cached
+(`seasonal_outlook_climatology`) and rebuilt at most yearly — that is the slow path,
+~30 HTTP fetches, and it is skipped on virtually every run.
+
+**Analogs are selected from data, never hardcoded.** A fixed list of El Niño winters
+silently becomes wrong the moment the regime flips — it would keep projecting a mild
+winter straight through a La Niña. Instead the current 3-month ONI season is compared
+against *the same season* in each past year, so the comparison is like-for-like and
+uses only what would have been known at this point in the calendar.
+
+**It never rewrites the prose.** `headline`, `notes` and `driver_note` encode
+judgement ("hold capacity for January" is a staffing call). The refresh updates
+figures and leaves the words alone, and deliberately does not clear `review_by`.
+
+Gotchas worth knowing before touching it:
+- The ECCC CSV carries a UTF-8 BOM *before* the opening quote of the first field,
+  so `fgetcsv` returns that field with literal quote characters attached. The BOM is
+  stripped from the raw string before parsing — do not "fix" it on `$header[0]`.
+- Blank cells parse to `null`, never `0.0`. A missing observation and a real zero are
+  different facts; conflating them invents dry days.
+- Station 889 covers to 2013, 51442 from 2013. Winter 2012/13 straddles the switch and
+  is dropped by the missing-days filter — expected, not a bug.
+- A failed fetch returns `ok => false` and leaves the previous payload intact rather
+  than writing a half-built one.
 
 ### Cron (`Cron/`)
 
@@ -94,6 +136,7 @@ outlook. Merging them is how an outlook gets read as a forecast.
 | `generate_visits.php` | Materialise `job_visits` ahead of the rolling horizon (calls `generateVisits()`). |
 | `auto_rollover.php` | Roll incomplete/overdue visits forward. |
 | `weather_schedule_guard.php` | Adjust the schedule around weather. |
+| `seasonal_outlook_refresh.php` | Daily. Rebuild the winter outlook from NOAA ONI + ECCC station data; refresh season-to-date actuals. |
 
 Crons run under `/usr/local/bin/php`. Registration/health is tracked in the
 registry-driven Cron Jobs tab — see `project_cron_manager_registry`.

@@ -38,6 +38,26 @@ if (!function_exists('mwSeasonalTrend')) {
     }
 }
 
+if (!function_exists('mwSeasonalCell')) {
+    /**
+     * One numeric cell: the projection, with its normal beneath in muted type.
+     * Pairing them in a single cell keeps the comparison adjacent — a separate
+     * "normal" column pushes the two numbers far enough apart that the eye stops
+     * making the comparison at all.
+     */
+    function mwSeasonalCell(?float $projected, ?float $normal, int $dp = 1): string
+    {
+        if ($projected === null) {
+            return '<span class="mw-seasonal-norm">&mdash;</span>';
+        }
+        $out = '<span class="mw-seasonal-num">' . number_format($projected, $dp) . '</span>';
+        if ($normal !== null) {
+            $out .= '<br><span class="mw-seasonal-norm">' . number_format($normal, $dp) . '</span>';
+        }
+        return $out;
+    }
+}
+
 if (!function_exists('renderSeasonalOutlookCard')) {
     /**
      * @param array  $o       Payload from SeasonalOutlookService::activeOutlook()
@@ -65,6 +85,13 @@ if (!function_exists('renderSeasonalOutlookCard')) {
             <div class="mw-seasonal-badges">
               <?php if (!empty($o['driver'])): ?>
                 <span class="mw-seasonal-badge mw-seasonal-badge-driver"><?php echo $e($o['driver']); ?></span>
+              <?php endif; ?>
+              <?php if (!empty($o['is_data_stale'])): ?>
+                <?php $age = $o['refresh_age_days']; ?>
+                <span class="mw-seasonal-badge mw-seasonal-badge-broken"
+                      title="The daily refresh cron has not updated these numbers. They are not current.">
+                  <?php echo $age === null ? 'Never refreshed' : 'Data ' . (int) $age . 'd old'; ?>
+                </span>
               <?php endif; ?>
               <?php if ($stale): ?>
                 <span class="mw-seasonal-badge mw-seasonal-badge-stale"
@@ -94,15 +121,17 @@ if (!function_exists('renderSeasonalOutlookCard')) {
                 <thead>
                   <tr>
                     <th>Month</th>
-                    <th class="text-right">Frost nights<br><small>min &le; 0&deg;C</small></th>
-                    <th class="text-right">Normal</th>
+                    <th class="text-right">Air frost<br><small>min &le; 0&deg;C &middot; pipes</small></th>
+                    <th class="text-right">Ground frost<br><small>min &le; 4&deg;C &middot; mowing</small></th>
                     <th class="text-right">Snow days</th>
-                    <th class="text-right">Normal</th>
                     <th class="text-right">Days &ge; 2cm</th>
                     <th class="text-right">Snow (cm)</th>
                     <th>vs normal snow</th>
                   </tr>
                 </thead>
+                <tbody class="mw-seasonal-legend-row">
+                  <tr><td colspan="7"><small>Each cell shows the <strong>projection</strong> with the <span class="mw-seasonal-norm">normal</span> beneath.</small></td></tr>
+                </tbody>
                 <tbody>
                   <?php foreach ($months as $m): ?>
                     <tr class="<?php echo !empty($m['is_current']) ? 'mw-seasonal-row-current' : ''; ?>">
@@ -111,13 +140,21 @@ if (!function_exists('renderSeasonalOutlookCard')) {
                         <?php if (!empty($m['is_current'])): ?>
                           <span class="mw-seasonal-now">now</span>
                         <?php endif; ?>
+                        <?php if (isset($m['actual_days'])): ?>
+                          <div class="mw-seasonal-actual">
+                            so far (<?php echo (int) $m['actual_days']; ?>d):
+                            <strong><?php echo (int) $m['actual_frost']; ?></strong> air frost,
+                            <strong><?php echo (int) ($m['actual_ground_frost'] ?? 0); ?></strong> ground,
+                            <strong><?php echo (int) $m['actual_snow_days']; ?></strong> snow
+                            (<?php echo number_format((float) ($m['actual_snow_cm'] ?? 0), 1); ?> cm)
+                          </div>
+                        <?php endif; ?>
                       </td>
-                      <td class="text-right mw-seasonal-num"><?php echo number_format((float) $m['frost'], 1); ?></td>
-                      <td class="text-right mw-seasonal-norm"><?php echo number_format((float) $m['normal_frost'], 1); ?></td>
-                      <td class="text-right mw-seasonal-num"><?php echo number_format((float) $m['snow_days'], 1); ?></td>
-                      <td class="text-right mw-seasonal-norm"><?php echo number_format((float) $m['normal_snow_days'], 1); ?></td>
-                      <td class="text-right mw-seasonal-num"><?php echo number_format((float) $m['snow_days_2cm'], 1); ?></td>
-                      <td class="text-right mw-seasonal-num"><?php echo number_format((float) $m['snow_cm'], 1); ?></td>
+                      <td class="text-right"><?php echo mwSeasonalCell((float) $m['frost'], isset($m['normal_frost']) ? (float) $m['normal_frost'] : null); ?></td>
+                      <td class="text-right"><?php echo mwSeasonalCell(isset($m['ground_frost']) ? (float) $m['ground_frost'] : null, isset($m['normal_ground_frost']) ? (float) $m['normal_ground_frost'] : null); ?></td>
+                      <td class="text-right"><?php echo mwSeasonalCell((float) $m['snow_days'], isset($m['normal_snow_days']) ? (float) $m['normal_snow_days'] : null); ?></td>
+                      <td class="text-right"><?php echo mwSeasonalCell((float) $m['snow_days_2cm'], null); ?></td>
+                      <td class="text-right"><?php echo mwSeasonalCell((float) $m['snow_cm'], isset($m['normal_snow_cm']) ? (float) $m['normal_snow_cm'] : null); ?></td>
                       <td>
                         <span class="mw-seasonal-trend mw-seasonal-trend-<?php
                             echo $e(mwSeasonalTrend((float) $m['snow_cm'], (float) $m['normal_snow_cm'])); ?>">
@@ -131,12 +168,11 @@ if (!function_exists('renderSeasonalOutlookCard')) {
                 <tfoot>
                   <tr>
                     <th>Total</th>
-                    <th class="text-right"><?php echo number_format((float) ($t['frost'] ?? 0), 0); ?></th>
-                    <th class="text-right mw-seasonal-norm"><?php echo number_format((float) ($t['normal_frost'] ?? 0), 0); ?></th>
-                    <th class="text-right"><?php echo number_format((float) ($t['snow_days'] ?? 0), 1); ?></th>
-                    <th class="text-right mw-seasonal-norm"><?php echo number_format((float) ($t['normal_snow_days'] ?? 0), 1); ?></th>
-                    <th class="text-right"><?php echo number_format((float) ($t['snow_days_2cm'] ?? 0), 1); ?></th>
-                    <th class="text-right"><?php echo number_format((float) ($t['snow_cm'] ?? 0), 1); ?></th>
+                    <th class="text-right"><?php echo mwSeasonalCell((float) ($t['frost'] ?? 0), (float) ($t['normal_frost'] ?? 0), 0); ?></th>
+                    <th class="text-right"><?php echo mwSeasonalCell((float) ($t['ground_frost'] ?? 0), (float) ($t['normal_ground_frost'] ?? 0), 0); ?></th>
+                    <th class="text-right"><?php echo mwSeasonalCell((float) ($t['snow_days'] ?? 0), (float) ($t['normal_snow_days'] ?? 0)); ?></th>
+                    <th class="text-right"><?php echo mwSeasonalCell((float) ($t['snow_days_2cm'] ?? 0), null); ?></th>
+                    <th class="text-right"><?php echo mwSeasonalCell((float) ($t['snow_cm'] ?? 0), (float) ($t['normal_snow_cm'] ?? 0)); ?></th>
                     <th>
                       <span class="mw-seasonal-trend mw-seasonal-trend-<?php
                           echo $e(mwSeasonalTrend((float) ($t['snow_cm'] ?? 0), (float) ($t['normal_snow_cm'] ?? 0))); ?>">
@@ -163,10 +199,18 @@ if (!function_exists('renderSeasonalOutlookCard')) {
                     <span class="mw-seasonal-metric-lbl">snow days</span>
                   </div>
                   <div class="mw-seasonal-metric-sub">
+                    <?php if (isset($m['ground_frost'])): ?>
+                      <?php echo number_format((float) $m['ground_frost'], 0); ?> gnd &middot;
+                    <?php endif; ?>
                     <?php echo number_format((float) $m['snow_cm'], 1); ?> cm
                     <span class="mw-seasonal-trend-dot mw-seasonal-trend-<?php
                         echo $e(mwSeasonalTrend((float) $m['snow_cm'], (float) $m['normal_snow_cm'])); ?>"></span>
                   </div>
+                  <?php if (isset($m['actual_days'])): ?>
+                    <div class="mw-seasonal-actual-compact">
+                      so far <?php echo (int) $m['actual_frost']; ?>/<?php echo (int) $m['actual_snow_days']; ?>
+                    </div>
+                  <?php endif; ?>
                 </div>
               <?php endforeach; ?>
             </div>
@@ -177,6 +221,10 @@ if (!function_exists('renderSeasonalOutlookCard')) {
               <span class="mw-seasonal-total">
                 <strong><?php echo number_format((float) ($t['frost'] ?? 0), 0); ?></strong> frost nights
                 <em>(normal <?php echo number_format((float) ($t['normal_frost'] ?? 0), 0); ?>)</em>
+              </span>
+              <span class="mw-seasonal-total">
+                <strong><?php echo number_format((float) ($t['ground_frost'] ?? 0), 0); ?></strong> ground-frost
+                <em>(normal <?php echo number_format((float) ($t['normal_ground_frost'] ?? 0), 0); ?>)</em>
               </span>
               <span class="mw-seasonal-total">
                 <strong><?php echo number_format((float) ($t['snow_days'] ?? 0), 1); ?></strong> snow days
@@ -211,6 +259,16 @@ if (!function_exists('renderSeasonalOutlookCard')) {
             <div class="mw-seasonal-meta">
               <span>Baseline: <?php echo $e($o['baseline'] ?? ''); ?></span>
               <span>Issued <?php echo $e(date('M j, Y', strtotime((string) ($o['issued'] ?? 'now')))); ?></span>
+              <?php if (!empty($o['data_as_of'])): ?>
+                <span>Data refreshed <?php echo $e(date('M j, Y', strtotime((string) $o['data_as_of']))); ?></span>
+              <?php endif; ?>
+              <?php if (!empty($o['analogs'])): ?>
+                <span>Analog winters:
+                  <?php echo $e(implode(', ', array_map(
+                      static fn($a) => ($a['winter'] - 1) . '/' . substr((string) $a['winter'], 2) . ' (ONI ' . $a['oni'] . ')',
+                      $o['analogs']))); ?>
+                </span>
+              <?php endif; ?>
               <?php if (!empty($o['sources'])): ?>
                 <span class="mw-seasonal-sources">
                   Sources:

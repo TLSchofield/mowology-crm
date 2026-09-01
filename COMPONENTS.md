@@ -273,7 +273,9 @@ Reference catalog of shared, reusable JS/CSS UI components under `public/crm/js/
   if ($outlook) renderSeasonalOutlookCard($outlook, 'compact');
   ```
 - **When to reach for it:** Any page that needs seasonal (multi-month) weather context. For "what is the weather on Thursday" use `WeatherService` instead — the two are deliberately separate so a probabilistic outlook is never read as a deterministic forecast.
-- **Updating for next season:** put a replacement JSON payload in `ops_settings` under `seasonal_outlook_current` (no migration needed, no deploy needed), or replace `SeasonalOutlookService::bundledOutlook()`. Every outlook carries `review_by`; once that date passes the card flags itself **Review overdue** rather than silently showing stale numbers.
+- **Metrics:** two frost counts — `frost` (air frost, Tmin ≤ 0 °C, pipes/irrigation) and `ground_frost` (Tmin ≤ 4 °C, a proxy for turf frost, which is what delays mowing). Plus snow days, days ≥ 2 cm, and snowfall. Every projection is paired with its observed normal.
+- **Auto-refresh:** the `seasonal_outlook_refresh` cron (daily) rebuilds the numbers via `SeasonalOutlookRefreshService` and adds season-to-date actuals. Two independent staleness states: **Review overdue** (`review_by` passed — a human should re-read the prose) and **Data N days old** (`isDataStale()` — the refresh cron has stopped, shown in red).
+- **Updating for next season:** the cron handles the figures. For the prose, replace `SeasonalOutlookService::bundledOutlook()` or edit the `ops_settings` payload directly. No migration needed.
 - **Not auto-loaded** — `require_once` both files on the page that renders it.
 
 ---
