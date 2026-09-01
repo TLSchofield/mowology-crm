@@ -176,6 +176,32 @@ function recalcContractPlanPrices(int $contractId, float $billingAmount, string 
 }
 
 /**
+ * Keep job_plans.pricing_model in sync with its contract's billing_cycle.
+ * Without this, a plan created (or backfilled) while pricing_model was still
+ * the 'per_visit' default silently stays 'per_visit' after the contract is
+ * switched to monthly/seasonal billing — which makes the crew app treat a
+ * contract-billed visit as a per-visit job and pop the invoice sheet on
+ * completion. Mirrors the mapping in migration 1104; only touches plans
+ * still at the 'per_visit' default so an intentional custom override isn't
+ * clobbered.
+ */
+function syncContractPlanPricingModel(int $contractId, string $billingCycle): void {
+    if ($billingCycle === 'per_visit') {
+        return;
+    }
+    $model = match ($billingCycle) {
+        'monthly'  => 'monthly_flat',
+        'seasonal' => 'seasonal',
+        default    => 'custom',
+    };
+    getDB()->prepare("
+        UPDATE job_plans
+        SET pricing_model = ?, updated_at = NOW()
+        WHERE contract_id = ? AND pricing_model = 'per_visit'
+    ")->execute([$model, $contractId]);
+}
+
+/**
  * Update an existing contract's editable fields.
  * Also recalculates linked plan prices if billing_amount changes.
  *
@@ -248,6 +274,8 @@ function updateContract(int $contractId, array $data, int $userId): array {
         if ($billingAmount !== null) {
             recalcContractPlanPrices($contractId, $billingAmount, $data['billing_cycle']);
         }
+
+        syncContractPlanPricingModel($contractId, $data['billing_cycle']);
 
         logActivityExtended(
             $userId,
