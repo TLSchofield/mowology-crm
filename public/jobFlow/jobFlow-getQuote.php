@@ -260,7 +260,7 @@ $serviceOptions = [
     <title>Get Your Free Quote — Mowology</title>
     <meta name="description" content="Get a free landscaping or snow removal quote from Mowology. Vancouver's trusted property care company. Fast response guaranteed.">
     <link rel="stylesheet" href="/assets/css/master.css">
-    <link rel="stylesheet" href="/assets/css/pages/jobflow-quote.css?v=20260305">
+    <link rel="stylesheet" href="/assets/css/pages/jobflow-quote.css?v=20260902">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script async src="https://maps.googleapis.com/maps/api/js?key=<?php echo h(GOOGLE_MAPS_API_KEY); ?>&libraries=places"></script>
 <?php if ($useV3): ?>
@@ -459,7 +459,7 @@ $serviceOptions = [
                     foreach ($serviceOptions as $key => $label):
                         $checked = in_array($key, $selectedServices, true);
                     ?>
-                    <label class="service-card <?php echo $checked ? 'selected' : ''; ?>">
+                    <label class="jf-service-card <?php echo $checked ? 'selected' : ''; ?>">
                         <input type="checkbox" name="service_types[]" value="<?php echo h($key); ?>"
                                <?php echo $checked ? 'checked' : ''; ?>>
                         <span class="service-icon"><?php echo $serviceIcons[$key] ?? ''; ?></span>
@@ -652,7 +652,7 @@ function initAutocomplete() {
     });
 
     // Service card visual toggle
-    document.querySelectorAll('.service-card').forEach(card => {
+    document.querySelectorAll('.jf-service-card').forEach(card => {
         card.addEventListener('change', function() {
             this.classList.toggle('selected', this.querySelector('input[type="checkbox"]').checked);
         });
