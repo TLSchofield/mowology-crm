@@ -212,14 +212,38 @@ class EtransferInboxService
         return ['invoice_id' => null, 'method' => 'none', 'confidence' => 'none', 'candidates' => []];
     }
 
+    /** Shared payer-name resolution SQL fragment (SELECT-list expression), reused by both the FIFO suggestion and the duplicate-payment check below. */
+    private const PAYER_NAME_SQL = "COALESCE(
+        NULLIF(i.bill_to_name, ''),
+        co.company_name,
+        CASE WHEN cl.client_type = 'individual' THEN cl.display_name END,
+        CASE WHEN ct.company_id IS NULL THEN CONCAT(ct.first_name, ' ', ct.last_name) END
+    )";
+
+    /** Shared payer-name resolution JOINs, reused by both the FIFO suggestion and the duplicate-payment check below. */
+    private const PAYER_NAME_JOINS = "
+        LEFT JOIN companies co ON co.id = i.company_id
+        LEFT JOIN clients   cl ON cl.id = i.client_id
+        LEFT JOIN contacts  ct ON ct.id = i.contact_id
+    ";
+
     /**
      * When a transfer's amount exceeds what any single one of the sender's
      * open invoices can absorb, suggest how staff would apply it under
      * standard AR practice: oldest invoice first (FIFO), each invoice topped
      * up to its balance before moving to the next, until the transfer amount
-     * is exhausted or invoices run out. Matches invoices by their stored
-     * bill_to_name against the transfer's sender_name (normalised — strip
-     * punctuation/case so "1355183 B.C. LTD." matches "1355183 BC Ltd").
+     * is exhausted or invoices run out.
+     *
+     * Payer name resolution: bill_to_name is only ever set for a manual
+     * one-off override and is NULL on virtually every normal invoice.
+     * companies.company_name covers company clients. clients.display_name is
+     * only trusted when that client's own type is 'individual' — client_id
+     * often points at an individual *contact* representing a company (e.g. a
+     * property manager), where display_name would wrongly surface a person's
+     * name as if they were the payer. contacts.first_name/last_name is the
+     * fallback for invoices linked only via contact_id (common for
+     * individual customers) — but only when that contact isn't itself a
+     * company's contact (company_id IS NULL), for the same reason.
      *
      * This is presentation-only — it does not touch matchInvoice()'s
      * hard-identity matching (invoice #, reference #) or write anything to
@@ -230,42 +254,87 @@ class EtransferInboxService
      */
     public function suggestFifoAllocation(?string $senderName, float $amount): array
     {
-        if (!$senderName || $amount <= 0) {
-            return [];
-        }
-        $target = self::normalizeName($senderName);
-        if ($target === '') {
+        if (!$senderName || $amount <= 0 || self::normalizeName($senderName) === '') {
             return [];
         }
 
-        // Payer name resolution: bill_to_name is only ever set for a manual
-        // one-off override and is NULL on virtually every normal invoice —
-        // the real name lives behind company_id (company clients) via
-        // companies.company_name. clients.display_name is NOT a reliable
-        // fallback here even though invoices.client_id is often populated:
-        // that id frequently points at an individual *contact* (e.g. a
-        // property manager) rather than the paying entity, so it's excluded.
+        $matching = array_values(array_filter(
+            $this->payableInvoicesWithPayer(),
+            fn($inv) => self::namesMatch($senderName, (string) $inv['payer_name'])
+        ));
+
+        return self::allocateFifo($matching, $amount);
+    }
+
+    /**
+     * Fallback for when the sender name doesn't match anyone at all — someone
+     * paying on a friend's or relative's behalf, so the Interac profile name
+     * has nothing to do with whose invoice it is. Amount is the only signal
+     * left, so this is deliberately conservative: only suggest anything when
+     * the transfer amount exactly clears ONE specific customer's *entire*
+     * open balance (their outstanding invoices sum to exactly this amount)
+     * AND that match is unique system-wide — if it's ambiguous, guessing
+     * which unrelated customer's invoices to touch is worse than showing
+     * nothing and letting staff match manually.
+     *
+     * @return array{payer_name:string,lines:array<int,array{invoice_id:int,invoice_number:string,balance_due:float,apply_amount:float}>}|null
+     */
+    public function suggestFifoAllocationByValue(float $amount): ?array
+    {
+        if ($amount <= 0) {
+            return null;
+        }
+
+        $groups = [];
+        foreach ($this->payableInvoicesWithPayer() as $inv) {
+            $payer = trim((string) $inv['payer_name']);
+            $key   = self::normalizeName($payer);
+            if ($key === '') {
+                continue;
+            }
+            $groups[$key]['payer_name'] ??= $payer;
+            $groups[$key]['invoices'][]   = $inv;
+            $groups[$key]['total']        = ($groups[$key]['total'] ?? 0) + (float) $inv['balance_due'];
+        }
+
+        $matches = array_values(array_filter(
+            $groups,
+            fn($g) => abs(round($g['total'], 2) - round($amount, 2)) < 0.01
+        ));
+
+        if (count($matches) !== 1) {
+            return null;
+        }
+
+        return ['payer_name' => $matches[0]['payer_name'], 'lines' => self::allocateFifo($matches[0]['invoices'], $amount)];
+    }
+
+    /** All open invoices with their resolved payer name, oldest-due first — shared by both FIFO suggestion methods. */
+    private function payableInvoicesWithPayer(): array
+    {
         $placeholders = implode(',', array_fill(0, count(self::PAYABLE), '?'));
         $stmt = $this->db->prepare(
             "SELECT i.id, i.invoice_number, i.balance_due,
-                    COALESCE(NULLIF(i.bill_to_name, ''), co.company_name) AS payer_name,
+                    " . self::PAYER_NAME_SQL . " AS payer_name,
                     COALESCE(i.due_date, i.invoice_date) AS order_date
                FROM invoices i
-               LEFT JOIN companies co ON co.id = i.company_id
+               " . self::PAYER_NAME_JOINS . "
               WHERE i.status IN ($placeholders)
                 AND i.balance_due > 0
               ORDER BY order_date ASC, i.id ASC"
         );
         $stmt->execute(self::PAYABLE);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
 
-        $remaining   = round($amount, 2);
-        $allocation  = [];
-        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $inv) {
+    /** Greedily apply $amount across $invoices in the order given (already oldest-first), each topped up to its balance. */
+    private static function allocateFifo(array $invoices, float $amount): array
+    {
+        $remaining  = round($amount, 2);
+        $allocation = [];
+        foreach ($invoices as $inv) {
             if ($remaining <= 0.005) {
                 break;
-            }
-            if (self::normalizeName((string) $inv['payer_name']) !== $target) {
-                continue;
             }
             $apply = min($remaining, round((float) $inv['balance_due'], 2));
             if ($apply <= 0) {
@@ -279,14 +348,130 @@ class EtransferInboxService
             ];
             $remaining = round($remaining - $apply, 2);
         }
-
         return $allocation;
+    }
+
+    /**
+     * Guard against suggesting a FIFO spread across the wrong invoices when
+     * this transfer was actually already applied — manually, outside this
+     * poller, before it existed or before this specific email was ingested.
+     * Real case that motivated this: an e-Transfer notification email dated
+     * 2026-07-13 wasn't ingested into etransfer_notifications until
+     * 2026-07-31 (the poller didn't exist yet on the 13th) — but staff had
+     * already manually recorded that same payment on 2026-07-20 as 6 separate
+     * $50.40 e_transfer payments (summing exactly to the transfer's $302.40)
+     * against invoices that were, by the time the poller ran, already fully
+     * paid and no longer "open" — so suggestFifoAllocation() would instead
+     * have spread the (already-spent) amount across a completely different,
+     * unrelated set of that customer's open invoices.
+     *
+     * Those manual payments went through invoices.status/amount_paid
+     * directly rather than the invoice_payment_allocations ledger, so this
+     * checks paid, e_transfer-method invoices for the same payer and looks
+     * for same-day totals that land on the transfer amount within a cent —
+     * a same-day batch of same-payer e_transfer payments summing to the
+     * exact transfer amount is a strong signal it's this transfer.
+     *
+     * @return array{pay_date:string,invoice_numbers:string[],total:float}|null
+     */
+    public function findLikelyDuplicatePayment(?string $senderName, float $amount, ?string $emailDate): ?array
+    {
+        if (!$senderName || $amount <= 0 || self::normalizeName($senderName) === '') {
+            return null;
+        }
+
+        $stmt = $this->db->prepare(
+            "SELECT i.invoice_number, i.amount_paid, DATE(i.updated_at) AS pay_day,
+                    " . self::PAYER_NAME_SQL . " AS payer_name
+               FROM invoices i
+               " . self::PAYER_NAME_JOINS . "
+              WHERE i.status = 'paid' AND i.payment_method = 'e_transfer'"
+        );
+        $stmt->execute();
+
+        // A window, not just a floor: a payment recorded well before the
+        // transfer email arrived can't be it (allow a few days of slack for
+        // timezone/manual-entry lag), and neither can a same-amount
+        // coincidence months later — cap how far out a "same transfer,
+        // recorded late" match is allowed to be.
+        $emailTs   = $emailDate ? strtotime($emailDate) : null;
+        $windowMin = $emailTs ? $emailTs - (3 * 86400) : null;
+        $windowMax = $emailTs ? $emailTs + (90 * 86400) : null;
+
+        $byDay = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $inv) {
+            if (!self::namesMatch($senderName, (string) $inv['payer_name'])) {
+                continue;
+            }
+            $dayTs = strtotime((string) $inv['pay_day']);
+            if (($windowMin && $dayTs < $windowMin) || ($windowMax && $dayTs > $windowMax)) {
+                continue;
+            }
+            $day = (string) $inv['pay_day'];
+            $byDay[$day]['total']            = ($byDay[$day]['total'] ?? 0) + (float) $inv['amount_paid'];
+            $byDay[$day]['invoice_numbers'][] = (string) $inv['invoice_number'];
+        }
+
+        // Multiple days could each happen to sum to this amount — prefer
+        // whichever is closest to the transfer's own email date rather than
+        // whatever the query happened to return first.
+        $best = null;
+        foreach ($byDay as $day => $group) {
+            if (abs(round($group['total'], 2) - round($amount, 2)) >= 0.01) {
+                continue;
+            }
+            $distance = $emailTs ? abs(strtotime($day) - $emailTs) : 0;
+            if ($best === null || $distance < $best['distance']) {
+                $best = ['distance' => $distance, 'pay_date' => $day, 'invoice_numbers' => $group['invoice_numbers'], 'total' => round($group['total'], 2)];
+            }
+        }
+
+        if ($best === null) {
+            return null;
+        }
+        unset($best['distance']);
+        return $best;
     }
 
     /** Loose name equality for matching a transfer's sender against bill_to_name — case/punctuation-insensitive. */
     private static function normalizeName(string $name): string
     {
         return strtoupper(preg_replace('/[^A-Za-z0-9]/', '', $name) ?? '');
+    }
+
+    /**
+     * Loose payer-name equality. Tries an exact normalised match first
+     * ("1355183 B.C. LTD." == "1355183 BC Ltd"); if that fails, falls back to
+     * matching just the first and last word — a bank transfer's sender name
+     * is often shorter than the name on file (e.g. a customer's Interac
+     * profile says "JOHN HUGHES" while the invoice's contact record has the
+     * full legal "John Ellen Hughes"). Requires at least two words on both
+     * sides so a single-word name can't loosely match anything containing it.
+     */
+    private static function namesMatch(string $a, string $b): bool
+    {
+        $na = self::normalizeName($a);
+        $nb = self::normalizeName($b);
+        if ($na === '' || $nb === '') {
+            return false;
+        }
+        if ($na === $nb) {
+            return true;
+        }
+
+        $wordsA = self::nameWords($a);
+        $wordsB = self::nameWords($b);
+        if (count($wordsA) < 2 || count($wordsB) < 2) {
+            return false;
+        }
+        return $wordsA[0] === $wordsB[0] && end($wordsA) === end($wordsB);
+    }
+
+    /** @return string[] */
+    private static function nameWords(string $name): array
+    {
+        $upper = strtoupper((string) preg_replace('/[^A-Za-z0-9]+/', ' ', $name));
+        return array_values(array_filter(explode(' ', trim($upper)), static fn($w) => $w !== ''));
     }
 
     /**

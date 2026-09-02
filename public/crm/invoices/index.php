@@ -251,6 +251,11 @@ $activePage = 'invoices';
                     $prefillNo  = $matchedNo ?: ($et['invoice_hint'] ?? '');
                     $conf       = $et['match_confidence'] ?? 'none';
                     $isClaim    = ($et['transfer_type'] ?? '') === 'claim';
+                    $allocated  = (float) ($et['allocated_amount'] ?? 0);
+                    $remaining  = round($etAmount - $allocated, 2);
+                    // A row only reaches here (not fully 'recorded') if some amount
+                    // is still unassigned, so this is always > 0 when $allocated > 0.
+                    $isPartial  = $allocated > 0.005;
 
                     // Three-way reconciliation: email notification always exists (1);
                     // invoice matched + bank deposit matched are the other two legs.
@@ -259,16 +264,44 @@ $activePage = 'invoices';
                     $hasBankMatch    = !empty($et['bank_transaction_id']);
                     $reconciledCount = 1 + ($hasInvoiceMatch ? 1 : 0) + ($hasBankMatch ? 1 : 0);
 
-                    // No hard identity match (invoice #/reference #) yet — see whether
-                    // the transfer amount exceeds what any single one of the sender's
-                    // open invoices can absorb. If so, suggest how staff would apply
-                    // it under standard AR practice: oldest invoice first, each one
-                    // topped up before moving to the next.
-                    $fifoSpread = [];
-                    if (!$hasInvoiceMatch && $etAmount > 0 && $etransferSvc) {
-                        $fifoSpread = $etransferSvc->suggestFifoAllocation($et['sender_name'] ?? null, $etAmount);
+                    // No hard identity match (invoice #/reference #) yet.
+                    //
+                    // 1. First, guard against a stale duplicate: this exact
+                    //    email could have arrived (or been ingested) well
+                    //    after staff already recorded the payment manually.
+                    //    If so, suggesting a spread against different,
+                    //    unrelated invoices would risk a second payment.
+                    // 2. Otherwise, if the amount exceeds what any single one
+                    //    of the sender's open invoices can absorb, suggest
+                    //    applying it oldest-invoice-first (standard AR
+                    //    practice), each one topped up before moving on.
+                    // 3. If the sender name doesn't match anyone at all
+                    //    (someone paying a friend's/relative's bill from
+                    //    their own account), fall back to value alone: only
+                    //    when the amount exactly — and uniquely — clears one
+                    //    specific customer's entire open balance.
+                    // Operate on what's still unassigned, not the original full
+                    // amount — a partially-recorded row already has some of the
+                    // transfer applied, so matching against the full amount again
+                    // would never find anything (or worse, something wrong).
+                    $activeAmount = $isPartial ? $remaining : $etAmount;
+
+                    $likelyDuplicate = null;
+                    $fifoSpread      = [];
+                    $valueFallback   = null;
+                    if (!$hasInvoiceMatch && $activeAmount > 0 && $etransferSvc) {
+                        $likelyDuplicate = $etransferSvc->findLikelyDuplicatePayment($et['sender_name'] ?? null, $activeAmount, $et['email_date'] ?? null);
+                        if (!$likelyDuplicate) {
+                            $fifoSpread = $etransferSvc->suggestFifoAllocation($et['sender_name'] ?? null, $activeAmount);
+                            if (empty($fifoSpread)) {
+                                $valueFallback = $etransferSvc->suggestFifoAllocationByValue($activeAmount);
+                            }
+                        }
                     }
-                    $spansMultiple = count($fifoSpread) > 1;
+                    $spreadLines    = $valueFallback['lines'] ?? $fifoSpread;
+                    $spansMultiple  = count($spreadLines) > 1;
+                    $isValueGuess   = $valueFallback !== null;
+                    $nothingLeftFor = $isPartial && !$likelyDuplicate && empty($spreadLines);
                     ?>
                     <div class="mw-et-row" data-id="<?php echo (int)$et['id']; ?>">
                         <div class="mw-et-main">
@@ -276,16 +309,27 @@ $activePage = 'invoices';
                                 <strong><?php echo htmlspecialchars($et['sender_name'] ?: 'Unknown sender'); ?></strong>
                                 <span class="mw-et-amount"><?php echo formatCurrency($etAmount); ?></span>
                                 <?php if ($isClaim): ?><span class="mw-et-badge claim">needs claiming in online banking</span><?php endif; ?>
-                                <?php if ($conf === 'high'): ?><span class="mw-et-badge high">match: <?php echo htmlspecialchars($matchedNo); ?></span>
+                                <?php if ($likelyDuplicate): ?><span class="mw-et-badge claim">⚠ possibly already recorded</span>
+                                <?php elseif ($conf === 'high'): ?><span class="mw-et-badge high">match: <?php echo htmlspecialchars($matchedNo); ?></span>
                                 <?php elseif ($conf === 'medium'): ?><span class="mw-et-badge med">likely: <?php echo htmlspecialchars($matchedNo); ?></span>
-                                <?php elseif ($spansMultiple): ?><span class="mw-et-badge med">spans <?php echo count($fifoSpread); ?> invoices — oldest first</span>
+                                <?php elseif ($isValueGuess): ?><span class="mw-et-badge med">no sender match — exactly clears <?php echo htmlspecialchars($valueFallback['payer_name']); ?></span>
+                                <?php elseif ($spansMultiple): ?><span class="mw-et-badge med">spans <?php echo count($spreadLines); ?> invoices — oldest first</span>
+                                <?php elseif ($nothingLeftFor): ?><span class="mw-et-badge med"><?php echo formatCurrency($allocated); ?> already applied — <?php echo formatCurrency($remaining); ?> unassigned</span>
                                 <?php else: ?><span class="mw-et-badge none">no match — enter invoice #</span><?php endif; ?>
                             </div>
                             <?php if (!empty($et['memo'])): ?>
                                 <div class="mw-et-memo">“<?php echo htmlspecialchars($et['memo']); ?>”</div>
                             <?php endif; ?>
-                            <?php if ($spansMultiple): ?>
+                            <?php if ($likelyDuplicate): ?>
+                                <div class="mw-et-memo">This amount exactly matches <?php echo count($likelyDuplicate['invoice_numbers']); ?> e-Transfer payment(s) already recorded on
+                                    <?php echo htmlspecialchars(date('M j, Y', strtotime($likelyDuplicate['pay_date']))); ?> against
+                                    <?php echo htmlspecialchars(implode(', ', $likelyDuplicate['invoice_numbers'])); ?> — likely this same transfer, recorded before this notification was matched. Verify, then dismiss rather than record again.</div>
+                            <?php elseif ($isValueGuess): ?>
+                                <div class="mw-et-memo">No name match — but this amount exactly clears <?php echo htmlspecialchars($valueFallback['payer_name']); ?>'s entire open balance (e.g. someone paying on their behalf). Verify before recording:</div>
+                            <?php elseif ($spansMultiple): ?>
                                 <div class="mw-et-memo">Suggested spread — oldest invoice first (standard AR application), applied to balance before moving to the next:</div>
+                            <?php elseif ($nothingLeftFor): ?>
+                                <div class="mw-et-memo"><?php echo formatCurrency($allocated); ?> of this transfer is already recorded. No open invoices remain for this payer to apply the leftover <?php echo formatCurrency($remaining); ?> against — check for a duplicate, an overpayment, or an invoice not yet in the system.</div>
                             <?php endif; ?>
                             <div class="mw-et-recon mw-et-recon--<?php echo $reconciledCount; ?>">
                                 <?php if ($reconciledCount === 3): ?>
@@ -303,8 +347,8 @@ $activePage = 'invoices';
                         </div>
                         <div class="mw-et-actions">
                             <div class="mw-et-splits">
-                                <?php if ($spansMultiple): ?>
-                                    <?php foreach ($fifoSpread as $alloc): ?>
+                                <?php if (!empty($spreadLines)): ?>
+                                    <?php foreach ($spreadLines as $alloc): ?>
                                         <div class="mw-et-split-line">
                                             <input type="text" class="form-control form-control-sm mw-et-inv" placeholder="INV-…"
                                                    value="<?php echo htmlspecialchars($alloc['invoice_number']); ?>" aria-label="Invoice number">
@@ -317,7 +361,7 @@ $activePage = 'invoices';
                                         <input type="text" class="form-control form-control-sm mw-et-inv" placeholder="INV-…"
                                                value="<?php echo htmlspecialchars($prefillNo); ?>" aria-label="Invoice number">
                                         <input type="number" step="0.01" min="0" class="form-control form-control-sm mw-et-amt"
-                                               value="<?php echo $etAmount > 0 ? number_format($etAmount, 2, '.', '') : ''; ?>" aria-label="Amount">
+                                               value="<?php echo $activeAmount > 0 ? number_format($activeAmount, 2, '.', '') : ''; ?>" aria-label="Amount">
                                     </div>
                                 <?php endif; ?>
                             </div>
