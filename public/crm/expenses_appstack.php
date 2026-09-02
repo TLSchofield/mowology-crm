@@ -2242,6 +2242,10 @@ async function submitReceiptExport() {
         document.getElementById('receiptCaptureCard').style.display = 'none';
         document.getElementById('receiptReviewPanel').style.display = 'block';
 
+        // A fresh capture must always offer Save — undo any batch-mode
+        // (Snap Another / Done) buttons left over from the previous save.
+        restoreSaveButtons();
+
         // Show receipt image preview
         var reader = new FileReader();
         reader.onload = function(e) {
@@ -4744,6 +4748,7 @@ async function submitReceiptExport() {
             if (cap) cap.style.display = 'flex';
             if (review) { review.style.display = 'none'; review.classList.remove('mw-mc-expense-review-exit'); }
             if (spinner) spinner.style.display = 'none';
+            restoreSaveButtons();
         }, 200);
 
         // Clear mobile form fields
@@ -5402,6 +5407,21 @@ async function submitReceiptExport() {
     }
 
     // ── Batch Mode (Snap Another / Done) ────────────────────
+    // The pristine Save / Save & Send markup is cached once at load so it can be
+    // restored for every subsequent capture. Without this, showBatchButtons()
+    // permanently replaced the row after the first save and the 2nd+ receipt
+    // had no Save action at all — its data was silently lost on Done/Snap Another.
+    var _saveRowOriginalHtml = (function() {
+        var saveRow = document.querySelector('.mw-mc-expense-save-row');
+        return saveRow ? saveRow.innerHTML : '';
+    })();
+
+    function restoreSaveButtons() {
+        var saveRow = document.querySelector('.mw-mc-expense-save-row');
+        if (!saveRow || !_saveRowOriginalHtml) return;
+        if (saveRow.innerHTML !== _saveRowOriginalHtml) saveRow.innerHTML = _saveRowOriginalHtml;
+    }
+
     function showBatchButtons() {
         var saveRow = document.querySelector('.mw-mc-expense-save-row');
         if (!saveRow) return;
