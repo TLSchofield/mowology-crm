@@ -79,6 +79,14 @@ enum APIEndpoint {
     /// accounting (JWT). Body: { action: "approve"|"reject"|"send", expense_id, rejection_reason? }
     case receiptAction
 
+    /// GET /api/expenses/expense-lookup?type=vendors|jobs|categories|duplicates&… —
+    /// review-form lookups shared with the Android review card (JWT). Uses `type=`
+    /// because the /api/ router's rewrite appends its own `action` param.
+    case expenseLookup(query: [URLQueryItem])
+
+    /// POST /api/expenses/expense-delete — delete an own draft expense (JWT). Body: { id }
+    case expenseDelete
+
     /// POST /api/device/token — register APNs device token for push notifications.
     case deviceTokenRegister
 
@@ -186,6 +194,14 @@ enum APIEndpoint {
         case .receiptAction:
             return URL(string: "\(baseURLString)/expenses/receipt-actions")
 
+        case .expenseLookup(let query):
+            var components = URLComponents(string: "\(baseURLString)/expenses/expense-lookup")
+            components?.queryItems = query
+            return components?.url
+
+        case .expenseDelete:
+            return URL(string: "\(baseURLString)/expenses/expense-delete")
+
         case .deviceTokenRegister:
             return URL(string: "\(baseURLString)/device/token")
 
@@ -234,6 +250,8 @@ enum APIEndpoint {
              .expenseList,
              .expenseUpdate,
              .receiptAction,
+             .expenseLookup,
+             .expenseDelete,
              .deviceTokenRegister,
              .quizAction,
              .quizQuestion,
@@ -263,9 +281,11 @@ enum APIEndpoint {
              .expenseSave,
              .expenseUpdate,
              .receiptAction,
+             .expenseDelete,
              .deviceTokenRegister: return "POST"
 
         case .expenseList,
+             .expenseLookup,
              .scheduleJobs,
              .scheduleInvoices,
              .scheduleQuotes,

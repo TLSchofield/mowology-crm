@@ -23,6 +23,20 @@ struct ReceiptsView: View {
     @State private var showActionErrorAlert = false
     @State private var selectedExpense: Expense?
 
+    // The just-captured photo + fix, handed to the review sheet so it can show the
+    // real image (the old sheet built its preview URL from the vendor name and never
+    // loaded) and persist receipt_lat/lng like Android does.
+    @State private var capturedImageData: Data?
+    @State private var captureLat: Double?
+    @State private var captureLng: Double?
+    // "Snap Another" from the review sheet — reopen the camera once the sheet is gone.
+    @State private var snapAnotherPending = false
+
+    // Observed so the "N pending" badge re-renders when a queue drains, instead of
+    // only on unrelated redraws.
+    @ObservedObject private var receiptQueue = ReceiptQueue.shared
+    @ObservedObject private var actionQueue  = ReceiptActionQueue.shared
+
     // Multi-select bulk approve/reject — mirrors the Android mobile card "Select" mode.
     @State private var isSelectMode = false
     @State private var selectedIds: Set<Int> = []
@@ -95,10 +109,27 @@ struct ReceiptsView: View {
         .sheet(isPresented: $showLibrary) {
             librarySheet
         }
-        // Review sheet shown after successful OCR upload
-        .sheet(isPresented: $showReview) {
+        // Review sheet shown after successful OCR upload. "Snap Another" reopens the
+        // camera after the sheet has fully dismissed (a fullScreenCover can't be
+        // presented while a sheet is still animating out).
+        .sheet(isPresented: $showReview, onDismiss: {
+            if snapAnotherPending {
+                snapAnotherPending = false
+                impact.impactOccurred()
+                showCamera = true
+            }
+        }) {
             if let intake = viewModel.intakeResponse {
-                ReceiptReviewView(viewModel: viewModel, intake: intake, isPresented: $showReview)
+                ReceiptReviewView(
+                    viewModel: viewModel,
+                    intake: intake,
+                    imageData: capturedImageData,
+                    lat: captureLat,
+                    lng: captureLng,
+                    isPresented: $showReview
+                ) { followUp in
+                    snapAnotherPending = (followUp == .snapAnother)
+                }
             }
         }
         // Detail/action sheet — tapping a row lets the user approve/reject/send a
@@ -147,10 +178,13 @@ struct ReceiptsView: View {
 
     private func handleCapture(_ compressed: Data) async {
         let loc = locationManager.location
+        capturedImageData = compressed
+        captureLat = loc?.coordinate.latitude
+        captureLng = loc?.coordinate.longitude
         await viewModel.uploadImage(
             compressed,
-            lat: loc?.coordinate.latitude,
-            lng: loc?.coordinate.longitude
+            lat: captureLat,
+            lng: captureLng
         )
         if viewModel.intakeResponse != nil { showReview = true }
     }
@@ -179,6 +213,18 @@ struct ReceiptsView: View {
                         }
                         .buttonStyle(.plain)
                         .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                        // Swipe-to-delete — Android's mobile card has the same gesture.
+                        // Forwarded receipts are part of the books; the server refuses
+                        // them, so don't offer the action at all.
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            if !isSelectMode && !expense.isForwarded && expense.status != "forwarded" {
+                                Button(role: .destructive) {
+                                    Task { _ = await viewModel.deleteExpense(id: expense.id) }
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
+                        }
                     }
                     if viewModel.currentPage < viewModel.totalPages {
                         HStack { Spacer(); ProgressView(); Spacer() }
@@ -363,8 +409,8 @@ struct ReceiptsView: View {
         ToolbarItem(placement: .principal) {
             HStack(spacing: 6) {
                 Text("Receipts").font(.headline.weight(.semibold))
-                if ReceiptQueue.shared.pendingCount + ReceiptActionQueue.shared.pendingCount > 0 {
-                    Text("\(ReceiptQueue.shared.pendingCount + ReceiptActionQueue.shared.pendingCount) pending")
+                if receiptQueue.pendingCount + actionQueue.pendingCount > 0 {
+                    Text("\(receiptQueue.pendingCount + actionQueue.pendingCount) pending")
                         .font(.caption2.weight(.semibold))
                         .padding(.horizontal, 6).padding(.vertical, 2)
                         .background(Color.MW.orange.opacity(0.15))
@@ -521,10 +567,11 @@ private struct ExpenseRow: View {
 
     private var statusBadge: some View {
         let (label, color): (String, Color) = switch expense.status {
-        case "forwarded": ("Sent", .blue)
-        case "approved":  ("Approved", Color.MW.green)
-        case "rejected":  ("Rejected", .red)
-        default:          ("Draft", Color.MW.orange)
+        case "forwarded":        ("Sent", .blue)
+        case "approved":         ("Approved", Color.MW.green)
+        case "rejected":         ("Rejected", .red)
+        case "pending_approval": ("Pending", Color.MW.orange)
+        default:                 ("Draft", Color.MW.orange)
         }
         return Text(label)
             .font(.caption2.weight(.semibold))

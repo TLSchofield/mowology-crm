@@ -222,9 +222,79 @@
             method: 'POST',
             body: formData
         }).then(function(r) {
-            return r.ok;
+            if (!r.ok) return false;
+            // Intake only stores the image + OCR. Without the step below a replayed
+            // receipt became an orphaned media row — no expense, nothing in the list,
+            // and the crew member never knew. Auto-save a draft from whatever OCR found
+            // so it shows up flagged for review. A failed draft save does NOT re-queue
+            // the image (that would upload a second media row on every retry).
+            return r.json().then(function(intake) {
+                return createDraftFromIntake(intake, receipt, csrf).then(function() { return true; });
+            }).catch(function() { return true; });
         }).catch(function() {
             return false;
+        });
+    }
+
+    /**
+     * Create a draft expense from a replayed intake result — mirrors the fields the
+     * mobile review card would have sent, minus any human corrections.
+     * @param {object} intake — receipt-intake.php JSON
+     * @param {object} receipt — queued record (lat/lng/jobId)
+     * @param {string} csrf
+     * @returns {Promise<void>}
+     */
+    function createDraftFromIntake(intake, receipt, csrf) {
+        if (!intake || !intake.success || !intake.media_id) return Promise.resolve();
+        var p = intake.parsed || {};
+        var s = intake.suggestions || {};
+        var total = parseFloat(p.total) || 0;
+        var gst   = parseFloat(p.gst) || 0;
+        var pst   = parseFloat(p.pst) || 0;
+        var sub   = parseFloat(p.subtotal) || (total > 0 ? Math.max(0, total - gst - pst) : 0);
+        var date  = /^\d{4}-\d{2}-\d{2}$/.test(p.date || '') ? p.date : new Date().toISOString().slice(0, 10);
+
+        var payload = {
+            action: 'create',
+            csrf_token: csrf,
+            expense_date: date,
+            vendor_id: s.vendor_id || null,
+            vendor_name_raw: s.vendor_name || p.vendor_hint || '',
+            payment_method: p.payment_method || '',
+            amount: sub.toFixed(2),
+            gst_amount: gst.toFixed(2),
+            pst_amount: pst.toFixed(2),
+            total: total.toFixed(2),
+            accounting_category: s.accounting_category || '',
+            job_id: receipt.jobId || null,
+            description: 'Auto-saved from offline queue — please review',
+            receipt_media_id: intake.media_id,
+            receipt_lat: receipt.lat || null,
+            receipt_lng: receipt.lng || null,
+            raw_ocr_json: intake.ocr_text || null,
+            ocr_parsed: intake.parsed ? JSON.stringify(intake.parsed) : null,
+            status: 'draft',
+            line_items: (p.line_items || []).map(function(item) {
+                return {
+                    name: item.name || 'Unknown Item',
+                    quantity: item.quantity || 1,
+                    unit_price: item.unit_price || null,
+                    line_total: item.line_total || item.amount || 0,
+                    sku_raw: item.sku_raw || null
+                };
+            })
+        };
+
+        return fetch('/crm/api/expenses.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        }).then(function(r) { return r.json(); }).then(function(d) {
+            if (!d || !d.success) {
+                console.warn('[offline-receipts] replayed receipt uploaded but draft save failed:', d && d.error);
+            }
+        }).catch(function(e) {
+            console.warn('[offline-receipts] draft save error', e);
         });
     }
 

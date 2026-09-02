@@ -961,6 +961,14 @@ async function submitReceiptExport() {
                 <img id="mobileReceiptImg" src="" alt="Receipt">
             </div>
 
+            <!-- Duplicate warnings (exact image hash or same amount/date/vendor). The desktop
+                 card's #rvDuplicateWarning is hidden under the fixed mobile container, so
+                 mobile users never saw either warning before this. -->
+            <div class="mw-mc-expense-dup-warning" id="mobileDuplicateWarning" style="display:none;" role="alert">
+                <div class="mw-mc-expense-dup-warning-body" id="mobileDuplicateList"></div>
+                <button type="button" class="mw-mc-expense-dup-warning-dismiss" onclick="dismissDuplicateWarning('mobile')" aria-label="Dismiss">&times;</button>
+            </div>
+
             <div class="mw-mc-expense-review-form">
                 <!-- Top row: Total prominently displayed -->
                 <div class="mw-mc-expense-total-hero">
@@ -1657,6 +1665,10 @@ async function submitReceiptExport() {
     'use strict';
 
     let CSRF = document.querySelector('meta[name="csrf-token"]')?.content || '';
+    // offline-receipts.js prefers window.CSRF over the token stored with a queued
+    // receipt (the session may have rotated while it sat in IndexedDB) — but this
+    // closure-scoped token was never exposed, so replays always used the stale one.
+    window.CSRF = CSRF;
     const QUICK_MODE  = <?php echo $quickMode  ? 'true' : 'false'; ?>;
     const AUTO_CAMERA = <?php echo $autoCamera ? 'true' : 'false'; ?>;
     const RETURN_TO   = '<?php echo htmlspecialchars($returnTo); ?>';
@@ -2524,18 +2536,26 @@ async function submitReceiptExport() {
         }
 
         // ── Warn if exact same image was already uploaded (SHA-256 match) ──
+        hideDuplicateWarning('mobile');
         if (data.duplicate_image) {
+            var dupMsg = '<div class="mw-duplicate-item">' +
+                '<span class="mw-duplicate-icon"><i data-feather="copy" style="width:13px;height:13px;"></i></span>' +
+                '<span class="mw-duplicate-detail"><strong>This exact receipt image was already uploaded.</strong> ' +
+                'You may be about to create a duplicate expense. Please verify before saving.</span>' +
+                '</div>';
             var dupWarn = document.getElementById('rvDuplicateWarning');
             var dupList = document.getElementById('rvDuplicateList');
             if (dupWarn && dupList) {
-                dupList.innerHTML = '<div class="mw-duplicate-item">' +
-                    '<span class="mw-duplicate-icon"><i data-feather="copy" style="width:13px;height:13px;"></i></span>' +
-                    '<span class="mw-duplicate-detail"><strong>This exact receipt image was already uploaded.</strong> ' +
-                    'You may be about to create a duplicate expense. Please verify before saving.</span>' +
-                    '</div>';
+                dupList.innerHTML = dupMsg;
                 dupWarn.style.display = 'block';
-                if (window.feather) feather.replace();
             }
+            var mDupWarn = document.getElementById('mobileDuplicateWarning');
+            var mDupList = document.getElementById('mobileDuplicateList');
+            if (mDupWarn && mDupList) {
+                mDupList.innerHTML = dupMsg;
+                mDupWarn.style.display = 'block';
+            }
+            if (window.feather) feather.replace();
         } else {
             // ── Check for duplicate receipts by amount/date ──
             var dupTotal = p.total ? parseFloat(p.total) : null;
@@ -2544,6 +2564,7 @@ async function submitReceiptExport() {
             var dupVendorId   = s.vendor_id || null;
             if (dupTotal && dupTotal > 0) {
                 checkDuplicates(dupVendorName, dupVendorId, dupTotal, dupDate, null, 'rv');
+                checkDuplicates(dupVendorName, dupVendorId, dupTotal, dupDate, null, 'mobile');
             }
         }
     }
@@ -2594,6 +2615,22 @@ async function submitReceiptExport() {
         var warningEl = document.getElementById(prefix + 'DuplicateWarning');
         var listEl = document.getElementById(prefix + 'DuplicateList');
         if (!warningEl || !listEl) return;
+
+        // Mobile card: compact read-only list (no Merge/View — the desktop merge picker
+        // and edit modal live under the fixed mobile container). Save still proceeds;
+        // the save-time toast is the second nudge, same as before.
+        if (prefix === 'mobile') {
+            listEl.innerHTML = '<div class="mw-duplicate-item"><span class="mw-duplicate-icon"><i data-feather="copy" style="width:13px;height:13px;"></i></span>' +
+                '<span class="mw-duplicate-detail"><strong>Possible duplicate' + (duplicates.length > 1 ? 's' : '') + ':</strong> ' +
+                duplicates.map(function(d) {
+                    var vendorDisplay = d.vendor_name || d.vendor_name_raw || 'Unknown vendor';
+                    return esc(vendorDisplay) + ' — $' + parseFloat(d.total).toFixed(2) + ' on ' + esc(d.expense_date) + ' (' + esc(String(d.status || '').replace('_', ' ')) + ')';
+                }).join('; ') +
+                '</span></div>';
+            warningEl.style.display = 'block';
+            if (window.feather) feather.replace();
+            return;
+        }
 
         listEl.innerHTML = duplicates.map(function(d) {
             var vendorDisplay = d.vendor_name || d.vendor_name_raw || 'Unknown vendor';
@@ -4951,10 +4988,15 @@ async function submitReceiptExport() {
                     var d = await r.json();
                     if (d.success && d.jobs && d.jobs.length) {
                         dropdown.innerHTML = d.jobs.map(function(job) {
-                            var label = (job.contact_name || 'Job') + (job.service_type ? ' — ' + job.service_type : '');
-                            var addr = job.property_address ? '<span class="mw-mc-expense-prejob-dd-addr">' + esc(job.property_address) + '</span>' : '';
+                            // search_jobs rows are keyed by `id` (job_plans.id) with `address`,
+                            // not the GPS-suggestion shape (plan_id / property_address). Reading
+                            // the wrong keys here used to save a searched job with an empty job_id.
+                            var jobId = job.id || job.plan_id || '';
+                            var jobAddr = job.address || job.property_address || '';
+                            var label = (job.contact_name || job.plan_number || 'Job') + (job.service_type ? ' — ' + job.service_type : '');
+                            var addr = jobAddr ? '<span class="mw-mc-expense-prejob-dd-addr">' + esc(jobAddr) + '</span>' : '';
                             return '<div class="mw-mc-expense-prejob-dd-item"' +
-                                ' data-job-id="' + esc(job.plan_id||'') + '"' +
+                                ' data-job-id="' + esc(jobId) + '"' +
                                 ' data-job-label="' + esc(label) + '"' +
                                 ' data-property-id="' + esc(job.property_id||'') + '"' +
                                 ' data-contact-id="' + esc(job.contact_id||'') + '">' +

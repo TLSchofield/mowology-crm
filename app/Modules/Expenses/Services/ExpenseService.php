@@ -118,6 +118,52 @@ class ExpenseService
         return ['success' => true, 'message' => 'Expense updated', 'expense_id' => $expenseId];
     }
 
+    /**
+     * Delete an expense. Same ownership rule as update() (crew delete their own,
+     * admins/managers any) and the same forwarded guard — a receipt already sent to
+     * accounting is part of the books and must not silently vanish. Reverses any
+     * inventory movements its line items created before the CASCADE removes them.
+     *
+     * Shared by the web swipe-to-delete (expenses.php action=delete) and the iOS
+     * swipe action (expense-delete.php) so both clients enforce identical rules.
+     *
+     * @return array ['success'=>true, 'message'=>string, 'expense_id'=>int]
+     * @throws Exception on missing id, not found, wrong owner, or already-sent.
+     */
+    public function delete(int $expenseId, array $currentUser): array
+    {
+        if (!$expenseId) {
+            throw new Exception('Expense ID required');
+        }
+
+        $check = $this->db->prepare(
+            "SELECT id, created_by, status, forwarded_to_accounting FROM expenses WHERE id = ?"
+        );
+        $check->execute([$expenseId]);
+        $expense = $check->fetch(PDO::FETCH_ASSOC);
+        if (!$expense) {
+            throw new Exception('Expense not found');
+        }
+
+        $isAdmin = !empty($currentUser['is_admin']);
+        if (!$isAdmin && (int)$expense['created_by'] !== (int)($currentUser['id'] ?? 0)) {
+            throw new Exception('You can only delete your own expenses');
+        }
+
+        if ($expense['status'] === 'forwarded' || (int)$expense['forwarded_to_accounting'] === 1) {
+            throw new Exception('This expense has been sent to accounting and can no longer be deleted');
+        }
+
+        if (function_exists('reverseLineItemInventory')) {
+            reverseLineItemInventory($this->db, $expenseId);
+        }
+
+        $stmt = $this->db->prepare("DELETE FROM expenses WHERE id = ?");
+        $stmt->execute([$expenseId]);
+
+        return ['success' => true, 'message' => 'Expense deleted', 'expense_id' => $expenseId];
+    }
+
     private function nullIfBlank(?string $v): ?string
     {
         if ($v === null) {

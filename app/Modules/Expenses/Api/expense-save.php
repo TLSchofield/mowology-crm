@@ -69,8 +69,8 @@ try {
             (expense_date, vendor_id, vendor_name_raw, description, amount, gst_amount, pst_amount, total,
              accounting_category, gbp_category, payment_method, receipt_media_id,
              receipt_lat, receipt_lng, match_confidence, anomaly_flags, anomaly_score, raw_ocr_json,
-             job_id, notes, status, created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             job_id, property_id, contact_id, notes, status, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ");
     $stmt->execute([
         $expenseDate,
@@ -92,6 +92,8 @@ try {
         $anomalyScore,
         $input['raw_ocr_json']            ?? null,
         !empty($input['job_id'])          ? (int)$input['job_id']           : null,
+        !empty($input['property_id'])     ? (int)$input['property_id']      : null,
+        !empty($input['contact_id'])      ? (int)$input['contact_id']       : null,
         $input['notes']                   ?? null,
         'draft',
         $userId,
@@ -135,7 +137,47 @@ try {
         }
     }
 
-    echo json_encode(['success' => true, 'expense_id' => $expenseId]);
+    // "Save & Send" — same one-tap flow as the Android review card (mobileSaveExpense(true)
+    // → receipt-send.php). The expense is already committed above; a send failure is
+    // reported, never fatal, so the record is never lost.
+    $sent      = false;
+    $sendError = null;
+    if (!empty($input['and_send'])) {
+        if (!jwtUserHasPermission($jwtUser, 'expenses.send')) {
+            $sendError = 'Permission denied: expenses.send required';
+        } elseif (empty($input['receipt_media_id'])) {
+            $sendError = 'No receipt image attached to this expense';
+        } else {
+            try {
+                require_once APP_ROOT . '/Services/Receipts/ReceiptService.php';
+                $sendResult = sendReceiptToAccounting([
+                    'expense_id'          => $expenseId,
+                    'media_id'            => (int)$input['receipt_media_id'],
+                    'vendor'              => $input['vendor_name_raw'] ?? 'Unknown',
+                    'subtotal'            => (string)($input['amount'] ?? '0.00'),
+                    'gst_amount'          => (string)($input['gst_amount'] ?? '0.00'),
+                    'total'               => (string)$total,
+                    'date'                => $expenseDate,
+                    'job_id'              => $input['job_id'] ?? null,
+                    'description'         => $input['description'] ?? '',
+                    'accounting_category' => $input['accounting_category'] ?? '',
+                ], $userId);
+                $sent = !empty($sendResult['success']);
+                if (!$sent) {
+                    $sendError = $sendResult['error'] ?? 'Send failed';
+                }
+            } catch (Throwable $e) {
+                $sendError = $e->getMessage();
+            }
+        }
+    }
+
+    echo json_encode([
+        'success'    => true,
+        'expense_id' => $expenseId,
+        'sent'       => $sent,
+        'send_error' => $sendError,
+    ]);
 
 } catch (Throwable $e) {
     http_response_code(500);

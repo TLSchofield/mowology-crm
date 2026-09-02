@@ -223,24 +223,11 @@ function handleVendorGet(PDO $db): void
 
 function handleVendorSearch(PDO $db): void
 {
-    $q = trim($_GET['q'] ?? '');
-    if (strlen($q) < 2) {
-        echo json_encode(['success' => true, 'vendors' => []]);
-        return;
-    }
+    // Shared with the iOS review form (expense-lookup.php?type=vendors).
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseLookupService.php';
+    $vendors = (new ExpenseLookupService($db))->searchVendors($_GET['q'] ?? '');
 
-    $stmt = $db->prepare("
-        SELECT id, name, aliases, default_accounting_category, default_gbp_category
-        FROM vendors
-        WHERE is_active = 1
-          AND (name LIKE ? OR aliases LIKE ?)
-        ORDER BY name
-        LIMIT 20
-    ");
-    $like = '%' . $q . '%';
-    $stmt->execute([$like, $like]);
-
-    echo json_encode(['success' => true, 'vendors' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
+    echo json_encode(['success' => true, 'vendors' => $vendors]);
 }
 
 
@@ -572,27 +559,8 @@ function handleDeleteVendorProduct(PDO $db, ?array $input): void
 
 function handleCategories(): void
 {
-    $accounting = [
-        'Materials', 'Fuel', 'Tools/Equipment', 'Repairs/Maintenance',
-        'Disposal/Dump', 'Subcontractors', 'Marketing', 'Office/Admin',
-        'Overhead', 'Licenses/Permits', 'Meals', 'Vehicle', 'Other',
-    ];
-
-    $gbp = [
-        'Garden center/nursery', 'Hardware store', 'Building materials',
-        'Equipment rental', 'Gas station', 'Waste disposal/landfill',
-        'Restaurant/food', 'Office supply', 'Auto parts',
-        'Wholesale store', 'Other',
-    ];
-
-    $paymentMethods = [
-        'cash', 'credit_card', 'debit', 'company_card', 'etransfer', 'cheque',
-    ];
-
-    echo json_encode([
-        'success' => true,
-        'accounting_categories' => $accounting,
-        'gbp_categories' => $gbp,
-        'payment_methods' => $paymentMethods,
-    ]);
+    // One source of truth for both clients — iOS reads the same list via
+    // expense-lookup.php?type=categories instead of a hard-coded copy.
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseLookupService.php';
+    echo json_encode(['success' => true] + ExpenseLookupService::categories());
 }

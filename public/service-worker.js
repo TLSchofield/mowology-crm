@@ -19,7 +19,7 @@
  * URL so the WebView can use a service worker just like a browser can).
  */
 
-var CACHE_VERSION = 'mw-v56';
+var CACHE_VERSION = 'mw-v57';
 var SHELL_CACHE  = 'mw-shell-' + CACHE_VERSION;
 var PAGE_CACHE   = 'mw-pages-' + CACHE_VERSION;
 var IMG_CACHE    = 'mw-images-' + CACHE_VERSION;
@@ -393,10 +393,56 @@ function syncPendingReceipts() {
             method: 'POST',
             body: formData,
           }).then(function(r) {
-            if (r.ok) {
-              var delTx = db.transaction('pending-receipts', 'readwrite');
-              delTx.objectStore('pending-receipts').delete(receipt.id);
-            }
+            if (!r.ok) return;
+            var delTx = db.transaction('pending-receipts', 'readwrite');
+            delTx.objectStore('pending-receipts').delete(receipt.id);
+            // Intake only stores the image + OCR — create the draft expense too, or
+            // the replayed receipt is an orphaned media row nobody ever sees. Same
+            // payload offline-receipts.js's createDraftFromIntake() builds.
+            return r.json().then(function(intake) {
+              if (!intake || !intake.success || !intake.media_id) return;
+              var p = intake.parsed || {};
+              var s = intake.suggestions || {};
+              var total = parseFloat(p.total) || 0;
+              var gst   = parseFloat(p.gst) || 0;
+              var pst   = parseFloat(p.pst) || 0;
+              var sub   = parseFloat(p.subtotal) || (total > 0 ? Math.max(0, total - gst - pst) : 0);
+              var date  = /^\d{4}-\d{2}-\d{2}$/.test(p.date || '') ? p.date : new Date().toISOString().slice(0, 10);
+              return fetch('/crm/api/expenses.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  action: 'create',
+                  csrf_token: receipt.csrf || '',
+                  expense_date: date,
+                  vendor_id: s.vendor_id || null,
+                  vendor_name_raw: s.vendor_name || p.vendor_hint || '',
+                  payment_method: p.payment_method || '',
+                  amount: sub.toFixed(2),
+                  gst_amount: gst.toFixed(2),
+                  pst_amount: pst.toFixed(2),
+                  total: total.toFixed(2),
+                  accounting_category: s.accounting_category || '',
+                  job_id: receipt.jobId || null,
+                  description: 'Auto-saved from offline queue — please review',
+                  receipt_media_id: intake.media_id,
+                  receipt_lat: receipt.lat || null,
+                  receipt_lng: receipt.lng || null,
+                  raw_ocr_json: intake.ocr_text || null,
+                  ocr_parsed: intake.parsed ? JSON.stringify(intake.parsed) : null,
+                  status: 'draft',
+                  line_items: (p.line_items || []).map(function(item) {
+                    return {
+                      name: item.name || 'Unknown Item',
+                      quantity: item.quantity || 1,
+                      unit_price: item.unit_price || null,
+                      line_total: item.line_total || item.amount || 0,
+                      sku_raw: item.sku_raw || null
+                    };
+                  })
+                })
+              }).catch(function() { /* draft save failed — media row remains; surfaced on next scan via SHA-256 dup guard */ });
+            }).catch(function() {});
           }).catch(function() { /* retry on next sync */ });
         });
 

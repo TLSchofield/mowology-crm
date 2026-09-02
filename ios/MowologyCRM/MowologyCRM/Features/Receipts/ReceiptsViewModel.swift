@@ -65,7 +65,7 @@ final class ReceiptsViewModel: ObservableObject {
     func startReceiptQueueMonitor() {
         ReceiptQueue.shared.startMonitoring { [weak self] data, lat, lng, jobId in
             guard let self else { throw APIError.invalidURL }
-            return try await self.apiClient.uploadReceipt(imageData: data, lat: lat, lng: lng, jobId: jobId)
+            return try await self.replayQueuedReceipt(data, lat: lat, lng: lng, jobId: jobId)
         }
     }
 
@@ -73,10 +73,130 @@ final class ReceiptsViewModel: ObservableObject {
     /// NWPathMonitor only fires on network status *changes*; this covers the case where
     /// the network was up the whole time but a single upload timed out and was enqueued.
     func drainPendingQueue() async {
+        let before = ReceiptQueue.shared.pendingCount
         await ReceiptQueue.shared.drain { [weak self] data, lat, lng, jobId in
             guard let self else { throw APIError.invalidURL }
-            return try await self.apiClient.uploadReceipt(imageData: data, lat: lat, lng: lng, jobId: jobId)
+            return try await self.replayQueuedReceipt(data, lat: lat, lng: lng, jobId: jobId)
         }
+        if before > 0 && ReceiptQueue.shared.pendingCount < before {
+            await loadExpenses()
+        }
+    }
+
+    /// Replays one queued receipt: upload + OCR, then immediately auto-save a draft
+    /// expense from whatever OCR found. Previously the drain discarded the intake
+    /// result, so a receipt queued offline became an orphaned image with no expense
+    /// row — nothing ever appeared in the list and the crew member had no idea. The
+    /// draft is flagged in its description so it's obvious it needs a human look.
+    private func replayQueuedReceipt(_ data: Data, lat: Double?, lng: Double?, jobId: Int?) async throws -> ReceiptIntakeResponse {
+        let intake = try await apiClient.uploadReceipt(imageData: data, lat: lat, lng: lng, jobId: jobId)
+        let p = intake.parsed
+        let s = intake.suggestions
+        let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
+        let total = p?.totalDouble ?? 0
+        let gst   = p?.gstDouble ?? 0
+        let pst   = p?.pst.flatMap(Double.init) ?? 0
+        let draft = ExpenseDraft(
+            vendorId:      s?.vendorId,
+            vendorName:    s?.vendorName ?? p?.vendorHint ?? "",
+            date:          Self.normalizeDate(p?.date) ?? fmt.string(from: .now),
+            amount:        p?.subtotal.flatMap(Double.init) ?? max(0, total - gst - pst),
+            gst:           gst,
+            pst:           pst,
+            total:         total,
+            category:      s?.accountingCategory ?? "",
+            paymentMethod: p?.paymentMethod ?? "credit_card",
+            description:   "Auto-saved from offline queue — please review",
+            notes:         "",
+            mediaId:       intake.mediaId,
+            rawOcrText:    intake.ocrText,
+            ocrParsed:     p,
+            job:           nil,
+            lat:           lat,
+            lng:           lng
+        )
+        // A failed auto-save must not re-queue the image (that would upload a second
+        // media row every retry); the media row + SHA-256 duplicate guard remain, and
+        // the error is surfaced on the list instead.
+        if await saveExpense(draft) == nil {
+            listError = "A queued receipt uploaded but could not be saved as a draft: \(saveError ?? "unknown error")"
+        }
+        return intake
+    }
+
+    private static func normalizeDate(_ s: String?) -> String? {
+        guard let s, !s.isEmpty else { return nil }
+        let out = DateFormatter(); out.dateFormat = "yyyy-MM-dd"
+        let f = DateFormatter()
+        for fmt in ["yyyy-MM-dd", "MM/dd/yyyy", "dd/MM/yyyy"] {
+            f.dateFormat = fmt
+            if let d = f.date(from: s) { return out.string(from: d) }
+        }
+        return nil
+    }
+
+    // MARK: - Review-form lookups (vendors / jobs / categories / duplicates)
+
+    @Published var accountingCategories: [String] = []
+    @Published var paymentMethods: [String] = []
+
+    /// Loads the canonical category + payment-method lists (same source the Android
+    /// review card reads). Falls back to whatever is already loaded on failure.
+    func loadCategories() async {
+        guard accountingCategories.isEmpty else { return }
+        let q = [URLQueryItem(name: "type", value: "categories")]
+        if let r: ExpenseCategoriesResponse = try? await apiClient.request(.expenseLookup(query: q)), r.success {
+            accountingCategories = r.accountingCategories
+            paymentMethods      = r.paymentMethods
+        }
+    }
+
+    func searchVendors(_ query: String) async -> [VendorSearchResult] {
+        let q = [URLQueryItem(name: "type", value: "vendors"), URLQueryItem(name: "q", value: query)]
+        let r: VendorSearchResponse? = try? await apiClient.request(.expenseLookup(query: q))
+        return r?.vendors ?? []
+    }
+
+    func searchJobs(_ query: String) async -> [JobSearchResult] {
+        let q = [URLQueryItem(name: "type", value: "jobs"), URLQueryItem(name: "q", value: query)]
+        let r: JobSearchResponse? = try? await apiClient.request(.expenseLookup(query: q))
+        return r?.jobs ?? []
+    }
+
+    /// Same amount/date/vendor duplicate check the Android review card runs before save.
+    func checkDuplicates(total: Double, date: String, vendorName: String?, vendorId: Int?) async -> [DuplicateExpense] {
+        guard total > 0 else { return [] }
+        var q = [
+            URLQueryItem(name: "type", value: "duplicates"),
+            URLQueryItem(name: "total", value: String(format: "%.2f", total)),
+            URLQueryItem(name: "expense_date", value: date),
+        ]
+        if let vendorName, vendorName.count >= 2 { q.append(URLQueryItem(name: "vendor_name", value: vendorName)) }
+        if let vendorId { q.append(URLQueryItem(name: "vendor_id", value: "\(vendorId)")) }
+        let r: DuplicateCheckResponse? = try? await apiClient.request(.expenseLookup(query: q))
+        return r?.duplicates ?? []
+    }
+
+    // MARK: - Delete
+
+    /// Delete an own draft (admins any). Server refuses anything already forwarded.
+    func deleteExpense(id: Int) async -> Bool {
+        isPerformingAction = true
+        actionError = nil
+        defer { isPerformingAction = false }
+        do {
+            let r: ReceiptActionResponse = try await apiClient.request(.expenseDelete, body: ["id": id])
+            if r.success {
+                expenses.removeAll { $0.id == id }
+                return true
+            }
+            actionError = r.error ?? r.message ?? "Delete failed."
+        } catch let err as APIError {
+            actionError = err.errorDescription
+        } catch {
+            actionError = "Delete failed."
+        }
+        return false
     }
 
     // MARK: - Upload
@@ -112,32 +232,42 @@ final class ReceiptsViewModel: ObservableObject {
 
     // MARK: - Save
 
-    func saveExpense(
-        vendorId: Int?, vendorName: String, date: String,
-        amount: Double, gst: Double, total: Double,
-        category: String, paymentMethod: String,
-        notes: String, mediaId: Int?,
-        ocrParsed: ParsedReceipt?, lat: Double?, lng: Double?
-    ) async -> Bool {
+    /// Saves a reviewed (or auto-drafted) expense. Returns the server response on
+    /// success — `sent`/`sendError` matter for a Save & Send — or nil on failure with
+    /// `saveError` set. Payload mirrors Android's mobileSaveExpense() field-for-field.
+    @discardableResult
+    func saveExpense(_ d: ExpenseDraft) async -> ExpenseSaveResponse? {
         isSaving   = true
         saveError  = nil
 
         var body: [String: Any] = [
-            "expense_date":         date,
-            "vendor_name_raw":      vendorName,
-            "amount":               amount,
-            "gst_amount":           gst,
-            "total":                total,
-            "accounting_category":  category,
-            "payment_method":       paymentMethod,
-            "notes":                notes,
+            "expense_date":         d.date,
+            "vendor_name_raw":      d.vendorName,
+            "amount":               d.amount,
+            "gst_amount":           d.gst,
+            "pst_amount":           d.pst,
+            "total":                d.total,
+            "accounting_category":  d.category,
+            "payment_method":       d.paymentMethod,
+            "description":          d.description,
+            "notes":                d.notes,
             "status":               "draft",
+            "and_send":             d.andSend,
         ]
-        if let vendorId  { body["vendor_id"]        = vendorId  }
-        if let mediaId   { body["receipt_media_id"]  = mediaId   }
-        if let lat       { body["receipt_lat"]        = lat       }
-        if let lng       { body["receipt_lng"]        = lng       }
-        if let p = ocrParsed {
+        if let vendorId = d.vendorId { body["vendor_id"]        = vendorId }
+        if let mediaId  = d.mediaId  { body["receipt_media_id"] = mediaId  }
+        if let lat      = d.lat      { body["receipt_lat"]      = lat      }
+        if let lng      = d.lng      { body["receipt_lng"]      = lng      }
+        if let job      = d.job {
+            body["job_id"] = job.id
+            if let p = job.propertyId { body["property_id"] = p }
+            if let c = job.contactId  { body["contact_id"]  = c }
+        }
+        // Raw OCR text is what makes the server's self-learning parser record
+        // corrections (it requires raw_ocr_json AND ocr_parsed) — and what lets a later
+        // edit re-parse. Android always sent it; iOS never did.
+        if let raw = d.rawOcrText, !raw.isEmpty { body["raw_ocr_json"] = raw }
+        if let p = d.ocrParsed {
             // Store OCR parsed fields so the backend can record corrections for learning
             if let data = try? JSONEncoder().encode(p),
                let str  = String(data: data, encoding: .utf8) {
@@ -162,17 +292,17 @@ final class ReceiptsViewModel: ObservableObject {
         }
 
         do {
-            let _: ExpenseSaveResponse = try await apiClient.request(.expenseSave, body: body)
+            let response: ExpenseSaveResponse = try await apiClient.request(.expenseSave, body: body)
             await loadExpenses()
             isSaving = false
-            return true
+            return response
         } catch let err as APIError {
             saveError = err.errorDescription
         } catch {
             saveError = "Failed to save expense."
         }
         isSaving = false
-        return false
+        return nil
     }
 
     // MARK: - Edit

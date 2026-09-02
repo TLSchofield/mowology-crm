@@ -20,6 +20,55 @@ class ExpenseServiceTest extends TestCase
         return $s;
     }
 
+    // ── delete ─────────────────────────────────────────────────────────
+
+    public function test_delete_requires_expense_id(): void
+    {
+        $svc = new ExpenseService($this->createMock(PDO::class));
+        $this->expectException(Exception::class);
+        $this->expectExceptionMessage('Expense ID required');
+        $svc->delete(0, ['id' => 1, 'is_admin' => true]);
+    }
+
+    public function test_delete_blocks_non_owner_non_admin(): void
+    {
+        $db = $this->createMock(PDO::class);
+        $db->method('prepare')->willReturn($this->makeStmt([
+            'id' => 42, 'created_by' => 9, 'status' => 'draft', 'forwarded_to_accounting' => 0,
+        ]));
+        $svc = new ExpenseService($db);
+
+        $this->expectException(Exception::class);
+        $this->expectExceptionMessage('You can only delete your own expenses');
+        $svc->delete(42, ['id' => 5, 'is_admin' => false]);
+    }
+
+    public function test_delete_blocks_already_sent_even_for_admin(): void
+    {
+        $db = $this->createMock(PDO::class);
+        $db->method('prepare')->willReturn($this->makeStmt([
+            'id' => 42, 'created_by' => 5, 'status' => 'forwarded', 'forwarded_to_accounting' => 1,
+        ]));
+        $svc = new ExpenseService($db);
+
+        $this->expectException(Exception::class);
+        $this->expectExceptionMessage('can no longer be deleted');
+        $svc->delete(42, ['id' => 1, 'is_admin' => true]);
+    }
+
+    public function test_delete_owner_draft_succeeds(): void
+    {
+        $db = $this->createMock(PDO::class);
+        $db->method('prepare')->willReturn($this->makeStmt([
+            'id' => 42, 'created_by' => 5, 'status' => 'draft', 'forwarded_to_accounting' => 0,
+        ]));
+        $svc = new ExpenseService($db);
+
+        $result = $svc->delete(42, ['id' => 5, 'is_admin' => false]);
+        $this->assertTrue($result['success']);
+        $this->assertSame(42, $result['expense_id']);
+    }
+
     public function test_update_requires_expense_id(): void
     {
         $svc = new ExpenseService($this->createMock(PDO::class));

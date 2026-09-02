@@ -2478,6 +2478,45 @@
         background: #fafaf8;
     }
 
+    /* ── Duplicate warning (exact-image hash or same amount/date/vendor) ── */
+    .mw-mc-expense-dup-warning {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        margin: 4px 12px 0;
+        padding: 8px 10px;
+        border-radius: 8px;
+        border: 1px solid var(--mw-orange);
+        background: rgba(232, 93, 4, 0.08);
+        color: var(--mw-forest);
+        font-size: 0.8rem;
+        line-height: 1.35;
+    }
+    .mw-mc-expense-dup-warning-body {
+        flex: 1;
+        min-width: 0;
+    }
+    .mw-mc-expense-dup-warning .mw-duplicate-item {
+        display: flex;
+        gap: 6px;
+        align-items: flex-start;
+    }
+    .mw-mc-expense-dup-warning .mw-duplicate-icon {
+        color: var(--mw-orange);
+        flex-shrink: 0;
+        padding-top: 2px;
+    }
+    .mw-mc-expense-dup-warning-dismiss {
+        flex-shrink: 0;
+        border: 0;
+        background: transparent;
+        color: var(--mw-orange);
+        font-size: 1.1rem;
+        line-height: 1;
+        padding: 0 2px;
+        -webkit-tap-highlight-color: transparent;
+    }
+
     /* ── Field Error State ── */
     .mw-mc-field-error {
         background: #ffeaea !important;

@@ -75,6 +75,11 @@ try {
         'suggestions'     => $suggestionsOut,
         'job_suggestions' => $result['job_suggestions'],
         'duplicate_image' => $result['duplicate_image'],
+        // Same trust signals the web review card gets — GST-math check + per-field
+        // Vision confidences — so the iOS form can flag a bad total the same way.
+        'gst_validation'  => $result['gst_validation'] ?? null,
+        'field_confidences' => (is_array($result['field_confidences'] ?? null) && !empty($result['field_confidences']))
+            ? $result['field_confidences'] : new stdClass(),
     ]);
 
 } catch (Throwable $e) {

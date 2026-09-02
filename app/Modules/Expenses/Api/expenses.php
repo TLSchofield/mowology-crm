@@ -68,7 +68,7 @@ try {
 
         case 'delete':
             if (!$canEdit) throw new Exception('Permission denied: expenses.edit required');
-            handleDelete($db, $input);
+            handleDelete($db, $input, $user);
             break;
 
         case 'suggest':
@@ -627,10 +627,16 @@ function handleUpdate(PDO $db, ?array $input, array $user): void
     if (!$id) throw new Exception('Expense ID required');
 
     // Verify exists and fetch OCR text for learning
-    $check = $db->prepare("SELECT id, raw_ocr_json, vendor_id, status FROM expenses WHERE id = ?");
+    $check = $db->prepare("SELECT id, raw_ocr_json, vendor_id, status, forwarded_to_accounting FROM expenses WHERE id = ?");
     $check->execute([$id]);
     $existing = $check->fetch(PDO::FETCH_ASSOC);
     if (!$existing) throw new Exception('Expense not found');
+
+    // Same forwarded guard the JWT path (ExpenseService::update) has always enforced —
+    // once sent to accounting the record is part of the books and must not drift.
+    if ($existing['status'] === 'forwarded' || (int)($existing['forwarded_to_accounting'] ?? 0) === 1) {
+        throw new Exception('This expense has been sent to accounting and can no longer be edited');
+    }
 
     $expenseDate = $input['expense_date'] ?? date('Y-m-d');
     $total = (float)($input['total'] ?? 0);
@@ -764,24 +770,22 @@ function handleUpdate(PDO $db, ?array $input, array $user): void
 }
 
 
-function handleDelete(PDO $db, ?array $input): void
+function handleDelete(PDO $db, ?array $input, array $user): void
 {
     if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
         throw new Exception('Invalid security token');
     }
 
-    $id = (int)($input['id'] ?? 0);
-    if (!$id) throw new Exception('Expense ID required');
+    // Shared with the iOS swipe-to-delete (expense-delete.php): owner-or-admin, and a
+    // receipt already forwarded to accounting can't be deleted from either client.
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseService.php';
+    $isAdmin = in_array($user['role'] ?? '', ['admin', 'manager'], true) || userHasPermission('expenses.approve');
+    $result  = (new ExpenseService($db))->delete(
+        (int)($input['id'] ?? 0),
+        ['id' => (int)$user['id'], 'is_admin' => $isAdmin]
+    );
 
-    // Reverse inventory for linked line items before CASCADE delete removes them
-    reverseLineItemInventory($db, $id);
-
-    $stmt = $db->prepare("DELETE FROM expenses WHERE id = ?");
-    $stmt->execute([$id]);
-
-    if ($stmt->rowCount() === 0) throw new Exception('Expense not found');
-
-    echo json_encode(['success' => true, 'message' => 'Expense deleted']);
+    echo json_encode($result);
 }
 
 
@@ -836,76 +840,20 @@ function handleStats(PDO $db): void
 
 function handleCheckDuplicates(PDO $db): void
 {
-    // Accept both GET and POST (GET for quick checks from frontend)
-    $vendorName = $_GET['vendor_name'] ?? null;
-    $vendorId   = !empty($_GET['vendor_id']) ? (int)$_GET['vendor_id'] : null;
-    $total      = isset($_GET['total']) ? (float)$_GET['total'] : null;
-    $date       = $_GET['expense_date'] ?? null;
-    $excludeId  = !empty($_GET['exclude_id']) ? (int)$_GET['exclude_id'] : null;
-
-    if ($total === null || $total <= 0 || empty($date)) {
-        echo json_encode(['success' => true, 'has_duplicates' => false, 'duplicates' => []]);
-        return;
-    }
-
-    // Build query: match total exactly, date within +/- 3 days
-    $where = ['ABS(e.total - ?) < 0.01', 'e.expense_date BETWEEN DATE_SUB(?, INTERVAL 3 DAY) AND DATE_ADD(?, INTERVAL 3 DAY)'];
-    $params = [$total, $date, $date];
-
-    // Exclude self (for edit mode)
-    if ($excludeId) {
-        $where[] = 'e.id != ?';
-        $params[] = $excludeId;
-    }
-
-    // Vendor matching (optional but strengthens signal)
-    $vendorClause = [];
-    if ($vendorId) {
-        $vendorClause[] = 'e.vendor_id = ?';
-        $params[] = $vendorId;
-    }
-    if ($vendorName && strlen(trim($vendorName)) >= 2) {
-        $vendorClause[] = 'e.vendor_name_raw LIKE ?';
-        $params[] = '%' . trim($vendorName) . '%';
-    }
-
-    // If we have vendor info, require vendor OR name match alongside total+date
-    // If no vendor info, just match on total+date (weaker but still useful)
-    if (!empty($vendorClause)) {
-        $where[] = '(' . implode(' OR ', $vendorClause) . ')';
-    }
-
-    $whereClause = implode(' AND ', $where);
-
-    $stmt = $db->prepare("
-        SELECT e.id, e.expense_date, e.total, e.status,
-               e.vendor_name_raw,
-               v.name AS vendor_name,
-               ma.file_path AS receipt_path
-        FROM expenses e
-        LEFT JOIN vendors v ON v.id = e.vendor_id
-        LEFT JOIN media_assets ma ON ma.id = e.receipt_media_id
-        WHERE {$whereClause}
-        ORDER BY e.expense_date DESC
-        LIMIT 5
-    ");
-    $stmt->execute($params);
-    $duplicates = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-    // Route receipt images through proxy
-    foreach ($duplicates as &$dup) {
-        if (!empty($dup['receipt_media_id'])) {
-            $dup['receipt_path'] = '/crm/api/serve-receipt.php?id=' . (int)$dup['receipt_media_id'];
-        } else {
-            $dup['receipt_path'] = null;
-        }
-    }
-    unset($dup);
+    // Shared with the iOS review form (expense-lookup.php?type=duplicates).
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseLookupService.php';
+    $duplicates = (new ExpenseLookupService($db))->findDuplicates(
+        $_GET['vendor_name'] ?? null,
+        !empty($_GET['vendor_id']) ? (int)$_GET['vendor_id'] : null,
+        isset($_GET['total']) ? (float)$_GET['total'] : null,
+        $_GET['expense_date'] ?? null,
+        !empty($_GET['exclude_id']) ? (int)$_GET['exclude_id'] : null
+    );
 
     echo json_encode([
         'success'        => true,
-        'has_duplicates'  => count($duplicates) > 0,
-        'duplicates'      => $duplicates,
+        'has_duplicates' => count($duplicates) > 0,
+        'duplicates'     => $duplicates,
     ]);
 }
 
@@ -1408,35 +1356,10 @@ function handleQbRetry(PDO $db): void
  */
 function handleSearchJobs(PDO $db): void
 {
-    $q = trim($_GET['q'] ?? '');
-    if (strlen($q) < 2) {
-        echo json_encode(['success' => true, 'jobs' => []]);
-        return;
-    }
-
-    $like = '%' . $q . '%';
-    $stmt = $db->prepare("
-        SELECT
-            jp.id,
-            jp.plan_number,
-            jp.service_type,
-            jp.status,
-            p.address,
-            CONCAT(c.first_name, ' ', c.last_name) AS contact_name
-        FROM job_plans jp
-        LEFT JOIN properties p ON p.id = jp.property_id
-        LEFT JOIN contacts c ON c.id = p.site_contact_id
-        WHERE (
-              jp.plan_number LIKE ?
-              OR jp.service_type LIKE ?
-              OR p.address LIKE ?
-              OR CONCAT(c.first_name, ' ', c.last_name) LIKE ?
-          )
-        ORDER BY jp.status = 'active' DESC, jp.id DESC
-        LIMIT 15
-    ");
-    $stmt->execute([$like, $like, $like, $like]);
-    $jobs = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    // Shared with the iOS review form (expense-lookup.php?type=jobs). Rows now carry
+    // property_id + contact_id so the mobile job pill can persist all three identifiers.
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseLookupService.php';
+    $jobs = (new ExpenseLookupService($db))->searchJobs($_GET['q'] ?? '');
 
     echo json_encode(['success' => true, 'jobs' => $jobs]);
 }

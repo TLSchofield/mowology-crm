@@ -94,5 +94,36 @@ struct ExpenseListResponse: Decodable {
 struct ExpenseSaveResponse: Decodable {
     let success: Bool
     let expenseId: Int
-    enum CodingKeys: String, CodingKey { case success; case expenseId = "expense_id" }
+    /// Set when the save was a "Save & Send": whether the forward to accounting went
+    /// through, and why not if it didn't. The expense itself is committed either way.
+    let sent: Bool?
+    let sendError: String?
+    enum CodingKeys: String, CodingKey {
+        case success, sent
+        case expenseId = "expense_id"
+        case sendError = "send_error"
+    }
+}
+
+/// Everything the review form collects for one expense — the single payload shape
+/// for both a user-reviewed save and an auto-drafted offline-queue save.
+struct ExpenseDraft {
+    var vendorId: Int?
+    var vendorName: String
+    var date: String                // yyyy-MM-dd
+    var amount: Double
+    var gst: Double
+    var pst: Double
+    var total: Double
+    var category: String
+    var paymentMethod: String
+    var description: String
+    var notes: String
+    var mediaId: Int?
+    var rawOcrText: String?
+    var ocrParsed: ParsedReceipt?
+    var job: JobPick?
+    var lat: Double?
+    var lng: Double?
+    var andSend: Bool = false
 }
