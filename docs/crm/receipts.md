@@ -6,9 +6,30 @@ How vendor receipts/invoices become expenses, and how forwarding by email is han
 
 | Path | Entry point | Notes |
 |------|-------------|-------|
-| Camera / gallery | `public/crm/expenses_appstack.php` → `app/Modules/Expenses/Api/receipt-intake.php` | OCR on upload, manual review form. |
-| iOS app | `app/Modules/Expenses/Api/expense-save.php` (JWT) | Saves as `draft`. |
+| Camera / gallery (web + Android WebView) | `public/crm/expenses_appstack.php` → `app/Modules/Expenses/Api/receipt-intake.php` | OCR on upload, mobile review card, Save / Save & Send, then a Snap Another / Done loop. |
+| iOS app (native, JWT) | `receipt-upload.php` → `expense-save.php` (+ `expense-lookup.php`, `expense-delete.php`, `receipt-actions.php`) | Same review-form data as the web card (see below). Saves as `draft`; `and_send: true` forwards in the same call. |
 | **Email** | forward to **receipts@mowology.ca** → `app/Modules/Expenses/Cron/receipt_inbox_poll.php` | This document. |
+
+### Web ↔ iOS review-form parity
+
+Both review forms read the same lookups through `ExpenseLookupService`
+(`app/Modules/Expenses/Services/ExpenseLookupService.php`): vendor autocomplete,
+job search (rows include `property_id`/`contact_id`), the canonical category /
+payment-method lists, and the amount/date duplicate check. Session clients hit
+`vendors.php?action=search|categories` and `expenses.php?action=search_jobs|check_duplicates`;
+iOS hits `GET /api/expenses/expense-lookup?type=vendors|jobs|categories|duplicates`
+(`type=`, never `action=` — the `/api/` router's rewrite appends its own `action`).
+Both save payloads carry `raw_ocr_json` + `ocr_parsed` (feeds `ReceiptLearning`),
+`receipt_lat/lng`, `job_id`/`property_id`/`contact_id`, and `pst_amount`.
+
+Delete goes through `ExpenseService::delete()` on both clients: owner-or-admin, and
+anything already forwarded to accounting is refused (web `update` has the same guard).
+
+**Offline replays create a draft.** When a queued capture is replayed (iOS
+`ReceiptQueue`, web `offline-receipts.js`, or the service worker's Background Sync),
+the intake result is immediately saved as a draft expense with the description
+"Auto-saved from offline queue — please review". Before this, replays only re-ran
+intake, leaving an orphaned `media_assets` row with no expense.
 
 All paths store the file in `media_assets` (`context_type='expense'`, served via
 `public/crm/api/serve-receipt.php?id=<media_id>`) and create a row in `expenses`.
@@ -144,6 +165,11 @@ Match"). API: `app/Modules/Accounting/Api/reconciliation.php`
 - `app/Modules/Expenses/Services/ReceiptArchiveService.php` (+ `tests/Unit/Expenses/ReceiptArchiveServiceTest.php`)
 - `app/Modules/Expenses/Cron/receipt_archive.php`, `public/crm/api/receipt-export.php`
 - `app/Modules/Expenses/Services/ReceiptInboxService.php`
+- `app/Modules/Expenses/Services/ExpenseLookupService.php` (+ `tests/Unit/Expenses/ExpenseLookupServiceTest.php`) — vendor/job/category/duplicate lookups shared by web + iOS
+- `app/Modules/Expenses/Services/ExpenseService.php` (`update()` + `delete()`, + `tests/Unit/Expenses/ExpenseServiceTest.php`)
+- iOS JWT endpoints: `app/Modules/Expenses/Api/receipt-upload.php`, `expense-save.php`, `expense-lookup.php`, `expense-delete.php`, `expense-update.php`, `expense-list.php`, `receipt-actions.php`
+- iOS client: `ios/MowologyCRM/MowologyCRM/Features/Receipts/*.swift`, `Core/Models/ReceiptIntakeResponse.swift`, `Core/Offline/ReceiptQueue.swift`
+- Offline replay (web): `public/crm/js/offline-receipts.js`, `public/service-worker.js` (`syncPendingReceipts`)
 - `app/Services/Receipts/ReceiptParser.php` (line-item discount netting), `app/Services/Receipts/ExpenseLineItems.php` (persistence)
 - `app/Modules/Expenses/Services/ExpenseLineItemService.php` (+ `tests/Unit/Expenses/ExpenseLineItemServiceTest.php`, `tests/Unit/Expenses/ReceiptParserDiscountTest.php`)
 - `app/Modules/Expenses/Cron/receipt_inbox_poll.php` (+ shim `public/crm/cron/receipt_inbox_poll.php`)
