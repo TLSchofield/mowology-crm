@@ -268,7 +268,12 @@ const LocationJobCreation = {
         </div>
 
         <div v-if="jobSchedule === 'later'" class="form-group mt-3">
-          <input v-model="jobScheduleDate" type="date" class="form-control" required />
+          <button type="button" ref="jobScheduleDateTrigger" class="mw-datepicker-trigger" aria-haspopup="true" aria-expanded="false">
+            <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            <span class="mw-datepicker-date" data-mw-dp-label></span>
+            <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <input v-model="jobScheduleDate" ref="jobScheduleDateInput" type="date" class="form-control" hidden required />
           <input v-model="jobScheduleTime" type="time" class="form-control mt-2" required />
         </div>
 
@@ -331,6 +336,16 @@ const LocationJobCreation = {
   watch: {
     jobSchedule() {
       hydrateFeatherIcons();
+      // v-if unmounts/remounts this block on every toggle, so the trigger
+      // needs a fresh MwDatePicker each time it reappears — $nextTick because
+      // the DOM patch (and $refs) aren't ready until after this tick.
+      if (this.jobSchedule === 'later') {
+        this.$nextTick(() => {
+          if (window.MwDatePicker && this.$refs.jobScheduleDateTrigger && this.$refs.jobScheduleDateInput) {
+            new MwDatePicker(this.$refs.jobScheduleDateTrigger, { target: this.$refs.jobScheduleDateInput });
+          }
+        });
+      }
     }
   },
 

@@ -117,6 +117,64 @@ When the CMS is built, swap the `require` of the static data file for a database
 
 ---
 
+## Adding a Date Field
+
+Never use a bare `<input type="date">` as the visible control — use the shared `MwDatePicker` component (`/crm/js/mw-datepicker.js`, already loaded on every AppStack page via `appstack_footer.php`, auto-inits on `DOMContentLoaded`). See CLAUDE.md rule 12.
+
+### Pattern A — standalone field (most common)
+
+A single date inside a real form. The native `<input type="date">` stays in the DOM, `hidden`, as the actual value the form submits — the trigger button is the only thing the user sees.
+
+```html
+<div class="mw-form-group">
+    <label class="form-label">Due Date</label>
+    <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#due_date" aria-haspopup="true" aria-expanded="false">
+        <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        <span class="mw-datepicker-date" data-mw-dp-label></span>
+        <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+    </button>
+    <input type="date" id="due_date" name="due_date" class="form-control" hidden value="<?php echo htmlspecialchars($value); ?>">
+</div>
+```
+
+Working example: `public/crm/invoices/create.php` (`due_date`).
+
+### Pattern B — from/to range filter
+
+Two triggers, linked via a shared group id so picking a start date constrains (greys out) invalid end dates and vice versa.
+
+```html
+<button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#f-date-from"
+        data-mw-dp-range-group="my-filter-range" data-mw-dp-range-role="start" aria-haspopup="true" aria-expanded="false">
+    <!-- same icon/label/chevron markup as above -->
+</button>
+<input type="date" id="f-date-from" class="form-control form-control-sm" hidden value="...">
+
+<button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#f-date-to"
+        data-mw-dp-range-group="my-filter-range" data-mw-dp-range-role="end" aria-haspopup="true" aria-expanded="false">
+    <!-- same markup -->
+</button>
+<input type="date" id="f-date-to" class="form-control form-control-sm" hidden value="...">
+```
+
+If existing JS sets the hidden input's `.value` directly (e.g. a preset button), dispatch a `change` event afterward so the trigger's label stays in sync:
+```js
+input.value = newDate;
+input.dispatchEvent(new Event('change', { bubbles: true }));
+```
+
+Working example: `public/crm/accounting/reports.php` (`r-date-from`/`r-date-to`).
+
+### Page-level nav control (rare — only for something like Schedule's day/week switcher)
+
+Use `data-mw-dp-commit="navigate"` instead of `input` — it mutates `window.location.search` and reloads, rather than writing to a hidden input. See `public/crm/jobs/schedule.php` and `mw-datepicker.js`'s doc comment for the full `data-mw-dp-nav-set`/`data-mw-dp-nav-clear` config.
+
+### datetime-local fields
+
+`MwDatePicker` only handles `type="date"`, not `type="datetime-local"` — leave those as native inputs for now.
+
+---
+
 ## Adding New API Endpoints
 
 Use the `/new-api` slash command, or follow the template in `.claude/commands/new-api.md`.

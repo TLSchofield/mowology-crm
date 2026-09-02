@@ -54,12 +54,24 @@ $csrfToken  = generateCSRFToken();
             </div>
             <div class="col-6 col-md-2">
                 <label class="form-label small mb-1">From</label>
-                <input type="date" id="f-date-from" class="form-control form-control-sm"
+                <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#f-date-from"
+                        data-mw-dp-range-group="tx-filter-range" data-mw-dp-range-role="start" aria-haspopup="true" aria-expanded="false">
+                    <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                    <span class="mw-datepicker-date" data-mw-dp-label></span>
+                    <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                <input type="date" id="f-date-from" class="form-control form-control-sm" hidden
                        value="<?= date('Y-m-01') ?>" onchange="loadTransactions()">
             </div>
             <div class="col-6 col-md-2">
                 <label class="form-label small mb-1">To</label>
-                <input type="date" id="f-date-to" class="form-control form-control-sm"
+                <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#f-date-to"
+                        data-mw-dp-range-group="tx-filter-range" data-mw-dp-range-role="end" aria-haspopup="true" aria-expanded="false">
+                    <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                    <span class="mw-datepicker-date" data-mw-dp-label></span>
+                    <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                <input type="date" id="f-date-to" class="form-control form-control-sm" hidden
                        value="<?= date('Y-m-d') ?>" onchange="loadTransactions()">
             </div>
             <div class="col-6 col-md-2">
@@ -160,7 +172,12 @@ $csrfToken  = generateCSRFToken();
                 <div class="row g-3">
                     <div class="col-md-6">
                         <label class="form-label small">Date <span class="text-danger">*</span></label>
-                        <input type="date" id="tx-date" class="form-control" value="<?= date('Y-m-d') ?>">
+                        <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#tx-date" aria-haspopup="true" aria-expanded="false">
+                            <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                            <span class="mw-datepicker-date" data-mw-dp-label></span>
+                            <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                        </button>
+                        <input type="date" id="tx-date" class="form-control" hidden value="<?= date('Y-m-d') ?>">
                     </div>
                     <div class="col-md-6">
                         <label class="form-label small">Type <span class="text-danger">*</span></label>
@@ -558,6 +575,8 @@ function openAddModal() {
     document.getElementById('txModalTitle').textContent = 'Add Transaction';
     document.getElementById('tx-id').value      = '';
     document.getElementById('tx-date').value    = new Date().toISOString().split('T')[0];
+    document.getElementById('tx-date').dispatchEvent(new Event('input', { bubbles: true }));
+    document.getElementById('tx-date').dispatchEvent(new Event('change', { bubbles: true }));
     document.getElementById('tx-type').value    = 'expense';
     document.getElementById('tx-amount').value  = '';
     document.getElementById('tx-gst').value     = '';
@@ -789,7 +808,11 @@ function esc(s) {
 function clearFilters() {
     document.getElementById('f-type').value     = '';
     document.getElementById('f-date-from').value = '<?= date('Y-m-01') ?>';
+    document.getElementById('f-date-from').dispatchEvent(new Event('input', { bubbles: true }));
+    document.getElementById('f-date-from').dispatchEvent(new Event('change', { bubbles: true }));
     document.getElementById('f-date-to').value   = '<?= date('Y-m-d') ?>';
+    document.getElementById('f-date-to').dispatchEvent(new Event('input', { bubbles: true }));
+    document.getElementById('f-date-to').dispatchEvent(new Event('change', { bubbles: true }));
     document.getElementById('f-account').value   = '';
     document.getElementById('f-source').value    = '';
     document.getElementById('f-search').value    = '';

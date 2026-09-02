@@ -2267,7 +2267,12 @@ if ($hasPropCoords) {
 
                 <div class="form-group">
                     <label class="form-label">Date <span class="text-danger">*</span></label>
-                    <input type="date" name="lv_date" id="lvDate" class="form-control" required
+                    <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#lvDate" aria-haspopup="true" aria-expanded="false">
+                        <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                        <span class="mw-datepicker-date" data-mw-dp-label></span>
+                        <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                    </button>
+                    <input type="date" name="lv_date" id="lvDate" class="form-control" required hidden
                            max="<?php echo date('Y-m-d'); ?>"
                            value="<?php echo date('Y-m-d'); ?>">
                 </div>
@@ -2409,13 +2414,23 @@ if ($hasPropCoords) {
                     </div>
                     <div class="mw-form-group">
                         <label class="form-label">Start Date</label>
-                        <input type="date" name="edit_start_date" id="editStartDateInput" class="form-control"
+                        <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#editStartDateInput" aria-haspopup="true" aria-expanded="false">
+                            <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                            <span class="mw-datepicker-date" data-mw-dp-label></span>
+                            <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                        </button>
+                        <input type="date" name="edit_start_date" id="editStartDateInput" class="form-control" hidden
                                value="<?php echo $plan['plan_start_date'] ?? ''; ?>"
                                oninput="editUpdateRevenuePreview()">
                     </div>
                     <div class="mw-form-group">
                         <label class="form-label">End Date</label>
-                        <input type="date" name="edit_end_date" id="editEndDateInput" class="form-control"
+                        <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#editEndDateInput" aria-haspopup="true" aria-expanded="false">
+                            <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                            <span class="mw-datepicker-date" data-mw-dp-label></span>
+                            <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                        </button>
+                        <input type="date" name="edit_end_date" id="editEndDateInput" class="form-control" hidden
                                value="<?php echo $plan['plan_end_date'] ?? ''; ?>"
                                oninput="editUpdateRevenuePreview()">
                         <small class="text-muted">Blank = ongoing</small>
@@ -2787,7 +2802,12 @@ if ($hasPropCoords) {
 
                 <div class="form-group">
                     <label class="form-label">Date</label>
-                    <input type="date" name="visit_date" id="editVisitDate" class="form-control" required>
+                    <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#editVisitDate" aria-haspopup="true" aria-expanded="false">
+                        <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                        <span class="mw-datepicker-date" data-mw-dp-label></span>
+                        <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                    </button>
+                    <input type="date" name="visit_date" id="editVisitDate" class="form-control" required hidden>
                 </div>
                 <div class="mw-form-row">
                     <div class="form-group">
@@ -2877,6 +2897,8 @@ if ($hasPropCoords) {
             var m = String(yesterday.getMonth()+1).padStart(2,'0');
             var d = String(yesterday.getDate()).padStart(2,'0');
             document.getElementById('lvDate').value = y + '-' + m + '-' + d;
+            document.getElementById('lvDate').dispatchEvent(new Event('input', { bubbles: true }));
+            document.getElementById('lvDate').dispatchEvent(new Event('change', { bubbles: true }));
             showModal('logPastVisitModal');
         }
 
@@ -3520,6 +3542,8 @@ if ($hasPropCoords) {
             document.getElementById('editVisitId').value = visitId;
             document.getElementById('editVisitNumber').textContent = visitNumber;
             document.getElementById('editVisitDate').value = date;
+            document.getElementById('editVisitDate').dispatchEvent(new Event('input', { bubbles: true }));
+            document.getElementById('editVisitDate').dispatchEvent(new Event('change', { bubbles: true }));
             document.getElementById('editVisitTimeStart').value = timeStart || '';
             document.getElementById('editVisitTimeEnd').value = timeEnd || '';
             // Reset scope radio to "this only"

@@ -1044,14 +1044,24 @@ if ($hasPropCoords && !$hasBorder) {
                         <div class="col-sm-4">
                             <div class="form-group">
                                 <label class="form-label">Start Date <span class="text-danger">*</span></label>
-                                <input type="date" name="start_date" class="form-control" required
+                                <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#start_date" aria-haspopup="true" aria-expanded="false">
+                                    <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                    <span class="mw-datepicker-date" data-mw-dp-label></span>
+                                    <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                                </button>
+                                <input type="date" id="start_date" name="start_date" class="form-control" required hidden
                                        value="<?php echo htmlspecialchars($contract['start_date'] ?? ''); ?>">
                             </div>
                         </div>
                         <div class="col-sm-4">
                             <div class="form-group">
                                 <label class="form-label">End Date <small class="text-muted">(optional)</small></label>
-                                <input type="date" name="end_date" class="form-control"
+                                <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#end_date" aria-haspopup="true" aria-expanded="false">
+                                    <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                    <span class="mw-datepicker-date" data-mw-dp-label></span>
+                                    <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                                </button>
+                                <input type="date" id="end_date" name="end_date" class="form-control" hidden
                                        value="<?php echo htmlspecialchars($contract['end_date'] ?? ''); ?>">
                             </div>
                         </div>
@@ -1062,7 +1072,12 @@ if ($hasPropCoords && !$hasBorder) {
                         <div class="col-sm-6">
                             <div class="form-group">
                                 <label class="form-label">Renewal Date</label>
-                                <input type="date" name="renewal_date" class="form-control"
+                                <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#renewal_date" aria-haspopup="true" aria-expanded="false">
+                                    <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                    <span class="mw-datepicker-date" data-mw-dp-label></span>
+                                    <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                                </button>
+                                <input type="date" id="renewal_date" name="renewal_date" class="form-control" hidden
                                        value="<?php echo htmlspecialchars($contract['renewal_date'] ?? ''); ?>">
                                 <small class="form-text text-muted">Cron auto-renews on or after this date.</small>
                             </div>

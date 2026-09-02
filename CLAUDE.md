@@ -59,6 +59,11 @@ This is a critical constraint for all SQL queries and schema changes:
     - ❌ No special characters that may not survive gateway encoding
     - ✅ Always direct the customer to **check their email** for links/attachments
     - ✅ Always include the phone number `(778) 846-9273` as a fallback contact
+12. **NEVER use a native `<input type="date">` as the user-facing control for a new date field.** Use the shared `MwDatePicker` component (`/crm/js/mw-datepicker.js`, auto-loaded on every AppStack page) instead — it matches the CRM's branded calendar UI. Pattern:
+    - Standalone form field → `data-mw-dp-commit="input"` + a hidden companion `<input type="date">` as the real form value. See `public/crm/invoices/create.php`'s `due_date` field for a working example.
+    - From/to range filter → two linked instances via `data-mw-dp-range-group`/`data-mw-dp-range-role="start"|"end"`. See `public/crm/accounting/reports.php`'s date-range filter.
+    - Full usage docs: `HOWTO.md` → "Adding a Date Field". The native input may stay in the DOM (`hidden`) as the actual form value carrier — just never show it to the user directly.
+13. **ALWAYS check `COMPONENTS.md` before writing new shared UI JS/CSS.** It catalogs every reusable frontend component (toasts, searchable-select, date-picker, offline queue, camera permission guard, etc.) the same way `/crm/includes/functions.php` catalogs shared PHP helpers. Building a second toast system, a second offline queue, etc. because the existing one wasn't discovered is exactly the kind of duplication this file exists to prevent — check it first, and add a new entry to it whenever you build something reusable enough that another page should use it instead of reinventing it.
 
 ---
 
@@ -75,6 +80,32 @@ This is a critical constraint for all SQL queries and schema changes:
 4. **Report back** — tell the user what you verified and whether it's working or needs further fixes.
 
 **This is mandatory.** Pushing code without verifying it on production is not acceptable. The user should never have to ask "did you push?" or discover a broken page themselves.
+
+---
+
+## 1c. Architectural Knowledge Layer — Check Before Refactoring
+
+Before any refactor, architecture change, or "safely upgrade this" task (including when using `/anthropic-skills:safe-production-refactoring-architect`), read the relevant doc(s) in the Obsidian vault first:
+
+`/Users/timschofield/Library/Mobile Documents/iCloud~md~obsidian/Documents/30-PROJECTS/Active/Mowology-CRM/Architecture/`
+
+Start at `_Architecture-Index.md`, then the doc matching the system being touched (Integration-Map, Known-Failure-Patterns, Decision-Log, Tech-Debt-Map, or a dedicated doc like Accounting-Ledger). This is a targeted read (one doc, a few KB) instead of re-deriving coupling risks, silent-failure traps, and "why is it built this way" from scratch via grep/Read across the codebase. Treat vault content as a starting hypothesis, not ground truth — spot-check anything load-bearing against the current code before acting on it (the vault decays like any doc).
+
+After the refactor, use `/obsidian` (bare, no arguments) to log what changed back into the vault — it auto-detects scope from the session.
+
+---
+
+## 1d. Evidence-Gated Debugging — Three Rules
+
+Before touching a bug or building a fix, apply these three rules in order:
+
+**1. State the prediction.** Before any non-trivial change, write one sentence: "I expect this to do X." If the result doesn't match, that gap is the diagnostic — not a reason to guess again.
+
+**2. Verify on production, not assumption.** After every deploy, open the affected page on the live site and confirm the specific fix works. The 1b deploy workflow already requires this — the rule is: don't skip it when confident.
+
+**3. Two failed fixes = stop and get data.** After two attempts that don't resolve a symptom, stop guessing. Read the actual error (console, network tab, PHP logs, DB state). A third guess without new data is just noise.
+
+These replace ceremony with habit. No record-keeping, no role separation — just: predict, observe, and know when to stop guessing.
 
 ---
 

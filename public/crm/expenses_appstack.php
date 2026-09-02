@@ -94,11 +94,23 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 <div class="row g-2">
                     <div class="col">
                         <label class="form-label">From</label>
-                        <input type="date" class="form-control" id="rxFrom">
+                        <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#rxFrom"
+                                data-mw-dp-range-group="receipt-export-range" data-mw-dp-range-role="start" aria-haspopup="true" aria-expanded="false">
+                            <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                            <span class="mw-datepicker-date" data-mw-dp-label></span>
+                            <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                        </button>
+                        <input type="date" class="form-control" id="rxFrom" hidden>
                     </div>
                     <div class="col">
                         <label class="form-label">To</label>
-                        <input type="date" class="form-control" id="rxTo">
+                        <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#rxTo"
+                                data-mw-dp-range-group="receipt-export-range" data-mw-dp-range-role="end" aria-haspopup="true" aria-expanded="false">
+                            <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                            <span class="mw-datepicker-date" data-mw-dp-label></span>
+                            <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                        </button>
+                        <input type="date" class="form-control" id="rxTo" hidden>
                     </div>
                 </div>
                 <div id="rxResult" class="mt-3" style="display:none;font-size:13px;"></div>
@@ -216,7 +228,11 @@ async function submitReceiptExport() {
                     </select>
                 </label>
                 <label>Date
-                    <input type="date" class="form-control form-control-sm mw-ri-date" value="<?php echo htmlspecialchars((string)$r['expense_date']); ?>">
+                    <button type="button" class="mw-datepicker-trigger mw-datepicker-trigger-sm" data-mw-dp-commit="input" data-mw-dp-target="#ri-date-<?php echo (int)$r['id']; ?>" aria-haspopup="true" aria-expanded="false">
+                        <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                        <span class="mw-datepicker-date" data-mw-dp-label></span>
+                    </button>
+                    <input type="date" id="ri-date-<?php echo (int)$r['id']; ?>" class="form-control form-control-sm mw-ri-date" hidden value="<?php echo htmlspecialchars((string)$r['expense_date']); ?>">
                 </label>
                 <label>Total
                     <input type="number" step="0.01" min="0" class="form-control form-control-sm mw-ri-total" value="<?php echo htmlspecialchars(number_format((float)$r['total'], 2, '.', '')); ?>">
@@ -318,7 +334,12 @@ async function submitReceiptExport() {
                         <label class="form-label small mb-0">Date
                             <span class="mw-confidence-dot" id="confDate" title=""></span>
                         </label>
-                        <input type="date" class="form-control form-control-sm" id="rvDate">
+                        <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#rvDate" aria-haspopup="true" aria-expanded="false">
+                            <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                            <span class="mw-datepicker-date" data-mw-dp-label></span>
+                            <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                        </button>
+                        <input type="date" class="form-control form-control-sm" id="rvDate" hidden>
                     </div>
                     <div class="col-4">
                         <label class="form-label small mb-0">Amount</label>
@@ -534,11 +555,23 @@ async function submitReceiptExport() {
             <div class="row align-items-end g-2">
                 <div class="col-md-2">
                     <label class="form-label small mb-0">From</label>
-                    <input type="date" class="form-control form-control-sm" id="filterDateFrom">
+                    <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#filterDateFrom"
+                            data-mw-dp-range-group="expense-filter-range" data-mw-dp-range-role="start" aria-haspopup="true" aria-expanded="false">
+                        <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                        <span class="mw-datepicker-date" data-mw-dp-label></span>
+                        <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                    </button>
+                    <input type="date" class="form-control form-control-sm" id="filterDateFrom" hidden>
                 </div>
                 <div class="col-md-2">
                     <label class="form-label small mb-0">To</label>
-                    <input type="date" class="form-control form-control-sm" id="filterDateTo">
+                    <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#filterDateTo"
+                            data-mw-dp-range-group="expense-filter-range" data-mw-dp-range-role="end" aria-haspopup="true" aria-expanded="false">
+                        <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                        <span class="mw-datepicker-date" data-mw-dp-label></span>
+                        <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                    </button>
+                    <input type="date" class="form-control form-control-sm" id="filterDateTo" hidden>
                 </div>
                 <div class="col-md-2">
                     <label class="form-label small mb-0">Category</label>
@@ -982,7 +1015,12 @@ async function submitReceiptExport() {
                 <div class="mw-mc-expense-field-row">
                     <div class="mw-mc-expense-field">
                         <label>Date</label>
-                        <input type="date" id="mobileRvDate">
+                        <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#mobileRvDate" aria-haspopup="true" aria-expanded="false">
+                            <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                            <span class="mw-datepicker-date" data-mw-dp-label></span>
+                            <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                        </button>
+                        <input type="date" id="mobileRvDate" hidden>
                     </div>
                     <div class="mw-mc-expense-field">
                         <label>Category</label>
@@ -1168,7 +1206,12 @@ async function submitReceiptExport() {
                             <div class="row g-3">
                                 <div class="col-md-4">
                                     <label class="form-label">Date <span class="text-danger">*</span></label>
-                                    <input type="date" class="form-control" id="expDate" required>
+                                    <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#expDate" aria-haspopup="true" aria-expanded="false">
+                                        <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                        <span class="mw-datepicker-date" data-mw-dp-label></span>
+                                        <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                                    </button>
+                                    <input type="date" class="form-control" id="expDate" required hidden>
                                 </div>
                                 <div class="col-md-4">
                                     <label class="form-label">Vendor</label>
@@ -2243,6 +2286,8 @@ async function submitReceiptExport() {
 
         // Date — safeDate() ensures YYYY-MM-DD format for <input type="date">
         document.getElementById('rvDate').value = safeDate(p.date);
+        document.getElementById('rvDate').dispatchEvent(new Event('input', { bubbles: true }));
+        document.getElementById('rvDate').dispatchEvent(new Event('change', { bubbles: true }));
         setConfidence('confDate', p.date ? visionConf('date', 70) : 0);
 
         // Vendor
@@ -2383,7 +2428,13 @@ async function submitReceiptExport() {
             }
 
             // Copy parsed values into mobile form fields
-            var setMobileVal = function(id, val) { var el = document.getElementById(id); if (el && val) el.value = val; };
+            var setMobileVal = function(id, val) {
+                var el = document.getElementById(id);
+                if (!el || !val) return;
+                el.value = val;
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+            };
             setMobileVal('mobileRvVendor', s.vendor_name || p.vendor_hint || '');
             setMobileVal('mobileRvVendorId', s.vendor_id || '');
             setMobileVal('mobileRvDate', safeDate(p.date));
@@ -2762,6 +2813,8 @@ async function submitReceiptExport() {
         document.getElementById('rvVendorSearch').value = '';
         document.getElementById('rvVendorId').value = '';
         document.getElementById('rvDate').value = '';
+        document.getElementById('rvDate').dispatchEvent(new Event('input', { bubbles: true }));
+        document.getElementById('rvDate').dispatchEvent(new Event('change', { bubbles: true }));
         document.getElementById('rvAmount').value = '';
         document.getElementById('rvGst').value = '0';
         if (document.getElementById('rvPst')) document.getElementById('rvPst').value = '0';
@@ -3695,6 +3748,8 @@ async function submitReceiptExport() {
             document.getElementById('expenseId').value = e.id;
             document.getElementById('expReceiptMediaId').value = e.receipt_media_id || '';
             document.getElementById('expDate').value = e.expense_date;
+            document.getElementById('expDate').dispatchEvent(new Event('input', { bubbles: true }));
+            document.getElementById('expDate').dispatchEvent(new Event('change', { bubbles: true }));
             document.getElementById('expVendorSearch').value = e.vendor_name || e.vendor_name_raw || '';
             document.getElementById('expVendorId').value = e.vendor_id || '';
             document.getElementById('expPayment').value = e.payment_method || '';
@@ -4640,7 +4695,11 @@ async function submitReceiptExport() {
     // ── Filter helpers ───────────────────────────────────────────
     window.clearFilters = function() {
         document.getElementById('filterDateFrom').value = '';
+        document.getElementById('filterDateFrom').dispatchEvent(new Event('input', { bubbles: true }));
+        document.getElementById('filterDateFrom').dispatchEvent(new Event('change', { bubbles: true }));
         document.getElementById('filterDateTo').value = '';
+        document.getElementById('filterDateTo').dispatchEvent(new Event('input', { bubbles: true }));
+        document.getElementById('filterDateTo').dispatchEvent(new Event('change', { bubbles: true }));
         document.getElementById('filterCategory').value = '';
         document.getElementById('filterStatus').value = '';
         document.getElementById('filterSearch').value = '';
@@ -4770,7 +4829,11 @@ async function submitReceiptExport() {
         if (badge) badge.innerHTML = '<span class="mw-mc-expense-badge-manual">Manual entry</span>';
         // Set today's date
         var dateEl = document.getElementById('mobileRvDate');
-        if (dateEl) dateEl.value = new Date().toISOString().slice(0, 10);
+        if (dateEl) {
+            dateEl.value = new Date().toISOString().slice(0, 10);
+            dateEl.dispatchEvent(new Event('input', { bubbles: true }));
+            dateEl.dispatchEvent(new Event('change', { bubbles: true }));
+        }
         // Show job picker with No Job selected (no OCR suggestions for manual entry)
         renderJobPills('mobileJobPills', [], function(job) {
             selectedJobSuggestion = job;
@@ -5763,7 +5826,7 @@ async function submitReceiptExport() {
             // Re-fill form fields (only blank fields — don't clobber manual edits)
             var p = d.parsed || {};
             var s = d.suggestions || {};
-            if (p.date    && !document.getElementById('rvDate').value)   document.getElementById('rvDate').value   = safeDate(p.date);
+            if (p.date    && !document.getElementById('rvDate').value)   { document.getElementById('rvDate').value   = safeDate(p.date); document.getElementById('rvDate').dispatchEvent(new Event('input', { bubbles: true })); document.getElementById('rvDate').dispatchEvent(new Event('change', { bubbles: true })); }
             if (p.total   && !document.getElementById('rvTotal').value)  document.getElementById('rvTotal').value  = p.total;
             if (p.gst     && !document.getElementById('rvGst').value)    document.getElementById('rvGst').value    = p.gst;
             if (p.subtotal && !document.getElementById('rvAmount').value) document.getElementById('rvAmount').value = p.subtotal;
@@ -5829,7 +5892,7 @@ async function submitReceiptExport() {
             // Apply parsed suggestions to the form
             if (d.parsed) {
                 var p = d.parsed;
-                if (p.date)    { var df = document.getElementById('expDate');   if(df && !df.value) df.value = p.date; }
+                if (p.date)    { var df = document.getElementById('expDate');   if(df && !df.value) { df.value = p.date; df.dispatchEvent(new Event('input', { bubbles: true })); df.dispatchEvent(new Event('change', { bubbles: true })); } }
                 if (p.total)   { var tf = document.getElementById('expTotal');  if(tf && !tf.value) tf.value = p.total; }
                 if (p.gst)     { var gf = document.getElementById('expGst');    if(gf && !gf.value) gf.value = p.gst; }
                 if (p.subtotal){ var sf = document.getElementById('expAmount'); if(sf && !sf.value) sf.value = p.subtotal; }

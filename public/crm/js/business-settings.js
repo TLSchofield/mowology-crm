@@ -460,6 +460,8 @@
       addBtn.addEventListener('click', function () {
         document.getElementById('holiday_edit_id').value = '0';
         document.getElementById('holiday_date').value = '';
+        document.getElementById('holiday_date').dispatchEvent(new Event('input', { bubbles: true }));
+        document.getElementById('holiday_date').dispatchEvent(new Event('change', { bubbles: true }));
         document.getElementById('holiday_name').value = '';
         document.getElementById('holiday_is_annual').value = '0';
         document.getElementById('holidayFormTitle').textContent = 'Add Holiday';
@@ -528,6 +530,8 @@
         if (editBtn) {
           document.getElementById('holiday_edit_id').value = editBtn.dataset.id;
           document.getElementById('holiday_date').value = editBtn.dataset.date;
+          document.getElementById('holiday_date').dispatchEvent(new Event('input', { bubbles: true }));
+          document.getElementById('holiday_date').dispatchEvent(new Event('change', { bubbles: true }));
           document.getElementById('holiday_name').value = editBtn.dataset.name;
           document.getElementById('holiday_is_annual').value = editBtn.dataset.annual;
           document.getElementById('holidayFormTitle').textContent = 'Edit Holiday';

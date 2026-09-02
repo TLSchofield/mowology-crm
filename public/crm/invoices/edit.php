@@ -461,12 +461,22 @@ $activePage = 'invoices';
                         <div class="mw-form-row three mt-3">
                             <div class="mw-form-group">
                                 <label class="form-label">Issue Date</label>
-                                <input type="date" name="issue_date" class="form-control"
+                                <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#issue_date" aria-haspopup="true" aria-expanded="false">
+                                    <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                    <span class="mw-datepicker-date" data-mw-dp-label></span>
+                                    <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                                </button>
+                                <input type="date" id="issue_date" name="issue_date" class="form-control" hidden
                                        value="<?php echo htmlspecialchars($invoice['issue_date']); ?>" required>
                             </div>
                             <div class="mw-form-group">
                                 <label class="form-label">Due Date</label>
-                                <input type="date" name="due_date" class="form-control"
+                                <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#due_date" aria-haspopup="true" aria-expanded="false">
+                                    <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                    <span class="mw-datepicker-date" data-mw-dp-label></span>
+                                    <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                                </button>
+                                <input type="date" id="due_date" name="due_date" class="form-control" hidden
                                        value="<?php echo htmlspecialchars($invoice['due_date']); ?>" required>
                             </div>
                             <div class="mw-form-group">
@@ -649,10 +659,23 @@ $activePage = 'invoices';
                                 </tr>
                             </thead>
                             <tbody id="lineItemsBody">
+                                <?php
+                                // Each row's date field needs a unique id for the datepicker
+                                // trigger to target (data-mw-dp-target is a CSS selector, not
+                                // scoped to the row) — mirrored client-side by liRowCounter
+                                // when JS appends a new row.
+                                $liDatePickerMarkup = function (string $id, string $value): string {
+                                    return '<button type="button" class="mw-datepicker-trigger mw-datepicker-trigger-sm" data-mw-dp-commit="input" data-mw-dp-target="#' . $id . '" aria-haspopup="true" aria-expanded="false">'
+                                        . '<svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>'
+                                        . '<span class="mw-datepicker-date" data-mw-dp-label></span>'
+                                        . '</button>'
+                                        . '<input type="date" id="' . $id . '" name="li_service_date[]" class="form-control form-control-sm" hidden value="' . htmlspecialchars($value) . '">';
+                                };
+                                ?>
                                 <?php if (empty($lineItems)): ?>
                                     <tr class="mw-li-row">
                                         <td><input type="text" name="li_description[]" class="form-control form-control-sm mw-li-desc" value="Services rendered"></td>
-                                        <td><input type="date" name="li_service_date[]" class="form-control form-control-sm" value=""></td>
+                                        <td><?php echo $liDatePickerMarkup('li-service-date-0', ''); ?></td>
                                         <td><input type="number" step="0.01" min="0" name="li_quantity[]" class="form-control form-control-sm mw-li-qty" value="1"></td>
                                         <td><input type="number" step="0.01" min="0" name="li_unit_price[]" class="form-control form-control-sm mw-li-unit" value="0.00"></td>
                                         <td class="mw-li-total text-right font-weight-600 pr-2">$0.00</td>
@@ -664,7 +687,7 @@ $activePage = 'invoices';
                                 <?php else: foreach ($lineItems as $idx => $li): ?>
                                     <tr class="mw-li-row">
                                         <td><input type="text" name="li_description[]" class="form-control form-control-sm mw-li-desc" value="<?php echo htmlspecialchars($li['description']); ?>"></td>
-                                        <td><input type="date" name="li_service_date[]" class="form-control form-control-sm" value="<?php echo htmlspecialchars($li['service_date'] ?? ''); ?>"></td>
+                                        <td><?php echo $liDatePickerMarkup('li-service-date-' . $idx, (string) ($li['service_date'] ?? '')); ?></td>
                                         <td><input type="number" step="0.01" min="0" name="li_quantity[]" class="form-control form-control-sm mw-li-qty" value="<?php echo htmlspecialchars((string)$li['quantity']); ?>"></td>
                                         <td><input type="number" step="0.01" min="0" name="li_unit_price[]" class="form-control form-control-sm mw-li-unit" value="<?php echo htmlspecialchars(number_format((float)$li['unit_price'], 2, '.', '')); ?>"></td>
                                         <td class="mw-li-total text-right font-weight-600 pr-2">$<?php echo number_format((float)$li['line_total'], 2); ?></td>
@@ -794,12 +817,24 @@ $activePage = 'invoices';
 
     tbody.querySelectorAll('.mw-li-row').forEach(wireRow);
 
+    // "new-N" so a fresh row's date-field id can never collide with a
+    // server-rendered "li-service-date-<index>" id — never reused, even
+    // after a row is removed.
+    var liRowCounter = 0;
+
     addBtn.addEventListener('click', function () {
+        var dateId = 'li-service-date-new-' + (liRowCounter++);
         var row = document.createElement('tr');
         row.className = 'mw-li-row';
         row.innerHTML =
             '<td><input type="text" name="li_description[]" class="form-control form-control-sm mw-li-desc" value=""></td>' +
-            '<td><input type="date" name="li_service_date[]" class="form-control form-control-sm" value=""></td>' +
+            '<td>' +
+                '<button type="button" class="mw-datepicker-trigger mw-datepicker-trigger-sm" data-mw-dp-commit="input" data-mw-dp-target="#' + dateId + '" aria-haspopup="true" aria-expanded="false">' +
+                    '<svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>' +
+                    '<span class="mw-datepicker-date" data-mw-dp-label></span>' +
+                '</button>' +
+                '<input type="date" id="' + dateId + '" name="li_service_date[]" class="form-control form-control-sm" hidden value="">' +
+            '</td>' +
             '<td><input type="number" step="0.01" min="0" name="li_quantity[]" class="form-control form-control-sm mw-li-qty" value="1"></td>' +
             '<td><input type="number" step="0.01" min="0" name="li_unit_price[]" class="form-control form-control-sm mw-li-unit" value="0.00"></td>' +
             '<td class="mw-li-total text-right font-weight-600 pr-2">$0.00</td>' +
@@ -809,6 +844,7 @@ $activePage = 'invoices';
             '<input type="hidden" name="li_title[]" value="">';
         tbody.appendChild(row);
         wireRow(row);
+        if (window.mwInitDatePickers) window.mwInitDatePickers(row);
         row.querySelector('.mw-li-desc').focus();
         recalc();
     });

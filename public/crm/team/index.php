@@ -405,7 +405,12 @@ $activePage = 'team';
                         <div class="col-6">
                             <div class="form-group">
                                 <label>Hire Date</label>
-                                <input type="date" class="form-control" name="hire_date" id="empHireDate">
+                                <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#empHireDate" aria-haspopup="true" aria-expanded="false">
+                                    <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                    <span class="mw-datepicker-date" data-mw-dp-label></span>
+                                    <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                                </button>
+                                <input type="date" class="form-control" name="hire_date" id="empHireDate" hidden>
                             </div>
                         </div>
                     </div>
@@ -689,6 +694,8 @@ $activePage = 'team';
                 document.getElementById('empRole').value = emp.role || 'user';
                 document.getElementById('empRate').value = emp.hourly_rate || '';
                 document.getElementById('empHireDate').value = emp.hire_date || '';
+                document.getElementById('empHireDate').dispatchEvent(new Event('input', {bubbles:true}));
+                document.getElementById('empHireDate').dispatchEvent(new Event('change', {bubbles:true}));
                 document.getElementById('empEmergency').value = emp.emergency_contact || '';
                 document.getElementById('empNotes').value = emp.notes || '';
                 document.getElementById('empActive').checked = emp.is_active == 1;

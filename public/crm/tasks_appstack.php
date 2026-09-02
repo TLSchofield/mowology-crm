@@ -370,7 +370,12 @@ $modeLabels = [
                           <div class="row">
                               <div class="col-md-6 form-group">
                                   <label>Due Date</label>
-                                  <input type="date" id="mwTaskDueDate" class="form-control">
+                                  <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#mwTaskDueDate" aria-haspopup="true" aria-expanded="false">
+                                      <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                      <span class="mw-datepicker-date" data-mw-dp-label></span>
+                                      <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                                  </button>
+                                  <input type="date" id="mwTaskDueDate" class="form-control" hidden>
                               </div>
                               <div class="col-md-6 form-group">
                                   <label>Due Time</label>
@@ -476,11 +481,21 @@ $modeLabels = [
                           <div class="row">
                               <div class="col-md-4 form-group">
                                   <label>Needed By</label>
-                                  <input type="date" id="mwPurchaseRequestedDate" class="form-control">
+                                  <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#mwPurchaseRequestedDate" aria-haspopup="true" aria-expanded="false">
+                                      <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                      <span class="mw-datepicker-date" data-mw-dp-label></span>
+                                      <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                                  </button>
+                                  <input type="date" id="mwPurchaseRequestedDate" class="form-control" hidden>
                               </div>
                               <div class="col-md-4 form-group">
                                   <label>Scheduled Date</label>
-                                  <input type="date" id="mwPurchaseScheduledDate" class="form-control">
+                                  <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#mwPurchaseScheduledDate" aria-haspopup="true" aria-expanded="false">
+                                      <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                      <span class="mw-datepicker-date" data-mw-dp-label></span>
+                                      <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                                  </button>
+                                  <input type="date" id="mwPurchaseScheduledDate" class="form-control" hidden>
                               </div>
                               <div class="col-md-4 form-group">
                                   <label>Assign To</label>
@@ -594,6 +609,8 @@ $modeLabels = [
                               document.getElementById('mwTaskTitle').value = task.title;
                               document.getElementById('mwTaskDesc').value = task.description || '';
                               document.getElementById('mwTaskDueDate').value = task.due_date || '';
+                              document.getElementById('mwTaskDueDate').dispatchEvent(new Event('input', { bubbles: true }));
+                              document.getElementById('mwTaskDueDate').dispatchEvent(new Event('change', { bubbles: true }));
                               document.getElementById('mwTaskDueTime').value = task.due_time || '';
                               document.getElementById('mwTaskPriorityInput').value = task.priority;
                               document.getElementById('mwTaskAssignTo').value = task.assigned_to || '';
@@ -603,6 +620,8 @@ $modeLabels = [
                   document.getElementById('mwTaskTitle').value = '';
                   document.getElementById('mwTaskDesc').value = '';
                   document.getElementById('mwTaskDueDate').value = '';
+                  document.getElementById('mwTaskDueDate').dispatchEvent(new Event('input', { bubbles: true }));
+                  document.getElementById('mwTaskDueDate').dispatchEvent(new Event('change', { bubbles: true }));
                   document.getElementById('mwTaskDueTime').value = '';
                   document.getElementById('mwTaskPriorityInput').value = 'normal';
                   document.getElementById('mwTaskAssignTo').value = <?= json_encode($user['id']) ?>;
@@ -674,7 +693,11 @@ $modeLabels = [
                   document.getElementById('mwPurchasePlanId').value = '';
                   document.getElementById('mwPurchasePriority').value = 'normal';
                   document.getElementById('mwPurchaseRequestedDate').value = '';
+                  document.getElementById('mwPurchaseRequestedDate').dispatchEvent(new Event('input', { bubbles: true }));
+                  document.getElementById('mwPurchaseRequestedDate').dispatchEvent(new Event('change', { bubbles: true }));
                   document.getElementById('mwPurchaseScheduledDate').value = '';
+                  document.getElementById('mwPurchaseScheduledDate').dispatchEvent(new Event('input', { bubbles: true }));
+                  document.getElementById('mwPurchaseScheduledDate').dispatchEvent(new Event('change', { bubbles: true }));
                   document.getElementById('mwPurchaseAssignTo').value = '';
                   document.getElementById('mwPurchaseNotes').value = '';
                   _mwPurchaseItems = [];
@@ -693,7 +716,11 @@ $modeLabels = [
                               document.getElementById('mwPurchasePlanId').value = task.plan_id || '';
                               document.getElementById('mwPurchasePriority').value = task.priority || 'normal';
                               document.getElementById('mwPurchaseRequestedDate').value = task.requested_date || '';
+                              document.getElementById('mwPurchaseRequestedDate').dispatchEvent(new Event('input', { bubbles: true }));
+                              document.getElementById('mwPurchaseRequestedDate').dispatchEvent(new Event('change', { bubbles: true }));
                               document.getElementById('mwPurchaseScheduledDate').value = task.scheduled_date || '';
+                              document.getElementById('mwPurchaseScheduledDate').dispatchEvent(new Event('input', { bubbles: true }));
+                              document.getElementById('mwPurchaseScheduledDate').dispatchEvent(new Event('change', { bubbles: true }));
                               document.getElementById('mwPurchaseAssignTo').value = task.assigned_to || '';
                               document.getElementById('mwPurchaseNotes').value = task.description || '';
 

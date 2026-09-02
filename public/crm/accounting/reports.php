@@ -42,13 +42,25 @@ $activePage = 'accounting';
                 </div>
             </div>
             <div class="col-auto">
-                <input type="date" id="r-date-from" class="form-control form-control-sm" value="<?= date('Y-m-01') ?>">
+                <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#r-date-from"
+                        data-mw-dp-range-group="r-report-range" data-mw-dp-range-role="start" aria-haspopup="true" aria-expanded="false">
+                    <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                    <span class="mw-datepicker-date" data-mw-dp-label></span>
+                    <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                <input type="date" id="r-date-from" class="form-control form-control-sm" hidden value="<?= date('Y-m-01') ?>">
             </div>
             <div class="col-auto">
                 <span class="text-muted">to</span>
             </div>
             <div class="col-auto">
-                <input type="date" id="r-date-to" class="form-control form-control-sm" value="<?= date('Y-m-d') ?>">
+                <button type="button" class="mw-datepicker-trigger" data-mw-dp-commit="input" data-mw-dp-target="#r-date-to"
+                        data-mw-dp-range-group="r-report-range" data-mw-dp-range-role="end" aria-haspopup="true" aria-expanded="false">
+                    <svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                    <span class="mw-datepicker-date" data-mw-dp-label></span>
+                    <svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                <input type="date" id="r-date-to" class="form-control form-control-sm" hidden value="<?= date('Y-m-d') ?>">
             </div>
             <div class="col-auto" id="quarter-controls" style="display:none">
                 <select id="r-quarter" class="form-select form-select-sm" onchange="loadCurrentReport()">
@@ -370,8 +382,16 @@ function setPreset(p) {
             to   = `${y-1}-12-31`;
             break;
     }
-    if (from) document.getElementById('r-date-from').value = from;
-    if (to)   document.getElementById('r-date-to').value   = to;
+    if (from) {
+        const fromInput = document.getElementById('r-date-from');
+        fromInput.value = from;
+        fromInput.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    if (to) {
+        const toInput = document.getElementById('r-date-to');
+        toInput.value = to;
+        toInput.dispatchEvent(new Event('change', { bubbles: true }));
+    }
     loadCurrentReport();
 }
 

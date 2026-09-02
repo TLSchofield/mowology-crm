@@ -2382,6 +2382,24 @@ a.mw-clock-timer-nav:hover {
   background:var(--mw-light);
   box-shadow:0 0 0 3px rgb(45 134 89 / .1)
 }
+/* Compact variant for table-cell / inline-row date fields (invoice line items,
+   expense inbox rows, etc.) — same component, tighter footprint so it fits a
+   narrow column without wrapping. */
+.mw-datepicker-trigger-sm {
+  gap:5px;
+  padding:4px 8px;
+  border-radius:8px;
+  width:100%
+}
+.mw-datepicker-trigger-sm .mw-datepicker-cal-icon {
+  width:12px;
+  height:12px
+}
+.mw-datepicker-trigger-sm .mw-datepicker-date {
+  font-size:13px;
+  overflow:hidden;
+  text-overflow:ellipsis
+}
 .mw-datepicker-cal-icon {
   color:var(--mw-green);
   flex-shrink:0
@@ -2397,6 +2415,10 @@ a.mw-clock-timer-nav:hover {
   font-size:15px;
   font-weight:600;
   color:var(--mw-ink-900)
+}
+.mw-datepicker-date-placeholder {
+  font-weight:400;
+  color:var(--mw-ink-400)
 }
 .mw-datepicker-chevron {
   color:var(--mw-ink-400);
