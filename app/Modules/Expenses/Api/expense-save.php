@@ -46,6 +46,11 @@ try {
     $expenseDate = $input['expense_date'] ?? date('Y-m-d');
     $total       = (float)($input['total'] ?? 0);
 
+    // Mobile submits for desktop review: only draft / pending_approval are accepted here.
+    // approved / rejected / forwarded require the audited ExpenseApprovalService paths.
+    $requestedStatus = (string)($input['status'] ?? 'pending_approval');
+    $status = in_array($requestedStatus, ['draft', 'pending_approval'], true) ? $requestedStatus : 'pending_approval';
+
     if ($total <= 0 && empty($input['description'])) {
         echo json_encode(['success' => false, 'error' => 'Total amount or description is required']);
         exit;
@@ -95,7 +100,7 @@ try {
         !empty($input['property_id'])     ? (int)$input['property_id']      : null,
         !empty($input['contact_id'])      ? (int)$input['contact_id']       : null,
         $input['notes']                   ?? null,
-        'draft',
+        $status,
         $userId,
     ]);
 

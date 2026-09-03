@@ -134,7 +134,6 @@ struct ReceiptReviewView: View {
                 categorySection
                 lineItemsSection
                 descriptionSection
-                saveAndSendSection
 
                 if let err = viewModel.saveError {
                     Section {
@@ -156,7 +155,7 @@ struct ReceiptReviewView: View {
                         if viewModel.isSaving {
                             ProgressView().tint(Color.MW.green)
                         } else {
-                            Text("Save").font(.subheadline.weight(.semibold))
+                            Text("Submit").font(.subheadline.weight(.semibold))
                                 .foregroundStyle(canSave ? Color.MW.green : .secondary)
                         }
                     }
@@ -537,29 +536,6 @@ struct ReceiptReviewView: View {
         }
     }
 
-    /// Save & Send — one tap to save and forward to accounting, same as Android's
-    /// second button. Not permission-gated client-side (the JWT carries no RBAC
-    /// detail); the server saves regardless and reports a send failure separately.
-    private var saveAndSendSection: some View {
-        Section {
-            Button {
-                Task { await attemptSave(andSend: true) }
-            } label: {
-                HStack {
-                    Spacer()
-                    Label("Save & Send to Accounting", systemImage: "paperplane.fill")
-                        .font(.subheadline.weight(.semibold))
-                    Spacer()
-                }
-                .frame(minHeight: 36)
-            }
-            .disabled(!canSave)
-            .foregroundStyle(canSave ? Color.MW.green : .secondary)
-        } footer: {
-            Text("Saves the expense and emails the receipt to the accounting inbox in one step.")
-        }
-    }
-
     private func amountRow(label: String, value: Binding<String>, field: Field) -> some View {
         HStack {
             Text(label).foregroundStyle(.secondary)
@@ -706,7 +682,7 @@ struct ReceiptReviewView: View {
             }
         } else {
             haptic.notificationOccurred(.success)
-            savedMessage = "Expense saved"
+            savedMessage = "Submitted for review"
         }
         showSavedDialog = true
     }

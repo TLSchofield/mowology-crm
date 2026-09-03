@@ -273,7 +273,7 @@
             receipt_lng: receipt.lng || null,
             raw_ocr_json: intake.ocr_text || null,
             ocr_parsed: intake.parsed ? JSON.stringify(intake.parsed) : null,
-            status: 'draft',
+            status: 'pending_approval',
             line_items_source: p.line_items_source || null,
             line_items: (p.line_items || []).map(function(item) {
                 return {

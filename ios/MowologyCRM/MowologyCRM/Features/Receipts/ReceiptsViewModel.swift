@@ -301,8 +301,10 @@ final class ReceiptsViewModel: ObservableObject {
             "payment_method":       d.paymentMethod,
             "description":          d.description,
             "notes":                d.notes,
-            "status":               "draft",
-            "and_send":             d.andSend,
+            // Mobile is capture-only: the receipt is submitted for desktop review, where
+            // the admin corrects it (the parser's learning signal) and sends to accounting.
+            "status":               "pending_approval",
+            "and_send":             false,
         ]
         if let vendorId = d.vendorId { body["vendor_id"]        = vendorId }
         if let mediaId  = d.mediaId  { body["receipt_media_id"] = mediaId  }

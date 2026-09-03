@@ -252,10 +252,10 @@ struct ReceiptDetailView: View {
         expense.status != "forwarded" && !expense.isForwarded
     }
 
-    /// Draft/pending expenses can be approved or rejected; approved ones can be sent.
-    /// Already-forwarded or already-rejected expenses have no further action here.
+    /// Draft/pending expenses can be approved or rejected from the phone. Sending to
+    /// accounting is desktop-only, so approved/forwarded/rejected have no action here.
     private func canActOn(_ expense: Expense) -> Bool {
-        ["draft", "pending_approval", "approved"].contains(expense.status)
+        ["draft", "pending_approval"].contains(expense.status)
     }
 
     // MARK: - Sections
@@ -349,14 +349,13 @@ struct ReceiptDetailView: View {
 
     // MARK: - Actions
 
+    // Mobile is capture-only: sending to accounting happens on the desktop after the
+    // admin has corrected the expense (those corrections are the learning signal), so
+    // there is deliberately no "Send to Accounting" here — only review-queue triage.
     private var actionBar: some View {
         HStack(spacing: 10) {
             if viewModel.isPerformingAction {
                 ProgressView().frame(maxWidth: .infinity)
-            } else if expense.status == "approved" {
-                actionButton(title: "Send to Accounting", systemImage: "paperplane.fill", color: Color.MW.green) {
-                    Task { await performSend() }
-                }
             } else {
                 actionButton(title: "Reject", systemImage: "xmark", color: .red) {
                     rejectReason = ""
@@ -421,9 +420,6 @@ struct ReceiptDetailView: View {
         }
     }
 
-    private func performSend() async {
-        if await viewModel.send(expenseId: expense.id) { dismiss() }
-    }
 }
 
 // MARK: - Risk ring

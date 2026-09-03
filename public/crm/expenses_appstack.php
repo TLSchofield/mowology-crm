@@ -1082,17 +1082,14 @@ async function submitReceiptExport() {
                     <div class="mw-mc-expense-line-items-list" id="mobileLineItemsList" style="display:none;"></div>
                 </div>
 
+                <!-- Mobile is capture-only: the receipt is submitted for desktop review
+                     (status pending_approval). Correcting and sending to accounting is the
+                     admin's job on the desktop — those corrections are the learning signal. -->
                 <div class="mw-mc-expense-save-row">
                     <button type="button" class="mw-mc-expense-save-btn" onclick="mobileSaveExpense(false)">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
-                        Save
+                        Submit for Review
                     </button>
-                    <?php if ($canSend): ?>
-                    <button type="button" class="mw-mc-expense-save-send-btn" onclick="mobileSaveExpense(true)" title="Save and send to QuickBooks">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-                        Save &amp; Send
-                    </button>
-                    <?php endif; ?>
                 </div>
             </div>
         </div>
@@ -1462,10 +1459,14 @@ async function submitReceiptExport() {
                 </button>
                 <?php endif; ?>
                 <?php if ($canEdit): ?>
+                <span id="expLockedNote" class="text-muted me-auto" style="display:none;font-size:.8rem;">
+                    <i data-feather="lock" style="width:13px;height:13px;margin-right:3px;"></i>
+                    Sent to accounting — header fields are locked. Line items can still be linked to products (that teaches the parser).
+                </span>
                 <button type="button" class="btn btn-outline-primary" id="expAttachReceiptBtn" onclick="document.getElementById('expReceiptUploadInput').click()" title="Upload a receipt image for this expense">
                     <i data-feather="upload" style="width:16px;height:16px;margin-right:4px;"></i> Attach Receipt
                 </button>
-                <button type="button" class="btn btn-primary px-4" onclick="saveExpense()">
+                <button type="button" class="btn btn-primary px-4" id="expSaveBtn" onclick="saveExpense()">
                     <i data-feather="save" style="width:16px;height:16px;margin-right:4px;"></i> Save Expense
                 </button>
                 <?php endif; ?>
@@ -3789,6 +3790,16 @@ async function submitReceiptExport() {
             if (approveBtn) approveBtn.style.display = canAct ? '' : 'none';
             if (rejectBtn) rejectBtn.style.display = canAct ? '' : 'none';
             if (sendBtn) sendBtn.style.display = (e.status === 'approved') ? '' : 'none';
+            // Once forwarded to accounting the header is read-only server-side — say so up
+            // front instead of letting Save fail with an error toast.
+            var isLocked = (e.status === 'forwarded' || !!e.forwarded_to_accounting);
+            var saveBtn = document.getElementById('expSaveBtn');
+            if (saveBtn) {
+                saveBtn.disabled = isLocked;
+                saveBtn.title = isLocked ? 'Sent to accounting — header fields are locked' : '';
+            }
+            var lockNote = document.getElementById('expLockedNote');
+            if (lockNote) lockNote.style.display = isLocked ? '' : 'none';
             document.getElementById('expDescription').value = e.description || '';
             document.getElementById('expNotes').value = e.notes || '';
 
@@ -5068,7 +5079,8 @@ async function submitReceiptExport() {
             receipt_lng: currentGpsLng,
             raw_ocr_json: review ? (review.dataset.ocrText || null) : null,
             ocr_parsed: review ? (review.dataset.ocrParsed || null) : null,
-            status: 'draft',
+            // Mobile is capture-only — submit for desktop review, never straight to draft/sent
+            status: 'pending_approval',
             line_items: liPayload,
             line_items_source: mobileLiSource,
         };

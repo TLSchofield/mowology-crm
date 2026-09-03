@@ -10,6 +10,17 @@ How vendor receipts/invoices become expenses, and how forwarding by email is han
 | iOS app (native, JWT) | `receipt-upload.php` → `expense-save.php` (+ `expense-lookup.php`, `expense-delete.php`, `receipt-actions.php`) | Same review-form data as the web card (see below). Saves as `draft`; `and_send: true` forwards in the same call. |
 | **Email** | forward to **receipts@mowology.ca** → `app/Modules/Expenses/Cron/receipt_inbox_poll.php` | This document. |
 
+### Mobile is capture-only
+
+Phones (iOS native, Android/Capacitor WebView) **submit** receipts — status
+`pending_approval`, button "Submit for Review" / "Submit" — and never send to accounting.
+The admin corrects the expense in the desktop edit modal (those corrections are the
+parser's learning signal) and sends from there. `expense-save.php` accepts only
+`draft`/`pending_approval` (default `pending_approval`); offline replays land as
+`pending_approval` too. iOS keeps approve/reject triage; "Send to Accounting" and
+"Save & Send" exist on the desktop only. Once forwarded, the desktop modal locks the
+header (Save disabled + lock note) but line items can still be linked to products.
+
 ### Web ↔ iOS review-form parity
 
 Both review forms read the same lookups through `ExpenseLookupService`

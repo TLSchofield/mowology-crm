@@ -19,7 +19,7 @@
  * URL so the WebView can use a service worker just like a browser can).
  */
 
-var CACHE_VERSION = 'mw-v58';
+var CACHE_VERSION = 'mw-v59';
 var SHELL_CACHE  = 'mw-shell-' + CACHE_VERSION;
 var PAGE_CACHE   = 'mw-pages-' + CACHE_VERSION;
 var IMG_CACHE    = 'mw-images-' + CACHE_VERSION;
@@ -430,7 +430,7 @@ function syncPendingReceipts() {
                   receipt_lng: receipt.lng || null,
                   raw_ocr_json: intake.ocr_text || null,
                   ocr_parsed: intake.parsed ? JSON.stringify(intake.parsed) : null,
-                  status: 'draft',
+                  status: 'pending_approval',
                   line_items_source: p.line_items_source || null,
                   line_items: (p.line_items || []).map(function(item) {
                     return {
