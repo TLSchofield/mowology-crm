@@ -24,12 +24,26 @@ struct ReceiptDetailView: View {
     @State private var showFullImage = false
     @State private var showEditSheet = false
 
+    // Line items — editable post-save (rename / delete / link to a CRM product / add).
+    // Each action goes through the shared ExpenseLineItemService, so a correction made
+    // here teaches the parser exactly like one made on the desktop edit modal.
+    @State private var lineItems: [StoredLineItem] = []
+    @State private var lineItemsSource: String?
+    @State private var lineItemsLoaded = false
+    @State private var renameItem: StoredLineItem?
+    @State private var renameText = ""
+    @State private var linkItem: StoredLineItem?
+    @State private var showAddItem = false
+    @State private var addItemName = ""
+    @State private var addItemAmount = ""
+
     var body: some View {
         NavigationStack {
             Form {
                 imageSection
                 statusSection
                 detailsSection
+                lineItemsSection
 
                 if expense.isArchived {
                     Section {
@@ -79,6 +93,151 @@ struct ReceiptDetailView: View {
         .sheet(isPresented: $showEditSheet) {
             EditExpenseView(viewModel: viewModel, expense: expense, isPresented: $showEditSheet) {
                 dismiss()   // pop back to the (now refreshed) list so edits are reflected
+            }
+        }
+        .sheet(item: $linkItem) { item in
+            ProductLinkSheet(viewModel: viewModel, lineItem: item) { productId in
+                Task {
+                    if let updated = await viewModel.linkLineItem(id: item.id, productId: productId) {
+                        replaceLineItem(updated)
+                    }
+                }
+            }
+        }
+        .task { await loadLineItems() }
+        .alert("Rename item", isPresented: Binding(get: { renameItem != nil }, set: { if !$0 { renameItem = nil } })) {
+            TextField("Item name", text: $renameText)
+            Button("Save") {
+                if let item = renameItem {
+                    let v = renameText.trimmingCharacters(in: .whitespaces)
+                    if !v.isEmpty {
+                        Task {
+                            if let updated = await viewModel.updateLineItem(id: item.id, name: v, quantity: nil, unitPrice: nil, lineTotal: nil) {
+                                replaceLineItem(updated)
+                            }
+                        }
+                    }
+                }
+                renameItem = nil
+            }
+            Button("Cancel", role: .cancel) { renameItem = nil }
+        } message: {
+            Text("Corrections teach the parser what this line really says for this vendor.")
+        }
+        .alert("Add missed item", isPresented: $showAddItem) {
+            TextField("Item name (as printed)", text: $addItemName)
+            TextField("Line total ($)", text: $addItemAmount)
+                .keyboardType(.decimalPad)
+            Button("Add") {
+                let n = addItemName.trimmingCharacters(in: .whitespaces)
+                let amt = Double(addItemAmount) ?? 0
+                addItemName = ""; addItemAmount = ""
+                guard !n.isEmpty else { return }
+                Task {
+                    if let added = await viewModel.addLineItem(expenseId: expense.id, name: n, lineTotal: amt, productId: nil) {
+                        lineItems.append(added)
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) { addItemName = ""; addItemAmount = "" }
+        }
+    }
+
+    // MARK: - Line items
+
+    private func loadLineItems() async {
+        if let r = await viewModel.loadLineItems(expenseId: expense.id) {
+            lineItems = r.lineItems
+            lineItemsSource = r.lineItemsSource
+        }
+        lineItemsLoaded = true
+    }
+
+    private func replaceLineItem(_ updated: StoredLineItem) {
+        if let i = lineItems.firstIndex(where: { $0.id == updated.id }) {
+            lineItems[i] = updated
+        }
+    }
+
+    private var lineItemsSection: some View {
+        Section {
+            if !lineItemsLoaded {
+                HStack { Spacer(); ProgressView(); Spacer() }
+            } else if lineItems.isEmpty {
+                Text("No line items recorded").font(.caption).foregroundStyle(.secondary)
+            }
+            if lineItemsSource == "llm" {
+                Label("AI extracted — please verify each line", systemImage: "sparkles")
+                    .font(.caption2).foregroundStyle(.blue)
+            }
+            ForEach(lineItems) { item in
+                HStack(spacing: 6) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(item.name).font(.subheadline)
+                        HStack(spacing: 6) {
+                            if let sku = item.skuRaw, !sku.isEmpty {
+                                Text(sku).font(.caption2).foregroundStyle(.secondary)
+                            }
+                            if let pn = item.productName {
+                                Label(pn, systemImage: "link").font(.caption2).foregroundStyle(Color.MW.green)
+                            } else if isEditable && !item.isAdjustment {
+                                Button("Link product") { linkItem = item }
+                                    .font(.caption2)
+                                    .buttonStyle(.borderless)
+                                    .foregroundStyle(Color.MW.green)
+                            }
+                        }
+                    }
+                    if item.quantity > 1 {
+                        Text("×\(item.quantity, specifier: "%g")").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Text(String(format: "$%.2f", item.lineTotal))
+                        .font(.subheadline)
+                        .foregroundStyle(item.lineTotal < 0 ? .red : .primary)
+                }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    guard isEditable else { return }
+                    renameText = item.name
+                    renameItem = item
+                }
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                    if isEditable {
+                        Button(role: .destructive) {
+                            Task {
+                                if await viewModel.deleteLineItem(id: item.id) {
+                                    lineItems.removeAll { $0.id == item.id }
+                                }
+                            }
+                        } label: { Label("Not an item", systemImage: "xmark") }
+                        if item.productId != nil {
+                            Button {
+                                Task {
+                                    if let updated = await viewModel.linkLineItem(id: item.id, productId: nil) {
+                                        replaceLineItem(updated)
+                                    }
+                                }
+                            } label: { Label("Unlink", systemImage: "link.badge.minus") }
+                            .tint(Color.MW.orange)
+                        }
+                    }
+                }
+            }
+            if isEditable && lineItemsLoaded {
+                Button {
+                    showAddItem = true
+                } label: {
+                    Label("Add missed item", systemImage: "plus.circle")
+                        .font(.subheadline)
+                        .foregroundStyle(Color.MW.green)
+                }
+            }
+        } header: {
+            Text("Line items")
+        } footer: {
+            if isEditable {
+                Text("Tap to rename, swipe left to remove or unlink. Linking an item to a CRM product teaches the vendor catalog and SKU memory for next time.")
             }
         }
     }
@@ -319,6 +478,79 @@ private struct RiskRingView: View {
         .padding(.vertical, 4)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Risk score \(score), \(tier.label)")
+    }
+}
+
+// MARK: - Product link sheet
+
+/// Search CRM products and link a receipt line item to one — the mobile mirror of the
+/// desktop "Link" popover. Server-side this trains the vendor catalog alias and the
+/// SKU → product memory, so the next receipt from this vendor auto-links.
+private struct ProductLinkSheet: View {
+    @ObservedObject var viewModel: ReceiptsViewModel
+    let lineItem: StoredLineItem
+    let onPick: (Int) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var query = ""
+    @State private var results: [ProductSearchResult] = []
+    @State private var searchTask: Task<Void, Never>?
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Text(lineItem.name).font(.subheadline.weight(.semibold))
+                    if let sku = lineItem.skuRaw, !sku.isEmpty {
+                        Text("SKU \(sku)").font(.caption).foregroundStyle(.secondary)
+                    }
+                } header: { Text("Receipt line") }
+                Section {
+                    ForEach(results) { p in
+                        Button {
+                            onPick(p.id)
+                            dismiss()
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(p.name).foregroundStyle(.primary)
+                                if let sku = p.sku, !sku.isEmpty {
+                                    Text(sku).font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+                    if results.isEmpty && query.count >= 2 {
+                        Text("No products match").font(.caption).foregroundStyle(.secondary)
+                    }
+                } header: { Text("CRM product") }
+            }
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search products by name or SKU")
+            .onChange(of: query) { _, q in
+                searchTask?.cancel()
+                let trimmed = q.trimmingCharacters(in: .whitespaces)
+                guard trimmed.count >= 2 else { results = []; return }
+                searchTask = Task {
+                    try? await Task.sleep(nanoseconds: 250_000_000)
+                    guard !Task.isCancelled else { return }
+                    let r = await viewModel.searchProducts(trimmed)
+                    guard !Task.isCancelled else { return }
+                    results = r
+                }
+            }
+            .navigationTitle("Link Product")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }.foregroundStyle(Color.MW.green)
+                }
+            }
+            .task {
+                // Seed with the line's own name so the likely match is one tap away
+                let seed = lineItem.name.trimmingCharacters(in: .whitespaces)
+                if seed.count >= 2 { results = await viewModel.searchProducts(seed) }
+            }
+        }
+        .presentationDragIndicator(.visible)
     }
 }
 

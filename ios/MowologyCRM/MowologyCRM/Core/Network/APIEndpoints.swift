@@ -87,6 +87,13 @@ enum APIEndpoint {
     /// POST /api/expenses/expense-delete — delete an own draft expense (JWT). Body: { id }
     case expenseDelete
 
+    /// GET /api/expenses/expense-line-items?expense_id=N — a saved expense's line items (JWT).
+    case expenseLineItems(expenseId: Int)
+
+    /// POST /api/expenses/expense-line-items — { op: update|add|delete|link, ... } (JWT).
+    /// Every correction here is a learning signal for the receipt parser.
+    case expenseLineItemAction
+
     /// POST /api/device/token — register APNs device token for push notifications.
     case deviceTokenRegister
 
@@ -202,6 +209,14 @@ enum APIEndpoint {
         case .expenseDelete:
             return URL(string: "\(baseURLString)/expenses/expense-delete")
 
+        case .expenseLineItems(let expenseId):
+            var components = URLComponents(string: "\(baseURLString)/expenses/expense-line-items")
+            components?.queryItems = [URLQueryItem(name: "expense_id", value: "\(expenseId)")]
+            return components?.url
+
+        case .expenseLineItemAction:
+            return URL(string: "\(baseURLString)/expenses/expense-line-items")
+
         case .deviceTokenRegister:
             return URL(string: "\(baseURLString)/device/token")
 
@@ -252,6 +267,8 @@ enum APIEndpoint {
              .receiptAction,
              .expenseLookup,
              .expenseDelete,
+             .expenseLineItems,
+             .expenseLineItemAction,
              .deviceTokenRegister,
              .quizAction,
              .quizQuestion,
@@ -282,10 +299,12 @@ enum APIEndpoint {
              .expenseUpdate,
              .receiptAction,
              .expenseDelete,
+             .expenseLineItemAction,
              .deviceTokenRegister: return "POST"
 
         case .expenseList,
              .expenseLookup,
+             .expenseLineItems,
              .scheduleJobs,
              .scheduleInvoices,
              .scheduleQuotes,

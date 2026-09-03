@@ -417,6 +417,7 @@ async function submitReceiptExport() {
                         <span id="rvLineItemsCount">0</span> items detected
                     </button>
                     <div id="rvLineItemsList" style="display:none;">
+                        <div id="rvLineItemsMeta" class="mw-li-meta"></div>
                         <table class="mw-line-items-table w-100"></table>
                     </div>
                 </div>
@@ -1077,6 +1078,7 @@ async function submitReceiptExport() {
                         <span id="mobileLineItemsCount">0</span> items detected
                         <svg class="mw-mc-expense-chevron" id="mobileLineItemsChevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
                     </button>
+                    <div class="mw-mc-expense-li-meta" id="mobileLineItemsMeta"></div>
                     <div class="mw-mc-expense-line-items-list" id="mobileLineItemsList" style="display:none;"></div>
                 </div>
 
@@ -2374,19 +2376,12 @@ async function submitReceiptExport() {
             document.getElementById('rvJobId').value = s.suggested_job_id;
         }
 
-        // Line items in review panel
-        var lineItems = (p.line_items || []);
+        // Line items in review panel — editable pre-save (rename / "not an item" /
+        // add missed) so every correction is a learning signal for this vendor.
+        var lineItems = normalizeReviewLineItems(p.line_items || []);
         window.currentReviewLineItems = lineItems;
-        var rvLiSection = document.getElementById('rvLineItemsSection');
-        if (lineItems.length > 0 && rvLiSection) {
-            document.getElementById('rvLineItemsCount').textContent = lineItems.length;
-            document.getElementById('rvLineItemsList').querySelector('table').innerHTML =
-                renderLineItemsTable(lineItems, false);
-            document.getElementById('rvLineItemsList').style.display = 'block';
-            rvLiSection.style.display = 'block';
-        } else if (rvLiSection) {
-            rvLiSection.style.display = 'none';
-        }
+        window.currentReviewLineItemsMeta = lineItemsMetaFromParsed(p);
+        renderDesktopReviewLineItems();
 
         // Product matches banner (from vendor product catalog)
         var productMatches = p.product_matches || [];
@@ -2473,27 +2468,11 @@ async function submitReceiptExport() {
             setMobileConf('mobileConfTotal', p.total ? 70 : 0);
             setMobileConf('mobileConfVendor', s.vendor_confidence || (p.vendor_hint ? 30 : 0));
 
-            // Mobile line items
-            var mLiSection = document.getElementById('mobileLineItemsSection');
-            var mLiList = document.getElementById('mobileLineItemsList');
-            var mLiCount = document.getElementById('mobileLineItemsCount');
-            var lineItems = (p.line_items || []);
-            window.currentMobileLineItems = lineItems;
-            if (lineItems.length > 0 && mLiSection) {
-                mLiCount.textContent = lineItems.length;
-                mLiList.innerHTML = lineItems.map(function(item) {
-                    var amt = parseFloat(item.amount || item.line_total || 0);
-                    var qty = parseFloat(item.quantity || 1);
-                    var qtyLabel = qty > 1 ? ' <small class="text-muted">x' + qty + '</small>' : '';
-                    return '<div class="mw-mc-expense-line-item">' +
-                        '<span class="mw-mc-expense-line-item-name">' + esc(item.name) + qtyLabel + '</span>' +
-                        '<span class="mw-mc-expense-line-item-amt' + (amt < 0 ? ' mw-mc-expense-line-item-neg' : '') + '">$' + amt.toFixed(2) + '</span>' +
-                    '</div>';
-                }).join('');
-                mLiSection.style.display = 'block';
-            } else if (mLiSection) {
-                mLiSection.style.display = 'none';
-            }
+            // Mobile line items — editable pre-save (tap name to rename, ✕ = not an item,
+            // + add a missed item). Same learning signals as the desktop card.
+            window.currentMobileLineItems = normalizeReviewLineItems(p.line_items || []);
+            window.currentMobileLineItemsMeta = lineItemsMetaFromParsed(p);
+            renderMobileReviewLineItems();
 
             // Store media/ocr refs for mobile save
             mobileReview.dataset.mediaId = data.media_id || '';
@@ -2888,17 +2867,10 @@ async function submitReceiptExport() {
     window.saveAndSend = function() { saveReviewExpense(true); };
 
     async function saveReviewExpense(andSend) {
-        // Prepare line items for saving
-        var liPayload = (window.currentReviewLineItems || []).map(function(li) {
-            return {
-                name: li.name || 'Unknown',
-                quantity: li.quantity || 1,
-                unit_price: li.unit_price || null,
-                line_total: li.amount || li.line_total || 0,
-                sku_raw: li.sku_raw || null,
-                product_id: li.product_id || null,
-            };
-        });
+        // Prepare line items for saving — carries ocr_name / removed / manual so the
+        // server records per-vendor lessons from any correction made here.
+        var liPayload = reviewLineItemsPayload('review');
+        var reviewLiSource = (window.currentReviewLineItemsMeta || {}).source || null;
 
         function buildData() {
             return {
@@ -2925,6 +2897,7 @@ async function submitReceiptExport() {
                 ocr_parsed: document.getElementById('intakeOcrParsed').value || null,
                 status: 'draft',
                 line_items: liPayload,
+                line_items_source: reviewLiSource,
             };
         }
 
@@ -5070,16 +5043,8 @@ async function submitReceiptExport() {
         var activeBtn = saveBtn;
 
         // Prepare line items for saving
-        var liPayload = (window.currentMobileLineItems || []).map(function(li) {
-            return {
-                name: li.name || 'Unknown',
-                quantity: li.quantity || 1,
-                unit_price: li.unit_price || null,
-                line_total: li.amount || li.line_total || 0,
-                sku_raw: li.sku_raw || null,
-                product_id: li.product_id || null,
-            };
-        });
+        var liPayload = reviewLineItemsPayload('mobile');
+        var mobileLiSource = (window.currentMobileLineItemsMeta || {}).source || null;
 
         var data = {
             action: 'create',
@@ -5105,6 +5070,7 @@ async function submitReceiptExport() {
             ocr_parsed: review ? (review.dataset.ocrParsed || null) : null,
             status: 'draft',
             line_items: liPayload,
+            line_items_source: mobileLiSource,
         };
 
         if (!data.total || parseFloat(data.total) <= 0) {
@@ -5683,10 +5649,160 @@ async function submitReceiptExport() {
         if (list) list.style.display = list.style.display === 'none' ? 'block' : 'none';
     };
 
-    function renderLineItemsTable(items, stored) {
+    // ── Review-panel line items (pre-save, editable on both cards) ────
+    // Every item keeps `ocr_name` (what the parser produced), and the review card can
+    // rename it, flag it `removed` ("not an item") or add a `manual` row. The save
+    // payload carries all three so ReceiptLearning records them as per-vendor lessons.
+    function normalizeReviewLineItems(items) {
+        return (items || []).map(function(li) {
+            var copy = Object.assign({}, li);
+            if (copy.ocr_name === undefined || copy.ocr_name === null) copy.ocr_name = copy.name || '';
+            copy.removed = !!copy.removed;
+            copy.manual  = !!copy.manual;
+            return copy;
+        });
+    }
+
+    function lineItemsMetaFromParsed(p) {
+        return {
+            quality:   p.line_items_quality || 'none',
+            items_sum: p.items_sum != null ? parseFloat(p.items_sum) : null,
+            subtotal:  p.subtotal != null && p.subtotal !== '' ? parseFloat(p.subtotal) : (p.total != null ? parseFloat(p.total) : null),
+            source:    p.line_items_source || null,
+            escalated: !!p.escalation_reason,
+        };
+    }
+
+    function reviewLineItemsSum(items) {
+        return (items || []).reduce(function(s, li) {
+            if (li.removed) return s;
+            return s + (parseFloat(li.amount || li.line_total || 0) || 0);
+        }, 0);
+    }
+
+    function lineItemsMetaHtml(items, meta) {
+        if (!meta) return '';
+        var parts = [];
+        if (meta.source === 'llm') parts.push('<span class="badge bg-info text-dark">AI extracted — please verify</span>');
+        else if (meta.source === 'vision' && meta.escalated) parts.push('<span class="badge bg-light text-muted border">Re-read with Vision</span>');
+        var sum = reviewLineItemsSum(items);
+        if (meta.subtotal != null && meta.subtotal > 0 && items && items.some(function(li){ return !li.removed; })) {
+            var tol = Math.max(0.05, meta.subtotal * 0.01);
+            if (Math.abs(sum - meta.subtotal) > tol) {
+                parts.push('<span class="text-warning"><i data-feather="alert-triangle" style="width:12px;height:12px;"></i> Items total $' + sum.toFixed(2) + ' ≠ subtotal $' + meta.subtotal.toFixed(2) + ' — a line may be missing or mis-read</span>');
+            } else {
+                parts.push('<span class="text-success"><i data-feather="check" style="width:12px;height:12px;"></i> Items add up to the subtotal</span>');
+            }
+        }
+        return parts.join(' &nbsp; ');
+    }
+
+    function reviewItemsArray(scope) {
+        return scope === 'mobile' ? (window.currentMobileLineItems || []) : (window.currentReviewLineItems || []);
+    }
+
+    window.reviewLiRename = function(scope, idx, value) {
+        var arr = reviewItemsArray(scope);
+        if (!arr[idx]) return;
+        arr[idx].name = value;
+        // Desktop renames live in the input; mobile re-renders (prompt-based)
+        if (scope === 'mobile') renderMobileReviewLineItems();
+    };
+
+    window.reviewLiToggleRemoved = function(scope, idx) {
+        var arr = reviewItemsArray(scope);
+        if (!arr[idx]) return;
+        if (arr[idx].manual && !arr[idx].removed) {
+            // A manual row being removed just disappears — nothing to teach
+            arr.splice(idx, 1);
+        } else {
+            arr[idx].removed = !arr[idx].removed;
+        }
+        if (scope === 'mobile') renderMobileReviewLineItems(); else renderDesktopReviewLineItems();
+    };
+
+    window.reviewLiAdd = function(scope) {
+        var name = prompt('Item name (as printed on the receipt)');
+        if (!name || !name.trim()) return;
+        var amt = prompt('Line total ($)', '');
+        var arr = reviewItemsArray(scope);
+        arr.push({ name: name.trim(), ocr_name: '', manual: true, removed: false, amount: (parseFloat(amt) || 0).toFixed(2), quantity: 1, unit_price: null, sku_raw: null, product_id: null });
+        if (scope === 'mobile') { window.currentMobileLineItems = arr; renderMobileReviewLineItems(); }
+        else { window.currentReviewLineItems = arr; renderDesktopReviewLineItems(); }
+    };
+
+    window.reviewLiPromptRename = function(scope, idx) {
+        var arr = reviewItemsArray(scope);
+        if (!arr[idx]) return;
+        var v = prompt('Item name', arr[idx].name || '');
+        if (v !== null && v.trim()) reviewLiRename(scope, idx, v.trim());
+    };
+
+    function renderDesktopReviewLineItems() {
+        var items = window.currentReviewLineItems || [];
+        var rvLiSection = document.getElementById('rvLineItemsSection');
+        if (!rvLiSection) return;
+        var active = items.filter(function(li) { return !li.removed; }).length;
+        document.getElementById('rvLineItemsCount').textContent = active;
+        var table = document.getElementById('rvLineItemsList').querySelector('table');
+        table.innerHTML = renderLineItemsTable(items, false, 'review');
+        var meta = document.getElementById('rvLineItemsMeta');
+        if (meta) meta.innerHTML = lineItemsMetaHtml(items, window.currentReviewLineItemsMeta);
+        document.getElementById('rvLineItemsList').style.display = 'block';
+        rvLiSection.style.display = 'block';
+        if (window.feather) feather.replace();
+    }
+
+    function renderMobileReviewLineItems() {
+        var items = window.currentMobileLineItems || [];
+        var mLiSection = document.getElementById('mobileLineItemsSection');
+        var mLiList = document.getElementById('mobileLineItemsList');
+        var mLiCount = document.getElementById('mobileLineItemsCount');
+        var mMeta = document.getElementById('mobileLineItemsMeta');
+        if (!mLiSection || !mLiList) return;
+        var active = items.filter(function(li) { return !li.removed; }).length;
+        if (mLiCount) mLiCount.textContent = active;
+        mLiList.innerHTML = items.map(function(item, idx) {
+            var amt = parseFloat(item.amount || item.line_total || 0);
+            var qty = parseFloat(item.quantity || 1);
+            var qtyLabel = qty > 1 ? ' <small class="text-muted">x' + qty + '</small>' : '';
+            var linked = item.product_id ? ' <span class="mw-mc-expense-line-item-linked" title="Auto-linked to a CRM product">⛓</span>' : '';
+            return '<div class="mw-mc-expense-line-item' + (item.removed ? ' mw-mc-expense-line-item-removed' : '') + (item.manual ? ' mw-mc-expense-line-item-manual' : '') + '">' +
+                '<button type="button" class="mw-mc-expense-line-item-name" onclick="reviewLiPromptRename(\'mobile\', ' + idx + ')" title="Tap to rename">' + esc(item.name) + qtyLabel + linked + '</button>' +
+                '<span class="mw-mc-expense-line-item-amt' + (amt < 0 ? ' mw-mc-expense-line-item-neg' : '') + '">$' + amt.toFixed(2) + '</span>' +
+                '<button type="button" class="mw-mc-expense-line-item-x" onclick="reviewLiToggleRemoved(\'mobile\', ' + idx + ')" aria-label="' + (item.removed ? 'Restore item' : 'Not an item') + '">' + (item.removed ? '↩' : '✕') + '</button>' +
+            '</div>';
+        }).join('') +
+        '<button type="button" class="mw-mc-expense-line-item-add" onclick="reviewLiAdd(\'mobile\')">+ Add missed item</button>';
+        if (mMeta) mMeta.innerHTML = lineItemsMetaHtml(items, window.currentMobileLineItemsMeta);
+        mLiSection.style.display = 'block';
+        if (window.feather) feather.replace();
+    }
+
+    function reviewLineItemsPayload(scope) {
+        return reviewItemsArray(scope).map(function(li) {
+            return {
+                name: li.name || 'Unknown',
+                ocr_name: li.ocr_name || '',
+                removed: !!li.removed,
+                manual: !!li.manual,
+                quantity: li.quantity || 1,
+                unit_price: li.unit_price || null,
+                line_total: li.amount || li.line_total || 0,
+                sku_raw: li.sku_raw || null,
+                product_id: li.product_id || null,
+            };
+        });
+    }
+
+    function renderLineItemsTable(items, stored, editableScope) {
         window._currentLineItems = items || [];
         if (!items || !items.length) {
-            return '<tr><td colspan="5" class="text-muted text-center py-2" style="font-size:.8rem;">No items detected — use <strong>Rescan</strong> or <strong>+ Add Item</strong></td></tr>';
+            var emptyMsg = '<tr><td colspan="5" class="text-muted text-center py-2" style="font-size:.8rem;">No items detected — use <strong>Rescan</strong> or <strong>+ Add Item</strong></td></tr>';
+            if (editableScope) {
+                emptyMsg += '<tr><td colspan="5" class="text-center py-1"><button type="button" class="btn btn-sm btn-outline-secondary mw-li-add-btn" onclick="reviewLiAdd(\'' + editableScope + '\')">+ Add missed item</button></td></tr>';
+            }
+            return emptyMsg;
         }
         var hasQty = items.some(function(i) { return i.quantity && parseFloat(i.quantity) !== 1; });
         var hasUp  = items.some(function(i) { return i.unit_price && parseFloat(i.unit_price) > 0; });
@@ -5699,18 +5815,29 @@ async function submitReceiptExport() {
         header += '<th></th>';                                  // Edit/Delete col
         header += '</tr>';
 
-        var rows = items.map(function(item) {
+        var rows = items.map(function(item, idx) {
             var total = parseFloat(item.line_total || item.amount || 0);
             var qty   = parseFloat(item.quantity || 1);
             var up    = item.unit_price ? parseFloat(item.unit_price) : null;
             var totalClass = total < 0 ? 'text-danger' : '';
             var liId  = item.id || '';
+            var editable = !!editableScope && !liId;
 
-            var row = '<tr data-li-id="' + liId + '">';
-            row += '<td>' + esc(item.name);
-            if (item.sku_raw) row += ' <small class="text-muted">(' + esc(item.sku_raw) + ')</small>';
-            if (item.is_adjustment) row += ' <span class="badge bg-light text-muted border" style="font-size:.65rem;">adjustment</span>';
-            row += '</td>';
+            var row = '<tr data-li-id="' + liId + '"' + (item.removed ? ' class="mw-li-removed"' : '') + '>';
+            if (editable) {
+                row += '<td><input type="text" class="form-control form-control-sm mw-li-name-input" value="' + esc(item.name || '') + '" ' +
+                       (item.removed ? 'disabled ' : '') +
+                       'oninput="reviewLiRename(\'' + editableScope + '\', ' + idx + ', this.value)" title="Edit the item name — corrections teach the parser">';
+                if (item.sku_raw) row += ' <small class="text-muted">(' + esc(item.sku_raw) + ')</small>';
+                if (item.manual) row += ' <span class="badge bg-light text-muted border" style="font-size:.65rem;">added</span>';
+                if (item.name_source === 'learned') row += ' <span class="badge bg-light text-success border" style="font-size:.65rem;" title="Renamed from a learned correction">learned</span>';
+                row += '</td>';
+            } else {
+                row += '<td>' + esc(item.name);
+                if (item.sku_raw) row += ' <small class="text-muted">(' + esc(item.sku_raw) + ')</small>';
+                if (item.is_adjustment) row += ' <span class="badge bg-light text-muted border" style="font-size:.65rem;">adjustment</span>';
+                row += '</td>';
+            }
             if (hasQty) row += '<td class="text-center">' + (qty !== 1 ? qty : '') + '</td>';
             if (hasUp)  row += '<td class="text-end">'  + (up ? '$' + up.toFixed(2) : '') + '</td>';
             row += '<td class="text-end ' + totalClass + '">';
@@ -5728,7 +5855,8 @@ async function submitReceiptExport() {
             if (item.is_adjustment) {
                 row += '<span class="text-muted" style="font-size:.7rem;">n/a</span>';
             } else if (item.product_id) {
-                row += '<span class="badge bg-success mw-li-product-badge" title="' + esc(item.product_name || '') + '">' + esc(item.product_name || 'Linked') + '</span>';
+                var autoTitle = item.product_source ? ' (auto-linked by ' + esc(item.product_source) + ')' : '';
+                row += '<span class="badge bg-success mw-li-product-badge" title="' + esc(item.product_name || '') + autoTitle + '">' + esc(item.product_name || (editable ? 'Auto-linked' : 'Linked')) + '</span>';
                 if (liId) row += ' <button type="button" class="btn btn-link btn-sm p-0 mw-li-unlink" onclick="unlinkProduct(' + liId + ')" title="Unlink">&times;</button>';
             } else if (liId) {
                 row += '<button type="button" class="btn btn-outline-secondary btn-sm mw-li-link" style="font-size:.7rem;padding:1px 6px;" onclick="showProductSearch(' + liId + ', this)">Link</button>';
@@ -5737,15 +5865,20 @@ async function submitReceiptExport() {
             }
             row += '</td>';
 
-            // Edit/Delete column — only for stored items
+            // Edit/Delete column — stored items get edit/delete; pre-save items get "not an item"
             row += '<td class="text-center text-nowrap">';
             if (liId) row += '<button type="button" class="btn btn-link btn-sm p-0 me-1" onclick="editLineItemRow(' + liId + ', this)" title="Edit"><i data-feather="edit-2" style="width:12px;height:12px;"></i></button>';
             if (liId) row += '<button type="button" class="btn btn-link btn-sm p-0 text-danger" onclick="deleteLineItem(' + liId + ')" title="Remove"><i data-feather="trash-2" style="width:12px;height:12px;"></i></button>';
+            if (editable) row += '<button type="button" class="btn btn-link btn-sm p-0 ' + (item.removed ? 'text-success' : 'text-danger') + '" onclick="reviewLiToggleRemoved(\'' + editableScope + '\', ' + idx + ')" title="' + (item.removed ? 'Restore' : 'Not an item — teaches the parser to skip this line') + '"><i data-feather="' + (item.removed ? 'rotate-ccw' : 'x') + '" style="width:12px;height:12px;"></i></button>';
             row += '</td>';
 
             row += '</tr>';
             return row;
         }).join('');
+
+        if (editableScope) {
+            rows += '<tr><td colspan="6" class="text-start py-1"><button type="button" class="btn btn-sm btn-outline-secondary mw-li-add-btn" onclick="reviewLiAdd(\'' + editableScope + '\')">+ Add missed item</button></td></tr>';
+        }
 
         return header + rows;
     }

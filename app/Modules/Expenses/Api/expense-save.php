@@ -101,6 +101,15 @@ try {
 
     $expenseId = (int)$db->lastInsertId();
 
+    // Line-item provenance ('ocr' | 'vision' | 'llm' | 'manual') — column arrives with
+    // migration 1115; never fatal before it runs.
+    if (!empty($input['line_items_source'])) {
+        try {
+            $db->prepare("UPDATE expenses SET line_items_source = ? WHERE id = ?")
+               ->execute([substr((string)$input['line_items_source'], 0, 20), $expenseId]);
+        } catch (Throwable $e) { /* pre-migration */ }
+    }
+
     // Save line items if the OCR/review payload included them
     if (!empty($input['line_items']) && is_array($input['line_items'])) {
         require_once APP_ROOT . '/Services/Receipts/ExpenseLineItems.php';

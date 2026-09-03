@@ -8560,6 +8560,38 @@ a.mw-clock-timer-nav:hover {
   letter-spacing:.5px;
   color:#6c757d;
 }
+/* Review-panel line items: pre-save corrections (rename / not-an-item / add) */
+.mw-line-items-table tr.mw-li-removed td {
+  opacity:.45;
+  text-decoration:line-through;
+}
+.mw-line-items-table tr.mw-li-removed td:last-child {
+  text-decoration:none;
+}
+.mw-line-items-table .mw-li-name-input {
+  display:inline-block;
+  width:auto;
+  min-width:160px;
+  max-width:100%;
+  font-size:.85rem;
+  padding:2px 6px;
+  height:auto;
+}
+.mw-li-meta {
+  font-size:.78rem;
+  padding:4px 12px 6px;
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px 12px;
+  align-items:center;
+}
+.mw-li-meta:empty {
+  display:none;
+}
+.mw-li-add-btn {
+  font-size:.75rem;
+  padding:2px 8px;
+}
 .mw-amount {
   font-family:monospace;
   font-weight:600;

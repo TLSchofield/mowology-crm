@@ -429,12 +429,17 @@ function handleGet(PDO $db): void
         $expense['line_items'] = $storedItems;
         $expense['line_items_stored'] = true;
     } else {
-        // Fallback: parse from raw OCR text
+        // Fallback: parse from raw OCR text (after a rescan this column holds the JSON
+        // Vision response, not text — ocrTextFromStored() handles both)
         $expense['line_items'] = [];
         if (!empty($expense['raw_ocr_json'])) {
             require_once APP_ROOT . '/Services/Receipts/ReceiptParser.php';
-            $parsed = parseReceiptText($expense['raw_ocr_json']);
-            $expense['line_items'] = $parsed['line_items'] ?? [];
+            require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
+            $storedText = ocrTextFromStored($expense['raw_ocr_json']);
+            if ($storedText !== '') {
+                $parsed = parseReceiptText($storedText, null, getVendorLineItemProfile(!empty($expense['vendor_id']) ? (int)$expense['vendor_id'] : null));
+                $expense['line_items'] = $parsed['line_items'] ?? [];
+            }
         }
         $expense['line_items_stored'] = false;
     }
@@ -534,6 +539,15 @@ function handleCreate(PDO $db, ?array $input, array $user): void
     ]);
 
     $expenseId = (int)$db->lastInsertId();
+
+    // Line-item provenance ('ocr' | 'vision' | 'llm' | 'manual') — column arrives with
+    // migration 1115; never fatal before it runs.
+    if (!empty($input['line_items_source'])) {
+        try {
+            $db->prepare("UPDATE expenses SET line_items_source = ? WHERE id = ?")
+               ->execute([substr((string)$input['line_items_source'], 0, 20), $expenseId]);
+        } catch (Throwable $e) { /* pre-migration */ }
+    }
 
     // Save line items if provided
     if (!empty($input['line_items']) && is_array($input['line_items'])) {
@@ -747,13 +761,15 @@ function handleUpdate(PDO $db, ?array $input, array $user): void
         }
     }
 
-    // Record corrections for learning (re-parse stored OCR and compare to updated values)
-    $ocrText = $existing['raw_ocr_json'] ?? '';
+    // Record corrections for learning (re-parse stored OCR and compare to updated values).
+    // After a rescan raw_ocr_json holds the JSON Vision response — ocrTextFromStored()
+    // recovers the text instead of feeding a JSON blob to the parser.
+    require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
+    $ocrText = ocrTextFromStored($existing['raw_ocr_json'] ?? null);
     if (!empty($ocrText)) {
         try {
             require_once APP_ROOT . '/Services/Receipts/ReceiptParser.php';
-            require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
-            $ocrParsed = parseReceiptText($ocrText);
+            $ocrParsed = parseReceiptText($ocrText, null, getVendorLineItemProfile(!empty($input['vendor_id']) ? (int)$input['vendor_id'] : null));
             recordCorrections(
                 !empty($input['vendor_id']) ? (int)$input['vendor_id'] : null,
                 $input['vendor_name_raw'] ?? null,
@@ -990,62 +1006,13 @@ function handleLinkProduct(PDO $db, ?array $input): void
         throw new Exception('Invalid security token');
     }
 
-    $lineItemId = (int)($input['line_item_id'] ?? 0);
-    if (!$lineItemId) throw new Exception('Line item ID required');
-
+    // Shared with the iOS line-item endpoint (expense-line-items.php): links, trains the
+    // vendor catalog, and records the SKU → product memory for the next receipt.
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseLineItemService.php';
     $newProductId = isset($input['product_id']) && $input['product_id'] !== null && $input['product_id'] !== ''
         ? (int)$input['product_id']
         : null;
-
-    // Fetch current line item (with name for training)
-    $stmt = $db->prepare("SELECT eli.id, eli.product_id, eli.quantity, eli.name, eli.expense_id,
-                                 e.vendor_id
-                          FROM expense_line_items eli
-                          LEFT JOIN expenses e ON e.id = eli.expense_id
-                          WHERE eli.id = ?");
-    $stmt->execute([$lineItemId]);
-    $li = $stmt->fetch(PDO::FETCH_ASSOC);
-    if (!$li) throw new Exception('Line item not found');
-
-    $oldProductId = $li['product_id'] ? (int)$li['product_id'] : null;
-    $qty = (float)$li['quantity'];
-
-    // Reverse old product inventory
-    if ($oldProductId) {
-        updateProductInventory($db, $oldProductId, -$qty);
-    }
-
-    // Update the link
-    $upd = $db->prepare("UPDATE expense_line_items SET product_id = ? WHERE id = ?");
-    $upd->execute([$newProductId, $lineItemId]);
-
-    // Apply new product inventory
-    if ($newProductId) {
-        updateProductInventory($db, $newProductId, $qty);
-    }
-
-    // ── Train as you link ────────────────────────────────────────────
-    // When office staff links a line item name to a product, teach the
-    // vendor_products catalog so future receipts from the same vendor
-    // auto-match without manual linking.
-    if ($newProductId && !empty($li['vendor_id']) && !empty($li['name'])) {
-        try {
-            teachVendorProduct($db, (int)$li['vendor_id'], $li['name'], $newProductId);
-        } catch (Throwable $trainErr) {
-            error_log('Train-as-you-link error: ' . $trainErr->getMessage());
-            // Non-fatal — linking still succeeds
-        }
-    }
-
-    // Return updated line item with product details
-    $result = $db->prepare("
-        SELECT eli.*, p.name AS product_name, p.sku AS product_sku, p.track_inventory
-        FROM expense_line_items eli
-        LEFT JOIN products p ON p.id = eli.product_id
-        WHERE eli.id = ?
-    ");
-    $result->execute([$lineItemId]);
-    $updated = $result->fetch(PDO::FETCH_ASSOC);
+    $updated = (new ExpenseLineItemService($db))->link((int)($input['line_item_id'] ?? 0), $newProductId);
 
     echo json_encode(['success' => true, 'line_item' => $updated]);
 }
@@ -1412,9 +1379,17 @@ function handleRescan(PDO $db, ?array $input, array $user): void
     require_once APP_ROOT . '/Services/Receipts/VendorProductMatch.php';
     require_once APP_ROOT . '/Services/Receipts/TesseractPreScreen.php';
 
-    // Pre-screen with Tesseract (cost-saving)
+    // Pre-screen with Tesseract (cost-saving) — vendor-aware threshold, same as the
+    // intake paths (this rescan previously ignored the learned per-vendor threshold).
     $preScreen = tesseractPreScreen($filePath);
-    $preScreenDecision = $preScreen['decision'];
+    $rescanVendorId = !empty($expense['vendor_id']) ? (int)$expense['vendor_id'] : null;
+    $rescanThreshold = getVendorTesseractThreshold($rescanVendorId);
+    if (empty($preScreen['error']) && ($preScreen['score'] ?? 0) > 0) {
+        $preScreenDecision = $preScreen['score'] >= $rescanThreshold ? 'use_tesseract'
+            : ($preScreen['score'] >= 30 ? 'use_vision' : 'skip');
+    } else {
+        $preScreenDecision = $preScreen['decision'];
+    }
 
     $ocrResult = ['success' => false, 'text' => '', 'raw_response' => null, 'error' => null];
     $ocrSource  = 'none';
@@ -1435,7 +1410,24 @@ function handleRescan(PDO $db, ?array $input, array $user): void
 
     if ($ocrAvailable && !empty($ocrText)) {
         $rawResponse = $ocrResult['raw_response'] ?? null;
-        $parsed = parseReceiptText($ocrText, $rawResponse);
+        require_once APP_ROOT . '/Services/Receipts/ReceiptLineItemIntelligence.php';
+        $rescanLiProfile = getVendorLineItemProfile($rescanVendorId);
+        $parsed = parseReceiptText($ocrText, $rawResponse, $rescanLiProfile);
+        $enh = enhanceLineItemExtraction([
+            'file_path'      => $filePath,
+            'ocr_source'     => $ocrSource,
+            'ocr_text'       => $ocrText,
+            'raw_response'   => $rawResponse,
+            'parsed'         => $parsed,
+            'vendor_id'      => $rescanVendorId,
+            'vendor_profile' => $rescanLiProfile,
+        ]);
+        $parsed      = $enh['parsed'];
+        $ocrText     = $enh['ocr_text'];
+        $rawResponse = $enh['raw_response'];
+        $ocrSource   = $enh['ocr_source'];
+        $ocrResult['text']         = $ocrText;
+        $ocrResult['raw_response'] = $rawResponse;
         $suggestions = suggestReceiptMeta($ocrText, null, null, $expense['job_id'] ?? null);
 
         $vendorIdForMatch = !empty($suggestions['vendor_id']) ? (int)$suggestions['vendor_id']
@@ -1501,50 +1493,8 @@ function handleAddLineItem(PDO $db, ?array $input): void
         throw new Exception('Invalid security token');
     }
 
-    $expenseId = (int)($input['expense_id'] ?? 0);
-    if (!$expenseId) throw new Exception('Expense ID required');
-
-    $name = trim($input['name'] ?? '');
-    if (!$name) throw new Exception('Item name required');
-
-    $qty       = (float)($input['quantity'] ?? 1);
-    $unitPrice = isset($input['unit_price']) && $input['unit_price'] !== '' ? (float)$input['unit_price'] : null;
-    $lineTotal = isset($input['line_total']) && $input['line_total'] !== '' ? (float)$input['line_total']
-               : ($unitPrice !== null ? $unitPrice * $qty : 0.0);
-    $productId = !empty($input['product_id']) ? (int)$input['product_id'] : null;
-
-    // Get next sort_order
-    $sortStmt = $db->prepare("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM expense_line_items WHERE expense_id = ?");
-    $sortStmt->execute([$expenseId]);
-    $sortOrder = (int)$sortStmt->fetchColumn();
-
-    $ins = $db->prepare("
-        INSERT INTO expense_line_items (expense_id, product_id, name, quantity, unit_price, line_total, sort_order)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    ");
-    $ins->execute([$expenseId, $productId, $name, $qty, $unitPrice, $lineTotal, $sortOrder]);
-    $newId = (int)$db->lastInsertId();
-
-    if ($productId) {
-        updateProductInventory($db, $productId, $qty);
-
-        // Also teach vendor catalog if vendor known
-        $vendorStmt = $db->prepare("SELECT vendor_id FROM expenses WHERE id = ?");
-        $vendorStmt->execute([$expenseId]);
-        $vendorId = (int)$vendorStmt->fetchColumn();
-        if ($vendorId) {
-            try { teachVendorProduct($db, $vendorId, $name, $productId); } catch (Throwable $e) {}
-        }
-    }
-
-    $result = $db->prepare("
-        SELECT eli.*, p.name AS product_name, p.sku AS product_sku
-        FROM expense_line_items eli
-        LEFT JOIN products p ON p.id = eli.product_id
-        WHERE eli.id = ?
-    ");
-    $result->execute([$newId]);
-    $item = $result->fetch(PDO::FETCH_ASSOC);
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseLineItemService.php';
+    $item = (new ExpenseLineItemService($db))->add((int)($input['expense_id'] ?? 0), $input);
 
     echo json_encode(['success' => true, 'line_item' => $item]);
 }
@@ -1560,19 +1510,8 @@ function handleDeleteLineItem(PDO $db, ?array $input): void
         throw new Exception('Invalid security token');
     }
 
-    $lineItemId = (int)($input['line_item_id'] ?? 0);
-    if (!$lineItemId) throw new Exception('Line item ID required');
-
-    // Reverse inventory
-    $stmt = $db->prepare("SELECT product_id, quantity FROM expense_line_items WHERE id = ?");
-    $stmt->execute([$lineItemId]);
-    $li = $stmt->fetch(PDO::FETCH_ASSOC);
-    if ($li && $li['product_id']) {
-        updateProductInventory($db, (int)$li['product_id'], -(float)$li['quantity']);
-    }
-
-    $del = $db->prepare("DELETE FROM expense_line_items WHERE id = ?");
-    $del->execute([$lineItemId]);
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseLineItemService.php';
+    (new ExpenseLineItemService($db))->delete((int)($input['line_item_id'] ?? 0));
 
     echo json_encode(['success' => true]);
 }
@@ -1598,46 +1537,5 @@ function handleUpdateLineItem(PDO $db, ?array $input): void
 }
 
 
-/**
- * Teach the vendor_products catalog: when office staff manually links a
- * line item name → product, record it so future receipts from the same
- * vendor auto-match without any manual work.
- *
- * Logic:
- *  - If a vendor_products row already exists for this vendor+product, add
- *    the OCR name as an alias (comma-sep in ocr_aliases).
- *  - If no row exists yet, create one.
- */
-function teachVendorProduct(PDO $db, int $vendorId, string $ocrName, int $productId): void
-{
-    $ocrNameNorm = strtoupper(trim($ocrName));
-    if (!$ocrNameNorm) return;
-
-    // Check if this vendor already has a mapping for this product
-    $check = $db->prepare("SELECT id, ocr_aliases FROM vendor_products WHERE vendor_id = ? AND product_id = ? LIMIT 1");
-    $check->execute([$vendorId, $productId]);
-    $existing = $check->fetch(PDO::FETCH_ASSOC);
-
-    if ($existing) {
-        // Add OCR name to aliases if not already there
-        $aliases = array_filter(array_map('trim', explode(',', $existing['ocr_aliases'] ?? '')));
-        if (!in_array($ocrNameNorm, array_map('strtoupper', $aliases), true)) {
-            $aliases[] = $ocrNameNorm;
-            $upd = $db->prepare("UPDATE vendor_products SET ocr_aliases = ? WHERE id = ?");
-            $upd->execute([implode(',', $aliases), $existing['id']]);
-        }
-    } else {
-        // Fetch product name to use as the catalog entry name
-        $pStmt = $db->prepare("SELECT name, sku FROM products WHERE id = ?");
-        $pStmt->execute([$productId]);
-        $product = $pStmt->fetch(PDO::FETCH_ASSOC);
-        if (!$product) return;
-
-        // Create a new vendor_products entry
-        $ins = $db->prepare("
-            INSERT INTO vendor_products (vendor_id, product_id, name, category, ocr_aliases, is_active)
-            VALUES (?, ?, ?, 'Materials', ?, 1)
-        ");
-        $ins->execute([$vendorId, $productId, $product['name'], $ocrNameNorm]);
-    }
-}
+// teachVendorProduct() now lives in app/Services/Receipts/ExpenseLineItems.php so the
+// JWT line-item endpoint and ExpenseLineItemService share it with this file.

@@ -108,8 +108,13 @@ class ExpenseService
             try {
                 require_once APP_ROOT . '/Services/Receipts/ReceiptParser.php';
                 require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
-                $ocrParsed = parseReceiptText($expense['raw_ocr_json']);
-                recordCorrections($vendorId, $vendorRaw, $ocrParsed, $input, $expense['raw_ocr_json']);
+                // After a rescan raw_ocr_json is the JSON Vision response, not text —
+                // re-parsing that blob as text produced garbage header lessons.
+                $ocrText = ocrTextFromStored($expense['raw_ocr_json']);
+                if ($ocrText !== '') {
+                    $ocrParsed = parseReceiptText($ocrText, null, getVendorLineItemProfile($vendorId));
+                    recordCorrections($vendorId, $vendorRaw, $ocrParsed, $input, $ocrText);
+                }
             } catch (Throwable $e) {
                 error_log('Receipt learning error (mobile update): ' . $e->getMessage());
             }

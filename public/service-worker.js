@@ -19,7 +19,7 @@
  * URL so the WebView can use a service worker just like a browser can).
  */
 
-var CACHE_VERSION = 'mw-v57';
+var CACHE_VERSION = 'mw-v58';
 var SHELL_CACHE  = 'mw-shell-' + CACHE_VERSION;
 var PAGE_CACHE   = 'mw-pages-' + CACHE_VERSION;
 var IMG_CACHE    = 'mw-images-' + CACHE_VERSION;
@@ -431,13 +431,16 @@ function syncPendingReceipts() {
                   raw_ocr_json: intake.ocr_text || null,
                   ocr_parsed: intake.parsed ? JSON.stringify(intake.parsed) : null,
                   status: 'draft',
+                  line_items_source: p.line_items_source || null,
                   line_items: (p.line_items || []).map(function(item) {
                     return {
                       name: item.name || 'Unknown Item',
+                      ocr_name: item.ocr_name || item.name || '',
                       quantity: item.quantity || 1,
                       unit_price: item.unit_price || null,
                       line_total: item.line_total || item.amount || 0,
-                      sku_raw: item.sku_raw || null
+                      sku_raw: item.sku_raw || null,
+                      product_id: item.product_id || null
                     };
                   })
                 })

@@ -107,29 +107,18 @@ function recordCorrections(?int $vendorId, ?string $vendorName, array $ocrParsed
         }
     }
 
-    // ── Line item name corrections ─────────────────────────────────────
-    // Compare OCR-extracted item names with user-saved names (by position).
-    // Corrections feed into receipt_parse_lessons and eventually into vendor_products.ocr_aliases.
+    // ── Line item corrections ──────────────────────────────────────────
+    // Each saved item carries the parser's original name (`ocr_name`) plus
+    // `removed` / `manual` flags from the review card, so corrections are matched
+    // by identity, not by array position. (The old positional compare of
+    // ocr_parsed vs line_items was dead by construction — every client sent the
+    // OCR items through verbatim, so the two arrays were always identical.)
     if ($vendorId) {
-        $ocrItems  = $ocrParsed['line_items']  ?? [];
-        $userItems = $userSaved['line_items']   ?? [];
+        $userItems = $userSaved['line_items'] ?? [];
         if (is_string($userItems)) {
             $userItems = json_decode($userItems, true) ?: [];
         }
-        $pairCount = min(count($ocrItems), count($userItems));
-        for ($i = 0; $i < $pairCount; $i++) {
-            $ocrName  = strtoupper(trim($ocrItems[$i]['name'] ?? ''));
-            $userName = strtoupper(trim($userItems[$i]['name'] ?? ''));
-            if (empty($ocrName) || empty($userName) || $ocrName === $userName) continue;
-
-            $existing = findExistingLesson($db, $vendorId, 'line_item_name', $ocrName, $userName);
-            if ($existing) {
-                $db->prepare("UPDATE receipt_parse_lessons SET times_seen = times_seen + 1, updated_at = NOW() WHERE id = ?")
-                   ->execute([$existing['id']]);
-            } else {
-                $db->prepare("INSERT INTO receipt_parse_lessons (vendor_id, vendor_name, field_name, ocr_value, corrected_value, ocr_context) VALUES (?, ?, 'line_item_name', ?, ?, ?)")
-                   ->execute([$vendorId, $vendorName, $ocrName, $userName, $ocrName . ' → ' . $userName]);
-            }
+        if (is_array($userItems) && recordLineItemCorrectionsFromPayload($db, $vendorId, $vendorName, $userItems) > 0) {
             $hadCorrections = true;
         }
     }
@@ -242,30 +231,10 @@ function applyLearnedPatterns(?int $vendorId, array $parsed, string $ocrText): a
         }
     }
 
-    // ── Apply learned line item name corrections ───────────────────────
-    // After 2+ corrections of an OCR misread → correct name, apply automatically.
+    // ── Apply learned line-item knowledge ──────────────────────────────
+    // Noise removal, learned renames, and SKU → product auto-linking.
     if (!empty($parsed['line_items'])) {
-        try {
-            $stmt = $db->prepare("
-                SELECT ocr_value, corrected_value FROM receipt_parse_lessons
-                WHERE vendor_id = ? AND field_name = 'line_item_name' AND times_seen >= 2
-            ");
-            $stmt->execute([$vendorId]);
-            $nameMap = [];
-            while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-                $nameMap[strtoupper(trim($row['ocr_value']))] = $row['corrected_value'];
-            }
-            if (!empty($nameMap)) {
-                foreach ($parsed['line_items'] as &$item) {
-                    $key = strtoupper(trim($item['name'] ?? ''));
-                    if (isset($nameMap[$key])) {
-                        $item['name']        = $nameMap[$key];
-                        $item['name_source'] = 'learned';
-                    }
-                }
-                unset($item);
-            }
-        } catch (Throwable $e) { /* non-fatal */ }
+        $parsed = applyLineItemLearning($vendorId, $parsed);
     }
 
     // ── Apply learned accounting category ─────────────────────────────
@@ -539,6 +508,9 @@ function deriveVendorPatterns(PDO $db, int $vendorId): void
             }
         }
 
+        // ── Line-item patterns (barcode length, noise lines, accuracy) ──
+        $updates = array_merge($updates, deriveLineItemPatterns($db, $vendorId, $pf ?: null));
+
         // Apply derived patterns to profile
         if (!empty($updates)) {
             $setClauses = [];
@@ -758,18 +730,23 @@ function getVendorTesseractThreshold(?int $vendorId): int
 
     try {
         $db = getDB();
-        $stmt = $db->prepare("
-            SELECT tesseract_threshold, accuracy_rate, total_receipts
-            FROM vendor_parse_profiles WHERE vendor_id = ?
-        ");
+        $stmt = $db->prepare("SELECT * FROM vendor_parse_profiles WHERE vendor_id = ?");
         $stmt->execute([$vendorId]);
         $profile = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$profile) return 70;
 
+        // Line-item accuracy is a second, independent signal: a vendor whose header
+        // fields Tesseract reads fine but whose item lines it mangles still deserves
+        // Vision (bounding boxes → position-aware line reconstruction). Applied on
+        // top of any manual/derived header threshold.
+        $liCount = (int)($profile['line_item_receipts'] ?? 0);
+        $liRate  = $profile['line_item_accuracy'] !== null ? (float)$profile['line_item_accuracy'] : null;
+        $liFloor = ($liCount >= 5 && $liRate !== null && $liRate < 60) ? 80 : 0;
+
         // Use manually-set threshold if present
         if ($profile['tesseract_threshold'] !== null) {
-            return (int)$profile['tesseract_threshold'];
+            return max((int)$profile['tesseract_threshold'], $liFloor);
         }
 
         // Auto-derive from accuracy history — need 5+ receipts for reliable stats
@@ -777,12 +754,381 @@ function getVendorTesseractThreshold(?int $vendorId): int
         $count = (int)($profile['total_receipts'] ?? 0);
 
         if ($count >= 5) {
-            if ($rate >= 80) return 55; // High accuracy: trust Tesseract more, skip Vision sooner
-            if ($rate <  50) return 80; // Low accuracy: force Vision more often
+            if ($rate >= 80) return max(55, $liFloor); // High accuracy: trust Tesseract more, skip Vision sooner
+            if ($rate <  50) return 80;                // Low accuracy: force Vision more often
         }
+        if ($liFloor) return $liFloor;
     } catch (Throwable $e) {
         error_log('getVendorTesseractThreshold: ' . $e->getMessage());
     }
 
     return 70; // Safe default
+}
+
+
+// ============================================================================
+//  Line-item learning
+//
+//  Everything below is what makes the parser's "self-learning" cover line items.
+//  Signals come from three places: the review card (rename / "not an item" /
+//  manually-added rows, sent as ocr_name / removed / manual flags on each item),
+//  the post-save line-item editor (ExpenseLineItemService), and product linking
+//  (SKU → product memory). They're applied on the next scan by
+//  applyLineItemLearning(), which applyLearnedPatterns() calls.
+// ============================================================================
+
+/**
+ * Upsert one lesson row (times_seen++ when the same ocr→corrected pair recurs).
+ */
+function recordLineItemLesson(PDO $db, int $vendorId, ?string $vendorName, string $type, ?string $ocrValue, ?string $correctedValue): void
+{
+    $ocrValue       = $ocrValue !== null ? strtoupper(trim($ocrValue)) : null;
+    $correctedValue = $correctedValue !== null ? trim($correctedValue) : null;
+    if ($ocrValue === '' ) $ocrValue = null;
+    if ($correctedValue === '') $correctedValue = null;
+    if ($ocrValue === null && $correctedValue === null) return;
+
+    try {
+        $existing = findExistingLesson($db, $vendorId, $type, $ocrValue, $correctedValue);
+        if ($existing) {
+            $db->prepare("UPDATE receipt_parse_lessons SET times_seen = times_seen + 1, updated_at = NOW() WHERE id = ?")
+               ->execute([$existing['id']]);
+        } else {
+            $db->prepare("INSERT INTO receipt_parse_lessons (vendor_id, vendor_name, field_name, ocr_value, corrected_value, ocr_context) VALUES (?, ?, ?, ?, ?, ?)")
+               ->execute([$vendorId, $vendorName, $type, $ocrValue, $correctedValue, trim(($ocrValue ?? '∅') . ' → ' . ($correctedValue ?? '∅'))]);
+        }
+    } catch (Throwable $e) {
+        error_log('recordLineItemLesson: ' . $e->getMessage());
+    }
+}
+
+
+/**
+ * Record corrections from a saved line-item payload (review-card save on any client).
+ *
+ * Each item may carry: name, ocr_name (parser's original), removed (bool, "not an
+ * item"), manual (bool, typed by the user), sku_raw, product_id.
+ *
+ * @return int Number of corrections recorded.
+ */
+function recordLineItemCorrectionsFromPayload(PDO $db, int $vendorId, ?string $vendorName, array $items): int
+{
+    $parsedCount = 0;
+    $corrections = 0;
+
+    foreach ($items as $item) {
+        if (!is_array($item)) continue;
+        $name    = trim((string)($item['name'] ?? ''));
+        $ocrName = trim((string)($item['ocr_name'] ?? ''));
+        $removed = !empty($item['removed']);
+        $manual  = !empty($item['manual']);
+
+        if ($ocrName !== '') {
+            $parsedCount++;
+        }
+
+        if ($removed && $ocrName !== '') {
+            recordLineItemLesson($db, $vendorId, $vendorName, 'line_item_noise', $ocrName, null);
+            $corrections++;
+        } elseif ($manual && $name !== '' && $ocrName === '') {
+            recordLineItemLesson($db, $vendorId, $vendorName, 'line_item_missed', null, $name);
+            $corrections++;
+        } elseif ($ocrName !== '' && $name !== '' && strtoupper($ocrName) !== strtoupper($name)) {
+            recordLineItemLesson($db, $vendorId, $vendorName, 'line_item_name', $ocrName, $name);
+            $corrections++;
+        }
+
+        // SKU memory — every save teaches the SKU→name pair; a product link teaches the mapping.
+        $sku = trim((string)($item['sku_raw'] ?? ''));
+        if (!$removed && $sku !== '') {
+            recordSkuLink($db, $vendorId, $sku, !empty($item['product_id']) ? (int)$item['product_id'] : null, null, $name ?: null);
+        }
+    }
+
+    if ($parsedCount > 0 || $corrections > 0) {
+        updateLineItemProfileStats($db, $vendorId, $parsedCount, $corrections);
+    }
+
+    return $corrections;
+}
+
+
+/**
+ * Roll one reviewed receipt into the vendor's line-item accuracy stats.
+ * Accuracy is a receipt-weighted running mean of (accepted / parsed) per receipt.
+ */
+function updateLineItemProfileStats(PDO $db, int $vendorId, int $parsedCount, int $corrections): void
+{
+    try {
+        $stmt = $db->prepare("SELECT id, line_item_receipts, line_item_accuracy FROM vendor_parse_profiles WHERE vendor_id = ?");
+        $stmt->execute([$vendorId]);
+        $pf = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        $thisAccuracy = $parsedCount > 0
+            ? max(0, min(100, round((($parsedCount - min($parsedCount, $corrections)) / $parsedCount) * 100, 2)))
+            : null;
+
+        if ($pf) {
+            $n   = (int)$pf['line_item_receipts'];
+            $old = $pf['line_item_accuracy'] !== null ? (float)$pf['line_item_accuracy'] : null;
+            $new = $thisAccuracy === null ? $old
+                 : ($old === null ? $thisAccuracy : round((($old * $n) + $thisAccuracy) / ($n + 1), 2));
+            $db->prepare("
+                UPDATE vendor_parse_profiles
+                SET line_item_receipts = line_item_receipts + ?,
+                    line_item_corrections = line_item_corrections + ?,
+                    line_item_accuracy = ?,
+                    updated_at = NOW()
+                WHERE vendor_id = ?
+            ")->execute([$parsedCount > 0 ? 1 : 0, $corrections, $new, $vendorId]);
+        } else {
+            $db->prepare("
+                INSERT INTO vendor_parse_profiles (vendor_id, total_receipts, total_corrections, line_item_receipts, line_item_corrections, line_item_accuracy)
+                VALUES (?, 0, 0, ?, ?, ?)
+            ")->execute([$vendorId, $parsedCount > 0 ? 1 : 0, $corrections, $thisAccuracy]);
+        }
+    } catch (Throwable $e) {
+        // Columns arrive with migration 1115 — never fatal before it runs.
+        error_log('updateLineItemProfileStats: ' . $e->getMessage());
+    }
+}
+
+
+/**
+ * Remember a SKU/barcode for a vendor. A product_id makes it an auto-link rule for
+ * the next receipt; without one it still records the SKU→name pair (so the
+ * barcode-length pattern can be derived and a later link has context).
+ */
+function recordSkuLink(PDO $db, int $vendorId, string $skuRaw, ?int $productId, ?int $vendorProductId, ?string $itemName): void
+{
+    $skuRaw = trim($skuRaw);
+    if ($skuRaw === '' || strlen($skuRaw) > 64) return;
+    try {
+        $db->prepare("
+            INSERT INTO vendor_product_skus (vendor_id, sku_raw, product_id, vendor_product_id, item_name, times_seen, last_seen_at)
+            VALUES (?, ?, ?, ?, ?, 1, NOW())
+            ON DUPLICATE KEY UPDATE
+                times_seen        = times_seen + 1,
+                product_id        = COALESCE(VALUES(product_id), product_id),
+                vendor_product_id = COALESCE(VALUES(vendor_product_id), vendor_product_id),
+                item_name         = COALESCE(VALUES(item_name), item_name),
+                last_seen_at      = NOW()
+        ")->execute([$vendorId, $skuRaw, $productId, $vendorProductId, $itemName !== null ? mb_substr($itemName, 0, 255) : null]);
+    } catch (Throwable $e) {
+        // Table arrives with migration 1115 — never fatal before it runs.
+        error_log('recordSkuLink: ' . $e->getMessage());
+    }
+}
+
+
+/**
+ * Everything the parser and the LLM tier know about a vendor's line items.
+ * Cached per request.
+ *
+ * @return array{noise: string[], name_map: array<string,string>, skus: array<string,int>,
+ *               aliases: array<string,int>, barcode_length: ?int, discount_prefix: ?string,
+ *               known_names: string[]}
+ */
+function getVendorLineItemProfile(?int $vendorId): array
+{
+    static $cache = [];
+    $empty = ['noise' => [], 'name_map' => [], 'skus' => [], 'aliases' => [], 'barcode_length' => null, 'discount_prefix' => null, 'known_names' => []];
+    if (!$vendorId) return $empty;
+    if (isset($cache[$vendorId])) return $cache[$vendorId];
+
+    $out = $empty;
+    try {
+        $db = getDB();
+
+        $stmt = $db->prepare("SELECT field_name, ocr_value, corrected_value FROM receipt_parse_lessons WHERE vendor_id = ? AND field_name IN ('line_item_noise','line_item_name') AND times_seen >= 2");
+        $stmt->execute([$vendorId]);
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            $key = strtoupper(trim((string)$row['ocr_value']));
+            if ($key === '') continue;
+            if ($row['field_name'] === 'line_item_noise') {
+                $out['noise'][] = $key;
+            } elseif (!empty($row['corrected_value'])) {
+                $out['name_map'][$key] = $row['corrected_value'];
+            }
+        }
+
+        try {
+            $stmt = $db->prepare("SELECT sku_raw, product_id FROM vendor_product_skus WHERE vendor_id = ? AND product_id IS NOT NULL");
+            $stmt->execute([$vendorId]);
+            while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                $out['skus'][trim($row['sku_raw'])] = (int)$row['product_id'];
+            }
+        } catch (Throwable $e) { /* pre-migration */ }
+
+        $stmt = $db->prepare("SELECT name, ocr_aliases, product_id FROM vendor_products WHERE vendor_id = ? AND is_active = 1 AND product_id IS NOT NULL");
+        $stmt->execute([$vendorId]);
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            $pid = (int)$row['product_id'];
+            $out['aliases'][strtoupper(trim($row['name']))] = $pid;
+            foreach (array_filter(array_map('trim', explode(',', (string)$row['ocr_aliases']))) as $alias) {
+                $out['aliases'][strtoupper($alias)] = $pid;
+            }
+        }
+
+        try {
+            $pf = getVendorParseProfile($db, $vendorId);
+            if ($pf) {
+                $out['barcode_length']  = $pf['barcode_length'] !== null ? (int)$pf['barcode_length'] : null;
+                $out['discount_prefix'] = $pf['discount_prefix'] ?: null;
+                if (!empty($pf['noise_patterns'])) {
+                    foreach (explode('|', $pf['noise_patterns']) as $n) {
+                        $n = strtoupper(trim($n));
+                        if ($n !== '' && !in_array($n, $out['noise'], true)) $out['noise'][] = $n;
+                    }
+                }
+            }
+        } catch (Throwable $e) { /* non-fatal */ }
+
+        // The vendor's own purchase history is the best dictionary of what its receipts say.
+        $stmt = $db->prepare("
+            SELECT eli.name, COUNT(*) AS c
+            FROM expense_line_items eli
+            JOIN expenses e ON e.id = eli.expense_id
+            WHERE e.vendor_id = ? AND eli.is_adjustment = 0
+            GROUP BY eli.name
+            ORDER BY c DESC, MAX(eli.id) DESC
+            LIMIT 80
+        ");
+        $stmt->execute([$vendorId]);
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            $n = trim((string)$row['name']);
+            if ($n !== '' && strlen($n) >= 3) $out['known_names'][] = $n;
+        }
+    } catch (Throwable $e) {
+        error_log('getVendorLineItemProfile: ' . $e->getMessage());
+    }
+
+    return $cache[$vendorId] = $out;
+}
+
+
+/**
+ * Apply per-vendor line-item knowledge to a parse result:
+ *   1. drop lines the user has repeatedly marked "not an item"
+ *   2. rename OCR misreads the user has repeatedly corrected
+ *   3. auto-link product_id by SKU memory, then by catalog name/alias
+ * Every surviving item carries `ocr_name` (the parser's original) so clients can
+ * echo it back and later renames become lessons.
+ */
+function applyLineItemLearning(int $vendorId, array $parsed): array
+{
+    if (empty($parsed['line_items']) || !is_array($parsed['line_items'])) return $parsed;
+    $p = getVendorLineItemProfile($vendorId);
+
+    $kept = [];
+    foreach ($parsed['line_items'] as $item) {
+        $orig = trim((string)($item['name'] ?? ''));
+        $key  = strtoupper($orig);
+        if (!isset($item['ocr_name']) || $item['ocr_name'] === null || $item['ocr_name'] === '') {
+            $item['ocr_name'] = $orig;
+        }
+
+        if ($key !== '' && empty($item['is_adjustment']) && in_array($key, $p['noise'], true)) {
+            $parsed['line_items_noise_removed'] = ($parsed['line_items_noise_removed'] ?? 0) + 1;
+            continue;
+        }
+
+        if ($key !== '' && isset($p['name_map'][$key])) {
+            $item['name']        = $p['name_map'][$key];
+            $item['name_source'] = 'learned';
+        }
+
+        if (empty($item['product_id'])) {
+            $sku = trim((string)($item['sku_raw'] ?? ''));
+            if ($sku !== '' && isset($p['skus'][$sku])) {
+                $item['product_id']     = $p['skus'][$sku];
+                $item['product_source'] = 'sku';
+            } else {
+                $nameKey = strtoupper(trim((string)$item['name']));
+                if ($nameKey !== '' && isset($p['aliases'][$nameKey])) {
+                    $item['product_id']     = $p['aliases'][$nameKey];
+                    $item['product_source'] = 'alias';
+                } elseif (strlen($nameKey) >= 4) {
+                    foreach ($p['aliases'] as $alias => $pid) {
+                        if (strlen($alias) >= 4 && (strpos($nameKey, $alias) !== false || strpos($alias, $nameKey) !== false)) {
+                            $item['product_id']     = $pid;
+                            $item['product_source'] = 'alias';
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        $kept[] = $item;
+    }
+    $parsed['line_items'] = $kept;
+    return $parsed;
+}
+
+
+/**
+ * Derive line-item-shaped profile columns from accumulated history:
+ *   barcode_length — modal digit-count of numeric SKUs seen for this vendor (≥3 samples)
+ *   noise_patterns — "|"-joined names repeatedly marked "not an item"
+ * Returns column => value pairs for deriveVendorPatterns() to persist.
+ */
+function deriveLineItemPatterns(PDO $db, int $vendorId, ?array $profileRow): array
+{
+    $updates = [];
+    try {
+        $stmt = $db->prepare("
+            SELECT LENGTH(eli.sku_raw) AS len, COUNT(*) AS c
+            FROM expense_line_items eli
+            JOIN expenses e ON e.id = eli.expense_id
+            WHERE e.vendor_id = ? AND eli.sku_raw REGEXP '^[0-9]+$'
+            GROUP BY LENGTH(eli.sku_raw)
+            ORDER BY c DESC
+            LIMIT 1
+        ");
+        $stmt->execute([$vendorId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row && (int)$row['c'] >= 3 && (int)$row['len'] >= 6 && (int)$row['len'] <= 15) {
+            $updates['barcode_length'] = (int)$row['len'];
+        }
+
+        $stmt = $db->prepare("SELECT ocr_value FROM receipt_parse_lessons WHERE vendor_id = ? AND field_name = 'line_item_noise' AND times_seen >= 2 ORDER BY times_seen DESC LIMIT 40");
+        $stmt->execute([$vendorId]);
+        $noise = array_values(array_unique(array_filter(array_map(function ($v) {
+            return strtoupper(trim((string)$v));
+        }, $stmt->fetchAll(PDO::FETCH_COLUMN)))));
+        if (!empty($noise)) {
+            $updates['noise_patterns'] = mb_substr(implode('|', $noise), 0, 2000);
+        }
+    } catch (Throwable $e) {
+        error_log('deriveLineItemPatterns: ' . $e->getMessage());
+    }
+    return $updates;
+}
+
+
+/**
+ * expenses.raw_ocr_json holds plain OCR text — except after a rescan, when it holds
+ * the JSON-encoded Vision response. Re-parsing that blob as text produced garbage
+ * header lessons. Returns the plain text either way ('' if unrecoverable).
+ */
+function ocrTextFromStored(?string $raw): string
+{
+    if ($raw === null) return '';
+    $t = ltrim($raw);
+    if ($t === '' || ($t[0] !== '{' && $t[0] !== '[')) {
+        return $raw;
+    }
+    $decoded = json_decode($t, true);
+    if (!is_array($decoded)) return '';
+    if (!empty($decoded['fullTextAnnotation']['text'])) {
+        return (string)$decoded['fullTextAnnotation']['text'];
+    }
+    if (!empty($decoded['responses'][0]['fullTextAnnotation']['text'])) {
+        return (string)$decoded['responses'][0]['fullTextAnnotation']['text'];
+    }
+    if (!empty($decoded['text']) && is_string($decoded['text'])) {
+        return $decoded['text'];
+    }
+    return '';
 }

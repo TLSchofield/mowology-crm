@@ -2810,6 +2810,63 @@
         color: #dc2626;
     }
 
+    /* Editable review items: tap name to rename, ✕ = not an item, + add missed */
+    .mw-mc-expense-line-item button.mw-mc-expense-line-item-name {
+        background: transparent;
+        border: 0;
+        padding: 0;
+        text-align: left;
+        font: inherit;
+        -webkit-tap-highlight-color: transparent;
+    }
+    .mw-mc-expense-line-item-x {
+        flex-shrink: 0;
+        margin-left: 8px;
+        width: 26px;
+        height: 26px;
+        border: 0;
+        border-radius: 50%;
+        background: rgba(0, 0, 0, 0.05);
+        color: #888;
+        font-size: 0.85rem;
+        line-height: 26px;
+        -webkit-tap-highlight-color: transparent;
+    }
+    .mw-mc-expense-line-item-removed .mw-mc-expense-line-item-name,
+    .mw-mc-expense-line-item-removed .mw-mc-expense-line-item-amt {
+        text-decoration: line-through;
+        opacity: 0.45;
+    }
+    .mw-mc-expense-line-item-manual .mw-mc-expense-line-item-name::after {
+        content: " added";
+        font-size: 0.65rem;
+        color: #999;
+    }
+    .mw-mc-expense-line-item-linked {
+        color: var(--mw-green, #2D8659);
+        font-size: 0.75rem;
+    }
+    .mw-mc-expense-line-item-add {
+        display: block;
+        width: calc(100% - 24px);
+        margin: 6px 12px 2px;
+        padding: 8px;
+        border: 1px dashed rgba(45, 134, 89, 0.5);
+        border-radius: 8px;
+        background: transparent;
+        color: var(--mw-green, #2D8659);
+        font-size: 0.8rem;
+        -webkit-tap-highlight-color: transparent;
+    }
+    .mw-mc-expense-li-meta {
+        padding: 2px 12px 0;
+        font-size: 0.75rem;
+        line-height: 1.35;
+    }
+    .mw-mc-expense-li-meta:empty {
+        display: none;
+    }
+
     /* ── Save Row ── */
     .mw-mc-expense-save-row {
         display: flex;

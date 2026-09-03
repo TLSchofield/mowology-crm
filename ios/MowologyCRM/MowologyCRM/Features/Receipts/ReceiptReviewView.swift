@@ -39,6 +39,15 @@ struct ReceiptReviewView: View {
     @State private var description:    String = ""
     @State private var selectedJob:    JobPick?
 
+    // Line items — editable pre-save. Every rename / "not an item" / manual add is
+    // sent with ocr_name so the server learns per-vendor (same as the Android card).
+    @State private var items:          [ReceiptLineItem]
+    @State private var renameIndex:    Int?
+    @State private var renameText:     String = ""
+    @State private var showAddItem     = false
+    @State private var addItemName:    String = ""
+    @State private var addItemAmount:  String = ""
+
     // Lookups
     @State private var vendorResults:  [VendorSearchResult] = []
     @State private var vendorSearchTask: Task<Void, Never>?
@@ -98,6 +107,7 @@ struct ReceiptReviewView: View {
         _total         = State(initialValue: totalD > 0 ? Self.money(totalD) : "")
         _category      = State(initialValue: s?.accountingCategory ?? "")
         _paymentMethod = State(initialValue: p?.paymentMethod ?? "credit_card")
+        _items         = State(initialValue: p?.lineItems ?? [])
     }
 
     private var categories: [String] {
@@ -186,6 +196,30 @@ struct ReceiptReviewView: View {
         .confirmationDialog(savedMessage, isPresented: $showSavedDialog, titleVisibility: .visible) {
             Button("Snap Another") { finish(.snapAnother) }
             Button("Done") { finish(.done) }
+        }
+        .alert("Rename item", isPresented: Binding(get: { renameIndex != nil }, set: { if !$0 { renameIndex = nil } })) {
+            TextField("Item name", text: $renameText)
+            Button("Save") {
+                if let i = renameIndex, items.indices.contains(i) {
+                    let v = renameText.trimmingCharacters(in: .whitespaces)
+                    if !v.isEmpty { items[i].name = v }
+                }
+                renameIndex = nil
+            }
+            Button("Cancel", role: .cancel) { renameIndex = nil }
+        } message: {
+            Text("Corrections teach the parser what this line really says for this vendor.")
+        }
+        .alert("Add missed item", isPresented: $showAddItem) {
+            TextField("Item name (as printed)", text: $addItemName)
+            TextField("Line total ($)", text: $addItemAmount)
+                .keyboardType(.decimalPad)
+            Button("Add") {
+                let n = addItemName.trimmingCharacters(in: .whitespaces)
+                if !n.isEmpty { items.append(ReceiptLineItem(name: n, amount: Double(addItemAmount) ?? 0, manual: true)) }
+                addItemName = ""; addItemAmount = ""
+            }
+            Button("Cancel", role: .cancel) { addItemName = ""; addItemAmount = "" }
         }
     }
 
@@ -391,31 +425,107 @@ struct ReceiptReviewView: View {
         }
     }
 
-    /// Detected line items — read-only, collapsed by default, same behaviour as
-    /// Android's mobile review card ("N items detected"). Neither platform lets the
-    /// user edit individual lines here; they're sent through to the save as-is.
+    /// Detected line items — editable pre-save on both platforms: tap to rename, swipe
+    /// for "Not an item", "+ Add missed item" for lines OCR dropped. Each row keeps the
+    /// parser's original name so the correction becomes a per-vendor lesson on save.
+    private var activeItemCount: Int { items.filter { !$0.removed }.count }
+
+    private var itemsSum: Double {
+        items.filter { !$0.removed }.reduce(0) { $0 + ($1.amountDouble ?? 0) }
+    }
+
+    private var subtotalReference: Double? {
+        let s = Double(amount) ?? 0
+        if s > 0 { return s }
+        let t = totalValue
+        return t > 0 ? t : nil
+    }
+
     @ViewBuilder
+    private var lineItemsMeta: some View {
+        let source = intake.parsed?.lineItemsSource
+        if source == "llm" {
+            Label("AI extracted — please verify each line", systemImage: "sparkles")
+                .font(.caption2).foregroundStyle(.blue)
+        } else if source == "vision" && intake.parsed?.escalationReason != nil {
+            Label("Re-read with Vision for better item detail", systemImage: "eye")
+                .font(.caption2).foregroundStyle(.secondary)
+        }
+        if activeItemCount > 0, let ref = subtotalReference {
+            let tol = max(0.05, ref * 0.01)
+            if abs(itemsSum - ref) > tol {
+                Label(String(format: "Items total $%.2f ≠ subtotal $%.2f — a line may be missing or mis-read", itemsSum, ref), systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption2).foregroundStyle(Color.MW.orange)
+            } else {
+                Label("Items add up to the subtotal", systemImage: "checkmark.circle.fill")
+                    .font(.caption2).foregroundStyle(Color.MW.green)
+            }
+        }
+    }
+
     private var lineItemsSection: some View {
-        if let items = intake.parsed?.lineItems, !items.isEmpty {
-            Section {
-                DisclosureGroup("\(items.count) item\(items.count == 1 ? "" : "s") detected") {
-                    ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                        HStack {
-                            Text(item.name ?? "Unknown Item")
-                                .font(.subheadline)
-                            if let qty = item.quantity, qty > 1 {
-                                Text("×\(qty, specifier: "%g")")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+        Section {
+            DisclosureGroup("\(activeItemCount) item\(activeItemCount == 1 ? "" : "s") detected") {
+                lineItemsMeta
+                ForEach(Array(items.enumerated()), id: \.element.id) { idx, item in
+                    HStack(spacing: 6) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            HStack(spacing: 4) {
+                                Text(item.name ?? "Unknown Item")
+                                    .font(.subheadline)
+                                    .strikethrough(item.removed)
+                                    .foregroundStyle(item.removed ? .secondary : .primary)
+                                if item.productId != nil {
+                                    Image(systemName: "link").font(.caption2).foregroundStyle(Color.MW.green)
+                                }
+                                if item.manual {
+                                    Text("added").font(.caption2).foregroundStyle(.secondary)
+                                } else if item.nameSource == "learned" {
+                                    Text("learned").font(.caption2).foregroundStyle(Color.MW.green)
+                                }
                             }
-                            Spacer()
-                            Text(item.amount.map { "$\($0)" } ?? "—")
-                                .font(.subheadline)
-                                .foregroundStyle((item.amountDouble ?? 0) < 0 ? .red : .primary)
+                            if let sku = item.skuRaw, !sku.isEmpty {
+                                Text(sku).font(.caption2).foregroundStyle(.secondary)
+                            }
+                        }
+                        if let qty = item.quantity, qty > 1 {
+                            Text("×\(qty, specifier: "%g")")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Text(item.amount.map { "$\($0)" } ?? "—")
+                            .font(.subheadline)
+                            .strikethrough(item.removed)
+                            .foregroundStyle(item.removed ? Color.secondary : ((item.amountDouble ?? 0) < 0 ? Color.red : Color.primary))
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        guard !item.removed else { return }
+                        renameText = item.name ?? ""
+                        renameIndex = idx
+                    }
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        if item.manual && !item.removed {
+                            Button(role: .destructive) { items.remove(at: idx) } label: { Label("Remove", systemImage: "trash") }
+                        } else if item.removed {
+                            Button { items[idx].removed = false } label: { Label("Restore", systemImage: "arrow.uturn.backward") }
+                                .tint(Color.MW.green)
+                        } else {
+                            Button(role: .destructive) { items[idx].removed = true } label: { Label("Not an item", systemImage: "xmark") }
                         }
                     }
                 }
+                Button {
+                    showAddItem = true
+                } label: {
+                    Label("Add missed item", systemImage: "plus.circle")
+                        .font(.subheadline)
+                        .foregroundStyle(Color.MW.green)
+                }
             }
+        } footer: {
+            Text("Tap an item to rename it, swipe left to mark it as not an item. Corrections teach the parser for this vendor.")
         }
     }
 
@@ -576,6 +686,8 @@ struct ReceiptReviewView: View {
             mediaId:       intake.mediaId,
             rawOcrText:    intake.ocrText,
             ocrParsed:     intake.parsed,
+            lineItems:     items,
+            lineItemsSource: intake.parsed?.lineItemsSource,
             job:           selectedJob,
             lat:           lat,
             lng:           lng,

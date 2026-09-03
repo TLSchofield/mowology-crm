@@ -274,13 +274,16 @@
             raw_ocr_json: intake.ocr_text || null,
             ocr_parsed: intake.parsed ? JSON.stringify(intake.parsed) : null,
             status: 'draft',
+            line_items_source: p.line_items_source || null,
             line_items: (p.line_items || []).map(function(item) {
                 return {
                     name: item.name || 'Unknown Item',
+                    ocr_name: item.ocr_name || item.name || '',
                     quantity: item.quantity || 1,
                     unit_price: item.unit_price || null,
                     line_total: item.line_total || item.amount || 0,
-                    sku_raw: item.sku_raw || null
+                    sku_raw: item.sku_raw || null,
+                    product_id: item.product_id || null
                 };
             })
         };

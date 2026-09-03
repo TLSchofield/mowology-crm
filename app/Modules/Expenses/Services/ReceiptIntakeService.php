@@ -297,7 +297,38 @@ class ReceiptIntakeService
 
         if ($ocrAvailable && !empty($ocrText)) {
             $rawResponse = $ocrResult['raw_response'] ?? null;
-            $parsed = parseReceiptText($ocrText, $rawResponse);
+
+            // Vendor-aware parse: the vendor's learned line-item profile (noise lines,
+            // known item names, barcode length, discount prefix) shapes how items are
+            // split, not just how they're labelled afterwards.
+            require_once APP_ROOT . '/Services/Receipts/ReceiptLineItemIntelligence.php';
+            $profileVendorId = $earlyVendorId;
+            if (!$profileVendorId) {
+                try {
+                    $pre = suggestReceiptMeta($ocrText, null, null, null);
+                    $profileVendorId = !empty($pre['vendor_id']) ? (int)$pre['vendor_id'] : null;
+                } catch (Throwable $e) { /* non-fatal */ }
+            }
+            $liProfile = getVendorLineItemProfile($profileVendorId);
+            $parsed = parseReceiptText($ocrText, $rawResponse, $liProfile);
+
+            // Items don't add up? Escalate Tesseract→Vision, then the LLM tier.
+            $enh = enhanceLineItemExtraction([
+                'file_path'      => $filePath,
+                'ocr_source'     => $ocrSource,
+                'ocr_text'       => $ocrText,
+                'raw_response'   => $rawResponse,
+                'parsed'         => $parsed,
+                'vendor_id'      => $profileVendorId,
+                'vendor_profile' => $liProfile,
+            ]);
+            $parsed      = $enh['parsed'];
+            $ocrText     = $enh['ocr_text'];
+            $rawResponse = $enh['raw_response'];
+            $ocrSource   = $enh['ocr_source'];
+            $ocrResult['text']         = $ocrText;
+            $ocrResult['raw_response'] = $rawResponse;
+
             $suggestions = suggestReceiptMeta($ocrText, $lat, $lng, $jobId, $parsed);
 
             if (!empty($suggestions['vendor_id'])) {

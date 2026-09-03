@@ -117,6 +117,31 @@ for someone with no one else to approve their purchases (e.g. an owner who
 also submits a lot of his own receipts). Checked fresh from the DB inside
 `approve()`, not trusted from the session/JWT payload.
 
+## Line-item learning (migration 1115)
+
+The parser's self-learning loop covers line items, not just header fields. Signals
+and where they come from:
+
+| Signal | Recorded by | Applied on the next scan by |
+|---|---|---|
+| Rename (`line_item_name`), "not an item" (`line_item_noise`), manual add (`line_item_missed`) | Review card save on every client (`ocr_name` / `removed` / `manual` flags per item → `recordLineItemCorrectionsFromPayload()`), and post-save edits via `ExpenseLineItemService` (web modal + iOS `expense-line-items.php`) | `applyLineItemLearning()` — drops noise, renames misreads (≥2 sightings); `deriveLineItemPatterns()` fills `vendor_parse_profiles.noise_patterns` / `barcode_length` which `extractLineItems()` reads |
+| SKU → product (`vendor_product_skus`) | Every save records SKU→name; a product link records SKU→product | `applyLineItemLearning()` auto-links `product_id` by SKU, then by `vendor_products` name/alias; `matchVendorProducts()` step 5 links by confident catalog match |
+| Purchase history (`expense_line_items` names per vendor) | — | `extractLineItems()` queues a bare line matching a known name; the LLM tier gets the list as its dictionary |
+| Items-sum vs subtotal (`line_items_quality`) | `assessLineItemQuality()` in `parseReceiptText()` | `ReceiptLineItemIntelligence.php`: Tesseract→Vision re-OCR, then the LLM tier, only when items don't add up; `line_item_accuracy` feeds `getVendorTesseractThreshold()` |
+
+**LLM tier** (`app/Services/Receipts/ReceiptLlmExtractor.php`): line items only, never
+header fields; runs only after Vision still doesn't add up; output accepted only if rows
+sum to the regex subtotal and every name is present in the OCR text. Needs
+`ANTHROPIC_API_KEY` in `secrets.php` (optional `RECEIPT_LLM_MODEL`; kill switch
+`ops_settings.receipt_llm_extraction = '0'`). Results are tagged
+`expenses.line_items_source = 'llm'` and flagged "AI extracted — please verify" on every card.
+
+Both review cards (web mobile + iOS) let the user rename / mark "not an item" / add a
+missed item before saving; the desktop review panel does the same inline. After save,
+the desktop edit modal and the iOS detail sheet edit, delete, add and link items through
+the same service. `raw_ocr_json` may be a JSON Vision blob after a rescan —
+`ocrTextFromStored()` recovers the text before any re-parse.
+
 ## Line items
 
 `ReceiptParser::extractLineItems()` parses each OCR'd product line and persists them

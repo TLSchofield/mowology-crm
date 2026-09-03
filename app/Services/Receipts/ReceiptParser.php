@@ -29,7 +29,7 @@ if (!defined('APP_ROOT')) {
  * @param array|null $rawResponse Full Vision API response (for position-aware line items)
  * @return array Parsed fields with values (null if not found)
  */
-function parseReceiptText(string $ocrText, ?array $rawResponse = null): array
+function parseReceiptText(string $ocrText, ?array $rawResponse = null, ?array $vendorProfile = null): array
 {
     $result = [
         'total'          => null,
@@ -77,12 +77,12 @@ function parseReceiptText(string $ocrText, ?array $rawResponse = null): array
         $positionLines = reconstructLinesFromVisionResponse($rawResponse);
     }
     if (!empty($positionLines)) {
-        $result['line_items'] = extractLineItems($positionLines);
+        $result['line_items'] = extractLineItems($positionLines, $vendorProfile);
     }
     // Always also run plain-text extraction (fullTextAnnotation reads left column then right,
     // so qty@unit and total appear on separate lines — different items than position-aware).
     // Merge in any items found by plain text that position-aware missed.
-    $plainItems = extractLineItems($lines);
+    $plainItems = extractLineItems($lines, $vendorProfile);
     if (!empty($plainItems)) {
         if (empty($result['line_items'])) {
             $result['line_items'] = $plainItems;
@@ -150,7 +150,40 @@ function parseReceiptText(string $ocrText, ?array $rawResponse = null): array
         }
     }
 
+    // Line-item quality signal: do the parsed items add up to the subtotal?
+    // 'match' | 'mismatch' | 'none'. Drives the Tesseract→Vision escalation and the
+    // LLM tier (ReceiptLineItemIntelligence.php) and is shown on the review card.
+    $result = array_merge($result, assessLineItemQuality($result));
+
     return $result;
+}
+
+
+/**
+ * Sum the non-adjustment line items and compare to the subtotal (or, failing that,
+ * the total). Tolerance is the larger of $0.05 and 1% — OCR rounding, not a missed line.
+ *
+ * @return array{items_sum: ?string, line_items_quality: string}
+ */
+function assessLineItemQuality(array $parsed): array
+{
+    $items = $parsed['line_items'] ?? [];
+    if (empty($items)) {
+        return ['items_sum' => null, 'line_items_quality' => 'none'];
+    }
+    $sum = 0.0;
+    foreach ($items as $it) {
+        $sum += (float)($it['line_total'] ?? $it['amount'] ?? 0);
+    }
+    $reference = $parsed['subtotal'] !== null && $parsed['subtotal'] !== ''
+        ? (float)$parsed['subtotal']
+        : (($parsed['total'] ?? null) !== null ? (float)$parsed['total'] : null);
+    $quality = 'none';
+    if ($reference !== null && $reference > 0) {
+        $tolerance = max(0.05, $reference * 0.01);
+        $quality   = abs($sum - $reference) <= $tolerance ? 'match' : 'mismatch';
+    }
+    return ['items_sum' => number_format($sum, 2, '.', ''), 'line_items_quality' => $quality];
 }
 
 
@@ -266,10 +299,24 @@ function reconstructLinesFromVisionResponse(array $rawResponse): array
  * @param array $lines OCR text split into lines
  * @return array Array of ['name', 'amount', 'quantity', 'unit_price', 'sku_raw']
  */
-function extractLineItems(array $lines): array
+function extractLineItems(array $lines, ?array $vendorProfile = null): array
 {
     $items = [];
     $inItemZone = false;
+
+    // Per-vendor knowledge from ReceiptLearning::getVendorLineItemProfile():
+    //   noise         — lines the user has repeatedly marked "not an item" (skipped)
+    //   known_names   — names from this vendor's purchase history; a bare line that
+    //                   matches one is queued as a pending item even with no SKU or
+    //                   same-line price (the case the fixed cascade always dropped)
+    //   discount_prefix / barcode_length — extend the discount and barcode patterns
+    $noiseKeys      = array_map('strtoupper', $vendorProfile['noise'] ?? []);
+    $knownNameKeys  = [];
+    foreach ($vendorProfile['known_names'] ?? [] as $kn) {
+        $knownNameKeys[strtoupper(trim($kn))] = $kn;
+    }
+    $discountPrefix = !empty($vendorProfile['discount_prefix']) ? preg_quote($vendorProfile['discount_prefix'], '/') : null;
+    $barcodeLen     = !empty($vendorProfile['barcode_length']) ? (int)$vendorProfile['barcode_length'] : null;
     $stopKeywords = ['subtotal', 'sub total', 'gst', 'pst', 'hst', 'tax',
                      'amount due', 'balance due', 'change', 'tender', 'visa', 'mastercard',
                      'debit', 'interac', 'cash', 'approved', 'contactless', 'aid ',
@@ -310,6 +357,42 @@ function extractLineItems(array $lines): array
         if (preg_match('/^\d+\s+(st|ave|blvd|rd|dr|way|street|avenue)\b/i', $line)) continue;
         if (preg_match('/^[\d\s]+\d{2}\/\d{2}\/\d{2,4}/', $line)) continue;
         if (preg_match('/^(?:EACH|MAX REFUND|REFUND VALUE)/i', $line)) continue;
+
+        // Learned noise for this vendor — skip outright
+        if ($noiseKeys && in_array(strtoupper($line), $noiseKeys, true)) continue;
+
+        // Learned discount prefix (e.g. "PROMO" at a vendor that doesn't say DISCOUNT)
+        if ($discountPrefix && preg_match('/^' . $discountPrefix . '/i', $line)
+            && preg_match('/(-?\d{1,6}\.\d{2})/', $line, $dm)) {
+            $items = netDiscountIntoLastItem($items, '-' . ltrim($dm[1], '-'));
+            $inItemZone = true;
+            continue;
+        }
+
+        // Learned barcode length: "<N digits> <name>" — same shape as the generic
+        // barcode pattern below but exact-length, so it wins over looser patterns
+        // (e.g. a 12-digit UPC at a vendor whose SKUs are always 12 digits).
+        if ($barcodeLen && preg_match('/^(\d{' . $barcodeLen . '})\s+(.{3,}?)\s*$/', $line, $bm)) {
+            $itemName = trim($bm[2]);
+            if (preg_match('/^(.+?)\s+\$?(\d{1,6}\.\d{2})\s*$/', $itemName, $pm)) {
+                $items[] = ['name' => trim($pm[1]), 'amount' => $pm[2], 'quantity' => 1, 'unit_price' => null, 'sku_raw' => $bm[1]];
+            } else {
+                $pendingItems[] = $itemName;
+                $pendingContext[] = ['sku_raw' => $bm[1], 'quantity' => 1, 'unit_price' => null];
+            }
+            $inItemZone = true;
+            continue;
+        }
+
+        // Bare product-name line that matches this vendor's purchase history — queue it
+        // so the next standalone price line attaches to it. Scoped to known names only,
+        // so header/address lines can't be mistaken for products.
+        if ($knownNameKeys && isset($knownNameKeys[strtoupper($line)]) && !preg_match('/\d{1,6}\.\d{2}/', $line)) {
+            $pendingItems[] = $knownNameKeys[strtoupper($line)];
+            $pendingContext[] = ['sku_raw' => null, 'quantity' => 1, 'unit_price' => null];
+            $inItemZone = true;
+            continue;
+        }
 
         // Pattern: Canadian retail "Qty: 1 Base Price: $42.99" or "Qty: 2 Price: $19.99"
         // Extracts quantity and unit price, assigns to most recent pending item

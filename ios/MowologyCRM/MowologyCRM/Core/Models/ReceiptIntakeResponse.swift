@@ -53,36 +53,195 @@ struct ParsedReceipt: Codable {
     let paymentMethod: String?
     let gstEstimated: Bool?
     let lineItems: [ReceiptLineItem]?
+    /// Line-item quality signal from the server: 'match' | 'mismatch' | 'none'
+    let lineItemsQuality: String?
+    let itemsSum: String?
+    /// Provenance: 'ocr' | 'vision' | 'llm'
+    let lineItemsSource: String?
+    let escalationReason: String?
 
     enum CodingKeys: String, CodingKey {
         case total, gst, subtotal, pst, date
-        case vendorHint    = "vendor_hint"
-        case paymentMethod = "payment_method"
-        case gstEstimated  = "gst_estimated"
-        case lineItems     = "line_items"
+        case vendorHint        = "vendor_hint"
+        case paymentMethod     = "payment_method"
+        case gstEstimated      = "gst_estimated"
+        case lineItems         = "line_items"
+        case lineItemsQuality  = "line_items_quality"
+        case itemsSum          = "items_sum"
+        case lineItemsSource   = "line_items_source"
+        case escalationReason  = "escalation_reason"
     }
 
     var totalDouble: Double? { total.flatMap(Double.init) }
     var gstDouble: Double?   { gst.flatMap(Double.init) }
 }
 
-/// An OCR-detected line item. Read-only on the phone — mirrors Android's mobile review
-/// card, which shows detected items ("N items detected") but doesn't let the user edit
-/// individual lines either; both platforms just send the OCR result through unmodified.
-struct ReceiptLineItem: Codable {
-    let name: String?
-    let amount: String?
-    let quantity: Double?
-    let unitPrice: Double?
-    let skuRaw: String?
+/// An OCR-detected line item on the review card. Editable pre-save on both platforms:
+/// `name` may be corrected, `removed` marks "not an item", `manual` marks a row the user
+/// typed because OCR missed it. `ocrName` is what the parser produced — echoed back on save
+/// so the server records the correction as a per-vendor lesson.
+struct ReceiptLineItem: Codable, Identifiable {
+    var name: String?
+    var amount: String?
+    var quantity: Double?
+    var unitPrice: Double?
+    var skuRaw: String?
+    var productId: Int?
+    var ocrName: String?
+    var nameSource: String?
+    var productSource: String?
+    var isAdjustment: Bool?
+
+    // Client-only state (not decoded)
+    var removed: Bool = false
+    var manual: Bool = false
+    let localId: UUID = UUID()
+
+    var id: UUID { localId }
 
     enum CodingKeys: String, CodingKey {
         case name, amount, quantity
-        case unitPrice = "unit_price"
-        case skuRaw    = "sku_raw"
+        case unitPrice     = "unit_price"
+        case skuRaw        = "sku_raw"
+        case productId     = "product_id"
+        case ocrName       = "ocr_name"
+        case nameSource    = "name_source"
+        case productSource = "product_source"
+        case isAdjustment  = "is_adjustment"
+    }
+
+    init(name: String, amount: Double, manual: Bool = false) {
+        self.name = name
+        self.amount = String(format: "%.2f", amount)
+        self.quantity = 1
+        self.unitPrice = nil
+        self.skuRaw = nil
+        self.productId = nil
+        self.ocrName = manual ? "" : name
+        self.manual = manual
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name          = try? c.decode(String.self, forKey: .name)
+        amount        = try? c.decode(String.self, forKey: .amount)
+        if amount == nil, let d = try? c.decode(Double.self, forKey: .amount) { amount = String(format: "%.2f", d) }
+        quantity      = Self.lossyDouble(c, .quantity)
+        unitPrice     = Self.lossyDouble(c, .unitPrice)
+        skuRaw        = try? c.decode(String.self, forKey: .skuRaw)
+        productId     = try? c.decode(Int.self, forKey: .productId)
+        ocrName       = try? c.decode(String.self, forKey: .ocrName)
+        nameSource    = try? c.decode(String.self, forKey: .nameSource)
+        productSource = try? c.decode(String.self, forKey: .productSource)
+        if let b = try? c.decode(Bool.self, forKey: .isAdjustment) { isAdjustment = b }
+        else if let i = try? c.decode(Int.self, forKey: .isAdjustment) { isAdjustment = i != 0 }
+        if ocrName == nil || ocrName?.isEmpty == true { ocrName = name }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(name, forKey: .name)
+        try c.encodeIfPresent(amount, forKey: .amount)
+        try c.encodeIfPresent(quantity, forKey: .quantity)
+        try c.encodeIfPresent(unitPrice, forKey: .unitPrice)
+        try c.encodeIfPresent(skuRaw, forKey: .skuRaw)
+        try c.encodeIfPresent(productId, forKey: .productId)
+        try c.encodeIfPresent(ocrName, forKey: .ocrName)
+    }
+
+    static func lossyDouble(_ c: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys) -> Double? {
+        if let d = try? c.decode(Double.self, forKey: key) { return d }
+        if let s = try? c.decode(String.self, forKey: key) { return Double(s) }
+        return nil
     }
 
     var amountDouble: Double? { amount.flatMap(Double.init) }
+}
+
+// MARK: - Stored line items (GET/POST /api/expenses/expense-line-items)
+
+/// A persisted expense_line_items row (decimals arrive as strings from PDO).
+struct StoredLineItem: Decodable, Identifiable {
+    let id: Int
+    let name: String
+    let ocrName: String?
+    let quantity: Double
+    let unitPrice: Double?
+    let lineTotal: Double
+    let skuRaw: String?
+    let productId: Int?
+    let productName: String?
+    let productSku: String?
+    let isAdjustment: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, quantity
+        case ocrName      = "ocr_name"
+        case unitPrice    = "unit_price"
+        case lineTotal    = "line_total"
+        case skuRaw       = "sku_raw"
+        case productId    = "product_id"
+        case productName  = "product_name"
+        case productSku   = "product_sku"
+        case isAdjustment = "is_adjustment"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func num(_ k: CodingKeys) -> Double? {
+            if let d = try? c.decode(Double.self, forKey: k) { return d }
+            if let s = try? c.decode(String.self, forKey: k) { return Double(s) }
+            return nil
+        }
+        func int(_ k: CodingKeys) -> Int? {
+            if let i = try? c.decode(Int.self, forKey: k) { return i }
+            if let s = try? c.decode(String.self, forKey: k) { return Int(s) }
+            return nil
+        }
+        id          = int(.id) ?? 0
+        name        = (try? c.decode(String.self, forKey: .name)) ?? ""
+        ocrName     = try? c.decode(String.self, forKey: .ocrName)
+        quantity    = num(.quantity) ?? 1
+        unitPrice   = num(.unitPrice)
+        lineTotal   = num(.lineTotal) ?? 0
+        skuRaw      = try? c.decode(String.self, forKey: .skuRaw)
+        productId   = int(.productId)
+        productName = try? c.decode(String.self, forKey: .productName)
+        productSku  = try? c.decode(String.self, forKey: .productSku)
+        isAdjustment = (int(.isAdjustment) ?? 0) != 0
+    }
+}
+
+struct LineItemsResponse: Decodable {
+    let success: Bool
+    let lineItems: [StoredLineItem]
+    let lineItemsSource: String?
+    enum CodingKeys: String, CodingKey {
+        case success
+        case lineItems       = "line_items"
+        case lineItemsSource = "line_items_source"
+    }
+}
+
+struct LineItemMutationResponse: Decodable {
+    let success: Bool
+    let lineItem: StoredLineItem?
+    let error: String?
+    enum CodingKeys: String, CodingKey {
+        case success, error
+        case lineItem = "line_item"
+    }
+}
+
+struct ProductSearchResult: Decodable, Identifiable {
+    let id: Int
+    let name: String
+    let sku: String?
+}
+
+struct ProductSearchResponse: Decodable {
+    let success: Bool
+    let products: [ProductSearchResult]
 }
 
 struct ReceiptSuggestions: Decodable {

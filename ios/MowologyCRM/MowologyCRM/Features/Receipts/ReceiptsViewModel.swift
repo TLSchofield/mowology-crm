@@ -177,6 +177,56 @@ final class ReceiptsViewModel: ObservableObject {
         return r?.duplicates ?? []
     }
 
+    // MARK: - Saved line items (edit / add / delete / link — each teaches the parser)
+
+    func loadLineItems(expenseId: Int) async -> LineItemsResponse? {
+        try? await apiClient.request(.expenseLineItems(expenseId: expenseId))
+    }
+
+    private func lineItemMutation(_ body: [String: Any]) async -> LineItemMutationResponse? {
+        actionError = nil
+        do {
+            let r: LineItemMutationResponse = try await apiClient.request(.expenseLineItemAction, body: body)
+            if r.success { return r }
+            actionError = r.error ?? "Line item update failed."
+        } catch let err as APIError {
+            actionError = err.errorDescription
+        } catch {
+            actionError = "Line item update failed."
+        }
+        return nil
+    }
+
+    func updateLineItem(id: Int, name: String, quantity: Double?, unitPrice: Double?, lineTotal: Double?) async -> StoredLineItem? {
+        var body: [String: Any] = ["op": "update", "line_item_id": id, "name": name]
+        if let quantity  { body["quantity"]   = quantity }
+        if let unitPrice { body["unit_price"] = unitPrice }
+        if let lineTotal { body["line_total"] = lineTotal }
+        return await lineItemMutation(body)?.lineItem
+    }
+
+    func addLineItem(expenseId: Int, name: String, lineTotal: Double, productId: Int?) async -> StoredLineItem? {
+        var body: [String: Any] = ["op": "add", "expense_id": expenseId, "name": name, "quantity": 1, "line_total": lineTotal]
+        if let productId { body["product_id"] = productId }
+        return await lineItemMutation(body)?.lineItem
+    }
+
+    func deleteLineItem(id: Int) async -> Bool {
+        await lineItemMutation(["op": "delete", "line_item_id": id]) != nil
+    }
+
+    func linkLineItem(id: Int, productId: Int?) async -> StoredLineItem? {
+        var body: [String: Any] = ["op": "link", "line_item_id": id]
+        body["product_id"] = productId ?? NSNull()
+        return await lineItemMutation(body)?.lineItem
+    }
+
+    func searchProducts(_ query: String) async -> [ProductSearchResult] {
+        let q = [URLQueryItem(name: "type", value: "products"), URLQueryItem(name: "q", value: query)]
+        let r: ProductSearchResponse? = try? await apiClient.request(.expenseLookup(query: q))
+        return r?.products ?? []
+    }
+
     // MARK: - Delete
 
     /// Delete an own draft (admins any). Server refuses anything already forwarded.
@@ -273,23 +323,28 @@ final class ReceiptsViewModel: ObservableObject {
                let str  = String(data: data, encoding: .utf8) {
                 body["ocr_parsed"] = str
             }
-            // Pass detected line items straight through — same shape Android's mobile
-            // review sends (name/quantity/unit_price/line_total/sku_raw), unedited by
-            // the user. Feeds expense_line_items + vendor price intelligence, which iOS
-            // receipts silently skipped before.
-            if let items = p.lineItems, !items.isEmpty {
-                body["line_items"] = items.map { item -> [String: Any] in
-                    var dict: [String: Any] = [
-                        "name":       item.name ?? "Unknown Item",
-                        "quantity":   item.quantity ?? 1,
-                        "line_total": item.amountDouble ?? 0,
-                    ]
-                    if let unitPrice = item.unitPrice { dict["unit_price"] = unitPrice }
-                    if let sku = item.skuRaw { dict["sku_raw"] = sku }
-                    return dict
-                }
+        }
+        // Line items as reviewed on the card: renames, "not an item" flags and manual
+        // additions all travel with ocr_name so the server records per-vendor lessons —
+        // same payload shape as the Android review card.
+        let items = d.lineItems ?? d.ocrParsed?.lineItems ?? []
+        if !items.isEmpty {
+            body["line_items"] = items.map { item -> [String: Any] in
+                var dict: [String: Any] = [
+                    "name":       item.name ?? "Unknown Item",
+                    "ocr_name":   item.ocrName ?? "",
+                    "removed":    item.removed,
+                    "manual":     item.manual,
+                    "quantity":   item.quantity ?? 1,
+                    "line_total": item.amountDouble ?? 0,
+                ]
+                if let unitPrice = item.unitPrice { dict["unit_price"] = unitPrice }
+                if let sku = item.skuRaw { dict["sku_raw"] = sku }
+                if let pid = item.productId { dict["product_id"] = pid }
+                return dict
             }
         }
+        if let src = d.lineItemsSource ?? d.ocrParsed?.lineItemsSource { body["line_items_source"] = src }
 
         do {
             let response: ExpenseSaveResponse = try await apiClient.request(.expenseSave, body: body)

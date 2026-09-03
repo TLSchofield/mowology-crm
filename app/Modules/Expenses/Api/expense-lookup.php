@@ -65,6 +65,10 @@ try {
             echo json_encode(['success' => true] + ExpenseLookupService::categories());
             break;
 
+        case 'products':
+            echo json_encode(['success' => true, 'products' => $svc->searchProducts($_GET['q'] ?? '')]);
+            break;
+
         case 'duplicates':
             $dups = $svc->findDuplicates(
                 $_GET['vendor_name'] ?? null,

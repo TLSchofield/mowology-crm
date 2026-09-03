@@ -122,6 +122,10 @@ struct ExpenseDraft {
     var mediaId: Int?
     var rawOcrText: String?
     var ocrParsed: ParsedReceipt?
+    /// The review card's (possibly corrected) items — renames, "not an item" flags and
+    /// manual additions. Falls back to `ocrParsed.lineItems` when nil.
+    var lineItems: [ReceiptLineItem]?
+    var lineItemsSource: String?
     var job: JobPick?
     var lat: Double?
     var lng: Double?

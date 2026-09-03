@@ -125,6 +125,26 @@ class ExpenseLookupService
         return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }
 
+    /** CRM product search for linking a receipt line item (name or SKU). */
+    public function searchProducts(?string $q): array
+    {
+        $q = self::normalizeQuery($q);
+        if ($q === null) {
+            return [];
+        }
+        $stmt = $this->db->prepare("
+            SELECT id, name, sku, track_inventory, current_stock
+            FROM products
+            WHERE COALESCE(active, 1) = 1 AND COALESCE(is_archived, 0) = 0
+              AND (name LIKE ? OR sku LIKE ?)
+            ORDER BY name
+            LIMIT 20
+        ");
+        $like = '%' . $q . '%';
+        $stmt->execute([$like, $like]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
     /**
      * Likely-duplicate expenses: same total (to the cent) within ±3 days, and — when
      * vendor info is supplied — the same vendor_id OR a vendor_name_raw match.

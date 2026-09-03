@@ -124,7 +124,23 @@ try {
         $parsed = [];
         $suggestions = [];
         if ($ocrResult['success'] && !empty($ocrText)) {
-            $parsed      = parseReceiptText($ocrText, $ocrResult['raw_response'] ?? null);
+            require_once APP_ROOT . '/Services/Receipts/ReceiptLineItemIntelligence.php';
+            $rescanProfile = getVendorLineItemProfile($rescanEarlyVendorId);
+            $parsed = parseReceiptText($ocrText, $ocrResult['raw_response'] ?? null, $rescanProfile);
+            $enh = enhanceLineItemExtraction([
+                'file_path'      => $filePath,
+                'ocr_source'     => $ocrSource,
+                'ocr_text'       => $ocrText,
+                'raw_response'   => $ocrResult['raw_response'] ?? null,
+                'parsed'         => $parsed,
+                'vendor_id'      => $rescanEarlyVendorId,
+                'vendor_profile' => $rescanProfile,
+            ]);
+            $parsed    = $enh['parsed'];
+            $ocrText   = $enh['ocr_text'];
+            $ocrSource = $enh['ocr_source'];
+            $ocrResult['text']         = $ocrText;
+            $ocrResult['raw_response'] = $enh['raw_response'];
             $suggestions = suggestReceiptMeta($ocrText, null, null, null, $parsed);
             if (!empty($suggestions['vendor_id'])) {
                 $parsed = applyLearnedPatterns((int)$suggestions['vendor_id'], $parsed, $ocrText);
