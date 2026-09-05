@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import CoreLocation
 
 // MARK: - API Response Types
 
@@ -44,7 +45,13 @@ final class ScheduleViewModel: ObservableObject {
 
     @Published var selectedDate: Date = .now
     @Published var weekDays: [ScheduleDay] = []
-    @Published var stops: [Stop] = []
+    /// Stops for the selected date, ordered for the list: nearest to the
+    /// device first (see `sortedForDisplay`). Falls back to the server's route
+    /// order until a location fix arrives.
+    @Published private(set) var stops: [Stop] = []
+
+    /// Last known device position used for nearest-first ordering.
+    @Published private(set) var userLocation: CLLocation?
     @Published var isLoading: Bool = false
     @Published var errorMessage: String?
     @Published var lastFetched: Date?
@@ -66,6 +73,17 @@ final class ScheduleViewModel: ObservableObject {
 
     private let apiClient: APIClient
     private var stopCache: [String: [Stop]] = [:]
+
+    /// Stops exactly as the server returned them (route order). `stops` is
+    /// re-derived from this whenever the data or the device location changes.
+    private var rawStops: [Stop] = [] {
+        didSet { stops = Self.sortedForDisplay(rawStops, from: userLocation) }
+    }
+
+    /// One-shot location source. Shares the tracking service's manager so a
+    /// fresh fix from an active job is reused instead of spinning up GPS again.
+    private let locationManager: LocationManager
+    private var locationTask: Task<Void, Never>?
     private static let maxCachedDays = 14
 
     /// Handles for in-flight tasks — cancelled when a new load supersedes them.
@@ -102,8 +120,10 @@ final class ScheduleViewModel: ObservableObject {
 
     // MARK: - Init
 
-    init(apiClient: APIClient) {
-        self.apiClient = apiClient
+    init(apiClient: APIClient,
+         locationManager: LocationManager = GPSTrackingService.shared.locationManager) {
+        self.apiClient       = apiClient
+        self.locationManager = locationManager
     }
 
     // MARK: - Public API
@@ -122,6 +142,7 @@ final class ScheduleViewModel: ObservableObject {
         quizRequired = !QuizViewModel.hasAttemptedToday()
         guard !quizRequired else { return }
         stopCache.removeValue(forKey: isoDateString(from: selectedDate))
+        updateUserLocation()
         await loadSchedule(for: selectedDate, reloadWeek: true)
     }
 
@@ -177,8 +198,8 @@ final class ScheduleViewModel: ObservableObject {
         do {
             let response: DayResponse = try await apiClient.request(.scheduleDay(date: dateString))
             guard !Task.isCancelled else { return }
-            if response.stops != stops {
-                stops = response.stops
+            if response.stops != rawStops {
+                rawStops = response.stops
             }
             cacheStops(response.stops, forDate: dateString)
             ScheduleCache.shared.save(response.stops, forDate: dateString)
@@ -284,7 +305,7 @@ final class ScheduleViewModel: ObservableObject {
         // Serve from in-memory cache if available (avoids redundant network hits
         // when the user swipes back to a date they already loaded this session).
         if let cached = stopCache[dateString] {
-            stops       = cached
+            rawStops    = cached
             lastFetched = .now
             return
         }
@@ -299,7 +320,7 @@ final class ScheduleViewModel: ObservableObject {
             cacheStops(fetched, forDate: dateString)
             ScheduleCache.shared.save(fetched, forDate: dateString)
             isOffline   = false
-            stops       = fetched
+            rawStops    = fetched
             lastFetched = .now
         } catch let err as APIError {
             guard !Task.isCancelled else { return }
@@ -307,21 +328,21 @@ final class ScheduleViewModel: ObservableObject {
                 // Offline — try disk cache before showing an error.
                 if let diskCached = ScheduleCache.shared.load(forDate: dateString) {
                     cacheStops(diskCached, forDate: dateString)
-                    stops     = diskCached
+                    rawStops  = diskCached
                     isOffline = true
                 } else {
                     isOffline    = true
                     errorMessage = "No signal and no cached schedule for this date."
-                    stops        = []
+                    rawStops     = []
                 }
             } else {
                 errorMessage = err.errorDescription ?? "Failed to load stops."
-                stops        = []
+                rawStops     = []
             }
         } catch {
             guard !Task.isCancelled else { return }
             errorMessage = error.localizedDescription
-            stops        = []
+            rawStops     = []
         }
     }
 
@@ -341,6 +362,62 @@ final class ScheduleViewModel: ObservableObject {
             crewRoutes = []
             crewLive   = []
         }
+    }
+
+    // MARK: - Nearest-First Ordering
+
+    /// Requests a one-shot device fix and re-sorts the list when it arrives.
+    /// Silent on failure — the list simply stays in server route order.
+    /// If permission hasn't been decided yet, asks once and waits for the answer.
+    func updateUserLocation() {
+        locationTask?.cancel()
+        locationTask = Task { [weak self] in
+            guard let self else { return }
+            let lm = self.locationManager
+            if lm.authorizationStatus == .notDetermined {
+                lm.requestWhenInUsePermission()
+                for await status in lm.$authorizationStatus.values {
+                    if Task.isCancelled { return }
+                    if status != .notDetermined { break }
+                }
+            }
+            guard lm.canUseLocation else { return }
+            guard let fix = try? await lm.currentLocation(), !Task.isCancelled else { return }
+            self.userLocation = fix
+            self.stops = Self.sortedForDisplay(self.rawStops, from: fix)
+        }
+    }
+
+    /// Orders stops for the list:
+    ///   1. in-progress stops (the crew is already there)
+    ///   2. remaining stops, nearest to the device first
+    ///   3. stops with no coordinates, in route order
+    ///   4. completed stops, in route order (sunk to the bottom)
+    /// Without a device location the server's route order is kept unchanged.
+    static func sortedForDisplay(_ stops: [Stop], from location: CLLocation?) -> [Stop] {
+        guard let location else { return stops }
+
+        func distance(_ stop: Stop) -> CLLocationDistance? {
+            guard let lat = stop.latitude, let lng = stop.longitude else { return nil }
+            return location.distance(from: CLLocation(latitude: lat, longitude: lng))
+        }
+
+        // Precompute so the comparator doesn't re-run haversine per comparison.
+        let keyed = stops.map { stop -> (stop: Stop, tier: Int, dist: CLLocationDistance) in
+            let d = distance(stop)
+            let tier: Int
+            if stop.isComplete        { tier = 3 }
+            else if stop.isInProgress { tier = 0 }
+            else if d == nil          { tier = 2 }
+            else                      { tier = 1 }
+            return (stop, tier, d ?? .greatestFiniteMagnitude)
+        }
+
+        return keyed.sorted { a, b in
+            if a.tier != b.tier { return a.tier < b.tier }
+            if a.tier == 1, a.dist != b.dist { return a.dist < b.dist }
+            return a.stop.routeOrder < b.stop.routeOrder
+        }.map(\.stop)
     }
 
     // MARK: - Cache
