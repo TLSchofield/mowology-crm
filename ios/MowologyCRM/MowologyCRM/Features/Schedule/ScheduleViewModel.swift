@@ -149,6 +149,7 @@ final class ScheduleViewModel: ObservableObject {
     /// Called by QuizView's onPass callback — dismisses the gate and loads the schedule.
     func quizPassed() async {
         quizRequired = false
+        updateUserLocation()
         await loadSchedule(for: selectedDate, reloadWeek: true)
     }
 
@@ -382,10 +383,36 @@ final class ScheduleViewModel: ObservableObject {
                 }
             }
             guard lm.canUseLocation else { return }
-            guard let fix = try? await lm.currentLocation(), !Task.isCancelled else { return }
+            guard let fix = await Self.acquireFix(from: lm), !Task.isCancelled else { return }
             self.userLocation = fix
             self.stops = Self.sortedForDisplay(self.rawStops, from: fix)
         }
+    }
+
+    /// A cold `requestLocation()` can take 10s+ indoors and may need more than
+    /// one attempt, so race each attempt against a timeout and retry a few
+    /// times before giving up. Returns nil if no fix could be obtained.
+    private static func acquireFix(from lm: LocationManager,
+                                   attempts: Int = 3,
+                                   timeoutSeconds: UInt64 = 15) async -> CLLocation? {
+        for attempt in 0..<attempts {
+            if Task.isCancelled { return nil }
+            let fix: CLLocation? = await withTaskGroup(of: CLLocation?.self) { group in
+                group.addTask { @MainActor in try? await lm.currentLocation() }
+                group.addTask {
+                    try? await Task.sleep(nanoseconds: timeoutSeconds * 1_000_000_000)
+                    return nil
+                }
+                let first = await group.next() ?? nil
+                group.cancelAll()
+                return first
+            }
+            if let fix { return fix }
+            if attempt < attempts - 1 {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+            }
+        }
+        return nil
     }
 
     /// Orders stops for the list:

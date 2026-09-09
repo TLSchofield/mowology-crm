@@ -11,7 +11,9 @@ struct StopCardView: View {
 
     let stop: Stop
     let isAdmin: Bool
-
+    /// Straight-line distance from the device, when known. Shown so the crew
+    /// can see why the list is in the order it is (nearest first).
+    var distanceMeters: Double? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -32,15 +34,23 @@ struct StopCardView: View {
 
                 Spacer()
 
-                if let arrival = stop.estimatedArrival {
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text(arrival)
-                            .font(.subheadline.monospacedDigit().bold())
-                            .foregroundStyle(Color.MW.green)
+                VStack(alignment: .trailing, spacing: 4) {
+                    if let arrival = stop.estimatedArrival {
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text(arrival)
+                                .font(.subheadline.monospacedDigit().bold())
+                                .foregroundStyle(Color.MW.green)
 
-                        Text("est. arrival")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
+                            Text("est. arrival")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+
+                    if let text = distanceText {
+                        Label(text, systemImage: "location.fill")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
@@ -111,6 +121,12 @@ struct StopCardView: View {
     }
 
     // MARK: - Helpers
+
+    private var distanceText: String? {
+        guard let m = distanceMeters else { return nil }
+        if m < 950 { return "\(Int((m / 50).rounded() * 50)) m" }
+        return String(format: m < 10_000 ? "%.1f km" : "%.0f km", m / 1000)
+    }
 
     private struct BadgeInfo {
         let label: String

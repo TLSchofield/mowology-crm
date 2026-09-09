@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import CoreLocation
 
 struct DayListView: View {
 
@@ -14,6 +15,8 @@ struct DayListView: View {
     let errorMessage: String?
     let isOffline: Bool
     let isAdmin: Bool
+    /// Device position the list is sorted from; nil until a fix arrives.
+    var userLocation: CLLocation? = nil
     let onRefresh: () async -> Void
 
     /// Tracks whether the one-time initial scroll has already fired.
@@ -66,7 +69,9 @@ struct DayListView: View {
 
                 ForEach(stops) { stop in
                     NavigationLink(value: stop) {
-                        StopCardView(stop: stop, isAdmin: isAdmin)
+                        StopCardView(stop: stop,
+                                     isAdmin: isAdmin,
+                                     distanceMeters: distance(to: stop))
                             .padding(.vertical, 4)
                     }
                     .listRowBackground(Color.clear)
@@ -91,6 +96,11 @@ struct DayListView: View {
                 }
             }
         }
+    }
+
+    private func distance(to stop: Stop) -> CLLocationDistance? {
+        guard let userLocation, let lat = stop.latitude, let lng = stop.longitude else { return nil }
+        return userLocation.distance(from: CLLocation(latitude: lat, longitude: lng))
     }
 
     // MARK: - Loading Skeleton

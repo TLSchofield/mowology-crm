@@ -60,6 +60,7 @@ struct ScheduleView: View {
                         errorMessage: viewModel.errorMessage,
                         isOffline:    viewModel.isOffline,
                         isAdmin:      authSession.user?.isAdmin ?? false,
+                        userLocation: viewModel.userLocation,
                         onRefresh:    { await viewModel.refresh() }
                     )
                 } else {

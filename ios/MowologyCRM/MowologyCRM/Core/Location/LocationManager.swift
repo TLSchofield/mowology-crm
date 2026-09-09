@@ -322,6 +322,12 @@ extension LocationManager: CLLocationManagerDelegate {
         _ manager: CLLocationManager,
         didFailWithError error: Error
     ) {
+        // kCLErrorLocationUnknown is transient: CoreLocation reports it when a
+        // fix isn't available *yet* and keeps trying, so a later
+        // didUpdateLocations will still resolve the one-shot request. Failing
+        // the continuation here made cold-start requestLocation() calls
+        // (schedule open, first job start) fail almost every time indoors.
+        if let clErr = error as? CLError, clErr.code == .locationUnknown { return }
         Task { @MainActor in
             if let cont = self.pendingContinuation {
                 self.pendingContinuation = nil
