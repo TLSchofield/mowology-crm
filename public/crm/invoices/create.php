@@ -41,7 +41,7 @@ if (!$visitId && isset($_GET['stop_id'])) {
 
 if ($visitId) {
     $stmt = $db->prepare("
-        SELECT jv.id as visit_id, jv.visit_number, jv.actual_amount,
+        SELECT jv.id as visit_id, jv.visit_number, jv.status, jv.actual_amount,
                jv.plan_id, jv.scheduled_date, jv.invoice_id as existing_invoice_id,
                jv.extras_minutes, jv.extras_amount, jv.extras_note,
                jp.plan_number, jp.title, jp.price_per_visit, jp.estimated_amount,
@@ -59,16 +59,22 @@ if ($visitId) {
         LEFT JOIN companies c ON jp.company_id = c.id
         LEFT JOIN properties p ON jp.property_id = p.id
         LEFT JOIN contacts con ON p.site_contact_id = con.id
-        WHERE jv.id = ? AND jv.status = 'completed'
+        WHERE jv.id = ?
     ");
     $stmt->execute([$visitId]);
     $visit = $stmt->fetch(PDO::FETCH_ASSOC);
 
+    if ($visit && !empty($visit['existing_invoice_id'])) {
+        header("Location: view.php?id={$visit['existing_invoice_id']}&already_invoiced=1");
+        exit;
+    }
+
+    if ($visit && $visit['status'] !== 'completed') {
+        $error = 'This visit has not been marked completed yet. Mark the visit complete on the Schedule before creating an invoice.';
+        $visit = false;
+    }
+
     if ($visit) {
-        if (!empty($visit['existing_invoice_id'])) {
-            header("Location: view.php?id={$visit['existing_invoice_id']}&already_invoiced=1");
-            exit;
-        }
         $visitAmount  = $visit['actual_amount'] ?: $visit['price_per_visit'] ?: $visit['estimated_amount'];
         $contactName  = trim($visit['contact_first'] . ' ' . $visit['contact_last']) ?: null;
 
@@ -677,7 +683,7 @@ if ($apiKey) {
 
             <h1 class="h3 mb-3">Create Invoice</h1>
             <p class="text-muted mb-4"><?php
-                if ($visitId && isset($visit)) {
+                if ($visitId && !empty($visit)) {
                     echo 'Creating invoice from completed visit';
                 } else {
                     echo 'Create a new invoice manually';
@@ -688,7 +694,7 @@ if ($apiKey) {
                 <div class="mw-error-message"><?php echo htmlspecialchars($error); ?></div>
             <?php endif; ?>
 
-            <?php if ($visitId && isset($visit)): ?>
+            <?php if ($visitId && !empty($visit)): ?>
                 <div class="mw-info-banner">
                     <strong>Creating from Visit <?php echo htmlspecialchars($visit['visit_number']); ?></strong><br>
                     Plan: <?php echo htmlspecialchars($visit['plan_number'] . ' — ' . $visit['title']); ?><br>
