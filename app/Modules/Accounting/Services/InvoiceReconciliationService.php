@@ -30,6 +30,7 @@ class InvoiceReconciliationService
 
     private const DEFAULT_INCOME_CODE = '4900';   // Other Services (fallback revenue account)
     private const MATCH_THRESHOLD     = 55;        // minimum confidence to surface a candidate
+    private const MAX_DAYS_AFTER_DUE  = 120;       // deposits later than this are a different payment
     private const PAYABLE_STATUSES    = ['sent', 'viewed', 'partial', 'overdue'];
 
     public function __construct(PDO $db)
@@ -661,6 +662,10 @@ class InvoiceReconciliationService
 
         // ── Date proximity (max 20) ──────────────────────────────────────
         $dep  = strtotime((string)$deposit['transaction_date']);
+        // Money doesn't arrive before the invoice exists. A deposit dated before the
+        // invoice's issue date (1-day slack for bank posting/timezone) is not a match.
+        $issued = !empty($invoice['invoice_date']) ? strtotime((string)$invoice['invoice_date']) : null;
+        if ($issued && $dep < $issued - 86400) return null;
         $iRef = strtotime((string)($invoice['invoice_date'] ?: $invoice['due_date'] ?: $deposit['transaction_date']));
         $dRef = strtotime((string)($invoice['due_date'] ?: $invoice['invoice_date'] ?: $deposit['transaction_date']));
         $dayDiff = min(abs($dep - $iRef), abs($dep - $dRef)) / 86400;
@@ -673,11 +678,8 @@ class InvoiceReconciliationService
         // ── Description text (max 35) ────────────────────────────────────
         $descScore = 0;
         $descRaw   = (string)($deposit['description'] ?? '');
-        $descDigits = preg_replace('/\D/', '', $descRaw);
-        $invDigits  = preg_replace('/\D/', '', (string)($invoice['invoice_number'] ?? ''));
 
-        if (stripos($descRaw, (string)$invoice['invoice_number']) !== false
-            || (strlen($invDigits) >= 4 && $descDigits !== '' && strpos($descDigits, $invDigits) !== false)) {
+        if (self::memoNamesInvoice($descRaw, (string)($invoice['invoice_number'] ?? ''))) {
             $descScore = 35; $reasons[] = 'Invoice # in memo';
         } else {
             // Match memo words against each name field separately so the reason names
@@ -687,16 +689,12 @@ class InvoiceReconciliationService
                 'contact_name'  => trim((string)($invoice['contact_name'] ?? '')),
                 'property_name' => trim((string)($invoice['property_name'] ?? '')),
             ];
-            $words = $this->extractNameWords($descRaw);
+            $words = self::bankMemoWords($descRaw);
             foreach ($fields as $value) {
-                if ($value === '') continue;
-                $valLower = strtolower($value);
-                foreach ($words as $w) {
-                    if ($w !== '' && strpos($valLower, $w) !== false) {
-                        $descScore = 25;
-                        $reasons[] = 'Memo names ' . $value;
-                        break 2;
-                    }
+                if ($value !== '' && self::payerMatchesWords($value, $words)) {
+                    $descScore = 25;
+                    $reasons[] = 'Memo names ' . $value;
+                    break;
                 }
             }
         }
@@ -713,10 +711,44 @@ class InvoiceReconciliationService
             }
         }
 
+        // Too long after the due date to be this invoice's payment (late payers
+        // still land well inside this; 4 months out is a different transaction).
+        if ($dep > $dRef + self::MAX_DAYS_AFTER_DUE * 86400) return null;
+
+        // A deposit LARGER than the balance is only worth suggesting when something
+        // besides the amount ties it to this invoice (memo name / invoice #) and it
+        // arrived close to the invoice. Otherwise one big payment from a regular
+        // client gets pinned to every open invoice they have. Never above 70%.
+        $coversMore = $depAmt > $balance + 0.005;
+        if ($coversMore) {
+            if ($descScore < 25 || $dayDiff > 30) return null;
+            $score = min($score, 70 - $descScore);
+        }
+
         $score = min(100, $score + $descScore);
         if ($score < self::MATCH_THRESHOLD) return null;
 
         return ['confidence' => (int)$score, 'reasons' => $reasons];
+    }
+
+    /**
+     * Does the memo name this invoice? Full number ("INV-2026-0036", separators
+     * optional) or its sequence as a standalone token ("0036"/"36"). Digit runs
+     * inside longer numbers never count — Interac refs begin with the date
+     * (20260720…), which otherwise reads as INV-2026-0720.
+     */
+    public static function memoNamesInvoice(string $memo, string $invoiceNumber): bool
+    {
+        if ($memo === '' || $invoiceNumber === '') return false;
+        if (stripos($memo, $invoiceNumber) !== false) return true;
+        if (!preg_match('/^([A-Z]+)[-\s]?(\d{4})[-\s]?(\d+)$/i', $invoiceNumber, $m)) return false;
+        [, $prefix, $year, $seq] = $m;
+        $seqNoZeros = ltrim($seq, '0');
+        $full = '/(?<![A-Z0-9])' . preg_quote($prefix, '/') . '[-\s]?' . $year . '[-\s]?0*' . $seqNoZeros . '(?![0-9])/i';
+        if (preg_match($full, $memo)) return true;
+        // Bare sequence token, e.g. "e-Transfer 0036" / "inv 36" — must be its own number
+        $bare = '/(?<![0-9])0*' . $seqNoZeros . '(?![0-9])/';
+        return strlen($seq) >= 3 && (bool)preg_match($bare, $memo);
     }
 
     private function candidatePayload(array $dep, array $invoice, array $score): array

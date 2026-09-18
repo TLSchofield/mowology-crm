@@ -417,4 +417,76 @@ class InvoiceReconciliationServiceTest extends TestCase
         $this->assertSame(['gary', 'hughes'], InvoiceReconciliationService::bankMemoWords('INTERAC E-TRF 1234 GARY HUGHES'));
         $this->assertTrue(InvoiceReconciliationService::payerMatchesWords('John Ellen Hughes', InvoiceReconciliationService::bankMemoWords('ETRANSFERCREDIT(JOHNHUGHES)')));
     }
+    public function testDepositDatedBeforeInvoiceIssueIsNotSurfaced(): void
+    {
+        // INV-2026-0266 (issued Jul 16) was being matched to a Jun 28 deposit —
+        // payments don't arrive before the invoice exists.
+        $svc = $this->serviceWith(
+            [$this->invoice(['balance_due' => 50.40, 'total' => 50.40, 'invoice_date' => '2026-07-16',
+                             'due_date' => '2026-08-15', 'contact_name' => 'John Ellen Hughes'])],
+            [
+                ['id' => 1, 'transaction_date' => '2026-06-28', 'amount' => 50.40, 'description' => 'ETRANSFERCREDIT(JOHNHUGHES)', 'bank_account' => 'Vancity'],
+                ['id' => 2, 'transaction_date' => '2026-07-15', 'amount' => 50.40, 'description' => 'INTERAC E-TRF JOHN HUGHES', 'bank_account' => 'Vancity'], // 1-day slack
+                ['id' => 3, 'transaction_date' => '2026-07-20', 'amount' => 50.40, 'description' => 'INTERAC E-TRF JOHN HUGHES', 'bank_account' => 'Vancity'],
+            ]
+        );
+        $ids = array_column($svc->candidatesForInvoice(1), 'tx_id');
+        $this->assertNotContains(1, $ids);
+        $this->assertContains(2, $ids);
+        $this->assertContains(3, $ids);
+    }
+    public function testInvoiceSequenceInsideLongInteracRefDoesNotCountAsInvoiceNumber(): void
+    {
+        $this->assertFalse(InvoiceReconciliationService::memoNamesInvoice('e-Transfer credit Ref 20260720111256669848 JOHN HUGHES', 'INV-2026-0720'));
+        $this->assertTrue(InvoiceReconciliationService::memoNamesInvoice('BILL PAYMENT INV-2026-0036', 'INV-2026-0036'));
+        $this->assertTrue(InvoiceReconciliationService::memoNamesInvoice('e-Transfer inv 2026 36', 'INV-2026-0036'));
+        $this->assertTrue(InvoiceReconciliationService::memoNamesInvoice('INTERAC E-TRF 0036 A BEE', 'INV-2026-0036'));
+        $this->assertFalse(InvoiceReconciliationService::memoNamesInvoice('INTERAC E-TRF 10036 A BEE', 'INV-2026-0036'));
+    }
+
+    public function testLargerDepositNeedsNameOrInvoiceNumberAndIsCappedAt70(): void
+    {
+        // Same amount/date, but the memo doesn't name the client → not suggested
+        $svc = $this->serviceWith(
+            [$this->invoice()],
+            [['id' => 1, 'transaction_date' => '2026-05-30', 'amount' => 999.00, 'description' => 'INTERAC E-TRF SOMEONE ELSE', 'bank_account' => 'Vancity']]
+        );
+        $this->assertCount(0, $svc->candidatesForInvoice(1));
+
+        // Named, close → suggested but never above 70%
+        $svc = $this->serviceWith(
+            [$this->invoice()],
+            [['id' => 2, 'transaction_date' => '2026-05-30', 'amount' => 999.00, 'description' => 'INTERAC E-TRF A BEE', 'bank_account' => 'Vancity']]
+        );
+        $c = $svc->candidatesForInvoice(1);
+        $this->assertCount(1, $c);
+        $this->assertLessThanOrEqual(70, $c[0]['confidence']);
+
+        // Named but 6 weeks after the invoice → a regular client's later payment, not this one
+        $svc = $this->serviceWith(
+            [$this->invoice()],
+            [['id' => 3, 'transaction_date' => '2026-07-12', 'amount' => 999.00, 'description' => 'INTERAC E-TRF A BEE', 'bank_account' => 'Vancity']]
+        );
+        $this->assertCount(0, $svc->candidatesForInvoice(1));
+    }
+
+    public function testDepositLongAfterDueDateIsNotSurfaced(): void
+    {
+        $svc = $this->serviceWith(
+            [$this->invoice()], // due 2026-05-31
+            [['id' => 1, 'transaction_date' => '2026-10-15', 'amount' => 364.65, 'description' => 'INTERAC E-TRF A BEE', 'bank_account' => 'Vancity']]
+        );
+        $this->assertCount(0, $svc->candidatesForInvoice(1));
+    }
+
+    public function testNameMatchIsWholeWordNotSubstring(): void
+    {
+        // "ann" is inside "Marianna" but is not her name
+        $svc = $this->serviceWith(
+            [$this->invoice(['contact_name' => 'Marianna Pandy', 'balance_due' => 100.00, 'total' => 100.00])],
+            [['id' => 1, 'transaction_date' => '2026-05-30', 'amount' => 80.00, 'description' => 'INTERAC E-TRF ANN LEE', 'bank_account' => 'Vancity']]
+        );
+        $reasons = array_merge(...array_map(fn($c) => $c['reasons'], $svc->candidatesForInvoice(1) ?: [['reasons' => []]]));
+        $this->assertEmpty(array_filter($reasons, fn($r) => str_starts_with($r, 'Memo names')));
+    }
 }
