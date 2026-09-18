@@ -610,27 +610,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
             $paidAtParam = $paymentDate . ' 12:00:00';
         }
 
-        $newBalance = max(0, floatval($invoice['balance_due']) - $paymentAmount);
-        // 0.5¢ tolerance handles floating-point rounding (e.g. $100.00 - $100.00 = $0.000001)
-        $newStatus  = $newBalance <= 0.005 ? 'paid' : 'partial';
-
-        $params = [$paymentAmount, $newBalance, $newStatus, $paymentMethod, $paymentReference];
-        if ($paidAtParam) $params[] = $paidAtParam;
-        $params[] = $invoiceId;
-
         $db->beginTransaction();
         try {
-            $stmt = $db->prepare("
-                UPDATE invoices
-                SET amount_paid       = amount_paid + ?,
-                    balance_due       = ?,
-                    status            = ?,
-                    payment_method    = ?,
-                    payment_reference = ?,
-                    paid_at           = {$paidAtVal}
-                WHERE id = ?
-            ");
-            $stmt->execute($params);
+            // Write through the shared allocation ledger (same path as Record Payment,
+            // the e-Transfer inbox and bank-deposit attach) so a later bank import can
+            // link this payment to the deposit that carried it.
+            require_once APP_ROOT . '/Modules/Accounting/Services/InvoiceReconciliationService.php';
+            $alloc = (new InvoiceReconciliationService($db))->applyAllocation(
+                (int)$invoiceId, (float)$paymentAmount, $paymentMethod, $paymentReference !== '' ? $paymentReference : null,
+                ($paymentDate && preg_match('/^\d{4}-\d{2}-\d{2}$/', $paymentDate)) ? $paymentDate : date('Y-m-d'),
+                null, (int)$user['id']
+            );
+            if (!$alloc) {
+                throw new RuntimeException('Invoice is already settled');
+            }
+            $newStatus  = $alloc['status'];
+            $newBalance = max(0, round((float)$invoice['balance_due'] - (float)$alloc['applied'], 2));
+            // Explicit method/reference from the form win over whatever was there
+            $db->prepare("UPDATE invoices SET payment_method = ?, payment_reference = ? WHERE id = ?")
+               ->execute([$paymentMethod, $paymentReference, $invoiceId]);
 
             // Track field changes for payment
             trackFieldChange('invoice', $invoiceId, 'status', $invoice['status'], $newStatus, $user['id']);
@@ -704,6 +702,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
 }
 
 $csrfToken = generateCSRFToken();
+
+// Likely bank-deposit matches for this invoice (same inline reconciliation as the
+// Invoices list and contact view). Only for payable invoices with a balance.
+$invoiceMatches = [];
+if (in_array($invoice['status'], ['sent', 'viewed', 'partial', 'overdue'], true)
+    && (float)$invoice['balance_due'] > 0.005 && userHasPermission('billing.edit')) {
+    try {
+        require_once APP_ROOT . '/Modules/Accounting/Services/InvoiceReconciliationService.php';
+        $invoiceMatches = (new InvoiceReconciliationService($db))->candidatesForInvoice((int)$invoiceId);
+    } catch (Throwable $e) {
+        error_log('[invoices/view] candidate match error: ' . $e->getMessage());
+        $invoiceMatches = [];
+    }
+}
 
 // Client prepaid credit available for this invoice's resolved client, if any.
 $invoiceCreditBalance = 0.0;
@@ -847,6 +859,54 @@ $extraHead = $isPayable
 
           <div class="mw-content-grid">
               <div>
+                  <?php if (!empty($invoiceMatches)): $invBalance = (float)$invoice['balance_due']; ?>
+                  <!-- Likely bank-deposit matches (inline reconciliation) -->
+                  <div class="card mw-match-card">
+                      <div class="mw-match-panel">
+                          <div class="mw-match-panel-head">
+                              <i data-feather="zap"></i>
+                              <span><?php echo count($invoiceMatches); ?> likely bank deposit match<?php echo count($invoiceMatches) > 1 ? 'es' : ''; ?> for <strong><?php echo h($invoice['invoice_number']); ?></strong></span>
+                              <span class="mw-match-balance">Balance due <?php echo formatCurrency($invBalance); ?></span>
+                          </div>
+                          <?php foreach ($invoiceMatches as $m): ?>
+                          <div class="mw-match-item">
+                              <span class="mw-conf-badge mw-conf-<?php echo $m['confidence'] >= 85 ? 'high' : ($m['confidence'] >= 65 ? 'med' : 'low'); ?>" title="Match confidence"><?php echo (int)$m['confidence']; ?>%</span>
+                              <div class="mw-match-info">
+                                  <div class="mw-match-desc"><?php echo h($m['description'] ?: 'Bank deposit'); ?></div>
+                                  <div class="mw-match-meta">
+                                      <?php echo formatDate($m['date']); ?> · <?php echo formatCurrency($m['amount']); ?> available
+                                      <?php foreach ($m['reasons'] as $reason): ?>
+                                          <span class="mw-match-reason"><?php echo h($reason); ?></span>
+                                      <?php endforeach; ?>
+                                  </div>
+                                  <?php if (!empty($m['covers_more'])): ?>
+                                      <div class="mw-match-note">Larger than this balance — applying <?php echo formatCurrency($m['suggested_amount']); ?> here leaves <?php echo formatCurrency($m['amount'] - $m['suggested_amount']); ?> to apply to other invoices.</div>
+                                  <?php endif; ?>
+                                  <?php if (!empty($m['likely_recorded'])): ?>
+                                    <div class="mw-match-note">⚠ Possibly already recorded — this amount exactly matches e-Transfer payment<?php echo count($m['likely_recorded']['invoice_numbers']) > 1 ? 's' : ''; ?> recorded on <?php echo formatDate($m['likely_recorded']['pay_date']); ?> against <?php echo h(implode(', ', $m['likely_recorded']['invoice_numbers'])); ?>. If so, mark it recorded instead of attaching it again.</div>
+                                  <?php endif; ?>
+                              </div>
+                              <div class="mw-match-apply">
+                                  <div class="mw-match-amount-field">
+                                      <span>$</span>
+                                      <input type="number" step="0.01" min="0.01" class="mw-match-amount"
+                                             value="<?php echo number_format($m['suggested_amount'], 2, '.', ''); ?>"
+                                             data-balance="<?php echo number_format($invBalance, 2, '.', ''); ?>"
+                                             data-remaining="<?php echo number_format($m['amount'], 2, '.', ''); ?>">
+                                  </div>
+                                  <button type="button" class="mw-action-btn mw-action-btn-paid"
+                                          onclick="mwAttachDeposit(this, <?php echo (int)$invoiceId; ?>, <?php echo (int)$m['tx_id']; ?>, <?php echo h(json_encode($invoice['invoice_number'])); ?>)">
+                                      Attach
+                                  </button>
+                                  <button type="button" class="mw-match-dismiss" title="This deposit's money was already recorded by hand — stop suggesting it"
+                                          onclick="mwMarkDepositRecorded(this, <?php echo (int)$m['tx_id']; ?>, <?php echo h(json_encode($m['description'] ?: 'Bank deposit')); ?>)">Already recorded</button>
+                              </div>
+                          </div>
+                          <?php endforeach; ?>
+                      </div>
+                  </div>
+                  <?php endif; ?>
+
                   <!-- Customer Info -->
                   <div class="card">
                       <div class="card-header">
@@ -1535,6 +1595,51 @@ $extraHead = $isPayable
           </div>
 
           <script>
+          // ── Inline bank-deposit matching (shared with /crm/invoices/index.php) ──
+          (function () {
+              var CSRF = <?php echo json_encode($csrfToken); ?>;
+              function money(n) { return '$' + parseFloat(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+              function post(body, btn, origLabel, okMsg) {
+                  fetch('/crm/api/accounting-reconciliation.php', {
+                      method : 'POST',
+                      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                      body   : JSON.stringify(Object.assign({ csrf_token: CSRF }, body))
+                  })
+                  .then(function (r) { return r.json(); })
+                  .then(function (data) {
+                      if (data.ok) {
+                          mwToast(typeof okMsg === 'function' ? okMsg(data) : okMsg, 'success');
+                          setTimeout(function () { window.location.reload(); }, 1000);
+                      } else {
+                          btn.disabled = false; btn.textContent = origLabel;
+                          mwToast(data.error || 'Request failed.', 'error');
+                      }
+                  })
+                  .catch(function () {
+                      btn.disabled = false; btn.textContent = origLabel;
+                      mwToast('Network error — please try again.', 'error');
+                  });
+              }
+              window.mwAttachDeposit = function (btn, invoiceId, txId, invNum) {
+                  var input     = btn.closest('.mw-match-item').querySelector('.mw-match-amount');
+                  var amount    = parseFloat(input.value);
+                  var balance   = parseFloat(input.dataset.balance);
+                  var remaining = parseFloat(input.dataset.remaining);
+                  if (!(amount > 0)) { mwToast('Enter a valid amount.', 'error'); return; }
+                  if (amount > remaining + 0.005) { mwToast('Amount exceeds the deposit (' + money(remaining) + ' available).', 'error'); return; }
+                  if (amount > balance + 0.005 && !confirm('That is more than the invoice balance (' + money(balance) + '). It will be capped to the balance. Continue?')) { return; }
+                  var orig = btn.textContent; btn.disabled = true; btn.textContent = 'Attaching…';
+                  post({ action: 'attach', transaction_id: txId, allocations: [{ invoice_id: invoiceId, amount: amount }] }, btn, orig, function (data) {
+                      var rec = (data.result && data.result.recorded && data.result.recorded[0]) || {};
+                      return invNum + ' — ' + (rec.fully_paid ? 'paid in full' : 'partial payment recorded') + '.';
+                  });
+              };
+              window.mwMarkDepositRecorded = function (btn, txId, desc) {
+                  if (!confirm('Mark this deposit as already recorded?\n\n' + desc + '\n\nIt will stop being suggested against invoices and be booked as a cash-clearing transfer (not income). You can reverse this later.')) { return; }
+                  var orig = btn.textContent; btn.disabled = true; btn.textContent = 'Saving…';
+                  post({ action: 'mark_recorded', transaction_id: txId }, btn, orig, 'Deposit marked as already recorded.');
+              };
+          })();
           (function () {
               var balanceFull = <?php echo floatval($invoice['balance_due']); ?>;
               var modal       = document.getElementById('paymentModal');

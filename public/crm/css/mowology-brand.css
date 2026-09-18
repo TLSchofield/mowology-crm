@@ -36008,6 +36008,9 @@ span.mw-icon-box--missing {
 
 /* Expanded sub-row */
 .mw-match-row > .mw-match-cell { padding: 0; background: #f3faf6; }
+/* Standalone card variant (invoice view) — same panel, wrapped in a card */
+.mw-match-card { overflow: hidden; background: #f3faf6; }
+.mw-match-card > .mw-match-panel { margin: 0; }
 .mw-match-panel {
   border-left: 3px solid var(--mw-green);
   padding: .85rem 1.1rem 1rem;
