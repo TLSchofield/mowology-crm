@@ -350,7 +350,7 @@ class InvoiceReconciliationService
         if (!$dep || $this->allocatedTotal($transactionId) > 0.005) return null;
 
         $amount = round((float)$dep['amount'], 2);
-        $words  = $this->extractNameWords((string)$dep['description']);
+        $words  = self::bankMemoWords((string)$dep['description']);
         if ($amount <= 0 || empty($words)) return null;
 
         $date = substr((string)$dep['transaction_date'], 0, 10);
@@ -408,7 +408,12 @@ class InvoiceReconciliationService
      */
     public function linkOrphanDeposits(int $userId, int $limit = 500): array
     {
-        $out = ['checked' => 0, 'linked' => []];
+        $out = ['checked' => 0, 'linked' => [], 'unlinked_allocations' => 0];
+        try {
+            $out['unlinked_allocations'] = (int)$this->db->query(
+                "SELECT COUNT(*) FROM invoice_payment_allocations WHERE transaction_id IS NULL AND method = 'e_transfer'"
+            )->fetchColumn();
+        } catch (Throwable $e) { /* diagnostic only */ }
         foreach ($this->loadUnmatchedDeposits($limit) as $dep) {
             $out['checked']++;
             $txId = (int)$dep['id'];
@@ -423,6 +428,26 @@ class InvoiceReconciliationService
             }
         }
         return $out;
+    }
+
+    /**
+     * Name-ish tokens from a bank memo. Splits on ANY non-alphanumeric run so the
+     * concatenated Vancity format "ETRANSFERCREDIT(JOHNHUGHES)" yields "johnhughes"
+     * (which payerMatchesWords() compares against first+last name), and drops
+     * banking noise, numbers and stopwords.
+     *
+     * @return string[]
+     */
+    public static function bankMemoWords(string $description): array
+    {
+        $out = [];
+        foreach (preg_split('/[^a-z0-9]+/', strtolower($description)) ?: [] as $t) {
+            if (strlen($t) < 3 || is_numeric($t)) continue;
+            if (preg_match('/^(etransfer|etrf|interac|transfer|credit|deposit|ref|from|idp)/', $t)) continue;
+            if (in_array($t, self::NAME_STOPWORDS, true)) continue;
+            $out[] = $t;
+        }
+        return array_values(array_unique($out));
     }
 
     /** Does a bank-memo word list name this payer? ("john hughes" ~ "John Ellen Hughes", "johnhughes" ~ first+last) */

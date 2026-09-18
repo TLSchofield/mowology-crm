@@ -410,4 +410,11 @@ class InvoiceReconciliationServiceTest extends TestCase
 
         $this->assertNull((new InvoiceReconciliationService($pdo))->linkRecordedPaymentsToDeposit(5, 1));
     }
+    public function testBankMemoWordsHandlesBothVancityFormats(): void
+    {
+        $this->assertSame(['john', 'hughes'], InvoiceReconciliationService::bankMemoWords('e-Transfer credit Ref 20260720111256669848 JOHN HUGHES'));
+        $this->assertSame(['johnhughes'], InvoiceReconciliationService::bankMemoWords('ETRANSFERCREDIT(JOHNHUGHES)'));
+        $this->assertSame(['gary', 'hughes'], InvoiceReconciliationService::bankMemoWords('INTERAC E-TRF 1234 GARY HUGHES'));
+        $this->assertTrue(InvoiceReconciliationService::payerMatchesWords('John Ellen Hughes', InvoiceReconciliationService::bankMemoWords('ETRANSFERCREDIT(JOHNHUGHES)')));
+    }
 }
