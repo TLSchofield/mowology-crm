@@ -354,7 +354,7 @@ class InvoiceReconciliationService
             UPDATE accounting_transactions SET
                 type = 'transfer', status = 'reconciled',
                 matched_at = NOW(), matched_by = ?,
-                notes = TRIM(CONCAT(COALESCE(notes, ''), '\n', ?))
+                notes = CONCAT_WS('\n', NULLIF(TRIM(notes), ''), ?)
             WHERE id = ?
         ")->execute([(string)$userId, $stamp, $transactionId]);
         $this->setStagingMatchStatus($transactionId, 'manually_matched');
