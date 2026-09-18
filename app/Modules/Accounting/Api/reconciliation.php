@@ -7,6 +7,7 @@
  * POST {action:'detach', transaction_id[, invoice_id]}
  * POST {action:'mark_recorded', transaction_id[, note]}   — deposit's money was already recorded by hand; stop suggesting it
  * POST {action:'unmark_recorded', transaction_id}         — reverse of mark_recorded
+ * POST {action:'link_recorded_payments'}                  — sweep unmatched deposits, link hand-recorded payments that sum to them
  * Reads require billing.view; writes require billing.edit + CSRF.
  *
  * GET  ?action=expense_candidates&expense_id=X        — scored transaction candidates for one expense
@@ -138,6 +139,17 @@ try {
             if (function_exists('logActivityExtended')) {
                 logActivityExtended((int)$user['id'], 'Deposit marked recorded',
                     'Bank deposit #' . $txId . ' ($' . number_format($result['amount'], 2) . ') marked as already recorded');
+            }
+            echo json_encode(['ok' => true, 'result' => $result]);
+            break;
+        }
+
+        case 'link_recorded_payments': {
+            // Backfill: link hand-recorded e-Transfer payments to the deposits that carried them
+            $result = $svc->linkOrphanDeposits((int)$user['id']);
+            if (function_exists('logActivityExtended') && !empty($result['linked'])) {
+                logActivityExtended((int)$user['id'], 'Deposits linked',
+                    count($result['linked']) . ' bank deposit(s) linked to previously recorded payments');
             }
             echo json_encode(['ok' => true, 'result' => $result]);
             break;

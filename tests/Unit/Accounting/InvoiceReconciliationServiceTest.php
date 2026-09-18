@@ -325,4 +325,89 @@ class InvoiceReconciliationServiceTest extends TestCase
         $this->assertSame('7', $writes[0][0]);                       // matched_by = user id
         $this->assertStringContainsString('used up', $writes[0][1]); // note appended
     }
+    public function testExactSubsetPrefersWholePoolThenSingleThenCombination(): void
+    {
+        $this->assertSame([0, 1, 2], InvoiceReconciliationService::exactSubset([50.40, 50.40, 50.40], 151.20));
+        $this->assertSame([1], InvoiceReconciliationService::exactSubset([20.00, 302.40, 50.40], 302.40));
+        $this->assertSame([0, 2], InvoiceReconciliationService::exactSubset([10.00, 99.99, 40.40], 50.40));
+        $this->assertNull(InvoiceReconciliationService::exactSubset([10.00, 20.00], 25.00));
+        $this->assertNull(InvoiceReconciliationService::exactSubset([], 25.00));
+    }
+
+    public function testPayerMatchesWordsHandlesShortAndConcatenatedBankNames(): void
+    {
+        $this->assertTrue(InvoiceReconciliationService::payerMatchesWords('John Ellen Hughes', ['john', 'hughes']));
+        $this->assertTrue(InvoiceReconciliationService::payerMatchesWords('John Ellen Hughes', ['etransfercredit', 'johnhughes']));
+        $this->assertTrue(InvoiceReconciliationService::payerMatchesWords('1355183 B.C. LTD.', ['1355183']));
+        $this->assertFalse(InvoiceReconciliationService::payerMatchesWords('Marianna Pandy', ['john', 'hughes']));
+        $this->assertFalse(InvoiceReconciliationService::payerMatchesWords('', ['john']));
+    }
+
+    public function testLinkRecordedPaymentsLinksSamePayerAllocationsThatSumToDeposit(): void
+    {
+        // $302.40 deposit; six unlinked $50.40 e-Transfer allocations from John Hughes
+        // plus one from another payer that must be ignored.
+        $depStmt = $this->createMock(PDOStatement::class);
+        $depStmt->method('execute')->willReturn(true);
+        $depStmt->method('fetch')->willReturn(['id' => 24438, 'type' => 'income', 'amount' => 302.40,
+            'transaction_date' => '2026-07-20', 'description' => 'e-Transfer credit Ref 20260720111256669848 JOHN HUGHES', 'account_id' => 24]);
+
+        $allocTotalStmt = $this->createMock(PDOStatement::class);
+        $allocTotalStmt->method('execute')->willReturn(true);
+        $allocTotalStmt->method('fetchColumn')->willReturnOnConsecutiveCalls(0, 302.40, 302.40);
+
+        $poolStmt = $this->createMock(PDOStatement::class);
+        $poolStmt->method('execute')->willReturn(true);
+        $rows = array_map(fn($n) => ['id' => $n, 'invoice_id' => 100 + $n, 'amount' => 50.40,
+            'invoice_number' => 'INV-2026-0' . $n, 'payer_name' => 'John Ellen Hughes'], [1, 2, 3, 4, 5, 6]);
+        $rows[] = ['id' => 9, 'invoice_id' => 900, 'amount' => 50.40, 'invoice_number' => 'INV-2026-0900', 'payer_name' => 'Marianna Pandy'];
+        $poolStmt->method('fetchAll')->willReturn($rows);
+
+        $writes = [];
+        $writeStmt = $this->createMock(PDOStatement::class);
+        $writeStmt->method('execute')->willReturnCallback(function ($p) use (&$writes) { $writes[] = $p; return true; });
+
+        $pdo = $this->createMock(PDO::class);
+        $pdo->method('prepare')->willReturnCallback(function (string $sql) use ($depStmt, $allocTotalStmt, $poolStmt, $writeStmt) {
+            if (strpos($sql, 'SUM(amount)') !== false)                 return $allocTotalStmt;
+            if (strpos($sql, 'a.transaction_id IS NULL') !== false)   return $poolStmt;
+            if (strpos($sql, 'UPDATE') !== false)                      return $writeStmt;
+            return $depStmt;
+        });
+
+        $res = (new InvoiceReconciliationService($pdo))->linkRecordedPaymentsToDeposit(24438, 1);
+
+        $this->assertNotNull($res);
+        $this->assertSame([1, 2, 3, 4, 5, 6], $res['allocation_ids']);
+        $this->assertEqualsWithDelta(302.40, $res['amount'], 0.001);
+        // First write links the six allocations to the deposit
+        $this->assertSame([24438, 1, 2, 3, 4, 5, 6], $writes[0]);
+        // Second write flips the deposit to a reconciled transfer for the full amount
+        $this->assertEqualsWithDelta(302.40, $writes[1][0], 0.001);
+    }
+
+    public function testLinkRecordedPaymentsReturnsNullWhenAmountsDoNotSum(): void
+    {
+        $depStmt = $this->createMock(PDOStatement::class);
+        $depStmt->method('execute')->willReturn(true);
+        $depStmt->method('fetch')->willReturn(['id' => 5, 'type' => 'income', 'amount' => 100.00,
+            'transaction_date' => '2026-07-20', 'description' => 'INTERAC E-TRF JOHN HUGHES', 'account_id' => 24]);
+        $allocTotalStmt = $this->createMock(PDOStatement::class);
+        $allocTotalStmt->method('execute')->willReturn(true);
+        $allocTotalStmt->method('fetchColumn')->willReturn(0);
+        $poolStmt = $this->createMock(PDOStatement::class);
+        $poolStmt->method('execute')->willReturn(true);
+        $poolStmt->method('fetchAll')->willReturn([
+            ['id' => 1, 'invoice_id' => 1, 'amount' => 50.40, 'invoice_number' => 'A', 'payer_name' => 'John Ellen Hughes'],
+        ]);
+        $pdo = $this->createMock(PDO::class);
+        $pdo->method('prepare')->willReturnCallback(function (string $sql) use ($depStmt, $allocTotalStmt, $poolStmt) {
+            if (strpos($sql, 'SUM(amount)') !== false)               return $allocTotalStmt;
+            if (strpos($sql, 'a.transaction_id IS NULL') !== false) return $poolStmt;
+            $this->assertStringNotContainsString('UPDATE', $sql, 'must not write when nothing matches');
+            return $depStmt;
+        });
+
+        $this->assertNull((new InvoiceReconciliationService($pdo))->linkRecordedPaymentsToDeposit(5, 1));
+    }
 }

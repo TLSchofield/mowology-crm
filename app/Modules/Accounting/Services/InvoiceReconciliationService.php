@@ -326,6 +326,150 @@ class InvoiceReconciliationService
         return ['reversed' => $reversed, 'deposit_remaining' => $this->remainingForDeposit($transactionId)];
     }
 
+    // ══════════════════════════════════════════════════════════════════════════
+    // LINK HAND-RECORDED PAYMENTS TO A LATER BANK DEPOSIT
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Payments recorded before the bank statement arrives (Record Payment, the
+     * e-Transfer inbox) write invoice_payment_allocations rows with
+     * transaction_id = NULL. When the matching deposit is imported later, nothing
+     * links them, so the deposit sits as unmatched income, double-counts revenue,
+     * and is offered as a "likely match" forever.
+     *
+     * This finds unlinked e-Transfer allocations from the same payer, dated within
+     * a window around the deposit, whose amounts sum EXACTLY to the deposit, links
+     * them, and books the deposit as a cash-clearing transfer. Caller manages the
+     * DB transaction (bank import runs it inside its own).
+     *
+     * @return array{allocation_ids:int[],invoice_numbers:string[],amount:float}|null  null = nothing matched
+     */
+    public function linkRecordedPaymentsToDeposit(int $transactionId, int $userId): ?array
+    {
+        $dep = $this->getDeposit($transactionId, true);
+        if (!$dep || $this->allocatedTotal($transactionId) > 0.005) return null;
+
+        $amount = round((float)$dep['amount'], 2);
+        $words  = $this->extractNameWords((string)$dep['description']);
+        if ($amount <= 0 || empty($words)) return null;
+
+        $date = substr((string)$dep['transaction_date'], 0, 10);
+        $stmt = $this->db->prepare("
+            SELECT a.id, a.invoice_id, a.amount, i.invoice_number,
+                   COALESCE(NULLIF(i.bill_to_name, ''), co.company_name,
+                            NULLIF(CONCAT(COALESCE(ct.first_name,''), ' ', COALESCE(ct.last_name,'')), ' '),
+                            p.property_name, '') AS payer_name
+            FROM invoice_payment_allocations a
+            JOIN invoices i ON i.id = a.invoice_id
+            LEFT JOIN companies  co ON co.id = i.company_id
+            LEFT JOIN contacts   ct ON ct.id = i.contact_id
+            LEFT JOIN properties p  ON p.id  = i.property_id
+            WHERE a.transaction_id IS NULL
+              AND a.method = 'e_transfer'
+              AND a.amount > 0
+              AND a.payment_date BETWEEN DATE_SUB(?, INTERVAL 5 DAY) AND DATE_ADD(?, INTERVAL 60 DAY)
+            ORDER BY a.payment_date ASC, a.id ASC
+            LIMIT 200
+        ");
+        $stmt->execute([$date, $date]);
+
+        $pool = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            if (self::payerMatchesWords((string)$row['payer_name'], $words)) {
+                $pool[] = $row;
+            }
+        }
+        if (empty($pool)) return null;
+
+        $picked = self::exactSubset(array_map(fn($r) => (float)$r['amount'], $pool), $amount);
+        if ($picked === null) return null;
+
+        $ids = []; $numbers = []; $invoiceIds = [];
+        foreach ($picked as $i) {
+            $ids[]        = (int)$pool[$i]['id'];
+            $numbers[]    = (string)$pool[$i]['invoice_number'];
+            $invoiceIds[] = (int)$pool[$i]['invoice_id'];
+        }
+        $in = implode(',', array_fill(0, count($ids), '?'));
+        $this->db->prepare("UPDATE invoice_payment_allocations SET transaction_id = ? WHERE id IN ({$in})")
+            ->execute(array_merge([$transactionId], $ids));
+
+        $single = count(array_unique($invoiceIds)) === 1 ? $invoiceIds[0] : null;
+        $this->recomputeDepositRow($transactionId, $amount, $userId, $single);
+
+        return ['allocation_ids' => $ids, 'invoice_numbers' => array_values(array_unique($numbers)), 'amount' => $amount];
+    }
+
+    /**
+     * Run linkRecordedPaymentsToDeposit() over every unmatched imported deposit
+     * (one-off backfill / periodic sweep). Each deposit is its own transaction.
+     *
+     * @return array{checked:int,linked:array<int,array>}
+     */
+    public function linkOrphanDeposits(int $userId, int $limit = 500): array
+    {
+        $out = ['checked' => 0, 'linked' => []];
+        foreach ($this->loadUnmatchedDeposits($limit) as $dep) {
+            $out['checked']++;
+            $txId = (int)$dep['id'];
+            try {
+                $this->db->beginTransaction();
+                $res = $this->linkRecordedPaymentsToDeposit($txId, $userId);
+                $this->db->commit();
+                if ($res) $out['linked'][$txId] = $res + ['description' => (string)$dep['description']];
+            } catch (Throwable $e) {
+                if ($this->db->inTransaction()) $this->db->rollBack();
+                error_log('[InvoiceReconciliationService] linkOrphanDeposits tx ' . $txId . ': ' . $e->getMessage());
+            }
+        }
+        return $out;
+    }
+
+    /** Does a bank-memo word list name this payer? ("john hughes" ~ "John Ellen Hughes", "johnhughes" ~ first+last) */
+    public static function payerMatchesWords(string $payer, array $words): bool
+    {
+        $payerLower = strtolower(trim($payer));
+        if ($payerLower === '') return false;
+        $parts = preg_split('/\s+/', preg_replace('/[^a-z0-9 ]/', '', $payerLower)) ?: [];
+        $parts = array_values(array_filter($parts, fn($p) => $p !== ''));
+        $firstLast = count($parts) >= 2 ? $parts[0] . end($parts) : ($parts[0] ?? '');
+        $joined    = implode('', $parts);
+        foreach ($words as $w) {
+            $w = strtolower((string)$w);
+            if (strlen($w) < 3) continue;
+            if (in_array($w, $parts, true)) return true;
+            if ($w === $firstLast || $w === $joined) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Indices of a subset of $amounts summing to $target (±0.5¢), or null.
+     * Prefers the whole pool, then a single item, then a bitmask search over at
+     * most 14 items (16k combos) — enough for one payer's recent payments.
+     *
+     * @return int[]|null
+     */
+    public static function exactSubset(array $amounts, float $target): ?array
+    {
+        $n = count($amounts);
+        if ($n === 0) return null;
+        $eq = fn(float $a, float $b) => abs($a - $b) < 0.005;
+        if ($eq(round(array_sum($amounts), 2), $target)) return range(0, $n - 1);
+        foreach ($amounts as $i => $a) {
+            if ($eq((float)$a, $target)) return [$i];
+        }
+        $n = min($n, 14);
+        for ($mask = 1; $mask < (1 << $n); $mask++) {
+            $sum = 0.0; $idx = [];
+            for ($i = 0; $i < $n; $i++) {
+                if ($mask & (1 << $i)) { $sum += (float)$amounts[$i]; $idx[] = $i; }
+            }
+            if ($eq(round($sum, 2), $target)) return $idx;
+        }
+        return null;
+    }
+
     /**
      * The deposit's money was already recorded against invoices by hand (e.g. via
      * Record Payment or the e-Transfer inbox before the bank statement was imported),

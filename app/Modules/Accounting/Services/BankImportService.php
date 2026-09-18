@@ -77,6 +77,18 @@ class BankImportService
      * Detect bank preset from filename.
      * Returns preset key or 'generic'.
      */
+    private ?InvoiceReconciliationService $reconSvc = null;
+
+    /** Lazily built — no autoloader on production, so require the file here. */
+    private function reconciliationService(): InvoiceReconciliationService
+    {
+        if ($this->reconSvc === null) {
+            require_once __DIR__ . '/InvoiceReconciliationService.php';
+            $this->reconSvc = new InvoiceReconciliationService($this->db);
+        }
+        return $this->reconSvc;
+    }
+
     public function detectPreset(string $filename): string
     {
         $lower = strtolower($filename);
@@ -632,12 +644,32 @@ class BankImportService
                 ]);
                 $txId = (int)$this->db->lastInsertId();
 
+                // An e-Transfer deposit whose money was already recorded against
+                // invoices (Record Payment / e-Transfer inbox) — link those payments
+                // to this deposit now so it isn't booked as a second income and never
+                // shows up as a "likely match". Rolling the session back deletes the
+                // tx, and the FK sets the allocations' transaction_id back to NULL.
+                $linkedRecorded = null;
+                if ($row['type'] === 'income' && $this->isETransfer((string)$row['description'])) {
+                    try {
+                        $linkedRecorded = $this->reconciliationService()->linkRecordedPaymentsToDeposit($txId, $userId);
+                    } catch (\Throwable $e) {
+                        error_log('[BankImportService] link recorded payments tx ' . $txId . ': ' . $e->getMessage());
+                        $linkedRecorded = null;
+                    }
+                }
+                if ($linkedRecorded) {
+                    $row['_revert']           = ['delete_tx' => [$txId]];
+                    $row['linked_recorded']   = $linkedRecorded;
+                    $reconciled++;
+                }
+
                 $rowStmt->execute([
                     $sessionId, $row['date'], $row['description'], $rawAmount,
                     $stagedType, $row['amount'], $row['account_id'],
                     $txId, 0, null,
                     $row['rule_id'] ?? null, json_encode($row),
-                    'unmatched', null,
+                    $linkedRecorded ? 'auto_matched' : 'unmatched', null,
                 ]);
 
                 $imported++;

@@ -61,7 +61,6 @@ $paymentDate    = trim($_POST['payment_date'] ?? '');
 if ($paymentDate && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $paymentDate)) {
     $paymentDate = '';
 }
-$paidAt = $paymentDate ? $paymentDate . ' 12:00:00' : null; // null = NOW() in SQL
 
 // Per-invoice amount overrides (keyed by invoice_id)
 $amountOverrides = [];
@@ -76,6 +75,8 @@ if (!empty($_POST['payment_amount']) && is_array($_POST['payment_amount'])) {
 }
 
 $db = getDB();
+require_once APP_ROOT . '/Modules/Accounting/Services/InvoiceReconciliationService.php';
+$reconSvc = new InvoiceReconciliationService($db);
 
 // Load invoices — only ones that can accept payment
 $placeholders = implode(',', array_fill(0, count($invoiceIds), '?'));
@@ -124,31 +125,30 @@ foreach ($invoices as $inv) {
         continue;
     }
 
-    $newAmountPaid = floatval($inv['amount_paid']) + $payAmount;
-    $newBalance    = max(0, $balanceDue - $payAmount);
-    $newStatus     = $newBalance <= 0.005 ? 'paid' : 'partial'; // treat < 0.5¢ as paid
-
     try {
         $db->beginTransaction();
 
-        $paidAtSql = $paidAt ? '?' : 'NOW()';
-        $params    = $paidAt
-            ? [$newAmountPaid, $newBalance, $newStatus, $paymentMethod, $transactionRef, $paidAt, $id]
-            : [$newAmountPaid, $newBalance, $newStatus, $paymentMethod, $transactionRef, $id];
+        // Write through the shared allocation ledger so a later bank import can
+        // link this payment to the deposit that carried it (BankImportService →
+        // InvoiceReconciliationService::linkRecordedPaymentsToDeposit). Recording
+        // straight onto the invoice row left the deposit orphaned as unmatched income.
+        $alloc = $reconSvc->applyAllocation(
+            (int)$id, (float)$payAmount, $paymentMethod, $transactionRef !== '' ? $transactionRef : null,
+            $paymentDate ?: date('Y-m-d'), null, (int)$user['id']
+        );
+        if (!$alloc) {
+            $db->rollBack();
+            $errors[] = "Invoice {$inv['invoice_number']}: already settled";
+            continue;
+        }
+        $newStatus = $alloc['status'];
 
+        // Allow an explicit reference/method override even when the invoice already had one
         $db->prepare("
             UPDATE invoices
-            SET amount_paid      = ?,
-                balance_due      = ?,
-                status           = ?,
-                payment_method   = ?,
-                payment_reference= ?,
-                paid_at          = {$paidAtSql},
-                pdf_path         = NULL,
-                pdf_version      = 0,
-                pdf_generated_at = NULL
+            SET payment_method = ?, payment_reference = ?, pdf_version = 0
             WHERE id = ?
-        ")->execute($params);
+        ")->execute([$paymentMethod, $transactionRef, $id]);
 
         // Activity log
         $client = $inv['company_name']
