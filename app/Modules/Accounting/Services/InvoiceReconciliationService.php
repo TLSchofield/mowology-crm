@@ -443,7 +443,7 @@ class InvoiceReconciliationService
         $out = [];
         foreach (preg_split('/[^a-z0-9]+/', strtolower($description)) ?: [] as $t) {
             if (strlen($t) < 3 || is_numeric($t)) continue;
-            if (preg_match('/^(etransfer|etrf|interac|transfer|credit|deposit|ref|from|idp)/', $t)) continue;
+            if (preg_match('/^(etransfer|etrf|trf|interac|transfer|credit|deposit|ref|from|idp|purchase)/', $t)) continue;
             if (in_array($t, self::NAME_STOPWORDS, true)) continue;
             $out[] = $t;
         }
