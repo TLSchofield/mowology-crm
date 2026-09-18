@@ -1171,6 +1171,28 @@ if ($action === 'view_contact' && $clientId) {
             }
         } catch (Exception $e) { $contactInvoices = []; }
 
+        // ── Candidate bank-deposit matches for this contact's unpaid invoices ──
+        // Same inline reconciliation as /crm/invoices/index.php ("likely match" pill).
+        $contactInvoiceMatches = [];
+        try {
+            $__payableIds = [];
+            foreach ($contactInvoices as $__inv) {
+                if (in_array($__inv['status'], ['sent', 'viewed', 'partial', 'overdue'], true)
+                    && (float)$__inv['balance_due'] > 0.005) {
+                    $__payableIds[] = (int)$__inv['id'];
+                }
+            }
+            $__svcFile = APP_ROOT . '/Modules/Accounting/Services/InvoiceReconciliationService.php';
+            if ($__payableIds && is_file($__svcFile)) {
+                require_once $__svcFile;
+                $contactInvoiceMatches = (new InvoiceReconciliationService($db))->topCandidatesForInvoiceIds($__payableIds);
+            }
+            unset($__payableIds, $__inv, $__svcFile);
+        } catch (Throwable $__e) {
+            error_log('[clients/view_contact] candidate match error: ' . $__e->getMessage());
+            $contactInvoiceMatches = [];
+        }
+
         // ── Billing Statement: Stripe payments per invoice ──
         $contactStripePayments = [];
         $statementLedger       = [];
@@ -3401,6 +3423,7 @@ $unconvertedRequests = $db->query("
                           </thead>
                           <tbody>
                             <?php foreach ($contactInvoices as $inv): ?>
+                              <?php $invMatches = $contactInvoiceMatches[(int)$inv['id']] ?? []; $invBalance = (float)($inv['balance_due'] ?? 0); ?>
                               <tr onclick="window.location='invoices/view.php?id=<?php echo (int)$inv['id']; ?>'" style="cursor:pointer;">
                                 <td>
                                   <strong><?php echo h($inv['invoice_number']); ?></strong>
@@ -3408,14 +3431,68 @@ $unconvertedRequests = $db->query("
                                     <br><small class="text-muted"><?php echo formatDate($inv['issue_date']); ?></small>
                                   <?php endif; ?>
                                 </td>
-                                <td><?php echo getStatusBadge($inv['status'], 'invoice'); ?></td>
+                                <td>
+                                  <?php echo getStatusBadge($inv['status'], 'invoice'); ?>
+                                  <?php if (!empty($invMatches)): ?>
+                                    <button type="button" class="mw-match-pill mt-1"
+                                            onclick="event.stopPropagation(); mwToggleMatch(<?php echo (int)$inv['id']; ?>)"
+                                            title="A bank deposit likely matches this invoice">
+                                      <i data-feather="link-2"></i>
+                                      <?php echo count($invMatches); ?> likely match<?php echo count($invMatches) > 1 ? 'es' : ''; ?>
+                                    </button>
+                                  <?php endif; ?>
+                                </td>
                                 <td><?php echo h(formatPaymentMethod($inv['payment_method'] ?? '', $inv['payment_reference'] ?? '')) ?: '—'; ?></td>
                                 <td class="text-right"><?php echo formatCurrency($inv['total'] ?? 0); ?></td>
                                 <td class="text-right"><?php echo formatCurrency($inv['amount_paid'] ?? 0); ?></td>
-                                <td class="text-right <?php echo floatval($inv['balance_due'] ?? 0) > 0 ? 'text-danger font-weight-bold' : 'text-success'; ?>">
+                                <td class="text-right <?php echo $invBalance > 0 ? 'text-danger font-weight-bold' : 'text-success'; ?>">
                                   <?php echo formatCurrency($inv['balance_due'] ?? 0); ?>
                                 </td>
                               </tr>
+                              <?php if (!empty($invMatches)): ?>
+                              <tr class="mw-match-row" id="mw-match-row-<?php echo (int)$inv['id']; ?>" style="display:none;">
+                                <td colspan="6" class="mw-match-cell">
+                                  <div class="mw-match-panel">
+                                    <div class="mw-match-panel-head">
+                                      <i data-feather="zap"></i>
+                                      <span>Possible bank deposit<?php echo count($invMatches) > 1 ? 's' : ''; ?> for <strong><?php echo h($inv['invoice_number']); ?></strong></span>
+                                      <span class="mw-match-balance">Balance due <?php echo formatCurrency($invBalance); ?></span>
+                                    </div>
+                                    <?php foreach ($invMatches as $m): ?>
+                                    <div class="mw-match-item">
+                                      <span class="mw-conf-badge mw-conf-<?php echo $m['confidence'] >= 85 ? 'high' : ($m['confidence'] >= 65 ? 'med' : 'low'); ?>" title="Match confidence"><?php echo (int)$m['confidence']; ?>%</span>
+                                      <div class="mw-match-info">
+                                        <div class="mw-match-desc"><?php echo h($m['description'] ?: 'Bank deposit'); ?></div>
+                                        <div class="mw-match-meta">
+                                          <?php echo formatDate($m['date']); ?> · <?php echo formatCurrency($m['amount']); ?> available
+                                          <?php foreach ($m['reasons'] as $reason): ?>
+                                            <span class="mw-match-reason"><?php echo h($reason); ?></span>
+                                          <?php endforeach; ?>
+                                        </div>
+                                        <?php if (!empty($m['covers_more'])): ?>
+                                          <div class="mw-match-note">Larger than this balance — applying <?php echo formatCurrency($m['suggested_amount']); ?> here leaves <?php echo formatCurrency($m['amount'] - $m['suggested_amount']); ?> to apply to other invoices.</div>
+                                        <?php endif; ?>
+                                      </div>
+                                      <div class="mw-match-apply">
+                                        <div class="mw-match-amount-field">
+                                          <span>$</span>
+                                          <input type="number" step="0.01" min="0.01" class="mw-match-amount"
+                                                 value="<?php echo number_format($m['suggested_amount'], 2, '.', ''); ?>"
+                                                 data-balance="<?php echo number_format($invBalance, 2, '.', ''); ?>"
+                                                 data-remaining="<?php echo number_format($m['amount'], 2, '.', ''); ?>">
+                                        </div>
+                                        <button type="button" class="mw-action-btn mw-action-btn-paid"
+                                                onclick="mwAttachDeposit(this, <?php echo (int)$inv['id']; ?>, <?php echo (int)$m['tx_id']; ?>, <?php echo h(json_encode($inv['invoice_number'])); ?>)">
+                                          Attach
+                                        </button>
+                                        <button type="button" class="mw-match-dismiss" onclick="mwToggleMatch(<?php echo (int)$inv['id']; ?>)">Close</button>
+                                      </div>
+                                    </div>
+                                    <?php endforeach; ?>
+                                  </div>
+                                </td>
+                              </tr>
+                              <?php endif; ?>
                             <?php endforeach; ?>
                           </tbody>
                         </table>
@@ -4184,6 +4261,64 @@ $unconvertedRequests = $db->query("
             (function() {
               var CONTACT_ID = <?php echo (int)$viewContact['id']; ?>;
               var CSRF_TOKEN = '<?php echo csrf_token(); ?>';
+
+              // ── Inline bank-deposit matching (same as /crm/invoices/index.php) ──
+              function mwFmtMoney(n) {
+                return '$' + parseFloat(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+              }
+              window.mwToggleMatch = function (invoiceId) {
+                var row = document.getElementById('mw-match-row-' + invoiceId);
+                if (!row) return;
+                var open = row.style.display !== 'none' && row.style.display !== '';
+                row.style.display = open ? 'none' : 'table-row';
+              };
+              window.mwAttachDeposit = function (btn, invoiceId, txId, invNum) {
+                var item      = btn.closest('.mw-match-item');
+                var input     = item.querySelector('.mw-match-amount');
+                var amount    = parseFloat(input.value);
+                var balance   = parseFloat(input.dataset.balance);
+                var remaining = parseFloat(input.dataset.remaining);
+                if (!(amount > 0)) { mwToast('Enter a valid amount.', 'error'); return; }
+                if (amount > remaining + 0.005) {
+                  mwToast('Amount exceeds the deposit (' + mwFmtMoney(remaining) + ' available).', 'error');
+                  return;
+                }
+                if (amount > balance + 0.005) {
+                  if (!confirm('That is more than the invoice balance (' + mwFmtMoney(balance)
+                    + '). It will be capped to the balance. Continue?')) { return; }
+                }
+                var origLabel = btn.textContent;
+                btn.disabled = true;
+                btn.textContent = 'Attaching…';
+                fetch('/crm/api/accounting-reconciliation.php', {
+                  method : 'POST',
+                  headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                  body   : JSON.stringify({
+                    action        : 'attach',
+                    csrf_token    : CSRF_TOKEN,
+                    transaction_id: txId,
+                    allocations   : [{ invoice_id: invoiceId, amount: amount }]
+                  })
+                })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                  if (data.ok) {
+                    var rec = (data.result && data.result.recorded && data.result.recorded[0]) || {};
+                    mwToast(invNum + ' — ' + (rec.fully_paid ? 'paid in full' : 'partial payment recorded') + '.', 'success');
+                    setTimeout(function () { window.location.reload(); }, 1200);
+                  } else {
+                    btn.disabled = false;
+                    btn.textContent = origLabel;
+                    mwToast(data.error || 'Could not attach deposit.', 'error');
+                  }
+                })
+                .catch(function (err) {
+                  btn.disabled = false;
+                  btn.textContent = origLabel;
+                  console.error('[mwAttachDeposit]', err);
+                  mwToast('Network error — please try again.', 'error');
+                });
+              };
               var propertiesData = <?php echo json_encode($contactProperties); ?>;
               var nearbyClientsData = <?php echo json_encode($nearbyClients); ?>;
               var availableTags = <?php echo json_encode($availableTags); ?>;
