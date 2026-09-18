@@ -414,12 +414,14 @@ function formatPaymentMethod($method, $reference = '') {
         'cheque'      => 'Cheque',
         'credit_card' => 'Credit Card',
         'other'       => 'Other',
+        'stripe'      => 'Card (Stripe)',
     ];
     $method = trim((string)$method);
     if ($method === '') return '';
-    $label = $labels[$method] ?? ucwords(str_replace('_', ' ', $method));
+    $label = $labels[strtolower($method)] ?? ucwords(str_replace('_', ' ', $method));
     $reference = trim((string)$reference);
-    if ($reference !== '') {
+    // Stripe object IDs (pi_/ch_/py_) are internal noise on a list view — hide them.
+    if ($reference !== '' && !preg_match('/^(pi|ch|py|in)_[A-Za-z0-9]+$/', $reference)) {
         $label .= ($method === 'cheque' ? ' #' : ' ') . $reference;
     }
     return $label;
