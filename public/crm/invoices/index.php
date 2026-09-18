@@ -608,6 +608,9 @@ $activePage = 'invoices';
                                                     <?php if (!empty($m['covers_more'])): ?>
                                                         <div class="mw-match-note">Larger than this balance — applying <?php echo formatCurrency($m['suggested_amount']); ?> here leaves <?php echo formatCurrency($m['amount'] - $m['suggested_amount']); ?> to apply to other invoices.</div>
                                                     <?php endif; ?>
+                                                    <?php if (!empty($m['likely_recorded'])): ?>
+                                                      <div class="mw-match-note">⚠ Possibly already recorded — this amount exactly matches e-Transfer payment<?php echo count($m['likely_recorded']['invoice_numbers']) > 1 ? 's' : ''; ?> recorded on <?php echo formatDate($m['likely_recorded']['pay_date']); ?> against <?php echo htmlspecialchars(implode(', ', $m['likely_recorded']['invoice_numbers'])); ?>. If so, mark it recorded instead of attaching it again.</div>
+                                                    <?php endif; ?>
                                                 </div>
                                                 <div class="mw-match-apply">
                                                     <div class="mw-match-amount-field">
@@ -621,6 +624,8 @@ $activePage = 'invoices';
                                                             onclick="mwAttachDeposit(this, <?php echo (int)$invoice['id']; ?>, <?php echo (int)$m['tx_id']; ?>, <?php echo htmlspecialchars(json_encode($invoice['invoice_number']), ENT_QUOTES); ?>)">
                                                         Attach
                                                     </button>
+                                                    <button type="button" class="mw-match-dismiss" title="This deposit's money was already recorded by hand — stop suggesting it"
+                                                            onclick="mwMarkDepositRecorded(this, <?php echo (int)$m['tx_id']; ?>, <?php echo htmlspecialchars(json_encode($m['description'] ?: 'Bank deposit')); ?>)">Already recorded</button>
                                                     <button type="button" class="mw-match-dismiss" onclick="mwToggleMatch(<?php echo (int)$invoice['id']; ?>)">Close</button>
                                                 </div>
                                             </div>
@@ -1132,6 +1137,33 @@ $activePage = 'invoices';
             btn.disabled = false;
             btn.textContent = origLabel;
             console.error('[mwAttachDeposit]', err);
+            showToast('Network error — please try again.', 'error');
+        });
+    };
+
+
+    window.mwMarkDepositRecorded = function (btn, txId, desc) {
+        if (!confirm('Mark this deposit as already recorded?\n\n' + desc + '\n\nIt will stop being suggested against invoices and be booked as a cash-clearing transfer (not income). You can reverse this later.')) { return; }
+        var origLabel = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Saving…';
+        fetch('/crm/api/accounting-reconciliation.php', {
+            method : 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            body   : JSON.stringify({ action: 'mark_recorded', csrf_token: CSRF_TOKEN, transaction_id: txId })
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            if (data.ok) {
+                showToast('Deposit marked as already recorded.', 'success');
+                setTimeout(function () { window.location.reload(); }, 1000);
+            } else {
+                btn.disabled = false; btn.textContent = origLabel;
+                showToast(data.error || 'Could not update the deposit.', 'error');
+            }
+        })
+        .catch(function () {
+            btn.disabled = false; btn.textContent = origLabel;
             showToast('Network error — please try again.', 'error');
         });
     };

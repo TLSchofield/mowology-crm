@@ -5,6 +5,8 @@
  * GET  ?action=candidates&invoice_id=X                — scored deposit candidates for one invoice
  * POST {action:'attach', transaction_id, allocations:[{invoice_id, amount}, ...]}
  * POST {action:'detach', transaction_id[, invoice_id]}
+ * POST {action:'mark_recorded', transaction_id[, note]}   — deposit's money was already recorded by hand; stop suggesting it
+ * POST {action:'unmark_recorded', transaction_id}         — reverse of mark_recorded
  * Reads require billing.view; writes require billing.edit + CSRF.
  *
  * GET  ?action=expense_candidates&expense_id=X        — scored transaction candidates for one expense
@@ -125,6 +127,26 @@ try {
                 }
             }
 
+            echo json_encode(['ok' => true, 'result' => $result]);
+            break;
+        }
+
+        case 'mark_recorded': {
+            $txId = (int)($input['transaction_id'] ?? 0);
+            if (!$txId) throw new InvalidArgumentException('Missing transaction_id');
+            $result = $svc->markDepositAlreadyRecorded($txId, (int)$user['id'], (string)($input['note'] ?? ''));
+            if (function_exists('logActivityExtended')) {
+                logActivityExtended((int)$user['id'], 'Deposit marked recorded',
+                    'Bank deposit #' . $txId . ' ($' . number_format($result['amount'], 2) . ') marked as already recorded');
+            }
+            echo json_encode(['ok' => true, 'result' => $result]);
+            break;
+        }
+
+        case 'unmark_recorded': {
+            $txId = (int)($input['transaction_id'] ?? 0);
+            if (!$txId) throw new InvalidArgumentException('Missing transaction_id');
+            $result = $svc->unmarkDepositAlreadyRecorded($txId);
             echo json_encode(['ok' => true, 'result' => $result]);
             break;
         }

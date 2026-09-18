@@ -327,6 +327,62 @@ class InvoiceReconciliationService
     }
 
     /**
+     * The deposit's money was already recorded against invoices by hand (e.g. via
+     * Record Payment or the e-Transfer inbox before the bank statement was imported),
+     * so no allocation rows point at it and the matcher keeps offering it.
+     *
+     * Flips the bank row to a cash-clearing transfer: excluded from income (the
+     * invoices' own ledger rows already recognise the revenue) and no longer a
+     * candidate. Reversible via unmarkDepositAlreadyRecorded().
+     *
+     * @return array{transaction_id:int,amount:float}
+     */
+    public function markDepositAlreadyRecorded(int $transactionId, int $userId, string $note = ''): array
+    {
+        $dep = $this->getDeposit($transactionId, true);
+        if (!$dep) {
+            throw new RuntimeException('Bank deposit not found, or it is already reconciled.');
+        }
+        if ($this->allocatedTotal($transactionId) > 0.005) {
+            throw new RuntimeException('This deposit already has payments attached — detach them first.');
+        }
+        $amount = round((float)$dep['amount'], 2);
+        $stamp  = 'Marked as already recorded on ' . date('Y-m-d') . ' by user #' . $userId
+                . ($note !== '' ? ' — ' . trim($note) : '');
+
+        $this->db->prepare("
+            UPDATE accounting_transactions SET
+                type = 'transfer', status = 'reconciled',
+                matched_at = NOW(), matched_by = ?,
+                notes = TRIM(CONCAT(COALESCE(notes, ''), '\n', ?))
+            WHERE id = ?
+        ")->execute([(string)$userId, $stamp, $transactionId]);
+        $this->setStagingMatchStatus($transactionId, 'manually_matched');
+
+        return ['transaction_id' => $transactionId, 'amount' => $amount];
+    }
+
+    /** Reverse markDepositAlreadyRecorded(): restore the row as unmatched income. */
+    public function unmarkDepositAlreadyRecorded(int $transactionId): array
+    {
+        $dep = $this->getDeposit($transactionId);
+        if (!$dep || ($dep['type'] ?? '') !== 'transfer') {
+            throw new RuntimeException('Bank deposit not found, or it is not marked as already recorded.');
+        }
+        if ($this->allocatedTotal($transactionId) > 0.005) {
+            throw new RuntimeException('This deposit has payments attached — use detach instead.');
+        }
+        $this->db->prepare("
+            UPDATE accounting_transactions SET
+                type = 'income', status = 'cleared',
+                matched_invoice_id = NULL, match_confidence = NULL, matched_at = NULL, matched_by = NULL
+            WHERE id = ?
+        ")->execute([$transactionId]);
+        $this->setStagingMatchStatus($transactionId, 'unmatched');
+        return ['transaction_id' => $transactionId, 'amount' => round((float)$dep['amount'], 2)];
+    }
+
+    /**
      * Correct a previously-recorded payment amount on an invoice that was paid
      * via the legacy direct-entry path (no bank deposit / e-Transfer allocation
      * behind it) — e.g. a data-entry slip like $756.32 recorded for a $378.16
@@ -508,7 +564,53 @@ class InvoiceReconciliationService
             'covers_more'      => $depAmt > $balance + 0.005,
             'confidence'       => $score['confidence'],
             'reasons'          => $score['reasons'],
+            // Set when e-Transfer payments from the same payer, recorded after this
+            // deposit's date, already sum to exactly its amount — i.e. the money was
+            // most likely recorded by hand before the bank statement was imported.
+            'likely_recorded'  => $this->likelyAlreadyRecorded($dep),
         ];
+    }
+
+    /** @var array<int, array|null> per-request cache: tx id => duplicate signal */
+    private array $likelyRecordedCache = [];
+
+    /**
+     * Duplicate-payment signal for a deposit: reuses EtransferInboxService's
+     * same-payer / same-amount / same-window check so the invoice matcher and the
+     * e-Transfer inbox agree on what "probably already recorded" means.
+     *
+     * @return array{pay_date:string,invoice_numbers:string[]}|null
+     */
+    private function likelyAlreadyRecorded(array $dep): ?array
+    {
+        $txId = (int)($dep['id'] ?? 0);
+        if (array_key_exists($txId, $this->likelyRecordedCache)) {
+            return $this->likelyRecordedCache[$txId];
+        }
+        $result = null;
+        try {
+            $words = $this->extractNameWords((string)($dep['description'] ?? ''));
+            if (count($words) >= 2) {
+                $file = __DIR__ . '/EtransferInboxService.php';
+                if (is_file($file)) {
+                    require_once $file;
+                    $dupe = (new EtransferInboxService($this->db))->findLikelyDuplicatePayment(
+                        implode(' ', $words),
+                        (float)$dep['amount'],
+                        substr((string)$dep['transaction_date'], 0, 10)
+                    );
+                    if ($dupe) {
+                        $result = [
+                            'pay_date'        => (string)$dupe['pay_date'],
+                            'invoice_numbers' => array_values($dupe['invoice_numbers']),
+                        ];
+                    }
+                }
+            }
+        } catch (Throwable $e) {
+            $result = null; // advisory only — never block candidate listing
+        }
+        return $this->likelyRecordedCache[$txId] = $result;
     }
 
     /**

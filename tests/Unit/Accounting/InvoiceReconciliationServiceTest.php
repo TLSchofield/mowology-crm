@@ -53,9 +53,15 @@ class InvoiceReconciliationServiceTest extends TestCase
         $depositStmt->method('execute')->willReturn(true);
         $depositStmt->method('fetchAll')->willReturn($depositRows);
 
+        // Paid e-Transfer lookup (likely_recorded signal) → nothing recorded
+        $paidStmt = $this->createMock(PDOStatement::class);
+        $paidStmt->method('execute')->willReturn(true);
+        $paidStmt->method('fetchAll')->willReturn([]);
+
         $pdo = $this->createMock(PDO::class);
         $pdo->method('prepare')->willReturnCallback(
-            function (string $sql) use ($invoiceStmt, $depositStmt) {
+            function (string $sql) use ($invoiceStmt, $depositStmt, $paidStmt) {
+                if (strpos($sql, "payment_method = 'e_transfer'") !== false) return $paidStmt;
                 return strpos($sql, 'FROM invoices') !== false ? $invoiceStmt : $depositStmt;
             }
         );
@@ -205,5 +211,118 @@ class InvoiceReconciliationServiceTest extends TestCase
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('unmerge/detach');
         $svc->correctManualPayment(231, 378.16, 'Should be refused', 1);
+    }
+    public function testCandidateCarriesLikelyRecordedSignalWhenSamePayerPaymentsSumToDeposit(): void
+    {
+        // Real scenario (John Hughes, Jul 2026): six $50.40 invoices were recorded
+        // as paid by e-Transfer by hand; the $302.40 bank deposit was imported later
+        // with no allocation rows, so the matcher kept offering it forever.
+        $invoiceStmt = $this->createMock(PDOStatement::class);
+        $invoiceStmt->method('execute')->willReturn(true);
+        $invoiceStmt->method('fetchAll')->willReturn([$this->invoice([
+            'balance_due' => 50.40, 'total' => 50.40, 'contact_name' => 'John Ellen Hughes',
+            'invoice_date' => '2026-07-18', 'due_date' => '2026-07-31',
+        ])]);
+
+        $depositStmt = $this->createMock(PDOStatement::class);
+        $depositStmt->method('bindValue')->willReturn(true);
+        $depositStmt->method('execute')->willReturn(true);
+        $depositStmt->method('fetchAll')->willReturn([[
+            'id' => 24438, 'transaction_date' => '2026-07-20', 'amount' => 302.40,
+            'description' => 'e-Transfer credit Ref 20260720111256669848 JOHN HUGHES', 'bank_account' => 'Vancity',
+        ]]);
+
+        // EtransferInboxService::findLikelyDuplicatePayment reads paid e-Transfer invoices
+        $paidStmt = $this->createMock(PDOStatement::class);
+        $paidStmt->method('execute')->willReturn(true);
+        $paidStmt->method('fetchAll')->willReturn(array_map(fn($n) => [
+            'invoice_number' => 'INV-2026-0' . $n, 'amount_paid' => 50.40,
+            'pay_day' => '2026-07-31', 'payer_name' => 'John Ellen Hughes',
+        ], [116, 117, 134, 175, 204, 249]));
+
+        $pdo = $this->createMock(PDO::class);
+        $pdo->method('prepare')->willReturnCallback(function (string $sql) use ($invoiceStmt, $depositStmt, $paidStmt) {
+            if (strpos($sql, "payment_method = 'e_transfer'") !== false) return $paidStmt;
+            return strpos($sql, 'FROM invoices') !== false ? $invoiceStmt : $depositStmt;
+        });
+
+        $candidates = (new InvoiceReconciliationService($pdo))->candidatesForInvoice(1);
+
+        $this->assertCount(1, $candidates);
+        $this->assertNotNull($candidates[0]['likely_recorded']);
+        $this->assertSame('2026-07-31', $candidates[0]['likely_recorded']['pay_date']);
+        $this->assertCount(6, $candidates[0]['likely_recorded']['invoice_numbers']);
+    }
+
+    public function testLikelyRecordedIsNullWhenNoMatchingPayments(): void
+    {
+        $svc = $this->serviceWith(
+            [$this->invoice()],
+            [['id' => 101, 'transaction_date' => '2026-05-30', 'amount' => 364.65,
+              'description' => 'INTERAC E-TRF ALEXANDRA BEE', 'bank_account' => 'Vancity']]
+        );
+        $candidates = $svc->candidatesForInvoice(1);
+        $this->assertCount(1, $candidates);
+        $this->assertNull($candidates[0]['likely_recorded']);
+    }
+
+    public function testMarkDepositAlreadyRecordedRefusesWhenAllocationsExist(): void
+    {
+        $depStmt = $this->createMock(PDOStatement::class);
+        $depStmt->method('execute')->willReturn(true);
+        $depStmt->method('fetch')->willReturn(['id' => 5, 'type' => 'income', 'amount' => 302.40,
+            'transaction_date' => '2026-07-20', 'description' => 'x', 'account_id' => 24]);
+        $allocStmt = $this->createMock(PDOStatement::class);
+        $allocStmt->method('execute')->willReturn(true);
+        $allocStmt->method('fetchColumn')->willReturn(50.40);
+
+        $pdo = $this->createMock(PDO::class);
+        $pdo->method('prepare')->willReturnCallback(fn(string $sql) =>
+            strpos($sql, 'invoice_payment_allocations') !== false ? $allocStmt : $depStmt);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('detach');
+        (new InvoiceReconciliationService($pdo))->markDepositAlreadyRecorded(5, 1);
+    }
+
+    public function testMarkDepositAlreadyRecordedRefusesUnknownOrReconciledDeposit(): void
+    {
+        $stmt = $this->createMock(PDOStatement::class);
+        $stmt->method('execute')->willReturn(true);
+        $stmt->method('fetch')->willReturn(false);
+        $pdo = $this->createMock(PDO::class);
+        $pdo->method('prepare')->willReturn($stmt);
+
+        $this->expectException(RuntimeException::class);
+        (new InvoiceReconciliationService($pdo))->markDepositAlreadyRecorded(99, 1);
+    }
+
+    public function testMarkDepositAlreadyRecordedFlipsRowToTransfer(): void
+    {
+        $depStmt = $this->createMock(PDOStatement::class);
+        $depStmt->method('execute')->willReturn(true);
+        $depStmt->method('fetch')->willReturn(['id' => 5, 'type' => 'income', 'amount' => 302.40,
+            'transaction_date' => '2026-07-20', 'description' => 'x', 'account_id' => 24]);
+        $allocStmt = $this->createMock(PDOStatement::class);
+        $allocStmt->method('execute')->willReturn(true);
+        $allocStmt->method('fetchColumn')->willReturn(0);
+        $writes = [];
+        $writeStmt = $this->createMock(PDOStatement::class);
+        $writeStmt->method('execute')->willReturnCallback(function ($p) use (&$writes) { $writes[] = $p; return true; });
+
+        $pdo = $this->createMock(PDO::class);
+        $pdo->method('prepare')->willReturnCallback(function (string $sql) use ($depStmt, $allocStmt, $writeStmt) {
+            if (strpos($sql, 'invoice_payment_allocations') !== false) return $allocStmt;
+            if (stripos($sql, 'UPDATE') === 0 || strpos($sql, 'UPDATE ') !== false) return $writeStmt;
+            return $depStmt;
+        });
+
+        $result = (new InvoiceReconciliationService($pdo))->markDepositAlreadyRecorded(5, 7, 'used up');
+
+        $this->assertSame(5, $result['transaction_id']);
+        $this->assertEqualsWithDelta(302.40, $result['amount'], 0.001);
+        $this->assertNotEmpty($writes);
+        $this->assertSame('7', $writes[0][0]);                       // matched_by = user id
+        $this->assertStringContainsString('used up', $writes[0][1]); // note appended
     }
 }
