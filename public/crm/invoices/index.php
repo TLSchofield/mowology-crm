@@ -450,6 +450,7 @@ $activePage = 'invoices';
                                 <th class="<?php echo invSortClass('due_date', $sortCol, $sortDir); ?>"><a href="<?php echo invSortUrl('due_date', $sortCol, $sortDir); ?>">Due Date</a></th>
                                 <th>Due</th>
                                 <th class="<?php echo invSortClass('status', $sortCol, $sortDir); ?>"><a href="<?php echo invSortUrl('status', $sortCol, $sortDir); ?>">Status</a></th>
+                                <th>Payment</th>
                                 <th>Tracking</th>
                                 <th>Actions</th>
                             </tr>
@@ -544,6 +545,7 @@ $activePage = 'invoices';
                                         <?php endif; ?>
                                     </td>
                                     <td><?php echo getStatusBadge($invoice['status'], 'invoice'); ?></td>
+                                    <td class="mw-payment-cell"><?php echo htmlspecialchars(formatPaymentMethod($invoice['payment_method'] ?? '', $invoice['payment_reference'] ?? '')) ?: '—'; ?></td>
                                     <td class="mw-tracking-cell">
                                         <?php $matches = $invoiceMatches[(int)$invoice['id']] ?? []; ?>
                                         <?php if (!empty($matches)): ?>
@@ -585,7 +587,7 @@ $activePage = 'invoices';
                                 </tr>
                                 <?php if (!empty($matches)): ?>
                                 <tr class="mw-match-row" id="mw-match-row-<?php echo (int)$invoice['id']; ?>" style="display:none;">
-                                    <td colspan="11" class="mw-match-cell">
+                                    <td colspan="12" class="mw-match-cell">
                                         <div class="mw-match-panel">
                                             <div class="mw-match-panel-head">
                                                 <i data-feather="zap"></i>

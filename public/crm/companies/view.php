@@ -565,7 +565,7 @@ $extraHead = '<script src="https://js.stripe.com/v3/" defer></script>'
                                 <div class="table-responsive">
                                     <table class="table table-hover mb-0">
                                         <thead>
-                                            <tr><th>Invoice #</th><th>Status</th><th>Total</th><th>Balance Due</th><th>Due Date</th><th></th></tr>
+                                            <tr><th>Invoice #</th><th>Status</th><th>Total</th><th>Balance Due</th><th>Payment</th><th>Due Date</th><th></th></tr>
                                         </thead>
                                         <tbody>
                                             <?php foreach ($invoices as $inv): ?>
@@ -574,6 +574,7 @@ $extraHead = '<script src="https://js.stripe.com/v3/" defer></script>'
                                                     <td><?= getStatusBadge($inv['status'], 'invoice') ?></td>
                                                     <td><?= formatCurrency($inv['total'] ?? $inv['total_amount'] ?? $inv['subtotal'] ?? 0) ?></td>
                                                     <td><?= formatCurrency($inv['balance_due'] ?? 0) ?></td>
+                                                    <td><?= htmlspecialchars(formatPaymentMethod($inv['payment_method'] ?? '', $inv['payment_reference'] ?? '')) ?: '—' ?></td>
                                                     <td><?= $inv['due_date'] ? formatDate($inv['due_date']) : '—' ?></td>
                                                     <td class="text-right">
                                                         <a href="/crm/invoices/view.php?id=<?= $inv['id'] ?>" class="btn btn-sm btn-outline-primary">View</a>

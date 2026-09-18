@@ -403,6 +403,29 @@ function calculateQuoteTotals($lineItems, $taxRate = 0.05) {
 }
 
 /**
+ * Human label for an invoice payment method, with the reference (cheque #,
+ * e-Transfer confirmation) appended when one was recorded.
+ * Returns '' when no method is set so callers can print a dash.
+ */
+function formatPaymentMethod($method, $reference = '') {
+    $labels = [
+        'e_transfer'  => 'e-Transfer',
+        'cash'        => 'Cash',
+        'cheque'      => 'Cheque',
+        'credit_card' => 'Credit Card',
+        'other'       => 'Other',
+    ];
+    $method = trim((string)$method);
+    if ($method === '') return '';
+    $label = $labels[$method] ?? ucwords(str_replace('_', ' ', $method));
+    $reference = trim((string)$reference);
+    if ($reference !== '') {
+        $label .= ($method === 'cheque' ? ' #' : ' ') . $reference;
+    }
+    return $label;
+}
+
+/**
  * Format currency for display
  */
 function formatCurrency($amount) {
