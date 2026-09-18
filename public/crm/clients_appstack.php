@@ -1160,7 +1160,8 @@ if ($action === 'view_contact' && $clientId) {
                 $whereClause = implode(' OR ', $conditions);
                 $stmt = $db->prepare("
                     SELECT i.id, i.invoice_number, i.status, i.total, i.balance_due,
-                           i.issue_date, i.due_date, i.amount_paid
+                           i.issue_date, i.due_date, i.amount_paid,
+                           i.payment_method, i.payment_reference
                     FROM invoices i
                     WHERE {$whereClause}
                     ORDER BY i.created_at DESC
@@ -3396,7 +3397,7 @@ $unconvertedRequests = $db->query("
                       <div class="table-responsive">
                         <table class="table table-sm table-hover mb-0 mw-client-compact-table">
                           <thead>
-                            <tr><th>Invoice</th><th>Status</th><th class="text-right">Total</th><th class="text-right">Paid</th><th class="text-right">Balance</th></tr>
+                            <tr><th>Invoice</th><th>Status</th><th>Payment</th><th class="text-right">Total</th><th class="text-right">Paid</th><th class="text-right">Balance</th></tr>
                           </thead>
                           <tbody>
                             <?php foreach ($contactInvoices as $inv): ?>
@@ -3408,6 +3409,7 @@ $unconvertedRequests = $db->query("
                                   <?php endif; ?>
                                 </td>
                                 <td><?php echo getStatusBadge($inv['status'], 'invoice'); ?></td>
+                                <td><?php echo h(formatPaymentMethod($inv['payment_method'] ?? '', $inv['payment_reference'] ?? '')) ?: '—'; ?></td>
                                 <td class="text-right"><?php echo formatCurrency($inv['total'] ?? 0); ?></td>
                                 <td class="text-right"><?php echo formatCurrency($inv['amount_paid'] ?? 0); ?></td>
                                 <td class="text-right <?php echo floatval($inv['balance_due'] ?? 0) > 0 ? 'text-danger font-weight-bold' : 'text-success'; ?>">
