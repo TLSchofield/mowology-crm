@@ -72,3 +72,55 @@ function idempotencyStore(
         }
     }
 }
+
+/**
+ * Per-row idempotency for upload endpoints (receipt-upload, expense-save,
+ * visit-photo-upload). Tables carry an `idempotency_key VARCHAR(36)` column
+ * with a UNIQUE index — see migration 1023.
+ *
+ * Flow in an endpoint:
+ *   $idemKey = readIdempotencyKeyHeader();
+ *   if ($idemKey) {
+ *       $existingId = lookupIdempotencyRow($db, 'media_assets', $idemKey);
+ *       if ($existingId) { ...return existing id with deduplicated:true... }
+ *   }
+ *   // ...do INSERT, passing $idemKey as the idempotency_key column value...
+ *
+ * The client UUID is the source of truth; we don't hash it. Mobile clients
+ * generate one UUIDv4 at capture time and reuse it on every retry.
+ */
+
+/**
+ * Read and validate the Idempotency-Key request header.
+ * Accepts UUIDs (with or without dashes) up to 36 chars.
+ * Returns null when the header is absent or malformed.
+ */
+function readIdempotencyKeyHeader(): ?string
+{
+    $raw = trim($_SERVER['HTTP_IDEMPOTENCY_KEY'] ?? '');
+    if ($raw === '' || strlen($raw) > 36) return null;
+    // Allow hex chars + dashes only — rejects injection attempts cheaply.
+    if (!preg_match('/^[0-9a-fA-F-]{8,36}$/', $raw)) return null;
+    return $raw;
+}
+
+/**
+ * Look up the row id of an upload that was already processed under this key.
+ * $table must be one of an allow-list to keep the query SQL-safe.
+ * Returns the existing row id, or null if none.
+ */
+function lookupIdempotencyRow(PDO $db, string $table, string $key): ?int
+{
+    static $allowed = ['media_assets' => 'id', 'expenses' => 'id', 'visit_photos' => 'id'];
+    if (!isset($allowed[$table]) || $key === '') return null;
+
+    try {
+        $stmt = $db->prepare("SELECT {$allowed[$table]} FROM {$table} WHERE idempotency_key = ? LIMIT 1");
+        $stmt->execute([$key]);
+        $id = $stmt->fetchColumn();
+        return $id !== false ? (int)$id : null;
+    } catch (PDOException $e) {
+        // Column may not exist yet (migration 1023 not applied) — treat as no match.
+        return null;
+    }
+}

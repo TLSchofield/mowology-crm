@@ -29,6 +29,12 @@ if (!defined('APP_ROOT')) {
     unset($__dir, $__i);
 }
 
+// Prevent overlapping runs (CLI only — web requests are admin-gated and rare)
+if (php_sapi_name() === 'cli') {
+    require_once APP_ROOT . '/Core/CronLock.php';
+    \App\Core\CronLock::acquire('schema_snapshot');
+}
+
 // ============================================================================
 // CONTEXT + SAFE JSON RESPONDER
 // ============================================================================

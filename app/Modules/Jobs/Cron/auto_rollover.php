@@ -29,6 +29,12 @@ if (!defined('APP_ROOT')) {
     unset($__dir, $__i);
 }
 
+// Prevent overlapping runs (CLI only — web requests are admin-gated and rare)
+if (php_sapi_name() === 'cli') {
+    require_once APP_ROOT . '/Core/CronLock.php';
+    \App\Core\CronLock::acquire('auto_rollover');
+}
+
 // Fatal error handler
 set_error_handler(function($severity, $message, $file, $line) {
     throw new ErrorException($message, 0, $severity, $file, $line);

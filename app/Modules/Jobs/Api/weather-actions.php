@@ -25,6 +25,7 @@ require_once CRM_ROOT . '/modules/snapshots/snapshot-manager.php';
 
 requireLogin();
 $user = getCurrentUser();
+session_write_close(); // read-only — release session lock immediately
 
 header('Content-Type: application/json');
 

@@ -32,6 +32,12 @@ for ($__i = 0; $__i < 5; $__i++) {
 }
 unset($__dir, $__i);
 
+// Prevent overlapping runs (CLI only — web requests are admin-gated and rare)
+if (php_sapi_name() === 'cli') {
+    require_once APP_ROOT . '/Core/CronLock.php';
+    \App\Core\CronLock::acquire('forgot_clockout_sms');
+}
+
 require_once CRM_INCLUDES . '/functions.php';
 require_once CRM_INCLUDES . '/messaging.php';
 
