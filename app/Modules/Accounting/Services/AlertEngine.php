@@ -255,7 +255,7 @@ class AlertEngine
               AND t.status IN ('cleared', 'reconciled')
             LEFT JOIN properties p ON p.id = jp.property_id
             LEFT JOIN companies  co ON co.id = jp.company_id
-            LEFT JOIN contacts   c  ON c.id = jp.contact_id
+            LEFT JOIN contacts   c  ON c.id = p.site_contact_id
             WHERE jp.status = 'completed'
               AND jp.updated_at >= ?
             GROUP BY jp.id, jp.plan_number, p.property_name, co.company_name, c.first_name, c.last_name

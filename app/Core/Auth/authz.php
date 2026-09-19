@@ -25,7 +25,7 @@ if (!function_exists('getCurrentUser')) {
 // Cache version — bump this when you change role_permissions seeds
 // or when a user's roles are modified via the admin UI.
 if (!defined('PERM_CACHE_VERSION')) {
-    define('PERM_CACHE_VERSION', 4);
+    define('PERM_CACHE_VERSION', 5);
 }
 
 /**
@@ -133,7 +133,7 @@ function _legacyPermissions(int $userId): array
 
         case 'manager':
             return [
-                'jobs.view', 'jobs.edit', 'jobs.assign',
+                'jobs.view', 'jobs.edit', 'jobs.assign', 'jobs.create_field',
                 'schedule.view', 'schedule.edit',
                 'timer.start', 'timer.stop', 'timer.override',
                 'photos.upload', 'photos.delete',
@@ -150,7 +150,7 @@ function _legacyPermissions(int $userId): array
         case 'staff':
         case 'technician':
             return [
-                'jobs.view',
+                'jobs.view', 'jobs.create_field',
                 'schedule.view',
                 'timer.start', 'timer.stop',
                 'photos.upload',
@@ -164,7 +164,7 @@ function _legacyPermissions(int $userId): array
         case 'user':
         default:
             return [
-                'jobs.view',
+                'jobs.view', 'jobs.create_field',
                 'schedule.view',
                 'timer.start', 'timer.stop',
                 'photos.upload',
