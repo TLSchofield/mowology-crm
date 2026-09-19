@@ -10,6 +10,7 @@ declare(strict_types=1);
  * GET  ?action=active
  * POST {action: 'start', visit_id, lat?, lng?}
  * POST {action: 'stop',  visit_id, lat?, lng?, complete_visit?}
+ * POST {action: 'skip',  visit_id, reason?}
  */
 
 if (!defined('APP_ROOT')) {
@@ -167,6 +168,36 @@ try {
                 idempotencyStore($db, $idempKey, $userId, 'timer', 'stop', $responseStop);
             }
             echo $responseStop;
+            break;
+
+        case 'skip':
+            $visitId = (int)($input['visit_id'] ?? 0);
+            if (!$visitId) {
+                http_response_code(400);
+                echo json_encode(['success' => false, 'message' => 'visit_id is required']);
+                exit;
+            }
+
+            $db = getDB();
+            if ($idempKey) {
+                $cached = idempotencyCheck($db, $idempKey, $userId);
+                if ($cached !== null) { echo $cached; exit; }
+            }
+
+            // updateVisitStatus() lives behind plan-functions, which this endpoint
+            // does not load up front (see ensurePlanFunctionsLoaded()).
+            ensurePlanFunctionsLoaded();
+            $result = VisitLifecycleService::skipVisit($visitId, $userId, (string)($input['reason'] ?? ''));
+
+            $responseSkip = json_encode([
+                'success'  => $result['success'],
+                'message'  => $result['message'],
+                'visit_id' => $visitId,
+            ]);
+            if ($idempKey && $result['success']) {
+                idempotencyStore($db, $idempKey, $userId, 'timer', 'skip', $responseSkip);
+            }
+            echo $responseSkip;
             break;
 
         default:

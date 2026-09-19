@@ -530,6 +530,42 @@ class VisitLifecycleService
     }
 
     /**
+     * A visit may only be skipped before work starts. An in-progress visit has a
+     * running timer that must be stopped first; terminal states stay terminal.
+     * PURE — no DB.
+     */
+    public static function canSkipFromStatus(string $status): bool {
+        return $status === 'scheduled';
+    }
+
+    /**
+     * Skip a single visit from the field (crew "can't do this one today").
+     * Idempotent: re-skipping an already-skipped visit succeeds without rewriting.
+     *
+     * @return array ['success' => bool, 'message' => string]
+     */
+    public static function skipVisit(int $visitId, int $userId, string $reason = ''): array {
+        $db = getDB();
+        $stmt = $db->prepare("SELECT status FROM job_visits WHERE id = ?");
+        $stmt->execute([$visitId]);
+        $status = $stmt->fetchColumn();
+
+        if ($status === false) {
+            return ['success' => false, 'message' => 'Visit not found'];
+        }
+        if ($status === 'skipped') {
+            return ['success' => true, 'message' => 'Visit already skipped'];
+        }
+        if (!self::canSkipFromStatus((string)$status)) {
+            return ['success' => false, 'message' => "A visit that is {$status} cannot be skipped"];
+        }
+
+        $reason = trim($reason);
+        $ok = self::updateVisitStatus($visitId, 'skipped', $userId, $reason !== '' ? $reason : null);
+        return ['success' => $ok, 'message' => $ok ? 'Visit skipped' : 'Failed to skip visit'];
+    }
+
+    /**
      * Move a single visit to a different date.
      * Updates the visit date and its calendar stop linkage.
      */
@@ -654,6 +690,10 @@ class VisitLifecycleService
                 $setClauses[] = "completion_notes = ?";
                 $params[] = $notes;
             }
+        } elseif ($newStatus === 'skipped' && $notes) {
+            // Skip reason — same column skipVisitDate() writes it to.
+            $setClauses[] = "completion_notes = ?";
+            $params[] = $notes;
         }
 
         return ['set' => $setClauses, 'params' => $params];

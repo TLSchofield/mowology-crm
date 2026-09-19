@@ -18,6 +18,9 @@ struct VisitDetailView: View {
     /// The visit being completed via the completion sheet (extras + invoice).
     @State private var completingVisit: Visit?
 
+    /// The visit the crew is about to skip — drives the reason dialog.
+    @State private var skippingVisit: Visit?
+
 
     // MARK: - Init
 
@@ -65,7 +68,33 @@ struct VisitDetailView: View {
         .sheet(item: $completingVisit) { visit in
             VisitCompletionSheet(visit: visit, detailVM: viewModel, authSession: authSession)
         }
+        .confirmationDialog(
+            "Skip this visit?",
+            isPresented: Binding(
+                get: { skippingVisit != nil },
+                set: { if !$0 { skippingVisit = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: skippingVisit
+        ) { visit in
+            ForEach(Self.skipReasons, id: \.self) { reason in
+                Button(reason, role: .destructive) {
+                    Task { await viewModel.skipVisit(visitId: visit.visitId, reason: reason) }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("The office will see this visit as skipped, with the reason you pick.")
+        }
     }
+
+    private static let skipReasons = [
+        "Weather",
+        "No access to property",
+        "Client asked to skip",
+        "Not needed this visit",
+        "Ran out of time"
+    ]
 
     // MARK: - Notice Banner (green — informational)
 
@@ -452,6 +481,18 @@ struct VisitDetailView: View {
                     .background(Color.MW.green)
                     .foregroundStyle(.white)
                     .clipShape(Capsule())
+                }
+                .disabled(isThisLoading)
+
+                Button {
+                    skippingVisit = visit
+                } label: {
+                    Label("Skip Visit", systemImage: "forward.end.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .foregroundStyle(.secondary)
+                        .overlay(Capsule().stroke(Color(.separator), lineWidth: 1))
                 }
                 .disabled(isThisLoading)
 

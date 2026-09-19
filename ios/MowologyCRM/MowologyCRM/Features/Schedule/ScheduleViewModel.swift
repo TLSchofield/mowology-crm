@@ -433,7 +433,7 @@ final class ScheduleViewModel: ObservableObject {
         let keyed = stops.map { stop -> (stop: Stop, tier: Int, dist: CLLocationDistance) in
             let d = distance(stop)
             let tier: Int
-            if stop.isComplete        { tier = 3 }
+            if stop.isResolved        { tier = 3 }
             else if stop.isInProgress { tier = 0 }
             else if d == nil          { tier = 2 }
             else                      { tier = 1 }

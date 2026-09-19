@@ -74,6 +74,15 @@ struct Stop: Codable, Identifiable, Hashable {
         !visits.isEmpty && visits.allSatisfy { $0.visitStatus.lowercased() == "completed" }
     }
 
+    /// True when nothing is left to do here — every visit is completed, skipped
+    /// or cancelled. Unlike `isComplete` (which drives the green "done" visuals),
+    /// this only decides whether the stop still counts as upcoming work.
+    var isResolved: Bool {
+        !visits.isEmpty && visits.allSatisfy {
+            ["completed", "skipped", "cancelled"].contains($0.visitStatus.lowercased())
+        }
+    }
+
     /// True when at least one visit is in_progress.
     var isInProgress: Bool {
         visits.contains { $0.visitStatus.lowercased() == "in_progress" }

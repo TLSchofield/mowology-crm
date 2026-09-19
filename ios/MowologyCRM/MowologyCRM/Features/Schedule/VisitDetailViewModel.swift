@@ -201,6 +201,56 @@ final class VisitDetailViewModel: ObservableObject {
         return completed
     }
 
+    // MARK: - Skip Visit
+
+    /// UserDefaults key carrying the skip reason across an offline replay
+    /// (PendingTransition has no free-text field; AppTransitionDrainService reads this).
+    static func skipReasonKey(visitId: Int) -> String { "mw.skipReason.\(visitId)" }
+
+    /// Marks a not-yet-started visit as skipped. Offline-safe: on a network
+    /// failure the transition stays queued and replays on reconnect.
+    func skipVisit(visitId: Int, reason: String) async {
+        isLoading    = true
+        errorMessage = nil
+
+        let idempKey = transitionQueue.prepare(visitId: visitId, action: "skip")
+        UserDefaults.standard.set(reason, forKey: Self.skipReasonKey(visitId: visitId))
+
+        let body: [String: Any] = ["action": "skip", "visit_id": visitId, "reason": reason]
+
+        do {
+            let response: TimerBaseResponse = try await apiClient.request(
+                .scheduleTimer,
+                body: body,
+                extraHeaders: ["Idempotency-Key": idempKey]
+            )
+            transitionQueue.confirm(visitId: visitId, action: "skip")
+            UserDefaults.standard.removeObject(forKey: Self.skipReasonKey(visitId: visitId))
+
+            if response.success {
+                haptic.notificationOccurred(.success)
+                visitStatuses[visitId] = "skipped"
+            } else {
+                setError(response.message ?? "Failed to skip visit.")
+            }
+        } catch let err as APIError {
+            if case .networkError = err {
+                // Leave queued — AppTransitionDrainService replays it on reconnect.
+                haptic.notificationOccurred(.warning)
+                visitStatuses[visitId] = "skipped"
+                autoClockInNotice = "Skip saved — will sync when signal returns."
+            } else {
+                transitionQueue.confirm(visitId: visitId, action: "skip")
+                UserDefaults.standard.removeObject(forKey: Self.skipReasonKey(visitId: visitId))
+                setError(apiErrorMessage(err))
+            }
+        } catch {
+            setError(apiErrorMessage(error))
+        }
+
+        isLoading = false
+    }
+
     // MARK: - Exponential Backoff
 
     /// Retry up to 4 times with delays 2 s → 4 s → 8 s → 30 s (cap).

@@ -26,7 +26,7 @@ struct DayListView: View {
     /// Priority: in-progress → first non-complete → nil (stay at top).
     private var autoScrollTargetId: Int? {
         if let active = stops.first(where: { $0.isInProgress }) { return active.id }
-        if let next   = stops.first(where: { !$0.isComplete })  { return next.id   }
+        if let next   = stops.first(where: { !$0.isResolved })  { return next.id   }
         return nil
     }
 

@@ -60,6 +60,29 @@ class VisitLifecycleServiceTest extends TestCase
         $this->assertSame(['completed'], $b['params']);
     }
 
+    public function test_status_clause_skipped_stores_reason(): void
+    {
+        $b = VisitLifecycleService::buildStatusSetClauses('skipped', 'gate locked');
+        $this->assertContains('completion_notes = ?', $b['set']);
+        $this->assertNotContains('completed_at = NOW()', $b['set']);
+        $this->assertSame(['skipped', 'gate locked'], $b['params']);
+    }
+
+    public function test_status_clause_skipped_without_reason_omits_notes(): void
+    {
+        $b = VisitLifecycleService::buildStatusSetClauses('skipped', null);
+        $this->assertNotContains('completion_notes = ?', $b['set']);
+        $this->assertSame(['skipped'], $b['params']);
+    }
+
+    public function test_only_scheduled_visits_can_be_skipped(): void
+    {
+        $this->assertTrue(VisitLifecycleService::canSkipFromStatus('scheduled'));
+        foreach (['in_progress', 'completed', 'skipped', 'weather', 'cancelled', ''] as $s) {
+            $this->assertFalse(VisitLifecycleService::canSkipFromStatus($s));
+        }
+    }
+
     public function test_status_clause_completed_empty_notes_treated_as_none(): void
     {
         // empty string is falsy → notes clause omitted (matches original `if ($notes)`)

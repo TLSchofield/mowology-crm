@@ -73,7 +73,7 @@ final class AppTransitionDrainService {
 
     private func retry(transition: PendingTransition, apiClient: APIClient) async {
         var body: [String: Any] = [
-            "action":         transition.action,   // "start" or "stop"
+            "action":         transition.action,   // "start", "stop" or "skip"
             "visit_id":       transition.visitId,
         ]
         if transition.action == "stop" {
@@ -81,6 +81,12 @@ final class AppTransitionDrainService {
         }
         if let lat = transition.lat { body["lat"] = lat }
         if let lng = transition.lng { body["lng"] = lng }
+
+        let skipReasonKey = VisitDetailViewModel.skipReasonKey(visitId: transition.visitId)
+        if transition.action == "skip",
+           let reason = UserDefaults.standard.string(forKey: skipReasonKey) {
+            body["reason"] = reason
+        }
 
         do {
             // TimerStartResponse and TimerStopResponse share `success: Bool` —
@@ -90,8 +96,11 @@ final class AppTransitionDrainService {
                 body: body,
                 extraHeaders: ["Idempotency-Key": transition.idempotencyKey]
             )
-            if response.success {
+            // A skip the server refuses (visit since started/completed elsewhere)
+            // is a definitive answer — drop it rather than retrying forever.
+            if response.success || transition.action == "skip" {
                 removePending(transition)
+                UserDefaults.standard.removeObject(forKey: skipReasonKey)
                 print("[AppTransitionDrain] ✓ visit \(transition.visitId) \(transition.action)")
             }
         } catch let err as APIError {
