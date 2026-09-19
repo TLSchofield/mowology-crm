@@ -85,6 +85,9 @@
 		C4C105929D6FE83DB24CE3F5 /* TrackingModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 173ED9749D2FCD6CB159716F /* TrackingModels.swift */; };
 		DF1F4719719995388764100A /* FixStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEEC2512A065ADA0C4F379B1 /* FixStore.swift */; };
 		00B56E27661FF80715F2BEE0 /* TrackingViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 545B5CCD39091DF475E64F1E /* TrackingViews.swift */; };
+		7A0E9E8D8857B6172BD5FD04 /* TripReportModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BC272EA420E499A61D098AC /* TripReportModels.swift */; };
+		73F667DAABAD64DFFE948DC8 /* DriverTripViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA1FEA98CD4D84F2A0103ED1 /* DriverTripViewModel.swift */; };
+		7CD9F411D6016E98906C22A5 /* DriverTripViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66C945B6DEF8E98EDA5B4703 /* DriverTripViews.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -168,6 +171,9 @@
 		173ED9749D2FCD6CB159716F /* TrackingModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackingModels.swift; sourceTree = "<group>"; };
 		FEEC2512A065ADA0C4F379B1 /* FixStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FixStore.swift; sourceTree = "<group>"; };
 		545B5CCD39091DF475E64F1E /* TrackingViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackingViews.swift; sourceTree = "<group>"; };
+		7BC272EA420E499A61D098AC /* TripReportModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripReportModels.swift; sourceTree = "<group>"; };
+		EA1FEA98CD4D84F2A0103ED1 /* DriverTripViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DriverTripViewModel.swift; sourceTree = "<group>"; };
+		66C945B6DEF8E98EDA5B4703 /* DriverTripViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DriverTripViews.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -285,6 +291,8 @@
 				C2401679A963EF3F929C6924 /* TimesheetView.swift */,
 				D83747FCEEFBA2F4983E98A0 /* TimesheetViewModel.swift */,
 				545B5CCD39091DF475E64F1E /* TrackingViews.swift */,
+				EA1FEA98CD4D84F2A0103ED1 /* DriverTripViewModel.swift */,
+				66C945B6DEF8E98EDA5B4703 /* DriverTripViews.swift */,
 			);
 			path = TimeClock;
 			sourceTree = "<group>";
@@ -360,6 +368,7 @@
 				FAA32370295931F4177A5345 /* DeviceTokenResponse.swift */,
 				DB6AF667E337C1F96A05D1C8 /* VisitWorkModels.swift */,
 				173ED9749D2FCD6CB159716F /* TrackingModels.swift */,
+				7BC272EA420E499A61D098AC /* TripReportModels.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -536,6 +545,9 @@
 				C4C105929D6FE83DB24CE3F5 /* TrackingModels.swift in Sources */,
 				DF1F4719719995388764100A /* FixStore.swift in Sources */,
 				00B56E27661FF80715F2BEE0 /* TrackingViews.swift in Sources */,
+				7A0E9E8D8857B6172BD5FD04 /* TripReportModels.swift in Sources */,
+				73F667DAABAD64DFFE948DC8 /* DriverTripViewModel.swift in Sources */,
+				7CD9F411D6016E98906C22A5 /* DriverTripViews.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -608,7 +620,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.1.0;
+				MARKETING_VERSION = 1.2.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = "ca.mowology.crm-field";
@@ -693,7 +705,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.1.0;
+				MARKETING_VERSION = 1.2.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

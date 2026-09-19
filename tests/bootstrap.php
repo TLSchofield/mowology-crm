@@ -68,6 +68,9 @@ require_once __DIR__ . '/../app/Modules/Team/Services/TrackingIngestService.php'
 require_once __DIR__ . '/../app/Modules/Team/Services/TrackingConsentService.php';
 require_once __DIR__ . '/../app/Modules/Team/Services/TrackingHealthService.php';
 
+// Driver (commercial vehicle trip inspections)
+require_once __DIR__ . '/../app/Modules/Driver/Services/TripReportService.php';
+
 // Tracking (Trackimo truck GPS)
 require_once __DIR__ . '/../app/Modules/Tracking/Services/TrackimoService.php';
 require_once __DIR__ . '/../app/Modules/Tracking/Services/TruckLocationService.php';

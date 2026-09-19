@@ -61,6 +61,12 @@ enum APIEndpoint {
     /// POST /api/schedule/tracking — {action: consent | withdraw}.
     case trackingAction
 
+    /// GET /api/schedule/trip-report — vehicle log status for this shift (am I the driver? open trip?).
+    case tripReportStatus
+
+    /// POST /api/schedule/trip-report — {action: declare | pre_trip | post_trip}.
+    case tripReportAction
+
     /// POST /api/schedule/visit-flag — toggle crew endorsement heart on a visit.
     case visitFlag
 
@@ -200,6 +206,9 @@ enum APIEndpoint {
         case .trackingAction:
             return URL(string: "\(baseURLString)/schedule/tracking")
 
+        case .tripReportStatus, .tripReportAction:
+            return URL(string: "\(baseURLString)/schedule/trip-report")
+
         case .visitFlag:
             return URL(string: "\(baseURLString)/schedule/visit-flag")
 
@@ -311,6 +320,8 @@ enum APIEndpoint {
              .trackingConsent,
              .trackingGeofences,
              .trackingAction,
+             .tripReportStatus,
+             .tripReportAction,
              .visitFlag,
              .recommendationOptions,
              .recommendationCreate,
@@ -350,7 +361,8 @@ enum APIEndpoint {
              .visitWork,
              .trackingStatus,
              .trackingConsent,
-             .trackingGeofences: return "GET"
+             .trackingGeofences,
+             .tripReportStatus: return "GET"
 
         case .scheduleTimer,
              .scheduleLocation,
@@ -358,6 +370,7 @@ enum APIEndpoint {
              .visitFlag,
              .visitWorkAction,
              .trackingAction,
+             .tripReportAction,
              .powActions,
              .powGpsSync,
              .receiptUpload,

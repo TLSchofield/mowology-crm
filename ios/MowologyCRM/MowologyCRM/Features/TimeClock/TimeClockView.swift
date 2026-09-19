@@ -9,12 +9,17 @@ struct TimeClockView: View {
 
     @EnvironmentObject private var authSession: AuthSession
     @StateObject private var viewModel: TimeClockViewModel
+    @StateObject private var driver: DriverTripViewModel
 
+    /// True while the post-trip sheet was opened BY the clock-out button, so closing
+    /// the trip carries straight on to clocking out.
+    @State private var clockOutAfterPostTrip = false
 
     // MARK: - Init
 
     init(authSession: AuthSession) {
         _viewModel = StateObject(wrappedValue: TimeClockViewModel(authSession: authSession))
+        _driver    = StateObject(wrappedValue: DriverTripViewModel(authSession: authSession))
     }
 
     // MARK: - Body
@@ -50,6 +55,8 @@ struct TimeClockView: View {
                     if viewModel.clockedIn {
                         TrackingStatusCard()
                             .padding(.horizontal, 16)
+                        DriverCard(viewModel: driver)
+                            .padding(.horizontal, 16)
                     }
 
                     if let job = viewModel.activeJob {
@@ -83,7 +90,19 @@ struct TimeClockView: View {
             .navigationTitle("Time Clock")
             .navigationBarTitleDisplayMode(.inline)
             .task { await viewModel.loadStatus() }
-            .refreshable { await viewModel.loadStatus() }
+            .refreshable { await viewModel.loadStatus(); await driver.refresh() }
+            // Clocked in (just now, or already when the app opened): if this shift hasn't
+            // said whether they're driving yet, ask. Only the driver owes a vehicle log.
+            .onChange(of: viewModel.clockedIn, initial: true) { _, clockedIn in
+                if clockedIn { Task { await driver.askIfNeeded() } }
+            }
+            .sheet(isPresented: $driver.showDeclaration) { DriverDeclarationSheet(viewModel: driver) }
+            .sheet(isPresented: $driver.showPreTrip) { PreTripView(viewModel: driver) }
+            .sheet(isPresented: $driver.showPostTrip, onDismiss: { clockOutAfterPostTrip = false }) {
+                PostTripView(viewModel: driver) {
+                    if clockOutAfterPostTrip { Task { await viewModel.clockOut() } }
+                }
+            }
             .sheet(isPresented: Binding(
                 get: { viewModel.pendingDisclosure != nil },
                 set: { if !$0 { viewModel.pendingDisclosure = nil } }
@@ -153,7 +172,15 @@ struct TimeClockView: View {
             Button {
                 Task {
                     if viewModel.clockedIn {
-                        await viewModel.clockOut()
+                        // A driver with an open trip closes it first — the log needs an end
+                        // odometer and hours of service. Everyone else just clocks out.
+                        await driver.refresh()
+                        if driver.hasOpenTrip {
+                            clockOutAfterPostTrip = true
+                            driver.showPostTrip   = true
+                        } else {
+                            await viewModel.clockOut()
+                        }
                     } else {
                         await viewModel.clockInWithConsentCheck()
                     }
