@@ -599,25 +599,8 @@ try {
             if (!is_array($items)) {
                 throw new InvalidArgumentException('items must be an array');
             }
-            $sanitized = [];
-            foreach ($items as $item) {
-                $sanitized[] = [
-                    'item'    => substr(strip_tags((string)($item['item'] ?? '')), 0, 255),
-                    'checked' => !empty($item['checked']),
-                    'note'    => substr(strip_tags((string)($item['note'] ?? '')), 0, 500),
-                ];
-            }
-            $json = json_encode($sanitized);
-            $db->prepare("
-                UPDATE job_visits SET
-                    checklist_json = ?,
-                    checklist_completed_at = NOW(),
-                    checklist_completed_by = ?,
-                    checklist_completed = ?
-                WHERE id = ?
-            ")->execute([$json, $user['id'], $json, $visitId]);
-
-            addAuditLog($db, $visitId, (int)$user['id'], 'checklist_saved', ['count' => count($sanitized)], $ip);
+            require_once APP_ROOT . '/Modules/Jobs/Services/VisitWorkService.php';
+            (new VisitWorkService($db))->saveChecklist($visitId, (int)$user['id'], $items, $ip, VisitWorkService::SOURCE_WEB);
             echo json_encode(['success' => true]);
             break;
 
@@ -625,19 +608,8 @@ try {
         case 'save_materials':
             $items = $input['items'] ?? [];
             if (!is_array($items)) throw new InvalidArgumentException('items must be an array');
-            $sanitized = [];
-            foreach ($items as $m) {
-                $sanitized[] = [
-                    'name'           => substr(strip_tags((string)($m['name'] ?? '')), 0, 255),
-                    'qty'            => is_numeric($m['qty'] ?? '') ? round((float)$m['qty'], 4) : null,
-                    'unit'           => substr(strip_tags((string)($m['unit'] ?? '')), 0, 50),
-                    'rate_per_unit'  => is_numeric($m['rate_per_unit'] ?? '') ? round((float)$m['rate_per_unit'], 2) : null,
-                    'note'           => substr(strip_tags((string)($m['note'] ?? '')), 0, 500),
-                ];
-            }
-            $db->prepare("UPDATE job_visits SET materials_json = ? WHERE id = ?")
-               ->execute([json_encode($sanitized), $visitId]);
-            addAuditLog($db, $visitId, (int)$user['id'], 'materials_saved', ['count' => count($sanitized)], $ip);
+            require_once APP_ROOT . '/Modules/Jobs/Services/VisitWorkService.php';
+            (new VisitWorkService($db))->saveMaterials($visitId, (int)$user['id'], $items, $ip, VisitWorkService::SOURCE_WEB);
             echo json_encode(['success' => true]);
             break;
 
@@ -656,16 +628,16 @@ try {
 
         // ── Save Note ─────────────────────────────────────────────────────
         case 'save_notes':
-            $content  = trim($input['content'] ?? '');
+            $content  = $input['content'] ?? '';
             $noteType = $input['note_type'] ?? 'general';
-            $visible  = !empty($input['visible_to_customer']) ? 1 : 0;
-            $allowed  = ['general','customer_request','issue','follow_up','internal'];
-            if (!in_array($noteType, $allowed)) $noteType = 'general';
-            if (strlen($content) < 1) throw new InvalidArgumentException('Note content required');
-            $db->prepare("
-                INSERT INTO visit_notes (visit_id, note_type, content, is_visible_to_customer, created_by)
-                VALUES (?, ?, ?, ?, ?)
-            ")->execute([$visitId, $noteType, $content, $visible, $user['id']]);
+            require_once APP_ROOT . '/Modules/Jobs/Services/VisitWorkService.php';
+            (new VisitWorkService($db))->addNote(
+                $visitId,
+                (int)$user['id'],
+                is_string($content) ? $content : '',
+                is_string($noteType) ? $noteType : 'general',
+                !empty($input['visible_to_customer'])
+            );
             echo json_encode(['success' => true]);
             break;
 

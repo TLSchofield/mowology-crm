@@ -5,17 +5,19 @@ declare(strict_types=1);
  * VisitWorkService — proof-of-work data a crew member records on a visit:
  * checklist, materials used, and notes.
  *
- * Backs the mobile JWT endpoint (app/Modules/Schedule/Api/visit-work.php). The
- * web equivalent, public/crm/api/pow-actions.php, predates this service and
- * still does the same writes inline — the sanitising rules here are copied from
- * it deliberately so both surfaces store identical shapes. When pow-actions is
- * next touched, point it at these methods rather than letting the two drift.
+ * Single source of truth for both surfaces, so they store identical shapes:
+ * the mobile JWT endpoint (app/Modules/Schedule/Api/visit-work.php) and the web
+ * crew workflow (public/crm/api/pow-actions.php: save_checklist, save_materials,
+ * save_notes). Each caller passes its own audit source.
  *
  * Global-namespace, no autoloader: require_once this file, then `new VisitWorkService($db)`.
  */
 class VisitWorkService
 {
     public const NOTE_TYPES = ['general', 'customer_request', 'issue', 'follow_up', 'internal'];
+
+    public const SOURCE_MOBILE = 'mobile';
+    public const SOURCE_WEB    = 'web';
 
     /** @var PDO */
     private $db;
@@ -182,7 +184,7 @@ class VisitWorkService
         ];
     }
 
-    public function saveChecklist(int $visitId, int $userId, array $items, ?string $ip = null): int
+    public function saveChecklist(int $visitId, int $userId, array $items, ?string $ip = null, string $source = self::SOURCE_MOBILE): int
     {
         $clean = self::sanitizeChecklist($items);
         $json  = json_encode($clean);
@@ -195,17 +197,17 @@ class VisitWorkService
             WHERE id = ?
         ")->execute([$json, $userId, $json, $visitId]);
 
-        $this->audit($visitId, $userId, 'checklist_saved', ['count' => count($clean), 'source' => 'mobile'], $ip);
+        $this->audit($visitId, $userId, 'checklist_saved', ['count' => count($clean), 'source' => $source], $ip);
         return count($clean);
     }
 
-    public function saveMaterials(int $visitId, int $userId, array $items, ?string $ip = null): int
+    public function saveMaterials(int $visitId, int $userId, array $items, ?string $ip = null, string $source = self::SOURCE_MOBILE): int
     {
         $clean = self::sanitizeMaterials($items);
         $this->db->prepare("UPDATE job_visits SET materials_json = ? WHERE id = ?")
                  ->execute([json_encode($clean), $visitId]);
 
-        $this->audit($visitId, $userId, 'materials_saved', ['count' => count($clean), 'source' => 'mobile'], $ip);
+        $this->audit($visitId, $userId, 'materials_saved', ['count' => count($clean), 'source' => $source], $ip);
         return count($clean);
     }
 
