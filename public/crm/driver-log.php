@@ -380,6 +380,9 @@ session_write_close();
             // One vehicle → nothing to pick. It used to be hardcoded to a single truck.
             require_once APP_ROOT . '/Modules/Driver/Services/TripReportService.php';
             $dlVehicles = (new TripReportService($db))->vehicles();
+            // Defined HERE, before the checklist header counts it. It used to be assigned a few lines
+            // AFTER `count(\$checks)` — a fatal on PHP 8 that cut the page off mid-render.
+            $checks     = TripReportService::CHECKS;
             if (count($dlVehicles) > 1): ?>
             <div class="dl-card">
                 <label class="dl-label" for="dlVehicle">Which vehicle are you driving?</label>
