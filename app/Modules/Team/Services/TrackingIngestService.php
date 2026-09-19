@@ -333,9 +333,15 @@ class TrackingIngestService
         $key = "{$table}.{$column}";
         if (!isset($this->columnCache[$key])) {
             try {
-                $stmt = $this->db->prepare("SHOW COLUMNS FROM `{$table}` LIKE ?");
-                $stmt->execute([$column]);
-                $this->columnCache[$key] = (bool)$stmt->fetch();
+                // information_schema, not SHOW COLUMNS … LIKE ?: with native (non-emulated)
+                // prepares MySQL rejects a placeholder in SHOW, the probe threw, and every
+                // fix was silently stored WITHOUT its uuid/tier as if 1116 had never run.
+                $stmt = $this->db->prepare("
+                    SELECT 1 FROM information_schema.COLUMNS
+                    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ? LIMIT 1
+                ");
+                $stmt->execute([$table, $column]);
+                $this->columnCache[$key] = (bool)$stmt->fetchColumn();
             } catch (Throwable $e) {
                 $this->columnCache[$key] = false;
             }
@@ -348,9 +354,12 @@ class TrackingIngestService
         $key = "{$table}.*";
         if (!isset($this->columnCache[$key])) {
             try {
-                $stmt = $this->db->prepare("SHOW TABLES LIKE ?");
+                $stmt = $this->db->prepare("
+                    SELECT 1 FROM information_schema.TABLES
+                    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? LIMIT 1
+                ");
                 $stmt->execute([$table]);
-                $this->columnCache[$key] = (bool)$stmt->fetch();
+                $this->columnCache[$key] = (bool)$stmt->fetchColumn();
             } catch (Throwable $e) {
                 $this->columnCache[$key] = false;
             }
