@@ -149,7 +149,7 @@ struct PreTripView: View {
                 Section {
                     Button {
                         Task {
-                            _ = await viewModel.submitPreTrip(
+                            await viewModel.submitPreTrip(
                                 vehicleId: vehicleId ?? viewModel.vehicles.first?.id,
                                 odometer: odometer, checked: checked,
                                 criticalDefects: criticalDefects, unhitched: unhitched,
@@ -199,20 +199,22 @@ struct PostTripView: View {
     @State private var hosOther = ""
     @State private var hosOff = ""
     @State private var confirmOdometer = false
+    @State private var odometerProblem: String?
 
     var body: some View {
         NavigationStack {
             Form {
-                if let trip = viewModel.status?.openTrip {
+                if viewModel.hasOpenTrip {
                     Section("Trip") {
-                        LabeledContent("Vehicle", value: trip.vehicleId)
-                        if let start = trip.odometerStart { LabeledContent("Odometer start", value: "\(start) km") }
+                        if let vehicle = viewModel.openTripVehicle { LabeledContent("Vehicle", value: vehicle) }
+                        if let start = viewModel.openTripOdometerStart { LabeledContent("Odometer start", value: "\(start) km") }
                     }
                 }
 
                 Section("Odometer end") {
                     TextField("Odometer (km)", text: $odometer).keyboardType(.numberPad)
-                    if viewModel.errorMessage != nil {
+                    if let odometerProblem {
+                        Text(odometerProblem).font(.footnote).foregroundStyle(Color.MW.orange)
                         Toggle("This reading is correct", isOn: $confirmOdometer).tint(Color.MW.orange)
                     }
                 }
@@ -237,10 +239,10 @@ struct PostTripView: View {
                 Section {
                     Button {
                         Task {
-                            let ok = await viewModel.submitPostTrip(
+                            odometerProblem = await viewModel.submitPostTrip(
                                 odometer: odometer, remarks: remarks, hosDriving: hosDriving,
                                 hosOther: hosOther, hosOff: hosOff, confirmOdometer: confirmOdometer)
-                            if ok { dismiss(); onClosed() }
+                            if odometerProblem == nil { dismiss(); onClosed() }
                         }
                     } label: {
                         HStack {
@@ -280,6 +282,34 @@ struct DriverCard: View {
                 Spacer(minLength: 0)
             }
 
+            if let confirmation = viewModel.confirmation, viewModel.waitingToSync == 0 {
+                Label(confirmation, systemImage: "checkmark.seal.fill")
+                    .font(.caption)
+                    .foregroundStyle(Color.MW.green)
+            }
+
+            if viewModel.waitingToSync > 0 {
+                Label("No signal when you did this — \(viewModel.waitingToSync) saved on this phone as a backup. It files itself when you're back in range.",
+                      systemImage: "arrow.triangle.2.circlepath")
+                    .font(.caption)
+                    .foregroundStyle(Color.MW.green)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let rejected = viewModel.rejectedMessage {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("An entry could not be filed: \(rejected)", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(Color.MW.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("It is still saved on this phone. Tell the office so your log can be corrected.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                    Button("I've dealt with it — remove") { viewModel.discardRejected() }
+                        .font(.caption.weight(.semibold))
+                        .tint(Color.MW.orange)
+                }
+            }
+
             if let grounded = viewModel.groundedMessage {
                 Label(grounded, systemImage: "exclamationmark.octagon.fill")
                     .font(.footnote.weight(.semibold))
@@ -304,7 +334,7 @@ struct DriverCard: View {
     }
 
     private var headline: String {
-        if let trip = viewModel.status?.openTrip { return "Driving \(trip.vehicleId)" }
+        if viewModel.hasOpenTrip { return "Driving \(viewModel.openTripVehicle ?? "a company vehicle")" }
         return viewModel.status?.declared == false ? "Not driving this shift" : "Vehicle log"
     }
 

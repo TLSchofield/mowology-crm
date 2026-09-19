@@ -13,6 +13,9 @@ declare(strict_types=1);
  *                           defect_unhitch?, defects_non_urgent?, safe_to_drive: bool}
  * POST {action:'post_trip', odometer_end?, end_of_day_remarks?, hos_*?, confirm_odometer?}
  *
+ * Every POST may carry `performed_at` (device epoch ms): an inspection done with no signal is
+ * stored on the phone and filed later under the time it was DONE. Replays are idempotent.
+ *
  * Every response carries the full refreshed status. Thin controller — the rules live
  * in TripReportService.
  */
@@ -69,13 +72,13 @@ try {
     switch ($action) {
         case 'declare':
             $driving = !empty($input['driving']);
-            $service->declare($userId, $driving, $driving ? $pickVehicle() : null, 'ios');
+            $service->declare($userId, $driving, $driving ? $pickVehicle() : null, 'ios', $input['performed_at'] ?? null);
             break;
 
         case 'pre_trip':
             $vehicleId = $pickVehicle();
             $result    = $service->savePreTrip($userId, $vehicleId, $input, $today);
-            $service->declare($userId, true, $vehicleId, 'ios');
+            $service->declare($userId, true, $vehicleId, 'ios', $input['performed_at'] ?? null);
             $extra     = ['report_id' => $result['report_id'], 'may_drive' => $result['may_drive'], 'unchecked' => $result['unchecked']];
             if (!$result['may_drive']) {
                 $service->alertOfficeUnsafe($result['report_id'], (string)($jwtUser['name'] ?? "User #{$userId}"));
@@ -85,7 +88,7 @@ try {
         case 'post_trip':
             $extra = ['report_id' => $service->savePostTrip($userId, $input, $today)];
             // Closing the trip means they are no longer the driver — until they say otherwise.
-            $service->declare($userId, false, null, 'ios');
+            $service->declare($userId, false, null, 'ios', $input['performed_at'] ?? null);
             break;
 
         default:

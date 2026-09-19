@@ -105,6 +105,32 @@ class TripReportService
         ];
     }
 
+    /** How far back a queued (offline) inspection may be filed. */
+    public const MAX_BACKFILL_SECONDS = 259200;   // 72 h
+
+    /**
+     * When was this inspection actually performed?
+     *
+     * A driver with no signal still does the walk-around; the app stores it and files it
+     * later. The legal record must carry the time it was DONE, not the time signal came
+     * back — so the device's time is honoured, within bounds: not in the future (clock
+     * skew tolerance 5 min) and not older than the offline window. Anything else falls
+     * back to "now" rather than letting a wrong phone clock write a wrong legal date.
+     *
+     * @param mixed $performedAt epoch seconds or milliseconds from the device, or null
+     */
+    public static function resolvePerformedAt($performedAt, int $nowTs): int
+    {
+        if (!is_numeric($performedAt) || (float)$performedAt <= 0) {
+            return $nowTs;
+        }
+        $ts = (int)((float)$performedAt > 1.0e11 ? (float)$performedAt / 1000 : (float)$performedAt);
+        if ($ts > $nowTs + 300 || $ts < $nowTs - self::MAX_BACKFILL_SECONDS) {
+            return $nowTs;
+        }
+        return min($ts, $nowTs);
+    }
+
     /** An end reading below the start reading is a typo, not a trip. */
     public static function odometerProblem(?int $start, ?int $end): ?string
     {
@@ -233,21 +259,35 @@ class TripReportService
     public function savePreTrip(int $userId, string $vehicleId, array $input, string $date): array
     {
         $clean  = self::sanitizePreTrip($input);
-        $latest = $this->latestForDriver($userId, $date);
         $checks = array_values($clean['checks']);
+
+        // Filed under the time it was DONE (a queued offline inspection arrives late).
+        $doneTs = self::resolvePerformedAt($input['performed_at'] ?? null, time());
+        $doneAt = date('Y-m-d H:i:s', $doneTs);
+        $date   = date('Y-m-d', $doneTs);
+
+        // Idempotent replay: the app re-sends a queued inspection until it hears back. The
+        // same driver, vehicle and second is the same inspection — never a second trip.
+        $dupe = $this->db->prepare("SELECT id FROM vehicle_trip_reports WHERE driver_id = ? AND vehicle_id = ? AND pre_trip_at = ? LIMIT 1");
+        $dupe->execute([$userId, $vehicleId, $doneAt]);
+        if ($existing = $dupe->fetchColumn()) {
+            return ['report_id' => (int)$existing, 'may_drive' => self::mayDrive($clean), 'unchecked' => self::uncheckedLabels($clean)];
+        }
+
+        $latest = $this->latestForDriver($userId, $date);
 
         if (self::tripState($latest) === 'open' || ($latest && empty($latest['pre_trip_at']) && empty($latest['post_trip_at']))) {
             $reportId = (int)$latest['id'];
             $this->db->prepare("
                 UPDATE vehicle_trip_reports SET
-                    vehicle_id = ?, pre_trip_at = IF(pre_trip_at IS NULL, NOW(), pre_trip_at), odometer_start = ?,
+                    vehicle_id = ?, pre_trip_at = IF(pre_trip_at IS NULL, ?, pre_trip_at), odometer_start = ?,
                     chk_leaks = ?, chk_hitch = ?, chk_rear_gate = ?, chk_loads_secure = ?, chk_trailer_lights = ?,
                     chk_truck_brakes = ?, chk_truck_lights = ?, chk_mirrors = ?, chk_tire_pressure = ?, chk_washer_wipers = ?,
                     defects_critical = ?, defect_unhitch = ?, defects_non_urgent = ?, safe_to_drive = ?,
                     status = IF(status = 'pre_pending', 'pre_complete', status)
                 WHERE id = ? AND driver_id = ?
             ")->execute(array_merge(
-                [$vehicleId, $clean['odometer_start']], $checks,
+                [$vehicleId, $doneAt, $clean['odometer_start']], $checks,
                 [$clean['defects_critical'], $clean['defect_unhitch'], $clean['defects_non_urgent'], $clean['safe_to_drive'], $reportId, $userId]
             ));
         } else {
@@ -259,9 +299,9 @@ class TripReportService
                      chk_leaks, chk_hitch, chk_rear_gate, chk_loads_secure, chk_trailer_lights,
                      chk_truck_brakes, chk_truck_lights, chk_mirrors, chk_tire_pressure, chk_washer_wipers,
                      defects_critical, defect_unhitch, defects_non_urgent, safe_to_drive, status)
-                VALUES (?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pre_complete')
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pre_complete')
             ")->execute(array_merge(
-                [$userId, $vehicleId, $date, (int)$seq->fetchColumn(), $clean['odometer_start']], $checks,
+                [$userId, $vehicleId, $date, (int)$seq->fetchColumn(), $doneAt, $clean['odometer_start']], $checks,
                 [$clean['defects_critical'], $clean['defect_unhitch'], $clean['defects_non_urgent'], $clean['safe_to_drive']]
             ));
             $reportId = (int)$this->db->lastInsertId();
@@ -274,7 +314,22 @@ class TripReportService
     /** @throws InvalidArgumentException when there is no open trip, or the odometer is implausible */
     public function savePostTrip(int $userId, array $input, string $date): int
     {
-        $latest = $this->latestForDriver($userId, $date);
+        $doneTs = self::resolvePerformedAt($input['performed_at'] ?? null, time());
+        $doneAt = date('Y-m-d H:i:s', $doneTs);
+
+        // The open trip may be from an earlier date than "today" when a queue files late.
+        $stmt = $this->db->prepare("
+            SELECT * FROM vehicle_trip_reports
+            WHERE driver_id = ? AND pre_trip_at IS NOT NULL AND pre_trip_at <= ?
+            ORDER BY pre_trip_at DESC, id DESC LIMIT 1
+        ");
+        $stmt->execute([$userId, $doneAt]);
+        $latest = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+
+        // Idempotent replay: already closed at exactly this moment = this same post-trip.
+        if ($latest && !empty($latest['post_trip_at']) && $latest['post_trip_at'] === $doneAt) {
+            return (int)$latest['id'];
+        }
         if (self::tripState($latest) !== 'open') {
             throw new InvalidArgumentException('There is no open trip to close.');
         }
@@ -288,11 +343,11 @@ class TripReportService
 
         $this->db->prepare("
             UPDATE vehicle_trip_reports SET
-                post_trip_at = NOW(), odometer_end = ?, end_of_day_remarks = ?,
+                post_trip_at = ?, odometer_end = ?, end_of_day_remarks = ?,
                 hos_on_duty_driving = ?, hos_on_duty_other = ?, hos_off_duty = ?, status = 'complete'
             WHERE id = ? AND driver_id = ?
         ")->execute([
-            $clean['odometer_end'], $clean['end_of_day_remarks'], $clean['hos_on_duty_driving'],
+            $doneAt, $clean['odometer_end'], $clean['end_of_day_remarks'], $clean['hos_on_duty_driving'],
             $clean['hos_on_duty_other'], $clean['hos_off_duty'], (int)$latest['id'], $userId,
         ]);
 
@@ -302,13 +357,21 @@ class TripReportService
 
     // ── Per-shift declaration (migration 1117; degrades to "not recorded") ───
 
-    public function declare(int $userId, bool $isDriving, ?string $vehicleId, string $source): void
+    public function declare(int $userId, bool $isDriving, ?string $vehicleId, string $source, $performedAt = null): void
     {
         try {
+            $ts = self::resolvePerformedAt($performedAt, time());
+            $at = date('Y-m-d H:i:s', $ts);
+            // A replayed declaration is the same declaration.
+            $dupe = $this->db->prepare("SELECT 1 FROM shift_driver_declarations WHERE user_id = ? AND declared_at = ? AND is_driving = ? LIMIT 1");
+            $dupe->execute([$userId, $at, $isDriving ? 1 : 0]);
+            if ($dupe->fetchColumn()) {
+                return;
+            }
             $this->db->prepare("
                 INSERT INTO shift_driver_declarations (user_id, shift_date, is_driving, vehicle_id, source, declared_at)
-                VALUES (?, CURDATE(), ?, ?, ?, NOW())
-            ")->execute([$userId, $isDriving ? 1 : 0, $isDriving ? $vehicleId : null, substr($source, 0, 16)]);
+                VALUES (?, ?, ?, ?, ?, ?)
+            ")->execute([$userId, date('Y-m-d', $ts), $isDriving ? 1 : 0, $isDriving ? $vehicleId : null, substr($source, 0, 16), $at]);
         } catch (Throwable $e) {
             error_log('TripReportService::declare — migration 1117 not run? ' . $e->getMessage());
         }

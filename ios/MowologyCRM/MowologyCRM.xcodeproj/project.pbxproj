@@ -88,6 +88,7 @@
 		7A0E9E8D8857B6172BD5FD04 /* TripReportModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BC272EA420E499A61D098AC /* TripReportModels.swift */; };
 		73F667DAABAD64DFFE948DC8 /* DriverTripViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA1FEA98CD4D84F2A0103ED1 /* DriverTripViewModel.swift */; };
 		7CD9F411D6016E98906C22A5 /* DriverTripViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66C945B6DEF8E98EDA5B4703 /* DriverTripViews.swift */; };
+		D8B21C3836B6C99DDFAF50D4 /* TripReportQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 245438D48DD3B44093FF2524 /* TripReportQueue.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -174,6 +175,7 @@
 		7BC272EA420E499A61D098AC /* TripReportModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripReportModels.swift; sourceTree = "<group>"; };
 		EA1FEA98CD4D84F2A0103ED1 /* DriverTripViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DriverTripViewModel.swift; sourceTree = "<group>"; };
 		66C945B6DEF8E98EDA5B4703 /* DriverTripViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DriverTripViews.swift; sourceTree = "<group>"; };
+		245438D48DD3B44093FF2524 /* TripReportQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripReportQueue.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -192,6 +194,7 @@
 				AD1CBB45AF36E4DCB8B81C51 /* ScheduleCache.swift */,
 				04649C7082A9C0FC920D58AD /* AppTransitionDrainService.swift */,
 				3B977BC71DF7EEFB41F5B333 /* ReceiptActionQueue.swift */,
+				245438D48DD3B44093FF2524 /* TripReportQueue.swift */,
 			);
 			path = Offline;
 			sourceTree = "<group>";
@@ -548,6 +551,7 @@
 				7A0E9E8D8857B6172BD5FD04 /* TripReportModels.swift in Sources */,
 				73F667DAABAD64DFFE948DC8 /* DriverTripViewModel.swift in Sources */,
 				7CD9F411D6016E98906C22A5 /* DriverTripViews.swift in Sources */,
+				D8B21C3836B6C99DDFAF50D4 /* TripReportQueue.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -93,6 +93,37 @@ class TripReportServiceTest extends TestCase
         $this->assertNotNull(TripReportService::odometerProblem(152340, 162340));
     }
 
+    // ---- resolvePerformedAt: a queued offline inspection keeps its real time ----
+
+    public function test_an_inspection_done_offline_is_filed_under_the_time_it_was_done(): void
+    {
+        $now  = 1790000000;
+        $done = $now - 5400;                                   // 90 minutes ago, no signal at the yard
+        $this->assertSame($done, TripReportService::resolvePerformedAt($done * 1000, $now), 'epoch ms from the phone');
+        $this->assertSame($done, TripReportService::resolvePerformedAt($done, $now), 'epoch seconds');
+    }
+
+    public function test_no_device_time_means_now(): void
+    {
+        $now = 1790000000;
+        $this->assertSame($now, TripReportService::resolvePerformedAt(null, $now));
+        $this->assertSame($now, TripReportService::resolvePerformedAt('', $now));
+        $this->assertSame($now, TripReportService::resolvePerformedAt('yesterday', $now));
+    }
+
+    public function test_a_wrong_phone_clock_cannot_write_a_wrong_legal_date(): void
+    {
+        $now = 1790000000;
+        $this->assertSame($now, TripReportService::resolvePerformedAt($now + 86400, $now), 'a day in the future');
+        $this->assertSame($now, TripReportService::resolvePerformedAt($now - 30 * 86400, $now), 'a month ago — beyond the offline window');
+    }
+
+    public function test_small_clock_skew_is_tolerated_but_never_stored_as_the_future(): void
+    {
+        $now = 1790000000;
+        $this->assertSame($now, TripReportService::resolvePerformedAt($now + 120, $now));
+    }
+
     // ---- parseVehicles ------------------------------------------------------
 
     public function test_fleet_setting_parses_ids_and_labels(): void
