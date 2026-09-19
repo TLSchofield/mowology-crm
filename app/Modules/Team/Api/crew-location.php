@@ -231,12 +231,14 @@ try {
             throw new Exception('Latitude and longitude required');
         }
 
-        // For proximity-only checks, skip tracking flag entirely — no location is stored,
-        // so the user's opt-out preference doesn't apply to this read-only geofence test.
+        // One-shot check fired when the crew member opens the app on site. It is NOT
+        // read-only — a match clocks them in and starts a timer — so
+        // checkProximityAutoStart() enforces the tracking opt-in itself. Dwell is
+        // waived: there is no ping history yet, and opening the app is deliberate.
         if ($isProximityOnly) {
             require_once CRM_INCLUDES . '/plan-functions.php';
             $autoStartResult = checkProximityAutoStart(
-                (int)$user['id'], $lat, $lng, (float)($accuracy ?? 50)
+                (int)$user['id'], $lat, $lng, (float)($accuracy ?? 50), null, false
             );
             echo json_encode([
                 'success' => true,

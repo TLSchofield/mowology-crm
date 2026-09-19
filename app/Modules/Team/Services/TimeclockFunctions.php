@@ -251,6 +251,44 @@ function ensurePlanFunctionsLoaded(): void {
     }
 }
 
+/**
+ * calendar_stop_crew.stop_id values the user is crewed onto for a date.
+ * Multi-crew stops record their secondary crew here, not on job_visits.assigned_crew_id.
+ *
+ * @return int[]
+ */
+function getStopIdsForCrewMember(int $userId, string $date): array {
+    $stmt = getDB()->prepare("
+        SELECT csc.stop_id
+        FROM calendar_stop_crew csc
+        JOIN calendar_stops cs ON cs.id = csc.stop_id
+        WHERE csc.user_id = ? AND cs.stop_date = ?
+    ");
+    $stmt->execute([$userId, $date]);
+    return array_map('intval', array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'stop_id'));
+}
+
+/**
+ * Is this user crew on the visit — assigned directly, lead of its stop, or
+ * crewed onto the stop? Secondary crew on a multi-crew stop previously could
+ * never start a timer because only assigned_crew_id was checked.
+ */
+function userIsCrewOnVisit(int $visitId, int $userId): bool {
+    $stmt = getDB()->prepare("
+        SELECT 1
+        FROM job_visits jv
+        LEFT JOIN calendar_stops cs ON cs.id = jv.stop_id
+        WHERE jv.id = ?
+          AND (jv.assigned_crew_id = ?
+               OR cs.crew_id = ?
+               OR EXISTS (SELECT 1 FROM calendar_stop_crew csc
+                          WHERE csc.stop_id = jv.stop_id AND csc.user_id = ?))
+        LIMIT 1
+    ");
+    $stmt->execute([$visitId, $userId, $userId, $userId]);
+    return (bool)$stmt->fetchColumn();
+}
+
 function startJobTimer($jobId, $userId, $lat = null, $lng = null, $autoStarted = false) {
     $db = getDB();
 
@@ -276,7 +314,7 @@ function startJobTimer($jobId, $userId, $lat = null, $lng = null, $autoStarted =
     $callerRoleStmt->execute([$userId]);
     $callerRole = (string)($callerRoleStmt->fetchColumn() ?: '');
     $callerIsAdmin = in_array($callerRole, ['admin', 'manager'], true);
-    if (!$callerIsAdmin && (int)($job['assigned_crew_id'] ?? 0) !== (int)$userId) {
+    if (!$callerIsAdmin && !userIsCrewOnVisit((int)$jobId, (int)$userId)) {
         throw new Exception('You are not assigned to this visit');
     }
 
@@ -499,13 +537,15 @@ function recalculateTimesheetTotals($userId, $weekStart) {
 
 /**
  * Get ALL jobs for a given date (all crews), for GPS proximity detection.
- * Any crew member near any property should be able to clock in, not just assigned crew.
+ * Returns every crew's visits; checkProximityAutoStart() narrows them to the
+ * caller's own (assigned_crew_id / stop_crew_id / calendar_stop_crew) before acting.
  */
 function getAllJobsForDate($date) {
     $db = getDB();
     $stmt = $db->prepare("
         SELECT jv.id, jv.visit_number as job_number, jv.status, jv.scheduled_date,
                jv.scheduled_time_start, jv.scheduled_time_end, jv.assigned_crew_id,
+               jv.stop_id, cs.crew_id AS stop_crew_id,
                jp.title, jp.service_type, jp.estimated_duration_minutes,
                jp.property_id,
                p.address as property_address, p.city as property_city,
@@ -513,6 +553,7 @@ function getAllJobsForDate($date) {
                c.company_name
         FROM job_visits jv
         JOIN job_plans jp ON jv.plan_id = jp.id
+        LEFT JOIN calendar_stops cs ON jv.stop_id = cs.id
         LEFT JOIN properties p ON jp.property_id = p.id
         LEFT JOIN company_properties cprop ON jp.property_id = cprop.property_id AND cprop.is_primary = 1
         LEFT JOIN companies c ON cprop.company_id = c.id
@@ -618,17 +659,28 @@ function haversineDistance(float $lat1, float $lng1, float $lat2, float $lng2): 
  *
  * @return array|null  Null if no auto-start; otherwise array with visit details
  */
-function checkProximityAutoStart(int $userId, float $lat, float $lng, float $accuracy = 50.0, ?array $preloadedVisits = null): ?array {
+function checkProximityAutoStart(int $userId, float $lat, float $lng, float $accuracy = 50.0, ?array $preloadedVisits = null, bool $requireDwell = true): ?array {
+    require_once __DIR__ . '/ProximityAutoStartService.php';
+
     // Guard 1: master toggle
     $autoArrivalEnabled = getTimeClockSetting('auto_arrival_enabled', '1');
     if ($autoArrivalEnabled !== '1') {
         return null;
     }
 
+    // Guard 1b: this can clock a person in and start recording their location, so it
+    // must honour the same opt-in as ping storage. The one-shot proximity_check path
+    // in crew-location.php reaches here WITHOUT passing the tracking-flag check.
+    $trackStmt = getDB()->prepare("SELECT location_tracking_enabled FROM users WHERE id = ? AND is_active = 1");
+    $trackStmt->execute([$userId]);
+    if (!(int)$trackStmt->fetchColumn()) {
+        return null;
+    }
+
     $proximityMeters = (int)getTimeClockSetting('gps_proximity_meters', '150');
 
-    // Guard 2: GPS accuracy — skip if too inaccurate
-    if ($accuracy > $proximityMeters * 1.5) {
+    // Guard 2: GPS accuracy — the fix's error circle must fit inside the fence
+    if (!ProximityAutoStartService::accuracyAcceptable($accuracy, $proximityMeters)) {
         return null;
     }
 
@@ -691,8 +743,19 @@ function checkProximityAutoStart(int $userId, float $lat, float $lng, float $acc
         require_once $geofenceModelPath;
     }
 
+    // Only the caller's OWN visits may auto-start. Evaluating every crew's visits
+    // is what let a drive-by past someone else's job clock a person in.
+    $today       = date('Y-m-d');
+    $myStopIds   = getStopIdsForCrewMember($userId, $today);
+    $leadMinutes = (int)getTimeClockSetting('auto_arrival_lead_minutes', '240');
+    $nowTs       = time();
+    $candidates  = [];
+
     foreach ($allVisits as $visit) {
         if ($visit['status'] !== 'scheduled') continue;
+        if (!ProximityAutoStartService::isOwnVisit($visit, $userId, $myStopIds)) continue;
+        if (!ProximityAutoStartService::withinWindow(
+                $visit['scheduled_date'] ?? $today, $visit['scheduled_time_start'] ?? null, $nowTs, $leadMinutes)) continue;
 
         $vLat       = $visit['property_lat'] ?? null;
         $vLng       = $visit['property_lng'] ?? null;
@@ -714,72 +777,111 @@ function checkProximityAutoStart(int $userId, float $lat, float $lng, float $acc
         }
 
         if ($insideBorder) {
-            // Polygon match is definitive — treat as distance 0 so it always wins
-            $nearestDist = 0;
-            $nearest     = $visit;
-            break; // first polygon match wins (already inside the site)
+            // Inside a drawn border is definitive — ranked ahead of any radius match.
+            $candidates[] = ['visit' => $visit, 'distance' => 0.0, 'inside_border' => true, 'border' => $border];
+            continue;
         }
 
         // Haversine fallback — only possible when the property has geocoded coordinates.
-        // Guard moved here (after polygon attempt) so a drawn border can still match
+        // Guard sits after the polygon attempt so a drawn border can still match
         // even when lat/lng is missing/null.
         if (!$vLat || !$vLng) continue;
 
         $dist = haversineDistance($lat, $lng, (float)$vLat, (float)$vLng);
-        if ($dist < $nearestDist) {
-            $nearestDist = $dist;
-            $nearest     = $visit;
+        if ($dist <= $proximityMeters) {
+            $candidates[] = ['visit' => $visit, 'distance' => $dist, 'inside_border' => false, 'border' => null];
         }
     }
 
-    if (!$nearest || $nearestDist > $proximityMeters) {
+    if (!$candidates) {
         return null;
     }
 
-    // Guard 8: service type check — global allowlist OR per-product auto_clock_in flag
-    $serviceType = $nearest['service_type'] ?? '';
-    $inGlobalList = !empty($allowedTypes) && in_array($serviceType, $allowedTypes);
-
-    $hasPerVisitFlag = false;
-    // Check per-product/plan auto_clock_in via resolveTrackingRequirements
-    $visitId = (int)$nearest['id'];
-    if (function_exists('resolveTrackingRequirements')) {
-        $trackReqs = resolveTrackingRequirements($visitId);
-        $hasPerVisitFlag = !empty($trackReqs['auto_clock_in']);
+    // Prior fixes for the dwell test — loaded once, only when something is in range.
+    $priorFixes = [];
+    if ($requireDwell) {
+        $fixStmt = $db->prepare("
+            SELECT latitude AS lat, longitude AS lng,
+                   (UNIX_TIMESTAMP() - UNIX_TIMESTAMP(timestamp)) AS age_seconds
+            FROM crew_location_history
+            WHERE crew_id = ? AND timestamp >= (NOW() - INTERVAL ? SECOND)
+            ORDER BY timestamp DESC
+            LIMIT 20
+        ");
+        $fixStmt->execute([$userId, ProximityAutoStartService::DWELL_MAX_AGE_SECONDS]);
+        $priorFixes = $fixStmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    if (!$inGlobalList && !$hasPerVisitFlag) {
+    // Walk candidates best-first and take the first that clears every remaining
+    // guard — an ineligible nearest visit no longer blocks the one next door.
+    $nearest = null; $nearestDist = 0.0; $visitId = 0; $serviceType = '';
+    foreach (ProximityAutoStartService::rank($candidates) as $cand) {
+        $v   = $cand['visit'];
+        $vid = (int)$v['id'];
+
+        // Guard 8: service type — global allowlist OR per-product auto_clock_in flag
+        $type         = $v['service_type'] ?? '';
+        $inGlobalList = !empty($allowedTypes) && in_array($type, $allowedTypes);
+        $hasPerVisitFlag = false;
+        if (!$inGlobalList && function_exists('resolveTrackingRequirements')) {
+            $trackReqs       = resolveTrackingRequirements($vid);
+            $hasPerVisitFlag = !empty($trackReqs['auto_clock_in']);
+        }
+        if (!$inGlobalList && !$hasPerVisitFlag) continue;
+
+        // Guard 9: visit not already auto-started today
+        $alreadyStmt = $db->prepare("
+            SELECT id FROM job_time_entries
+            WHERE visit_id = ? AND auto_started = 1 AND start_time >= CURDATE()
+            LIMIT 1
+        ");
+        $alreadyStmt->execute([$vid]);
+        if ($alreadyStmt->fetch()) continue;
+
+        // Guard 10: dwell — an earlier fix inside the SAME fence. One ping is a drive-by.
+        if ($requireDwell) {
+            $border = $cand['border'];
+            $pLat   = (float)($v['property_lat'] ?? 0);
+            $pLng   = (float)($v['property_lng'] ?? 0);
+            $inside = static function (float $fLat, float $fLng) use ($border, $pLat, $pLng, $proximityMeters): bool {
+                if ($border && !empty($border['polygon'])) {
+                    return geofencePointInPolygon($fLat, $fLng, $border['polygon'], $border['bbox']);
+                }
+                return $pLat && $pLng && haversineDistance($fLat, $fLng, $pLat, $pLng) <= $proximityMeters;
+            };
+            if (!ProximityAutoStartService::hasDwell($priorFixes, $inside)) continue;
+        }
+
+        $nearest = $v; $nearestDist = (float)$cand['distance']; $visitId = $vid; $serviceType = $type;
+        break;
+    }
+
+    if (!$nearest) {
         return null;
     }
 
-    // Guard 9: visit not already auto-started today
-    $alreadyStmt = $db->prepare("
-        SELECT id FROM job_time_entries
-        WHERE visit_id = ? AND auto_started = 1 AND DATE(start_time) = CURDATE()
-        LIMIT 1
-    ");
-    $alreadyStmt->execute([$visitId]);
-    if ($alreadyStmt->fetch()) {
-        return null;
-    }
-
-    // All guards passed — auto-clock-in if needed, then start timer
+    // All guards passed. Clock in only now that the timer is known to be startable
+    // (own visit, not already running) — and undo the clock-in if the start still
+    // fails, so a failed auto-start can never leave someone on the payroll clock.
     $clockInCreated = false;
-    $clockEntry = getActiveClockEntry($userId);
-    if (!$clockEntry) {
+    $newClockEntryId = null;
+    if (!getActiveClockEntry($userId)) {
         try {
-            clockIn($userId, $lat, $lng);
-            $clockInCreated = true;
+            $newClockEntryId = clockIn($userId, $lat, $lng);
+            $clockInCreated  = true;
         } catch (Exception $e) {
             // Already clocked in (race condition) — proceed
         }
     }
 
-    // Start the visit timer
     try {
         $entryId = startJobTimer($visitId, $userId, $lat, $lng, true);
     } catch (Exception $e) {
-        // Timer already running (race condition) — bail
+        if ($clockInCreated && $newClockEntryId) {
+            $db->prepare("DELETE FROM time_clock_entries WHERE id = ? AND user_id = ? AND clock_out IS NULL")
+               ->execute([$newClockEntryId, $userId]);
+            error_log("checkProximityAutoStart: rolled back auto clock-in {$newClockEntryId} for user {$userId} — " . $e->getMessage());
+        }
         return null;
     }
 
