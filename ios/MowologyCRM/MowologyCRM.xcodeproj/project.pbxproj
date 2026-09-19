@@ -82,6 +82,9 @@
 		0C35257F940B9B1F8E2713F8 /* VisitWorkModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB6AF667E337C1F96A05D1C8 /* VisitWorkModels.swift */; };
 		BFF6D6BAB1CC99A82D505E4E /* VisitWorkViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB2823D3497805DBBA0F6047 /* VisitWorkViewModel.swift */; };
 		FAB0F6DE2A26404C98014B36 /* VisitWorkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C133E57A28A6AF23D6B4CAF /* VisitWorkView.swift */; };
+		C4C105929D6FE83DB24CE3F5 /* TrackingModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 173ED9749D2FCD6CB159716F /* TrackingModels.swift */; };
+		DF1F4719719995388764100A /* FixStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEEC2512A065ADA0C4F379B1 /* FixStore.swift */; };
+		00B56E27661FF80715F2BEE0 /* TrackingViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 545B5CCD39091DF475E64F1E /* TrackingViews.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -162,6 +165,9 @@
 		DB6AF667E337C1F96A05D1C8 /* VisitWorkModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitWorkModels.swift; sourceTree = "<group>"; };
 		AB2823D3497805DBBA0F6047 /* VisitWorkViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitWorkViewModel.swift; sourceTree = "<group>"; };
 		6C133E57A28A6AF23D6B4CAF /* VisitWorkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitWorkView.swift; sourceTree = "<group>"; };
+		173ED9749D2FCD6CB159716F /* TrackingModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackingModels.swift; sourceTree = "<group>"; };
+		FEEC2512A065ADA0C4F379B1 /* FixStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FixStore.swift; sourceTree = "<group>"; };
+		545B5CCD39091DF475E64F1E /* TrackingViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackingViews.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -236,6 +242,7 @@
 				DFEFBC83ADF17258DCA610C2 /* RouteStore.swift */,
 				C547C4C433774E19B449B943 /* GPSTrackingService.swift */,
 				BDD36DA83B03006206BEC033 /* ActivityMonitor.swift */,
+				FEEC2512A065ADA0C4F379B1 /* FixStore.swift */,
 			);
 			path = Location;
 			sourceTree = "<group>";
@@ -277,6 +284,7 @@
 				2AD39E1B3611B5D04E228868 /* TimeClockViewModel.swift */,
 				C2401679A963EF3F929C6924 /* TimesheetView.swift */,
 				D83747FCEEFBA2F4983E98A0 /* TimesheetViewModel.swift */,
+				545B5CCD39091DF475E64F1E /* TrackingViews.swift */,
 			);
 			path = TimeClock;
 			sourceTree = "<group>";
@@ -351,6 +359,7 @@
 				A291EF631E6F72287BAA852F /* ReceiptActionResponse.swift */,
 				FAA32370295931F4177A5345 /* DeviceTokenResponse.swift */,
 				DB6AF667E337C1F96A05D1C8 /* VisitWorkModels.swift */,
+				173ED9749D2FCD6CB159716F /* TrackingModels.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -524,6 +533,9 @@
 				0C35257F940B9B1F8E2713F8 /* VisitWorkModels.swift in Sources */,
 				BFF6D6BAB1CC99A82D505E4E /* VisitWorkViewModel.swift in Sources */,
 				FAB0F6DE2A26404C98014B36 /* VisitWorkView.swift in Sources */,
+				C4C105929D6FE83DB24CE3F5 /* TrackingModels.swift in Sources */,
+				DF1F4719719995388764100A /* FixStore.swift in Sources */,
+				00B56E27661FF80715F2BEE0 /* TrackingViews.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -596,7 +608,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.0.2;
+				MARKETING_VERSION = 1.1.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = "ca.mowology.crm-field";
@@ -681,7 +693,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.0.2;
+				MARKETING_VERSION = 1.1.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

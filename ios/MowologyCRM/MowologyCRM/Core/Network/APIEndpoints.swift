@@ -49,6 +49,18 @@ enum APIEndpoint {
     /// POST /api/schedule/visit-work — save_checklist / save_materials / add_note.
     case visitWorkAction
 
+    /// GET /api/schedule/tracking?mode=status — the server's tracking policy (am I still on the clock?).
+    case trackingStatus
+
+    /// GET /api/schedule/tracking?mode=consent — disclosure text + whether it has been agreed.
+    case trackingConsent
+
+    /// GET /api/schedule/tracking?mode=geofences — the caller's OWN stops today, for OS geofencing.
+    case trackingGeofences
+
+    /// POST /api/schedule/tracking — {action: consent | withdraw}.
+    case trackingAction
+
     /// POST /api/schedule/visit-flag — toggle crew endorsement heart on a visit.
     case visitFlag
 
@@ -174,6 +186,20 @@ enum APIEndpoint {
         case .visitWorkAction:
             return URL(string: "\(baseURLString)/schedule/visit-work")
 
+        case .trackingStatus, .trackingConsent, .trackingGeofences:
+            let mode: String
+            switch self {
+            case .trackingConsent:   mode = "consent"
+            case .trackingGeofences: mode = "geofences"
+            default:                 mode = "status"
+            }
+            var components = URLComponents(string: "\(baseURLString)/schedule/tracking")
+            components?.queryItems = [URLQueryItem(name: "mode", value: mode)]
+            return components?.url
+
+        case .trackingAction:
+            return URL(string: "\(baseURLString)/schedule/tracking")
+
         case .visitFlag:
             return URL(string: "\(baseURLString)/schedule/visit-flag")
 
@@ -281,6 +307,10 @@ enum APIEndpoint {
              .scheduleTimesheetWeek,
              .visitWork,
              .visitWorkAction,
+             .trackingStatus,
+             .trackingConsent,
+             .trackingGeofences,
+             .trackingAction,
              .visitFlag,
              .recommendationOptions,
              .recommendationCreate,
@@ -317,13 +347,17 @@ enum APIEndpoint {
              .scheduleCrewTrails,
              .scheduleClockStatus,
              .scheduleTimesheetWeek,
-             .visitWork: return "GET"
+             .visitWork,
+             .trackingStatus,
+             .trackingConsent,
+             .trackingGeofences: return "GET"
 
         case .scheduleTimer,
              .scheduleLocation,
              .scheduleClock,
              .visitFlag,
              .visitWorkAction,
+             .trackingAction,
              .powActions,
              .powGpsSync,
              .receiptUpload,

@@ -29,8 +29,28 @@ struct TimeClockView: View {
                             .padding(.horizontal, 16)
                     }
 
+                    if let notice = viewModel.serverStopNotice {
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "info.circle.fill").foregroundStyle(Color.MW.orange)
+                            Text(notice).font(.footnote)
+                            Spacer(minLength: 0)
+                            Button { viewModel.serverStopNotice = nil } label: {
+                                Image(systemName: "xmark").font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(12)
+                        .background(Color.MW.orange.opacity(0.08))
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .padding(.horizontal, 16)
+                    }
+
                     clockCard
                         .padding(.horizontal, 16)
+
+                    if viewModel.clockedIn {
+                        TrackingStatusCard()
+                            .padding(.horizontal, 16)
+                    }
 
                     if let job = viewModel.activeJob {
                         activeJobCard(job)
@@ -64,6 +84,19 @@ struct TimeClockView: View {
             .navigationBarTitleDisplayMode(.inline)
             .task { await viewModel.loadStatus() }
             .refreshable { await viewModel.loadStatus() }
+            .sheet(isPresented: Binding(
+                get: { viewModel.pendingDisclosure != nil },
+                set: { if !$0 { viewModel.pendingDisclosure = nil } }
+            )) {
+                if let disclosure = viewModel.pendingDisclosure {
+                    TrackingDisclosureSheet(
+                        disclosure: disclosure,
+                        required:   viewModel.consentRequired,
+                        onAgree:    { await viewModel.agreeToDisclosure() },
+                        onDecline:  { await viewModel.declineDisclosure() }
+                    )
+                }
+            }
         }
     }
 
@@ -122,7 +155,7 @@ struct TimeClockView: View {
                     if viewModel.clockedIn {
                         await viewModel.clockOut()
                     } else {
-                        await viewModel.clockIn()
+                        await viewModel.clockInWithConsentCheck()
                     }
                 }
             } label: {

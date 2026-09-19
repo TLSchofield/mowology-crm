@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import UIKit
 import Combine
 
 @MainActor
@@ -29,6 +30,17 @@ final class TimeClockViewModel: ObservableObject {
     private let apiClient: APIClient
     private var tickTimer: AnyCancellable?
     private var connectivityObserver: NSObjectProtocol?
+    private var serverStopObserver: NSObjectProtocol?
+
+    // MARK: - Tracking consent
+
+    /// Non-nil while the location disclosure should be on screen (first clock-in, or
+    /// whenever the disclosure version changes). Clock-in continues once it is agreed.
+    @Published var pendingDisclosure: TrackingDisclosure?
+    /// True when the office has made consent a condition of tracking.
+    @Published private(set) var consentRequired = false
+    /// Why the server ended tracking, when it wasn't the crew member clocking out.
+    @Published var serverStopNotice: String?
 
     // MARK: - Init
 
@@ -48,12 +60,77 @@ final class TimeClockViewModel: ObservableObject {
                 await self?.drainAndReconcile()
             }
         }
+
+        // The server ended tracking (auto clock-out, office edit, consent withdrawn…).
+        // Re-read the truth so this screen can't keep saying "Clocked In".
+        serverStopObserver = NotificationCenter.default.addObserver(
+            forName: .mwTrackingStoppedByServer,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            let reason = note.userInfo?["reason"] as? String
+            Task { @MainActor [weak self] in
+                self?.serverStopNotice = Self.notice(forServerStop: reason)
+                await self?.loadStatus()
+            }
+        }
     }
 
     deinit {
-        if let obs = connectivityObserver {
-            NotificationCenter.default.removeObserver(obs)
+        if let obs = connectivityObserver { NotificationCenter.default.removeObserver(obs) }
+        if let obs = serverStopObserver   { NotificationCenter.default.removeObserver(obs) }
+    }
+
+    private static func notice(forServerStop reason: String?) -> String {
+        switch reason {
+        case "not_clocked_in":    return "You were clocked out by the office or the end-of-day auto clock-out. Location tracking has stopped."
+        case "consent_required":  return "Location tracking is paused until you review and agree to the location disclosure."
+        case "tracking_disabled": return "Location tracking has been turned off for your account."
+        default:                  return "Location tracking has stopped."
         }
+    }
+
+    // MARK: - Consent
+
+    /// Clock-in entry point for the UI: shows the location disclosure first when the
+    /// crew member hasn't agreed to the current version, then clocks in.
+    func clockInWithConsentCheck() async {
+        do {
+            let response: TrackingConsentResponse = try await apiClient.request(.trackingConsent)
+            consentRequired = response.consent?.required ?? false
+            if response.consent?.current == false, let disclosure = response.disclosure {
+                pendingDisclosure = disclosure
+                return
+            }
+        } catch {
+            // Offline or an older server — never block a clock-in on the disclosure fetch.
+        }
+        await clockIn()
+    }
+
+    func agreeToDisclosure() async {
+        guard let disclosure = pendingDisclosure else { return }
+        do {
+            let _: TrackingStatusResponse = try await apiClient.request(.trackingAction, body: [
+                "action":  "consent",
+                "version": disclosure.version,
+                "device":  [
+                    "id":          UIDevice.current.identifierForVendor?.uuidString ?? "unknown",
+                    "platform":    "ios",
+                    "app_version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
+                ]
+            ])
+            pendingDisclosure = nil
+            await clockIn()
+        } catch {
+            errorMessage = (error as? APIError)?.localizedDescription ?? error.localizedDescription
+        }
+    }
+
+    /// "Not now" — allowed only while consent is not yet a condition of tracking.
+    func declineDisclosure() async {
+        pendingDisclosure = nil
+        if !consentRequired { await clockIn() }
     }
 
     // MARK: - Load

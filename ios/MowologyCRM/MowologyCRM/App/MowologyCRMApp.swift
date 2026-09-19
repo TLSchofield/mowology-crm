@@ -11,7 +11,7 @@ import UserNotifications
 struct MowologyCRMApp: App {
 
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @StateObject private var authSession = AuthSession()
+    @StateObject private var authSession = AuthSession.shared
     @Environment(\.scenePhase) private var scenePhase
 
     private let bgTaskId = "ca.mowology.gps-refresh"
@@ -53,6 +53,10 @@ struct MowologyCRMApp: App {
                 // Re-registering is idempotent server-side (upsert) and gives retry
                 // coverage if the token arrived while offline on a previous launch.
                 UIApplication.shared.registerForRemoteNotifications()
+                // Pick the shift's tracking back up here, not only when the Time Clock tab
+                // happens to appear — and send any fixes still owed from an earlier shift.
+                GPSTrackingService.shared.resumeIfShiftActive(authSession: authSession)
+                GPSTrackingService.shared.flushBacklog(authSession: authSession)
                 // Opening the app is acknowledgement enough — don't leave a stale badge.
                 UNUserNotificationCenter.current().setBadgeCount(0)
             }

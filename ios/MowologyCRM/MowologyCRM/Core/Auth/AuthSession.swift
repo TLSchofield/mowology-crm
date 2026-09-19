@@ -39,6 +39,11 @@ final class AuthSession: ObservableObject {
     @Published private(set) var user: User?
     @Published private(set) var token: String?
 
+    /// One session for the whole process. iOS can relaunch the app in the background
+    /// (significant-change / geofence wake) with no UI, and tracking must be able to
+    /// resume with the same credentials the views use.
+    static let shared = AuthSession()
+
     // MARK: - Init
 
     init() {
@@ -118,6 +123,9 @@ final class AuthSession: ObservableObject {
 
     /// Clears the session from memory and removes persisted Keychain entries.
     func logout() {
+        // Signing out — or a 401 mid-shift — must end location capture. CoreLocation
+        // kept running after logout, recording someone who was no longer signed in.
+        GPSTrackingService.shared.stop(reason: .signedOut)
         KeychainStore.delete(key: KeychainKey.jwt)
         KeychainStore.delete(key: KeychainKey.user)
         token           = nil

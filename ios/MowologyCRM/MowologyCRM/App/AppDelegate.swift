@@ -19,6 +19,13 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         // The notification delegate has to be in place before launch finishes,
         // or the tap that cold-started the app is never delivered.
         NotificationRouter.shared.install()
+
+        // iOS relaunches a terminated app in the background for a significant location
+        // change or a job-site geofence. No scene, no tabs — tracking has to restart from
+        // here or a swiped-away app stays dark for the rest of the shift.
+        Task { @MainActor in
+            GPSTrackingService.shared.resumeIfShiftActive(authSession: AuthSession.shared)
+        }
         return true
     }
 
