@@ -448,6 +448,23 @@ function getActiveVisitTimer($userId) {
     return getActiveJobTimer($userId);
 }
 
+/**
+ * The user's running job timer — but only if it is plausibly LIVE.
+ *
+ * A timer nobody stopped stays 'active' for ever unless stop_orphaned_job_timers runs.
+ * Found 2026-09-19: one left running overnight blocked every GPS auto-arrival for its
+ * owner (Guard 3 saw "a timer is active"), and would have put their phone in the
+ * on-site tracking tier and stamped the next day's fixes onto yesterday's visit.
+ * No real job runs 16 hours; older than that is debris, not state.
+ */
+function getLiveJobTimer(int $userId, int $maxHours = 16): ?array {
+    $timer = getActiveJobTimer($userId);
+    if (!$timer) {
+        return null;
+    }
+    return ((int)($timer['elapsed_seconds'] ?? 0) <= $maxHours * 3600) ? $timer : null;
+}
+
 /** @see startJobTimer() — alias using visit terminology */
 function startVisitTimer($visitId, $userId, $lat = null, $lng = null, $autoStarted = false) {
     return startJobTimer($visitId, $userId, $lat, $lng, $autoStarted);
@@ -684,8 +701,8 @@ function checkProximityAutoStart(int $userId, float $lat, float $lng, float $acc
         return null;
     }
 
-    // Guard 3: no active job timer
-    $activeTimer = getActiveJobTimer($userId);
+    // Guard 3: no LIVE job timer (a stale one left running for days must not block arrivals)
+    $activeTimer = getLiveJobTimer($userId);
     if ($activeTimer) {
         return null;
     }

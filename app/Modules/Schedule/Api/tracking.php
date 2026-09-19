@@ -48,7 +48,7 @@ try {
 
     $policy = static function () use ($ingest, $userId): array {
         $flags = $ingest->userFlags($userId);
-        $timer = getActiveJobTimer($userId);
+        $timer = getLiveJobTimer($userId);
         return TrackingIngestService::policy(
             $flags['active'], $flags['tracking'], $ingest->consentOk($userId),
             (bool)getActiveClockEntry($userId), $timer ? (int)$timer['visit_id'] : null

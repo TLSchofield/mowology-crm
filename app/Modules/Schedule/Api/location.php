@@ -90,7 +90,7 @@ try {
     // Proximity auto-start — only from a FRESH fix. A replayed queue describes where
     // the crew was hours ago; acting on it started jobs they had already left.
     $autoStartResult = null;
-    $activeTimer     = $mayCollect ? getActiveJobTimer($userId) : null;
+    $activeTimer     = $mayCollect ? getLiveJobTimer($userId) : null;
     $newest          = $result['newest'];
     if ($mayCollect && $clockedIn && !$activeTimer && $newest
         && ($nowTs - $newest['ts']) <= TrackingIngestService::FRESH_SECONDS) {

@@ -100,7 +100,7 @@ try {
         );
     }
 
-    $timer = getActiveJobTimer($userId);
+    $timer = getLiveJobTimer($userId);
     echo json_encode([
         'success'  => true,
         'id'       => $result['last_id'],
