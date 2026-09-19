@@ -96,74 +96,48 @@ function syncLocationPoints(PDO $db, array $user, array $points): array
         return ['inserted' => 0, 'skipped' => 0];
     }
 
+    // Judged by the same TrackingIngestService as every other ingest path. This
+    // batch endpoint previously checked only isLoggedIn(): no tracking opt-in, no
+    // clock-in, no bound on the device timestamp — so off-the-clock fixes captured
+    // by a phone that never heard about a server-side clock-out went straight into
+    // history, and one future-dated point could silence a user's live pings.
+    require_once CRM_INCLUDES . '/timeclock-functions.php';
+    require_once APP_ROOT . '/Modules/Team/Services/TrackingIngestService.php';
+
     $userId = (int)$user['id'];
-    $inserted = 0;
-    $skipped = 0;
-
-    // Resolve home geofence + active-visit state once per batch. Points within
-    // a single batch are typically minutes apart, so a per-batch active-visit
-    // snapshot is accurate enough; the alternative (recheck per point) costs
-    // ~100x more queries for the common forgetting-at-home case.
-    $geofence  = new GeofenceService($db);
-    $home      = $geofence->getHomeLocation($userId);
-    $hasVisit  = $home !== null ? $geofence->hasActiveVisit($userId) : false;
-    // Office-eligible: a home is set and no job is in progress. Per-point we then
-    // check the radius and flag is_office (kept, not dropped).
-    $officeEligible = $home !== null && !$hasVisit;
-
-    // Prepare insert statement
-    $stmt = $db->prepare("
-        INSERT INTO crew_location_history
-            (crew_id, latitude, longitude, accuracy_meters, visit_id, is_office, timestamp)
-        VALUES (?, ?, ?, ?, NULL, ?, ?)
-    ");
-
-    // Prepare dedup check — check if point already exists within 1 second
-    $dedupStmt = $db->prepare("
-        SELECT COUNT(*) FROM crew_location_history
-        WHERE crew_id = ?
-          AND ABS(TIMESTAMPDIFF(SECOND, timestamp, ?)) < 2
-          AND ABS(latitude - ?) < 0.00001
-          AND ABS(longitude - ?) < 0.00001
-    ");
-
-    foreach ($points as $pt) {
-        $lat = isset($pt['lat']) ? (float)$pt['lat'] : null;
-        $lng = isset($pt['lng']) ? (float)$pt['lng'] : null;
-        $accuracy = isset($pt['accuracy']) ? (int)round((float)$pt['accuracy']) : null;
-        $timestamp = isset($pt['timestamp']) ? (int)$pt['timestamp'] : null;
-
-        if (!$lat || !$lng || !$timestamp) {
-            $skipped++;
-            continue;
-        }
-
-        // Office classification — a home-radius heartbeat with no active job is
-        // kept but flagged is_office=1 so route tracing can exclude it.
-        $isOffice = 0;
-        if ($officeEligible) {
-            $dist = GeofenceService::distanceMeters($lat, $lng, $home['lat'], $home['lng']);
-            if ($dist <= $home['radius_m']) {
-                $isOffice = 1;
-            }
-        }
-
-        // Convert epoch millis to MySQL datetime
-        $mysqlTimestamp = date('Y-m-d H:i:s', (int)($timestamp / 1000));
-
-        // Dedup check
-        $dedupStmt->execute([$userId, $mysqlTimestamp, $lat, $lng]);
-        if ((int)$dedupStmt->fetchColumn() > 0) {
-            $skipped++;
-            continue;
-        }
-
-        // Insert
-        $stmt->execute([$userId, $lat, $lng, $accuracy, $isOffice, $mysqlTimestamp]);
-        $inserted++;
+    $nowTs  = time();
+    $ingest = new TrackingIngestService($db);
+    $flags  = $ingest->userFlags($userId);
+    if (!$flags['active'] || !$flags['tracking'] || !$ingest->consentOk($userId)) {
+        return ['inserted' => 0, 'skipped' => count($points), 'reason' => 'tracking_not_allowed'];
     }
 
-    return ['inserted' => $inserted, 'skipped' => $skipped];
+    // The Android Room store names its fields differently — map, don't fork the rules.
+    $mapped = [];
+    foreach ($points as $pt) {
+        if (!is_array($pt)) continue;
+        $mapped[] = [
+            'id'      => $pt['uuid'] ?? $pt['id'] ?? null,
+            't'       => $pt['timestamp'] ?? $pt['t'] ?? null,
+            'lat'     => $pt['lat'] ?? null,
+            'lng'     => $pt['lng'] ?? null,
+            'acc'     => $pt['accuracy'] ?? $pt['acc'] ?? null,
+            'speed'   => $pt['speed'] ?? null,
+            'heading' => $pt['heading'] ?? $pt['bearing'] ?? null,
+            'mock'    => $pt['mock'] ?? $pt['is_mock'] ?? false,
+        ];
+    }
+
+    $geofence = new GeofenceService($db);
+    $result   = $ingest->ingest(
+        $userId,
+        TrackingIngestService::normalizePoints(['points' => $mapped], $nowTs),
+        $nowTs,
+        static fn (int $visitId): bool => userIsCrewOnVisit($visitId, $userId),
+        static fn (float $lat, float $lng): bool => $geofence->isOfficePing($userId, $lat, $lng)
+    );
+
+    return ['inserted' => $result['stored'], 'skipped' => count($points) - $result['stored']];
 }
 
 /**

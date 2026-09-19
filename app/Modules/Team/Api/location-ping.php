@@ -69,54 +69,49 @@ try {
         session_write_close();
     }
 
-    $input = json_decode((string)file_get_contents('php://input'), true) ?? [];
-    $lat = isset($input['lat']) ? (float)$input['lat'] : null;
-    $lng = isset($input['lng']) ? (float)$input['lng'] : null;
-    $accuracy = isset($input['accuracy']) ? (float)$input['accuracy'] : null;
+    // Same gate as every other ingest path (TrackingIngestService): nothing is stored
+    // unless the user is active, opted in, consented (when required) and the fix falls
+    // inside one of their clock entries. This endpoint previously had NO gate at all.
+    require_once CRM_INCLUDES . '/functions.php';
+    require_once CRM_INCLUDES . '/timeclock-functions.php';
+    require_once APP_ROOT . '/Modules/Team/Services/GeofenceService.php';
+    require_once APP_ROOT . '/Modules/Team/Services/TrackingIngestService.php';
 
-    if ($lat === null || $lng === null) {
+    $input  = json_decode((string)file_get_contents('php://input'), true) ?? [];
+    $nowTs  = time();
+    $db     = getDB();
+    $ingest = new TrackingIngestService($db);
+    $points = TrackingIngestService::normalizePoints($input, $nowTs);
+    if (!$points) {
         http_response_code(400);
         echo json_encode(['error' => 'lat and lng are required']);
         exit;
     }
-    if ($lat < -90 || $lat > 90 || $lng < -180 || $lng > 180) {
-        http_response_code(400);
-        echo json_encode(['error' => 'Coordinates out of range']);
-        exit;
+
+    $flags     = $ingest->userFlags($userId);
+    $consentOk = $ingest->consentOk($userId);
+    $result    = ['stored' => 0, 'last_id' => 0, 'accepted' => [], 'rejected' => []];
+    if ($flags['active'] && $flags['tracking'] && $consentOk) {
+        $geofence = new GeofenceService($db);
+        $result   = $ingest->ingest(
+            $userId, $points, $nowTs,
+            static fn (int $visitId): bool => userIsCrewOnVisit($visitId, $userId),
+            static fn (float $lat, float $lng): bool => $geofence->isOfficePing($userId, $lat, $lng)
+        );
     }
 
-    $db = getDB();
-
-    // Rate limit: reject if last entry < 10 seconds ago.
-    // Mirrors the rule in crew-location.php and schedule/Api/location.php so
-    // history rows stay consistent across the three ingest paths.
-    $rateStmt = $db->prepare("
-        SELECT (UNIX_TIMESTAMP() - UNIX_TIMESTAMP(timestamp)) AS seconds_ago
-        FROM crew_location_history
-        WHERE crew_id = ?
-        ORDER BY timestamp DESC LIMIT 1
-    ");
-    $rateStmt->execute([$userId]);
-    $lastRow = $rateStmt->fetch(PDO::FETCH_ASSOC);
-    if ($lastRow && (int)$lastRow['seconds_ago'] < 10) {
-        echo json_encode(['success' => true, 'skipped' => true, 'reason' => 'rate_limited']);
-        exit;
-    }
-
-    $stmt = $db->prepare("
-        INSERT INTO crew_location_history (crew_id, latitude, longitude, accuracy_meters, visit_id, timestamp)
-        VALUES (?, ?, ?, ?, NULL, NOW())
-    ");
-    $stmt->execute([
-        $userId,
-        $lat,
-        $lng,
-        $accuracy !== null ? (int)round($accuracy) : null,
-    ]);
-
+    $timer = getActiveJobTimer($userId);
     echo json_encode([
-        'success' => true,
-        'id' => (int)$db->lastInsertId(),
+        'success'  => true,
+        'id'       => $result['last_id'],
+        'skipped'  => $result['stored'] === 0,
+        'stored'   => $result['stored'],
+        'accepted' => $result['accepted'],
+        'rejected' => $result['rejected'],
+        'policy'   => TrackingIngestService::policy(
+            $flags['active'], $flags['tracking'], $consentOk,
+            (bool)getActiveClockEntry($userId), $timer ? (int)$timer['visit_id'] : null
+        ),
     ]);
 
 } catch (Throwable $e) {

@@ -66,6 +66,7 @@ require_once __DIR__ . '/../app/Modules/Team/Services/TimesheetService.php';
 require_once __DIR__ . '/../app/Modules/Team/Services/ProximityAutoStartService.php';
 require_once __DIR__ . '/../app/Modules/Team/Services/TrackingIngestService.php';
 require_once __DIR__ . '/../app/Modules/Team/Services/TrackingConsentService.php';
+require_once __DIR__ . '/../app/Modules/Team/Services/TrackingHealthService.php';
 
 // Tracking (Trackimo truck GPS)
 require_once __DIR__ . '/../app/Modules/Tracking/Services/TrackimoService.php';
