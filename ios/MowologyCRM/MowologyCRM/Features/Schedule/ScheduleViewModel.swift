@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import Combine
 import CoreLocation
 
 // MARK: - API Response Types
@@ -124,7 +125,18 @@ final class ScheduleViewModel: ObservableObject {
          locationManager: LocationManager = GPSTrackingService.shared.locationManager) {
         self.apiClient       = apiClient
         self.locationManager = locationManager
+
+        // A proximity auto-start changes a stop's status server-side — pull it
+        // now rather than waiting for the next poll tick.
+        autoStartSink = GPSTrackingService.shared.$autoStartedPayload
+            .compactMap { $0 }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                Task { await self?.silentRefresh() }
+            }
     }
+
+    private var autoStartSink: AnyCancellable?
 
     // MARK: - Public API
 

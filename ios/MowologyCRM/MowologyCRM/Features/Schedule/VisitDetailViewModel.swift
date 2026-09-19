@@ -41,6 +41,7 @@ final class VisitDetailViewModel: ObservableObject {
     private let haptic           = UINotificationFeedbackGenerator()
     private var tickTimer:        AnyCancellable?
     private var autoStartSink:    AnyCancellable?
+    private var proximitySink:    AnyCancellable?
 
     private var gps: GPSTrackingService { GPSTrackingService.shared }
 
@@ -65,6 +66,28 @@ final class VisitDetailViewModel: ObservableObject {
                 guard let self else { return }
                 Task { await self.drainPendingTransitions() }
             }
+
+        // Proximity auto-start: the server already started the timer, so mirror it
+        // here instead of leaving a stale "Start Job" button on screen.
+        // Subscribing only — no @Published write happens during init (see above).
+        proximitySink = GPSTrackingService.shared.$autoStartedPayload
+            .compactMap { $0 }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] payload in self?.applyAutoStart(payload) }
+    }
+
+    private func applyAutoStart(_ payload: AutoStartedPayload) {
+        guard stop.visits.contains(where: { $0.visitId == payload.visitId }),
+              activeTimerVisitId != payload.visitId else { return }
+        haptic.notificationOccurred(.success)
+        visitStatuses[payload.visitId] = "in_progress"
+        activeTimerVisitId = payload.visitId
+        elapsedSeconds     = 0
+        startTicking()
+        isClockedIn        = true
+        autoClockInNotice  = payload.clockInCreated == true
+            ? "You arrived — clocked in and job started automatically."
+            : "You arrived — job started automatically."
     }
 
     // MARK: - Clock Status

@@ -8,6 +8,8 @@
 
 import Foundation
 import Combine
+import CoreLocation
+import UserNotifications
 
 // MARK: - Response models
 
@@ -126,6 +128,47 @@ final class GPSTrackingService: ObservableObject {
         }
     }
 
+    // MARK: - Proximity auto-start
+
+    /// The server started this visit's timer because a ping landed on the job
+    /// site. Bring local state in line: stamp pings with the visit, begin the
+    /// accountability metrics, and tell the crew — their phone is usually in a
+    /// pocket, so without an alert nobody knows a timer is running.
+    private func handleAutoStart(_ payload: AutoStartedPayload) {
+        let today = Self.isoDay.string(from: Date())
+        if let stop = ScheduleCache.shared.load(forDate: today)?
+            .first(where: { $0.visits.contains { $0.visitId == payload.visitId } }),
+           let lat = stop.latitude, let lng = stop.longitude {
+            ArrivalMonitor.shared.configure(site: CLLocationCoordinate2D(latitude: lat, longitude: lng))
+        }
+        setActiveVisit(payload.visitId)
+        if let fix = locationManager.lastLocation { ArrivalMonitor.shared.observe(fix: fix) }
+        ArrivalMonitor.shared.jobStarted()
+
+        let content = UNMutableNotificationContent()
+        content.title = "Job started automatically"
+        let place = payload.propertyAddress ?? payload.jobTitle ?? "the job site"
+        content.body  = payload.clockInCreated == true
+            ? "You arrived at \(place). You've been clocked in and the job timer is running."
+            : "You arrived at \(place). The job timer is running."
+        content.sound    = .default
+        content.userInfo = ["type": "visit_auto_started", "visit_id": payload.visitId]
+
+        let request = UNNotificationRequest(
+            identifier: "mw.auto-start.\(payload.visitId)",
+            content:    content,
+            trigger:    nil
+        )
+        UNUserNotificationCenter.current().add(request)
+    }
+
+    private static let isoDay: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.locale     = Locale(identifier: "en_US_POSIX")
+        return f
+    }()
+
     // MARK: - Single ping (used by BGTask handler)
 
     func sendPing() async {
@@ -156,6 +199,7 @@ final class GPSTrackingService: ObservableObject {
                 .scheduleLocation, body: body
             )
             if let payload = response.autoStarted {
+                handleAutoStart(payload)
                 autoStartedPayload = payload
                 // Reset after a tick so observers see the change even if same visitId fires twice.
                 Task {
