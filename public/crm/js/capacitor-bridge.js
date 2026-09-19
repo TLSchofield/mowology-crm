@@ -262,7 +262,25 @@
              *
              * position shape: { lat, lng, accuracy, speed, heading, altitude, timestamp }
              */
+            /**
+             * Entry point used by every page. On a v2 APK the NATIVE engine owns capture and
+             * upload, so the page adds no GPS watcher at all — it just makes sure the engine
+             * has a fresh token and is running. Older APKs fall through to the legacy
+             * JS-driven watcher.
+             */
             startBackgroundTracking: function(callback, options) {
+                var self = this;
+                window.MwNative.engine.detect().then(function(version) {
+                    if (version >= 2) {
+                        self._removeAllWatchers();          // anything a pre-update page left running
+                        window.MwNative.engine.start();
+                    } else {
+                        self._legacyStart(callback, options);
+                    }
+                });
+            },
+
+            _legacyStart: function(callback, options) {
                 options = options || {};
 
                 if (!BackgroundGeolocation) {
@@ -443,6 +461,129 @@
         },
 
         // ── MwTracking (custom plugin) ──────────────────────
+        /**
+         * Native tracking engine (APK 1.3.0+, MwTrackingService v2).
+         *
+         * The page's only jobs: get the native layer a token (it cannot read the httponly
+         * session cookie), show the location disclosure before any permission prompt, and ask
+         * for permissions in the order Android requires. Everything else — capture, queueing,
+         * upload, geofences, obeying the server's stop — runs natively with no page loaded.
+         */
+        engine: {
+            version: 0,
+            _detecting: null,
+            _starting: false,
+
+            detect: function() {
+                var self = this;
+                if (this._detecting) return this._detecting;
+                this._detecting = (MwTracking && typeof MwTracking.engineInfo === 'function')
+                    ? MwTracking.engineInfo().then(function(i) {
+                          self.version = (i && i.engineVersion) || 1;
+                          return self.version;
+                      }).catch(function() { self.version = 1; return 1; })
+                    : Promise.resolve(MwTracking ? 1 : 0);
+                return this._detecting;
+            },
+
+            _token: function() {
+                return fetch('/api/team/tracking-token', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
+                    body: '{}'
+                }).then(function(r) { return r.ok ? r.json() : null; });
+            },
+
+            _api: function(token, method, query, body) {
+                return fetch('/api/schedule/tracking' + (query || ''), {
+                    method: method,
+                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                    body: body ? JSON.stringify(body) : undefined
+                }).then(function(r) { return r.ok ? r.json() : null; });
+            },
+
+            /** Resolves true when it is OK to ask for permissions and start. */
+            _ensureDisclosed: function(token) {
+                var self = this;
+                return this._api(token, 'GET', '?mode=consent').then(function(data) {
+                    if (!data || !data.disclosure || !data.consent || data.consent.current) return true;
+                    return self._showDisclosure(data.disclosure, !!data.consent.required).then(function(agreed) {
+                        // null = this page can't show the disclosure; try again on the next one.
+                        // The disclosure ALWAYS precedes the OS permission prompts.
+                        if (agreed === null) return false;
+                        if (!agreed) return false;
+                        return self._api(token, 'POST', '', {
+                            action: 'consent', version: data.disclosure.version,
+                            device: { platform: 'android' }
+                        }).then(function() { return true; });
+                    });
+                }).catch(function() { return true; });   // never block a shift on this fetch
+            },
+
+            /**
+             * Built from the shared .mw-modal component (mowology-brand.css). On the few
+             * standalone pages that don't load the brand stylesheet, wait for one that does
+             * rather than show an unstyled wall of text — resolves null = "ask later".
+             */
+            _showDisclosure: function(d, required) {
+                return new Promise(function(resolve) {
+                    var probe = document.createElement('div');
+                    probe.className = 'mw-modal-overlay';
+                    document.body.appendChild(probe);
+                    var styled = getComputedStyle(probe).position === 'fixed';
+                    document.body.removeChild(probe);
+                    if (!styled) { resolve(null); return; }
+
+                    var esc = function(t) { var e = document.createElement('div'); e.textContent = t == null ? '' : String(t); return e.innerHTML; };
+                    var overlay = document.createElement('div');
+                    overlay.className = 'mw-modal-overlay show';
+                    overlay.innerHTML =
+                        '<div class="mw-modal mw-track-consent" role="dialog" aria-modal="true">' +
+                          '<div class="mw-modal-header"><h3 class="mw-modal-title">' + esc(d.title) + '</h3></div>' +
+                          '<div class="mw-track-consent-body">' +
+                            '<p class="mw-track-consent-summary">' + esc(d.summary) + '</p>' +
+                            (d.sections || []).map(function(sec) {
+                                return '<h4 class="mw-track-consent-heading">' + esc(sec.heading) + '</h4><p>' + esc(sec.body) + '</p>';
+                            }).join('') +
+                          '</div>' +
+                          '<div class="mw-track-consent-actions">' +
+                            '<button type="button" class="btn btn-primary btn-block" data-act="agree">' + esc(d.agree_label || 'I agree') + '</button>' +
+                            '<button type="button" class="btn btn-link btn-block" data-act="later">' + (required ? 'Not now — tracking stays off' : 'Not now') + '</button>' +
+                          '</div>' +
+                        '</div>';
+                    overlay.addEventListener('click', function(ev) {
+                        var act = ev.target && ev.target.getAttribute && ev.target.getAttribute('data-act');
+                        if (!act) return;
+                        document.body.removeChild(overlay);
+                        resolve(act === 'agree');
+                    });
+                    document.body.appendChild(overlay);
+                });
+            },
+
+            start: function() {
+                var self = this;
+                if (this._starting) return;
+                this._starting = true;
+                this._token().then(function(t) {
+                    if (!t || !t.success || !t.token) return null;      // not logged in / tracking off for this user
+                    return self._ensureDisclosed(t.token).then(function(ok) {
+                        if (!ok) return null;
+                        return MwTracking.requestTrackingPermissions().then(function(perms) {
+                            if (!perms || !perms.location) {
+                                console.warn('[MwNative] location permission refused — native tracking not started');
+                                return null;
+                            }
+                            return MwTracking.startSession({ token: t.token, userId: t.user_id });
+                        });
+                    });
+                }).catch(function(e) {
+                    console.warn('[MwNative] engine start failed:', e);
+                }).then(function() { self._starting = false; });
+            }
+        },
+
         tracking: {
             /**
              * Start a tracking session. Call when user clocks in.
@@ -721,6 +862,15 @@
 
     // Listen for activity changes and adjust the BG plugin's distance filter
     if (MwTracking && MwTracking.addListener) {
+        // v2 engine → page. The engine acts on its own; these only keep the UI honest.
+        MwTracking.addListener('trackingStopped', function(data) {
+            console.log('[MwNative] Server ended tracking:', data && data.reason);
+            document.dispatchEvent(new CustomEvent('mw-tracking-stopped', { detail: data || {} }));
+        });
+        MwTracking.addListener('autoStarted', function(data) {
+            document.dispatchEvent(new CustomEvent('mw-auto-started', { detail: data || {} }));
+        });
+
         MwTracking.addListener('activityChanged', function(data) {
             window.MwNative._currentActivity = data.activity;
             console.log('[MwNative] Activity changed:', data.activity);

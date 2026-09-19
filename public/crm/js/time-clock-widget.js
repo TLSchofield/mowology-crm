@@ -502,7 +502,14 @@
         return (Date.now() - (latestPosition.fixAt || 0)) > maxAge;
     }
 
+    // APK 1.3.0+ : the native engine captures and uploads on its own, screen off or app
+    // closed. If the page uploaded too, every fix would arrive twice (and ours lacks a fix time).
+    function nativeEngineOwnsUploads() {
+        return !!(window.MwNative && window.MwNative.engine && window.MwNative.engine.version >= 2);
+    }
+
     function sendPosition() {
+        if (nativeEngineOwnsUploads()) return;
         if (latestPosition && fixIsStale()) {
             console.warn('[MwTracking] Last fix is stale — discarding instead of re-sending');
             latestPosition = null;
@@ -693,6 +700,16 @@
             /* still offline — queue untouched */
         }).then(function() { _flushing = false; });
     }
+
+    // ── Native engine events ──
+    // The server ended the shift (auto clock-out, office edit) and the engine stopped itself.
+    document.addEventListener('mw-tracking-stopped', function() {
+        stopTracking();
+        fetchStatus();
+    });
+    document.addEventListener('mw-auto-started', function(ev) {
+        if (ev && ev.detail && ev.detail.visit_id) handleServerAutoStart(ev.detail);
+    });
 
     // ── Actions ──
 

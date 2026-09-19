@@ -37222,3 +37222,43 @@ span.mw-icon-box--missing {
         flex-direction: column;
     }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Location Tracking Disclosure (capacitor-bridge.js → MwNative.engine)
+   Shown before the first tracked shift, and again when the disclosure
+   version changes. Built on the shared .mw-modal component.
+   ═══════════════════════════════════════════════════════════════════════ */
+.mw-modal.mw-track-consent {
+  display: flex;
+  flex-direction: column;
+  max-height: 88vh;
+  padding: 0;
+  overflow: hidden;
+}
+.mw-track-consent .mw-modal-header { padding: 18px 20px 12px; }
+.mw-track-consent-body {
+  padding: 0 20px 8px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+.mw-track-consent-summary {
+  font-size: 1.02rem;
+  font-weight: 600;
+  color: var(--mw-forest);
+}
+.mw-track-consent-heading {
+  margin: 16px 0 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--mw-green);
+}
+.mw-track-consent-actions {
+  padding: 12px 20px 16px;
+  border-top: 1px solid var(--mw-light);
+  background: var(--mw-light);
+}
+.mw-track-consent-actions .btn-primary { padding: 12px; font-weight: 600; }
