@@ -151,7 +151,8 @@ class SaltReportPdfGenerator
                 pr.latitude AS property_lat, pr.longitude AS property_lng,
                 c.first_name AS contact_first, c.last_name AS contact_last,
                 c.email AS contact_email, c.phone AS contact_phone,
-                u.full_name AS crew_name
+                -- CLIENT-FACING DOCUMENT: crew reference, never the employee's name.
+                CONCAT('Crew #', LPAD(u.id, 3, '0')) AS crew_name
             FROM job_visits v
             JOIN job_plans p ON v.plan_id = p.id
             LEFT JOIN properties pr ON p.property_id = pr.id
@@ -198,7 +199,10 @@ class SaltReportPdfGenerator
 
         // Audit log (last 20 actions)
         $stmt = $this->db->prepare("
-            SELECT val.action, val.payload_json, val.created_at, u.full_name AS actor
+            SELECT val.action, val.payload_json, val.created_at,
+                   CASE WHEN u.id IS NULL THEN 'System'
+                        WHEN u.role IN ('admin', 'manager') THEN 'Office'
+                        ELSE CONCAT('Crew #', LPAD(u.id, 3, '0')) END AS actor
             FROM visit_audit_log val
             LEFT JOIN users u ON u.id = val.user_id
             WHERE val.visit_id = ?
@@ -511,7 +515,7 @@ body { font-family: helvetica, arial, sans-serif; font-size: 11px; color: #1a1a1
         </div>
         <div class="cover-cell">
             <div class="cover-cell-label">Crew</div>
-            <div class="cover-cell-value"><?= htmlspecialchars($v['crew_name'] ?? 'Mowology Crew') ?></div>
+            <div class="cover-cell-value"><?= htmlspecialchars($v['crew_name'] ?? 'Field crew') ?></div>
         </div>
         <div class="cover-cell">
             <div class="cover-cell-label">Report No.</div>

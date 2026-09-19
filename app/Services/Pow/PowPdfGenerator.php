@@ -139,7 +139,10 @@ class PowPdfGenerator
                 c.first_name AS contact_first, c.last_name AS contact_last,
                 c.email AS contact_email, c.phone AS contact_phone,
                 c.mobile AS contact_mobile,
-                u.full_name AS crew_name, u.phone AS crew_phone
+                -- CLIENT-FACING DOCUMENT: never the employee's name or phone. A stable crew
+                -- reference keeps the record evidential (the office can resolve it) without
+                -- telling the client who was on site. See TrackingConsentService::disclosure().
+                CONCAT('Crew #', LPAD(u.id, 3, '0')) AS crew_name
             FROM job_visits v
             JOIN job_plans p ON v.plan_id = p.id
             LEFT JOIN properties pr ON p.property_id = pr.id
