@@ -76,6 +76,9 @@
 		887E8393F19A468781219085 /* RecommendationSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8BB2AC6F5B2A933301F642A /* RecommendationSection.swift */; };
 		0735E0A38395A0BDDD4501B2 /* QueueStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = E686E5FBF255B02B961213E6 /* QueueStorage.swift */; };
 		E50505A619F9BC89F722D04E /* NotificationRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBA085298C1A8B11A8748C20 /* NotificationRouter.swift */; };
+		3604A33BDCA52F6FBE1215A9 /* TimesheetModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34BA9211C886FCC4A5580126 /* TimesheetModels.swift */; };
+		4F8EB1247097EC1AF4D77B19 /* TimesheetViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D83747FCEEFBA2F4983E98A0 /* TimesheetViewModel.swift */; };
+		46CB72F724993CDA857DAD14 /* TimesheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2401679A963EF3F929C6924 /* TimesheetView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -150,6 +153,9 @@
 		A8BB2AC6F5B2A933301F642A /* RecommendationSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecommendationSection.swift; sourceTree = "<group>"; };
 		E686E5FBF255B02B961213E6 /* QueueStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueStorage.swift; sourceTree = "<group>"; };
 		BBA085298C1A8B11A8748C20 /* NotificationRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationRouter.swift; sourceTree = "<group>"; };
+		34BA9211C886FCC4A5580126 /* TimesheetModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimesheetModels.swift; sourceTree = "<group>"; };
+		D83747FCEEFBA2F4983E98A0 /* TimesheetViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimesheetViewModel.swift; sourceTree = "<group>"; };
+		C2401679A963EF3F929C6924 /* TimesheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimesheetView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -263,6 +269,8 @@
 			children = (
 				3E6B8B9FAA059A2B8E0D18BB /* TimeClockView.swift */,
 				2AD39E1B3611B5D04E228868 /* TimeClockViewModel.swift */,
+				C2401679A963EF3F929C6924 /* TimesheetView.swift */,
+				D83747FCEEFBA2F4983E98A0 /* TimesheetViewModel.swift */,
 			);
 			path = TimeClock;
 			sourceTree = "<group>";
@@ -324,6 +332,7 @@
 				816872EBC5C2A53815D7E212 /* ScheduleDay.swift */,
 				84917CCF5BF871EC2B745DC4 /* Stop.swift */,
 				AD88E66FE7C3D2F54EEB6953 /* TimeClockModels.swift */,
+				34BA9211C886FCC4A5580126 /* TimesheetModels.swift */,
 				C9C49661C41333A49EE1D301 /* User.swift */,
 				46E2EA872345FA9825A6DF2E /* Visit.swift */,
 				E50EB154921E020A70E7BA46 /* RecommendationOption.swift */,
@@ -342,7 +351,7 @@
 			children = (
 				C8040C6DF2C66988040204FE /* Assets.xcassets */,
 				9DD091BEACD0F5E731BE8B0E /* Info.plist */,
-);
+			);
 			path = Resources;
 			sourceTree = "<group>";
 		};
@@ -500,6 +509,9 @@
 				887E8393F19A468781219085 /* RecommendationSection.swift in Sources */,
 				0735E0A38395A0BDDD4501B2 /* QueueStorage.swift in Sources */,
 				E50505A619F9BC89F722D04E /* NotificationRouter.swift in Sources */,
+				3604A33BDCA52F6FBE1215A9 /* TimesheetModels.swift in Sources */,
+				4F8EB1247097EC1AF4D77B19 /* TimesheetViewModel.swift in Sources */,
+				46CB72F724993CDA857DAD14 /* TimesheetView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

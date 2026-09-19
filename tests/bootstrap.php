@@ -62,6 +62,7 @@ require_once __DIR__ . '/../app/Modules/Quiz/Services/VariantQuestionService.php
 
 // Team
 require_once __DIR__ . '/../app/Modules/Team/Services/GeofenceService.php';
+require_once __DIR__ . '/../app/Modules/Team/Services/TimesheetService.php';
 
 // Tracking (Trackimo truck GPS)
 require_once __DIR__ . '/../app/Modules/Tracking/Services/TrackimoService.php';

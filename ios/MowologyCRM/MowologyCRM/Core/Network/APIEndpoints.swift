@@ -39,6 +39,10 @@ enum APIEndpoint {
     /// GET /api/schedule/clock?action=status — current clock-in state.
     case scheduleClockStatus
 
+    /// GET /api/schedule/clock?mode=week&start=YYYY-MM-DD — caller's own timesheet week.
+    /// Uses `mode`, not `action`: the /api/ rewrite owns the `action` query param.
+    case scheduleTimesheetWeek(start: String)
+
     /// POST /api/schedule/visit-flag — toggle crew endorsement heart on a visit.
     case visitFlag
 
@@ -148,6 +152,14 @@ enum APIEndpoint {
             components?.queryItems = [URLQueryItem(name: "action", value: "status")]
             return components?.url
 
+        case .scheduleTimesheetWeek(let start):
+            var components = URLComponents(string: "\(baseURLString)/schedule/clock")
+            components?.queryItems = [
+                URLQueryItem(name: "mode",  value: "week"),
+                URLQueryItem(name: "start", value: start)
+            ]
+            return components?.url
+
         case .visitFlag:
             return URL(string: "\(baseURLString)/schedule/visit-flag")
 
@@ -252,6 +264,7 @@ enum APIEndpoint {
              .scheduleCrewTrails,
              .scheduleClock,
              .scheduleClockStatus,
+             .scheduleTimesheetWeek,
              .visitFlag,
              .recommendationOptions,
              .recommendationCreate,
@@ -286,7 +299,8 @@ enum APIEndpoint {
         case .scheduleDay,
              .scheduleWeek,
              .scheduleCrewTrails,
-             .scheduleClockStatus: return "GET"
+             .scheduleClockStatus,
+             .scheduleTimesheetWeek: return "GET"
 
         case .scheduleTimer,
              .scheduleLocation,

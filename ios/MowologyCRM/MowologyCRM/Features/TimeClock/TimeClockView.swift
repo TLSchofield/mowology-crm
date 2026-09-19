@@ -37,6 +37,24 @@ struct TimeClockView: View {
                             .padding(.horizontal, 16)
                     }
 
+                    NavigationLink {
+                        TimesheetView(authSession: authSession)
+                    } label: {
+                        HStack {
+                            Label("My Timesheet", systemImage: "calendar.badge.clock")
+                                .font(.subheadline.weight(.semibold))
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                        .padding(16)
+                        .background(Color(.systemBackground))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                    .tint(.primary)
+                    .padding(.horizontal, 16)
+
                     Spacer(minLength: 32)
                 }
                 .padding(.top, 24)

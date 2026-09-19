@@ -7,7 +7,8 @@ declare(strict_types=1);
  * Mobile Time Clock API — Clock In / Clock Out / Status
  * Authorization: Bearer <jwt>
  *
- * GET  ?action=status
+ * GET  ?mode=status
+ * GET  ?mode=week&start=YYYY-MM-DD   — caller's own timesheet for that week
  * POST {action: 'clock_in',  lat?, lng?}
  * POST {action: 'clock_out', lat?, lng?, notes?}
  */
@@ -37,7 +38,9 @@ try {
     $userId  = (int)$jwtUser['id'];
 
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {
-        $action = trim($_GET['action'] ?? '');
+        // Prefer ?mode= — under /api/ the .htaccess QSA rewrite owns the `action`
+        // query param (it carries the route), so a caller's ?action= collides with it.
+        $action = trim($_GET['mode'] ?? $_GET['action'] ?? '');
     } else {
         $input  = json_decode(file_get_contents('php://input'), true) ?? [];
         $action = trim($input['action'] ?? '');
@@ -46,6 +49,14 @@ try {
     $db = getDB();
 
     switch ($action) {
+
+        case 'week':
+            // The caller's own timesheet for the week containing ?start= (default: this week).
+            require_once APP_ROOT . '/Modules/Team/Services/TimesheetService.php';
+            echo json_encode(
+                ['success' => true] + TimesheetService::forUser($userId, (string)($_GET['start'] ?? ''))
+            );
+            break;
 
         case 'status':
             // Clear any stale entry from a prior day before reporting status.
