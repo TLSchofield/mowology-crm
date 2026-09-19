@@ -49,72 +49,78 @@ try {
         exit;
     }
 
-    $input    = json_decode(file_get_contents('php://input'), true) ?? [];
-    $lat      = isset($input['lat'])      ? (float)$input['lat']      : null;
-    $lng      = isset($input['lng'])      ? (float)$input['lng']      : null;
-    $accuracy = isset($input['accuracy']) ? (float)$input['accuracy'] : 50.0;
-    $visitId  = isset($input['visit_id']) ? (int)$input['visit_id']   : null;
+    require_once APP_ROOT . '/Modules/Team/Services/TrackingIngestService.php';
 
-    if ($lat === null || $lng === null) {
+    $input  = json_decode(file_get_contents('php://input'), true) ?? [];
+    $nowTs  = time();
+    $db     = getDB();
+    $ingest = new TrackingIngestService($db);
+
+    $points = TrackingIngestService::normalizePoints($input, $nowTs);
+    if (!$points) {
         http_response_code(400);
         echo json_encode(['success' => false, 'message' => 'lat and lng are required']);
         exit;
     }
 
-    if ($lat < -90 || $lat > 90 || $lng < -180 || $lng > 180) {
-        http_response_code(400);
-        echo json_encode(['success' => false, 'message' => 'Coordinates out of range']);
-        exit;
-    }
+    // The work-hours boundary is enforced HERE, not trusted to the client. A user who
+    // is inactive, opted out, without consent, or off the clock has nothing stored —
+    // and is told so, which is how a server-side clock-out reaches the phone.
+    $flags      = $ingest->userFlags($userId);
+    $consentOk  = $ingest->consentOk($userId);
+    $clockedIn  = (bool)getActiveClockEntry($userId);
+    $mayCollect = $flags['active'] && $flags['tracking'] && $consentOk;
 
-    $db = getDB();
-
-    // Rate limit: reject if last entry < 10 seconds ago
-    $rateStmt = $db->prepare("
-        SELECT (UNIX_TIMESTAMP() - UNIX_TIMESTAMP(timestamp)) AS seconds_ago
-        FROM crew_location_history
-        WHERE crew_id = ?
-        ORDER BY timestamp DESC
-        LIMIT 1
-    ");
-    $rateStmt->execute([$userId]);
-    $lastRow = $rateStmt->fetch(PDO::FETCH_ASSOC);
-    if ($lastRow && (int)$lastRow['seconds_ago'] < 10) {
-        echo json_encode(['success' => true, 'skipped' => true, 'reason' => 'rate_limited']);
-        exit;
-    }
-
-    // Office classification: a home-geofence heartbeat with no active job (no
-    // visit_id) is kept but flagged is_office=1 so route tracing can exclude it.
-    // A ping with a visit_id is an active job → always route.
-    $isOffice = 0;
-    if ($visitId === null) {
+    $result = ['accepted' => [], 'rejected' => [], 'stored' => 0, 'newest' => null, 'last_id' => 0];
+    if ($mayCollect) {
+        // Not gated on $clockedIn: a queue replayed after clock-out is still judged
+        // point-by-point against the shifts it was recorded in.
         $geofence = new GeofenceService($db);
-        $isOffice = $geofence->isOfficePing($userId, $lat, $lng) ? 1 : 0;
+        $result   = $ingest->ingest(
+            $userId, $points, $nowTs,
+            static fn (int $visitId): bool => userIsCrewOnVisit($visitId, $userId),
+            static fn (float $lat, float $lng): bool => $geofence->isOfficePing($userId, $lat, $lng)
+        );
+    } else {
+        foreach ($points as $p) {
+            $result['rejected'][] = ['id' => $p['id'], 'reason' => 'tracking_not_allowed', 'retryable' => false];
+        }
     }
 
-    // Store the ping
-    $stmt = $db->prepare("
-        INSERT INTO crew_location_history (crew_id, latitude, longitude, accuracy_meters, visit_id, is_office, timestamp)
-        VALUES (?, ?, ?, ?, ?, ?, NOW())
-    ");
-    $stmt->execute([$userId, $lat, $lng, (int)round($accuracy), $visitId ?: null, $isOffice]);
-    $insertId = (int)$db->lastInsertId();
-
-    // Proximity auto-start — uses existing CRM logic, session-free via $preloadedVisits.
-    // Only runs when there is no active job timer (guard is inside the function).
-    // We load today's visits fresh (no session cache) — acceptable at 30s mobile ping rate.
+    // Proximity auto-start — only from a FRESH fix. A replayed queue describes where
+    // the crew was hours ago; acting on it started jobs they had already left.
     $autoStartResult = null;
-    $activeTimer = getActiveJobTimer($userId);
-    if (!$activeTimer) {
-        $todayVisits    = getAllJobsForDate(date('Y-m-d'));
-        $autoStartResult = checkProximityAutoStart($userId, $lat, $lng, $accuracy, $todayVisits);
+    $activeTimer     = $mayCollect ? getActiveJobTimer($userId) : null;
+    $newest          = $result['newest'];
+    if ($mayCollect && $clockedIn && !$activeTimer && $newest
+        && ($nowTs - $newest['ts']) <= TrackingIngestService::FRESH_SECONDS) {
+        $autoStartResult = checkProximityAutoStart(
+            $userId, $newest['lat'], $newest['lng'], (float)($newest['acc'] ?? 50.0),
+            getAllJobsForDate(date('Y-m-d'))
+        );
+        if ($autoStartResult) {
+            $activeTimer = ['visit_id' => $autoStartResult['visit_id']];
+        }
+    }
+
+    if (isset($input['device']) && is_array($input['device'])) {
+        $ingest->recordHealth($userId, $input['device'], $newest['ts'] ?? null);
     }
 
     echo json_encode([
         'success'      => true,
-        'id'           => $insertId,
+        'id'           => $result['last_id'],
+        // Legacy single-ping clients read `skipped`; they must NOT treat it as delivered-and-done
+        // when nothing was stored for a reason other than being a duplicate.
+        'skipped'      => $result['stored'] === 0,
+        'stored'       => $result['stored'],
+        'accepted'     => $result['accepted'],
+        'rejected'     => $result['rejected'],
         'auto_started' => $autoStartResult,
+        'policy'       => TrackingIngestService::policy(
+            $flags['active'], $flags['tracking'], $consentOk, $clockedIn,
+            $activeTimer ? (int)$activeTimer['visit_id'] : null
+        ),
     ]);
 
 } catch (Throwable $e) {
