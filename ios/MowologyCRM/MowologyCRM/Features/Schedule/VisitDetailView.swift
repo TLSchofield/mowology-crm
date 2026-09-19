@@ -378,6 +378,28 @@ struct VisitDetailView: View {
             Divider()
             actionButtons(for: visit, currentStatus: currentStatus)
 
+            // MARK: Work Record — checklist, materials used, notes
+            // Open on completed visits too: materials and notes are often written
+            // up in the truck after the timer is stopped.
+            if ["scheduled", "in_progress", "completed"].contains(currentStatus.lowercased()) {
+                Divider()
+                NavigationLink {
+                    VisitWorkView(visitId: visit.visitId, authSession: authSession)
+                } label: {
+                    HStack {
+                        Label("Checklist, materials & notes", systemImage: "checklist")
+                            .font(.subheadline.weight(.semibold))
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .padding(.vertical, 4)
+                    .contentShape(Rectangle())
+                }
+                .tint(.primary)
+            }
+
             // MARK: Crew Service Recommendations
             // Photograph work that needs doing and offer the client a quote for it.
             //

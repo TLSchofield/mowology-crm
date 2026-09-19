@@ -79,6 +79,9 @@
 		3604A33BDCA52F6FBE1215A9 /* TimesheetModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34BA9211C886FCC4A5580126 /* TimesheetModels.swift */; };
 		4F8EB1247097EC1AF4D77B19 /* TimesheetViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D83747FCEEFBA2F4983E98A0 /* TimesheetViewModel.swift */; };
 		46CB72F724993CDA857DAD14 /* TimesheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2401679A963EF3F929C6924 /* TimesheetView.swift */; };
+		0C35257F940B9B1F8E2713F8 /* VisitWorkModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB6AF667E337C1F96A05D1C8 /* VisitWorkModels.swift */; };
+		BFF6D6BAB1CC99A82D505E4E /* VisitWorkViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB2823D3497805DBBA0F6047 /* VisitWorkViewModel.swift */; };
+		FAB0F6DE2A26404C98014B36 /* VisitWorkView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C133E57A28A6AF23D6B4CAF /* VisitWorkView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -156,6 +159,9 @@
 		34BA9211C886FCC4A5580126 /* TimesheetModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimesheetModels.swift; sourceTree = "<group>"; };
 		D83747FCEEFBA2F4983E98A0 /* TimesheetViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimesheetViewModel.swift; sourceTree = "<group>"; };
 		C2401679A963EF3F929C6924 /* TimesheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimesheetView.swift; sourceTree = "<group>"; };
+		DB6AF667E337C1F96A05D1C8 /* VisitWorkModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitWorkModels.swift; sourceTree = "<group>"; };
+		AB2823D3497805DBBA0F6047 /* VisitWorkViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitWorkViewModel.swift; sourceTree = "<group>"; };
+		6C133E57A28A6AF23D6B4CAF /* VisitWorkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitWorkView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -300,6 +306,8 @@
 				A16DCCA87E60FAD86C6FAE71 /* DayMapView.swift */,
 				B448B82DBF4BE3E971A5357D /* JobPhotoSection.swift */,
 				A8BB2AC6F5B2A933301F642A /* RecommendationSection.swift */,
+				AB2823D3497805DBBA0F6047 /* VisitWorkViewModel.swift */,
+				6C133E57A28A6AF23D6B4CAF /* VisitWorkView.swift */,
 			);
 			path = Schedule;
 			sourceTree = "<group>";
@@ -342,6 +350,7 @@
 				D2304800F25344F166EF4441 /* Expense.swift */,
 				A291EF631E6F72287BAA852F /* ReceiptActionResponse.swift */,
 				FAA32370295931F4177A5345 /* DeviceTokenResponse.swift */,
+				DB6AF667E337C1F96A05D1C8 /* VisitWorkModels.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -512,6 +521,9 @@
 				3604A33BDCA52F6FBE1215A9 /* TimesheetModels.swift in Sources */,
 				4F8EB1247097EC1AF4D77B19 /* TimesheetViewModel.swift in Sources */,
 				46CB72F724993CDA857DAD14 /* TimesheetView.swift in Sources */,
+				0C35257F940B9B1F8E2713F8 /* VisitWorkModels.swift in Sources */,
+				BFF6D6BAB1CC99A82D505E4E /* VisitWorkViewModel.swift in Sources */,
+				FAB0F6DE2A26404C98014B36 /* VisitWorkView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

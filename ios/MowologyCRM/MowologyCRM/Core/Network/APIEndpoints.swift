@@ -43,6 +43,12 @@ enum APIEndpoint {
     /// Uses `mode`, not `action`: the /api/ rewrite owns the `action` query param.
     case scheduleTimesheetWeek(start: String)
 
+    /// GET /api/schedule/visit-work?visit_id= — checklist, materials and notes for a visit.
+    case visitWork(visitId: Int)
+
+    /// POST /api/schedule/visit-work — save_checklist / save_materials / add_note.
+    case visitWorkAction
+
     /// POST /api/schedule/visit-flag — toggle crew endorsement heart on a visit.
     case visitFlag
 
@@ -160,6 +166,14 @@ enum APIEndpoint {
             ]
             return components?.url
 
+        case .visitWork(let visitId):
+            var components = URLComponents(string: "\(baseURLString)/schedule/visit-work")
+            components?.queryItems = [URLQueryItem(name: "visit_id", value: String(visitId))]
+            return components?.url
+
+        case .visitWorkAction:
+            return URL(string: "\(baseURLString)/schedule/visit-work")
+
         case .visitFlag:
             return URL(string: "\(baseURLString)/schedule/visit-flag")
 
@@ -265,6 +279,8 @@ enum APIEndpoint {
              .scheduleClock,
              .scheduleClockStatus,
              .scheduleTimesheetWeek,
+             .visitWork,
+             .visitWorkAction,
              .visitFlag,
              .recommendationOptions,
              .recommendationCreate,
@@ -300,12 +316,14 @@ enum APIEndpoint {
              .scheduleWeek,
              .scheduleCrewTrails,
              .scheduleClockStatus,
-             .scheduleTimesheetWeek: return "GET"
+             .scheduleTimesheetWeek,
+             .visitWork: return "GET"
 
         case .scheduleTimer,
              .scheduleLocation,
              .scheduleClock,
              .visitFlag,
+             .visitWorkAction,
              .powActions,
              .powGpsSync,
              .receiptUpload,
