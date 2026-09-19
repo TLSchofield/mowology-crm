@@ -595,6 +595,11 @@
                     console.warn('[MwNative] MwTracking plugin not available');
                     return Promise.resolve({ started: false });
                 }
+                // v2 APK: a session needs a token, which only the engine adapter can fetch.
+                if (window.MwNative.engine.version >= 2) {
+                    window.MwNative.engine.start();
+                    return Promise.resolve({ started: true, engineVersion: 2 });
+                }
                 return MwTracking.startSession({
                     userId: userId,
                     sessionId: sessionId || String(Date.now())

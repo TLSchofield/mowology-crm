@@ -14,8 +14,10 @@ require_once 'includes/weather-service.php';
 requireLogin();
 $user = getCurrentUser();
 
-// Only designated drivers can see the driver portal — admins use the main CRM
-if (empty($user['is_driver'])) {
+// The portal is for whoever is driving this shift, plus anyone flagged as a regular driver
+// (who lands here at login, before they have clocked in and been asked).
+require_once APP_ROOT . '/Modules/Driver/Services/TripReportService.php';
+if (empty($user['is_driver']) && (new TripReportService(getDB()))->shiftState((int)$user['id']) !== 'driving') {
     header('Location: /crm/');
     exit;
 }

@@ -28,11 +28,7 @@ require_once CRM_INCLUDES . '/timeclock-functions.php';
 requireLogin();
 $user = getCurrentUser();
 
-// Only designated drivers need this form
-if (empty($user['is_driver'])) {
-    header('Location: /crm/homebase.php');
-    exit;
-}
+// Whoever opened a trip closes it — decided by the open trip, not by users.is_driver.
 
 // Must be clocked in — no clock-out means no post-trip
 $activeClock = getActiveClockEntry($user['id']);
@@ -420,31 +416,34 @@ session_write_close();
         btn.disabled = true;
         btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg> Saving…';
 
-        var form = document.getElementById('dlPostTripForm');
-        var data = new FormData(form);
+        var form   = document.getElementById('dlPostTripForm');
+        var fields = {};
+        new FormData(form).forEach(function (v, k) { fields[k] = v; });
+        // Second tap after an "is that odometer right?" warning = the driver confirms it.
+        if (window._dlConfirmOdometer) fields.confirm_odometer = '1';
 
-        fetch('/crm/api/trip-report.php', {
-            method: 'POST',
-            credentials: 'same-origin',
-            body: data
-        })
-        .then(function (r) { return r.json(); })
-        .then(function (res) {
-            if (res.success) {
-                if (window.MwHaptics) window.MwHaptics.success();
-                dlToast('Post-trip saved — clocking out…');
-                clockOutWithGeo();
-            } else {
-                dlToast(res.error || 'Save failed — try again', true);
+        // Server first; the phone is the backup when there's no signal (MwTripLog).
+        MwTripLog.submit('save_post_trip', fields, <?php echo (int)$user['id']; ?>).then(function (r) {
+            if (r.status === 'rejected') {
+                if (r.code === 'needs_confirmation') {
+                    window._dlConfirmOdometer = true;
+                    dlToast(r.message + ' Tap Save again if it is correct.', true);
+                } else {
+                    dlToast(r.message || 'Save failed — try again', true);
+                }
                 resetBtn();
+                return;
             }
-        })
-        .catch(function () {
-            dlToast('Network error — check connection', true);
-            resetBtn();
+            if (window.MwHaptics) window.MwHaptics.success();
+            dlToast(r.status === 'filed'
+                ? 'Post-trip filed — clocking out…'
+                : 'No signal — post-trip saved on this phone. It files itself when you\'re back in range.');
+            clockOutWithGeo();
         });
     };
 }());
 </script>
+<script>window.MW_USER_ID = <?php echo (int)$user['id']; ?>;</script>
+<script src="/crm/js/mw-trip-log.js?v=20260919a"></script>
 </body>
 </html>

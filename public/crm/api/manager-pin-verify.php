@@ -41,12 +41,8 @@ try {
 
     session_write_close();
 
-    // Only drivers use this endpoint
-    if (empty($user['is_driver'])) {
-        http_response_code(403);
-        echo json_encode(['error' => 'Not a driver account']);
-        exit;
-    }
+    // Anyone driving this shift may need a manager to waive the pre-trip — not only users
+    // with the permanent is_driver flag. The manager's PIN is the control, not the flag.
 
     $pin    = trim($input['pin'] ?? '');
     $reason = trim($input['bypass_reason'] ?? 'manager_override');

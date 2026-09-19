@@ -785,10 +785,15 @@
                     // Driver pre-trip enforcement: server flags drivers who haven't
                     // filed a pre-trip vehicle inspection for today. Redirect them
                     // to the Driver Portal so they can complete it immediately.
-                    if (data.pre_trip_required) {
+                    // Per shift, not per person: ask "are you driving?" once, then route.
+                    if (window.MwTripLog && window.MW_USER_ID) {
                         setTimeout(function() {
-                            window.location.href = '/crm/driver-portal.php?open=pre';
-                        }, 800);
+                            window.MwTripLog.afterClockIn(data, window.MW_USER_ID).then(function(url) {
+                                if (url) window.location.href = url;
+                            });
+                        }, 600);
+                    } else if (data.pre_trip_required) {
+                        setTimeout(function() { window.location.href = '/crm/driver-log.php'; }, 800);
                     }
                 } else {
                     showToast(data.error || 'Clock in failed', 'error');

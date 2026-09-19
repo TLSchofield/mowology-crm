@@ -69,7 +69,7 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
     <script src="/crm/js/sw-register.js?v=20260410a" defer></script>
     <script src="/crm/js/mw-sync-status.js?v=20260410a" defer></script>
     <script src="/crm/js/mw-haptics.js?v=20260410a" defer></script>
-    <script src="/crm/js/capacitor-bridge.js?v=20260919b" defer></script>
+    <script src="/crm/js/capacitor-bridge.js?v=20260919c" defer></script>
     <style>
         :root {
             /* Brand tokens come from /crm/css/tokens.css loaded above.
@@ -759,9 +759,13 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
                         String(res.entry_id || Date.now())
                     );
                 }
-                // Drivers: pre-trip log form first. Crew: straight to homebase.
-                const dest = IS_DRIVER ? '/crm/driver-log.php' : '/crm/homebase.php';
-                setTimeout(() => { window.location.href = dest; }, 700);
+                // WHO owes a vehicle log is decided per shift: ask once, then route.
+                // (Was: users flagged is_driver → pre-trip; everyone else never asked.)
+                setTimeout(() => {
+                    MwTripLog.afterClockIn(res, <?= (int)$user['id'] ?>).then(url => {
+                        window.location.href = url || '/crm/homebase.php';
+                    });
+                }, 500);
             } else {
                 txt.textContent = 'Clock In & Start';
                 btn.disabled = false;
@@ -824,5 +828,7 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
     init();
 })();
 </script>
+<script>window.MW_USER_ID = <?= (int)$user['id'] ?>;</script>
+<script src="/crm/js/mw-trip-log.js?v=20260919a"></script>
 </body>
 </html>

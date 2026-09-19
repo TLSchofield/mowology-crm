@@ -270,11 +270,12 @@ try {
         }
 
         $isTruck = ($trackRow['device_type'] === 'truck');
-        $isDriver = !empty($user['is_driver']);
 
-        // Truck devices and driver-flagged users can report GPS without being clocked in.
-        // Regular personal devices must be clocked in.
-        if (!$isTruck && !$isDriver) {
+        // A truck TABLET is a company asset bolted into a vehicle and reports whenever it is on.
+        // A PERSON is only ever tracked while clocked in — including someone who drives. The old
+        // users.is_driver exemption tracked a flagged employee's personal phone off the clock,
+        // which the location disclosure ("only between clock-in and clock-out") does not allow.
+        if (!$isTruck) {
             $clockEntry = getActiveClockEntry($user['id']);
             if (!$clockEntry) {
                 throw new Exception('Not clocked in');

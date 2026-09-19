@@ -29,11 +29,8 @@ require_once CRM_INCLUDES . '/timeclock-functions.php';
 requireLogin();
 $user = getCurrentUser();
 
-// Only designated drivers need this form
-if (empty($user['is_driver'])) {
-    header('Location: /crm/homebase.php');
-    exit;
-}
+// Anyone who is driving a company vehicle THIS SHIFT does this inspection — it is no longer
+// limited to users flagged is_driver. Opening this page IS the declaration "I'm driving".
 
 // Must be clocked in
 $activeClock = getActiveClockEntry($user['id']);
@@ -378,6 +375,23 @@ session_write_close();
             <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrf); ?>">
             <input type="hidden" name="action" value="save_pre_trip">
 
+            <?php
+            // Vehicle: chosen from the fleet list (time_clock_settings.fleet_vehicles), never typed.
+            // One vehicle → nothing to pick. It used to be hardcoded to a single truck.
+            require_once APP_ROOT . '/Modules/Driver/Services/TripReportService.php';
+            $dlVehicles = (new TripReportService($db))->vehicles();
+            if (count($dlVehicles) > 1): ?>
+            <div class="dl-card">
+                <label class="dl-label" for="dlVehicle">Which vehicle are you driving?</label>
+                <select class="dl-input" id="dlVehicle" name="vehicle_id" required>
+                    <option value="">Choose…</option>
+                    <?php foreach ($dlVehicles as $dlV): ?>
+                    <option value="<?php echo htmlspecialchars($dlV['id']); ?>"><?php echo htmlspecialchars($dlV['label']); ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <?php endif; ?>
+
             <!-- ── Running Order Checklist ─────────────────────── -->
             <div class="dl-card" id="dlCheckCard">
                 <div class="dl-card-header">
@@ -623,32 +637,42 @@ session_write_close();
         btn.disabled = true;
         btn.innerHTML = feather.icons['loader'].toSvg({width: 18, height: 18}) + ' Saving…';
 
-        var form = document.getElementById('dlPreTripForm');
-        var data = new FormData(form);
+        var form   = document.getElementById('dlPreTripForm');
+        var fields = {};
+        new FormData(form).forEach(function (v, k) { fields[k] = v; });
 
-        fetch('/crm/api/trip-report.php', {
-            method: 'POST',
-            credentials: 'same-origin',
-            body: data
-        })
-        .then(function (r) { return r.json(); })
-        .then(function (res) {
-            if (res.success) {
-                if (window.MwHaptics) window.MwHaptics.success();
-                dlToast('Pre-trip saved — starting your day!');
-                setTimeout(function () { window.location.href = '/crm/homebase.php'; }, 800);
-            } else {
-                dlToast(res.error || 'Save failed — try again', true);
-                btn.disabled = false;
-                btn.innerHTML = feather.icons['check'].toSvg({width: 20, height: 20}) + ' Save & Continue to Home Base';
-                dlValidate();
-            }
-        })
-        .catch(function () {
-            dlToast('Network error — check connection', true);
+        function restore() {
             btn.disabled = false;
             btn.innerHTML = feather.icons['check'].toSvg({width: 20, height: 20}) + ' Save & Continue to Home Base';
             dlValidate();
+        }
+
+        // Same rule the server applies: a recorded critical defect overrides a ticked box.
+        var mayDrive = !!fields.safe_to_drive && !String(fields.defects_critical || '').trim();
+
+        // Server first; the phone is the backup when there's no signal (MwTripLog).
+        MwTripLog.submit('save_pre_trip', fields, <?php echo (int)$user['id']; ?>).then(function (r) {
+            if (r.status === 'rejected') {
+                dlToast(r.message || 'Save failed — try again', true);
+                restore();
+                return;
+            }
+            if (r.status === 'filed' && r.data && r.data.may_drive === false) mayDrive = false;
+
+            if (!mayDrive) {
+                if (window.MwHaptics && window.MwHaptics.error) window.MwHaptics.error();
+                btn.innerHTML = 'Do not drive this vehicle';
+                dlToast(r.status === 'filed'
+                    ? 'DO NOT DRIVE. Your inspection is filed and the office has been notified.'
+                    : 'DO NOT DRIVE. No signal — saved on this phone, but the office has NOT been told yet. Call them.', true);
+                return;                                   // stay here; no "starting your day"
+            }
+
+            if (window.MwHaptics) window.MwHaptics.success();
+            dlToast(r.status === 'filed'
+                ? 'Pre-trip filed — starting your day!'
+                : 'No signal — pre-trip saved on this phone. It files itself when you\'re back in range.');
+            setTimeout(function () { window.location.href = '/crm/homebase.php'; }, r.status === 'filed' ? 800 : 2200);
         });
     };
 
@@ -666,5 +690,7 @@ session_write_close();
     dlValidate();
 }());
 </script>
+<script>window.MW_USER_ID = <?php echo (int)$user['id']; ?>;</script>
+<script src="/crm/js/mw-trip-log.js?v=20260919a"></script>
 </body>
 </html>

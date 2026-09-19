@@ -207,6 +207,26 @@ Reference catalog of shared, reusable JS/CSS UI components under `public/crm/js/
 - **When to reach for it:** A new mutation endpoint that crew may call while offline in the field. Add it to the `QUEUED_ENDPOINTS` list in this file rather than building a separate offline-queueing mechanism.
 - Auto-loaded globally via `appstack_head.php` (deferred), so queued actions from any page can sync on the next page load.
 
+### MwTripLog (vehicle log: per-shift driver question + server-first/backup filing)
+**File:** `/crm/js/mw-trip-log.js` — loaded on every AppStack page (footer) and on the standalone crew pages (`app-launch.php`, `homebase.php`, `driver-log.php`, `driver-log-post.php`). Needs `window.MW_USER_ID`.
+
+The commercial vehicle trip log is a legal requirement of **whoever drives that shift** — not of users flagged `is_driver`. Use this, never a new fetch to `trip-report.php`:
+
+```js
+// After a successful clock-in — asks "Are you driving a company vehicle this shift?" once if needed
+MwTripLog.afterClockIn(clockInResponse, MW_USER_ID).then(url => { if (url) location.href = url; });
+
+// File an entry. SERVER FIRST; the phone is only the BACKUP when it can't be reached.
+MwTripLog.submit('save_pre_trip' | 'save_post_trip' | 'declare', fields, MW_USER_ID).then(r => {
+  // r.status: 'filed' (server has it) | 'queued' (no signal — saved on this phone, files itself
+  //           later under the time it was DONE) | 'rejected' (r.message, r.code — fix on the form)
+});
+```
+- Do **not** make this queue-first: the driver must see a real "filed", and server objections (e.g. `code: 'needs_confirmation'` for an odd odometer) must surface while they are still on the form.
+- Queue is per-user, ordered, survives sign-out, flushes on load / `online` / tab visible. A server refusal of a queued entry is kept and surfaced via the `mw-trip-log-changed` event — never dropped.
+- Server rules live in `app/Modules/Driver/Services/TripReportService.php` (shared with the iOS app): `shiftState()` = `driving | not_driving | unasked`, bounded `performed_at`, idempotent replays.
+- Differs on purpose from `OfflineActions`, which is queue-and-forget for clock/timer POSTs.
+
 ### MwPhotoQueue (photo queue)
 - **File:** `public/crm/js/photo-queue.js`
 - **Purpose:** Durable photo storage + upload queue engine — saves image bytes to Capacitor Filesystem (native) or IndexedDB (browser/PWA), tracks upload status in IndexedDB, and runs a retrying background uploader.

@@ -121,7 +121,17 @@ try {
                 'success' => true,
                 'location_tracking_enabled' => $locationTrackingEnabled,
                 'device_type' => $deviceType,
-                'is_driver' => !empty($user['is_driver']),
+                // The widget used `is_driver` to mean "track this person even when NOT clocked in".
+                // Nobody is tracked off the clock now (consent covers work hours only), and who is
+                // driving is a per-shift fact — so this is always false for older cached JS, and
+                // the real answer travels as driving_shift.
+                'is_driver' => false,
+                'driving_shift' => (static function () use ($db, $user) {
+                    try {
+                        require_once APP_ROOT . '/Modules/Driver/Services/TripReportService.php';
+                        return (new TripReportService($db))->shiftState((int)$user['id']);
+                    } catch (Throwable $e) { return 'unasked'; }
+                })(),
                 'gps_interval_standard_ms' => $gpsIntervalStandard,
                 'gps_interval_heightened_ms' => $gpsIntervalHeightened,
                 'auto_arrival_enabled' => getTimeClockSetting('auto_arrival_enabled', '1') === '1',
@@ -183,26 +193,17 @@ try {
             // require pre-trip when there's no "open" trip row for
             // today — meaning either no rows at all, or the latest row
             // is already closed (previous shift's post-trip filed).
-            $preTripRequired = false;
+            // WHO owes a vehicle inspection is decided per SHIFT, not by users.is_driver:
+            //   unasked → the app asks "are you driving this shift?"
+            //   driving with no open trip → pre-trip needed before the vehicle moves
+            $preTripRequired        = false;
+            $driverQuestionRequired = false;
             try {
-                $drvStmt = $db->prepare("SELECT COALESCE(is_driver, 0) AS is_driver FROM users WHERE id = ? LIMIT 1");
-                $drvStmt->execute([$targetUserId]);
-                $isDriver = (int)($drvStmt->fetchColumn() ?: 0);
-                if ($isDriver) {
-                    $tripStmt = $db->prepare("
-                        SELECT COUNT(*) FROM vehicle_trip_reports
-                        WHERE driver_id = ?
-                          AND report_date = ?
-                          AND pre_trip_at IS NOT NULL
-                          AND post_trip_at IS NULL
-                    ");
-                    $tripStmt->execute([$targetUserId, date('Y-m-d')]);
-                    $openTripCount = (int)$tripStmt->fetchColumn();
-                    // No open trip → this is a new shift, pre-trip needed.
-                    if ($openTripCount === 0) {
-                        $preTripRequired = true;
-                    }
-                }
+                require_once APP_ROOT . '/Modules/Driver/Services/TripReportService.php';
+                $tripSvc    = new TripReportService($db);
+                $shiftState = $tripSvc->shiftState((int)$targetUserId);
+                $driverQuestionRequired = ($shiftState === 'unasked');
+                $preTripRequired        = ($shiftState === 'driving' && !$tripSvc->hasOpenTrip((int)$targetUserId));
             } catch (Throwable $e) {
                 error_log('[time-clock] pre-trip gate check failed: ' . $e->getMessage());
             }
@@ -213,6 +214,7 @@ try {
                 'entry_id'           => $entryId,
                 'clock_in'           => date('Y-m-d H:i:s'),
                 'pre_trip_required'  => $preTripRequired,
+                'driver_question_required' => $driverQuestionRequired,
                 'already_clocked_in' => $alreadyClockedIn,
             ]);
             break;
@@ -230,22 +232,11 @@ try {
             // the matching clock-out.
             if (!$override) {
                 try {
-                    $drvStmt = $db->prepare("SELECT COALESCE(is_driver, 0) AS is_driver FROM users WHERE id = ? LIMIT 1");
-                    $drvStmt->execute([$targetUserId]);
-                    $isDriver = (int)($drvStmt->fetchColumn() ?: 0);
-                    if ($isDriver) {
-                        $tripStmt = $db->prepare("
-                            SELECT id
-                            FROM vehicle_trip_reports
-                            WHERE driver_id = ?
-                              AND report_date = ?
-                              AND pre_trip_at IS NOT NULL
-                              AND post_trip_at IS NULL
-                            ORDER BY id DESC
-                            LIMIT 1
-                        ");
-                        $tripStmt->execute([$targetUserId, date('Y-m-d')]);
-                        $tripRow = $tripStmt->fetch(PDO::FETCH_ASSOC);
+                    // Whoever opened a trip closes it — decided by the open trip itself, not
+                    // by users.is_driver (the owner drives some days and is not "a driver").
+                    require_once APP_ROOT . '/Modules/Driver/Services/TripReportService.php';
+                    $tripRow = (new TripReportService($db))->openTrip((int)$targetUserId);
+                    {
                         if ($tripRow) {
                             http_response_code(409);
                             echo json_encode([

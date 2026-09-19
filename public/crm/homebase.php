@@ -173,7 +173,13 @@ try {
 // ── Meta ──────────────────────────────────────────────────────────────────────
 // (CSRF + session_write_close already called at top of file, before DB work.)
 
-$isDriver  = !empty($user['is_driver']);
+// WHO owes a vehicle log is decided per SHIFT — an open trip, or "I'm driving" said today —
+// not by the permanent users.is_driver flag (the owner drives some days; a flagged employee
+// is sometimes a passenger).
+require_once APP_ROOT . '/Modules/Driver/Services/TripReportService.php';
+$tripSvc      = new TripReportService($db);
+$shiftDriving = $tripSvc->shiftState((int)$user['id']);           // driving | not_driving | unasked
+$isDriver     = ($shiftDriving === 'driving');
 
 // ── Post-trip status (drivers only) — gates the clock-out button ──────────────
 // Drivers must fill out the end-of-shift vehicle check before clocking out.
@@ -184,19 +190,7 @@ $isDriver  = !empty($user['is_driver']);
 // They CANNOT clock out while any row is in the open state
 // (pre_trip_at IS NOT NULL AND post_trip_at IS NULL) — that's the
 // current trip's post-trip form blocking the flow.
-$postComplete = true;
-if ($isDriver) {
-    $ptStmt = $db->prepare("
-        SELECT COUNT(*) FROM vehicle_trip_reports
-        WHERE driver_id = ?
-          AND report_date = ?
-          AND pre_trip_at IS NOT NULL
-          AND post_trip_at IS NULL
-    ");
-    $ptStmt->execute([$user['id'], $today]);
-    $openTripCount = (int)$ptStmt->fetchColumn();
-    $postComplete = ($openTripCount === 0);
-}
+$postComplete = !$tripSvc->hasOpenTrip((int)$user['id']);
 
 $userName  = trim(($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? ''));
 if (!$userName) $userName = $user['full_name'] ?? 'Crew';
@@ -224,7 +218,7 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
     <script src="/crm/js/sw-register.js?v=20260410a" defer></script>
     <script src="/crm/js/mw-sync-status.js?v=20260410a" defer></script>
     <script src="/crm/js/mw-haptics.js?v=20260410a" defer></script>
-    <script src="/crm/js/capacitor-bridge.js?v=20260919b" defer></script>
+    <script src="/crm/js/capacitor-bridge.js?v=20260919c" defer></script>
     <style>
         :root {
             /* Brand colour + shared sizing tokens come from
@@ -750,17 +744,17 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                 Today's Schedule
             </a>
-            <?php if ($isDriver): ?>
+            <?php if ($postComplete): // no open trip → anyone may take the wheel ?>
             <a href="/crm/driver-log.php" class="hb-menu-nav-item">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
-                Pre-Trip Log
-            </a>
-            <?php if (!$postComplete): ?>
-            <a href="/crm/driver-log-post.php" class="hb-menu-nav-item">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-                Post-Trip Log
+                <?php echo $isDriver ? 'Pre-Trip Log' : "I'm driving now (pre-trip)"; ?>
             </a>
             <?php endif; ?>
+            <?php if (!$postComplete): // an open trip → end it (hand over the wheel, or end of day) ?>
+            <a href="/crm/driver-log-post.php" class="hb-menu-nav-item">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+                End trip (post-trip)
+            </a>
             <?php endif; ?>
             <a href="/crm/map_appstack.php" class="hb-menu-nav-item">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
@@ -831,7 +825,7 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
     window.hbClockOut = function () {
         // Drivers must complete the post-trip vehicle check before clocking out.
         // Send them to the dedicated form — it saves post-trip, then clocks out.
-        if (IS_DRIVER && !POST_COMPLETE) {
+        if (!POST_COMPLETE) {                        // whoever opened a trip closes it
             window.location.href = '/crm/driver-log-post.php';
             return;
         }
@@ -1022,6 +1016,18 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
         }
     });
 }());
+</script>
+<script>window.MW_USER_ID = <?php echo (int)$user['id']; ?>;</script>
+<script src="/crm/js/mw-trip-log.js?v=20260919a"></script>
+<script>
+// Clocked in elsewhere (or before this update) and never asked today → ask now.
+<?php if ($shiftDriving === 'unasked'): ?>
+document.addEventListener('DOMContentLoaded', function () {
+    MwTripLog.afterClockIn({ driver_question_required: true }, window.MW_USER_ID).then(function (url) {
+        if (url) window.location.href = url;
+    });
+});
+<?php endif; ?>
 </script>
 </body>
 </html>

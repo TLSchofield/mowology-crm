@@ -192,6 +192,45 @@ class TripReportService
         return array_map(static fn (array $r): array => ['id' => $r['vehicle_id'], 'label' => $r['vehicle_id']], $rows);
     }
 
+    /**
+     * Is this person driving THIS SHIFT? The one question every gate asks, replacing the
+     * permanent users.is_driver flag.
+     *
+     *   'driving'     — has an open trip, or last said "I'm driving" today
+     *   'not_driving' — last said "not driving" today (and has no open trip)
+     *   'unasked'     — hasn't said yet today → the app should ask after clock-in
+     */
+    public function shiftState(int $userId, ?string $date = null): string
+    {
+        $date = $date ?? date('Y-m-d');
+        if ($this->hasOpenTrip($userId)) {
+            return 'driving';
+        }
+        $decl = $this->latestDeclaration($userId, $date);
+        if ($decl === null) {
+            return 'unasked';
+        }
+        return !empty($decl['is_driving']) ? 'driving' : 'not_driving';
+    }
+
+    /** An open trip on ANY date — a trip begun before midnight is still open after it. */
+    public function openTrip(int $userId): ?array
+    {
+        $stmt = $this->db->prepare("
+            SELECT * FROM vehicle_trip_reports
+            WHERE driver_id = ? AND pre_trip_at IS NOT NULL AND post_trip_at IS NULL
+              AND pre_trip_at >= (NOW() - INTERVAL 36 HOUR)
+            ORDER BY id DESC LIMIT 1
+        ");
+        $stmt->execute([$userId]);
+        return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+
+    public function hasOpenTrip(int $userId): bool
+    {
+        return $this->openTrip($userId) !== null;
+    }
+
     public function latestForDriver(int $userId, string $date): ?array
     {
         $stmt = $this->db->prepare("
