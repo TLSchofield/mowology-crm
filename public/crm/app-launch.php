@@ -69,7 +69,7 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
     <script src="/crm/js/sw-register.js?v=20260410a" defer></script>
     <script src="/crm/js/mw-sync-status.js?v=20260410a" defer></script>
     <script src="/crm/js/mw-haptics.js?v=20260410a" defer></script>
-    <script src="/crm/js/capacitor-bridge.js" defer></script>
+    <script src="/crm/js/capacitor-bridge.js?v=20260919a" defer></script>
     <style>
         :root {
             /* Brand tokens come from /crm/css/tokens.css loaded above.

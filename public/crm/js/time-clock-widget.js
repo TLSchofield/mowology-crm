@@ -391,6 +391,7 @@
                 }
                 gpsErrorCount = 0;
                 latestPosition = pos;
+                latestPosition.fixAt = pos.timestamp || Date.now();
                 updateTrackingDot('active', 'accuracy: ' + Math.round(pos.accuracy) + 'm');
             });
             // Fall through to ALSO start browser watchPosition below
@@ -427,7 +428,8 @@
                     lng: pos.coords.longitude,
                     accuracy: pos.coords.accuracy,
                     speed: pos.coords.speed,
-                    heading: pos.coords.heading
+                    heading: pos.coords.heading,
+                    fixAt: pos.timestamp || Date.now()
                 };
                 // Update topbar dot to green — GPS is actively sending
                 updateTrackingDot('active', 'accuracy: ' + Math.round(pos.coords.accuracy) + 'm');
@@ -492,7 +494,20 @@
     var GPS_QUEUE_MAX = 500; // ~4 hours at 30s intervals
     var noFixCount = 0; // Tracks consecutive sendPosition() calls with no GPS fix
 
+    // A fix older than this is history, not a position. Re-sending it (the server stamps
+    // receipt time) made a phone whose GPS had died look alive and parked.
+    function fixIsStale() {
+        if (!latestPosition) return true;
+        var maxAge = Math.max(TRACKING_INTERVAL_MS * 3, 90000);
+        return (Date.now() - (latestPosition.fixAt || 0)) > maxAge;
+    }
+
     function sendPosition() {
+        if (latestPosition && fixIsStale()) {
+            console.warn('[MwTracking] Last fix is stale — discarding instead of re-sending');
+            latestPosition = null;
+            updateTrackingDot('error', 'No recent GPS fix');
+        }
         if (!latestPosition) {
             noFixCount++;
             // After 2 misses (60s) with no position from native/watch, try one-shot fallback
@@ -505,7 +520,8 @@
                             lng: pos.coords.longitude,
                             accuracy: pos.coords.accuracy,
                             speed: pos.coords.speed,
-                            heading: pos.coords.heading
+                            heading: pos.coords.heading,
+                            fixAt: pos.timestamp || Date.now()
                         };
                         updateTrackingDot('active', 'accuracy: ' + Math.round(pos.coords.accuracy) + 'm (fallback)');
                         doSendPosition(); // Send the fallback position now
@@ -575,8 +591,14 @@
                 // Admin explicitly disabled tracking — stop until next page load.
                 stopTracking();
             }
-            // "Not clocked in" is transient (clocking in will re-enable) — do NOT
-            // stop tracking. Just skip this ping; the next interval will retry.
+            // The server is the authority on the shift. "Not clocked in" means an auto
+            // clock-out or an office edit ended it — keep tracking and we are recording
+            // someone off the clock. Stop, and re-read status so the UI tells the truth.
+            if (data.error === 'Not clocked in') {
+                stopTracking();
+                fetchStatus();
+                return;
+            }
             // Handle server-side proximity auto-start
             if (data.auto_started) {
                 handleServerAutoStart(data.auto_started);
@@ -618,6 +640,7 @@
                 accuracy: pos.accuracy,
                 speed: pos.speed,
                 heading: pos.heading,
+                t: pos.fixAt || Date.now(),
                 queued_at: new Date().toISOString()
             });
             localStorage.setItem(GPS_QUEUE_KEY, JSON.stringify(queue));
@@ -626,34 +649,49 @@
         }
     }
 
+    var _flushing = false;
+
+    // Replays the offline queue as ONE batch with each fix's own time. The old flush
+    // fired the pings 200 ms apart at an endpoint that rate-limits to one per 10 s and
+    // stamps receipt time: all but the first were dropped (the server answered
+    // "success, skipped"), and the survivor was filed under the wrong time.
     function flushQueue() {
+        if (_flushing) return;
         var queue;
         try {
             queue = JSON.parse(localStorage.getItem(GPS_QUEUE_KEY) || '[]');
         } catch(e) { return; }
         if (queue.length === 0) return;
 
-        // Clear queue immediately (re-queue on failure)
-        localStorage.removeItem(GPS_QUEUE_KEY);
-        console.log('[MwTracking] Flushing ' + queue.length + ' queued GPS pings');
+        _flushing = true;
+        console.log('[MwTracking] Flushing ' + queue.length + ' queued GPS fixes as a batch');
 
-        queue.forEach(function(pos, i) {
-            setTimeout(function() {
-                fetch('/crm/api/crew-location.php', {
-                    method: 'POST',
-                    credentials: 'same-origin',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
-                    body: JSON.stringify(pos)
-                }).then(function(r) {
-                    if (r.status === 401) {
-                        queuePosition(pos); // Keep for replay after re-login
-                        showSessionExpiredBanner();
-                    }
-                }).catch(function() {
-                    queuePosition(pos); // Re-queue on network failure
-                });
-            }, i * 200); // 200ms between each to avoid rate limiting
+        var points = queue.map(function(p) {
+            return { t: p.t || Date.parse(p.queued_at) || Date.now(), lat: p.lat, lng: p.lng,
+                     acc: p.accuracy, speed: p.speed, heading: p.heading };
         });
+
+        fetch('/api/team/location-ping', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ points: points })
+        }).then(function(r) {
+            if (r.status === 401) { showSessionExpiredBanner(); return null; }
+            return r.ok ? r.json() : null;
+        }).then(function(data) {
+            // Only a definite answer empties the queue; anything else leaves it for next time.
+            if (data && data.success) {
+                var sent = queue.length;
+                try {
+                    var now = JSON.parse(localStorage.getItem(GPS_QUEUE_KEY) || '[]');
+                    localStorage.setItem(GPS_QUEUE_KEY, JSON.stringify(now.slice(sent)));
+                } catch(e) { /* leave it */ }
+                console.log('[MwTracking] Queue flushed — ' + (data.stored || 0) + ' stored');
+            }
+        }).catch(function() {
+            /* still offline — queue untouched */
+        }).then(function() { _flushing = false; });
     }
 
     // ── Actions ──

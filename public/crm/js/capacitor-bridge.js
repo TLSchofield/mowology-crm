@@ -240,7 +240,7 @@
                 return;
             }
             var pkg = (window.Capacitor.getPlatform && window.Capacitor.getPlatform() === 'android')
-                ? 'ca.mowology.crm' : null;
+                ? 'ca.mowology.crew' : null;   // must match applicationId in android/app/build.gradle
             var url = pkg
                 ? 'intent://' + pkg + '#Intent;scheme=package;action=android.settings.APPLICATION_DETAILS_SETTINGS;end'
                 : 'app-settings:';
@@ -295,12 +295,47 @@
             },
 
             /**
+             * Watcher registry, persisted across page loads.
+             *
+             * This is a multi-page app: every navigation throws away the JS context, and
+             * with it the watcher id. The native watcher keeps running at 1 Hz with nobody
+             * listening, the next page adds another, and stopBackgroundTracking() could only
+             * ever remove the CURRENT page's — so clock-out left GPS and the foreground
+             * notification running. Ids live in localStorage so any page can remove them all.
+             */
+            _WATCHER_KEY: 'mw_bg_watcher_ids',
+            _readWatcherIds: function() {
+                try { return JSON.parse(localStorage.getItem(this._WATCHER_KEY) || '[]') || []; }
+                catch (e) { return []; }
+            },
+            _writeWatcherIds: function(ids) {
+                try { localStorage.setItem(this._WATCHER_KEY, JSON.stringify(ids)); } catch (e) { /* private mode */ }
+            },
+            _removeAllWatchers: function() {
+                var ids = this._readWatcherIds();
+                if (this.watchId !== null && ids.indexOf(this.watchId) === -1) ids.push(this.watchId);
+                ids.forEach(function(id) {
+                    try {
+                        var r = BackgroundGeolocation.removeWatcher({ id: id });
+                        if (r && r.catch) r.catch(function() { /* already gone */ });
+                    } catch (e) { /* already gone */ }
+                });
+                this._writeWatcherIds([]);
+                this.watchId = null;
+                window.MwNative._bgWatchId = null;
+                return ids.length;
+            },
+
+            /**
              * Internal — hand off to BackgroundGeolocation.addWatcher
              * with the chosen distance filter. Split out from the
              * public startBackgroundTracking so the async
              * getHealth() path can call back in cleanly.
              */
             _reallyStart: function(callback, distanceFilter) {
+                var self = this;
+                // Drop any watcher a previous page left running before adding ours.
+                this._removeAllWatchers();
                 BackgroundGeolocation.addWatcher({
                     backgroundTitle: 'Mowology GPS Tracking',
                     backgroundMessage: 'Tracking your location for crew management',
@@ -360,6 +395,7 @@
                 }).then(function(id) {
                     window.MwNative.geo.watchId = id;
                     window.MwNative._bgWatchId = id;
+                    self._writeWatcherIds([id]);
                     console.log('[MwNative] Background GPS started, watcher ID:', id);
                 }).catch(function(err) {
                     console.error('[MwNative] Failed to start background GPS:', err);
@@ -371,11 +407,17 @@
              * Stop background GPS tracking and remove the foreground service notification.
              */
             stopBackgroundTracking: function() {
-                if (this.watchId !== null && BackgroundGeolocation) {
-                    BackgroundGeolocation.removeWatcher({ id: this.watchId });
-                    console.log('[MwNative] Background GPS stopped, watcher ID:', this.watchId);
-                    this.watchId = null;
-                    window.MwNative._bgWatchId = null;
+                if (!BackgroundGeolocation) return;
+                var removed = this._removeAllWatchers();
+                console.log('[MwNative] Background GPS stopped — removed ' + removed + ' watcher(s)');
+                // Every clock-out path calls this, but only two pages also stopped the native
+                // session — leaving its notification, wake lock and tracking_active=true behind
+                // (so BootReceiver revived "tracking" after every reboot). Stop it here, once.
+                if (MwTracking && typeof MwTracking.stopSession === 'function') {
+                    try {
+                        var r = MwTracking.stopSession();
+                        if (r && r.catch) r.catch(function() {});
+                    } catch (e) { /* plugin unavailable */ }
                 }
             },
 
@@ -622,67 +664,12 @@
     };
 
     // ── D7 — App lifecycle (pause / resume) ─────────────────
-    // When the user backgrounds the app, raise the GPS distance
-    // filter to the STILL bucket (50 m). When they foreground it
-    // again, restore the filter matching the current activity.
-    // Implemented by removing the current watcher and re-adding
-    // with the new filter — the @capacitor-community/background-
-    // geolocation plugin doesn't support live filter updates.
-    if (App && App.addListener) {
-        var pausedFilter = null;
-        App.addListener('pause', function () {
-            if (window.MwNative._bgWatchId === null) return;
-            console.log('[MwNative] App pause → raising GPS filter to STILL (50 m)');
-            pausedFilter = activityDistanceFilter[window.MwNative._currentActivity] || 15;
-            try {
-                BackgroundGeolocation.removeWatcher({ id: window.MwNative._bgWatchId });
-                window.MwNative._bgWatchId = null;
-                window.MwNative.geo.watchId = null;
-            } catch (e) { /* ignore */ }
-            // Re-add at the higher filter so native updates still flow
-            // but drain less battery. Uses the last-known callback via
-            // MwTracking events rather than a fresh JS callback.
-            if (BackgroundGeolocation) {
-                BackgroundGeolocation.addWatcher({
-                    backgroundTitle: 'Mowology GPS Tracking',
-                    backgroundMessage: 'Tracking your location for crew management',
-                    requestPermissions: false,
-                    stale: false,
-                    distanceFilter: 50
-                }, function (location) {
-                    if (!location) return;
-                    if (MwTracking) {
-                        MwTracking.storePoint({
-                            lat: location.latitude,
-                            lng: location.longitude,
-                            accuracy: location.accuracy || 0,
-                            speed: location.speed || 0,
-                            heading: location.bearing || 0,
-                            altitude: location.altitude || 0,
-                            provider: 'fused',
-                            timestamp: location.time || Date.now()
-                        }).catch(function () {});
-                    }
-                }).then(function (id) {
-                    window.MwNative._bgWatchId = id;
-                    window.MwNative.geo.watchId = id;
-                }).catch(function () {});
-            }
-        });
-
-        App.addListener('resume', function () {
-            if (pausedFilter === null) return;
-            console.log('[MwNative] App resume → restoring GPS filter', pausedFilter);
-            // Caller should re-subscribe; for now, just log so the
-            // tracking widget can react via the existing
-            // mw-activity-changed event.
-            document.dispatchEvent(new CustomEvent('mw-app-resumed', {
-                detail: { distanceFilter: pausedFilter }
-            }));
-            pausedFilter = null;
-        });
-        console.log('[MwNative] App pause/resume lifecycle listeners registered');
-    }
+    // REMOVED 2026-09-19: on 'pause' this used to swap the live watcher for a "battery
+    // saving" one whose callback only wrote to the native Room store. But nothing ever
+    // uploads that store (its sync cannot authenticate), and the swap disconnected the
+    // fixes from the widget's uploader — so after the FIRST screen-off the server got the
+    // last pre-sleep position re-sent forever with fresh timestamps. The original watcher
+    // now simply keeps running in the background; useLegacyBridge keeps its callback alive.
 
     // ── Hardware Back Button (Android) ──────────────────────
     // Pages can call e.preventDefault() on the 'mw-native-back' event to
