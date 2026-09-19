@@ -271,29 +271,51 @@ class PrivacyService
         $gpsDays   = (int) ($settings['visit_gps_points']['retention_days']      ?? 180);
         $auditDays = (int) ($settings['visit_audit_log']['retention_days']        ?? 730);
 
-        // crew_location_history
-        $stmt = $this->db->prepare(
-            "DELETE FROM crew_location_history WHERE timestamp < DATE_SUB(NOW(), INTERVAL ? DAY)"
-        );
-        $stmt->execute([$crewDays]);
-        $crewDeleted = $stmt->rowCount();
+        // Each table purge runs independently so one failure does not block the rest.
+        $crewDeleted  = -1;
+        $gpsDeleted   = -1;
+        $auditDeleted = -1;
+        $errors       = [];
 
-        // visit_gps_points
-        $stmt = $this->db->prepare(
-            "DELETE FROM visit_gps_points WHERE created_at < DATE_SUB(NOW(), INTERVAL ? DAY)"
-        );
-        $stmt->execute([$gpsDays]);
-        $gpsDeleted = $stmt->rowCount();
+        try {
+            $stmt = $this->db->prepare(
+                "DELETE FROM crew_location_history WHERE timestamp < DATE_SUB(NOW(), INTERVAL ? DAY)"
+            );
+            $stmt->execute([$crewDays]);
+            $crewDeleted = $stmt->rowCount();
+        } catch (\Throwable $e) {
+            $errors['crew_location_history'] = $e->getMessage();
+            error_log(sprintf('[PrivacyService::purgeExpiredLocationData] purge crew_location_history failed — %s in %s:%d',
+                $e->getMessage(), $e->getFile(), $e->getLine()));
+        }
 
-        // visit_audit_log — only purge rows from completed visits older than retention period
-        $stmt = $this->db->prepare("
-            DELETE val FROM visit_audit_log val
-            JOIN job_visits jv ON jv.id = val.visit_id
-            WHERE jv.status = 'completed'
-              AND val.created_at < DATE_SUB(NOW(), INTERVAL ? DAY)
-        ");
-        $stmt->execute([$auditDays]);
-        $auditDeleted = $stmt->rowCount();
+        try {
+            $stmt = $this->db->prepare(
+                "DELETE FROM visit_gps_points WHERE created_at < DATE_SUB(NOW(), INTERVAL ? DAY)"
+            );
+            $stmt->execute([$gpsDays]);
+            $gpsDeleted = $stmt->rowCount();
+        } catch (\Throwable $e) {
+            $errors['visit_gps_points'] = $e->getMessage();
+            error_log(sprintf('[PrivacyService::purgeExpiredLocationData] purge visit_gps_points failed — %s in %s:%d',
+                $e->getMessage(), $e->getFile(), $e->getLine()));
+        }
+
+        try {
+            // visit_audit_log — only purge rows from completed visits older than retention period
+            $stmt = $this->db->prepare("
+                DELETE val FROM visit_audit_log val
+                JOIN job_visits jv ON jv.id = val.visit_id
+                WHERE jv.status = 'completed'
+                  AND val.created_at < DATE_SUB(NOW(), INTERVAL ? DAY)
+            ");
+            $stmt->execute([$auditDays]);
+            $auditDeleted = $stmt->rowCount();
+        } catch (\Throwable $e) {
+            $errors['visit_audit_log'] = $e->getMessage();
+            error_log(sprintf('[PrivacyService::purgeExpiredLocationData] purge visit_audit_log failed — %s in %s:%d',
+                $e->getMessage(), $e->getFile(), $e->getLine()));
+        }
 
         return [
             'crew_location_deleted'  => $crewDeleted,
@@ -305,6 +327,7 @@ class PrivacyService
                 'visit_gps_points'      => $gpsDays,
                 'visit_audit_log'       => $auditDays,
             ],
+            'errors'                 => $errors,
         ];
     }
 

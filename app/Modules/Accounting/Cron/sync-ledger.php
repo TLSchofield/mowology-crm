@@ -44,6 +44,11 @@ if (php_sapi_name() !== 'cli') {
 require_once APP_ROOT . '/Modules/Accounting/Services/AccountingService.php';
 require_once APP_ROOT . '/Modules/Accounting/Services/RulesEngine.php';
 require_once APP_ROOT . '/Modules/Accounting/Services/AlertEngine.php';
+// recordCronRun() lives here and is NOT pulled in by the CLI bootstrap
+// chain (paths.php → loginAuth/auth.php). Without this require the cron
+// fatals at the end with "Call to undefined function recordCronRun()"
+// AFTER doing the sync — which is why it logged "Last run: Never run".
+require_once APP_ROOT . '/Services/CrmFunctions.php';
 
 $db       = getDB();
 $output   = [];
@@ -60,32 +65,27 @@ try {
     $alertResult = $alerts->runAll();
     $output['alerts_active'] = count($alertResult);
 
-    // ── 3. Log to cron_runs_log ────────────────────────────────────────────────
-    $elapsed = round(microtime(true) - $cronStart, 3);
-    $output['elapsed_seconds'] = $elapsed;
-
-    try {
-        $db->prepare("
-            INSERT INTO cron_runs_log (cron_name, status, output, duration_ms, ran_at)
-            VALUES ('accounting_sync', 'success', ?, ?, NOW())
-        ")->execute([
-            json_encode($output),
-            (int)($elapsed * 1000),
-        ]);
-    } catch (PDOException $logE) {
-        // cron_runs_log may not exist — silently ignore
-    }
-
 } catch (Throwable $e) {
     $success = false;
     $output['error'] = $e->getMessage();
+}
 
-    try {
-        $db->prepare("
-            INSERT INTO cron_runs_log (cron_name, status, output, ran_at)
-            VALUES ('accounting_sync', 'error', ?, NOW())
-        ")->execute([json_encode(['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()])]);
-    } catch (PDOException $logE) { /* ignore */ }
+$durationMs = (int)(round(microtime(true) - $cronStart, 3) * 1000);
+$summary    = 'Invoices: ' . ($output['invoices_synced'] ?? 0)
+            . ', Expenses: ' . ($output['expenses_synced'] ?? 0)
+            . ', Alerts: ' . ($output['alerts_active'] ?? 0);
+// Defensive: a missing run-tracker must never fatal the actual sync.
+if (function_exists('recordCronRun')) {
+    recordCronRun(
+        'sync_ledger',
+        $success ? 'success' : 'error',
+        $summary,
+        $durationMs,
+        $success ? null : ($output['error'] ?? null),
+        php_sapi_name() !== 'cli'
+    );
+} else {
+    error_log('[accounting_sync] recordCronRun() unavailable — ' . ($success ? 'OK' : 'ERROR') . ' ' . $summary);
 }
 
 // ── Output ─────────────────────────────────────────────────────────────────────

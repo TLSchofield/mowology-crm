@@ -237,14 +237,16 @@ class GoogleBusinessService
         ];
 
         // Call to Action
-        if (!empty($post['cta_action']) && !empty($post['cta_url'])) {
+        // cta_type is the column name in social_posts (matches the INSERT in schedules.php)
+        $ctaType = $post['cta_type'] ?? $post['cta_action'] ?? '';
+        if (!empty($ctaType) && !empty($post['cta_url'])) {
             $ctaUrl = $post['cta_url'];
             if (!empty($post['utm_campaign'])) {
                 $sep = strpos($ctaUrl, '?') !== false ? '&' : '?';
                 $ctaUrl .= $sep . 'utm_source=gbp&utm_medium=localpost&utm_campaign=' . urlencode($post['utm_campaign']);
             }
             $body['callToAction'] = [
-                'actionType' => $post['cta_action'],
+                'actionType' => $ctaType,
                 'url'        => $ctaUrl,
             ];
         }

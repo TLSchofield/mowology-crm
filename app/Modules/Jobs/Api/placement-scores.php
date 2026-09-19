@@ -30,22 +30,34 @@ if (!defined('APP_ROOT')) {
 
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+    require_once APP_ROOT . '/Core/Exceptions/ValidationException.php';
     require_once CRM_INCLUDES . '/functions.php';
     require_once CRM_INCLUDES . '/plan-functions.php';
 
     requireLogin();
 
+    // ── Validation guards (Phase 4 / Task 17) ────────────────────────────────
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        throw new ValidationException('method', 'POST required');
+    }
     $input = json_decode(file_get_contents('php://input'), true);
-    if (!$input || empty($input['week_start']) || empty($input['visit_ids'])) {
-        throw new Exception('Missing required fields: week_start, visit_ids');
+    if (!is_array($input)) {
+        throw new ValidationException('body', 'Invalid JSON body');
     }
 
-    $weekStart = trim($input['week_start']);
+    $weekStart = trim((string)($input['week_start'] ?? ''));
+    if ($weekStart === '') {
+        throw new ValidationException('week_start', 'week_start required');
+    }
     if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $weekStart)) {
-        throw new Exception('Invalid week_start format — expected YYYY-MM-DD');
+        throw new ValidationException('week_start', 'Invalid week_start format — expected YYYY-MM-DD');
     }
 
-    $visitIds = array_values(array_filter(array_map('intval', (array)$input['visit_ids'])));
+    $rawIds = $input['visit_ids'] ?? null;
+    if (!is_array($rawIds)) {
+        throw new ValidationException('visit_ids', 'visit_ids must be an array');
+    }
+    $visitIds = array_values(array_filter(array_map('intval', $rawIds), static fn(int $id): bool => $id > 0));
     if (empty($visitIds)) {
         echo json_encode(['success' => true, 'scores' => [], 'best_days' => []]);
         exit;
@@ -230,6 +242,8 @@ try {
         'best_days' => $visitBestDays,
     ]);
 
+} catch (ValidationException $e) {
+    respondValidationError($e);
 } catch (Exception $e) {
     http_response_code(400);
     echo json_encode(['success' => false, 'error' => $e->getMessage()]);

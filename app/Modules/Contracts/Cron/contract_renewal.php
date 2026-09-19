@@ -59,6 +59,59 @@ $db       = getDB();
 $renewed  = [];
 $expired  = [];
 $errors   = [];
+$noticed  = [];
+
+// ── 0. Fire campaign events for contracts renewing in ≤30 days ───────────────
+// Fires once per contract per renewal window — skip if already fired this cycle.
+try {
+    $noticeWindow = date('Y-m-d', strtotime('+30 days'));
+    $noticeStmt   = $db->prepare("
+        SELECT c.id, c.contract_number, c.renewal_date, c.billing_amount,
+               c.billing_cycle, c.contact_id
+        FROM contracts c
+        WHERE c.status       = 'active'
+          AND c.contact_id  IS NOT NULL
+          AND c.renewal_date IS NOT NULL
+          AND c.renewal_date BETWEEN :today AND :window
+          AND c.id NOT IN (
+                SELECT entity_id FROM campaign_trigger_log
+                WHERE event_name  = 'contract_renewal_upcoming'
+                  AND entity_type = 'contract'
+                  AND fired_at   >= DATE_SUB(NOW(), INTERVAL 25 DAY)
+          )
+        ORDER BY c.renewal_date ASC
+    ");
+    $noticeStmt->execute([':today' => $today, ':window' => $noticeWindow]);
+    $noticeContracts = $noticeStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    if (!empty($noticeContracts)) {
+        $__emitter = APP_ROOT . '/Modules/CampaignConnector/Services/CampaignEventEmitter.php';
+        if (file_exists($__emitter)) {
+            require_once $__emitter;
+            foreach ($noticeContracts as $nc) {
+                $daysUntil = (int)((strtotime($nc['renewal_date']) - strtotime($today)) / 86400);
+                CampaignEventEmitter::fire(
+                    'contract_renewal_upcoming',
+                    'contract',
+                    (int)$nc['id'],
+                    (int)$nc['contact_id'],
+                    [
+                        'contract_number' => $nc['contract_number'],
+                        'renewal_date'    => $nc['renewal_date'],
+                        'days_until'      => $daysUntil,
+                        'billing_amount'  => (float)$nc['billing_amount'],
+                        'billing_cycle'   => $nc['billing_cycle'],
+                    ],
+                    'contracts'
+                );
+                $noticed[] = $nc['contract_number'] . ' (renews ' . $nc['renewal_date'] . ', ' . $daysUntil . 'd)';
+            }
+        }
+    }
+} catch (Throwable $e) {
+    $errors[] = 'Renewal notice scan failed: ' . $e->getMessage();
+    error_log('[contract_renewal] notice scan: ' . $e->getMessage());
+}
 
 // ── 1. Find contracts due for renewal ────────────────────────────────────────
 try {
@@ -188,8 +241,8 @@ try {
 
 // ── 4. Record cron run ────────────────────────────────────────────────────────
 $durationMs = (int)(microtime(true) * 1000) - $startMs;
-$summary    = count($renewed) . ' renewed, ' . count($expired) . ' expired, ' . count($errors) . ' errors';
-$status     = empty($errors) ? (empty($renewed) && empty($expired) ? 'success' : 'success') : 'warning';
+$summary    = count($renewed) . ' renewed, ' . count($expired) . ' expired, ' . count($noticed) . ' notices fired, ' . count($errors) . ' errors';
+$status     = empty($errors) ? 'success' : 'warning';
 $errorText  = empty($errors) ? null : implode('; ', array_slice($errors, 0, 5));
 
 recordCronRun('contract_renewal', $status, $summary, $durationMs, $errorText, !$isCli);
@@ -199,6 +252,7 @@ $result = [
     'success'  => empty($errors),
     'renewed'  => $renewed,
     'expired'  => $expired,
+    'noticed'  => $noticed,
     'errors'   => $errors,
     'summary'  => $summary,
     'duration' => $durationMs . 'ms',
@@ -208,6 +262,7 @@ if ($isCli) {
     echo "Contract Renewal Cron — {$today}\n";
     echo "  Renewed:  " . (empty($renewed) ? 'none' : implode(', ', $renewed)) . "\n";
     echo "  Expired:  " . (empty($expired) ? 'none' : implode(', ', $expired)) . "\n";
+    echo "  Noticed:  " . (empty($noticed) ? 'none' : implode(', ', $noticed)) . "\n";
     echo "  Errors:   " . (empty($errors)  ? 'none' : implode(', ', $errors))  . "\n";
     echo "  Duration: {$durationMs}ms\n";
 } else {

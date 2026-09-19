@@ -790,7 +790,8 @@ function cms_getMediaAssets(array $filters = [], int $limit = 50, int $offset = 
     $siteId = $siteId ?? (defined('CMS_SITE_ID') ? CMS_SITE_ID : 1);
     $db = getDB();
 
-    $sql = "SELECT * FROM media_assets WHERE site_id = " . (int)$siteId;
+    $sql = "SELECT * FROM media_assets WHERE site_id = " . (int)$siteId
+         . " AND (context_type IS NULL OR context_type != 'expense')";
 
     if (!empty($filters['type'])) {
         $sql .= " AND file_type = ?";

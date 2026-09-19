@@ -6,7 +6,7 @@
  * handles retries with exponential backoff.
  *
  * Run every 5 minutes:
- *   */5 * * * * /usr/local/bin/php /home/mowology/public_html/app/Modules/Social/Cron/social_publisher.php
+ *   * /5 * * * * /usr/local/bin/php /home/mowology/public_html/app/Modules/Social/Cron/social_publisher.php
  *
  * Also callable via web POST (admin only):
  *   POST /crm/cron/social_publisher.php
@@ -37,7 +37,11 @@ require_once APP_ROOT . '/Modules/Social/Services/GoogleBusinessService.php';
 require_once APP_ROOT . '/Modules/Social/Services/MetaService.php';
 require_once APP_ROOT . '/Modules/Social/Services/SocialPublisher.php';
 
-$isCli = php_sapi_name() === 'cli';
+$isCli      = php_sapi_name() === 'cli';
+$fromWeb    = !$isCli;
+$startMs    = (int) round(microtime(true) * 1000);
+$cronStatus = 'success';
+$cronError  = null;
 
 if (!$isCli) {
     header('Content-Type: application/json');
@@ -79,6 +83,24 @@ try {
             status     = 'pending'
         WHERE status     = 'processing'
           AND locked_at  < DATE_SUB(NOW(), INTERVAL 5 MINUTE)
+    ")->execute();
+
+    // ── Auto-enqueue approved/scheduled posts missing queue entries ──
+    // Catches posts saved before the enqueue fix, or approved via admin.
+    $db->prepare("
+        INSERT INTO social_queue (post_id, account_id, platform, scheduled_at, status)
+        SELECT spp.post_id, spp.account_id, spp.platform,
+               COALESCE(sp.scheduled_at, NOW()), 'pending'
+        FROM social_post_platforms spp
+        JOIN social_posts sp ON sp.id = spp.post_id
+        WHERE sp.status IN ('approved', 'scheduled')
+          AND spp.status = 'pending'
+          AND NOT EXISTS (
+              SELECT 1 FROM social_queue sq
+              WHERE sq.post_id = spp.post_id
+                AND sq.platform = spp.platform
+                AND sq.status IN ('pending', 'processing', 'completed')
+          )
     ")->execute();
 
     // ── Fetch due items ─────────────────────────────────────────────
@@ -175,6 +197,16 @@ try {
         'results'   => $results,
     ];
 
+    $durationMs = (int) round(microtime(true) * 1000) - $startMs;
+    recordCronRun(
+        'social_publisher',
+        $cronStatus,
+        "Published: {$published}, Failed: {$failed}, Total: " . count($items),
+        $durationMs,
+        $cronError,
+        $fromWeb
+    );
+
     if ($isCli) {
         echo "\n" . $summary['message'] . "\n";
     } else {
@@ -184,6 +216,8 @@ try {
 } catch (\Throwable $e) {
     $error = 'social_publisher error: ' . $e->getMessage();
     error_log($error);
+    $durationMs = (int) round(microtime(true) * 1000) - $startMs;
+    recordCronRun('social_publisher', 'error', null, $durationMs, $e->getMessage(), $fromWeb);
     if ($isCli) { echo "ERROR: $error\n"; exit(1); }
     echo json_encode(['success' => false, 'error' => $error]);
 }

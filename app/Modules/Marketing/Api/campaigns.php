@@ -291,9 +291,9 @@ try {
             // Clear any existing sends (in case of re-queue)
             $db->prepare("DELETE FROM campaign_sends WHERE campaign_id = ? AND status = 'pending'")->execute([$id]);
 
-            // Insert sends
+            // Insert sends (INSERT IGNORE — idempotent under uq_campaign_contact)
             $insertStmt = $db->prepare("
-                INSERT INTO campaign_sends (campaign_id, contact_id, email, status, created_at)
+                INSERT IGNORE INTO campaign_sends (campaign_id, contact_id, email, status, created_at)
                 VALUES (?, ?, ?, 'pending', NOW())
             ");
             $queued = 0;
@@ -344,7 +344,7 @@ try {
                 $db->prepare("DELETE FROM campaign_sends WHERE campaign_id = ? AND status = 'pending'")->execute([$id]);
 
                 $insertStmt = $db->prepare("
-                    INSERT INTO campaign_sends (campaign_id, contact_id, email, status, created_at)
+                    INSERT IGNORE INTO campaign_sends (campaign_id, contact_id, email, status, created_at)
                     VALUES (?, ?, ?, 'pending', NOW())
                 ");
                 foreach ($recipients as $r) {
@@ -586,7 +586,7 @@ function getSegmentRecipients(PDO $db, string $segmentType, int $productId = 0):
           AND c.receive_marketing = 1
           AND c.email IS NOT NULL
           AND c.email != ''
-          AND c.email NOT IN (SELECT email COLLATE utf8mb4_0900_ai_ci FROM marketing_unsubscribes)
+          AND c.email NOT IN (SELECT email COLLATE utf8mb4_general_ci FROM marketing_unsubscribes)
     ";
 
     switch ($segmentType) {

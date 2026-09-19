@@ -32,7 +32,11 @@ set_error_handler(function(int $severity, string $message, string $file, int $li
     throw new \ErrorException($message, 0, $severity, $file, $line);
 });
 
-$isCli = (php_sapi_name() === 'cli');
+$isCli   = (php_sapi_name() === 'cli');
+$fromWeb = !$isCli;
+$startMs = (int) round(microtime(true) * 1000);
+$cronStatus = 'success';
+$cronError  = null;
 
 if (!$isCli) {
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -144,8 +148,22 @@ try {
 } catch (\Throwable $e) {
     $result['success'] = false;
     $result['error']   = $e->getMessage();
+    $cronStatus = 'error';
+    $cronError  = $e->getMessage();
     error_log('[cms_schedule_publish] Fatal: ' . $e->getMessage());
 }
+
+$durationMs = (int) round(microtime(true) * 1000) - $startMs;
+$published  = count($result['published'] ?? []);
+$archived   = count($result['archived']  ?? []);
+recordCronRun(
+    'cms_schedule_publish',
+    $cronStatus,
+    "Published: {$published}, Archived: {$archived}, Errors: " . count($result['errors'] ?? []),
+    $durationMs,
+    $cronError,
+    $fromWeb
+);
 
 if ($isCli) {
     echo json_encode($result, JSON_PRETTY_PRINT) . "\n";

@@ -186,12 +186,18 @@ try {
                 echo json_encode(['success' => false, 'error' => 'Token required']); break;
             }
 
+            // Primary: tokens are stored hashed at rest (sha256 of the raw
+            // token from the email link).
             $stmt = $db->prepare("SELECT * FROM marketing_optin_tokens WHERE token = ? AND status = 'pending'");
-            $stmt->execute([hash('sha256', $token)]); // compare stored hash
+            $stmt->execute([hash('sha256', $token)]);
             $record = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$record) {
-                // Try exact token match (v1 format)
+                // Transition fallback: links issued BEFORE hash-at-rest
+                // stored the raw token. These all carry a 30-day expiry,
+                // so this branch is dead once the last pre-change token
+                // expires (~30 days after deploy) and should then be
+                // removed. See feedback memory / Phase 2 #6.
                 $stmt = $db->prepare("SELECT * FROM marketing_optin_tokens WHERE token = ? AND status = 'pending'");
                 $stmt->execute([$token]);
                 $record = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -210,12 +216,20 @@ try {
             $db->prepare("UPDATE marketing_optin_tokens SET status='confirmed', confirmed_at=NOW(), ip_address=? WHERE id=?")->execute([$ip, $record['id']]);
             $db->prepare("UPDATE contacts SET receive_marketing=1 WHERE id=?")->execute([$record['contact_id']]);
 
-            // Upsert preferences
+            // Upsert preferences — record WHAT was consented to (CASL/PIPEDA:
+            // keep a snapshot of the consent statement, not just that consent
+            // happened). confirmed_at + marketing_optin_tokens.ip_address
+            // already capture when/where.
+            $consentText = 'Express consent via double opt-in email confirmation on '
+                . date('Y-m-d H:i:s') . ' (IP ' . ($ip ?: 'unknown') . '). '
+                . 'Agreed to receive marketing emails from ' . (defined('SITE_NAME') ? SITE_NAME : 'Mowology Landscaping')
+                . ': seasonal service reminders, special offers, and landscaping tips. '
+                . 'Unsubscribe available in every email.';
             $db->prepare("
-                INSERT INTO client_marketing_preferences (contact_id, email_opt_in, confirmed_at, confirmation_method)
-                VALUES (?, 1, NOW(), 'optin_email')
-                ON DUPLICATE KEY UPDATE email_opt_in=1, confirmed_at=NOW(), confirmation_method='optin_email'
-            ")->execute([$record['contact_id']]);
+                INSERT INTO client_marketing_preferences (contact_id, email_opt_in, confirmed_at, confirmation_method, gdpr_consent, consent_text)
+                VALUES (?, 1, NOW(), 'optin_email', 1, ?)
+                ON DUPLICATE KEY UPDATE email_opt_in=1, confirmed_at=NOW(), confirmation_method='optin_email', gdpr_consent=1, consent_text=VALUES(consent_text)
+            ")->execute([$record['contact_id'], $consentText]);
 
             // Add tag
             $db->prepare("
@@ -333,21 +347,24 @@ function sendOptInEmail(PDO $db, int $contactId): array
     $existing->execute([$contactId]);
     $existingToken = $existing->fetch(PDO::FETCH_ASSOC);
 
-    // Generate a secure token
-    $rawToken  = bin2hex(random_bytes(32));
-    $expiresAt = date('Y-m-d H:i:s', strtotime('+30 days'));
+    // Generate a secure token. Stored HASHED at rest (sha256); only the
+    // raw token in the email link can confirm. The confirm action hashes
+    // the submitted token and matches on that.
+    $rawToken   = bin2hex(random_bytes(32));
+    $storedHash = hash('sha256', $rawToken);
+    $expiresAt  = date('Y-m-d H:i:s', strtotime('+30 days'));
 
     if ($existingToken) {
         // Resend: update token and increment count
         $db->prepare("UPDATE marketing_optin_tokens SET token=?, expires_at=?, resent_count=resent_count+1, last_resent_at=NOW() WHERE id=?")
-           ->execute([$rawToken, $expiresAt, $existingToken['id']]);
+           ->execute([$storedHash, $expiresAt, $existingToken['id']]);
     } else {
         $db->prepare("INSERT INTO marketing_optin_tokens (contact_id, email, token, status, sent_at, expires_at) VALUES (?,?,?,'pending',NOW(),?)")
-           ->execute([$contactId, $contact['email'], $rawToken, $expiresAt]);
+           ->execute([$contactId, $contact['email'], $storedHash, $expiresAt]);
     }
 
     $baseUrl   = defined('SITE_URL') ? SITE_URL : 'https://mowology.ca';
-    $confirmUrl = $baseUrl . '/crm/api/optin-confirm.php?token=' . urlencode($rawToken);
+    $confirmUrl = $baseUrl . '/optin-confirm.php?token=' . urlencode($rawToken);
     $firstName  = $contact['first_name'] ?? 'Valued Customer';
 
     $subject = 'Please confirm your email preferences — Mowology Landscaping';
@@ -363,14 +380,26 @@ function sendOptInEmail(PDO $db, int $contactId): array
 <p style="color:#666;font-size:13px;">If you do not wish to receive marketing emails, simply ignore this message. You can always unsubscribe at any time.</p>
 <p style="color:#666;font-size:13px;">This link expires in 30 days.</p>';
 
+    // Brand-wrap so the email carries the CASL footer (sender identity +
+    // mailing address) and a working unsubscribe + one-click headers.
+    $unsubUrl = function_exists('generateUnsubscribeUrl')
+        ? generateUnsubscribeUrl($contact['email'], 0)
+        : '';
+    $wrapped  = function_exists('wrapInBrandedEmail')
+        ? wrapInBrandedEmail($body, $unsubUrl)
+        : $body;
+    $hdrs = ($unsubUrl !== '' && function_exists('listUnsubscribeHeaders'))
+        ? listUnsubscribeHeaders($unsubUrl)
+        : [];
+
     require_once CRM_INCLUDES . '/messaging.php';
-    $sent = sendCrmEmail($contact['email'], $subject, $body, $contact['first_name'] . ' ' . ($contact['last_name'] ?? ''));
+    $sent = sendCrmEmail($contact['email'], $subject, $wrapped, null, 'Mowology', $hdrs);
 
     if (!$sent) {
         return ['success' => false, 'error' => 'Failed to send email'];
     }
 
-    $db->prepare("UPDATE marketing_optin_tokens SET sent_at=NOW() WHERE token=?")->execute([$rawToken]);
+    $db->prepare("UPDATE marketing_optin_tokens SET sent_at=NOW() WHERE token=?")->execute([$storedHash]);
 
     return ['success' => true, 'contact_id' => $contactId];
 }

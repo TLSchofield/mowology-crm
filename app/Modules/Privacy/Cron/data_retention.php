@@ -49,7 +49,9 @@ try {
             VALUES ('privacy_purge', 'success', ?, NOW())
         ")->execute([json_encode($result)]);
     } catch (\Throwable $logErr) {
-        // cron_runs_log may not exist — silently skip
+        // cron_runs_log may not exist — non-fatal but log so schema drift is visible
+        error_log(sprintf('[%s] cron_runs_log insert (privacy_purge success) failed — %s in %s:%d',
+            basename(__FILE__), $logErr->getMessage(), $logErr->getFile(), $logErr->getLine()));
     }
 
     if ($isCli) {
@@ -69,7 +71,11 @@ try {
             INSERT INTO cron_runs_log (cron_name, status, message, created_at)
             VALUES ('privacy_purge', 'error', ?, NOW())
         ")->execute([$errMsg]);
-    } catch (\Throwable $ignored) {}
+    } catch (\Throwable $logErr) {
+        // cron_runs_log may not exist — non-fatal but log so schema drift is visible
+        error_log(sprintf('[%s] cron_runs_log insert (privacy_purge error) failed — %s in %s:%d',
+            basename(__FILE__), $logErr->getMessage(), $logErr->getFile(), $logErr->getLine()));
+    }
 
     if ($isCli) {
         fwrite(STDERR, "Privacy purge error: {$errMsg}\n");
