@@ -179,6 +179,26 @@ final class ScheduleViewModel: ObservableObject {
         await refresh()
     }
 
+    /// Resolves a tapped notification to the stop it is about: jumps to the stop's
+    /// date (today when the sender didn't say), reloads fresh, and returns the
+    /// matching stop — or nil when it isn't on that day's schedule any more.
+    func resolve(_ route: NotificationRoute) async -> Stop? {
+        let target = route.date.flatMap { isoFormatter.date(from: $0) } ?? .now
+        stopCache.removeValue(forKey: isoDateString(from: target))
+        await selectDate(target)
+
+        return stops.first { stop in
+            if let stopId = route.stopId, stop.stopId == stopId { return true }
+            if let visitId = route.visitId {
+                return stop.visits.contains { $0.visitId == visitId }
+            }
+            return false
+        }
+    }
+
+    /// Public wrapper so a foreground push can trigger the same no-spinner refresh the poll uses.
+    func refreshSilently() async { await silentRefresh() }
+
     /// Starts a background poll loop that silently re-checks the selected day
     /// every ~20s so a completion made elsewhere (another crew member, another
     /// platform) shows up without the user having to do anything. No-op if a

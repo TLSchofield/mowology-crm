@@ -10,33 +10,48 @@ import SwiftUI
 struct MainTabView: View {
 
     @EnvironmentObject private var authSession: AuthSession
+    @ObservedObject private var notificationRouter = NotificationRouter.shared
 
+    private enum Tab: Hashable { case schedule, timeClock, receipts, account }
+    @State private var selectedTab = Tab.schedule
 
     var body: some View {
-        TabView {
+        TabView(selection: $selectedTab) {
             ScheduleView(authSession: authSession)
                 .tabItem {
                     Label("Schedule", systemImage: "calendar")
                 }
+                .tag(Tab.schedule)
 
             TimeClockView(authSession: authSession)
                 .tabItem {
                     Label("Time Clock", systemImage: "clock.fill")
                 }
+                .tag(Tab.timeClock)
 
             ReceiptsView(authSession: authSession)
                 .environmentObject(authSession)
                 .tabItem {
                     Label("Receipts", systemImage: "doc.text.image")
                 }
+                .tag(Tab.receipts)
 
             // Account / sign out
             accountTab
                 .tabItem {
                     Label("Account", systemImage: "person.fill")
                 }
+                .tag(Tab.account)
         }
         .tint(Color.MW.green)
+        // Every notification route today lands on the schedule; ScheduleView
+        // consumes the route itself and opens the stop.
+        .onChange(of: notificationRouter.pendingRoute) { _, route in
+            if route != nil { selectedTab = .schedule }
+        }
+        .onAppear {
+            if notificationRouter.pendingRoute != nil { selectedTab = .schedule }
+        }
     }
 
     // MARK: - Placeholder

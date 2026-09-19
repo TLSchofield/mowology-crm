@@ -75,6 +75,7 @@
 		4FB22F42D3EE08BB5C268EE0 /* RecommendationQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD7FBBB86BFB6DE6A50849E7 /* RecommendationQueue.swift */; };
 		887E8393F19A468781219085 /* RecommendationSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8BB2AC6F5B2A933301F642A /* RecommendationSection.swift */; };
 		0735E0A38395A0BDDD4501B2 /* QueueStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = E686E5FBF255B02B961213E6 /* QueueStorage.swift */; };
+		E50505A619F9BC89F722D04E /* NotificationRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBA085298C1A8B11A8748C20 /* NotificationRouter.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -148,6 +149,7 @@
 		CD7FBBB86BFB6DE6A50849E7 /* RecommendationQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecommendationQueue.swift; sourceTree = "<group>"; };
 		A8BB2AC6F5B2A933301F642A /* RecommendationSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecommendationSection.swift; sourceTree = "<group>"; };
 		E686E5FBF255B02B961213E6 /* QueueStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueStorage.swift; sourceTree = "<group>"; };
+		BBA085298C1A8B11A8748C20 /* NotificationRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationRouter.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -186,6 +188,7 @@
 				E2318C0D8CC141570D7D494B /* APIError.swift */,
 				A3914DFABD5F183B4DC1E39D /* VersionCheckService.swift */,
 				6D504DC78E053FE292176721 /* DeviceTokenService.swift */,
+				BBA085298C1A8B11A8748C20 /* NotificationRouter.swift */,
 			);
 			path = Network;
 			sourceTree = "<group>";
@@ -496,6 +499,7 @@
 				4FB22F42D3EE08BB5C268EE0 /* RecommendationQueue.swift in Sources */,
 				887E8393F19A468781219085 /* RecommendationSection.swift in Sources */,
 				0735E0A38395A0BDDD4501B2 /* QueueStorage.swift in Sources */,
+				E50505A619F9BC89F722D04E /* NotificationRouter.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

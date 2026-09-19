@@ -53,6 +53,8 @@ struct MowologyCRMApp: App {
                 // Re-registering is idempotent server-side (upsert) and gives retry
                 // coverage if the token arrived while offline on a previous launch.
                 UIApplication.shared.registerForRemoteNotifications()
+                // Opening the app is acknowledgement enough — don't leave a stale badge.
+                UNUserNotificationCenter.current().setBadgeCount(0)
             }
         }
     }

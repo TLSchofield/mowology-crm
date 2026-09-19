@@ -17,6 +17,10 @@ struct ScheduleView: View {
     @State private var pickerDate     = Date()
     @State private var viewMode       = ViewMode.list
 
+    /// Navigation path — owned here so a tapped notification can open a stop directly.
+    @State private var path: [Stop] = []
+    @ObservedObject private var notificationRouter = NotificationRouter.shared
+
     private let impactLight  = UIImpactFeedbackGenerator(style: .light)
     private let impactMedium = UIImpactFeedbackGenerator(style: .medium)
 
@@ -33,7 +37,7 @@ struct ScheduleView: View {
     // MARK: - Body
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             VStack(spacing: 0) {
 
                 // MARK: Week Strip
@@ -89,6 +93,14 @@ struct ScheduleView: View {
         .task {
             await viewModel.refresh()
             viewModel.startPolling()
+            // Cold start from a notification tap: the route is already waiting.
+            await follow(notificationRouter.pendingRoute)
+        }
+        .onChange(of: notificationRouter.pendingRoute) { _, route in
+            Task { await follow(route) }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .mwSchedulePushReceived)) { _ in
+            Task { await viewModel.refreshSilently() }
         }
         .onDisappear {
             viewModel.stopPolling()
@@ -105,8 +117,28 @@ struct ScheduleView: View {
         }
         .fullScreenCover(isPresented: $viewModel.quizRequired) {
             QuizView(authSession: authSession) {
-                Task { await viewModel.quizPassed() }
+                Task {
+                    await viewModel.quizPassed()
+                    // A notification tapped while the quiz gate was up waits until now.
+                    await follow(notificationRouter.pendingRoute)
+                }
             }
+        }
+    }
+
+    // MARK: - Notification Routing
+
+    /// Opens the stop a tapped notification refers to. Falls back to just showing
+    /// the right day when the stop is no longer on it (reassigned, cancelled).
+    private func follow(_ route: NotificationRoute?) async {
+        guard let route, !viewModel.quizRequired else { return }
+        notificationRouter.pendingRoute = nil
+        showDatePicker = false
+        viewMode       = .list
+        if let stop = await viewModel.resolve(route) {
+            path = [stop]
+        } else {
+            path = []
         }
     }
 

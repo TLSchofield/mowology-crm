@@ -197,7 +197,8 @@ try {
                 $crewIds,
                 'Job Assigned',
                 "{$dateLabel} — {$addressLine}",
-                ['stop_id' => $stopId, 'screen' => 'schedule']
+                // 'date' lets the app open the right day — assignments are often for a future date.
+                ['stop_id' => $stopId, 'screen' => 'schedule', 'date' => date('Y-m-d', strtotime($stop['stop_date']))]
             );
         } catch (Throwable $pushErr) {
             // Push failure must never block the crew assignment response
