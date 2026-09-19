@@ -90,9 +90,24 @@ final class TimeClockViewModel: ObservableObject {
 
     // MARK: - Clock In / Out
 
+    /// Where the punch happened. Callers rarely have a coordinate to hand, so the
+    /// view model resolves one itself — otherwise every punch reaches the server
+    /// with no location. Reuses the tracking service's fix when it is ≤30 s old,
+    /// so a clock-out during a tracked shift costs nothing.
+    private func punchLocation() async -> (Double?, Double?) {
+        let lm = GPSTrackingService.shared.locationManager
+        lm.requestWhenInUsePermission()
+        guard lm.canUseLocation else { return (nil, nil) }
+        let loc = (try? await lm.currentLocation()) ?? lm.lastLocation
+        return (loc?.coordinate.latitude, loc?.coordinate.longitude)
+    }
+
     func clockIn(lat: Double? = nil, lng: Double? = nil) async {
         isLoading    = true
         errorMessage = nil
+
+        var (lat, lng) = (lat, lng)
+        if lat == nil || lng == nil { (lat, lng) = await punchLocation() }
 
         var body: [String: Any] = ["action": "clock_in"]
         if let lat { body["lat"] = lat }
@@ -135,6 +150,9 @@ final class TimeClockViewModel: ObservableObject {
     func clockOut(lat: Double? = nil, lng: Double? = nil) async {
         isLoading    = true
         errorMessage = nil
+
+        var (lat, lng) = (lat, lng)
+        if lat == nil || lng == nil { (lat, lng) = await punchLocation() }
 
         var body: [String: Any] = ["action": "clock_out"]
         if let lat { body["lat"] = lat }
