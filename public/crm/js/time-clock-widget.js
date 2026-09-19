@@ -102,8 +102,13 @@
             // Read auto-arrival setting
             autoArrivalEnabled = !!data.auto_arrival_enabled;
 
-            // Start GPS based on device profile
-            if (trackingEnabled) {
+            // Start GPS based on device profile — but ONLY on a field device. A desktop
+            // browser where the same person is logged in is not where the crew member is:
+            // it reported the office/home as their position all day, could cancel genuine
+            // phone fixes as "duplicates", and would draw the client-facing route back to a desk.
+            if (trackingEnabled && !isFieldDevice()) {
+                updateTrackingDot('unknown', 'Location is tracked from your phone, not this computer');
+            } else if (trackingEnabled) {
                 if (deviceType === 'truck' || isDriver || data.clocked_in) {
                     // Truck: always track when app is open
                     // is_driver: tracks without clock-in (mirrors server-side bypass)
@@ -119,7 +124,7 @@
             // One-shot proximity check on page load (all CRM pages)
             // For personal devices not currently tracking, this is the key —
             // it fires on every page navigation to detect nearby job sites.
-            if (autoArrivalEnabled && !hasActiveJobTimer) {
+            if (autoArrivalEnabled && !hasActiveJobTimer && isFieldDevice()) {
                 runOneShotProximityCheck();
             }
         })
@@ -502,6 +507,16 @@
         return (Date.now() - (latestPosition.fixAt || 0)) > maxAge;
     }
 
+    // The Capacitor app, a truck tablet, or a phone/tablet browser. iPadOS reports a
+    // desktop user agent, hence the touch-points test.
+    function isFieldDevice() {
+        if (window.MwNative) return true;
+        if (deviceType === 'truck') return true;
+        var ua = navigator.userAgent || '';
+        if (/Android|iPhone|iPad|iPod|Mobile/i.test(ua)) return true;
+        return /Macintosh/i.test(ua) && (navigator.maxTouchPoints || 0) > 1;
+    }
+
     // APK 1.3.0+ : the native engine captures and uploads on its own, screen off or app
     // closed. If the page uploaded too, every fix would arrive twice (and ours lacks a fix time).
     function nativeEngineOwnsUploads() {
@@ -573,7 +588,8 @@
                 lng: latestPosition.lng,
                 accuracy: latestPosition.accuracy,
                 speed: latestPosition.speed,
-                heading: latestPosition.heading
+                heading: latestPosition.heading,
+                field_device: isFieldDevice()
             })
         })
         .then(function(r) {
@@ -972,7 +988,8 @@
                         lat: lat,
                         lng: lng,
                         accuracy: accuracy,
-                        proximity_check: true
+                        proximity_check: true,
+                        field_device: isFieldDevice()
                     })
                 })
                 .then(function(r) { return r.json(); })

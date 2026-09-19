@@ -231,6 +231,19 @@ try {
             throw new Exception('Latitude and longitude required');
         }
 
+        // A desktop browser is not where the crew member is. Someone clocked in on the office
+        // computer AND their phone had the desk reported as their position all day — and those
+        // rows can cancel genuine phone fixes as duplicates and drag the client-facing route
+        // back to the office. New clients declare `field_device`; for older cached JavaScript
+        // the user agent decides. Answer success so old clients don't queue and retry forever.
+        $ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
+        $looksMobile = (bool)preg_match('/Android|iPhone|iPad|iPod|Mobile|Capacitor/i', $ua);
+        $isFieldDevice = array_key_exists('field_device', $input) ? !empty($input['field_device']) : $looksMobile;
+        if (!$isFieldDevice) {
+            echo json_encode(['success' => true, 'skipped' => true, 'reason' => 'desktop_ignored']);
+            exit;
+        }
+
         // One-shot check fired when the crew member opens the app on site. It is NOT
         // read-only — a match clocks them in and starts a timer — so
         // checkProximityAutoStart() enforces the tracking opt-in itself. Dwell is
