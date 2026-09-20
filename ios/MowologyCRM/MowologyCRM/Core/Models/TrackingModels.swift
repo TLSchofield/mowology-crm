@@ -62,17 +62,35 @@ struct FixVerdict: Decodable {
     let retryable: Bool?
 }
 
+/// The server stopped the job timer because the crew LEFT the site. The visit is not
+/// completed — that stays the crew's call — and coming back resumes the timer.
+struct AutoStoppedPayload: Decodable {
+    let visitId: Int
+    let jobTitle: String?
+    let propertyAddress: String?
+    let durationMinutes: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case visitId         = "visit_id"
+        case jobTitle        = "job_title"
+        case propertyAddress = "property_address"
+        case durationMinutes = "duration_minutes"
+    }
+}
+
 struct FixUploadResponse: Decodable {
     let success: Bool
     let stored: Int?
     let accepted: [FixVerdict]?
     let rejected: [FixVerdict]?
     let autoStarted: AutoStartedPayload?
+    let autoStopped: AutoStoppedPayload?
     let policy: TrackingPolicy?
 
     enum CodingKeys: String, CodingKey {
         case success, stored, accepted, rejected, policy
         case autoStarted = "auto_started"
+        case autoStopped = "auto_stopped"
     }
 }
 

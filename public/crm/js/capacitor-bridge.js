@@ -875,6 +875,9 @@
         MwTracking.addListener('autoStarted', function(data) {
             document.dispatchEvent(new CustomEvent('mw-auto-started', { detail: data || {} }));
         });
+        MwTracking.addListener('autoStopped', function(data) {
+            document.dispatchEvent(new CustomEvent('mw-auto-stopped', { detail: data || {} }));
+        });
 
         MwTracking.addListener('activityChanged', function(data) {
             window.MwNative._currentActivity = data.activity;

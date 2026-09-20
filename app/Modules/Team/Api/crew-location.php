@@ -349,10 +349,24 @@ try {
             }
         }
 
+        // Departure — the other half of auto-arrival. If this person has a live AUTO-started
+        // timer and has clearly been away from the site for a few minutes, stop the timer at
+        // the moment they left. The visit is not completed: that stays the crew's call.
+        $autoStopResult = null;
+        if (!$isQueued && !$autoStartResult) {
+            try {
+                require_once APP_ROOT . '/Modules/Team/Services/DepartureAutoStopService.php';
+                $autoStopResult = DepartureAutoStopService::check($db, (int)$user['id'], time());
+            } catch (Throwable $e) {
+                error_log('[crew-location] departure check error: ' . $e->getMessage());
+            }
+        }
+
         echo json_encode([
             'success' => true,
             'id' => $insertId,
-            'auto_started' => $autoStartResult
+            'auto_started' => $autoStartResult,
+            'auto_stopped' => $autoStopResult
         ]);
 
     } else {

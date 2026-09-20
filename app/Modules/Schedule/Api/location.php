@@ -103,6 +103,18 @@ try {
         }
     }
 
+    // Departure: a live auto-started timer + clearly away from the site for a few minutes →
+    // stop the TIMER at the moment they left (the visit is NOT completed by a GPS guess).
+    $autoStopResult = null;
+    if ($mayCollect && $activeTimer && !$autoStartResult && $newest
+        && ($nowTs - $newest['ts']) <= TrackingIngestService::FRESH_SECONDS) {
+        require_once APP_ROOT . '/Modules/Team/Services/DepartureAutoStopService.php';
+        $autoStopResult = DepartureAutoStopService::check($db, $userId, $nowTs);
+        if ($autoStopResult) {
+            $activeTimer = null;        // off the job → policy drops back to the baseline tier
+        }
+    }
+
     if (isset($input['device']) && is_array($input['device'])) {
         $ingest->recordHealth($userId, $input['device'], $newest['ts'] ?? null);
     }
@@ -117,6 +129,7 @@ try {
         'accepted'     => $result['accepted'],
         'rejected'     => $result['rejected'],
         'auto_started' => $autoStartResult,
+        'auto_stopped' => $autoStopResult,
         'policy'       => TrackingIngestService::policy(
             $flags['active'], $flags['tracking'], $consentOk, $clockedIn,
             $activeTimer ? (int)$activeTimer['visit_id'] : null

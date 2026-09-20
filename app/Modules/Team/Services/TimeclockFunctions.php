@@ -768,8 +768,25 @@ function checkProximityAutoStart(int $userId, float $lat, float $lng, float $acc
     $nowTs       = time();
     $candidates  = [];
 
+    // Visits this user was auto-stopped on today because they LEFT the site (fuel run, lunch,
+    // parts). Coming back resumes the timer — the visit is still in_progress, never completed
+    // by a GPS guess. Keyed by visit id; only when that departure is their latest entry.
+    $resumable = [];
+    try {
+        $resStmt = $db->prepare("
+            SELECT jte.visit_id
+            FROM job_time_entries jte
+            WHERE jte.user_id = ? AND jte.auto_stopped = 1 AND jte.end_time >= CURDATE()
+              AND jte.notes LIKE '%left the job site%'
+              AND jte.id = (SELECT MAX(j2.id) FROM job_time_entries j2 WHERE j2.visit_id = jte.visit_id AND j2.user_id = jte.user_id)
+        ");
+        $resStmt->execute([$userId]);
+        $resumable = array_flip(array_map('intval', array_column($resStmt->fetchAll(PDO::FETCH_ASSOC), 'visit_id')));
+    } catch (Throwable $e) { /* auto_stopped column absent on a very old schema — no resume */ }
+
     foreach ($allVisits as $visit) {
-        if ($visit['status'] !== 'scheduled') continue;
+        $isResume = $visit['status'] === 'in_progress' && isset($resumable[(int)$visit['id']]);
+        if ($visit['status'] !== 'scheduled' && !$isResume) continue;
         if (!ProximityAutoStartService::isOwnVisit($visit, $userId, $myStopIds)) continue;
         if (!ProximityAutoStartService::withinWindow(
                 $visit['scheduled_date'] ?? $today, $visit['scheduled_time_start'] ?? null, $nowTs, $leadMinutes)) continue;
@@ -846,14 +863,17 @@ function checkProximityAutoStart(int $userId, float $lat, float $lng, float $acc
         }
         if (!$inGlobalList && !$hasPerVisitFlag) continue;
 
-        // Guard 9: visit not already auto-started today
-        $alreadyStmt = $db->prepare("
-            SELECT id FROM job_time_entries
-            WHERE visit_id = ? AND auto_started = 1 AND start_time >= CURDATE()
-            LIMIT 1
-        ");
-        $alreadyStmt->execute([$vid]);
-        if ($alreadyStmt->fetch()) continue;
+        // Guard 9: visit not already auto-started today — unless this is a RETURN after an
+        // auto-detected departure, which resumes it.
+        if (!isset($resumable[$vid])) {
+            $alreadyStmt = $db->prepare("
+                SELECT id FROM job_time_entries
+                WHERE visit_id = ? AND auto_started = 1 AND start_time >= CURDATE()
+                LIMIT 1
+            ");
+            $alreadyStmt->execute([$vid]);
+            if ($alreadyStmt->fetch()) continue;
+        }
 
         // Guard 10: dwell — an earlier fix inside the SAME fence. One ping is a drive-by.
         if ($requireDwell) {
@@ -917,6 +937,7 @@ function checkProximityAutoStart(int $userId, float $lat, float $lng, float $acc
         'distance_meters' => (int)round($nearestDist),
         'entry_id'        => $entryId,
         'clock_in_created' => $clockInCreated,
+        'resumed'          => isset($resumable[$visitId]),
     ];
 }
 

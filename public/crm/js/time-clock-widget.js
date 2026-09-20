@@ -626,6 +626,9 @@
             if (data.auto_started) {
                 handleServerAutoStart(data.auto_started);
             }
+            if (data.auto_stopped) {
+                handleServerAutoStop(data.auto_stopped);
+            }
         })
         .catch(function(err) {
             console.warn('[MwTracking] Send failed, queueing:', err);
@@ -725,6 +728,13 @@
     });
     document.addEventListener('mw-auto-started', function(ev) {
         if (ev && ev.detail && ev.detail.visit_id) handleServerAutoStart(ev.detail);
+    });
+    // v2 APK: the native engine already raised the phone notification — just fix the screen.
+    document.addEventListener('mw-auto-stopped', function(ev) {
+        if (!ev || !ev.detail || !ev.detail.visit_id) return;
+        hasActiveJobTimer = false;
+        fetchStatus();
+        showToast('Timer stopped — you left ' + (ev.detail.property_address || 'the job site') + '. Mark it complete if you\'re done.', 'success');
     });
 
     // ── Actions ──
@@ -959,13 +969,46 @@
         fetchStatus();
 
         // Show toast
-        showToast('Auto-started: ' + (info.job_title || info.job_number || 'Job') +
+        showToast((info.resumed ? 'Resumed: ' : 'Auto-started: ') + (info.job_title || info.job_number || 'Job') +
                   ' (' + info.distance_meters + 'm away)', 'success');
+        if (window.MwNative && window.MwNative.notifications && window.MwNative.notifications.notify) {
+            window.MwNative.notifications.notify(
+                info.resumed ? 'Job timer resumed' : 'Job started automatically',
+                'You arrived at ' + (info.property_address || info.job_title || 'the job site') +
+                    (info.clock_in_created ? '. You\'ve been clocked in and the job timer is running.' : '. The job timer is running.'),
+                9000 + (parseInt(info.visit_id, 10) % 90)
+            );
+        }
 
         // Dispatch event for schedule page pill workflow
         document.dispatchEvent(new CustomEvent('mw-proximity-auto-start', {
             detail: info
         }));
+    }
+
+    /**
+     * The server stopped the job timer because this crew member LEFT the site. The visit is
+     * deliberately not completed — leaving might be a fuel run — so say what happened and let
+     * them decide. Coming back resumes the timer on its own.
+     */
+    function handleServerAutoStop(info) {
+        console.log('[MwTracking] Server auto-stopped visit ' + info.visit_id + ' — left the site');
+        hasActiveJobTimer = false;
+        fetchStatus();
+
+        var where = info.property_address || info.job_title || 'the job site';
+        var mins  = info.duration_minutes ? ' after ' + info.duration_minutes + ' min' : '';
+        showToast('Timer stopped — you left ' + where + mins + '. Mark it complete if you\'re done.', 'success');
+
+        // The phone is usually in a pocket when this happens.
+        if (window.MwNative && window.MwNative.notifications && window.MwNative.notifications.notify) {
+            window.MwNative.notifications.notify(
+                'Job timer stopped',
+                'You left ' + where + mins + '. Open the app to mark it complete — or head back and it resumes.',
+                9100 + (parseInt(info.visit_id, 10) % 800)
+            );
+        }
+        document.dispatchEvent(new CustomEvent('mw-proximity-auto-stop', { detail: info }));
     }
 
     /**

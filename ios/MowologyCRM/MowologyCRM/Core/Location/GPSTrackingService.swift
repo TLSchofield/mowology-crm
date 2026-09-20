@@ -67,6 +67,8 @@ final class GPSTrackingService: ObservableObject {
 
     /// Set when a proximity auto-start fires; observers mirror the running timer.
     @Published private(set) var autoStartedPayload: AutoStartedPayload? = nil
+    /// Set when the server stops a timer because the crew left the site.
+    @Published private(set) var autoStoppedPayload: AutoStoppedPayload? = nil
 
     let locationManager = LocationManager()
 
@@ -349,6 +351,7 @@ final class GPSTrackingService: ObservableObject {
                     UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: Self.kLastPingAt)
                 }
                 if let payload = response.autoStarted { handleAutoStart(payload) }
+                if let payload = response.autoStopped { handleAutoStop(payload) }
                 if let policy = response.policy { apply(policy) }
 
                 // Keep draining a backlog, but never spin on a batch that isn't shrinking.
@@ -447,6 +450,29 @@ final class GPSTrackingService: ObservableObject {
             // Reset after a tick so observers see the change even if the same visit fires twice.
             try? await Task.sleep(nanoseconds: 100_000_000)
             autoStartedPayload = nil
+        }
+    }
+
+    /// The crew left the site and the server stopped the timer at the moment they did. Tell
+    /// them — the phone is in a pocket — and drop back to the between-jobs tier.
+    private func handleAutoStop(_ payload: AutoStoppedPayload) {
+        if activeVisitId == payload.visitId { setActiveVisit(nil) }
+
+        let place   = payload.propertyAddress ?? payload.jobTitle ?? "the job site"
+        let minutes = payload.durationMinutes.map { " after \($0) min" } ?? ""
+        let content = UNMutableNotificationContent()
+        content.title    = "Job timer stopped"
+        content.body     = "You left \(place)\(minutes). Open the app to mark it complete — or head back and it resumes."
+        content.sound    = .default
+        content.userInfo = ["type": "visit_auto_started", "visit_id": payload.visitId]   // same route: opens the stop
+        UNUserNotificationCenter.current().add(
+            UNNotificationRequest(identifier: "mw.auto-stop.\(payload.visitId)", content: content, trigger: nil)
+        )
+
+        autoStoppedPayload = payload
+        Task {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            autoStoppedPayload = nil
         }
     }
 

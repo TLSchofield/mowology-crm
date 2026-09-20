@@ -42,6 +42,7 @@ final class VisitDetailViewModel: ObservableObject {
     private var tickTimer:        AnyCancellable?
     private var autoStartSink:    AnyCancellable?
     private var proximitySink:    AnyCancellable?
+    private var departureSink:    AnyCancellable?
 
     private var gps: GPSTrackingService { GPSTrackingService.shared }
 
@@ -74,6 +75,22 @@ final class VisitDetailViewModel: ObservableObject {
             .compactMap { $0 }
             .receive(on: DispatchQueue.main)
             .sink { [weak self] payload in self?.applyAutoStart(payload) }
+
+        departureSink = GPSTrackingService.shared.$autoStoppedPayload
+            .compactMap { $0 }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] payload in self?.applyAutoStop(payload) }
+    }
+
+    /// Timer stopped because they left — the visit is still in progress until THEY complete it.
+    private func applyAutoStop(_ payload: AutoStoppedPayload) {
+        guard stop.visits.contains(where: { $0.visitId == payload.visitId }) else { return }
+        if activeTimerVisitId == payload.visitId {
+            activeTimerVisitId = nil
+            stopTicking()
+        }
+        let minutes = payload.durationMinutes.map { " (\($0) min)" } ?? ""
+        autoClockInNotice = "Timer stopped when you left the site\(minutes). Mark the visit complete when you're done — or come back and it resumes."
     }
 
     private func applyAutoStart(_ payload: AutoStartedPayload) {
