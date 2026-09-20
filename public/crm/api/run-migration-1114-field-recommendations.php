@@ -32,17 +32,24 @@ $db = getDB();
 /** Does $table.$column already exist? */
 function mw1114HasColumn(PDO $db, string $table, string $column): bool
 {
-    $stmt = $db->prepare("SHOW COLUMNS FROM `{$table}` LIKE ?");
-    $stmt->execute([$column]);
-    return (bool)$stmt->fetch(PDO::FETCH_ASSOC);
+    // information_schema: MySQL rejects a bound placeholder in SHOW under native prepares
+    $stmt = $db->prepare("
+        SELECT 1 FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ? LIMIT 1
+    ");
+    $stmt->execute([$table, $column]);
+    return (bool)$stmt->fetchColumn();
 }
 
 /** Does $table already carry an index named $index? */
 function mw1114HasIndex(PDO $db, string $table, string $index): bool
 {
-    $stmt = $db->prepare("SHOW INDEX FROM `{$table}` WHERE Key_name = ?");
-    $stmt->execute([$index]);
-    return (bool)$stmt->fetch(PDO::FETCH_ASSOC);
+    $stmt = $db->prepare("
+        SELECT 1 FROM information_schema.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ? LIMIT 1
+    ");
+    $stmt->execute([$table, $index]);
+    return (bool)$stmt->fetchColumn();
 }
 
 $applied = [];

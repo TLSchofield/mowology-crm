@@ -78,9 +78,15 @@ function expenseLineItemsHasColumn(PDO $db, string $column): bool
     static $cache = [];
     if (isset($cache[$column])) return $cache[$column];
     try {
-        $stmt = $db->prepare("SHOW COLUMNS FROM expense_line_items LIKE ?");
+        // information_schema, not SHOW COLUMNS … LIKE ?: with native (non-emulated)
+        // prepares MySQL rejects a placeholder in SHOW, the probe threw, and ocr_name
+        // was never persisted even after migration 1115 had run.
+        $stmt = $db->prepare("
+            SELECT 1 FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'expense_line_items' AND COLUMN_NAME = ? LIMIT 1
+        ");
         $stmt->execute([$column]);
-        return $cache[$column] = (bool)$stmt->fetch();
+        return $cache[$column] = (bool)$stmt->fetchColumn();
     } catch (Throwable $e) {
         return $cache[$column] = false;
     }
