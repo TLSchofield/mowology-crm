@@ -138,8 +138,16 @@ $address    = $visit ? implode(', ', array_filter([
 $hasPdf  = $visit && !empty($visit['pdf_path']);
 $pdfUrl  = $hasPdf ? $visit['pdf_path'] : '';
 
+// What this client may see for contract work (Settings → Client Portal): the visit length —
+// duration and the arrive/depart pair it can be worked out from — is hidden unless switched on.
+$clientSees = ['report' => true, 'length' => true];
+if ($visit) {
+    require_once APP_ROOT . '/Modules/Jobs/Services/ClientVisibilityService.php';
+    $clientSees = (new ClientVisibilityService($db))->forVisit((int)$visitId);
+}
+
 $duration = '';
-if ($visit && $visit['started_at'] && $visit['completed_at']) {
+if ($visit && $clientSees['length'] && $visit['started_at'] && $visit['completed_at']) {
     $mins     = (int)round((strtotime($visit['completed_at']) - strtotime($visit['started_at'])) / 60);
     $duration = ($mins >= 60 ? floor($mins/60).'h ' : '') . ($mins % 60) . 'm';
 }
@@ -205,10 +213,12 @@ $serviceLabel = [
 
     <!-- Stat Trio -->
     <div class="portal-stat-trio">
+      <?php if ($clientSees['length']): ?>
       <div class="portal-stat-box">
         <div class="portal-stat-val"><?php echo htmlspecialchars($duration ?: '—'); ?></div>
         <div class="portal-stat-lbl">Duration</div>
       </div>
+      <?php endif; ?>
       <div class="portal-stat-box">
         <div class="portal-stat-val"><?php echo $visit['distance_m'] ? number_format($visit['distance_m']/1000, 2).' km' : '—'; ?></div>
         <div class="portal-stat-lbl">Area Covered</div>
@@ -342,9 +352,9 @@ $serviceLabel = [
     foreach ($fertAllVisits as $av) {
         if ($av['status'] === 'scheduled') { $nextAppDate = $av['scheduled_date']; break; }
     }
-    $arrTime  = !empty($visit['started_at'])   ? date('g:ia', strtotime($visit['started_at']))   : '';
-    $depTime  = !empty($visit['completed_at']) ? date('g:ia', strtotime($visit['completed_at'])) : '';
-    $durMins  = (int)($visit['actual_duration_minutes'] ?? 0);
+    $arrTime  = ($clientSees['length'] && !empty($visit['started_at']))   ? date('g:ia', strtotime($visit['started_at']))   : '';
+    $depTime  = ($clientSees['length'] && !empty($visit['completed_at'])) ? date('g:ia', strtotime($visit['completed_at'])) : '';
+    $durMins  = $clientSees['length'] ? (int)($visit['actual_duration_minutes'] ?? 0) : 0;
     $durStr   = $durMins >= 60 ? floor($durMins/60) . 'h ' . ($durMins%60) . 'm' : ($durMins > 0 ? $durMins . 'min' : '');
     $iconUrl  = '';
     if ($fertProduct && !empty($fertProduct['icon_base_path'])) {

@@ -193,7 +193,7 @@ if ($contact && !$error) {
         $stmt = $db->prepare("
             SELECT jv.id, jv.visit_number, jv.scheduled_date, jv.status,
                    jv.completed_at, jv.actual_duration_minutes, jv.actual_amount,
-                   jp.title AS service_name, jp.service_type,
+                   jp.title AS service_name, jp.service_type, jp.contract_id,
                    p.address AS property_address,
                    p.latitude AS property_lat, p.longitude AS property_lng
             FROM job_visits jv
@@ -607,7 +607,15 @@ function statusBadge(string $status, bool $overdue = false): string {
               $mon      = date('M', $ts);
               $label    = htmlspecialchars($v['service_name'] ?: ucwords(str_replace('_', ' ', $v['service_type'])));
               $addr     = htmlspecialchars($v['property_address'] ?? '');
-              $durMins  = (int)($v['actual_duration_minutes'] ?? 0);
+              // What this client may see for contract work (Settings → Client Portal).
+              // Staff previewing the portal see everything.
+              if (!isset($mwClientVisibility)) {
+                  require_once APP_ROOT . '/Modules/Jobs/Services/ClientVisibilityService.php';
+                  $mwClientVisibility = new ClientVisibilityService($db);
+              }
+              $vSees    = $adminMode ? ['report' => true, 'length' => true]
+                                     : $mwClientVisibility->forContractId($v['contract_id'] ?? null);
+              $durMins  = $vSees['length'] ? (int)($v['actual_duration_minutes'] ?? 0) : 0;
               if ($durMins > 0) {
                   $durHrs  = intdiv($durMins, 60);
                   $durRem  = $durMins % 60;
@@ -647,7 +655,7 @@ function statusBadge(string $status, bool $overdue = false): string {
                   <?php endif; ?>
                   <?php
                     $rptToken = $adminMode ? ($contact['portal_token'] ?? '') : ($contact['portal_token'] ?? '');
-                    if ($rptToken):
+                    if ($rptToken && $vSees['report']):
                   ?>
                     <a href="/customer/visit-report.php?token=<?php echo urlencode($rptToken); ?>&amp;visit_id=<?php echo (int)$v['id']; ?>"
                        class="portal-visit-report-link">View Report &#8594;</a>

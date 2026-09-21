@@ -103,6 +103,19 @@ if (!$error && $contact) {
     }
 }
 
+// ── What may this client see? (Settings → Client Portal) ──────────────────────
+// Contract clients don't get the visit report or the visit length unless the office has
+// switched them on. Staff previews always see everything.
+$clientSees = ['report' => true, 'length' => true];
+if (!$error && $visit && !$adminMode) {
+    require_once APP_ROOT . '/Modules/Jobs/Services/ClientVisibilityService.php';
+    $clientSees = (new ClientVisibilityService($db))->forVisit((int)$visit['id']);
+    if (!$clientSees['report']) {
+        $visit = null;
+        $error = 'This service report isn\'t available online. Please contact us if you need details of this visit.';
+    }
+}
+
 // ── Load photos ────────────────────────────────────────────────────────────
 $photos = [];
 if (!$error && $visit) {
@@ -281,6 +294,14 @@ if ($visit) {
         $durationStr = $durHrs > 0
             ? ($durHrs . 'h' . ($durRem > 0 ? ' ' . $durRem . 'm' : ''))
             : ($durRem . 'm');
+    }
+
+    // Visit length hidden from this client: drop the duration AND everything it can be worked
+    // out from — the arrive/depart pair and the per-ping clock times. The route itself stays.
+    if (!$clientSees['length']) {
+        $durationStr = '';
+        $arrivalTime = '';
+        $departTime  = '';
     }
 
     $addrParts = array_filter([
@@ -510,7 +531,7 @@ $pageTitle  = 'Service Visit Report' . ($visit ? ' — ' . $visitDate : '');
           <?php foreach ($pings as $pi => $pg): ?>
           <div class="pvr-ping-log-row<?php echo $pi === 0 ? ' pvr-ping-first' : ($pi === $pingCount - 1 ? ' pvr-ping-last' : ''); ?>">
             <span class="pvr-ping-log-col-num"><?php echo $pi + 1; ?></span>
-            <span class="pvr-ping-log-col-time"><?php echo date('g:i:s a', strtotime($pg['timestamp'])); ?></span>
+            <span class="pvr-ping-log-col-time"><?php echo $clientSees['length'] ? date('g:i:s a', strtotime($pg['timestamp'])) : '&mdash;'; ?></span>
             <span class="pvr-ping-log-col-lat"><?php echo number_format(abs((float)$pg['latitude']), 6); ?>&deg;&nbsp;<?php echo (float)$pg['latitude'] >= 0 ? 'N' : 'S'; ?></span>
             <span class="pvr-ping-log-col-lng"><?php echo number_format(abs((float)$pg['longitude']), 6); ?>&deg;&nbsp;<?php echo (float)$pg['longitude'] <= 0 ? 'W' : 'E'; ?></span>
           </div>

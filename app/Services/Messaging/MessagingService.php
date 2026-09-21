@@ -407,19 +407,30 @@ function sendFertilizerCompletionNotification(int $visitId): bool
         $visitLabel .= ' — Application ' . $visit['sequence_index'];
     }
 
+    // ── What may this client see? (Settings → Client Portal) ──────
+    // Contract clients don't get the visit length — duration or the arrive/depart pair it can
+    // be worked out from — unless the office has switched it on.
+    $showVisitLength = true;
+    try {
+        require_once APP_ROOT . '/Modules/Jobs/Services/ClientVisibilityService.php';
+        $showVisitLength = (new ClientVisibilityService(getDB()))->forVisit((int)$visitId)['length'];
+    } catch (Throwable $e) {
+        error_log('completion email: visibility check failed: ' . $e->getMessage());
+    }
+
     // ── Format GPS timestamps ─────────────────────────────────────
     $arrivalTime   = '';
     $departureTime = '';
-    if (!empty($visit['started_at'])) {
+    if ($showVisitLength && !empty($visit['started_at'])) {
         $arrivalTime = date('g:ia', strtotime($visit['started_at']));
     }
-    if (!empty($visit['completed_at'])) {
+    if ($showVisitLength && !empty($visit['completed_at'])) {
         $departureTime = date('g:ia', strtotime($visit['completed_at']));
     }
 
     // Duration
     $durationStr = '';
-    if (!empty($visit['actual_duration_minutes']) && $visit['actual_duration_minutes'] > 0) {
+    if ($showVisitLength && !empty($visit['actual_duration_minutes']) && $visit['actual_duration_minutes'] > 0) {
         $mins = (int)$visit['actual_duration_minutes'];
         $durationStr = $mins >= 60
             ? floor($mins / 60) . 'h ' . ($mins % 60) . 'm'

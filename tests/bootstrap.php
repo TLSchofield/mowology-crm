@@ -90,6 +90,7 @@ require_once __DIR__ . '/../app/Modules/Jobs/Services/VisitPhotoService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/FieldJobService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/ServiceHistoryService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/FieldSearchService.php';
+require_once __DIR__ . '/../app/Modules/Jobs/Services/ClientVisibilityService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/SeasonalOutlookService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/SeasonalOutlookRefreshService.php';
 

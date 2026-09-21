@@ -106,6 +106,7 @@ function csrf() { return window.MW_CSRF_TOKEN || ''; }
     <li class="nav-item"><a class="nav-link" id="service-types-tab" data-toggle="tab" href="#service-types" role="tab">Service Types</a></li>
     <li class="nav-item"><a class="nav-link" id="measurement-types-tab" data-toggle="tab" href="#measurement-types" role="tab">Measurement Types</a></li>
     <li class="nav-item"><a class="nav-link" id="reviews-tab" data-toggle="tab" href="#reviews" role="tab">Reviews</a></li>
+    <li class="nav-item"><a class="nav-link" id="client-portal-tab" data-toggle="tab" href="#client-portal" role="tab">Client Portal</a></li>
     <li class="nav-item"><a class="nav-link" id="extras-tab" data-toggle="tab" href="#extras" role="tab">Extras Billing</a></li>
     <li class="nav-item"><a class="nav-link" id="summary-card-tab" data-toggle="tab" href="#summary-card" role="tab">Summary Card</a></li>
     <li class="nav-item"><a class="nav-link" id="quiz-tab" data-toggle="tab" href="#quiz" role="tab">Quiz</a></li>
@@ -980,6 +981,53 @@ function csrf() { return window.MW_CSRF_TOKEN || ''; }
             </div>
         </div>
 
+        <!-- Client Portal Tab — what clients are allowed to see (ClientVisibilityService) -->
+        <div class="tab-pane fade" id="client-portal" role="tabpanel">
+            <div class="card mb-3">
+                <div class="card-header"><h5 class="card-title mb-0">What contract clients can see</h5></div>
+                <div class="card-body">
+                    <p class="text-muted mb-3">
+                        Contract clients pay for a season's outcome, not for hours on site. These switches control
+                        what they see about individual visits &mdash; in their portal, the service visit report, the
+                        proof-of-work page and PDF, and the job-completed email. Clients <strong>without</strong> a
+                        contract are not affected, and staff previews always show everything.
+                    </p>
+
+                    <div class="custom-control custom-switch mb-1">
+                        <input type="checkbox" class="custom-control-input" id="cv_show_visit_report">
+                        <label class="custom-control-label" for="cv_show_visit_report"><strong>Service visit report</strong></label>
+                    </div>
+                    <p class="text-muted small ml-4 mb-3">
+                        The GPS-verified report page (route map, photos, products applied). Off: the
+                        &ldquo;View Report&rdquo; link disappears from their portal and the page itself says the report
+                        isn't available online.
+                    </p>
+
+                    <div class="custom-control custom-switch mb-1">
+                        <input type="checkbox" class="custom-control-input" id="cv_show_visit_length">
+                        <label class="custom-control-label" for="cv_show_visit_length"><strong>Length of visit</strong></label>
+                    </div>
+                    <p class="text-muted small ml-4 mb-3">
+                        How long the crew was on site. Off: the duration is hidden everywhere, along with the
+                        arrival and departure times and per-ping clock times it could be worked out from. The
+                        visit <em>date</em> always shows.
+                    </p>
+
+                    <div class="card bg-light border-0 mb-3">
+                        <div class="card-body py-2 px-3">
+                            <small class="text-muted">
+                                The salt &amp; snow liability report is a separate document and is not controlled here.
+                                A proof-of-work PDF that was already generated keeps what it had &mdash; regenerate it to apply a change.
+                            </small>
+                        </div>
+                    </div>
+
+                    <div id="clientPortalSaveResult" class="alert d-none"></div>
+                    <button type="button" class="btn btn-primary" id="saveClientPortalBtn">Save</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Extras Billing Tab -->
         <div class="tab-pane fade" id="extras" role="tabpanel">
             <div class="card mb-3">
@@ -1431,6 +1479,59 @@ function csrf() { return window.MW_CSRF_TOKEN || ''; }
         var tab = document.getElementById('reviews-tab');
         if (tab) tab.addEventListener('shown.bs.tab', loadReviewSettings);
     });
+})();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CLIENT PORTAL — what contract clients may see (ClientVisibilityService).
+// A missing setting reads as OFF on the server, so an untouched tab is already "off".
+// ─────────────────────────────────────────────────────────────────────────────
+(function () {
+    var csrf = function () { return document.querySelector('meta[name="csrf-token"]')?.content || ''; };
+    var fields = [
+        { id: 'cv_show_visit_report', key: 'contract_client_show_visit_report', description: 'Contract clients can open the service visit report (1 = yes, 0 = no)' },
+        { id: 'cv_show_visit_length', key: 'contract_client_show_visit_length', description: 'Contract clients see visit duration and arrive/depart times (1 = yes, 0 = no)' }
+    ];
+    var isOn = function (v) { return ['1', 'true', 'yes', 'on'].indexOf(String(v).trim().toLowerCase()) !== -1; };
+
+    function load() {
+        fields.forEach(function (f) {
+            fetch('/crm/api/ops-settings.php?action=get&key=' + f.key, { credentials: 'same-origin' })
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    var el = document.getElementById(f.id);
+                    if (el) el.checked = !!(d && d.success && d.exists && isOn(d.raw));
+                }).catch(function () {});
+        });
+    }
+
+    function save() {
+        var btn = document.getElementById('saveClientPortalBtn');
+        var res = document.getElementById('clientPortalSaveResult');
+        btn.disabled = true;
+        res.className = 'alert d-none';
+
+        Promise.all(fields.map(function (f) {
+            var el = document.getElementById(f.id);
+            return fetch('/crm/api/ops-settings.php?action=save', {
+                method: 'POST', credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ csrf_token: csrf(), key: f.key, value: el && el.checked ? '1' : '0', description: f.description })
+            }).then(function (r) { return r.json(); });
+        })).then(function (all) {
+            var ok = all.every(function (d) { return d && d.success; });
+            res.className = 'alert ' + (ok ? 'alert-success' : 'alert-danger');
+            res.textContent = ok ? 'Saved. Clients see the change immediately.' : 'Could not save — please try again.';
+        }).catch(function () {
+            res.className = 'alert alert-danger';
+            res.textContent = 'Network error — nothing was saved.';
+        }).finally(function () { btn.disabled = false; });
+    }
+
+    var tab = document.getElementById('client-portal-tab');
+    if (tab) tab.addEventListener('click', load);
+    var btn = document.getElementById('saveClientPortalBtn');
+    if (btn) btn.addEventListener('click', save);
+    if (window.location.hash === '#client-portal') load();
 })();
 
 // ─────────────────────────────────────────────────────────────────────────────

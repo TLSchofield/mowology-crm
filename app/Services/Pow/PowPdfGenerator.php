@@ -216,10 +216,22 @@ class PowPdfGenerator
             $confBox = $this->generateConfidenceBox($v, $serviceType);
         }
 
-        $startedAt   = $v['started_at']    ? date('D, F j, Y g:i A', strtotime($v['started_at'])) : 'N/A';
+        // This PDF is what the client downloads. For contract work the visit length — duration
+        // and the start/finish clock times it can be worked out from — stays out of it unless the
+        // office has switched it on (Settings → Client Portal). The office has the CRM for hours.
+        $showLength = true;
+        try {
+            require_once APP_ROOT . '/Modules/Jobs/Services/ClientVisibilityService.php';
+            $showLength = (new ClientVisibilityService(getDB()))->forVisit((int)$v['id'])['length'];
+        } catch (Throwable $e) {
+            error_log('PowPdfGenerator: visibility check failed: ' . $e->getMessage());
+        }
+
+        $startedAt   = $v['started_at']
+            ? date($showLength ? 'D, F j, Y g:i A' : 'D, F j, Y', strtotime($v['started_at'])) : 'N/A';
         $completedAt = $v['completed_at']  ? date('g:i A', strtotime($v['completed_at']))           : 'N/A';
         $duration    = '';
-        if ($v['started_at'] && $v['completed_at']) {
+        if ($showLength && $v['started_at'] && $v['completed_at']) {
             $mins = (int)round((strtotime($v['completed_at']) - strtotime($v['started_at'])) / 60);
             $duration = ($mins >= 60 ? floor($mins/60) . 'h ' : '') . ($mins % 60) . 'm';
         }
@@ -399,10 +411,12 @@ class PowPdfGenerator
       <div class="label">Visit Date</div>
       <div class="value"><?= htmlspecialchars($startedAt) ?></div>
     </div>
+    <?php if ($showLength): ?>
     <div>
       <div class="label">Finished</div>
       <div class="value"><?= htmlspecialchars($completedAt) ?></div>
     </div>
+    <?php endif; ?>
   </div>
 </div>
 
@@ -410,10 +424,12 @@ class PowPdfGenerator
 <div class="section">
   <div class="section-title">Visit Summary</div>
   <div class="stats-row">
+    <?php if ($showLength): ?>
     <div class="stat-box">
       <div class="stat-val"><?= htmlspecialchars($duration ?: 'N/A') ?></div>
       <div class="stat-lbl">Total Duration</div>
     </div>
+    <?php endif; ?>
     <div class="stat-box">
       <div class="stat-val"><?= htmlspecialchars($distKm) ?></div>
       <div class="stat-lbl">Distance Covered</div>
