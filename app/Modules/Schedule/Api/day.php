@@ -119,6 +119,9 @@ foreach ($dayStops as $stop) {
         ];
     }
 
+    $hasCoords = isset($stop['latitude'], $stop['longitude'])
+        && (abs((float)$stop['latitude']) > 0.0001 || abs((float)$stop['longitude']) > 0.0001);
+
     $stops[] = [
         'stop_id'          => (int)($stop['stop_id'] ?? 0),
         'stop_date'        => $date,
@@ -129,8 +132,10 @@ foreach ($dayStops as $stop) {
         'property_address' => (string)($stop['property_address'] ?? ''),
         'property_city'    => (string)($stop['property_city'] ?? ''),
         'property_name'    => isset($stop['property_name']) ? (string)$stop['property_name'] : null,
-        'latitude'         => isset($stop['latitude'])  ? (float)$stop['latitude']  : null,
-        'longitude'        => isset($stop['longitude']) ? (float)$stop['longitude'] : null,
+        // 0,0 is a failed geocode, not a place — sending it made the phone show "12341 km"
+        // and sort the stop last. null = "no map location", which every client already handles.
+        'latitude'         => $hasCoords ? (float)$stop['latitude']  : null,
+        'longitude'        => $hasCoords ? (float)$stop['longitude'] : null,
         'contact_id'       => isset($stop['contact_id']) ? (int)$stop['contact_id'] : null,
         'contact_name'     => isset($stop['contact_name']) ? (string)$stop['contact_name'] : null,
         'company_name'     => isset($stop['company_name']) ? (string)$stop['company_name'] : null,
