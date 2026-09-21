@@ -903,17 +903,6 @@ function checkProximityAutoStart(int $userId, float $lat, float $lng, float $acc
     $clockInCreated = false;
     $newClockEntryId = null;
     if (!getActiveClockEntry($userId)) {
-        // Anyone who drives clocks in themselves: that is where the driving question and the
-        // pre-trip inspection are asked, and arriving at a job is already after the drive.
-        // (Auto-START of a job for someone already on the clock is unaffected.)
-        try {
-            require_once APP_ROOT . '/Modules/Driver/Services/TripReportService.php';
-            if ((new TripReportService(getDB()))->mustClockInManually((int)$userId)) {
-                return null;
-            }
-        } catch (Throwable $e) {
-            error_log('checkProximityAutoStart: driver check failed: ' . $e->getMessage());
-        }
         try {
             $newClockEntryId = clockIn($userId, $lat, $lng);
             $clockInCreated  = true;

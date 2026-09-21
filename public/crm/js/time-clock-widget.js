@@ -956,14 +956,17 @@
      * Update widget UI and notify other components (e.g., schedule pill workflow).
      */
     /**
-     * "Are you driving this shift?" — asked whenever someone is on the clock and has not answered,
-     * NOT only after pressing Clock In. Arrival detection clocks people in without that button
-     * (device test 2026-09-21: the driver opened the app on site, was clocked in and started on a
-     * job in the same second, and was never asked; the pre-trip got filed after the drive). The
-     * commercial log is a legal record, so the question follows the shift, not the button.
+     * "Are you driving this shift?" — asked whenever someone is on the clock and the SERVER has
+     * no answer for the shift, NOT only after pressing Clock In. Arrival detection may clock a
+     * driver in and start their job (that is fine, and wanted — on 2026-09-21 the driver could
+     * not open the app before leaving the yard); what is not optional is the form.
      *
-     * Once per shift per tab-session unless still unanswered on a later page; never on the
-     * vehicle-log pages themselves.
+     *   No  → the declaration is filed and the question stops.
+     *   Yes → straight to the pre-trip inspection. Filing it IS the declaration — so leaving the
+     *         form unfinished leaves the shift 'unasked', and the question comes back on the next
+     *         page until the inspection is filed. The commercial log is a legal record.
+     *
+     * Field devices only; never on the vehicle-log pages themselves.
      */
     var drivingAskInFlight = false;
     function askDrivingIfUnasked(status) {
@@ -972,14 +975,16 @@
         if (!isFieldDevice()) return;                       // the office desktop is not a cab
         if (/\/crm\/driver-(log|log-post|portal)\.php/.test(window.location.pathname)) return;
 
-        var key = 'mw_driving_asked_' + window.MW_USER_ID + '_' + String(status.clock_in || '').slice(0, 10);
+        // Only a "No" that could not reach the server yet (no signal — it is queued on the phone
+        // and will file itself) is remembered locally, so the queue isn't filled with repeats.
+        var key = 'mw_not_driving_queued_' + window.MW_USER_ID + '_' + String(status.clock_in || '').slice(0, 10);
         try { if (sessionStorage.getItem(key)) return; } catch (e) {}
 
         drivingAskInFlight = true;
         window.MwTripLog.afterClockIn({ driver_question_required: true }, window.MW_USER_ID).then(function (url) {
-            try { sessionStorage.setItem(key, '1'); } catch (e) {}
             drivingAskInFlight = false;
-            if (url) window.location.href = url;
+            if (url) { window.location.href = url; return; }     // Yes → pre-trip form
+            try { sessionStorage.setItem(key, '1'); } catch (e) {}
         }, function () { drivingAskInFlight = false; });
     }
 

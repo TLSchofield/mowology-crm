@@ -213,60 +213,6 @@ class TripReportService
         return !empty($decl['is_driving']) ? 'driving' : 'not_driving';
     }
 
-    /** How far back "this person drives" looks. Two working weeks covers holidays and rain days. */
-    public const RECENT_DRIVER_DAYS = 14;
-
-    /**
-     * Must this person clock in THEMSELVES, rather than be clocked in by arriving at a job?
-     *
-     * Arrival detection can clock someone in the moment they open the app on site. For a driver
-     * that is too late by definition: they have already driven there, so the pre-trip inspection
-     * — which the law wants BEFORE the vehicle moves — gets filed after the trip (2026-09-21:
-     * clocked in on arrival 08:38, pre-trip 08:43). Anyone who drives must press Clock In, which
-     * is where the driving question and the pre-trip are asked.
-     *
-     * "Drives" = flagged as a driver, OR drove on any shift in the last RECENT_DRIVER_DAYS (the
-     * owner drives some days and not others). Someone who never drives keeps auto clock-in.
-     *
-     * @param ?string $lastDroveDate Y-m-d of the most recent shift they drove, or null
-     */
-    public static function requiresManualClockIn(bool $isDriverFlag, ?string $lastDroveDate, string $today): bool
-    {
-        if ($isDriverFlag) {
-            return true;
-        }
-        if ($lastDroveDate === null) {
-            return false;
-        }
-        $days = (int)floor((strtotime($today) - strtotime(substr($lastDroveDate, 0, 10))) / 86400);
-        return $days >= 0 && $days <= self::RECENT_DRIVER_DAYS;
-    }
-
-    /** See requiresManualClockIn(). Fails CLOSED for flagged drivers, open for everyone else. */
-    public function mustClockInManually(int $userId, ?string $today = null): bool
-    {
-        $today = $today ?? date('Y-m-d');
-        $flag  = false;
-        try {
-            $u = $this->db->prepare("SELECT is_driver FROM users WHERE id = ?");
-            $u->execute([$userId]);
-            $flag = !empty($u->fetchColumn());
-
-            $d = $this->db->prepare("
-                SELECT GREATEST(
-                    COALESCE((SELECT MAX(shift_date) FROM shift_driver_declarations WHERE user_id = ? AND is_driving = 1), '1970-01-01'),
-                    COALESCE((SELECT DATE(MAX(pre_trip_at)) FROM vehicle_trip_reports WHERE driver_id = ?), '1970-01-01')
-                )
-            ");
-            $d->execute([$userId, $userId]);
-            $last = (string)$d->fetchColumn();
-            return self::requiresManualClockIn($flag, $last > '1970-01-01' ? $last : null, $today);
-        } catch (Throwable $e) {
-            error_log('TripReportService::mustClockInManually failed: ' . $e->getMessage());
-            return $flag;
-        }
-    }
-
     /** An open trip on ANY date — a trip begun before midnight is still open after it. */
     public function openTrip(int $userId): ?array
     {
