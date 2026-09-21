@@ -15,15 +15,27 @@
 
 import SwiftUI
 import UIKit
+import PhotosUI
 
 // MARK: - JobPhotoType
 
 /// Identifies which photo slot a capture belongs to.
 enum JobPhotoType: String, CaseIterable, Identifiable {
-    case before = "before"
-    case after  = "after"
+    case before     = "before"
+    case after      = "after"
+    /// Extra proof photos — any number. Same category the web app and Salt report use.
+    case additional = "additional"
 
     var id: String { rawValue }
+
+    /// Before/after hold one photo each (a retake replaces it); extras are a list.
+    var isSingleSlot: Bool { self != .additional }
+}
+
+/// An extra photo taken on this phone in this session (may still be uploading or queued).
+struct LocalExtraPhoto: Identifiable {
+    let id = UUID()
+    let image: UIImage
 }
 
 // MARK: - JobPhotoViewModel
@@ -35,15 +47,31 @@ final class JobPhotoViewModel: ObservableObject {
 
     @Published var beforeImage:  UIImage? = nil
     @Published var afterImage:   UIImage? = nil
-    @Published var isUploading:  Bool     = false
     @Published var errorMessage: String?  = nil
+
+    /// What the server already holds — so reopening a visit shows the photos taken earlier
+    /// instead of blank slots (and keeps the After slot unlocked).
+    @Published var remoteBefore: VisitPhoto? = nil
+    @Published var remoteAfter:  VisitPhoto? = nil
+    @Published var remoteExtras: [VisitPhoto] = []
+
+    /// Extras captured in this session, newest last.
+    @Published var localExtras: [LocalExtraPhoto] = []
 
     /// True when a photo is queued offline but not yet synced to the server.
     @Published var beforePendingSync: Bool = false
     @Published var afterPendingSync:  Bool = false
+    @Published var extrasPendingSync: Int  = 0
 
     /// Active camera slot — drives the fullScreenCover in JobPhotoSection.
     @Published var captureSlot: JobPhotoType? = nil
+
+    /// Bumped after each extra capture so the camera comes straight back for the next shot.
+    @Published var cameraSession: Int = 0
+    @Published var shotsThisSession: Int = 0
+
+    @Published private var uploadsInFlight: Int = 0
+    var isUploading: Bool { uploadsInFlight > 0 }
 
     // MARK: - Private
 
@@ -68,6 +96,7 @@ final class JobPhotoViewModel: ObservableObject {
                 guard let self else { return }
                 await JobPhotoQueue.shared.drain(using: self.apiClient)
                 self.refreshPendingState()
+                await self.loadExisting()
             }
         }
     }
@@ -83,25 +112,61 @@ final class JobPhotoViewModel: ObservableObject {
     private func refreshPendingState() {
         beforePendingSync = JobPhotoQueue.shared.hasQueued(visitId: visitId, photoType: .before)
         afterPendingSync  = JobPhotoQueue.shared.hasQueued(visitId: visitId, photoType: .after)
+        extrasPendingSync = JobPhotoQueue.shared.queuedCount(visitId: visitId, photoType: .additional)
     }
 
     // MARK: - Computed
 
-    var hasBeforePhoto: Bool { beforeImage != nil }
-    var hasAfterPhoto:  Bool { afterImage  != nil }
+    var hasBeforePhoto: Bool { beforeImage != nil || remoteBefore != nil || beforePendingSync }
+    var hasAfterPhoto:  Bool { afterImage  != nil || remoteAfter  != nil || afterPendingSync }
     var isComplete:     Bool { hasBeforePhoto && hasAfterPhoto }
+    var extraCount:     Int  { remoteExtras.count + localExtras.count }
+
+    // MARK: - Load
+
+    /// Photos already on the server. Silent on failure — offline just means "nothing to show yet".
+    func loadExisting() async {
+        guard let response: VisitPhotosResponse = try? await apiClient.request(.scheduleVisitPhotos(visitId: visitId)),
+              let photos = response.photos else { return }
+
+        remoteBefore = photos.last { $0.photoType == "before" }
+        remoteAfter  = photos.last { $0.photoType == "after" }
+        remoteExtras = photos.filter { $0.photoType == "additional" }
+        // The server list now includes everything this session uploaded.
+        if !isUploading && extrasPendingSync == 0 { localExtras = [] }
+    }
 
     // MARK: - Capture Handling
 
-    func handleCapture(_ image: UIImage, slot: JobPhotoType) {
-        captureSlot = nil  // dismiss picker first
+    func beginCapture(_ slot: JobPhotoType) {
+        shotsThisSession = 0
+        captureSlot = slot
+    }
 
+    func handleCapture(_ image: UIImage, slot: JobPhotoType) {
         switch slot {
-        case .before: beforeImage = image
-        case .after:  afterImage  = image
+        case .before:
+            captureSlot = nil
+            beforeImage = image
+        case .after:
+            captureSlot = nil
+            afterImage  = image
+        case .additional:
+            // Keep shooting: the camera reopens until the crew member taps Cancel.
+            localExtras.append(LocalExtraPhoto(image: image))
+            shotsThisSession += 1
+            cameraSession    += 1
         }
 
         Task { await upload(image: image, slot: slot) }
+    }
+
+    /// Photos picked from the library, several at once.
+    func addFromLibrary(_ images: [UIImage]) {
+        for image in images {
+            localExtras.append(LocalExtraPhoto(image: image))
+            Task { await upload(image: image, slot: .additional) }
+        }
     }
 
     func cancelCapture() {
@@ -113,8 +178,9 @@ final class JobPhotoViewModel: ObservableObject {
     private func upload(image: UIImage, slot: JobPhotoType) async {
         guard let data = image.jpegData(compressionQuality: 0.78) else { return }
 
-        isUploading  = true
+        uploadsInFlight += 1
         errorMessage = nil
+        defer { uploadsInFlight -= 1 }
 
         do {
             try await apiClient.uploadJobPhoto(imageData: data,
@@ -122,32 +188,31 @@ final class JobPhotoViewModel: ObservableObject {
                                                photoType: slot)
             // Success — clear any queued marker for this slot.
             switch slot {
-            case .before: beforePendingSync = false
-            case .after:  afterPendingSync  = false
+            case .before:     beforePendingSync = false
+            case .after:      afterPendingSync  = false
+            case .additional: break
             }
         } catch let err as APIError {
             if case .networkError = err {
                 // Offline — queue to disk and show a soft indicator instead of an error.
                 JobPhotoQueue.shared.enqueue(imageData: data, visitId: visitId, photoType: slot)
-                switch slot {
-                case .before: beforePendingSync = true
-                case .after:  afterPendingSync  = true
-                }
+                refreshPendingState()
             } else {
-                errorMessage = "Upload failed — retake the photo to try again."
+                errorMessage = slot.isSingleSlot
+                    ? "Upload failed — retake the photo to try again."
+                    : "A photo failed to upload — take it again."
             }
         } catch {
             errorMessage = "Upload failed — retake the photo to try again."
         }
-
-        isUploading = false
     }
 }
 
 // MARK: - JobPhotoSection View
 
 /// Embeds inside a visit card to provide the before/after photo proof UI.
-/// Pass `isActive` true when the visit timer is running to unlock the after-photo slot.
+/// Pass `isActive` true once the job has started (timer running OR visit in progress — an
+/// auto-stopped or reopened visit has no live timer but is still mid-job) to unlock After.
 struct JobPhotoSection: View {
 
     let visitId:     Int
@@ -162,6 +227,7 @@ struct JobPhotoSection: View {
     let onFlagToggle:   (() async -> Void)?
 
     @StateObject private var vm: JobPhotoViewModel
+    @State private var libraryItems: [PhotosPickerItem] = []
 
     init(visitId: Int, isActive: Bool, authSession: AuthSession,
          isFlagged: Bool = false, isFlagLoading: Bool = false,
@@ -196,12 +262,14 @@ struct JobPhotoSection: View {
             }
 
             // Queued / pending sync banner (no signal at capture time)
-            if vm.beforePendingSync || vm.afterPendingSync {
+            if vm.beforePendingSync || vm.afterPendingSync || vm.extrasPendingSync > 0 {
                 HStack(spacing: 6) {
                     Image(systemName: "arrow.triangle.2.circlepath")
                         .font(.caption)
                         .foregroundStyle(Color.MW.green)
-                    Text("Photo saved — will upload when signal returns")
+                    Text(vm.extrasPendingSync > 1
+                         ? "\(vm.extrasPendingSync) photos saved — will upload when signal returns"
+                         : "Photo saved — will upload when signal returns")
                         .font(.caption)
                         .foregroundStyle(Color.MW.green)
                 }
@@ -229,32 +297,131 @@ struct JobPhotoSection: View {
             // Photo slots + optional heart endorsement slot
             HStack(spacing: 12) {
                 photoSlot(label: "Before", slot: .before, image: vm.beforeImage,
-                          enabled: true)
+                          remote: vm.remoteBefore, enabled: true)
                 photoSlot(label: "After", slot: .after, image: vm.afterImage,
-                          enabled: isActive || vm.hasBeforePhoto)
+                          remote: vm.remoteAfter, enabled: isActive || vm.hasBeforePhoto)
                 if onFlagToggle != nil {
                     heartSlot()
                 }
             }
+
+            extrasStrip()
         }
-        // Camera picker — presented when captureSlot is non-nil
+        .task { await vm.loadExisting() }
+        // Camera — presented when captureSlot is non-nil. For extra photos it comes straight
+        // back after every shot (.id forces a fresh camera) until the crew member taps Cancel.
         .fullScreenCover(item: $vm.captureSlot) { slot in
             CameraPicker(
                 onCapture: { image in vm.handleCapture(image, slot: slot) },
                 onCancel:  { vm.cancelCapture() }
             )
+            .id(vm.cameraSession)
             .ignoresSafeArea()
+            .overlay(alignment: .top) {
+                if slot == .additional {
+                    Text(vm.shotsThisSession == 0
+                         ? "Take as many as you need — Cancel when done"
+                         : "\(vm.shotsThisSession) saved — keep going, or Cancel when done")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(.black.opacity(0.55))
+                        .clipShape(Capsule())
+                        .padding(.top, 54)
+                        .allowsHitTesting(false)
+                }
+            }
         }
+        .onChange(of: libraryItems) { _, items in
+            guard !items.isEmpty else { return }
+            Task {
+                var images: [UIImage] = []
+                for item in items {
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let image = UIImage(data: data) {
+                        images.append(image)
+                    }
+                }
+                vm.addFromLibrary(images)
+                libraryItems = []
+            }
+        }
+    }
+
+    // MARK: - Extra Photos
+
+    /// Any number of extra proof photos — salting and snow jobs routinely need four or more.
+    @ViewBuilder
+    private func extrasStrip() -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(vm.extraCount > 0 ? "More photos (\(vm.extraCount))" : "More photos")
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.secondary)
+
+            if vm.extraCount > 0 {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(vm.remoteExtras) { photo in
+                            AsyncImage(url: photo.thumbnailURL) { phase in
+                                if let img = phase.image {
+                                    img.resizable().scaledToFill()
+                                } else {
+                                    Color(.systemGray6)
+                                }
+                            }
+                            .frame(width: 72, height: 72)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                        }
+                        ForEach(vm.localExtras) { extra in
+                            Image(uiImage: extra.image)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: 72, height: 72)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                        }
+                    }
+                }
+            }
+
+            HStack(spacing: 10) {
+                Button {
+                    vm.beginCapture(.additional)
+                } label: {
+                    Label("Take photos", systemImage: "camera.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(Color.MW.green.opacity(0.10))
+                        .foregroundStyle(Color.MW.green)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+                .buttonStyle(.plain)
+
+                PhotosPicker(selection: $libraryItems, maxSelectionCount: 10, matching: .images) {
+                    Label("Choose", systemImage: "photo.on.rectangle")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(Color(.systemGray6))
+                        .foregroundStyle(.primary)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.top, 4)
     }
 
     // MARK: - Photo Slot
 
     private func photoSlot(label: String, slot: JobPhotoType,
-                           image: UIImage?, enabled: Bool) -> some View {
-        VStack(spacing: 6) {
+                           image: UIImage?, remote: VisitPhoto?, enabled: Bool) -> some View {
+        let filled = image != nil || remote != nil
+        return VStack(spacing: 6) {
             Button {
                 guard enabled else { return }
-                vm.captureSlot = slot
+                vm.beginCapture(slot)
             } label: {
                 ZStack {
                     if let img = image {
@@ -264,6 +431,19 @@ struct JobPhotoSection: View {
                             .frame(maxWidth: .infinity)
                             .frame(height: 110)
                             .clipped()
+                    } else if let remote {
+                        // Taken earlier (this phone or another) — show what the server holds.
+                        AsyncImage(url: remote.thumbnailURL) { phase in
+                            if let img = phase.image {
+                                img.resizable().scaledToFill()
+                            } else {
+                                Color.MW.green.opacity(0.08)
+                                    .overlay { ProgressView().tint(Color.MW.green) }
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 110)
+                        .clipped()
                     } else {
                         Rectangle()
                             .fill(enabled
@@ -293,10 +473,10 @@ struct JobPhotoSection: View {
                 .overlay(
                     RoundedRectangle(cornerRadius: 10)
                         .stroke(
-                            image != nil
+                            filled
                                 ? Color.MW.green.opacity(0.5)
                                 : (enabled ? Color.MW.green.opacity(0.25) : Color(.systemGray5)),
-                            lineWidth: image != nil ? 2 : 1
+                            lineWidth: filled ? 2 : 1
                         )
                 )
             }
@@ -304,18 +484,18 @@ struct JobPhotoSection: View {
 
             // Slot label + retake link
             HStack(spacing: 4) {
-                if image != nil {
+                if filled {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.caption2)
                         .foregroundStyle(Color.MW.green)
                 }
                 Text(label)
                     .font(.caption2.weight(.medium))
-                    .foregroundStyle(image != nil ? Color.MW.green : .secondary)
+                    .foregroundStyle(filled ? Color.MW.green : .secondary)
                 Spacer()
-                if image != nil && enabled {
+                if filled && enabled {
                     Button {
-                        vm.captureSlot = slot
+                        vm.beginCapture(slot)
                     } label: {
                         Text("Retake")
                             .font(.caption2)

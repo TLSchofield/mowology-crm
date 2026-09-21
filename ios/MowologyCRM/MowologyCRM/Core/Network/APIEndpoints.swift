@@ -26,6 +26,9 @@ enum APIEndpoint {
     /// POST /api/schedule/timer — start or stop a job timer.
     case scheduleTimer
 
+    /// GET /api/schedule/timer?mode=active — the job timer currently running for this user, if any.
+    case scheduleTimerActive
+
     /// POST /api/schedule/location — GPS ping for an active job visit.
     case scheduleLocation
 
@@ -134,6 +137,9 @@ enum APIEndpoint {
     /// POST /api/schedule/job-photo — upload a before/after job photo for a visit.
     case scheduleJobPhoto
 
+    /// GET /api/schedule/visit-photos?visit_id=N — proof photos already taken on a visit.
+    case scheduleVisitPhotos(visitId: Int)
+
     /// POST /api/schedule/invoice — invoice a completed visit (timed extras + invoice).
     /// Body: { action: "preview"|"create"|"send", ... }
     case scheduleInvoice
@@ -159,6 +165,9 @@ enum APIEndpoint {
 
         case .scheduleTimer:
             return URL(string: "\(baseURLString)/schedule/timer")
+
+        case .scheduleTimerActive:
+            return URL(string: "\(baseURLString)/schedule/timer?mode=active")
 
         case .scheduleLocation:
             return URL(string: "\(baseURLString)/schedule/location")
@@ -295,6 +304,11 @@ enum APIEndpoint {
         case .scheduleJobPhoto:
             return URL(string: "\(baseURLString)/schedule/job-photo")
 
+        case .scheduleVisitPhotos(let visitId):
+            var components = URLComponents(string: "\(baseURLString)/schedule/visit-photos")
+            components?.queryItems = [URLQueryItem(name: "visit_id", value: "\(visitId)")]
+            return components?.url
+
         case .scheduleInvoice:
             return URL(string: "\(baseURLString)/schedule/invoice")
         }
@@ -309,6 +323,7 @@ enum APIEndpoint {
         case .scheduleDay,
              .scheduleWeek,
              .scheduleTimer,
+             .scheduleTimerActive,
              .scheduleLocation,
              .scheduleCrewTrails,
              .scheduleClock,
@@ -343,6 +358,7 @@ enum APIEndpoint {
              .quizAction,
              .quizQuestion,
              .scheduleJobPhoto,
+             .scheduleVisitPhotos,
              .scheduleInvoice: return true
         }
     }
@@ -388,6 +404,8 @@ enum APIEndpoint {
              .scheduleInvoices,
              .scheduleQuotes,
              .recommendationOptions,
+             .scheduleVisitPhotos,
+             .scheduleTimerActive,
              .quizQuestion: return "GET"
 
         case .quizAction,

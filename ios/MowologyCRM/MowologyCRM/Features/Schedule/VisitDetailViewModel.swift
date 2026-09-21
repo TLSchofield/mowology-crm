@@ -121,6 +121,22 @@ final class VisitDetailViewModel: ObservableObject {
         }
     }
 
+    /// Picks a running timer back up when the visit is reopened. Without this the screen only
+    /// knew about timers it had started itself: leave and come back mid-job and the clock vanished
+    /// (and with it everything keyed to "job active").
+    func restoreActiveTimer() async {
+        guard activeTimerVisitId == nil,
+              let response: ActiveTimerResponse = try? await apiClient.request(.scheduleTimerActive),
+              let timer = response.activeTimer,
+              stop.visits.contains(where: { $0.visitId == timer.visitId }),
+              activeTimerVisitId == nil else { return }
+
+        visitStatuses[timer.visitId] = "in_progress"
+        activeTimerVisitId = timer.visitId
+        elapsedSeconds     = timer.elapsedSeconds
+        startTicking()
+    }
+
     // MARK: - Job Lifecycle
 
     func startJob(visitId: Int) async {

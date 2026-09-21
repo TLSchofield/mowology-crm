@@ -65,6 +65,7 @@ struct VisitDetailView: View {
         .navigationTitle(stop.propertyAddress)
         .navigationBarTitleDisplayMode(.inline)
         .task { await viewModel.checkClockStatus() }
+        .task { await viewModel.restoreActiveTimer() }
         .sheet(item: $completingVisit) { visit in
             VisitCompletionSheet(visit: visit, detailVM: viewModel, authSession: authSession)
         }
@@ -365,13 +366,13 @@ struct VisitDetailView: View {
                         .foregroundStyle(Color.MW.green)
                         .font(.caption)
                     Text(viewModel.elapsedFormatted)
-                        .font(.caption.monospacedDigit().bold())
+                        .font(.title3.monospacedDigit().bold())
                         .foregroundStyle(Color.MW.green)
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
                 .background(Color.MW.green.opacity(0.08))
-                .clipShape(Capsule())
+                .clipShape(RoundedRectangle(cornerRadius: 10))
             }
 
             // MARK: Action CTA — Start Job / Mark Complete
@@ -423,7 +424,9 @@ struct VisitDetailView: View {
                 Divider()
                 JobPhotoSection(
                     visitId:       visit.visitId,
-                    isActive:      isActive,
+                    // Started = live timer OR in progress: after an auto-stop (or reopening the
+                    // visit) there is no running timer, but the After photo must still be takeable.
+                    isActive:      isActive || currentStatus.lowercased() == "in_progress",
                     authSession:   authSession,
                     isFlagged:     isVisitFlagged,
                     isFlagLoading: isFlagLoading,

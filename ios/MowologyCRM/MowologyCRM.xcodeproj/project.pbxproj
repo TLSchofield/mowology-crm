@@ -89,6 +89,7 @@
 		73F667DAABAD64DFFE948DC8 /* DriverTripViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA1FEA98CD4D84F2A0103ED1 /* DriverTripViewModel.swift */; };
 		7CD9F411D6016E98906C22A5 /* DriverTripViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66C945B6DEF8E98EDA5B4703 /* DriverTripViews.swift */; };
 		D8B21C3836B6C99DDFAF50D4 /* TripReportQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 245438D48DD3B44093FF2524 /* TripReportQueue.swift */; };
+		749703D048C54F664513A2E3 /* VisitPhotoModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8430857E0D97DF947A7B4621 /* VisitPhotoModels.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -176,6 +177,7 @@
 		EA1FEA98CD4D84F2A0103ED1 /* DriverTripViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DriverTripViewModel.swift; sourceTree = "<group>"; };
 		66C945B6DEF8E98EDA5B4703 /* DriverTripViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DriverTripViews.swift; sourceTree = "<group>"; };
 		245438D48DD3B44093FF2524 /* TripReportQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripReportQueue.swift; sourceTree = "<group>"; };
+		8430857E0D97DF947A7B4621 /* VisitPhotoModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitPhotoModels.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -372,6 +374,7 @@
 				DB6AF667E337C1F96A05D1C8 /* VisitWorkModels.swift */,
 				173ED9749D2FCD6CB159716F /* TrackingModels.swift */,
 				7BC272EA420E499A61D098AC /* TripReportModels.swift */,
+				8430857E0D97DF947A7B4621 /* VisitPhotoModels.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -552,6 +555,7 @@
 				73F667DAABAD64DFFE948DC8 /* DriverTripViewModel.swift in Sources */,
 				7CD9F411D6016E98906C22A5 /* DriverTripViews.swift in Sources */,
 				D8B21C3836B6C99DDFAF50D4 /* TripReportQueue.swift in Sources */,
+				749703D048C54F664513A2E3 /* VisitPhotoModels.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

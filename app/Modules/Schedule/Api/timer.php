@@ -42,7 +42,8 @@ try {
     $idempKey = trim($_SERVER['HTTP_IDEMPOTENCY_KEY'] ?? '');
 
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {
-        $action = trim($_GET['action'] ?? '');
+        // ?mode= — the /api router's QSA rewrite owns `action`, so ?action=active never arrived.
+        $action = trim($_GET['mode'] ?? $_GET['action'] ?? '');
     } else {
         $input  = json_decode(file_get_contents('php://input'), true) ?? [];
         $action = trim($input['action'] ?? '');

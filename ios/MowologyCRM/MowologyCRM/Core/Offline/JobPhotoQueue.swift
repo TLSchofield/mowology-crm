@@ -29,7 +29,7 @@ final class JobPhotoQueue: ObservableObject {
         let id: String           // idempotency / file key
         let imageFilename: String
         let visitId: Int
-        let photoType: String    // JobPhotoType.rawValue — "before" or "after"
+        let photoType: String    // JobPhotoType.rawValue — before | after | additional
         let queuedAt: Date
     }
 
@@ -53,15 +53,16 @@ final class JobPhotoQueue: ObservableObject {
     // MARK: - Enqueue
 
     /// Saves an image to disk and records the pending upload.
-    /// Replaces any existing queued item for the same visit + slot so there is
-    /// always at most one pending upload per slot (the most recent capture).
+    /// Before/after are single slots: a retake replaces the queued capture. Extra photos
+    /// are a list — every one is kept (a salting run queues four or more with no signal).
     func enqueue(imageData: Data, visitId: Int, photoType: JobPhotoType) {
-        // Remove any stale entry for this slot and clean up its file.
         var current = items
-        for stale in current where stale.visitId == visitId && stale.photoType == photoType.rawValue {
-            QueueStorage.remove(stale.imageFilename)
+        if photoType.isSingleSlot {
+            for stale in current where stale.visitId == visitId && stale.photoType == photoType.rawValue {
+                QueueStorage.remove(stale.imageFilename)
+            }
+            current.removeAll { $0.visitId == visitId && $0.photoType == photoType.rawValue }
         }
-        current.removeAll { $0.visitId == visitId && $0.photoType == photoType.rawValue }
 
         // Write the new image file.
         let id       = UUID().uuidString
@@ -81,6 +82,11 @@ final class JobPhotoQueue: ObservableObject {
     /// Returns true if there is a photo queued for this visit + slot.
     func hasQueued(visitId: Int, photoType: JobPhotoType) -> Bool {
         items.contains { $0.visitId == visitId && $0.photoType == photoType.rawValue }
+    }
+
+    /// How many photos of this type are still waiting for signal.
+    func queuedCount(visitId: Int, photoType: JobPhotoType) -> Int {
+        items.filter { $0.visitId == visitId && $0.photoType == photoType.rawValue }.count
     }
 
     // MARK: - Drain

@@ -54,8 +54,8 @@ try {
         exit;
     }
 
-    $allowed = ['before', 'after', 'during', 'issue', 'other'];
-    if (!in_array($photoType, $allowed, true)) {
+    require_once APP_ROOT . '/Modules/Jobs/Services/VisitPhotoService.php';
+    if (!VisitPhotoService::isUploadType($photoType)) {
         $photoType = 'other';
     }
 

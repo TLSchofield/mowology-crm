@@ -16,7 +16,7 @@ declare(strict_types=1);
  *   "photos": [
  *     {
  *       "id": 1,
- *       "photo_type": "before",
+ *       "photo_type": "before",          // before | after | additional
  *       "photo_url": "/uploads/photos/mob_42_before_abc.jpg",
  *       "thumb_url": "/uploads/photos/t/42/mob_42_before_abc_t.webp"
  *     }
@@ -61,51 +61,33 @@ if ($visitId < 1) {
 }
 
 try {
-    $db = getDB();
+    require_once CRM_INCLUDES . '/functions.php';
+    require_once APP_ROOT . '/Modules/Jobs/Services/VisitWorkService.php';
+    require_once APP_ROOT . '/Modules/Jobs/Services/VisitPhotoService.php';
 
-    // Verify the requesting user has access to this visit
-    $authCheck = $db->prepare("
-        SELECT jv.id
-        FROM job_visits jv
-        JOIN job_plans jp ON jv.plan_id = jp.id
-        WHERE jv.id = ?
-          AND (jv.assigned_crew_id = ? OR ? IN (SELECT id FROM users WHERE role IN ('admin','manager')))
-        LIMIT 1
-    ");
-    $authCheck->execute([$visitId, $jwtUser['id'], $jwtUser['id']]);
-    if (!$authCheck->fetch()) {
+    $db      = getDB();
+    $userId  = (int)$jwtUser['id'];
+    $isAdmin = jwtIsAdmin((string)$jwtUser['role']);
+
+    // Same access rule as the Work Record: assigned crew, anyone on the stop's crew, or office.
+    $work  = new VisitWorkService($db);
+    $visit = $work->loadVisit($visitId);
+    if (!$visit) {
+        http_response_code(404);
+        echo json_encode(['error' => 'That visit is no longer available.']);
+        exit;
+    }
+    $stopCrew = $work->stopCrewIds(isset($visit['stop_id']) ? (int)$visit['stop_id'] : null);
+    if (!VisitWorkService::canAccess($visit, $userId, $isAdmin, $stopCrew)) {
         http_response_code(403);
         echo json_encode(['error' => 'Not authorized for this visit']);
         exit;
     }
 
-    $stmt = $db->prepare("
-        SELECT id, photo_type, filename, thumb_path, grid_path
-        FROM visit_photos
-        WHERE visit_id = ?
-          AND deleted_at IS NULL
-          AND photo_type IN ('before', 'after')
-        ORDER BY photo_type ASC, id ASC
-    ");
-    $stmt->execute([$visitId]);
-    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-    $photos = [];
-    foreach ($rows as $row) {
-        $baseUrl  = '/uploads/photos/' . $row['filename'];
-        $thumbUrl = $row['thumb_path'] ?? $baseUrl;
-        $photos[] = [
-            'id'         => (int)$row['id'],
-            'photo_type' => $row['photo_type'],
-            'photo_url'  => $baseUrl,
-            'thumb_url'  => $thumbUrl,
-        ];
-    }
-
     echo json_encode([
         'success'  => true,
         'visit_id' => $visitId,
-        'photos'   => $photos,
+        'photos'   => (new VisitPhotoService($db))->listForVisit($visitId),
     ]);
 
 } catch (Throwable $e) {
