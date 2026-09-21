@@ -211,7 +211,7 @@ final class LocationManager: NSObject, ObservableObject {
 
     private func addWaiter(_ id: UUID, _ continuation: CheckedContinuation<CLLocation, Error>) {
         waiters.updateValue(continuation, forKey: id)
-        clManager.requestLocation()
+        freshFixNow()
         Task { [weak self] in
             try? await Task.sleep(nanoseconds: 10_000_000_000)   // ONE_SHOT_TIMEOUT
             self?.timeOutWaiter(id)
@@ -227,7 +227,22 @@ final class LocationManager: NSObject, ObservableObject {
     func nudge() {
         guard canUseLocation else { return }
         diagnostics.nudges += 1
-        clManager.requestLocation()
+        freshFixNow()
+    }
+
+    /// One fresh fix, WITHOUT ending continuous tracking. requestLocation() is a one-shot:
+    /// after it delivers, CoreLocation stops location services — including a running
+    /// startUpdatingLocation(). Device test 2026-09-20: a walking crew member produced a fix
+    /// every ~35 s (exactly the nudge cadence) instead of every 8 m, and nothing at all when a
+    /// nudge could not be answered (indoors / airplane mode). While tracking, restart the
+    /// stream instead — startUpdatingLocation() always delivers an initial fix.
+    private func freshFixNow() {
+        if isUpdating {
+            clManager.stopUpdatingLocation()
+            clManager.startUpdatingLocation()
+        } else {
+            clManager.requestLocation()
+        }
     }
 
     private func resolveWaiters(with result: Result<CLLocation, Error>) {
