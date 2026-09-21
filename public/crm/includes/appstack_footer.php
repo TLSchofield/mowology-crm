@@ -121,7 +121,7 @@
   <!-- Shared branded date-picker: instantiate with `new MwDatePicker(trigger, opts)`.
        Styles in mowology-brand.css (.mw-datepicker-*). -->
   <script src="/crm/js/mw-datepicker.js?v=20260731b"></script>
-  <script src="/crm/js/time-clock-widget.min.js?v=20260919e"></script>
+  <script src="/crm/js/time-clock-widget.min.js?v=20260921a"></script>
   <script src="/crm/js/mw-trip-log.js?v=20260919a"></script>
   <script src="/crm/js/capacitor-bridge.js?v=20260921a"></script>
   <!-- Camera permission guard: turns Android's cryptic "Access denied" into actionable guidance -->

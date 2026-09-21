@@ -95,6 +95,7 @@
             if (data.clocked_in) {
                 clockInTime = new Date(data.clock_in.replace(' ', 'T'));
                 renderClockedIn(data.elapsed_seconds, data.active_job);
+                askDrivingIfUnasked(data);
             } else {
                 renderClockedOut();
             }
@@ -954,6 +955,34 @@
      * Server detected proximity and auto-started a visit timer.
      * Update widget UI and notify other components (e.g., schedule pill workflow).
      */
+    /**
+     * "Are you driving this shift?" — asked whenever someone is on the clock and has not answered,
+     * NOT only after pressing Clock In. Arrival detection clocks people in without that button
+     * (device test 2026-09-21: the driver opened the app on site, was clocked in and started on a
+     * job in the same second, and was never asked; the pre-trip got filed after the drive). The
+     * commercial log is a legal record, so the question follows the shift, not the button.
+     *
+     * Once per shift per tab-session unless still unanswered on a later page; never on the
+     * vehicle-log pages themselves.
+     */
+    var drivingAskInFlight = false;
+    function askDrivingIfUnasked(status) {
+        if (!status || status.driving_shift !== 'unasked') return;
+        if (!window.MwTripLog || !window.MW_USER_ID || drivingAskInFlight) return;
+        if (!isFieldDevice()) return;                       // the office desktop is not a cab
+        if (/\/crm\/driver-(log|log-post|portal)\.php/.test(window.location.pathname)) return;
+
+        var key = 'mw_driving_asked_' + window.MW_USER_ID + '_' + String(status.clock_in || '').slice(0, 10);
+        try { if (sessionStorage.getItem(key)) return; } catch (e) {}
+
+        drivingAskInFlight = true;
+        window.MwTripLog.afterClockIn({ driver_question_required: true }, window.MW_USER_ID).then(function (url) {
+            try { sessionStorage.setItem(key, '1'); } catch (e) {}
+            drivingAskInFlight = false;
+            if (url) window.location.href = url;
+        }, function () { drivingAskInFlight = false; });
+    }
+
     function handleServerAutoStart(info) {
         console.log('[MwTracking] Server auto-started visit ' + info.visit_id +
                     ' (' + info.job_title + ') at ' + info.distance_meters + 'm');
@@ -961,6 +990,7 @@
         lastAutoStartVisitId = info.visit_id;
         hasActiveJobTimer = true;
 
+        if (info.clock_in_created) { setTimeout(fetchStatus, 1500); }
         if (info.clock_in_created) {
             clockInTime = new Date();
         }
