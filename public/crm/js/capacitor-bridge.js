@@ -1174,7 +1174,17 @@
                 '-webkit-tap-highlight-color:transparent;min-width:200px;">' +
                 'Download Update' +
             '</a>' +
-            '<p style="margin:1.25rem 0 0;font-size:.75rem;color:#5a8870;">You must update to continue using this app.</p>';
+            // Android downloads the file but does NOT install it by itself. Without these steps
+            // people tap Download, land back on this screen and assume it failed (2026-09-21).
+            '<ol style="margin:1.4rem 0 0;padding:0 0 0 1.2rem;max-width:300px;text-align:left;' +
+                'font-size:.85rem;line-height:1.6;color:#c8e8de;">' +
+                '<li>Tap <b>Download Update</b>.</li>' +
+                '<li>When it finishes, pull down the notification bar and tap the downloaded file ' +
+                    '(also in Files &rarr; Downloads).</li>' +
+                '<li>If asked, choose <b>Settings &rarr; Allow from this source</b>, go back and tap <b>Install</b>.</li>' +
+                '<li>Open the app again and sign in.</li>' +
+            '</ol>' +
+            '<p style="margin:1.1rem 0 0;font-size:.75rem;color:#5a8870;">You must update to continue using this app.</p>';
 
         document.body.style.overflow = 'hidden';
         document.body.appendChild(el);
