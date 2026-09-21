@@ -114,6 +114,20 @@ final class LocationManager: NSObject, ObservableObject {
     private var lastAcceptedFix:      CLLocation?
     private var sessionWorstAccuracy: Double = 0
 
+    /// Where fixes go, since tracking last started — shown in the Time Clock diagnostics so a
+    /// hole in the route can be explained from the phone (the server only sees what arrived).
+    struct Diagnostics {
+        var delivered = 0        // handed over by iOS
+        var accepted  = 0        // passed the quality filter
+        var droppedAccuracy = 0
+        var droppedOld      = 0
+        var droppedJump     = 0
+        var nudges    = 0
+        var failures  = 0        // didFailWithError (excluding transient "unknown")
+    }
+    private(set) var diagnostics = Diagnostics()
+    func resetDiagnostics() { diagnostics = Diagnostics() }
+
     private let ACCURACY_HARD_LIMIT: Double  = 200   // always reject
     private let ACCURACY_SOFT_LIMIT: Double  = 50    // reject if stationary
     private let SPEED_FOR_SOFT_PASS: Double  = 0.5   // m/s — accept >50 m if moving
@@ -212,6 +226,7 @@ final class LocationManager: NSObject, ObservableObject {
     /// silence on a job site, where the distance filter would otherwise say nothing.
     func nudge() {
         guard canUseLocation else { return }
+        diagnostics.nudges += 1
         clManager.requestLocation()
     }
 
@@ -398,20 +413,22 @@ final class LocationManager: NSObject, ObservableObject {
     /// Invalid (negative accuracy), stale, wildly inaccurate, stationary-and-vague,
     /// or physically impossible fixes never reach the record.
     private func shouldAccept(_ fix: CLLocation) -> Bool {
-        if fix.horizontalAccuracy < 0 { return false }
-        if fix.horizontalAccuracy > ACCURACY_HARD_LIMIT { return false }
+        if fix.horizontalAccuracy < 0 { diagnostics.droppedAccuracy += 1; return false }
+        if fix.horizontalAccuracy > ACCURACY_HARD_LIMIT { diagnostics.droppedAccuracy += 1; return false }
         // The 15 s rule exists for the cached fix CoreLocation replays on start. Mid-session,
         // a fix iOS delivers late (batched while suspended) is still a true position at its
         // own timestamp — keep it as long as it moves the record forward.
         let age = -fix.timestamp.timeIntervalSinceNow
         if let prev = lastAcceptedFix {
-            if age > 600 || fix.timestamp <= prev.timestamp { return false }
+            if age > 600 || fix.timestamp <= prev.timestamp { diagnostics.droppedOld += 1; return false }
         } else if age > MAX_FIX_AGE {
+            diagnostics.droppedOld += 1
             return false
         }
 
         let speed = fix.speed >= 0 ? fix.speed : 0
         if fix.horizontalAccuracy > ACCURACY_SOFT_LIMIT && speed < SPEED_FOR_SOFT_PASS {
+            diagnostics.droppedAccuracy += 1
             return false
         }
 
@@ -419,6 +436,7 @@ final class LocationManager: NSObject, ObservableObject {
             let distance = fix.distance(from: prev)
             let elapsed  = fix.timestamp.timeIntervalSince(prev.timestamp)
             if elapsed > 0 && (distance / elapsed) > TELEPORT_SPEED_LIMIT {
+                diagnostics.droppedJump += 1
                 return false  // teleport — GPS multi-path artifact
             }
         }
@@ -452,7 +470,9 @@ extension LocationManager: CLLocationManagerDelegate {
             // iOS hands over several fixes at once when it has been batching (screen off,
             // app suspended). Each is a true position at its own timestamp — taking only the
             // last one threw the rest of the route away.
+            self.diagnostics.delivered += locations.count
             for fix in locations.sorted(by: { $0.timestamp < $1.timestamp }) where self.shouldAccept(fix) {
+                self.diagnostics.accepted += 1
                 self.lastAcceptedFix = fix
                 self.lastLocation    = fix
                 self.onAcceptedFix?(fix)
@@ -472,6 +492,7 @@ extension LocationManager: CLLocationManagerDelegate {
         // requestLocation() calls fail almost every time indoors.
         if let clErr = error as? CLError, clErr.code == .locationUnknown { return }
         Task { @MainActor in
+            self.diagnostics.failures += 1
             self.resolveWaiters(with: .failure(LocationError.locationUnavailable))
         }
     }

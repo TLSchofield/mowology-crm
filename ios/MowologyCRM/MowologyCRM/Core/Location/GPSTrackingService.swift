@@ -64,6 +64,10 @@ final class GPSTrackingService: ObservableObject {
     @Published private(set) var queueDepth = 0
     @Published private(set) var lastFixAt: Date?
     @Published private(set) var lastUploadAt: Date?
+    /// Diagnostics (Time Clock card): how uploads have gone since tracking last started.
+    @Published private(set) var uploadsOk = 0
+    @Published private(set) var uploadsFailed = 0
+    @Published private(set) var lastUploadError: String?
 
     /// Set when a proximity auto-start fires; observers mirror the running timer.
     @Published private(set) var autoStartedPayload: AutoStartedPayload? = nil
@@ -132,6 +136,8 @@ final class GPSTrackingService: ObservableObject {
 
         isTracking    = true
         trackingSince = Date()
+        uploadsOk = 0; uploadsFailed = 0; lastUploadError = nil
+        locationManager.resetDiagnostics()
         // Pick the job back up if one was running when the app last stopped; the server
         // corrects this on the next policy if the timer has since ended.
         let resumedVisit = UserDefaults.standard.integer(forKey: Self.kActiveVisit)
@@ -370,6 +376,7 @@ final class GPSTrackingService: ObservableObject {
                 queueDepth = FixStore.shared.count
 
                 if response.success {
+                    uploadsOk += 1
                     lastUploadAt = Date()
                     UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: Self.kLastPingAt)
                 }
@@ -380,6 +387,8 @@ final class GPSTrackingService: ObservableObject {
                 // Keep draining a backlog, but never spin on a batch that isn't shrinking.
                 if done.isEmpty || batch.count < 150 { break }
             } catch {
+                uploadsFailed  += 1
+                lastUploadError = String(describing: error).prefix(80).description
                 break   // offline / server error — every fix is still on disk
             }
         }

@@ -133,6 +133,16 @@ struct TrackingStatusCard: View {
                 diagnosticRow("Last fix", age(of: tracking.lastFixAt))
                 diagnosticRow("Last upload", age(of: tracking.lastUploadAt))
                 diagnosticRow("Waiting to upload", "\(tracking.queueDepth)")
+                let d = tracking.locationManager.diagnostics
+                diagnosticRow("Mode", tracking.tier.rawValue + (tracking.activeVisitId.map { " · visit \($0)" } ?? ""))
+                diagnosticRow("Fixes from iOS / kept", "\(d.delivered) / \(d.accepted)")
+                diagnosticRow("Dropped: vague / old / jump", "\(d.droppedAccuracy) / \(d.droppedOld) / \(d.droppedJump)")
+                diagnosticRow("Nudges / location errors", "\(d.nudges) / \(d.failures)")
+                diagnosticRow("Uploads ok / failed", "\(tracking.uploadsOk) / \(tracking.uploadsFailed)")
+                if let err = tracking.lastUploadError {
+                    diagnosticRow("Last upload error", err)
+                }
+                diagnosticRow("Build", Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?")
                 if ProcessInfo.processInfo.isLowPowerModeEnabled {
                     diagnosticRow("Low Power Mode", "on — background updates may slow")
                 }
