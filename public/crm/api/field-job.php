@@ -91,172 +91,27 @@ try {
         if ($cached !== null) { echo $cached; exit; }
     }
 
-    /**
-     * Build the createJobPlan payload shared by create_job / create_client_job.
-     * The visit is assigned to the acting crew member so it lands on their
-     * schedule. createJobPlan() generates the visit(s) itself (one-time plans
-     * get a single visit on plan_start_date; recurring plans expand the
-     * recurrence), so we do not insert visits separately here.
-     */
-    $buildPlanData = function (int $propertyId) use ($input, $userId): array {
-        $serviceType = trim((string)($input['service_type'] ?? ''));
-        $title       = trim((string)($input['title'] ?? ''));
-        if ($title === '') $title = $serviceType !== '' ? $serviceType : 'Field job';
+    // All rules live in FieldJobService — shared with the iOS endpoint (/api/schedule/field-job).
+    require_once APP_ROOT . '/Modules/Jobs/Services/FieldJobService.php';
+    $result = (new FieldJobService($db))->handle(
+        (string)$action,
+        $input,
+        $userId,
+        (string)($user['full_name'] ?? $user['email'] ?? 'crew')
+    );
 
-        $date = trim((string)($input['date'] ?? ''));
-        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) $date = date('Y-m-d');
-
-        $recurring = !empty($input['recurring']);
-        $freq      = (string)($input['frequency'] ?? 'weekly');
-        if (!in_array($freq, ['weekly', 'biweekly', 'monthly'], true)) $freq = 'weekly';
-
-        // Per-visit price (NET / pre-GST, same convention as the desktop create form).
-        // Optional — left blank in the field means an un-priced plan the office prices later.
-        $price = (isset($input['price']) && $input['price'] !== '' && is_numeric($input['price']))
-            ? round((float)$input['price'], 2)
-            : null;
-        if ($price !== null && $price < 0) $price = null;
-
-        $planData = [
-            'property_id'    => $propertyId,
-            'title'          => $title,
-            'service_type'   => $serviceType,
-            'description'    => trim((string)($input['notes'] ?? '')),
-            'plan_start_date'=> $date,
-            'default_crew_id'=> $userId,
-            'crew_ids'       => [$userId],
-            'pricing_model'  => 'per_visit',
-            'price_per_visit'=> $price,
-            'estimated_amount'=> $price,
-            'is_recurring'   => $recurring ? 1 : 0,
-        ];
-
-        if ($recurring) {
-            $planData['recurrence_pattern']      = $freq; // weekly|biweekly|monthly
-            $planData['recurrence_interval']     = 1;
-            $planData['recurrence_interval_unit']= $freq === 'monthly' ? 'months' : 'weeks';
-            $planData['recurrence_day_of_week']  = (int)date('w', strtotime($date)); // 0=Sun..6=Sat
-        }
-
-        return $planData;
-    };
-
-    $respond = function (array $response) use ($db, $idempKey, $userId, $action): void {
-        $json = json_encode($response);
-        if ($idempKey !== '' && !empty($response['success'])) {
-            idempotencyStore($db, $idempKey, $userId, 'field-job', (string)$action, $json);
-        }
-        echo $json;
+    if (empty($result['success'])) {
+        http_response_code((int)($result['status'] ?? 422));
+        echo json_encode(['success' => false, 'error' => $result['error'] ?? 'Could not save.']);
         exit;
-    };
-
-    switch ($action) {
-
-        case 'add_visit': {
-            $planId = (int)($input['plan_id'] ?? 0);
-            $date   = trim((string)($input['date'] ?? ''));
-            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) $date = date('Y-m-d');
-
-            if ($planId <= 0) {
-                http_response_code(400);
-                echo json_encode(['success' => false, 'error' => 'A plan is required.']);
-                exit;
-            }
-
-            $result = addAdHocVisit($planId, $date, $userId, $userId);
-            if (!$result['success']) {
-                http_response_code(422);
-                echo json_encode(['success' => false, 'error' => implode(' ', $result['errors'])]);
-                exit;
-            }
-            $respond([
-                'success'      => true,
-                'visit_id'     => $result['visit_id'],
-                'visit_number' => $result['visit_number'],
-            ]);
-            break;
-        }
-
-        case 'create_job': {
-            $propertyId = (int)($input['property_id'] ?? 0);
-            if ($propertyId <= 0 || trim((string)($input['service_type'] ?? '')) === '') {
-                http_response_code(400);
-                echo json_encode(['success' => false, 'error' => 'Property and service are required.']);
-                exit;
-            }
-
-            $result = createJobPlan($buildPlanData($propertyId), $userId);
-            if (!$result['success']) {
-                http_response_code(422);
-                echo json_encode(['success' => false, 'error' => implode(' ', $result['errors'])]);
-                exit;
-            }
-            $respond([
-                'success'     => true,
-                'plan_id'     => $result['plan_id'],
-                'plan_number' => $result['plan_number'],
-            ]);
-            break;
-        }
-
-        case 'create_client_job': {
-            $firstName = trim((string)($input['first_name'] ?? ''));
-            $address   = trim((string)($input['property_address'] ?? ''));
-            if ($firstName === '' || $address === '' || trim((string)($input['service_type'] ?? '')) === '') {
-                http_response_code(400);
-                echo json_encode(['success' => false, 'error' => 'Name, address and service are required.']);
-                exit;
-            }
-
-            $lat = isset($input['lat']) && $input['lat'] !== '' ? (float)$input['lat'] : null;
-            $lng = isset($input['lng']) && $input['lng'] !== '' ? (float)$input['lng'] : null;
-
-            $contactService = new ContactService($db);
-            $contactId = $contactService->createContact([
-                'first_name'           => $firstName,
-                'last_name'            => trim((string)($input['last_name'] ?? '')),
-                'phone'                => trim((string)($input['phone'] ?? '')),
-                'preferred_contact_method' => 'phone',
-                'notes'                => 'Created in the field by ' . ($user['full_name'] ?? $user['email'] ?? 'crew') . ' — please review.',
-                'property_address'     => $address,
-                'property_city'        => trim((string)($input['property_city'] ?? 'Vancouver')) ?: 'Vancouver',
-                'property_postal_code' => trim((string)($input['property_postal_code'] ?? '')),
-                'property_latitude'    => $lat,
-                'property_longitude'   => $lng,
-            ]);
-
-            // The brand-new contact has exactly one property — fetch its id.
-            $pStmt = $db->prepare("SELECT id FROM properties WHERE site_contact_id = ? ORDER BY id DESC LIMIT 1");
-            $pStmt->execute([$contactId]);
-            $propertyId = (int)$pStmt->fetchColumn();
-
-            if ($propertyId <= 0) {
-                http_response_code(500);
-                echo json_encode(['success' => false, 'error' => 'Client saved but property could not be created.']);
-                exit;
-            }
-
-            $result = createJobPlan($buildPlanData($propertyId), $userId);
-            if (!$result['success']) {
-                http_response_code(422);
-                echo json_encode(['success' => false, 'error' => implode(' ', $result['errors'])]);
-                exit;
-            }
-            $respond([
-                'success'     => true,
-                'contact_id'  => $contactId,
-                'property_id' => $propertyId,
-                'plan_id'     => $result['plan_id'],
-                'plan_number' => $result['plan_number'],
-            ]);
-            break;
-        }
-
-        default:
-            http_response_code(400);
-            echo json_encode(['success' => false, 'error' => 'Unknown action.']);
-            exit;
     }
+
+    $json = json_encode($result);
+    if ($idempKey !== '') {
+        idempotencyStore($db, $idempKey, $userId, 'field-job', (string)$action, $json);
+    }
+    echo $json;
+    exit;
 
 } catch (Throwable $e) {
     error_log('field-job.php error: ' . $e->getMessage());

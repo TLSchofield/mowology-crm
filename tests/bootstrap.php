@@ -87,6 +87,7 @@ require_once __DIR__ . '/../app/Modules/Jobs/Services/PlanHelpersService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/VisitLifecycleService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/VisitWorkService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/VisitPhotoService.php';
+require_once __DIR__ . '/../app/Modules/Jobs/Services/FieldJobService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/SeasonalOutlookService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/SeasonalOutlookRefreshService.php';
 

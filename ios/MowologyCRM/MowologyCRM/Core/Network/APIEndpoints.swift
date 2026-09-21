@@ -135,6 +135,12 @@ enum APIEndpoint {
     case quizQuestion(sessionId: Int, q: Int)
 
     /// POST /api/schedule/job-photo — upload a before/after job photo for a visit.
+    /// GET /api/schedule/field-job?mode=nearby — properties near a GPS fix, with their active plans.
+    case fieldJobNearby(lat: Double, lng: Double)
+
+    /// POST /api/schedule/field-job — add_visit | create_job | create_client_job.
+    case fieldJobAction
+
     case scheduleJobPhoto
 
     /// GET /api/schedule/visit-photos?visit_id=N — proof photos already taken on a visit.
@@ -301,6 +307,18 @@ enum APIEndpoint {
             ]
             return components?.url
 
+        case .fieldJobNearby(let lat, let lng):
+            var components = URLComponents(string: "\(baseURLString)/schedule/field-job")
+            components?.queryItems = [
+                URLQueryItem(name: "mode", value: "nearby"),
+                URLQueryItem(name: "lat",  value: "\(lat)"),
+                URLQueryItem(name: "lng",  value: "\(lng)"),
+            ]
+            return components?.url
+
+        case .fieldJobAction:
+            return URL(string: "\(baseURLString)/schedule/field-job")
+
         case .scheduleJobPhoto:
             return URL(string: "\(baseURLString)/schedule/job-photo")
 
@@ -359,6 +377,8 @@ enum APIEndpoint {
              .quizQuestion,
              .scheduleJobPhoto,
              .scheduleVisitPhotos,
+             .fieldJobNearby,
+             .fieldJobAction,
              .scheduleInvoice: return true
         }
     }
@@ -406,11 +426,13 @@ enum APIEndpoint {
              .recommendationOptions,
              .scheduleVisitPhotos,
              .scheduleTimerActive,
+             .fieldJobNearby,
              .quizQuestion: return "GET"
 
         case .quizAction,
              .recommendationCreate,
              .scheduleJobPhoto,
+             .fieldJobAction,
              .scheduleInvoice: return "POST"
         }
     }

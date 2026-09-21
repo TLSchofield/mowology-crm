@@ -91,6 +91,8 @@
 		D8B21C3836B6C99DDFAF50D4 /* TripReportQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 245438D48DD3B44093FF2524 /* TripReportQueue.swift */; };
 		749703D048C54F664513A2E3 /* VisitPhotoModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8430857E0D97DF947A7B4621 /* VisitPhotoModels.swift */; };
 		5E5513AA92D51C8F55D65093 /* SignOutViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CE45B0F4BAE7DC01EC49714 /* SignOutViewModel.swift */; };
+		9B2524CB95F635B8CBEDB452 /* FieldJobView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E36D1B08DD110B8CD45FA79 /* FieldJobView.swift */; };
+		634DD082AE134A3F57A57C81 /* FieldJobModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFF2F6AC837E5C4831AFC76A /* FieldJobModels.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -180,6 +182,8 @@
 		245438D48DD3B44093FF2524 /* TripReportQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripReportQueue.swift; sourceTree = "<group>"; };
 		8430857E0D97DF947A7B4621 /* VisitPhotoModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitPhotoModels.swift; sourceTree = "<group>"; };
 		5CE45B0F4BAE7DC01EC49714 /* SignOutViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignOutViewModel.swift; sourceTree = "<group>"; };
+		7E36D1B08DD110B8CD45FA79 /* FieldJobView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FieldJobView.swift; sourceTree = "<group>"; };
+		CFF2F6AC837E5C4831AFC76A /* FieldJobModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FieldJobModels.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -332,6 +336,7 @@
 				A8BB2AC6F5B2A933301F642A /* RecommendationSection.swift */,
 				AB2823D3497805DBBA0F6047 /* VisitWorkViewModel.swift */,
 				6C133E57A28A6AF23D6B4CAF /* VisitWorkView.swift */,
+				7E36D1B08DD110B8CD45FA79 /* FieldJobView.swift */,
 			);
 			path = Schedule;
 			sourceTree = "<group>";
@@ -378,6 +383,7 @@
 				173ED9749D2FCD6CB159716F /* TrackingModels.swift */,
 				7BC272EA420E499A61D098AC /* TripReportModels.swift */,
 				8430857E0D97DF947A7B4621 /* VisitPhotoModels.swift */,
+				CFF2F6AC837E5C4831AFC76A /* FieldJobModels.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -560,6 +566,8 @@
 				D8B21C3836B6C99DDFAF50D4 /* TripReportQueue.swift in Sources */,
 				749703D048C54F664513A2E3 /* VisitPhotoModels.swift in Sources */,
 				5E5513AA92D51C8F55D65093 /* SignOutViewModel.swift in Sources */,
+				9B2524CB95F635B8CBEDB452 /* FieldJobView.swift in Sources */,
+				634DD082AE134A3F57A57C81 /* FieldJobModels.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -19,6 +19,8 @@ struct ScheduleView: View {
 
     /// Navigation path — owned here so a tapped notification can open a stop directly.
     @State private var path: [Stop] = []
+    /// "Add a job / visit on the spot" sheet.
+    @State private var showingFieldJob = false
     @ObservedObject private var notificationRouter = NotificationRouter.shared
 
     private let impactLight  = UIImpactFeedbackGenerator(style: .light)
@@ -110,6 +112,12 @@ struct ScheduleView: View {
                 viewModel.startPolling()
             } else {
                 viewModel.stopPolling()
+            }
+        }
+        .sheet(isPresented: $showingFieldJob) {
+            FieldJobView(authSession: authSession) {
+                // A visit or job was just added for today — show it.
+                Task { await viewModel.invalidateAndRefresh() }
             }
         }
         .sheet(isPresented: $showDatePicker) {
@@ -213,6 +221,17 @@ struct ScheduleView: View {
                     .foregroundStyle(.primary)
             }
             .buttonStyle(.plain)
+        }
+
+        ToolbarItem(placement: .navigationBarTrailing) {
+            Button {
+                impactMedium.impactOccurred()
+                showingFieldJob = true
+            } label: {
+                Image(systemName: "plus.circle.fill")
+                    .foregroundStyle(Color.MW.green)
+            }
+            .accessibilityLabel("Add a job")
         }
 
         ToolbarItem(placement: .navigationBarTrailing) {

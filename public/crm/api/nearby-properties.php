@@ -31,15 +31,15 @@ try {
 
     $lat = isset($_GET['lat']) && $_GET['lat'] !== '' ? (float)$_GET['lat'] : null;
     $lng = isset($_GET['lng']) && $_GET['lng'] !== '' ? (float)$_GET['lng'] : null;
-    $radius = isset($_GET['radius']) && $_GET['radius'] !== '' ? (int)$_GET['radius'] : 250;
-    if ($radius <= 0 || $radius > 5000) $radius = 250;
+    require_once APP_ROOT . '/Modules/Jobs/Services/FieldJobService.php';
+    $radius = FieldJobService::resolveRadius($_GET['radius'] ?? 0);
 
     if ($lat === null || $lng === null) {
         echo json_encode(['success' => true, 'results' => []]);
         exit;
     }
 
-    $results = findNearbyProperties($lat, $lng, $radius, 15);
+    $results = (new FieldJobService(getDB()))->nearby($lat, $lng, $radius);
 
     echo json_encode(['success' => true, 'results' => $results]);
 
