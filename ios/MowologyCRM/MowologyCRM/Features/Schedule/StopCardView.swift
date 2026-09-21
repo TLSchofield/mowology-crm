@@ -20,16 +20,29 @@ struct StopCardView: View {
 
             // MARK: Top Row — Address + Arrival
             HStack(alignment: .top) {
+                // Who, then where: crews know a stop by the building or client, not the street number.
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(stop.propertyAddress)
-                        .font(.body.bold())
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
+                    if let headline = stop.headline {
+                        Text(headline)
+                            .font(.body.bold())
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
 
-                    Text(stop.propertyCity)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                        Text(stop.fullAddress)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    } else {
+                        Text(stop.propertyAddress)
+                            .font(.body.bold())
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+
+                        Text(stop.propertyCity)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                 }
 
                 Spacer()
@@ -74,8 +87,9 @@ struct StopCardView: View {
             // MARK: Bottom Row — Client + Crew + Visit Count
             HStack(alignment: .center, spacing: 0) {
 
-                // Client / Contact Name
-                if let name = stop.displayName {
+                // Client / Contact Name — only when it isn't already the card's headline
+                // (a named building still shows who the client is down here).
+                if let name = stop.displayName, name != stop.headline {
                     Label(name, systemImage: "person.fill")
                         .font(.caption)
                         .foregroundStyle(.secondary)

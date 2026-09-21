@@ -69,6 +69,18 @@ struct Stop: Codable, Identifiable, Hashable {
         return contactName
     }
 
+    /// What the crew call this stop: the building name if it has one, else the company, else the
+    /// client. nil when there is nothing better than the street address.
+    var headline: String? {
+        let address = propertyAddress.trimmingCharacters(in: .whitespaces).lowercased()
+        for candidate in [propertyName, companyName, contactName] {
+            guard let name = candidate?.trimmingCharacters(in: .whitespaces), !name.isEmpty,
+                  name.lowercased() != address else { continue }
+            return name
+        }
+        return nil
+    }
+
     /// Returns true when all visits for this stop are completed.
     var isComplete: Bool {
         !visits.isEmpty && visits.allSatisfy { $0.visitStatus.lowercased() == "completed" }
