@@ -97,7 +97,13 @@ class FieldSearchService
 
         $where  = [
             "p.address LIKE ?", "p.property_name LIKE ?", "p.city LIKE ?", "p.postal_code LIKE ?",
-            "CONCAT_WS(' ', ct.first_name, ct.last_name) LIKE ?", "co.company_name LIKE ?",
+            "CONCAT_WS(' ', ct.first_name, ct.last_name) LIKE ?",
+            // A property's company is linked two ways in this database: the company_properties
+            // junction (what the schedule reads) and the older properties.company_id column.
+            "EXISTS (SELECT 1 FROM companies co
+                      WHERE co.company_name LIKE ?
+                        AND (co.id = p.company_id
+                             OR co.id IN (SELECT cp.company_id FROM company_properties cp WHERE cp.property_id = p.id)))",
             "EXISTS (SELECT 1 FROM job_plans jp2 WHERE jp2.property_id = p.id AND jp2.plan_number LIKE ?)",
             "EXISTS (SELECT 1 FROM job_visits jv2 JOIN job_plans jp3 ON jp3.id = jv2.plan_id
                       WHERE jp3.property_id = p.id AND jv2.visit_number LIKE ?)",
@@ -115,8 +121,7 @@ class FieldSearchService
         $ids = $this->db->prepare("
             SELECT p.id
             FROM properties p
-            LEFT JOIN contacts ct  ON ct.id = p.site_contact_id
-            LEFT JOIN companies co ON co.id = p.company_id
+            LEFT JOIN contacts ct ON ct.id = p.site_contact_id
             WHERE (p.status IS NULL OR p.status <> 'archived')
               AND (" . implode(' OR ', $where) . ")
             LIMIT 200
@@ -149,10 +154,12 @@ class FieldSearchService
             SELECT p.id, p.property_name, p.address, p.city, p.latitude, p.longitude,
                    TRIM(CONCAT_WS(' ', ct.first_name, ct.last_name)) AS contact_name,
                    COALESCE(NULLIF(ct.mobile, ''), ct.phone) AS phone,
-                   co.company_name
+                   (SELECT co.company_name FROM companies co
+                     WHERE co.id = COALESCE(
+                         (SELECT MIN(cp.company_id) FROM company_properties cp WHERE cp.property_id = p.id),
+                         p.company_id)) AS company_name
             FROM properties p
-            LEFT JOIN contacts ct  ON ct.id = p.site_contact_id
-            LEFT JOIN companies co ON co.id = p.company_id
+            LEFT JOIN contacts ct ON ct.id = p.site_contact_id
             WHERE p.id IN ($in)
         ");
         $stmt->execute($propertyIds);

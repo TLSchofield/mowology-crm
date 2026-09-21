@@ -53,7 +53,9 @@ if (!function_exists('mwServiceHistoryLine')) {
         $today   = (string)($history['today'] ?? '');
         $h       = static fn (string $s): string => htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
 
-        $out  = '<div class="mw-svc-hist" role="img" aria-label="' . $h(($label !== '' ? $label . ': ' : '') . $summary) . '">';
+        // data-nosearch: the schedule's text filter must not match on the grid's day numbers,
+        // weekday letters or legend ("15", "done", "last" would hit every card).
+        $out  = '<div class="mw-svc-hist" data-nosearch role="img" aria-label="' . $h(($label !== '' ? $label . ': ' : '') . $summary) . '">';
         $out .= '<div class="mw-svc-hist-head' . ($warning ? ' mw-svc-hist-head--warn' : '') . '">'
               . $h(($label !== '' ? $label . ' — ' : '') . $summary) . '</div>';
         $out .= '<div class="mw-svc-hist-grid"><span></span>';

@@ -3959,7 +3959,7 @@ function mwTogglePurchaseItem(checkbox) {
     });
 }
 </script>
-<script src="../js/mw-schedule-search.js?v=20260422a" defer></script>
+<script src="../js/mw-schedule-search.js?v=20260921a" defer></script>
 <script src="../js/navigation-launcher.js?v=20260225c" defer></script>
 <script src="../js/route-engine.js?v=20260219a" defer></script>
 <script src="../js/schedule-route-map.js?v=20260716a" defer></script>
