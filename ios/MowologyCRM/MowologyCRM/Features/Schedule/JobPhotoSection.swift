@@ -460,6 +460,9 @@ struct JobPhotoSection: View {
                                         .foregroundStyle(enabled
                                                          ? Color.MW.green
                                                          : Color(.systemGray3))
+                                    Text(label)
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(enabled ? Color.MW.green : Color(.systemGray2))
                                     if !enabled {
                                         Text("Start job first")
                                             .font(.caption2)
@@ -467,6 +470,30 @@ struct JobPhotoSection: View {
                                     }
                                 }
                             }
+                    }
+                }
+                // Label + retake sit ON the photo — a caption bar, not a row underneath — so the
+                // tiles can be taller and nothing wraps ("Be-fore", "Re-take") on a narrow phone.
+                .overlay(alignment: .bottom) {
+                    if filled {
+                        HStack(spacing: 4) {
+                            Image(systemName: "checkmark.circle.fill")
+                            Text(label).lineLimit(1)
+                            Spacer(minLength: 2)
+                            if enabled {
+                                Image(systemName: "arrow.triangle.2.circlepath.camera.fill")
+                                    .accessibilityLabel("Retake")
+                            }
+                        }
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.top, 14)
+                        .padding(.bottom, 6)
+                        .background(
+                            LinearGradient(colors: [.clear, .black.opacity(0.65)],
+                                           startPoint: .top, endPoint: .bottom)
+                        )
                     }
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -480,30 +507,9 @@ struct JobPhotoSection: View {
                         )
                 )
             }
+            .buttonStyle(.plain)
             .disabled(!enabled || vm.isUploading)
-
-            // Slot label + retake link
-            HStack(spacing: 4) {
-                if filled {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.caption2)
-                        .foregroundStyle(Color.MW.green)
-                }
-                Text(label)
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(filled ? Color.MW.green : .secondary)
-                Spacer()
-                if filled && enabled {
-                    Button {
-                        vm.beginCapture(slot)
-                    } label: {
-                        Text("Retake")
-                            .font(.caption2)
-                            .foregroundStyle(Color.MW.green)
-                    }
-                    .disabled(vm.isUploading)
-                }
-            }
+            .accessibilityLabel(filled ? "\(label) photo — tap to retake" : "Take \(label.lowercased()) photo")
         }
         .frame(maxWidth: .infinity)
     }
@@ -529,9 +535,13 @@ struct JobPhotoSection: View {
                             .scaleEffect(0.85)
                             .tint(Color.MW.orange)
                     } else {
-                        Image(systemName: isFlagged ? "heart.fill" : "heart")
-                            .font(.system(size: 32))
-                            .foregroundStyle(isFlagged ? Color.MW.orange : Color(.systemGray3))
+                        VStack(spacing: 4) {
+                            Image(systemName: isFlagged ? "heart.fill" : "heart")
+                                .font(.system(size: 28))
+                            Text(isFlagged ? "Endorsed" : "Endorse")
+                                .font(.caption.weight(.semibold))
+                        }
+                        .foregroundStyle(isFlagged ? Color.MW.orange : Color(.systemGray2))
                     }
                 }
                 .overlay(
@@ -546,10 +556,6 @@ struct JobPhotoSection: View {
             .scaleEffect(isFlagLoading ? 1.0 : 1.0)
             .disabled(isFlagLoading)
 
-            Text(isFlagged ? "Endorsed" : "Endorse")
-                .font(.caption2.weight(.medium))
-                .foregroundStyle(isFlagged ? Color.MW.orange : .secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity)
     }
