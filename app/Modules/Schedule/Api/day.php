@@ -90,6 +90,22 @@ uasort($dayStops, static function (array $a, array $b): int {
     return ($a['route_order'] ?? 999) - ($b['route_order'] ?? 999);
 });
 
+// ── Service history (last two weeks per plan) ─────────────────────────────────
+// Optional garnish: the schedule must load even if this fails.
+$historyByVisit = [];
+try {
+    require_once APP_ROOT . '/Modules/Jobs/Services/ServiceHistoryService.php';
+    $allVisitIds = [];
+    foreach ($dayStops as $stop) {
+        foreach (($stop['visits'] ?? []) as $v) {
+            $allVisitIds[] = (int)($v['visit_id'] ?? 0);
+        }
+    }
+    $historyByVisit = (new ServiceHistoryService(getDB()))->forVisits($allVisitIds, date('Y-m-d'));
+} catch (Throwable $e) {
+    error_log('[schedule/day] service history failed: ' . $e->getMessage());
+}
+
 // ── Shape response ────────────────────────────────────────────────────────────
 $stops = [];
 foreach ($dayStops as $stop) {
@@ -116,6 +132,7 @@ foreach ($dayStops as $stop) {
                 : null,
             'is_flagged'          => (bool)($v['is_flagged'] ?? false),
             'contact_has_reviewed'=> (bool)($v['contact_has_reviewed'] ?? false),
+            'history'             => $historyByVisit[(int)($v['visit_id'] ?? 0)] ?? null,
         ];
     }
 

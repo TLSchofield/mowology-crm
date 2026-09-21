@@ -91,6 +91,19 @@ struct Stop: Codable, Identifiable, Hashable {
         return (head == c || head.contains(c) || c.contains(head)) ? nil : client
     }
 
+    /// The "last done" line for the collapsed card. With several services on one stop, a skip
+    /// wins (it changes what the crew will find); otherwise the first visit still to be done.
+    var historyLine: (text: String, service: String?, warning: Bool)? {
+        let open = visits.filter { !["completed", "skipped", "cancelled"].contains($0.visitStatus.lowercased()) }
+        let pool = open.isEmpty ? visits : open
+        guard let pick = pool.first(where: { $0.history?.summaryIsWarning == true })
+                      ?? pool.first(where: { $0.history?.summary != nil }),
+              let summary = pick.history?.summary else { return nil }
+        // Name the service only when the stop has more than one, so the line isn't ambiguous.
+        let service = visits.count > 1 ? (pick.planTitle ?? pick.serviceType) : nil
+        return (summary, service, pick.history?.summaryIsWarning == true)
+    }
+
     /// Returns true when all visits for this stop are completed.
     var isComplete: Bool {
         !visits.isEmpty && visits.allSatisfy { $0.visitStatus.lowercased() == "completed" }

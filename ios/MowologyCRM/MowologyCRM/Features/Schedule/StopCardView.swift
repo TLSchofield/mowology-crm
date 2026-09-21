@@ -82,6 +82,18 @@ struct StopCardView: View {
                 .allowsHitTesting(false)
             }
 
+            // MARK: Last done
+            if let line = stop.historyLine {
+                HStack(spacing: 5) {
+                    Image(systemName: line.warning ? "exclamationmark.circle.fill" : "clock.arrow.circlepath")
+                        .font(.caption2)
+                    Text(line.service.map { "\($0): \(line.text)" } ?? line.text)
+                        .font(.caption)
+                        .lineLimit(1)
+                }
+                .foregroundStyle(line.warning ? Color.MW.orange : .secondary)
+            }
+
             Divider()
 
             // MARK: Bottom Row — Client + Crew + Visit Count

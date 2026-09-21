@@ -552,6 +552,10 @@ $orStatusLabel = ($orStatus === 'enrolled') ? 'Active Program' : (($orStatus ===
                 </div>
                 <!-- Line 2: Street address -->
                 <div class="mw-mc-compact-line2"><?php echo $fullAddress; ?></div>
+                <?php // When was this last done — see partials/service-history.php
+                if (!empty($mwServiceHistory) && function_exists('mwServiceHistoryLine')) {
+                    echo mwServiceHistoryLine($stop, $mwServiceHistory);
+                } ?>
             </div>
 
         </div>
@@ -602,6 +606,18 @@ $orStatusLabel = ($orStatus === 'enrolled') ? 'Active Program' : (($orStatus ===
                     <?php echo htmlspecialchars($durationDisplay); ?>
                 </div>
             <?php endif; ?>
+
+            <?php // Two calendar weeks per service on this stop (a lawn visit and a salting visit
+                  // each get their own grid — a green Tuesday must say which one it was).
+            if (!empty($mwServiceHistory) && function_exists('mwServiceHistoryGrid')) {
+                $_shMany = count($stop['visits'] ?? []) > 1;
+                foreach (($stop['visits'] ?? []) as $_shVisit) {
+                    echo mwServiceHistoryGrid(
+                        $mwServiceHistory[(int)($_shVisit['visit_id'] ?? 0)] ?? null,
+                        $_shMany ? (string)($_shVisit['plan_title'] ?? '') : ''
+                    );
+                }
+            } ?>
 
             <?php if ($lawnSqFtDisplay): ?>
                 <div class="mw-mc-lawn-sqft">

@@ -6190,3 +6190,90 @@ button.mw-mc-or-full-tile:active { opacity: 0.82; }
 @keyframes mw-inv-spin {
     to { transform: rotate(360deg); }
 }
+
+/* ── Service history (partials/service-history.php) ─────────────────────────
+   Collapsed card: one "Last done …" line. Expanded card: two rows of seven —
+   last week over this week, Monday → Sunday. Green = done, orange = skipped,
+   dashed = scheduled, ring = today. */
+.mw-svc-hist-line {
+    margin-top: 2px;
+    font-size: 12px;
+    color: var(--mw-ink-500);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.mw-svc-hist-line--warn,
+.mw-svc-hist-head--warn { color: var(--mw-orange); font-weight: 600; }
+
+.mw-svc-hist {
+    margin: 8px 0;
+    padding: 10px;
+    border-radius: 10px;
+    background: var(--mw-light);
+}
+.mw-svc-hist-head {
+    margin-bottom: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--mw-ink-500);
+}
+.mw-svc-hist-grid {
+    display: grid;
+    grid-template-columns: 34px repeat(7, 1fr);
+    gap: 5px;
+    align-items: center;
+}
+.mw-svc-hist-dow,
+.mw-svc-hist-week {
+    font-size: 10px;
+    color: var(--mw-ink-500);
+}
+.mw-svc-hist-dow { text-align: center; }
+.mw-svc-hist-cell {
+    position: relative;
+    height: 26px;
+    line-height: 26px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    text-align: center;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--mw-ink-500);
+    opacity: 0.75;
+}
+.mw-svc-hist-cell--completed   { background: var(--mw-green);  color: var(--mw-ink-0); opacity: 1; }
+.mw-svc-hist-cell--in_progress { background: var(--mw-lime);   color: var(--mw-forest); opacity: 1; }
+.mw-svc-hist-cell--skipped     { background: var(--mw-orange); color: var(--mw-ink-0); opacity: 1; }
+.mw-svc-hist-cell--scheduled   { border: 1px dashed var(--mw-dark); opacity: 1; }
+.mw-svc-hist-cell--today       { box-shadow: 0 0 0 2px var(--mw-forest); font-weight: 700; opacity: 1; }
+.mw-svc-hist-count {
+    position: absolute;
+    top: -5px;
+    right: -4px;
+    min-width: 14px;
+    height: 14px;
+    line-height: 14px;
+    border-radius: 7px;
+    background: var(--mw-ink-0);
+    color: var(--mw-green);
+    font-size: 9px;
+    font-weight: 700;
+    font-style: normal;
+    box-shadow: 0 0 0 1px var(--mw-green);
+}
+.mw-svc-hist-legend {
+    display: flex;
+    gap: 12px;
+    margin-top: 8px;
+    font-size: 10px;
+    color: var(--mw-ink-500);
+}
+.mw-svc-hist-legend span { display: inline-flex; align-items: center; gap: 4px; }
+.mw-svc-hist-key {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    border: 1px solid transparent;
+}

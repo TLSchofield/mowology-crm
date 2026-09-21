@@ -359,6 +359,11 @@ struct VisitDetailView: View {
                 }
             }
 
+            // When was this last done — two calendar weeks of THIS service at this property.
+            if let history = visit.history, !history.weeks.isEmpty {
+                ServiceHistoryGrid(history: history)
+            }
+
             // Live elapsed timer
             if isActive {
                 HStack(spacing: 6) {

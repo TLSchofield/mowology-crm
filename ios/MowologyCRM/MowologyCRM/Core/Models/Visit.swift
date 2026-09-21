@@ -21,6 +21,8 @@ struct Visit: Codable, Identifiable, Hashable {
     let isFlagged: Bool
     /// Client has already left a Google review — shown as "Review received" reward.
     let contactHasReviewed: Bool
+    /// Last two calendar weeks of this visit's plan + the one-line "last done" summary.
+    let history: ServiceHistory?
 
     var id: Int { visitId }
 
@@ -36,6 +38,7 @@ struct Visit: Codable, Identifiable, Hashable {
         case scheduledStart       = "scheduled_start"
         case isFlagged            = "is_flagged"
         case contactHasReviewed   = "contact_has_reviewed"
+        case history
     }
 
     // Direct init for previews and unit tests (not used in production decoding).
@@ -43,7 +46,8 @@ struct Visit: Codable, Identifiable, Hashable {
          planTitle: String? = nil, planNumber: String? = nil,
          visitStatus: String = "scheduled", estimatedDuration: Int? = nil,
          pricePerVisit: Double? = nil, scheduledStart: String? = nil,
-         isFlagged: Bool = false, contactHasReviewed: Bool = false) {
+         isFlagged: Bool = false, contactHasReviewed: Bool = false,
+         history: ServiceHistory? = nil) {
         self.visitId            = visitId
         self.visitNumber        = visitNumber
         self.serviceType        = serviceType
@@ -55,6 +59,7 @@ struct Visit: Codable, Identifiable, Hashable {
         self.scheduledStart     = scheduledStart
         self.isFlagged          = isFlagged
         self.contactHasReviewed = contactHasReviewed
+        self.history            = history
     }
 
     // Graceful decode: older schedule API responses that lack these fields default to false.
@@ -71,6 +76,7 @@ struct Visit: Codable, Identifiable, Hashable {
         scheduledStart     = try? c.decode(String.self,  forKey: .scheduledStart)
         isFlagged          = (try? c.decode(Bool.self,   forKey: .isFlagged))          ?? false
         contactHasReviewed = (try? c.decode(Bool.self,   forKey: .contactHasReviewed)) ?? false
+        history            = try? c.decode(ServiceHistory.self, forKey: .history)
     }
 
     // MARK: - Computed UI Properties
