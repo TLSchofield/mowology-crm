@@ -487,39 +487,51 @@ struct VisitDetailView: View {
         switch currentStatus.lowercased() {
         case "scheduled":
             VStack(spacing: 8) {
-                Button {
-                    Task { await viewModel.startJob(visitId: visit.visitId) }
-                } label: {
-                    Group {
-                        if isThisLoading {
-                            HStack(spacing: 8) {
-                                ProgressView().tint(.white)
-                                Text("Starting…").font(.subheadline.bold())
-                            }
-                        } else {
-                            Label("Start Job", systemImage: "play.fill")
-                                .font(.subheadline.bold())
+                // Two big tiles, the size of the photo squares: easy to hit with gloves on, and
+                // far enough apart that Skip isn't pressed by accident. Start sits on the right,
+                // under the thumb.
+                HStack(spacing: 12) {
+                    Button {
+                        skippingVisit = visit
+                    } label: {
+                        VStack(spacing: 6) {
+                            Image(systemName: "forward.end.fill")
+                                .font(.title2)
+                            Text("Skip Visit")
+                                .font(.subheadline.weight(.semibold))
                         }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(Color.MW.green)
-                    .foregroundStyle(.white)
-                    .clipShape(Capsule())
-                }
-                .disabled(isThisLoading)
-
-                Button {
-                    skippingVisit = visit
-                } label: {
-                    Label("Skip Visit", systemImage: "forward.end.fill")
-                        .font(.subheadline.weight(.semibold))
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
+                        .frame(height: 110)
                         .foregroundStyle(.secondary)
-                        .overlay(Capsule().stroke(Color(.separator), lineWidth: 1))
+                        .background(Color(.systemGray6))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(.separator), lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isThisLoading)
+
+                    Button {
+                        Task { await viewModel.startJob(visitId: visit.visitId) }
+                    } label: {
+                        VStack(spacing: 6) {
+                            if isThisLoading {
+                                ProgressView().tint(.white)
+                                Text("Starting…").font(.headline)
+                            } else {
+                                Image(systemName: "play.fill")
+                                    .font(.title)
+                                Text("Start Job").font(.headline)
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 110)
+                        .foregroundStyle(.white)
+                        .background(Color.MW.green)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isThisLoading)
                 }
-                .disabled(isThisLoading)
 
                 // Clock warning — shown only when we know the clock is off.
                 if viewModel.isClockedIn == false {
