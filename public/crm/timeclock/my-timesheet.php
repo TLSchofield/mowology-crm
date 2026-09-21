@@ -45,7 +45,7 @@ function mwTsTime(?string $dt): string {
 }
 
 $pageTitle  = 'My Timesheet';
-$activePage = 'schedule';
+$activePage = 'timeclock';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 

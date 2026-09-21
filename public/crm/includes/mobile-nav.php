@@ -23,7 +23,8 @@ $mobilePageTitles = [
     'profitability' => 'Profitability',
     'leaderboard'   => 'Leaderboard',
     'schedule'      => 'Schedule',
-    'timeclock'     => 'My Schedule',
+    'timeclock'     => 'Time Clock',
+    'search'        => 'Search',
     'team'          => 'Team',
     'map'           => 'Territory Map',
     'products'      => 'Products',
@@ -49,20 +50,20 @@ $initials   = strtoupper(substr($userParts[0], 0, 1) . (isset($userParts[1]) ? s
 $_mobileUserRole = $user['role'] ?? 'user';
 $_isCrew = ($_mobileUserRole === 'user');
 
-// Bottom nav items — keep tight: just the 4 most used
-// Crew members see Driver Portal instead of Clients
+// Bottom nav — the same five tabs, in the same order, as the iOS app, the Schedule page and
+// Home Base: Schedule · Time Clock · Search · Receipts · Account. Everything else (clients,
+// quotes, vehicle log, settings, sign out…) lives in the slide-up menu behind Account.
 $bottomNav = [
-    ['key' => 'schedule',  'label' => 'Schedule', 'href' => '/crm/jobs/schedule.php',
+    ['key' => 'schedule', 'label' => 'Schedule',   'href' => '/crm/jobs/schedule.php',
      'icon' => '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>'],
-    $_isCrew
-        ? ['key' => 'driver',    'label' => 'Portal',   'href' => '/crm/driver-portal.php',
-           'icon' => '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>']
-        : ['key' => 'clients',   'label' => 'Clients',  'href' => '/crm/clients_appstack.php',
-           'icon' => '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>'],
-    ['key' => 'expenses',  'label' => 'Receipt',  'href' => '/crm/expenses_appstack.php?mode=quick&return=' . urlencode($_SERVER['REQUEST_URI'] ?? '/crm/dashboard_appstack.php'),
+    ['key' => 'timeclock', 'label' => 'Time Clock', 'href' => '/crm/homebase.php',
+     'icon' => '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>'],
+    ['key' => 'search',   'label' => 'Search',     'href' => '/crm/search.php',
+     'icon' => '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>'],
+    ['key' => 'expenses', 'label' => 'Receipts',   'href' => '/crm/expenses_appstack.php?mode=quick&return=' . urlencode($_SERVER['REQUEST_URI'] ?? '/crm/dashboard_appstack.php'),
      'icon' => '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>'],
-    ['key' => '__menu__',  'label' => 'Menu',     'href' => '#',
-     'icon' => '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>'],
+    ['key' => '__menu__', 'label' => 'Account',    'href' => '#',
+     'icon' => '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>'],
 ];
 
 // Menu grid items (all nav sections shown in the slide-up)
@@ -94,12 +95,10 @@ $menuItems = [
     // Admin only — handled separately below as file-picker button
 ];
 
-// Add Driver Portal tile for non-crew (admin/office) users. Crew already have
-// it in the bottom bar (line 59), so showing it again in the grid is noise.
-if (!$_isCrew) {
-    $menuItems[] = ['key' => 'driver', 'label' => 'Driver', 'href' => '/crm/driver-portal.php',
-        'icon' => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>'];
-}
+// Vehicle log for everyone — the bottom bar no longer carries it (it now mirrors the iOS tabs).
+$menuItems[] = ['key' => 'driver', 'label' => 'Vehicle log', 'href' => '/crm/driver-portal.php',
+    'icon' => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>'];
+
 ?>
 
 <!-- ── Mobile Top Bar ── -->
@@ -124,7 +123,7 @@ if (!$_isCrew) {
         $isMenu   = $btn['key'] === '__menu__';
         $cls      = 'mw-mobile-nav-btn' . ($isActive ? ' mw-mobile-nav-active' : '');
         if ($isMenu): ?>
-        <button type="button" class="<?php echo $cls; ?>" id="mwMobileMenuBtnBottom" aria-label="Menu">
+        <button type="button" class="<?php echo $cls; ?>" id="mwMobileMenuBtnBottom" aria-label="Account and menu">
             <?php echo $btn['icon']; ?>
             <span><?php echo $btn['label']; ?></span>
         </button>

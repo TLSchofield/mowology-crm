@@ -37341,3 +37341,175 @@ span.mw-icon-box--missing {
 .mw-myts-job-dur { font-size: 0.8rem; color: var(--mw-ink-700); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 .mw-myts-foot { margin: 18px 4px 0; font-size: 0.78rem; color: var(--mw-ink-500); text-align: center; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Field Search (search.php + mw-field-search.js) — the crew Search tab.
+   Mirrors the iOS Search tab: a box, Near you / Recent, ranked rows, and a
+   property page with action tiles, plans and the two-week history grid.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.mw-fs { max-width: 640px; margin: 0 auto; padding-bottom: 24px; }
+
+.mw-fs-box {
+  display: flex; align-items: center; gap: 8px; padding: 0 12px;
+  background: var(--mw-ink-0); border: 1px solid var(--mw-ink-200); border-radius: 12px;
+  color: var(--mw-ink-500);
+}
+.mw-fs-box:focus-within { border-color: var(--mw-green); }
+.mw-fs-input {
+  flex: 1; min-width: 0; height: 48px; border: 0; outline: 0; background: transparent;
+  font-size: var(--mw-text-md); color: var(--mw-ink-900);
+}
+.mw-fs-clear { border: 0; background: transparent; font-size: 1.5rem; line-height: 1; color: var(--mw-ink-500); padding: 4px 6px; }
+
+.mw-fs-status { min-height: 18px; margin: 8px 4px; font-size: 0.75rem; color: var(--mw-ink-500); }
+
+.mw-fs-section { margin-bottom: 14px; background: var(--mw-ink-0); border: 1px solid var(--mw-ink-200); border-radius: 12px; overflow: hidden; }
+.mw-fs-section-head {
+  display: flex; justify-content: space-between; align-items: center; padding: 10px 14px 6px;
+  font-size: 0.7rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--mw-ink-500);
+}
+.mw-fs-linkbtn { border: 0; background: transparent; padding: 0; font-size: 0.75rem; color: var(--mw-green); text-transform: none; letter-spacing: 0; }
+
+.mw-fs-row {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; width: 100%;
+  padding: 12px 14px; border: 0; border-top: 1px solid var(--mw-ink-100); background: transparent; text-align: left;
+}
+.mw-fs-row:active { background: var(--mw-light); }
+.mw-fs-row-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.mw-fs-row-title { font-weight: 600; color: var(--mw-ink-900); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mw-fs-row-sub  { font-size: 0.85rem; color: var(--mw-ink-700); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mw-fs-row-meta { font-size: 0.75rem; color: var(--mw-ink-500); }
+.mw-fs-row-meta:empty { display: none; }
+.mw-fs-row-dist { flex-shrink: 0; font-size: 0.75rem; color: var(--mw-ink-500); font-variant-numeric: tabular-nums; }
+.mw-fs-today {
+  display: inline-block; margin-left: 4px; padding: 1px 6px; border-radius: 10px; vertical-align: middle;
+  font-size: 0.6rem; font-weight: 700; background: var(--mw-green); color: var(--mw-ink-0);
+}
+
+.mw-fs-hint { padding: 36px 16px; text-align: center; font-size: 0.9rem; color: var(--mw-ink-500); }
+.mw-fs-hint--warn { color: var(--mw-orange); font-weight: 600; }
+
+/* Property page — covers the list; the bottom tab bar stays visible underneath it. */
+.mw-fs-detail { position: fixed; inset: 0; z-index: 1050; overflow-y: auto; padding: 0 12px 110px; background: var(--mw-ink-50); }
+.mw-fs-detail-head {
+  position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 6px; margin: 0 -12px 12px; padding: 10px 12px;
+  background: var(--mw-ink-0); border-bottom: 1px solid var(--mw-ink-200); font-weight: 700; color: var(--mw-ink-900);
+}
+.mw-fs-back { width: 44px; height: 44px; border: 0; background: transparent; font-size: 2rem; line-height: 1; color: var(--mw-green); }
+.mw-fs-card { margin-bottom: 12px; padding: 14px; background: var(--mw-ink-0); border: 1px solid var(--mw-ink-200); border-radius: 12px; }
+.mw-fs-card .mw-fs-section-head { padding: 0 0 8px; }
+.mw-fs-title { font-size: 1.15rem; font-weight: 700; color: var(--mw-ink-900); }
+.mw-fs-notes { font-size: 0.9rem; color: var(--mw-ink-700); white-space: pre-wrap; }
+
+/* Big tiles — pressed with gloves on, like Start / Skip in the iOS app. */
+.mw-fs-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 12px; }
+.mw-fs-tile {
+  display: flex; align-items: center; justify-content: center; height: 72px; border-radius: 12px; text-align: center;
+  font-size: 0.85rem; font-weight: 700; text-decoration: none; background: var(--mw-light); color: var(--mw-green);
+}
+.mw-fs-tile:hover { text-decoration: none; color: var(--mw-dark); }
+.mw-fs-tile--off { background: var(--mw-ink-100); color: var(--mw-ink-300); }
+
+.mw-fs-plan + .mw-fs-plan { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--mw-ink-100); }
+.mw-fs-plan-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.mw-fs-plan-title { font-weight: 600; color: var(--mw-ink-900); }
+.mw-fs-addvisit {
+  flex-shrink: 0; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--mw-green);
+  background: transparent; color: var(--mw-green); font-size: 0.8rem; font-weight: 700;
+}
+.mw-fs-addvisit:disabled { opacity: 0.5; }
+.mw-fs-up { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; font-size: 0.85rem; color: var(--mw-ink-700); }
+.mw-fs-up + .mw-fs-up { border-top: 1px dashed var(--mw-ink-200); }
+
+.mw-fs-toast {
+  position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%); z-index: 1070;
+  padding: 10px 16px; border-radius: 20px; background: var(--mw-green); color: var(--mw-ink-0); font-size: 0.85rem; font-weight: 600;
+}
+
+/* ── Service history (partials/service-history.php) — job cards AND the Search page,
+   so it lives here rather than in mobile-cards.css (which restyles the whole page).
+   Collapsed card: one "Last done …" line. Expanded card: two rows of seven —
+   last week over this week, Monday → Sunday. Green = done, orange = skipped,
+   dashed = scheduled, ring = today. */
+.mw-svc-hist-line {
+    margin-top: 2px;
+    font-size: 12px;
+    color: var(--mw-ink-500);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.mw-svc-hist-line--warn,
+.mw-svc-hist-head--warn { color: var(--mw-orange); font-weight: 600; }
+
+.mw-svc-hist {
+    margin: 8px 0;
+    padding: 10px;
+    border-radius: 10px;
+    background: var(--mw-light);
+}
+.mw-svc-hist-head {
+    margin-bottom: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--mw-ink-500);
+}
+.mw-svc-hist-grid {
+    display: grid;
+    grid-template-columns: 34px repeat(7, 1fr);
+    gap: 5px;
+    align-items: center;
+}
+.mw-svc-hist-dow,
+.mw-svc-hist-week {
+    font-size: 10px;
+    color: var(--mw-ink-500);
+}
+.mw-svc-hist-dow { text-align: center; }
+.mw-svc-hist-cell {
+    position: relative;
+    height: 26px;
+    line-height: 26px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    text-align: center;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--mw-ink-500);
+    opacity: 0.75;
+}
+.mw-svc-hist-cell--completed   { background: var(--mw-green);  color: var(--mw-ink-0); opacity: 1; }
+.mw-svc-hist-cell--in_progress { background: var(--mw-lime);   color: var(--mw-forest); opacity: 1; }
+.mw-svc-hist-cell--skipped     { background: var(--mw-orange); color: var(--mw-ink-0); opacity: 1; }
+.mw-svc-hist-cell--scheduled   { border: 1px dashed var(--mw-dark); opacity: 1; }
+.mw-svc-hist-cell--today       { box-shadow: 0 0 0 2px var(--mw-forest); font-weight: 700; opacity: 1; }
+.mw-svc-hist-count {
+    position: absolute;
+    top: -5px;
+    right: -4px;
+    min-width: 14px;
+    height: 14px;
+    line-height: 14px;
+    border-radius: 7px;
+    background: var(--mw-ink-0);
+    color: var(--mw-green);
+    font-size: 9px;
+    font-weight: 700;
+    font-style: normal;
+    box-shadow: 0 0 0 1px var(--mw-green);
+}
+.mw-svc-hist-legend {
+    display: flex;
+    gap: 12px;
+    margin-top: 8px;
+    font-size: 10px;
+    color: var(--mw-ink-500);
+}
+.mw-svc-hist-legend span { display: inline-flex; align-items: center; gap: 4px; }
+.mw-svc-hist-key {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    border: 1px solid transparent;
+}

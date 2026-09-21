@@ -125,6 +125,16 @@ Reference catalog of shared, reusable JS/CSS UI components under `public/crm/js/
 - **When to reach for it:** You don't invoke this — it's already live on every CRM page. Extend `categoryMeta` in the file if you add a new searchable entity type.
 - Auto-loaded globally via `appstack_head.php`.
 
+### Field Search (crew Search tab)
+- **Files:** `public/crm/search.php`, `public/crm/js/mw-field-search.js`, `public/crm/api/field-search.php`; service `app/Modules/Jobs/Services/FieldSearchService.php` (shared with the iOS endpoint `/api/schedule/search`).
+- **Purpose:** The crew's "find anything": one box over client, company, building, address, postal code, phone and plan/visit number. Every hit is a PROPERTY, ranked today's-stops-first then nearest, with a property page (Navigate / Call / Today's visit tiles, plans with the two-week history grid and "Add visit", upcoming visits). No prices, invoices or crew names.
+- **When to reach for it:** Anything crew-facing that needs to look a property up. This is NOT Spotlight (below): Spotlight is the office's ⌘K palette across quotes/invoices, ranked alphabetically. Don't build a third search.
+
+### Mobile bottom bar — five tabs, one order
+- **Files:** `public/crm/includes/mobile-nav.php` (every AppStack page), plus the same five inside `public/crm/jobs/schedule.php` (`.mw-mc-bottombar`) and `public/crm/homebase.php` (`.hb-nav`).
+- **Purpose:** Schedule · Time Clock · Search · Receipts · Account — identical to the iOS tab bar. Account opens the slide-up menu (everything else: clients, vehicle log, settings, sign out).
+- **When to reach for it:** Never add a tab to one bar only. If the iOS tabs change, change all three.
+
 ### MwNavLauncher
 - **File:** `public/crm/js/navigation-launcher.js`
 - **Purpose:** Builds Google Maps navigation URLs/intents and launches turn-by-turn navigation, using Capacitor `App.openUrl()` on Android or `window.open()` on web.
