@@ -81,6 +81,16 @@ struct Stop: Codable, Identifiable, Hashable {
         return nil
     }
 
+    /// The client label for the card footer — nil when it would only repeat the headline.
+    /// "Repeat" includes near-misses: a building called "Spirit Halloween Property" owned by
+    /// the company "Spirit Halloween" is the same name to anyone reading the card.
+    var footerClientName: String? {
+        guard let client = displayName?.trimmingCharacters(in: .whitespaces), !client.isEmpty else { return nil }
+        guard let head = headline?.lowercased() else { return client }
+        let c = client.lowercased()
+        return (head == c || head.contains(c) || c.contains(head)) ? nil : client
+    }
+
     /// Returns true when all visits for this stop are completed.
     var isComplete: Bool {
         !visits.isEmpty && visits.allSatisfy { $0.visitStatus.lowercased() == "completed" }

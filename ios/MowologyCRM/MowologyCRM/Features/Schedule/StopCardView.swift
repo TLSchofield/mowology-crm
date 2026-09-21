@@ -89,7 +89,7 @@ struct StopCardView: View {
 
                 // Client / Contact Name — only when it isn't already the card's headline
                 // (a named building still shows who the client is down here).
-                if let name = stop.displayName, name != stop.headline {
+                if let name = stop.footerClientName {
                     Label(name, systemImage: "person.fill")
                         .font(.caption)
                         .foregroundStyle(.secondary)
