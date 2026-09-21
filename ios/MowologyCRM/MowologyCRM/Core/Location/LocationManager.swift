@@ -311,6 +311,14 @@ final class LocationManager: NSObject, ObservableObject {
         }
     }
 
+    /// Regions survive a relaunch inside CoreLocation, but our "which ones am I inside" set
+    /// does not — and offline there is no geofence refresh to rebuild it. Ask again.
+    func refreshRegionStates() {
+        for region in clManager.monitoredRegions where region.identifier.hasPrefix(Self.regionPrefix) {
+            clManager.requestState(for: region)
+        }
+    }
+
     private func clearRegions() {
         for region in clManager.monitoredRegions where region.identifier.hasPrefix(Self.regionPrefix) {
             clManager.stopMonitoring(for: region)

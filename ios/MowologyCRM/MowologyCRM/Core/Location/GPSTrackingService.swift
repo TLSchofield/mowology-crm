@@ -76,13 +76,26 @@ final class GPSTrackingService: ObservableObject {
 
     static let kShiftActive = "mw.shiftActive"
     static let kLastPingAt  = "mw.lastPingAt"
+    static let kActiveVisit = "mw.tracking.activeVisitId"
 
     // MARK: - Private
 
     private var apiClient: APIClient?
     private var loopTask:  Task<Void, Never>?
     private var isUploading = false
-    private(set) var activeVisitId: Int? = nil
+    /// Persisted: a relaunch mid-job with no signal must come back dense. It used to reset to
+    /// baseline (50 m filter) and wait for the server to say "enhanced" — offline that never
+    /// came, and someone walking a site inside 50 m produced no fixes at all (device test
+    /// 2026-09-20: a 5½-minute hole in the route during airplane mode).
+    private(set) var activeVisitId: Int? = nil {
+        didSet {
+            if let activeVisitId {
+                UserDefaults.standard.set(activeVisitId, forKey: Self.kActiveVisit)
+            } else {
+                UserDefaults.standard.removeObject(forKey: Self.kActiveVisit)
+            }
+        }
+    }
 
     private var serverTier: TrackingTier = .baseline
     private var insideRegions = Set<Int>()
@@ -119,7 +132,11 @@ final class GPSTrackingService: ObservableObject {
 
         isTracking    = true
         trackingSince = Date()
-        serverTier    = .baseline
+        // Pick the job back up if one was running when the app last stopped; the server
+        // corrects this on the next policy if the timer has since ended.
+        let resumedVisit = UserDefaults.standard.integer(forKey: Self.kActiveVisit)
+        if resumedVisit > 0, activeVisitId == nil { activeVisitId = resumedVisit }
+        serverTier    = activeVisitId != nil ? .enhanced : .baseline
         insideRegions.removeAll()
         notifiedProblems.removeAll()
         UserDefaults.standard.set(true, forKey: Self.kShiftActive)
@@ -130,6 +147,7 @@ final class GPSTrackingService: ObservableObject {
 
         locationManager.requestAlwaysPermission()
         locationManager.startBackgroundTracking()
+        locationManager.refreshRegionStates()
         recomputeTier()
         authorizationChanged()
         startLoop()
@@ -294,6 +312,11 @@ final class GPSTrackingService: ObservableObject {
         // A crew standing still on site produces no distance-filtered fixes. Ask for a
         // fresh one rather than re-sending an old position with a new timestamp.
         if tier == .enhanced, now.timeIntervalSince(lastFixAt ?? .distantPast) > enhancedInterval * 2 {
+            locationManager.nudge()
+        }
+        // Between jobs the 50 m filter means a parked or slow-moving crew goes silent. One
+        // fix every couple of intervals keeps the work-hours record continuous.
+        if tier == .baseline, now.timeIntervalSince(lastFixAt ?? .distantPast) > baselineInterval * 2 {
             locationManager.nudge()
         }
 
