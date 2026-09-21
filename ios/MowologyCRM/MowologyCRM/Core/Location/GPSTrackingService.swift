@@ -243,7 +243,9 @@ final class GPSTrackingService: ObservableObject {
         lastFixAt = fix.timestamp
 
         if let vid = activeVisitId {
-            RouteStore.shared.record(visitId: vid, location: fix)
+            // (RouteStore.record removed 2026-09-21: it wrote a SwiftData row a minute that nothing
+            // ever read — the route record is FixStore → the server — and its save on the main
+            // thread is what iOS watchdog-killed the app for in the background.)
             ArrivalMonitor.shared.observe(fix: fix)
         }
 

@@ -116,14 +116,12 @@ final class AppTransitionDrainService {
     // MARK: - SwiftData helpers
 
     private func fetchAllPending() -> [PendingTransition] {
-        guard let container = try? ModelContainer(for: PendingTransition.self) else { return [] }
-        let ctx = ModelContext(container)
+        let ctx = ModelContext(TransitionQueue.sharedContainer)
         return (try? ctx.fetch(FetchDescriptor<PendingTransition>())) ?? []
     }
 
     private func removePending(_ transition: PendingTransition) {
-        guard let container = try? ModelContainer(for: PendingTransition.self) else { return }
-        let ctx = ModelContext(container)
+        let ctx = ModelContext(TransitionQueue.sharedContainer)
         let all = (try? ctx.fetch(FetchDescriptor<PendingTransition>())) ?? []
         if let match = all.first(where: {
             $0.visitId == transition.visitId && $0.action == transition.action

@@ -22,17 +22,22 @@ import SwiftData
 @MainActor
 final class TransitionQueue {
 
-    private let container: ModelContainer
-
-    init() {
+    /// ONE container for the whole app. Every visit screen used to build its own (and the drain
+    /// service built one per call): several SwiftData stacks on the same SQLite file, which is
+    /// how a save ends up spinning on a lock on the main thread (crash 2026-09-21, 0x8BADF00D).
+    static let sharedContainer: ModelContainer = {
         do {
-            container = try ModelContainer(for: PendingTransition.self)
+            return try ModelContainer(for: PendingTransition.self)
         } catch {
-            let config = ModelConfiguration(isStoredInMemoryOnly: true)
-            container = try! ModelContainer(for: PendingTransition.self, configurations: config)
             print("[TransitionQueue] SwiftData init failed, using in-memory fallback: \(error)")
+            let config = ModelConfiguration(isStoredInMemoryOnly: true)
+            return try! ModelContainer(for: PendingTransition.self, configurations: config)
         }
-    }
+    }()
+
+    private var container: ModelContainer { Self.sharedContainer }
+
+    init() {}
 
     // MARK: - Public API
 
