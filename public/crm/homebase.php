@@ -218,7 +218,7 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
     <script src="/crm/js/sw-register.js?v=20260410a" defer></script>
     <script src="/crm/js/mw-sync-status.js?v=20260410a" defer></script>
     <script src="/crm/js/mw-haptics.js?v=20260410a" defer></script>
-    <script src="/crm/js/capacitor-bridge.js?v=20260921a" defer></script>
+    <script src="/crm/js/capacitor-bridge.js?v=20260921b" defer></script>
     <style>
         :root {
             /* Brand colour + shared sizing tokens come from

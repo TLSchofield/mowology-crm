@@ -562,6 +562,159 @@
                 });
             },
 
+            /**
+             * Tracking only survives a pocket if ALL of these hold: location "Allow all the
+             * time", and the app exempt from battery optimisation. The system prompts are easy
+             * to tap past — on the first morning of 1.3.1 one phone ran on "While using" and both
+             * skipped the battery prompt — so a clocked-in phone that is not fully set up gets a
+             * full-screen checklist that stays until it is. It re-checks itself every 1.5 s and
+             * whenever the app comes back from Settings, and closes on its own.
+             *
+             * It must never trap anyone: some phones cannot grant these (work profiles, OEM
+             * quirks, a misreporting API). After 45 s a "continue anyway" link appears (once per
+             * app session). The office still sees the gap: every upload reports the permission
+             * and battery state to device_tracking_health.
+             */
+            _setupOk: function(p) {
+                return !!(p && p.location && p.background && p.batteryOptimizationIgnored);
+            },
+
+            _setupGate: function() {
+                if (document.getElementById('mw-setup-gate')) return;
+                if (!MwTracking || typeof MwTracking.checkTrackingPermissions !== 'function') return;
+                try { if (sessionStorage.getItem('mw_setup_gate_skipped')) return; } catch (e) {}
+
+                var self = this;
+                if (!document.getElementById('mw-setup-gate-css')) {
+                    var css = document.createElement('style');
+                    css.id = 'mw-setup-gate-css';
+                    css.textContent =
+                        '#mw-setup-gate{position:fixed;inset:0;z-index:2147483646;overflow-y:auto;box-sizing:border-box;' +
+                            'padding:calc(env(safe-area-inset-top,0px) + 28px) 20px calc(env(safe-area-inset-bottom,0px) + 28px);' +
+                            'background:var(--mw-forest);color:var(--mw-ink-0);font-family:system-ui,-apple-system,sans-serif;}' +
+                        '#mw-setup-gate h2{margin:0 0 6px;font-size:1.45rem;font-weight:700;color:var(--mw-lime);}' +
+                        '#mw-setup-gate p{margin:0 0 18px;font-size:.92rem;line-height:1.5;color:var(--mw-light);}' +
+                        '.mw-sg-row{display:flex;align-items:flex-start;gap:12px;margin-bottom:12px;padding:14px;border-radius:14px;' +
+                            'background:var(--mw-dark);}' +
+                        '.mw-sg-dot{flex-shrink:0;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;' +
+                            'font-weight:700;font-size:.9rem;background:var(--mw-orange);color:var(--mw-ink-0);}' +
+                        '.mw-sg-row--ok .mw-sg-dot{background:var(--mw-lime);color:var(--mw-forest);}' +
+                        '.mw-sg-main{flex:1;min-width:0;}' +
+                        '.mw-sg-title{font-weight:700;font-size:1rem;}' +
+                        '.mw-sg-how{margin-top:3px;font-size:.82rem;line-height:1.45;color:var(--mw-light);}' +
+                        '.mw-sg-btn{display:block;width:100%;margin-top:10px;padding:13px;border:0;border-radius:10px;font-size:1rem;font-weight:700;' +
+                            'background:var(--mw-lime);color:var(--mw-forest);}' +
+                        '.mw-sg-row--ok .mw-sg-btn,.mw-sg-row--ok .mw-sg-how{display:none;}' +
+                        '.mw-sg-skip{display:block;margin:22px auto 0;padding:10px;border:0;background:transparent;font-size:.82rem;' +
+                            'text-decoration:underline;color:var(--mw-light);}';
+                    document.head.appendChild(css);
+                }
+
+                var el = document.createElement('div');
+                el.id = 'mw-setup-gate';
+                el.setAttribute('role', 'dialog');
+                el.setAttribute('aria-modal', 'true');
+                el.innerHTML =
+                    '<h2>Finish setting up tracking</h2>' +
+                    '<p>Two phone settings decide whether location tracking keeps working with the phone in your pocket. ' +
+                        'It only runs while you are clocked in. This screen closes by itself once both are done.</p>' +
+                    '<div class="mw-sg-row" data-row="location"><span class="mw-sg-dot">1</span><div class="mw-sg-main">' +
+                        '<div class="mw-sg-title">Location: Allow all the time</div>' +
+                        '<div class="mw-sg-how">Tap the button, then choose <b>Permissions &rarr; Location &rarr; Allow all the time</b>. ' +
+                            '&ldquo;While using the app&rdquo; stops working when the screen goes off.</div>' +
+                        '<button type="button" class="mw-sg-btn" data-fix="location">Open location setting</button>' +
+                    '</div></div>' +
+                    '<div class="mw-sg-row" data-row="battery"><span class="mw-sg-dot">2</span><div class="mw-sg-main">' +
+                        '<div class="mw-sg-title">Battery: Unrestricted</div>' +
+                        '<div class="mw-sg-how">Tap the button and choose <b>Allow</b>. If nothing pops up: Settings &rarr; Apps &rarr; ' +
+                            'Mowology Crew &rarr; Battery &rarr; <b>Unrestricted</b>. Without it the phone shuts the app down to save power.</div>' +
+                        '<button type="button" class="mw-sg-btn" data-fix="battery">Allow battery use</button>' +
+                    '</div></div>' +
+                    '<div class="mw-sg-row" data-row="notifications"><span class="mw-sg-dot">3</span><div class="mw-sg-main">' +
+                        '<div class="mw-sg-title">Notifications: On (recommended)</div>' +
+                        '<div class="mw-sg-how">So the app can tell you when a job timer starts or stops by itself.</div>' +
+                        '<button type="button" class="mw-sg-btn" data-fix="notifications">Turn on notifications</button>' +
+                    '</div></div>' +
+                    '<button type="button" class="mw-sg-skip" data-fix="skip" hidden>I can&rsquo;t change these on this phone &mdash; continue anyway</button>';
+
+                var last = null, timer = null, closed = false;
+
+                function paint(p) {
+                    last = p || {};
+                    var ok = {
+                        location:      !!(last.location && last.background),
+                        battery:       !!last.batteryOptimizationIgnored,
+                        notifications: last.notifications !== false
+                    };
+                    Object.keys(ok).forEach(function(k) {
+                        var row = el.querySelector('[data-row="' + k + '"]');
+                        if (!row) return;
+                        var dot = row.querySelector('.mw-sg-dot');
+                        if (!dot.getAttribute('data-n')) dot.setAttribute('data-n', dot.textContent);
+                        row.className = 'mw-sg-row' + (ok[k] ? ' mw-sg-row--ok' : '');
+                        dot.textContent = ok[k] ? '✓' : dot.getAttribute('data-n');
+                    });
+                    if (self._setupOk(last)) close(true);
+                }
+                function check() {
+                    if (closed) return;
+                    MwTracking.checkTrackingPermissions().then(paint, function() {});
+                }
+                function close(done) {
+                    if (closed) return;
+                    closed = true;
+                    clearInterval(timer);
+                    document.removeEventListener('visibilitychange', check);
+                    if (el.parentNode) el.parentNode.removeChild(el);
+                    document.body.style.overflow = '';
+                    if (done) {
+                        // Everything is granted now — make sure the engine is actually running with it.
+                        self._starting = false;
+                        self.start();
+                    }
+                }
+
+                el.addEventListener('click', function(ev) {
+                    var fix = ev.target && ev.target.getAttribute && ev.target.getAttribute('data-fix');
+                    if (!fix) return;
+                    if (fix === 'battery') {
+                        MwTracking.requestBatteryExemption().then(function() { setTimeout(check, 800); }, function() {});
+                    } else if (fix === 'skip') {
+                        try { sessionStorage.setItem('mw_setup_gate_skipped', '1'); } catch (e) {}
+                        try {
+                            MwTracking.addComplianceEvent({
+                                eventType: 'tracking_setup_skipped',
+                                reason: JSON.stringify(last || {})
+                            });
+                        } catch (e) {}
+                        close(false);
+                    } else {
+                        // location / notifications: the permission flow asks for whatever is still
+                        // missing; on Android 11+ "all the time" can only be chosen in Settings, so
+                        // fall back to opening the app's settings page when the prompt changes nothing.
+                        var before = JSON.stringify(last || {});
+                        MwTracking.requestTrackingPermissions().then(function(p) {
+                            paint(p);
+                            if (JSON.stringify(p || {}) === before && BackgroundGeolocation && BackgroundGeolocation.openSettings) {
+                                BackgroundGeolocation.openSettings();
+                            }
+                        }, function() {
+                            if (BackgroundGeolocation && BackgroundGeolocation.openSettings) BackgroundGeolocation.openSettings();
+                        });
+                    }
+                });
+
+                document.body.appendChild(el);
+                document.body.style.overflow = 'hidden';
+                document.addEventListener('visibilitychange', check);   // back from Settings
+                timer = setInterval(check, 1500);
+                setTimeout(function() {
+                    var skip = el.querySelector('[data-fix="skip"]');
+                    if (skip && !closed) skip.hidden = false;
+                }, 45000);
+                check();
+            },
+
             start: function() {
                 var self = this;
                 if (this._starting) return;
@@ -571,6 +724,9 @@
                     return self._ensureDisclosed(t.token).then(function(ok) {
                         if (!ok) return null;
                         return MwTracking.requestTrackingPermissions().then(function(perms) {
+                            // Anything less than the full set gets the blocking setup screen. Start
+                            // the session first when we can, so tracking runs while they fix the rest.
+                            if (!self._setupOk(perms)) self._setupGate();
                             if (!perms || !perms.location) {
                                 console.warn('[MwNative] location permission refused — native tracking not started');
                                 return null;

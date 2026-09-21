@@ -136,4 +136,28 @@ class TripReportServiceTest extends TestCase
         $this->assertSame([], TripReportService::parseVehicles(''));
         $this->assertSame([['id' => 'TRUCK2', 'label' => 'TRUCK2']], TripReportService::parseVehicles('TRUCK2'));
     }
+
+    // ── Auto clock-in is not for people who drive ────────────────────────────
+
+    public function testFlaggedDriversAlwaysClockInThemselves(): void
+    {
+        $this->assertTrue(TripReportService::requiresManualClockIn(true, null, '2026-09-21'));
+        $this->assertTrue(TripReportService::requiresManualClockIn(true, '2025-01-01', '2026-09-21'));
+    }
+
+    public function testSomeoneWhoDroveRecentlyClocksInThemselves(): void
+    {
+        // The owner: not flagged as a driver, but drove last Thursday.
+        $this->assertTrue(TripReportService::requiresManualClockIn(false, '2026-09-17', '2026-09-21'));
+        $this->assertTrue(TripReportService::requiresManualClockIn(false, '2026-09-21', '2026-09-21'));
+        $this->assertTrue(TripReportService::requiresManualClockIn(false, '2026-09-07 07:50:00', '2026-09-21')); // day 14
+    }
+
+    public function testSomeoneWhoNeverOrNoLongerDrivesKeepsAutoClockIn(): void
+    {
+        $this->assertFalse(TripReportService::requiresManualClockIn(false, null, '2026-09-21'));
+        $this->assertFalse(TripReportService::requiresManualClockIn(false, '2026-09-06', '2026-09-21')); // day 15
+        // A future-dated row (clock skew, bad edit) is not evidence of driving.
+        $this->assertFalse(TripReportService::requiresManualClockIn(false, '2026-10-01', '2026-09-21'));
+    }
 }
