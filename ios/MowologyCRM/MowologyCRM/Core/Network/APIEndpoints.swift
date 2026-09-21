@@ -135,6 +135,11 @@ enum APIEndpoint {
     case quizQuestion(sessionId: Int, q: Int)
 
     /// POST /api/schedule/job-photo — upload a before/after job photo for a visit.
+    /// GET /api/schedule/search — q (+ optional fix) | mode=nearby | mode=property&id.
+    case fieldSearch(query: String, lat: Double?, lng: Double?)
+    case fieldSearchNearby(lat: Double, lng: Double)
+    case fieldSearchProperty(id: Int, lat: Double?, lng: Double?)
+
     /// GET /api/schedule/field-job?mode=nearby — properties near a GPS fix, with their active plans.
     case fieldJobNearby(lat: Double, lng: Double)
 
@@ -307,6 +312,36 @@ enum APIEndpoint {
             ]
             return components?.url
 
+        case .fieldSearch(let query, let lat, let lng):
+            var components = URLComponents(string: "\(baseURLString)/schedule/search")
+            var items = [URLQueryItem(name: "q", value: query)]
+            if let lat, let lng {
+                items.append(URLQueryItem(name: "lat", value: "\(lat)"))
+                items.append(URLQueryItem(name: "lng", value: "\(lng)"))
+            }
+            components?.queryItems = items
+            return components?.url
+
+        case .fieldSearchNearby(let lat, let lng):
+            var components = URLComponents(string: "\(baseURLString)/schedule/search")
+            components?.queryItems = [
+                URLQueryItem(name: "mode", value: "nearby"),
+                URLQueryItem(name: "lat",  value: "\(lat)"),
+                URLQueryItem(name: "lng",  value: "\(lng)"),
+            ]
+            return components?.url
+
+        case .fieldSearchProperty(let id, let lat, let lng):
+            var components = URLComponents(string: "\(baseURLString)/schedule/search")
+            var items = [URLQueryItem(name: "mode", value: "property"),
+                         URLQueryItem(name: "id",   value: "\(id)")]
+            if let lat, let lng {
+                items.append(URLQueryItem(name: "lat", value: "\(lat)"))
+                items.append(URLQueryItem(name: "lng", value: "\(lng)"))
+            }
+            components?.queryItems = items
+            return components?.url
+
         case .fieldJobNearby(let lat, let lng):
             var components = URLComponents(string: "\(baseURLString)/schedule/field-job")
             components?.queryItems = [
@@ -379,6 +414,9 @@ enum APIEndpoint {
              .scheduleVisitPhotos,
              .fieldJobNearby,
              .fieldJobAction,
+             .fieldSearch,
+             .fieldSearchNearby,
+             .fieldSearchProperty,
              .scheduleInvoice: return true
         }
     }
@@ -427,6 +465,9 @@ enum APIEndpoint {
              .scheduleVisitPhotos,
              .scheduleTimerActive,
              .fieldJobNearby,
+             .fieldSearch,
+             .fieldSearchNearby,
+             .fieldSearchProperty,
              .quizQuestion: return "GET"
 
         case .quizAction,

@@ -95,6 +95,8 @@
 		634DD082AE134A3F57A57C81 /* FieldJobModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFF2F6AC837E5C4831AFC76A /* FieldJobModels.swift */; };
 		B9F26E8F0D5631BA644A2ED3 /* ServiceHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36B5D0651BAA7003EB0513D2 /* ServiceHistory.swift */; };
 		0C7EC20F487DA206AC17010A /* ServiceHistoryGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = D39B0AB7D29775E426AEA32A /* ServiceHistoryGrid.swift */; };
+		8209D3F5A6F84A50E183D1C4 /* SearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41E2CA19008E4095446DFDD3 /* SearchView.swift */; };
+		EABB90D2A068915C9ECF47B2 /* FieldSearchModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A1E4E199B9C01EFB35BDB1D /* FieldSearchModels.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -188,6 +190,8 @@
 		CFF2F6AC837E5C4831AFC76A /* FieldJobModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FieldJobModels.swift; sourceTree = "<group>"; };
 		36B5D0651BAA7003EB0513D2 /* ServiceHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServiceHistory.swift; sourceTree = "<group>"; };
 		D39B0AB7D29775E426AEA32A /* ServiceHistoryGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServiceHistoryGrid.swift; sourceTree = "<group>"; };
+		41E2CA19008E4095446DFDD3 /* SearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchView.swift; sourceTree = "<group>"; };
+		1A1E4E199B9C01EFB35BDB1D /* FieldSearchModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FieldSearchModels.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -363,6 +367,7 @@
 				77C42B8E19B50F970FF6A5FB /* Schedule */,
 				72C8560F970C9C517EFD669D /* TimeClock */,
 				A8B19292E74114A1A37EDE2C /* Receipts */,
+				5C93415700405E4C4DF85C7C /* Search */,
 			);
 			path = Features;
 			sourceTree = "<group>";
@@ -390,6 +395,7 @@
 				8430857E0D97DF947A7B4621 /* VisitPhotoModels.swift */,
 				CFF2F6AC837E5C4831AFC76A /* FieldJobModels.swift */,
 				36B5D0651BAA7003EB0513D2 /* ServiceHistory.swift */,
+				1A1E4E199B9C01EFB35BDB1D /* FieldSearchModels.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -421,6 +427,14 @@
 				C0D721F3EF37850625E05177 /* ReceiptDetailView.swift */,
 			);
 			path = Receipts;
+			sourceTree = "<group>";
+		};
+		5C93415700405E4C4DF85C7C /* Search */ = {
+			isa = PBXGroup;
+			children = (
+				41E2CA19008E4095446DFDD3 /* SearchView.swift */,
+			);
+			path = Search;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -576,6 +590,8 @@
 				634DD082AE134A3F57A57C81 /* FieldJobModels.swift in Sources */,
 				B9F26E8F0D5631BA644A2ED3 /* ServiceHistory.swift in Sources */,
 				0C7EC20F487DA206AC17010A /* ServiceHistoryGrid.swift in Sources */,
+				8209D3F5A6F84A50E183D1C4 /* SearchView.swift in Sources */,
+				EABB90D2A068915C9ECF47B2 /* FieldSearchModels.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

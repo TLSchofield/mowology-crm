@@ -126,9 +126,12 @@ class ServiceHistoryService
      * History for the plans behind these visits.
      *
      * @param int[] $visitIds
+     * @param bool  $excludeGiven true (job cards): "last done" ignores the visit the card is for,
+     *                            so a visit finished a minute ago doesn't describe itself.
+     *                            false (property page): every visit counts.
      * @return array<int,array> keyed by visit id
      */
-    public function forVisits(array $visitIds, string $today): array
+    public function forVisits(array $visitIds, string $today, bool $excludeGiven = true): array
     {
         $visitIds = array_values(array_unique(array_filter(array_map('intval', $visitIds))));
         if (!$visitIds) {
@@ -175,10 +178,10 @@ class ServiceHistoryService
                    MAX(CASE WHEN status = 'completed' THEN COALESCE(completed_at, CONCAT(scheduled_date, ' 00:00:00')) END) AS last_done,
                    MAX(CASE WHEN status = 'skipped' AND scheduled_date <= ? THEN scheduled_date END) AS last_skip
             FROM job_visits
-            WHERE plan_id IN ($pin) AND id NOT IN ($in)
+            WHERE plan_id IN ($pin)" . ($excludeGiven ? " AND id NOT IN ($in)" : '') . "
             GROUP BY plan_id
         ");
-        $last->execute(array_merge([$today], $planIds, $visitIds));
+        $last->execute(array_merge([$today], $planIds, $excludeGiven ? $visitIds : []));
         $lastByPlan = [];
         foreach ($last->fetchAll(PDO::FETCH_ASSOC) as $row) {
             $lastByPlan[(int)$row['plan_id']] = $row;

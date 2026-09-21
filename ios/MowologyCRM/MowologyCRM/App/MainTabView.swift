@@ -12,7 +12,9 @@ struct MainTabView: View {
     @EnvironmentObject private var authSession: AuthSession
     @ObservedObject private var notificationRouter = NotificationRouter.shared
 
-    private enum Tab: Hashable { case schedule, timeClock, receipts, account }
+    /// Order: home first, the twice-a-day clock next to it, Search in the centre where either
+    /// thumb reaches it, then the occasional Receipts, and Account last by convention.
+    private enum Tab: Hashable { case schedule, timeClock, search, receipts, account }
     @State private var selectedTab = Tab.schedule
 
     var body: some View {
@@ -28,6 +30,12 @@ struct MainTabView: View {
                     Label("Time Clock", systemImage: "clock.fill")
                 }
                 .tag(Tab.timeClock)
+
+            SearchView(authSession: authSession)
+                .tabItem {
+                    Label("Search", systemImage: "magnifyingglass")
+                }
+                .tag(Tab.search)
 
             ReceiptsView(authSession: authSession)
                 .environmentObject(authSession)

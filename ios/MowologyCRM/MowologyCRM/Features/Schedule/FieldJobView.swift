@@ -348,7 +348,8 @@ struct FieldJobView: View {
 
 // MARK: - One property: add a visit to a plan, or create a job
 
-private struct FieldJobPropertyView: View {
+/// Also pushed from the Search tab's property page ("Create a new job here").
+struct FieldJobPropertyView: View {
 
     @ObservedObject var vm: FieldJobViewModel
     let property: FieldJobProperty
