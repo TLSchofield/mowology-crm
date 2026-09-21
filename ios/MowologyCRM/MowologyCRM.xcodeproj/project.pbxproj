@@ -90,6 +90,7 @@
 		7CD9F411D6016E98906C22A5 /* DriverTripViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66C945B6DEF8E98EDA5B4703 /* DriverTripViews.swift */; };
 		D8B21C3836B6C99DDFAF50D4 /* TripReportQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 245438D48DD3B44093FF2524 /* TripReportQueue.swift */; };
 		749703D048C54F664513A2E3 /* VisitPhotoModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8430857E0D97DF947A7B4621 /* VisitPhotoModels.swift */; };
+		5E5513AA92D51C8F55D65093 /* SignOutViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CE45B0F4BAE7DC01EC49714 /* SignOutViewModel.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -178,6 +179,7 @@
 		66C945B6DEF8E98EDA5B4703 /* DriverTripViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DriverTripViews.swift; sourceTree = "<group>"; };
 		245438D48DD3B44093FF2524 /* TripReportQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripReportQueue.swift; sourceTree = "<group>"; };
 		8430857E0D97DF947A7B4621 /* VisitPhotoModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitPhotoModels.swift; sourceTree = "<group>"; };
+		5CE45B0F4BAE7DC01EC49714 /* SignOutViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignOutViewModel.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -284,6 +286,7 @@
 			children = (
 				11B9496B9E804E3CD0342C49 /* AuthSession.swift */,
 				73D67877BC393CECB2E02474 /* KeychainStore.swift */,
+				5CE45B0F4BAE7DC01EC49714 /* SignOutViewModel.swift */,
 			);
 			path = Auth;
 			sourceTree = "<group>";
@@ -556,6 +559,7 @@
 				7CD9F411D6016E98906C22A5 /* DriverTripViews.swift in Sources */,
 				D8B21C3836B6C99DDFAF50D4 /* TripReportQueue.swift in Sources */,
 				749703D048C54F664513A2E3 /* VisitPhotoModels.swift in Sources */,
+				5E5513AA92D51C8F55D65093 /* SignOutViewModel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

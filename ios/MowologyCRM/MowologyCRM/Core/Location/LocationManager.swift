@@ -392,7 +392,15 @@ final class LocationManager: NSObject, ObservableObject {
     private func shouldAccept(_ fix: CLLocation) -> Bool {
         if fix.horizontalAccuracy < 0 { return false }
         if fix.horizontalAccuracy > ACCURACY_HARD_LIMIT { return false }
-        if fix.timestamp.timeIntervalSinceNow < -MAX_FIX_AGE { return false }
+        // The 15 s rule exists for the cached fix CoreLocation replays on start. Mid-session,
+        // a fix iOS delivers late (batched while suspended) is still a true position at its
+        // own timestamp — keep it as long as it moves the record forward.
+        let age = -fix.timestamp.timeIntervalSinceNow
+        if let prev = lastAcceptedFix {
+            if age > 600 || fix.timestamp <= prev.timestamp { return false }
+        } else if age > MAX_FIX_AGE {
+            return false
+        }
 
         let speed = fix.speed >= 0 ? fix.speed : 0
         if fix.horizontalAccuracy > ACCURACY_SOFT_LIMIT && speed < SPEED_FOR_SOFT_PASS {
@@ -427,17 +435,22 @@ extension LocationManager: CLLocationManagerDelegate {
         _ manager: CLLocationManager,
         didUpdateLocations locations: [CLLocation]
     ) {
-        guard let fix = locations.last else { return }
+        guard let newest = locations.last else { return }
         Task { @MainActor in
             // One-shot callers are user-initiated — give them any VALID fix, even a rough one.
-            if fix.horizontalAccuracy >= 0 {
-                self.resolveWaiters(with: .success(fix))
+            if newest.horizontalAccuracy >= 0 {
+                self.resolveWaiters(with: .success(newest))
             }
-            if self.shouldAccept(fix) {
+            // iOS hands over several fixes at once when it has been batching (screen off,
+            // app suspended). Each is a true position at its own timestamp — taking only the
+            // last one threw the rest of the route away.
+            for fix in locations.sorted(by: { $0.timestamp < $1.timestamp }) where self.shouldAccept(fix) {
                 self.lastAcceptedFix = fix
                 self.lastLocation    = fix
-                self.refreshBadge(accuracy: fix.horizontalAccuracy)
                 self.onAcceptedFix?(fix)
+            }
+            if let last = self.lastLocation {
+                self.refreshBadge(accuracy: last.horizontalAccuracy)
             }
         }
     }

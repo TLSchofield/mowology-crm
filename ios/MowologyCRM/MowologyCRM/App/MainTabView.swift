@@ -103,15 +103,58 @@ struct MainTabView: View {
                 }
 
                 Section {
-                    Button(role: .destructive) {
-                        authSession.logout()
-                    } label: {
-                        Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
-                    }
+                    SignOutButton(authSession: authSession)
                 }
             }
             .navigationTitle("Account")
             .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+}
+
+// MARK: - Sign Out
+
+/// Sign Out — asks first when a shift is still open (see SignOutViewModel).
+private struct SignOutButton: View {
+
+    @StateObject private var vm: SignOutViewModel
+
+    init(authSession: AuthSession) {
+        _vm = StateObject(wrappedValue: SignOutViewModel(authSession: authSession))
+    }
+
+    var body: some View {
+        Button(role: .destructive) {
+            Task { await vm.begin() }
+        } label: {
+            HStack {
+                Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+                if vm.isWorking {
+                    Spacer()
+                    ProgressView()
+                }
+            }
+        }
+        .disabled(vm.isWorking)
+        .confirmationDialog("You're still clocked in",
+                            isPresented: $vm.showClockedInPrompt,
+                            titleVisibility: .visible) {
+            Button("Clock out and sign out") {
+                Task { await vm.clockOutAndSignOut() }
+            }
+            Button("Sign out only — I'm still working", role: .destructive) {
+                vm.signOutOnly()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Signing out doesn't end your shift — your hours keep running until you clock out. Location tracking on this phone stops when you sign out.")
+        }
+        .alert("Couldn't sign out",
+               isPresented: Binding(get: { vm.errorMessage != nil },
+                                    set: { if !$0 { vm.errorMessage = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(vm.errorMessage ?? "")
         }
     }
 }

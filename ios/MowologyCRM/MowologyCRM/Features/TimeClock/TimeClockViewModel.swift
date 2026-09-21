@@ -327,6 +327,20 @@ final class TimeClockViewModel: ObservableObject {
         static let clockInTime = "mw.clock.state.clockInTime"
     }
 
+    /// Persisted "am I clocked in" flag — read by the sign-out prompt when there is no signal.
+    static var persistedClockedIn: Bool {
+        UserDefaults.standard.bool(forKey: PersistKey.clockedIn)
+    }
+
+    /// After a clock-out made outside this view model (the sign-out prompt), so the next
+    /// sign-in does not restore a stale "clocked in" and restart location capture.
+    static func clearPersistedClockState() {
+        let d = UserDefaults.standard
+        d.set(false, forKey: PersistKey.clockedIn)
+        d.set(0, forKey: PersistKey.entryId)
+        d.removeObject(forKey: PersistKey.clockInTime)
+    }
+
     private func persistClockState() {
         let d = UserDefaults.standard
         d.set(clockedIn, forKey: PersistKey.clockedIn)
