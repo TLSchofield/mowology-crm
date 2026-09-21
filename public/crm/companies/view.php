@@ -438,6 +438,12 @@ $extraHead = '<script src="https://js.stripe.com/v3/" defer></script>'
                                                         <span class="badge badge-light">
                                                             <?= htmlspecialchars(ucfirst($prop['relationship_type'] ?? 'owner')) ?>
                                                         </span>
+                                                        <?php // How this property came to be listed (see getCompanyProperties).
+                                                        if (($prop['link_source'] ?? '') === 'inferred' && !empty($prop['linked_via_name'])): ?>
+                                                            <small class="text-muted d-block">via <?= htmlspecialchars($prop['linked_via_name']) ?></small>
+                                                        <?php elseif (($prop['link_source'] ?? '') === 'direct'): ?>
+                                                            <small class="text-muted d-block">set on the property</small>
+                                                        <?php endif; ?>
                                                     </td>
                                                     <td><?= $prop['is_primary'] ? '<span class="text-success">Yes</span>' : '—' ?></td>
                                                     <td>
@@ -458,11 +464,15 @@ $extraHead = '<script src="https://js.stripe.com/v3/" defer></script>'
                                                         <?php endif; ?>
                                                     </td>
                                                     <td>
+                                                        <?php // Only an explicit link can be removed here; the others follow the
+                                                              // property's own fields or its site contact.
+                                                        if (($prop['link_source'] ?? 'explicit') === 'explicit'): ?>
                                                         <button type="button" class="btn btn-sm btn-outline-danger"
                                                                 onclick="unlinkProperty(<?= (int)$prop['id'] ?>)"
                                                                 title="Unlink this property">
                                                             <i data-feather="x" style="width:12px;height:12px;"></i>
                                                         </button>
+                                                        <?php endif; ?>
                                                     </td>
                                                 </tr>
                                             <?php endforeach; ?>
