@@ -108,6 +108,10 @@ class VisitLifecycleService
                 // notifyCompletion() doc comment for why this is one shared
                 // method instead of being duplicated at each write path.
                 self::notifyCompletion($visitId, $userId);
+
+                // An endorsed visit joins the portfolio approval queue once it has both
+                // photos — crew usually press the heart before the after photo exists.
+                self::queueForPortfolio($visitId, $userId);
             }
 
             // Propagate terminal-state visits to calendar_stops so the Schedule
@@ -253,6 +257,26 @@ class VisitLifecycleService
             );
         } catch (Throwable $e) {
             error_log("notifyCompletion error for visit {$visitId}: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Queue a PENDING before/after pair for the manager if the visit is endorsed.
+     * Called on completion and by both visit-flag endpoints. Never throws: the
+     * portfolio is a by-product of the visit, not a condition of it.
+     */
+    public static function queueForPortfolio(int $visitId, ?int $userId = null): void {
+        try {
+            $db = getDB();
+            $stmt = $db->prepare("SELECT is_flagged FROM job_visits WHERE id = ?");
+            $stmt->execute([$visitId]);
+            if ((int)$stmt->fetchColumn() !== 1) return;
+
+            require_once APP_ROOT . '/Modules/Portfolio/Services/BeforeAfterService.php';
+            (new BeforeAfterService($db))->queueFromVisit($visitId, $userId);
+        } catch (Throwable $e) {
+            // ba_pairs may predate migration 1118 — the queue page's sweep picks it up later.
+            error_log("queueForPortfolio error for visit {$visitId}: " . $e->getMessage());
         }
     }
 

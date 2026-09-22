@@ -33386,41 +33386,64 @@ a.mw-clock-timer-nav:hover {
   color: #9ca3af; font-size: 0.9rem;
 }
 
-/* ── BA Import from Field Photos ────────────────────────────────────────── */
-.mw-ba-import-row {
+/* ── BA approval queue (endorsed visits → website) ──────────────────────── */
+.mw-baq-heart { width: 16px; height: 16px; color: var(--mw-orange); }
+.mw-baq-empty-icon { width: 36px; height: 36px; stroke: var(--mw-light); display: block; margin: 0 auto 1rem; }
+.mw-baq-row {
+  display: flex;
+  gap: 16px;
   padding: 16px;
   border-bottom: 1px solid var(--mw-light);
+  transition: opacity 0.4s;
 }
-.mw-ba-import-row:last-child { border-bottom: none; }
-.mw-ba-import-meta { margin-bottom: 10px; font-size: 0.9rem; }
-.mw-ba-import-photos {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-  align-items: flex-start;
+.mw-baq-row:last-child { border-bottom: none; }
+.mw-baq-row.is-done { opacity: 0.25; }
+.mw-baq-photos { display: flex; gap: 8px; flex: 0 0 auto; }
+.mw-baq-photo { margin: 0; width: 160px; }
+.mw-baq-photo img {
+  width: 160px;
+  height: 160px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--mw-light);
+  display: block;
 }
-.mw-ba-import-col { min-width: 120px; }
-.mw-ba-import-label {
+.mw-baq-photo figcaption {
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: #888;
-  margin-bottom: 6px;
+  color: var(--mw-dark);
+  margin-top: 4px;
+  text-align: center;
 }
-.mw-ba-import-thumbs { display: flex; flex-wrap: wrap; gap: 6px; }
-.mw-ba-import-thumb {
-  width: 70px;
-  height: 70px;
-  object-fit: cover;
+.mw-baq-form { flex: 1; min-width: 260px; }
+.mw-baq-private { font-size: 0.85rem; margin-bottom: 8px; }
+.mw-baq-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--mw-dark);
+  margin-bottom: 2px;
+  display: block;
+}
+.mw-baq-consent {
+  font-size: 0.85rem;
+  padding: 8px 10px;
   border-radius: 6px;
-  border: 2px solid transparent;
-  cursor: pointer;
-  transition: border-color 0.15s, transform 0.1s;
+  margin: 4px 0 10px;
+  background: color-mix(in srgb, var(--mw-orange) 8%, white);
+  color: var(--mw-orange);
 }
-.mw-ba-import-thumb:hover { border-color: var(--mw-green); }
-.mw-ba-import-thumb.selected { border-color: var(--mw-orange); transform: scale(1.05); }
-.mw-ba-import-form { flex: 1; min-width: 220px; }
+.mw-baq-consent svg { width: 14px; height: 14px; vertical-align: -2px; margin-right: 4px; }
+.mw-baq-consent.is-recorded,
+.mw-baq-consent.is-clear { background: var(--mw-light); color: var(--mw-dark); }
+.mw-baq-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 767px) {
+  .mw-baq-row { flex-direction: column; }
+  .mw-baq-photos { justify-content: center; }
+}
 
 /* ── Dashboard Live Operations Map ──────────────────────────────────────── */
 .mw-ops-map-card {

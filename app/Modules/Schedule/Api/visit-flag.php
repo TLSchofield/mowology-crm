@@ -101,4 +101,10 @@ try {
     exit;
 }
 
+// Endorsed → into the portfolio approval queue (no-op until both photos exist).
+if ($newFlag === 1) {
+    require_once APP_ROOT . '/Modules/Jobs/Services/VisitLifecycleService.php';
+    VisitLifecycleService::queueForPortfolio($visitId, (int)$jwtUser['id']);
+}
+
 echo json_encode(['success' => true, 'is_flagged' => (bool)$newFlag]);

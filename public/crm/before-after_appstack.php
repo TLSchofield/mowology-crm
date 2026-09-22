@@ -26,6 +26,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     $db = getDB();
 
+    // Queue decisions are a manager's call (portfolio.edit); staff can view the page.
+    if (in_array($action, ['queue_approve', 'queue_reject', 'queue_consent', 'queue_unpublish'], true)) {
+        if (!userHasPermission('portfolio.edit')) {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'error' => 'Only a manager can approve website photos']);
+            exit;
+        }
+        require_once APP_ROOT . '/Modules/Portfolio/Services/BeforeAfterService.php';
+        require_once APP_ROOT . '/Services/Media/MediaVariantGenerator.php';
+        $ba     = new BeforeAfterService($db);
+        $pairId = (int)($_POST['pair_id'] ?? 0);
+        try {
+            switch ($action) {
+                case 'queue_consent':
+                    $ba->recordConsent($pairId, (int)$user['id'], (string)($_POST['note'] ?? ''));
+                    echo json_encode(['success' => true]);
+                    exit;
+                case 'queue_approve':
+                    $fields = array_intersect_key($_POST, array_flip(['label', 'service', 'category', 'area', 'alt_before', 'alt_after']));
+                    $pair   = $ba->approve($pairId, (int)$user['id'], $fields);
+                    echo json_encode(['success' => true, 'pair' => $pair]);
+                    exit;
+                case 'queue_reject':
+                    $ba->reject($pairId, (int)$user['id'], (string)($_POST['reason'] ?? ''));
+                    echo json_encode(['success' => true]);
+                    exit;
+                case 'queue_unpublish':
+                    $ba->unpublish($pairId, (int)$user['id'], (string)($_POST['reason'] ?? 'Unpublished'));
+                    echo json_encode(['success' => true]);
+                    exit;
+            }
+        } catch (Throwable $e) {
+            echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+            exit;
+        }
+    }
+
     switch ($action) {
         case 'save_pair':
             $before_id = (int)($_POST['before_id'] ?? 0);
@@ -42,19 +79,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $pair_id = (int)($_POST['pair_id'] ?? 0);
             if ($pair_id) {
+                // A hand-made pair is the manager's own decision: publishing it IS the approval.
                 $stmt = $db->prepare("
-                    UPDATE ba_pairs SET before_id=?, after_id=?, label=?, service=?, category=?, published=?, updated_at=NOW()
+                    UPDATE ba_pairs SET before_id=?, after_id=?, label=?, service=?, category=?, published=?,
+                        status=?, approved_by=?, approved_at=NOW(), updated_at=NOW()
                     WHERE id=?
                 ");
-                $stmt->execute([$before_id, $after_id, $label, $service, $category, $published, $pair_id]);
+                $stmt->execute([$before_id, $after_id, $label, $service, $category, $published,
+                    $published ? 'approved' : 'rejected', (int)$user['id'], $pair_id]);
             } else {
                 // Get next sort_order
                 $maxSort = (int)$db->query("SELECT COALESCE(MAX(sort_order),0) FROM ba_pairs")->fetchColumn();
                 $stmt = $db->prepare("
-                    INSERT INTO ba_pairs (before_id, after_id, label, service, category, published, sort_order, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+                    INSERT INTO ba_pairs (before_id, after_id, label, service, category, published, status, approved_by, approved_at, sort_order, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, NOW(), NOW())
                 ");
-                $stmt->execute([$before_id, $after_id, $label, $service, $category, $published, $maxSort + 1]);
+                $stmt->execute([$before_id, $after_id, $label, $service, $category, $published,
+                    $published ? 'approved' : 'rejected', (int)$user['id'], $maxSort + 1]);
                 $pair_id = $db->lastInsertId();
             }
             echo json_encode(['success' => true, 'pair_id' => $pair_id]);
@@ -78,67 +119,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             echo json_encode(['success' => true]);
             exit;
 
-        case 'create_ba_pair_from_visit':
-            // Import two visit_photos as a BA pair.
-            // Creates lightweight media_assets rows pointing to the same files on disk.
-            $beforePhotoId = (int)($_POST['before_photo_id'] ?? 0);
-            $afterPhotoId  = (int)($_POST['after_photo_id']  ?? 0);
-            $label         = trim($_POST['label']   ?? '');
-            $service       = trim($_POST['service'] ?? '');
-
-            if (!$beforePhotoId || !$afterPhotoId) {
-                echo json_encode(['success' => false, 'error' => 'Both photo IDs required']);
-                exit;
-            }
-
-            // Resolve visit photos
-            $stmtVp = $db->prepare(
-                "SELECT id, filename, thumb_path, grid_path, view_path FROM visit_photos
-                 WHERE id IN (?,?) AND deleted_at IS NULL"
-            );
-            $stmtVp->execute([$beforePhotoId, $afterPhotoId]);
-            $vpRows = [];
-            foreach ($stmtVp->fetchAll(PDO::FETCH_ASSOC) as $row) {
-                $vpRows[$row['id']] = $row;
-            }
-
-            if (!isset($vpRows[$beforePhotoId]) || !isset($vpRows[$afterPhotoId])) {
-                echo json_encode(['success' => false, 'error' => 'Visit photo not found']);
-                exit;
-            }
-
-            // Create or reuse media_assets for each photo
-            function _importVisitPhoto(PDO $db, array $vp): int {
-                $filePath = '/uploads/photos/' . $vp['filename'];
-                // Check if already imported
-                $stmtChk = $db->prepare(
-                    "SELECT id FROM media_assets WHERE context_type = 'visit_photo' AND stored_filename = ? LIMIT 1"
-                );
-                $stmtChk->execute([$vp['filename']]);
-                $existing = $stmtChk->fetchColumn();
-                if ($existing) {
-                    return (int)$existing;
-                }
-                $stmtIns = $db->prepare(
-                    "INSERT INTO media_assets (stored_filename, original_filename, file_path, context_type, status, created_at)
-                     VALUES (?, ?, ?, 'visit_photo', 'ready', NOW())"
-                );
-                $stmtIns->execute([$vp['filename'], $vp['original_filename'] ?? $vp['filename'], $filePath]);
-                return (int)$db->lastInsertId();
-            }
-
-            $beforeAssetId = _importVisitPhoto($db, $vpRows[$beforePhotoId]);
-            $afterAssetId  = _importVisitPhoto($db, $vpRows[$afterPhotoId]);
-
-            // Insert BA pair
-            $maxSort = (int)$db->query("SELECT COALESCE(MAX(sort_order),0) FROM ba_pairs")->fetchColumn();
-            $db->prepare(
-                "INSERT INTO ba_pairs (before_id, after_id, label, service, category, published, sort_order, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, 'general', 1, ?, NOW(), NOW())"
-            )->execute([$beforeAssetId, $afterAssetId, $label, $service, $maxSort + 1]);
-
-            echo json_encode(['success' => true, 'pair_id' => (int)$db->lastInsertId()]);
-            exit;
     }
 
     echo json_encode(['success' => false, 'error' => 'Unknown action']);
@@ -147,59 +127,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $csrfToken = generateCSRFToken();
 
-// Load flagged visits with their before+after photos (not yet imported to BA)
-$db = getDB();
-$flaggedVisits = [];
+// ── Approval queue (endorsed visits → pending pairs) ───────────────────────
+require_once APP_ROOT . '/Modules/Portfolio/Services/BeforeAfterService.php';
+$canApprove = function_exists('userHasPermission') ? userHasPermission('portfolio.edit') : (($user['role'] ?? '') === 'admin');
+$pendingPairs = [];
+$pairCounts   = ['pending' => 0, 'approved' => 0, 'rejected' => 0];
 try {
-    $stmtFv = $db->query("
-        SELECT jv.id AS visit_id, jv.visit_number, jv.completed_at,
-               jp.service_type,
-               p.address AS property_address
-        FROM job_visits jv
-        JOIN job_plans jp ON jp.id = jv.plan_id
-        JOIN properties p  ON p.id  = jp.property_id
-        WHERE jv.is_flagged = 1
-          AND jv.status IN ('completed', 'in_progress')
-          AND NOT EXISTS (
-              SELECT 1 FROM ba_pairs bp
-              JOIN media_assets ma_b ON ma_b.id = bp.before_id
-              WHERE ma_b.context_type = 'visit_photo'
-                AND EXISTS (
-                    SELECT 1 FROM visit_photos vp2
-                    WHERE vp2.filename = ma_b.stored_filename COLLATE utf8mb4_general_ci
-                      AND vp2.visit_id = jv.id
-                )
-          )
-        ORDER BY jv.completed_at DESC, jv.updated_at DESC
-        LIMIT 50
-    ");
-    $rawVisits = $stmtFv->fetchAll(PDO::FETCH_ASSOC);
-
-    foreach ($rawVisits as $fv) {
-        $stmtPh = $db->prepare("
-            SELECT id, photo_type, filename,
-                   COALESCE(thumb_path, CONCAT('/uploads/photos/', filename)) AS thumb_url
-            FROM visit_photos
-            WHERE visit_id = ? AND deleted_at IS NULL
-              AND photo_type IN ('before', 'after')
-            ORDER BY FIELD(photo_type, 'before', 'after'), uploaded_at ASC
-        ");
-        $stmtPh->execute([$fv['visit_id']]);
-        $photos = $stmtPh->fetchAll(PDO::FETCH_ASSOC);
-
-        $beforePhotos = array_values(array_filter($photos, function($ph) { return $ph['photo_type'] === 'before'; }));
-        $afterPhotos  = array_values(array_filter($photos, function($ph) { return $ph['photo_type'] === 'after';  }));
-
-        // Only include visits that have at least one before AND one after
-        if ($beforePhotos && $afterPhotos) {
-            $fv['before_photos'] = $beforePhotos;
-            $fv['after_photos']  = $afterPhotos;
-            $flaggedVisits[] = $fv;
-        }
-    }
-} catch (PDOException $e) {
-    // is_flagged column may not exist yet (pre-migration) — degrade gracefully
-    $flaggedVisits = [];
+    $baService = new BeforeAfterService($db);
+    $baService->sweepEndorsed();          // catch endorsements made before the after photo existed
+    $pendingPairs = $baService->pending();
+    $pairCounts   = $baService->counts();
+} catch (Throwable $e) {
+    // ba_pairs predates migration 1118 — the queue is simply empty until it runs
+    error_log('before-after queue unavailable: ' . $e->getMessage());
 }
 ?>
 <?php include 'includes/appstack_head.php'; ?>
@@ -212,6 +152,121 @@ try {
             <button class="btn btn-success" id="btnNewPair">
               <i data-feather="plus" class="align-middle mr-1"></i> New Pair
             </button>
+          </div>
+
+          <!-- ── Awaiting approval: endorsed visits, decided by a manager ───────── -->
+          <div class="card mb-3 mw-baq" id="baQueue">
+            <div class="card-header d-flex align-items-center justify-content-between">
+              <h5 class="card-title mb-0">
+                <i data-feather="heart" class="mr-2 mw-baq-heart"></i>
+                Awaiting approval
+                <span class="badge badge-warning ml-2" id="baQueueCount"><?= count($pendingPairs) ?></span>
+              </h5>
+              <small class="text-muted">
+                <?= (int)$pairCounts['approved'] ?> on the website
+                <?php if (!$canApprove): ?> · view only — a manager approves<?php endif; ?>
+              </small>
+            </div>
+            <?php if (empty($pendingPairs)): ?>
+            <div class="card-body text-center text-muted py-4" id="baQueueEmpty">
+              <i data-feather="heart" class="mw-baq-empty-icon"></i>
+              Nothing waiting.<br>
+              <small>When crew endorse a visit with a before and an after photo, it appears here for approval.</small>
+            </div>
+            <?php else: ?>
+            <div class="card-body p-0">
+              <?php foreach ($pendingPairs as $q):
+                $needsConsent = ($q['consent_state'] === BeforeAfterService::CONSENT_NEEDED);
+                $hasConsent   = ($q['consent_state'] === BeforeAfterService::CONSENT_RECORDED);
+                $when = !empty($q['completed_at']) ? $q['completed_at'] : ($q['scheduled_date'] ?? $q['queued_at']);
+              ?>
+              <div class="mw-baq-row" data-pair-id="<?= (int)$q['id'] ?>" data-consent="<?= $needsConsent ? 'needed' : 'ok' ?>">
+                <div class="mw-baq-photos">
+                  <figure class="mw-baq-photo">
+                    <img src="<?= h($q['before_url']) ?>" alt="Before" loading="lazy">
+                    <figcaption>Before</figcaption>
+                  </figure>
+                  <figure class="mw-baq-photo">
+                    <img src="<?= h($q['after_url']) ?>" alt="After" loading="lazy">
+                    <figcaption>After</figcaption>
+                  </figure>
+                </div>
+                <div class="mw-baq-form">
+                  <div class="mw-baq-private">
+                    <strong><?= h($q['property_name'] ?: $q['address'] ?: 'Property') ?></strong>
+                    <?php if (!empty($q['address']) && $q['property_name']): ?><span class="text-muted"> · <?= h($q['address']) ?></span><?php endif; ?>
+                    <span class="text-muted"> · <?= h($q['visit_number'] ?: ('Visit #' . (int)$q['visit_id'])) ?> · <?= $when ? date('M j, Y', strtotime($when)) : '' ?></span>
+                    <?php if (!empty($q['queued_by_name'])): ?><span class="text-muted"> · endorsed by <?= h($q['queued_by_name']) ?></span><?php endif; ?>
+                    <span class="badge badge-light ml-1" title="Office only — never shown on the website">private</span>
+                  </div>
+
+                  <div class="form-row">
+                    <div class="col-md-6 mb-2">
+                      <label class="mw-baq-label">Public label</label>
+                      <input type="text" class="form-control form-control-sm q-label" value="<?= h($q['label']) ?>" maxlength="120">
+                    </div>
+                    <div class="col-md-3 mb-2">
+                      <label class="mw-baq-label">Service</label>
+                      <input type="text" class="form-control form-control-sm q-service" value="<?= h($q['service']) ?>" maxlength="100">
+                    </div>
+                    <div class="col-md-3 mb-2">
+                      <label class="mw-baq-label">Neighbourhood</label>
+                      <input type="text" class="form-control form-control-sm q-area" value="<?= h($q['area']) ?>" maxlength="80" placeholder="e.g. Kitsilano">
+                    </div>
+                  </div>
+                  <div class="form-row">
+                    <div class="col-md-3 mb-2">
+                      <label class="mw-baq-label">Website filter</label>
+                      <select class="form-control form-control-sm q-category">
+                        <?php foreach (BeforeAfterService::CATEGORIES as $cat): ?>
+                        <option value="<?= $cat ?>"<?= $q['category'] === $cat ? ' selected' : '' ?>><?= ucfirst($cat) ?></option>
+                        <?php endforeach; ?>
+                      </select>
+                    </div>
+                    <div class="col-md-9 mb-2">
+                      <label class="mw-baq-label">Image descriptions (alt text, read by Google)</label>
+                      <div class="d-flex" style="gap:6px">
+                        <input type="text" class="form-control form-control-sm q-alt-before" value="<?= h($q['alt_before']) ?>" maxlength="160">
+                        <input type="text" class="form-control form-control-sm q-alt-after" value="<?= h($q['alt_after']) ?>" maxlength="160">
+                      </div>
+                    </div>
+                  </div>
+
+                  <?php if ($needsConsent || $hasConsent): ?>
+                  <div class="mw-baq-consent<?= $hasConsent ? ' is-recorded' : '' ?>">
+                    <?php if ($hasConsent): ?>
+                      <i data-feather="check-circle"></i> Client agreed — <?= h($q['consent_note']) ?>
+                    <?php else: ?>
+                      <i data-feather="alert-circle"></i>
+                      <span>Strata / managed property — the client must agree before this goes on the website.</span>
+                      <?php if ($canApprove): ?>
+                      <div class="d-flex mt-2" style="gap:6px">
+                        <input type="text" class="form-control form-control-sm q-consent-note" placeholder="How they agreed, e.g. Email from Ron 21 Sep">
+                        <button class="btn btn-sm btn-outline-primary q-consent-btn">Record agreement</button>
+                      </div>
+                      <?php endif; ?>
+                    <?php endif; ?>
+                  </div>
+                  <?php else: ?>
+                  <div class="mw-baq-consent is-clear">
+                    <i data-feather="eye"></i> Residential — check for faces, house numbers and licence plates, then approve.
+                  </div>
+                  <?php endif; ?>
+
+                  <?php if ($canApprove): ?>
+                  <div class="mw-baq-actions">
+                    <button class="btn btn-success q-approve-btn"<?= $needsConsent ? ' disabled title="Record the client\'s agreement first"' : '' ?>>
+                      <i data-feather="globe" class="mr-1"></i> Approve &amp; publish
+                    </button>
+                    <button class="btn btn-outline-secondary q-reject-btn">Not for the website</button>
+                    <span class="q-status text-muted small ml-2"></span>
+                  </div>
+                  <?php endif; ?>
+                </div>
+              </div>
+              <?php endforeach; ?>
+            </div>
+            <?php endif; ?>
           </div>
 
           <!-- Toolbar -->
@@ -335,175 +390,91 @@ try {
 
           </div><!-- /.mw-ba-body -->
 
-          <!-- ── Import from Field Photos ─────────────────────────────────── -->
-          <div class="card mt-4">
-            <div class="card-header d-flex align-items-center justify-content-between">
-              <h5 class="card-title mb-0">
-                <i data-feather="heart" class="mr-2" style="width:16px;height:16px;color:var(--mw-orange)"></i>
-                Import from Field Photos
-              </h5>
-              <span class="badge badge-secondary"><?= count($flaggedVisits) ?> visit<?= count($flaggedVisits) !== 1 ? 's' : '' ?> ready</span>
-            </div>
-            <?php if (empty($flaggedVisits)): ?>
-            <div class="card-body text-center text-muted py-4">
-              <i data-feather="heart" style="width:36px;height:36px;stroke:#d1d5db;display:block;margin:0 auto 1rem"></i>
-              No flagged visits with before+after photos yet.<br>
-              <small>When crew endorses a visit (heart button), it will appear here.</small>
-            </div>
-            <?php else: ?>
-            <div class="card-body p-0">
-              <?php foreach ($flaggedVisits as $fv): ?>
-              <div class="mw-ba-import-row" data-visit-id="<?= $fv['visit_id'] ?>">
-                <div class="mw-ba-import-meta">
-                  <strong><?= htmlspecialchars($fv['visit_number'] ?? "Visit #{$fv['visit_id']}") ?></strong>
-                  <span class="text-muted ml-2"><?= htmlspecialchars($fv['property_address'] ?? '') ?></span>
-                  <?php if (!empty($fv['completed_at'])): ?>
-                  <small class="text-muted ml-2"><?= date('M j, Y', strtotime($fv['completed_at'])) ?></small>
-                  <?php endif; ?>
-                </div>
-                <div class="mw-ba-import-photos">
-                  <!-- Before photos (click to select) -->
-                  <div class="mw-ba-import-col">
-                    <div class="mw-ba-import-label">Before</div>
-                    <div class="mw-ba-import-thumbs">
-                      <?php foreach ($fv['before_photos'] as $ph): ?>
-                      <img src="<?= htmlspecialchars($ph['thumb_url']) ?>"
-                           class="mw-ba-import-thumb"
-                           data-photo-id="<?= $ph['id'] ?>"
-                           data-type="before"
-                           data-visit-id="<?= $fv['visit_id'] ?>"
-                           title="Select as Before photo"
-                           onerror="this.style.display='none'">
-                      <?php endforeach; ?>
-                    </div>
-                  </div>
-                  <!-- After photos (click to select) -->
-                  <div class="mw-ba-import-col">
-                    <div class="mw-ba-import-label">After</div>
-                    <div class="mw-ba-import-thumbs">
-                      <?php foreach ($fv['after_photos'] as $ph): ?>
-                      <img src="<?= htmlspecialchars($ph['thumb_url']) ?>"
-                           class="mw-ba-import-thumb"
-                           data-photo-id="<?= $ph['id'] ?>"
-                           data-type="after"
-                           data-visit-id="<?= $fv['visit_id'] ?>"
-                           title="Select as After photo"
-                           onerror="this.style.display='none'">
-                      <?php endforeach; ?>
-                    </div>
-                  </div>
-                  <!-- Import form -->
-                  <div class="mw-ba-import-form">
-                    <input type="hidden" class="imp-before-id" value="">
-                    <input type="hidden" class="imp-after-id"  value="">
-                    <input type="text" class="form-control form-control-sm imp-label" placeholder="Label (e.g. Spring Cleanup — Kerrisdale)" style="margin-bottom:6px">
-                    <select class="form-control form-control-sm imp-service" style="margin-bottom:6px">
-                      <option value="Lawn Restoration">Lawn Restoration</option>
-                      <option value="Garden Restoration">Garden Restoration</option>
-                      <option value="Seasonal Cleanup">Seasonal Cleanup</option>
-                      <option value="Strata Maintenance">Strata Maintenance</option>
-                      <option value="Hedge &amp; Pruning">Hedge &amp; Pruning</option>
-                      <option value="Garden Care">Garden Care</option>
-                    </select>
-                    <?php if ($fv['service_type']): ?>
-                    <script>
-                      (function() {
-                        var sel = document.currentScript.previousElementSibling;
-                        var st  = <?= json_encode($fv['service_type']) ?>;
-                        for (var i=0;i<sel.options.length;i++) {
-                          if (sel.options[i].value.toLowerCase().indexOf(st.toLowerCase()) !== -1) {
-                            sel.selectedIndex = i; break;
-                          }
-                        }
-                      })();
-                    </script>
-                    <?php endif; ?>
-                    <button class="btn btn-sm btn-success imp-submit-btn" disabled>
-                      <i data-feather="plus" style="width:12px;height:12px;"></i> Create BA Pair
-                    </button>
-                    <span class="imp-status text-muted small ml-2" style="display:none"></span>
-                  </div>
-                </div>
-              </div>
-              <?php endforeach; ?>
-            </div>
-            <?php endif; ?>
-          </div>
 
           <script>
           (function() {
-            // ── Import section: select before/after, create BA pair ──────────
-            var CSRF = <?= json_encode($csrfToken) ?>;
+            // ── Approval queue: consent → approve / reject ────────────────────
+            var CSRF  = <?= json_encode($csrfToken) ?>;
+            var queue = document.getElementById('baQueue');
+            if (!queue) return;
 
-            document.querySelectorAll('.mw-ba-import-thumb').forEach(function(img) {
-              img.addEventListener('click', function() {
-                var row     = img.closest('.mw-ba-import-row');
-                var type    = img.dataset.type;
-                var photoId = img.dataset.photoId;
+            function post(fields) {
+              var fd = new FormData();
+              Object.keys(fields).forEach(function(k) { fd.append(k, fields[k]); });
+              fd.append('csrf_token', CSRF);
+              return fetch(window.location.pathname, { method: 'POST', body: fd }).then(function(r) { return r.json(); });
+            }
+            function rowOf(el) { return el.closest('.mw-baq-row'); }
+            function status(row, text, ok) {
+              var s = row.querySelector('.q-status');
+              if (!s) return;
+              s.textContent = text;
+              s.style.color = ok ? 'var(--mw-green)' : 'var(--mw-orange)';
+            }
+            function settle(row, text) {
+              status(row, text, true);
+              row.classList.add('is-done');
+              var badge = document.getElementById('baQueueCount');
+              if (badge) badge.textContent = Math.max(0, parseInt(badge.textContent, 10) - 1);
+              setTimeout(function() { row.remove(); }, 900);
+              if (typeof fetchPairs === 'function') fetchPairs();
+            }
 
-                // Deselect others of same type in this row
-                row.querySelectorAll('.mw-ba-import-thumb[data-type="' + type + '"]').forEach(function(i) {
-                  i.classList.remove('selected');
-                });
-                img.classList.add('selected');
+            queue.addEventListener('click', function(e) {
+              var btn = e.target.closest('button');
+              if (!btn) return;
+              var row = rowOf(btn);
+              if (!row) return;
+              var pairId = row.dataset.pairId;
 
-                // Store selection
-                row.querySelector('.imp-' + type + '-id').value = photoId;
-
-                // Enable submit when both selected
-                var bId = row.querySelector('.imp-before-id').value;
-                var aId = row.querySelector('.imp-after-id').value;
-                row.querySelector('.imp-submit-btn').disabled = !(bId && aId);
-              });
-            });
-
-            document.querySelectorAll('.imp-submit-btn').forEach(function(btn) {
-              btn.addEventListener('click', function() {
-                var row     = btn.closest('.mw-ba-import-row');
-                var bId     = row.querySelector('.imp-before-id').value;
-                var aId     = row.querySelector('.imp-after-id').value;
-                var label   = row.querySelector('.imp-label').value;
-                var service = row.querySelector('.imp-service').value;
-                var status  = row.querySelector('.imp-status');
-
-                if (!bId || !aId) return;
-
+              if (btn.classList.contains('q-consent-btn')) {
+                var note = row.querySelector('.q-consent-note').value.trim();
+                if (!note) { row.querySelector('.q-consent-note').focus(); return; }
                 btn.disabled = true;
-                status.style.display = 'inline';
-                status.textContent = 'Saving…';
+                post({ action: 'queue_consent', pair_id: pairId, note: note }).then(function(d) {
+                  if (!d.success) { btn.disabled = false; alert(d.error || 'Could not record'); return; }
+                  var box = row.querySelector('.mw-baq-consent');
+                  box.classList.add('is-recorded');
+                  box.innerHTML = '<i data-feather="check-circle"></i> Client agreed — ' + escHtml(note);
+                  row.dataset.consent = 'ok';
+                  var ok = row.querySelector('.q-approve-btn');
+                  if (ok) { ok.disabled = false; ok.removeAttribute('title'); }
+                  if (typeof feather !== 'undefined') feather.replace();
+                });
+                return;
+              }
 
-                var fd = new FormData();
-                fd.append('action',          'create_ba_pair_from_visit');
-                fd.append('before_photo_id', bId);
-                fd.append('after_photo_id',  aId);
-                fd.append('label',           label);
-                fd.append('service',         service);
-                fd.append('csrf_token',      CSRF);
+              if (btn.classList.contains('q-approve-btn')) {
+                btn.disabled = true;
+                status(row, 'Publishing…', true);
+                post({
+                  action: 'queue_approve', pair_id: pairId,
+                  label: row.querySelector('.q-label').value, service: row.querySelector('.q-service').value,
+                  area: row.querySelector('.q-area').value, category: row.querySelector('.q-category').value,
+                  alt_before: row.querySelector('.q-alt-before').value, alt_after: row.querySelector('.q-alt-after').value
+                }).then(function(d) {
+                  if (!d.success) { btn.disabled = false; status(row, d.error || 'Error', false); return; }
+                  settle(row, '✓ On the website');
+                }).catch(function() { btn.disabled = false; status(row, 'Network error', false); });
+                return;
+              }
 
-                fetch(window.location.pathname, { method: 'POST', body: fd })
-                  .then(function(r) { return r.json(); })
-                  .then(function(data) {
-                    if (data.success) {
-                      row.style.opacity = '0.4';
-                      status.textContent = '✓ Pair created';
-                      status.style.color = 'var(--mw-green)';
-                      // Reload pairs list
-                      if (typeof fetchPairs === 'function') fetchPairs();
-                    } else {
-                      status.textContent = data.error || 'Error';
-                      status.style.color = '#c0392b';
-                      btn.disabled = false;
-                    }
-                  })
-                  .catch(function() {
-                    status.textContent = 'Network error';
-                    status.style.color = '#c0392b';
-                    btn.disabled = false;
-                  });
-              });
+              if (btn.classList.contains('q-reject-btn')) {
+                var reason = prompt('Why not? (optional — kept for the record)') ;
+                if (reason === null) return;
+                btn.disabled = true;
+                post({ action: 'queue_reject', pair_id: pairId, reason: reason }).then(function(d) {
+                  if (!d.success) { btn.disabled = false; status(row, d.error || 'Error', false); return; }
+                  settle(row, 'Parked');
+                });
+              }
             });
 
-            if (typeof feather !== 'undefined') feather.replace();
+            function escHtml(str) {
+              var d = document.createElement('div');
+              d.appendChild(document.createTextNode(str || ''));
+              return d.innerHTML;
+            }
           })();
           </script>
 

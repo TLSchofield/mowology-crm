@@ -54,7 +54,7 @@ try {
     $siteUrl = defined('SITE_URL') ? SITE_URL : 'https://mowology.ca';
 
     $xml = '<?xml version="1.0" encoding="UTF-8"?>' . "\n";
-    $xml .= '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' . "\n";
+    $xml .= '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">' . "\n";
 
     foreach ($pages as $page) {
         // Use stored canonical if present, otherwise build from slug
@@ -75,6 +75,30 @@ try {
         $xml .= '    <changefreq>' . $meta['changefreq'] . '</changefreq>' . "\n";
         $xml .= '    <priority>' . $meta['priority'] . '</priority>' . "\n";
         $xml .= '  </url>' . "\n";
+    }
+
+    // Portfolio page is not a CMS page; list it with its approved before/after images
+    // (Google image sitemap extension) so each transformation is discoverable.
+    try {
+        require_once APP_ROOT . '/Modules/Portfolio/Services/BeforeAfterService.php';
+        $baService = new BeforeAfterService($db);
+        $baPairs   = $baService->published(100);
+        $xml .= '  <url>' . "\n";
+        $xml .= '    <loc>' . $siteUrl . '/portfolio.php</loc>' . "\n";
+        $xml .= '    <changefreq>weekly</changefreq>' . "\n";
+        $xml .= '    <priority>' . ($baPairs ? '0.8' : '0.6') . '</priority>' . "\n";
+        foreach ($baPairs as $bp) {
+            foreach (['before', 'after'] as $side) {
+                $xml .= '    <image:image>' . "\n";
+                $xml .= '      <image:loc>' . htmlspecialchars($siteUrl . $bp[$side . '_url'], ENT_XML1) . '</image:loc>' . "\n";
+                $xml .= '      <image:title>' . htmlspecialchars($bp['label'] . ' — ' . $side, ENT_XML1) . '</image:title>' . "\n";
+                $xml .= '      <image:caption>' . htmlspecialchars($bp['alt_' . $side], ENT_XML1) . '</image:caption>' . "\n";
+                $xml .= '    </image:image>' . "\n";
+            }
+        }
+        $xml .= '  </url>' . "\n";
+    } catch (Throwable $e) {
+        // ba_pairs unavailable — the rest of the sitemap is unaffected
     }
 
     $xml .= '</urlset>';

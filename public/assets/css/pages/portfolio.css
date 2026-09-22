@@ -469,3 +469,14 @@
 @keyframes baReveal { to { opacity: 1; transform: translateY(0); } }
 
 @media (max-width: 500px) { .mw-ba__grid { grid-template-columns: 1fr; } }
+
+/* Server-rendered cards carry real <img> tags (indexable, with alt text) instead of
+   background images; they must fill their layer exactly as the background did. */
+.mw-ba-card__after img,
+.mw-ba-card__before img {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    object-fit: cover; object-position: center;
+    display: block;
+}
+.mw-ba-card:focus-visible { outline: 3px solid var(--mw-gold); outline-offset: 3px; }
