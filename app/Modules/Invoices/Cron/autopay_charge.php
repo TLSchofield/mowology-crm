@@ -30,6 +30,8 @@ for ($__i = 0; $__i < 6; $__i++) {
     }
 }
 unset($__dir, $__i);
+// Under cron (CLI) nothing else defines getDB()/Database — the web shim gets them from auth.php.
+require_once APP_ROOT . '/Core/config.php';
 
 require_once CRM_INCLUDES . '/functions.php';
 require_once APP_ROOT . '/Services/Payments/AutopayService.php';

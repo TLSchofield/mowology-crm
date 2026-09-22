@@ -5,7 +5,8 @@
  * Processes pending campaign_sends for campaigns in 'sending' status.
  * Renders template, sends email, updates tracking, logs activity.
  *
- * Run every 15 minutes: */15 * * * * php /home/mowology/app/Modules/Marketing/Cron/campaign_sender.php
+ * Run every 15 minutes (cron: 0,15,30,45 * * * *) — the old comment held a literal */ which
+ * closed this docblock and made the file a parse error, so it never ran from cron.
  * Also callable via web POST: POST /crm/cron/campaign_sender.php
  *
  * Sends up to 20 emails per run (shared hosting SMTP throttle).
@@ -23,6 +24,8 @@ for ($__i = 0; $__i < 5; $__i++) {
     }
 }
 unset($__dir, $__i);
+// Under cron (CLI) nothing else defines getDB()/Database — the web shim gets them from auth.php.
+require_once APP_ROOT . '/Core/config.php';
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 require_once CRM_INCLUDES . '/functions.php';

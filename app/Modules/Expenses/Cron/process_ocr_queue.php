@@ -48,6 +48,8 @@ for ($__i = 0; $__i < 6; $__i++) {
     }
 }
 unset($__dir, $__i);
+// Under cron (CLI) nothing else defines getDB()/Database — the web shim gets them from auth.php.
+require_once APP_ROOT . '/Core/config.php';
 
 if (!defined('APP_ROOT')) {
     fwrite(STDERR, "process_ocr_queue: failed to locate APP_ROOT\n");

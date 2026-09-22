@@ -28,6 +28,8 @@ if (!defined('APP_ROOT')) {
     }
     unset($__dir, $__i);
 }
+// Under cron (CLI) nothing else defines getDB()/Database — the web shim gets them from auth.php.
+require_once APP_ROOT . '/Core/config.php';
 
 // ============================================================================
 // CONTEXT + SAFE JSON RESPONDER (prevents "empty response" in web mode)

@@ -31,6 +31,8 @@ for ($__i = 0; $__i < 5; $__i++) {
     }
 }
 unset($__dir, $__i);
+// Under cron (CLI) nothing else defines getDB()/Database — the web shim gets them from auth.php.
+require_once APP_ROOT . '/Core/config.php';
 
 if (php_sapi_name() === 'cli') {
     require_once APP_ROOT . '/Core/CronLock.php';
