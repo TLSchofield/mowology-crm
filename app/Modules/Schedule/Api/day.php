@@ -132,6 +132,10 @@ foreach ($dayStops as $stop) {
                 : null,
             'is_flagged'          => (bool)($v['is_flagged'] ?? false),
             'contact_has_reviewed'=> (bool)($v['contact_has_reviewed'] ?? false),
+            // Contract / monthly-flat work is billed by the contract, never per visit —
+            // the completion sheet must not offer an invoice for it (schedule.php does the same).
+            'pricing_model'       => (string)($v['pricing_model'] ?? 'per_visit'),
+            'is_contract_billed'  => !empty($v['is_contract_billed']),
             'history'             => $historyByVisit[(int)($v['visit_id'] ?? 0)] ?? null,
         ];
     }

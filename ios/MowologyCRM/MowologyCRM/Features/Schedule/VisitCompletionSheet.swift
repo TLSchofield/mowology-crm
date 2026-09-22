@@ -148,28 +148,50 @@ struct VisitCompletionSheet: View {
 
     private var actionButtons: some View {
         VStack(spacing: 10) {
-            Button {
-                complete(withInvoice: true)
-            } label: {
-                Label("Complete & Invoice", systemImage: "paperplane.fill")
-                    .font(.subheadline.bold())
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(Color.MW.green)
-                    .foregroundStyle(.white)
-                    .clipShape(Capsule())
-            }
+            if visit.isPerVisitBillable {
+                Button {
+                    complete(withInvoice: true)
+                } label: {
+                    Label("Complete & Invoice", systemImage: "paperplane.fill")
+                        .font(.subheadline.bold())
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(Color.MW.green)
+                        .foregroundStyle(.white)
+                        .clipShape(Capsule())
+                }
 
-            Button {
-                complete(withInvoice: false)
-            } label: {
-                Text(vm.hasExtras ? "Complete — Save Extras, No Invoice" : "Complete — No Invoice")
-                    .font(.subheadline.bold())
+                Button {
+                    complete(withInvoice: false)
+                } label: {
+                    Text(vm.hasExtras ? "Complete — Save Extras, No Invoice" : "Complete — No Invoice")
+                        .font(.subheadline.bold())
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(Color.MW.green.opacity(0.12))
+                        .foregroundStyle(Color.MW.green)
+                        .clipShape(Capsule())
+                }
+            } else {
+                // Contract / monthly-flat work: the contract bills it, so a visit never raises
+                // an invoice. Extras are still saved against the visit for the office to bill.
+                Button {
+                    complete(withInvoice: false)
+                } label: {
+                    Label(vm.hasExtras ? "Complete & Save Extras" : "Complete Visit", systemImage: "checkmark.circle.fill")
+                        .font(.subheadline.bold())
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(Color.MW.green)
+                        .foregroundStyle(.white)
+                        .clipShape(Capsule())
+                }
+                Label(visit.isContractBilled ? "Billed under the contract — no invoice from this visit."
+                                             : "Billed monthly — no invoice from this visit.",
+                      systemImage: "doc.text")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(Color.MW.green.opacity(0.12))
-                    .foregroundStyle(Color.MW.green)
-                    .clipShape(Capsule())
             }
         }
         .padding(.top, 4)
