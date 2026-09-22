@@ -339,7 +339,7 @@ class SocialPublisher
             $reasonStmt = $db->prepare("
                 SELECT fail_reason FROM social_post_platforms
                 WHERE post_id = ? AND fail_reason IS NOT NULL
-                ORDER BY updated_at DESC
+                ORDER BY id DESC
                 LIMIT 1
             ");
             $reasonStmt->execute([$postId]);
