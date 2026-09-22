@@ -5,8 +5,8 @@
  * Processes pending campaign_sends for campaigns in 'sending' status.
  * Renders template, sends email, updates tracking, logs activity.
  *
- * Run every 15 minutes (cron: 0,15,30,45 * * * *) — the old comment held a literal */ which
- * closed this docblock and made the file a parse error, so it never ran from cron.
+ * Run every 15 minutes (cron: 0,15,30,45 * * * *). Never write a slash-star cron
+ * pattern in this docblock: the old comment closed it early and made the file a parse error.
  * Also callable via web POST: POST /crm/cron/campaign_sender.php
  *
  * Sends up to 20 emails per run (shared hosting SMTP throttle).
