@@ -79,6 +79,7 @@ $navItems = [
     ['key' => 'accounting',    'label' => 'Accounting',    'icon' => 'book-open',   'href' => '/crm/accounting_appstack.php',         'perm' => 'expenses.view'],
     ['key' => 'expenses',      'label' => 'Expenses',      'icon' => 'credit-card', 'href' => '/crm/expenses_appstack.php',          'perm' => 'expenses.view'],
     ['key' => 'profitability', 'label' => 'Profitability', 'icon' => 'trending-up', 'href' => '/crm/profitability_appstack.php',     'perm' => 'expenses.view'],
+    ['key' => 'freedom',       'label' => 'Owner Freedom', 'icon' => 'compass',     'href' => '/crm/freedom_appstack.php',           'perm' => 'expenses.view'],
     ['key' => 'cost-factors',  'label' => 'Cost Factors',  'icon' => 'sliders',     'href' => '/crm/products/cost-factors.php',      'perm' => 'expenses.view'],
     ['key' => 'reports',      'label' => 'Reports',       'icon' => 'bar-chart-2', 'href' => '/crm/reports_appstack.php',           'perm' => 'expenses.view'],
 
