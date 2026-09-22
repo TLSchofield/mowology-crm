@@ -64,3 +64,6 @@ public/app_config/*.json
 
 # Quarantined debug/diagnostic endpoints (moved out of web root, kept for reference)
 /quarantine/
+
+# App Store Connect API config (credentials)
+.appstore-cloud.json

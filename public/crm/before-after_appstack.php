@@ -133,6 +133,7 @@ $canApprove = function_exists('userHasPermission') ? userHasPermission('portfoli
 $pendingPairs = [];
 $pairCounts   = ['pending' => 0, 'approved' => 0, 'rejected' => 0];
 try {
+    $db = getDB();
     $baService = new BeforeAfterService($db);
     $baService->sweepEndorsed();          // catch endorsements made before the after photo existed
     $pendingPairs = $baService->pending();

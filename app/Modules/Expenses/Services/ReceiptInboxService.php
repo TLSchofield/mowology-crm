@@ -91,11 +91,55 @@ class ReceiptInboxService
     // Ingest
     // ──────────────────────────────────────────────────────────────────────
 
-    public function alreadySeen(string $dedupKey): bool
+    /**
+     * Atomically claim a dedup key by inserting a 'processing' placeholder row.
+     * The UNIQUE constraint on dedup_key is the concurrency guard: if two
+     * overlapping polls race the same attachment, the loser gets a duplicate-key
+     * error here and bails before any OCR work or an `expenses` write — instead
+     * of both racing to insert the financial record itself.
+     */
+    private function claim(array $msg, string $dedup, ?string $filename): bool
     {
-        $stmt = $this->db->prepare("SELECT 1 FROM receipt_inbox_messages WHERE dedup_key = ? LIMIT 1");
-        $stmt->execute([$dedupKey]);
-        return (bool) $stmt->fetchColumn();
+        $dt = !empty($msg['email_date']) ? date('Y-m-d H:i:s', strtotime($msg['email_date'])) : null;
+        try {
+            $this->db->prepare("
+                INSERT INTO receipt_inbox_messages
+                    (dedup_key, sender_email, subject, email_date, attachment_name, outcome)
+                VALUES (?,?,?,?,?, 'processing')
+            ")->execute([$dedup, $msg['sender_email'] ?? null, $msg['subject'] ?? null, $dt, $filename]);
+            return true;
+        } catch (PDOException $e) {
+            if (stripos($e->getMessage(), 'Duplicate') !== false || $e->getCode() === '23000') {
+                return false;
+            }
+            throw $e;
+        }
+    }
+
+    /** Finalize a claimed row with the outcome of processing. */
+    private function finalizeClaim(string $dedup, ?int $mediaId, ?int $expenseId, string $outcome, ?int $confidence, ?string $note): void
+    {
+        $this->db->prepare("
+            UPDATE receipt_inbox_messages
+               SET media_id = ?, expense_id = ?, outcome = ?, match_confidence = ?, note = ?
+             WHERE dedup_key = ?
+        ")->execute([$mediaId, $expenseId, $outcome, $confidence, $note, $dedup]);
+    }
+
+    /**
+     * Release a claim after a failure so the attachment is retried on the next
+     * poll instead of being silently dropped forever (dedup_key would otherwise
+     * stay permanently occupied by an unfinished 'processing' row).
+     */
+    private function releaseClaim(string $dedup): void
+    {
+        try {
+            $this->db->prepare(
+                "DELETE FROM receipt_inbox_messages WHERE dedup_key = ? AND outcome = 'processing'"
+            )->execute([$dedup]);
+        } catch (\Throwable $e) {
+            error_log('[ReceiptInboxService] releaseClaim failed: ' . $e->getMessage());
+        }
     }
 
     /**
@@ -115,14 +159,25 @@ class ReceiptInboxService
         $sha256 = hash('sha256', $bytes);
         $dedup  = self::deriveDedupKey($msg['message_id'] ?? null, $sha256, $filename);
 
-        if ($this->alreadySeen($dedup)) {
+        if (!$this->claim($msg, $dedup, $filename)) {
             return ['status' => 'duplicate', 'expense_id' => null, 'note' => null];
         }
 
+        try {
+            return $this->processClaimedAttachment($msg, $bytes, $filename, $mime, $systemUserId, $dedup, $sha256);
+        } catch (\Throwable $e) {
+            $this->releaseClaim($dedup);
+            throw $e;
+        }
+    }
+
+    /** Does the actual store/OCR/expense-creation work for an already-claimed dedup key. */
+    private function processClaimedAttachment(array $msg, string $bytes, string $filename, string $mime, int $systemUserId, string $dedup, string $sha256): array
+    {
         $isImage = in_array($mime, self::IMAGE_MIMES, true);
         $isPdf   = ($mime === self::PDF_MIME);
         if (!$isImage && !$isPdf) {
-            $this->logMessage($msg, $dedup, $filename, null, null, 'skipped', null, 'unsupported attachment (' . $mime . ')');
+            $this->finalizeClaim($dedup, null, null, 'skipped', null, 'unsupported attachment (' . $mime . ')');
             return ['status' => 'unsupported', 'expense_id' => null, 'note' => 'unsupported attachment'];
         }
 
@@ -206,41 +261,12 @@ class ReceiptInboxService
         ]);
         $expenseId = (int) $this->db->lastInsertId();
 
-        // 7) Audit log.
+        // 7) Finalize the claimed audit row with the outcome.
         $outcome = $clean ? 'auto_posted' : 'pending';
         $logNote = $ocr['readable'] ? null : ($isPdf ? 'pdf not OCR-able' : 'no text extracted');
-        $this->logMessage($msg, $dedup, $filename, $mediaId, $expenseId, $outcome, $confidence, $logNote);
+        $this->finalizeClaim($dedup, $mediaId, $expenseId, $outcome, $confidence, $logNote);
 
         return ['status' => $outcome, 'expense_id' => $expenseId, 'note' => $logNote];
-    }
-
-    /** Insert the audit/dedup row (tolerates a race on the unique dedup_key). */
-    private function logMessage(array $msg, string $dedup, ?string $filename, ?int $mediaId, ?int $expenseId, string $outcome, ?int $confidence, ?string $note): void
-    {
-        $dt = !empty($msg['email_date']) ? date('Y-m-d H:i:s', strtotime($msg['email_date'])) : null;
-        try {
-            $this->db->prepare("
-                INSERT INTO receipt_inbox_messages
-                    (dedup_key, sender_email, subject, email_date, attachment_name,
-                     media_id, expense_id, outcome, match_confidence, note)
-                VALUES (?,?,?,?,?,?,?,?,?,?)
-            ")->execute([
-                $dedup,
-                $msg['sender_email'] ?? null,
-                $msg['subject'] ?? null,
-                $dt,
-                $filename,
-                $mediaId,
-                $expenseId,
-                $outcome,
-                $confidence,
-                $note,
-            ]);
-        } catch (PDOException $e) {
-            if (stripos($e->getMessage(), 'Duplicate') === false && $e->getCode() !== '23000') {
-                throw $e;
-            }
-        }
     }
 
     /** Persist the raw bytes to /uploads/receipts/ and register in media_assets. */

@@ -54,7 +54,40 @@ function rpLog(string $m): void { global $log; $log[] = '[' . date('Y-m-d H:i:s'
 function rpFail(string $msg): void {
     global $log, $isCli, $startMs;
     rpLog($msg);
+
+    // Alert once when the cron *transitions* into failure, not on every 15-min
+    // tick while it stays broken — avoids re-creating the stdout-spam problem
+    // this alert exists to fix. cPanel's raw per-invocation mail keeps firing
+    // regardless; this is a second, actually-legible channel for the first hit.
+    $wasAlreadyFailing = false;
+    try {
+        $lastStatus = getDB()
+            ->query("SELECT status FROM cron_runs WHERE cron_key = 'receipt_inbox_poll' ORDER BY ran_at DESC LIMIT 1")
+            ->fetchColumn();
+        $wasAlreadyFailing = ($lastStatus === 'error');
+    } catch (\Throwable $e) {
+        // cron_runs may not exist yet (first run ever) — treat as a fresh failure.
+    }
+
     recordCronRun('receipt_inbox_poll', 'error', $msg, (int)(microtime(true) * 1000) - $startMs, null, !$isCli);
+
+    if (!$wasAlreadyFailing) {
+        try {
+            sendCrmEmail(
+                'mowology@icloud.com',
+                'Receipt inbox poller is failing',
+                '<div style="font-family:Arial,sans-serif;max-width:560px;">'
+                    . '<h2 style="color:#b45309;">Receipt inbox poller failed</h2>'
+                    . '<p>' . htmlspecialchars($msg) . '</p>'
+                    . '<p style="color:#555;font-size:13px;">This alert fires once when the cron starts failing '
+                    . '(not on every 15-min run) — check the Cron Jobs dashboard for ongoing status.</p>'
+                    . '</div>'
+            );
+        } catch (\Throwable $e) {
+            error_log('[receipt_inbox_poll] failure-alert email error: ' . $e->getMessage());
+        }
+    }
+
     if ($isCli) { echo implode("\n", $log) . "\n"; exit(1); }
     echo json_encode(['success' => false, 'error' => $msg, 'log' => $log]);
     exit;
@@ -160,8 +193,16 @@ if ($mbox === false) {
     rpFail("ERROR: could not log into {$user}: " . implode('; ', imap_errors() ?: ['unknown']));
 }
 
-$hits = @imap_search($mbox, 'SINCE "' . $since . '"');
-$hits = is_array($hits) ? $hits : [];
+$rawHits = @imap_search($mbox, 'SINCE "' . $since . '"');
+$searchFailed = ($rawHits === false);
+$searchError  = null;
+if ($searchFailed) {
+    $searchError = implode('; ', imap_errors() ?: ['unknown IMAP error']);
+    rpLog("WARNING: imap_search failed ({$searchError}) — treating as 0 results this run, not a confirmed empty mailbox.");
+    $hits = [];
+} else {
+    $hits = $rawHits;
+}
 rpLog("{$user}: " . count($hits) . ' email(s) in window');
 
 $autoPosted = [];
@@ -264,7 +305,17 @@ if (!empty($autoPosted) || !empty($pending)) {
 }
 
 $summary = "Scanned {$seen} attachment(s): " . count($autoPosted) . ' auto-posted, ' . count($pending) . ' pending.';
-recordCronRun('receipt_inbox_poll', 'success', $summary, (int)(microtime(true) * 1000) - $startMs, null, !$isCli);
+if ($searchFailed) {
+    $summary = 'IMAP search failed (mail server may be flaky) — ' . $summary;
+}
+recordCronRun(
+    'receipt_inbox_poll',
+    $searchFailed ? 'warning' : 'success',
+    $summary,
+    (int)(microtime(true) * 1000) - $startMs,
+    $searchFailed ? $searchError : null,
+    !$isCli
+);
 
 if ($isCli) {
     echo implode("\n", $log) . "\n";
