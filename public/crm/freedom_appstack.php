@@ -183,6 +183,32 @@ $extraHead  = '<script src="https://unpkg.com/chart.js@4.4.7/dist/chart.umd.js">
               </div>
           </div>
 
+          <?php if ($m['turnover_needed_season_week'] !== null): ?>
+          <div class="card mw-fd-turnover">
+              <div class="card-body">
+                  <div class="mw-fd-turnover-grid">
+                      <div>
+                          <div class="mw-fd-turnover-lbl">Turnover needed to cover your work</div>
+                          <div class="mw-fd-turnover-val"><?= fd_money((float)$m['turnover_needed_season_week']) ?><small>/week in season</small></div>
+                          <div class="text-muted small"><?= fd_money((float)$m['turnover_needed_year']) ?> a year over <?= number_format((float)$m['season_weeks_year'], 0) ?> working weeks (<?= date('M', mktime(0,0,0,(int)$s['season_start_month'],1)) ?>–<?= date('M', mktime(0,0,0,(int)$s['season_end_month'],1)) ?>)</div>
+                      </div>
+                      <div>
+                          <div class="mw-fd-turnover-lbl">You averaged</div>
+                          <div class="mw-fd-turnover-val <?= (float)$m['turnover_gap_week'] > 0 ? 'mw-fd-turnover-short' : 'mw-fd-turnover-ok' ?>"><?= fd_money((float)$m['turnover_now_week']) ?><small>/week</small></div>
+                          <div class="text-muted small"><?= (float)$m['turnover_gap_week'] > 0 ? fd_money((float)$m['turnover_gap_week']) . '/week short of the target' : 'Above the target in this period' ?></div>
+                      </div>
+                      <div class="mw-fd-turnover-stack">
+                          <div class="mw-fd-turnover-lbl">What that turnover has to pay for, per year</div>
+                          <div class="mw-fd-turnover-row"><span><?= $m['replacement_mode'] === 'planned' ? h(implode(' + ', array_map(fn($h) => $h['name'], $m['planned_hires']))) . ' (' . number_format((float)$m['planned_weekly'], 0) . '/wk loaded)' : 'Crew hired for your hours' ?></span><strong><?= fd_money((float)$m['cost_stack_year']['crew']) ?></strong></div>
+                          <div class="mw-fd-turnover-row"><span>Your cheque, <?= number_format((float)$m['cheque_weeks_year'], 0) ?> weeks</span><strong><?= fd_money((float)$m['cost_stack_year']['cheque']) ?></strong></div>
+                          <div class="mw-fd-turnover-row"><span>Fixed overhead<?= (float)$m['cost_stack_year']['overhead'] <= 0 ? ' (not entered)' : '' ?></span><strong><?= fd_money((float)$m['cost_stack_year']['overhead']) ?></strong></div>
+                          <div class="mw-fd-turnover-row"><span>Other crew, materials, fuel: <?= number_format((float)$m['variable_cost_pct'], 0) ?>% of every dollar</span><strong>variable</strong></div>
+                      </div>
+                  </div>
+              </div>
+          </div>
+          <?php endif; ?>
+
           <div class="row">
               <!-- ── Directions ───────────────────────────────────────────── -->
               <div class="col-xl-7">
@@ -334,11 +360,42 @@ $extraHead  = '<script src="https://unpkg.com/chart.js@4.4.7/dist/chart.umd.js">
                               <small class="form-text text-muted">Insurance, phone, software, loans, leases — bills that never come in as receipts.</small>
                           </div>
                       </div>
+                      <div class="form-row mw-fd-plan-row">
+                          <div class="form-group col-md-3">
+                              <label for="fdMode">Who replaces you</label>
+                              <select id="fdMode" name="replacement_mode" class="form-control">
+                                  <option value="hours" <?= $s['replacement_mode'] === 'hours' ? 'selected' : '' ?>>Buy back my logged hours at crew rates</option>
+                                  <option value="planned" <?= $s['replacement_mode'] === 'planned' ? 'selected' : '' ?>>A named replacement crew</option>
+                              </select>
+                          </div>
+                          <div class="form-group col-md-5">
+                              <label for="fdHires">Replacement crew — name, $/h, hours/week</label>
+                              <input id="fdHires" name="planned_hires" type="text" class="form-control" value="<?= h($s['planned_hires_raw']) ?>" placeholder="Nigel 28 40, Assistant 25 40">
+                              <small class="form-text text-muted">One person per comma. Hours default to 40. Paid only in the season below.</small>
+                          </div>
+                          <div class="form-group col-md-2">
+                              <label for="fdSeasonStart">Season</label>
+                              <div class="d-flex align-items-center mw-fd-season">
+                                  <select id="fdSeasonStart" name="season_start_month" class="form-control form-control-sm">
+                                      <?php for ($mo = 1; $mo <= 12; $mo++): ?><option value="<?= $mo ?>" <?= $mo === (int)$s['season_start_month'] ? 'selected' : '' ?>><?= date('M', mktime(0,0,0,$mo,1)) ?></option><?php endfor; ?>
+                                  </select>
+                                  <span class="mx-1">–</span>
+                                  <select name="season_end_month" class="form-control form-control-sm" aria-label="Season end">
+                                      <?php for ($mo = 1; $mo <= 12; $mo++): ?><option value="<?= $mo ?>" <?= $mo === (int)$s['season_end_month'] ? 'selected' : '' ?>><?= date('M', mktime(0,0,0,$mo,1)) ?></option><?php endfor; ?>
+                                  </select>
+                              </div>
+                          </div>
+                          <div class="form-group col-md-2">
+                              <label for="fdChequeWeeks">Your cheque, weeks/yr</label>
+                              <input id="fdChequeWeeks" name="cheque_weeks_year" type="number" step="1" min="1" max="52" class="form-control" value="<?= h((string)$s['cheque_weeks_year']) ?>">
+                              <small class="form-text text-muted">52 = paid all winter too.</small>
+                          </div>
+                      </div>
                       <div class="form-row">
                           <div class="form-group col-md-3">
                               <label for="fdField">Field replacement $/h</label>
                               <input id="fdField" name="field_replacement_rate" type="number" step="0.01" min="0" class="form-control" value="<?= $s['field_replacement_rate'] !== null ? h((string)$s['field_replacement_rate']) : '' ?>" placeholder="crew average">
-                              <small class="form-text text-muted">Blank = average crew wage.</small>
+                              <small class="form-text text-muted">Blank = average crew wage. Used in "logged hours" mode.</small>
                           </div>
                           <div class="form-group col-md-3">
                               <label for="fdAdmin">Office replacement $/h</label>

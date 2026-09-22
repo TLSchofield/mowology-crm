@@ -36,6 +36,11 @@ class OwnerFreedomService
         'freedom_admin_replacement_rate',
         'freedom_burden_pct',
         'freedom_fixed_overhead_month',
+        'freedom_replacement_mode',
+        'freedom_planned_hires',
+        'freedom_season_start_month',
+        'freedom_season_end_month',
+        'freedom_cheque_weeks_year',
     ];
 
     public function __construct(PDO $db)
@@ -92,6 +97,13 @@ class OwnerFreedomService
             'admin_replacement_rate' => (float)($raw['freedom_admin_replacement_rate'] ?? 30),
             'burden_pct'             => (float)($raw['freedom_burden_pct'] ?? 15),
             'fixed_overhead_month'   => (float)($raw['freedom_fixed_overhead_month'] ?? 0),
+            // 'hours' = buy back the owner's logged hours at crew rates; 'planned' = a named replacement crew
+            'replacement_mode'       => ($raw['freedom_replacement_mode'] ?? 'hours') === 'planned' ? 'planned' : 'hours',
+            'planned_hires'          => self::parseHires((string)($raw['freedom_planned_hires'] ?? '')),
+            'planned_hires_raw'      => (string)($raw['freedom_planned_hires'] ?? ''),
+            'season_start_month'     => max(1, min(12, (int)($raw['freedom_season_start_month'] ?? 3))),
+            'season_end_month'       => max(1, min(12, (int)($raw['freedom_season_end_month'] ?? 12))),
+            'cheque_weeks_year'      => max(1.0, min(52.0, (float)($raw['freedom_cheque_weeks_year'] ?? 52))),
         ];
     }
 
@@ -106,6 +118,11 @@ class OwnerFreedomService
             'freedom_admin_replacement_rate' => ['admin_replacement_rate', 'float'],
             'freedom_burden_pct'             => ['burden_pct', 'float'],
             'freedom_fixed_overhead_month'   => ['fixed_overhead_month', 'float'],
+            'freedom_replacement_mode'       => ['replacement_mode', 'mode'],
+            'freedom_planned_hires'          => ['planned_hires', 'hires'],
+            'freedom_season_start_month'     => ['season_start_month', 'int'],
+            'freedom_season_end_month'       => ['season_end_month', 'int'],
+            'freedom_cheque_weeks_year'      => ['cheque_weeks_year', 'float'],
         ];
         $stmt = $this->db->prepare("
             INSERT INTO ops_settings (setting_key, setting_value, description, updated_by)
@@ -117,9 +134,76 @@ class OwnerFreedomService
             $v = trim((string)$post[$field]);
             if ($type === 'int')            $v = (string)max(0, (int)$v);
             elseif ($type === 'float')      $v = (string)max(0, (float)$v);
+            elseif ($type === 'mode')       $v = $v === 'planned' ? 'planned' : 'hours';
+            elseif ($type === 'hires')      $v = self::normaliseHires($v);
             elseif ($v !== '')              $v = (string)max(0, (float)$v);   // float_or_blank
             $stmt->execute([$key, $v, $userId]);
         }
+    }
+
+    /**
+     * Parse "Nigel 28 40, Assistant 25 40" (or "Nigel:28:40" / "28x40") into
+     * [['name'=>..., 'rate'=>28.0, 'hours'=>40.0], ...]. Hours default to 40.
+     */
+    public static function parseHires(string $raw): array
+    {
+        $out = [];
+        foreach (preg_split('/[,;\n]+/', $raw) as $chunk) {
+            $chunk = trim($chunk);
+            if ($chunk === '') continue;
+            if (!preg_match_all('/\d+(?:\.\d+)?/', $chunk, $mm) || count($mm[0]) === 0) continue;
+            $nums = array_map('floatval', $mm[0]);
+            $name = preg_replace('/[\d.:@\/$\-]+/', ' ', $chunk);
+            $name = preg_replace('/\b(h|hr|hrs|hour|hours|x|per|at|wk|week)\b/i', ' ', $name);
+            $name = trim(preg_replace('/\s+/', ' ', $name));
+            $out[] = [
+                'name'  => $name !== '' ? $name : 'Hire ' . (count($out) + 1),
+                'rate'  => $nums[0],
+                'hours' => isset($nums[1]) && $nums[1] > 0 ? $nums[1] : 40.0,
+            ];
+        }
+        return $out;
+    }
+
+    /** Canonical "Name 28 40, Name 25 40" form for storage. */
+    public static function normaliseHires(string $raw): string
+    {
+        return implode(', ', array_map(
+            fn($h) => $h['name'] . ' ' . rtrim(rtrim(number_format($h['rate'], 2, '.', ''), '0'), '.') . ' ' . rtrim(rtrim(number_format($h['hours'], 1, '.', ''), '0'), '.'),
+            self::parseHires($raw)
+        ));
+    }
+
+    /** Weeks of the working season in a calendar year (inclusive months, may wrap the year end). */
+    public static function seasonWeeks(int $startMonth, int $endMonth, int $year = 0): float
+    {
+        $year = $year ?: (int)date('Y');
+        $days = 0;
+        $m = $startMonth;
+        for ($i = 0; $i < 12; $i++) {
+            $days += (int)cal_days_in_month(CAL_GREGORIAN, $m, $year);
+            if ($m === $endMonth) break;
+            $m = $m % 12 + 1;
+        }
+        return $days / 7;
+    }
+
+    /** Weeks of a date range that fall inside the season months. */
+    public static function seasonWeeksInRange(string $from, string $to, int $startMonth, int $endMonth): float
+    {
+        $inSeason = function (int $month) use ($startMonth, $endMonth): bool {
+            return $startMonth <= $endMonth
+                ? ($month >= $startMonth && $month <= $endMonth)
+                : ($month >= $startMonth || $month <= $endMonth);
+        };
+        $days = 0;
+        $d = new DateTime($from);
+        $end = new DateTime($to);
+        while ($d <= $end) {
+            if ($inSeason((int)$d->format('n'))) $days++;
+            $d->modify('+1 day');
+        }
+        return $days / 7;
     }
 
     /** Active users for the owner picker. */
@@ -193,7 +277,34 @@ class OwnerFreedomService
         $replaceField      = $ownerFieldH * $fieldRate;
         $replaceAdmin      = $ownerAdminH * $adminRate;
         $replacement       = $replaceField + $replaceAdmin;
+
+        // Planned replacement crew: named hires × their hours × burden, paid only in season.
+        $mode          = ($s['replacement_mode'] ?? 'hours') === 'planned' && !empty($s['planned_hires']) ? 'planned' : 'hours';
+        $plannedWeekly = 0.0;
+        $plannedRows   = [];
+        foreach (($s['planned_hires'] ?? []) as $hire) {
+            $w = (float)$hire['rate'] * (float)$hire['hours'] * $burden;
+            $plannedWeekly += $w;
+            $plannedRows[] = ['name' => $hire['name'], 'rate' => (float)$hire['rate'], 'hours' => (float)$hire['hours'], 'weekly' => round($w, 2)];
+        }
+        $seasonWeeksYear = self::seasonWeeks((int)($s['season_start_month'] ?? 3), (int)($s['season_end_month'] ?? 12));
+        $seasonWeeksHere = isset($in['season_weeks']) ? (float)$in['season_weeks'] : $weeks;
+        if ($mode === 'planned') {
+            $replacement  = $plannedWeekly * $seasonWeeksHere;
+            $replaceField = $replacement;
+            $replaceAdmin = 0.0;
+        }
         $profitAfter       = $profitBeforeOwner - $replacement;
+
+        // Turnover needed: revenue R where R − variable costs − fixed overhead − replacement crew − your cheque = 0.
+        // Variable ratio = (other crew labour + expenses) / revenue for the period.
+        $chequeWeeksYear = (float)($s['cheque_weeks_year'] ?? 52);
+        $varRatio        = $revenue > 0 ? min(0.95, ($crewLabour + $expenses) / $revenue) : null;
+        $chequeYear      = $targetWeek * $chequeWeeksYear;
+        $fixedOhYear     = (float)($s['fixed_overhead_month'] ?? 0) * 12;
+        $crewSeason      = $mode === 'planned' ? $plannedWeekly * $seasonWeeksYear : ($weeks > 0 ? $replacement / $weeks * $seasonWeeksYear : 0.0);
+        $needYear        = $varRatio === null ? null : ($chequeYear + $fixedOhYear + $crewSeason) / (1 - $varRatio);
+        $needSeasonWeek  = $needYear === null || $seasonWeeksYear <= 0 ? null : $needYear / $seasonWeeksYear;
 
         $coverageNow = $targetPeriod > 0 ? $profitBeforeOwner / $targetPeriod * 100 : null;
         $freedomCov  = $targetPeriod > 0 ? $profitAfter / $targetPeriod * 100 : null;
@@ -247,6 +358,22 @@ class OwnerFreedomService
             'outstanding'             => round((float)($in['outstanding'] ?? 0), 2),
             'overdue'                 => round((float)($in['overdue'] ?? 0), 2),
             'stage'                   => $stage,
+            'replacement_mode'        => $mode,
+            'planned_hires'           => $plannedRows,
+            'planned_weekly'          => round($plannedWeekly, 2),
+            'season_weeks_year'       => round($seasonWeeksYear, 1),
+            'season_weeks_in_period'  => round($seasonWeeksHere, 1),
+            'cheque_weeks_year'       => $chequeWeeksYear,
+            'variable_cost_pct'       => $varRatio === null ? null : round($varRatio * 100, 1),
+            'turnover_needed_year'    => $needYear === null ? null : round($needYear, 0),
+            'turnover_needed_season_week' => $needSeasonWeek === null ? null : round($needSeasonWeek, 0),
+            'turnover_now_week'       => round($revenue / $weeks, 0),
+            'turnover_gap_week'       => $needSeasonWeek === null ? null : round(max(0, $needSeasonWeek - $revenue / $weeks), 0),
+            'cost_stack_year'         => [
+                'cheque'      => round($chequeYear, 0),
+                'crew'        => round($crewSeason, 0),
+                'overhead'    => round($fixedOhYear, 0),
+            ],
         ];
     }
 
@@ -309,9 +436,37 @@ class OwnerFreedomService
             return $out;
         }
 
+        // 0b. Turnover target (always shown when computable and there is a gap)
+        if (!empty($m['turnover_needed_season_week']) && (float)$m['turnover_gap_week'] > 0) {
+            $crewNames = $m['replacement_mode'] === 'planned'
+                ? implode(' + ', array_map(fn($h) => $h['name'], $m['planned_hires']))
+                : 'crew hired for your hours';
+            $out[] = [
+                'key'    => 'turnover-target',
+                'rank'   => 'lever',
+                'title'  => 'Turn over $' . number_format((float)$m['turnover_needed_season_week'], 0) . ' a week in season to cover your work',
+                'why'    => 'That pays ' . $crewNames . ' ($' . number_format((float)$m['cost_stack_year']['crew'], 0) . '/yr), your cheque ($' . number_format((float)$m['cost_stack_year']['cheque'], 0) . '/yr)'
+                            . ((float)$m['cost_stack_year']['overhead'] > 0 ? ', fixed overhead ($' . number_format((float)$m['cost_stack_year']['overhead'], 0) . '/yr)' : '')
+                            . ' and the ' . number_format((float)$m['variable_cost_pct'], 0) . '% of every dollar that goes to other crew, materials and fuel. You averaged $' . number_format((float)$m['turnover_now_week'], 0) . '/week in this period.',
+                'action' => 'Close the $' . number_format((float)$m['turnover_gap_week'], 0) . '/week gap with the price and recurring-client levers below — or lower the target by entering fixed overhead accurately and cutting the variable-cost share.',
+                'impact' => '$' . number_format((float)$m['turnover_needed_year'], 0) . '/yr turnover',
+                'href'   => '#mwFreedomSettings',
+            ];
+        }
+
         // 1. Replace the owner's field hours
         $fieldHW = (float)($m['owner_field_hours_week'] ?? 0);
-        if ($fieldHW >= 2) {
+        if (($m['replacement_mode'] ?? 'hours') === 'planned' && $fieldHW >= 2) {
+            $out[] = [
+                'key'    => 'hand-off-field',
+                'rank'   => 'lever',
+                'title'  => 'Hand your ' . number_format((float)$m['owner_hours_week'], 1) . ' h/week to ' . implode(' and ', array_map(fn($h) => $h['name'], $m['planned_hires'])),
+                'why'    => 'Your replacement crew costs $' . number_format((float)$m['planned_weekly'], 0) . '/week loaded for ' . number_format((float)$m['season_weeks_year'], 0) . ' season weeks — already subtracted from your score.',
+                'action' => 'Make them the default crew on every plan you are on today, and schedule yourself onto nothing new. Track your hours falling on the trend chart.',
+                'impact' => '−' . number_format((float)$m['owner_hours_week'], 1) . ' h/week for you',
+                'href'   => '/crm/jobs/plans.php',
+            ];
+        } elseif ($fieldHW >= 2) {
             $costW = (float)($m['replacement_field_week'] ?? 0);
             $out[] = [
                 'key'    => 'hand-off-field',
@@ -324,9 +479,9 @@ class OwnerFreedomService
             ];
         }
 
-        // 2. Delegate admin hours
+        // 2. Delegate admin hours (in planned mode the hires cover everything)
         $adminHW = (float)($m['owner_admin_hours_week'] ?? 0);
-        if ($adminHW >= 4) {
+        if ($adminHW >= 4 && ($m['replacement_mode'] ?? 'hours') !== 'planned') {
             $bits = [];
             if (!empty($in['owner_quotes']))   $bits[] = (int)$in['owner_quotes'] . ' quotes';
             if (!empty($in['owner_invoices'])) $bits[] = (int)$in['owner_invoices'] . ' invoices';
@@ -673,7 +828,8 @@ class OwnerFreedomService
     {
         $owner = (int)$s['owner_user_id'];
         $days  = (new DateTime($from))->diff(new DateTime($to))->days + 1;
-        $in    = ['weeks' => $days / 7, 'days' => $days];
+        $in    = ['weeks' => $days / 7, 'days' => $days,
+                  'season_weeks' => self::seasonWeeksInRange($from, $to, (int)$s['season_start_month'], (int)$s['season_end_month'])];
 
         // Money truth
         $inv = $this->row("

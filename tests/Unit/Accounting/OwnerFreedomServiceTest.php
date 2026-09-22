@@ -230,6 +230,80 @@ class OwnerFreedomServiceTest extends TestCase
         $this->assertContains('weak-margin', array_column($dirs2, 'key'));
     }
 
+    // ── planned replacement crew + turnover needed ─────────────────────────────
+
+    /** @test */
+    public function hires_parse_from_loose_text(): void
+    {
+        $h = OwnerFreedomService::parseHires('Nigel 28 40, Assistant 25');
+        $this->assertSame([['name' => 'Nigel', 'rate' => 28.0, 'hours' => 40.0], ['name' => 'Assistant', 'rate' => 25.0, 'hours' => 40.0]], $h);
+        $this->assertSame('Nigel 28 40, Assistant 25 40', OwnerFreedomService::normaliseHires('Nigel:28:40; Assistant $25/h x 40 hrs'));
+        $this->assertSame([], OwnerFreedomService::parseHires(''));
+    }
+
+    /** @test */
+    public function season_weeks_cover_march_to_december(): void
+    {
+        $this->assertEqualsWithDelta(43.7, OwnerFreedomService::seasonWeeks(3, 12, 2026), 0.1);
+        $this->assertEqualsWithDelta(52.1, OwnerFreedomService::seasonWeeks(1, 12, 2026), 0.1);
+        // Nov–Feb wraps the year end: 30+31+31+28
+        $this->assertEqualsWithDelta(120 / 7, OwnerFreedomService::seasonWeeks(11, 2, 2026), 0.1);
+        // Jun 25 – Sep 22 is fully in season; Jan 1 – Mar 31 only March is
+        $this->assertEqualsWithDelta(90 / 7, OwnerFreedomService::seasonWeeksInRange('2026-06-25', '2026-09-22', 3, 12), 0.01);
+        $this->assertEqualsWithDelta(31 / 7, OwnerFreedomService::seasonWeeksInRange('2026-01-01', '2026-03-31', 3, 12), 0.01);
+    }
+
+    /** @test */
+    public function planned_crew_replaces_owner_and_sets_turnover_target(): void
+    {
+        // Tim: $37 × 40 = $1,480/week, paid 52 weeks. Nigel $28 + assistant $25, 40 h each, Mar–Dec, 15% burden.
+        $s = $this->settings([
+            'owner_rate' => 37.0, 'burden_pct' => 15.0, 'replacement_mode' => 'planned',
+            'planned_hires' => OwnerFreedomService::parseHires('Nigel 28 40, Assistant 25 40'),
+            'season_start_month' => 3, 'season_end_month' => 12, 'cheque_weeks_year' => 52.0,
+        ]);
+        // 12.86 weeks, all in season, $70,375 invoiced, 36% of revenue goes to other crew + expenses
+        $in = $this->inputs([
+            'weeks' => 12.86, 'season_weeks' => 12.86, 'revenue' => 70375.0,
+            'crew_labour_cost' => 15000.0, 'expenses' => 10335.0,
+        ]);
+        $m = OwnerFreedomService::compute($in, $s);
+
+        $this->assertSame('planned', $m['replacement_mode']);
+        $this->assertSame(2438.0, $m['planned_weekly']);                        // (28+25) × 40 × 1.15
+        $this->assertEqualsWithDelta(2438.0 * 12.86, $m['replacement_cost'], 1);
+        $this->assertSame(0.0, $m['replacement_admin_week']);
+        $this->assertSame(1480.0, $m['target_week']);
+        $this->assertSame(36.0, $m['variable_cost_pct']);
+
+        $seasonWeeks = OwnerFreedomService::seasonWeeks(3, 12);
+        $this->assertEqualsWithDelta(43.7, $m['season_weeks_year'], 0.1);
+        $crewYear   = 2438.0 * $seasonWeeks;
+        $chequeYear = 1480.0 * 52;
+        $needYear   = ($chequeYear + $crewYear) / (1 - 0.36);
+        $this->assertEqualsWithDelta($needYear, $m['turnover_needed_year'], 2);
+        $this->assertEqualsWithDelta($needYear / $seasonWeeks, $m['turnover_needed_season_week'], 2);
+        $this->assertSame(round($crewYear, 0), $m['cost_stack_year']['crew']);
+        $this->assertSame(76960.0, $m['cost_stack_year']['cheque']);
+        $this->assertGreaterThan(0, $m['turnover_gap_week']);                    // 5,473/wk now is under the target
+
+        $dirs = OwnerFreedomService::recommend($m, $in, $s, []);
+        $keys = array_column($dirs, 'key');
+        $this->assertContains('turnover-target', $keys);
+        $this->assertContains('hand-off-field', $keys);
+        $this->assertNotContains('delegate-admin', $keys);
+        $this->assertStringContainsString('Nigel and Assistant', $dirs[array_search('hand-off-field', $keys, true)]['title']);
+    }
+
+    /** @test */
+    public function planned_mode_without_hires_falls_back_to_logged_hours(): void
+    {
+        $s = $this->settings(['replacement_mode' => 'planned', 'planned_hires' => []]);
+        $m = OwnerFreedomService::compute($this->inputs(), $s);
+        $this->assertSame('hours', $m['replacement_mode']);
+        $this->assertSame(4200.0, $m['replacement_cost']);
+    }
+
     // ── data quality ────────────────────────────────────────────────────────────
 
     /** @test */
