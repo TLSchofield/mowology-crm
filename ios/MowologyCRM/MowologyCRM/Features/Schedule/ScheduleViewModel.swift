@@ -447,9 +447,15 @@ final class ScheduleViewModel: ObservableObject {
         return nil
     }
 
+    /// An in-progress stop is pinned to the top only while the device is actually near it.
+    /// A visit auto-started at clock-in stays "in progress" all day once the crew drives
+    /// off, and pinning it hid the stop they were parked beside.
+    static let inProgressPinRadius: CLLocationDistance = 400
+
     /// Orders stops for the list:
-    ///   1. in-progress stops (the crew is already there)
-    ///   2. remaining stops, nearest to the device first
+    ///   1. in-progress stops the device is near (the crew is actually there)
+    ///   2. remaining stops, nearest to the device first — a far-away in-progress stop
+    ///      competes here on distance like any other
     ///   3. stops with no coordinates, in route order
     ///   4. completed stops, in route order (sunk to the bottom)
     /// Without a device location the server's route order is kept unchanged.
@@ -466,7 +472,7 @@ final class ScheduleViewModel: ObservableObject {
             let d = distance(stop)
             let tier: Int
             if stop.isResolved        { tier = 3 }
-            else if stop.isInProgress { tier = 0 }
+            else if stop.isInProgress, (d ?? 0) <= Self.inProgressPinRadius { tier = 0 }
             else if d == nil          { tier = 2 }
             else                      { tier = 1 }
             return (stop, tier, d ?? .greatestFiniteMagnitude)
