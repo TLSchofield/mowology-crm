@@ -296,6 +296,25 @@ class OwnerFreedomServiceTest extends TestCase
     }
 
     /** @test */
+    public function whole_crew_flag_replaces_todays_crew_wages_instead_of_adding_to_them(): void
+    {
+        $s = $this->settings([
+            'owner_rate' => 37.0, 'burden_pct' => 15.0, 'replacement_mode' => 'planned', 'planned_whole_crew' => true,
+            'planned_hires' => OwnerFreedomService::parseHires('Nigel 28 40, Assistant 25 40'),
+            'season_start_month' => 3, 'season_end_month' => 12, 'cheque_weeks_year' => 52.0,
+        ]);
+        $in = $this->inputs(['weeks' => 12.86, 'season_weeks' => 12.86, 'revenue' => 70375.0, 'crew_labour_cost' => 15000.0, 'expenses' => 10335.0]);
+        $m = OwnerFreedomService::compute($in, $s);
+        $this->assertTrue($m['planned_whole_crew']);
+        // variable share is expenses only: 10335 / 70375
+        $this->assertSame(14.7, $m['variable_cost_pct']);
+        // profit after = revenue − expenses − planned crew (today's crew wages added back)
+        $this->assertEqualsWithDelta(70375 - 10335 - 2438.0 * 12.86, $m['profit_after_replacement'], 1);
+        $needYear = (1480.0 * 52 + 2438.0 * OwnerFreedomService::seasonWeeks(3, 12)) / (1 - 10335 / 70375);
+        $this->assertEqualsWithDelta($needYear, $m['turnover_needed_year'], 2);
+    }
+
+    /** @test */
     public function planned_mode_without_hires_falls_back_to_logged_hours(): void
     {
         $s = $this->settings(['replacement_mode' => 'planned', 'planned_hires' => []]);

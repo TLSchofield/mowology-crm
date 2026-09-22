@@ -202,7 +202,7 @@ $extraHead  = '<script src="https://unpkg.com/chart.js@4.4.7/dist/chart.umd.js">
                           <div class="mw-fd-turnover-row"><span><?= $m['replacement_mode'] === 'planned' ? h(implode(' + ', array_map(fn($h) => $h['name'], $m['planned_hires']))) . ' (' . number_format((float)$m['planned_weekly'], 0) . '/wk loaded)' : 'Crew hired for your hours' ?></span><strong><?= fd_money((float)$m['cost_stack_year']['crew']) ?></strong></div>
                           <div class="mw-fd-turnover-row"><span>Your cheque, <?= number_format((float)$m['cheque_weeks_year'], 0) ?> weeks</span><strong><?= fd_money((float)$m['cost_stack_year']['cheque']) ?></strong></div>
                           <div class="mw-fd-turnover-row"><span>Fixed overhead<?= (float)$m['cost_stack_year']['overhead'] <= 0 ? ' (not entered)' : '' ?></span><strong><?= fd_money((float)$m['cost_stack_year']['overhead']) ?></strong></div>
-                          <div class="mw-fd-turnover-row"><span>Other crew, materials, fuel: <?= number_format((float)$m['variable_cost_pct'], 0) ?>% of every dollar</span><strong>variable</strong></div>
+                          <div class="mw-fd-turnover-row"><span><?= $m['planned_whole_crew'] ? 'Materials, fuel, other expenses' : 'Other crew, materials, fuel' ?>: <?= number_format((float)$m['variable_cost_pct'], 0) ?>% of every dollar</span><strong>variable</strong></div>
                       </div>
                   </div>
               </div>
@@ -372,6 +372,11 @@ $extraHead  = '<script src="https://unpkg.com/chart.js@4.4.7/dist/chart.umd.js">
                               <label for="fdHires">Replacement crew — name, $/h, hours/week</label>
                               <input id="fdHires" name="planned_hires" type="text" class="form-control" value="<?= h($s['planned_hires_raw']) ?>" placeholder="Nigel 28 40, Assistant 25 40">
                               <small class="form-text text-muted">One person per comma. Hours default to 40. Paid only in the season below.</small>
+                              <div class="form-check mt-1">
+                                  <input type="hidden" name="planned_whole_crew" value="0">
+                                  <input class="form-check-input" type="checkbox" id="fdWholeCrew" name="planned_whole_crew" value="1" <?= $s['planned_whole_crew'] ? 'checked' : '' ?>>
+                                  <label class="form-check-label small" for="fdWholeCrew">They are the whole crew (replace today's crew wages, don't add to them)</label>
+                              </div>
                           </div>
                           <div class="form-group col-md-2">
                               <label for="fdSeasonStart">Season</label>

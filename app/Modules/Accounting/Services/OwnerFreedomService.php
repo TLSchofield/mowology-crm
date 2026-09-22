@@ -41,6 +41,7 @@ class OwnerFreedomService
         'freedom_season_start_month',
         'freedom_season_end_month',
         'freedom_cheque_weeks_year',
+        'freedom_planned_whole_crew',
     ];
 
     public function __construct(PDO $db)
@@ -104,6 +105,8 @@ class OwnerFreedomService
             'season_start_month'     => max(1, min(12, (int)($raw['freedom_season_start_month'] ?? 3))),
             'season_end_month'       => max(1, min(12, (int)($raw['freedom_season_end_month'] ?? 12))),
             'cheque_weeks_year'      => max(1.0, min(52.0, (float)($raw['freedom_cheque_weeks_year'] ?? 52))),
+            // planned hires ARE the crew (today's crew wages are replaced, not added to)
+            'planned_whole_crew'     => (int)($raw['freedom_planned_whole_crew'] ?? 0) === 1,
         ];
     }
 
@@ -123,6 +126,7 @@ class OwnerFreedomService
             'freedom_season_start_month'     => ['season_start_month', 'int'],
             'freedom_season_end_month'       => ['season_end_month', 'int'],
             'freedom_cheque_weeks_year'      => ['cheque_weeks_year', 'float'],
+            'freedom_planned_whole_crew'     => ['planned_whole_crew', 'bool'],
         ];
         $stmt = $this->db->prepare("
             INSERT INTO ops_settings (setting_key, setting_value, description, updated_by)
@@ -135,6 +139,7 @@ class OwnerFreedomService
             if ($type === 'int')            $v = (string)max(0, (int)$v);
             elseif ($type === 'float')      $v = (string)max(0, (float)$v);
             elseif ($type === 'mode')       $v = $v === 'planned' ? 'planned' : 'hours';
+            elseif ($type === 'bool')       $v = ($v === '1' || $v === 'on') ? '1' : '0';
             elseif ($type === 'hires')      $v = self::normaliseHires($v);
             elseif ($v !== '')              $v = (string)max(0, (float)$v);   // float_or_blank
             $stmt->execute([$key, $v, $userId]);
@@ -289,17 +294,19 @@ class OwnerFreedomService
         }
         $seasonWeeksYear = self::seasonWeeks((int)($s['season_start_month'] ?? 3), (int)($s['season_end_month'] ?? 12));
         $seasonWeeksHere = isset($in['season_weeks']) ? (float)$in['season_weeks'] : $weeks;
+        $wholeCrew = $mode === 'planned' && !empty($s['planned_whole_crew']);
         if ($mode === 'planned') {
             $replacement  = $plannedWeekly * $seasonWeeksHere;
             $replaceField = $replacement;
             $replaceAdmin = 0.0;
         }
-        $profitAfter       = $profitBeforeOwner - $replacement;
+        // Whole-crew: the planned hires replace today's crew wages too, so add those back before charging the plan.
+        $profitAfter       = $profitBeforeOwner + ($wholeCrew ? $crewLabour : 0.0) - $replacement;
 
         // Turnover needed: revenue R where R − variable costs − fixed overhead − replacement crew − your cheque = 0.
         // Variable ratio = (other crew labour + expenses) / revenue for the period.
         $chequeWeeksYear = (float)($s['cheque_weeks_year'] ?? 52);
-        $varRatio        = $revenue > 0 ? min(0.95, ($crewLabour + $expenses) / $revenue) : null;
+        $varRatio        = $revenue > 0 ? min(0.95, (($wholeCrew ? 0.0 : $crewLabour) + $expenses) / $revenue) : null;
         $chequeYear      = $targetWeek * $chequeWeeksYear;
         $fixedOhYear     = (float)($s['fixed_overhead_month'] ?? 0) * 12;
         $crewSeason      = $mode === 'planned' ? $plannedWeekly * $seasonWeeksYear : ($weeks > 0 ? $replacement / $weeks * $seasonWeeksYear : 0.0);
@@ -359,6 +366,7 @@ class OwnerFreedomService
             'overdue'                 => round((float)($in['overdue'] ?? 0), 2),
             'stage'                   => $stage,
             'replacement_mode'        => $mode,
+            'planned_whole_crew'      => $wholeCrew,
             'planned_hires'           => $plannedRows,
             'planned_weekly'          => round($plannedWeekly, 2),
             'season_weeks_year'       => round($seasonWeeksYear, 1),
