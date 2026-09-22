@@ -798,10 +798,15 @@
                     // to the Driver Portal so they can complete it immediately.
                     // Per shift, not per person: ask "are you driving?" once, then route.
                     if (window.MwTripLog && window.MW_USER_ID) {
+                        // Hold the in-flight flag so the status re-fetch above, which still
+                        // says 'unasked' until the answer lands, cannot open a second prompt.
+                        drivingAskInFlight = true;
                         setTimeout(function() {
                             window.MwTripLog.afterClockIn(data, window.MW_USER_ID).then(function(url) {
-                                if (url) window.location.href = url;
-                            });
+                                drivingAskInFlight = false;
+                                if (url) { window.location.href = url; return; }
+                                if (data.driver_question_required) rememberNotDriving(data.clock_in);
+                            }, function () { drivingAskInFlight = false; });
                         }, 600);
                     } else if (data.pre_trip_required) {
                         setTimeout(function() { window.location.href = '/crm/driver-log.php'; }, 800);
@@ -969,22 +974,33 @@
      * Field devices only; never on the vehicle-log pages themselves.
      */
     var drivingAskInFlight = false;
+    // A "No" is remembered on the device for the day of that clock-in (localStorage — the
+    // truck tablet reloads pages and sessionStorage is per tab). The answer is also filed on
+    // the server; this only stops the question repeating while that files, or if a status
+    // read races the declaration. A crew member who takes the wheel later opens the driver
+    // log themselves.
+    function notDrivingKey(clockIn) {
+        var day = String(clockIn || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+        return 'mw_not_driving_' + window.MW_USER_ID + '_' + day;
+    }
+    function rememberNotDriving(clockIn) {
+        try { localStorage.setItem(notDrivingKey(clockIn), '1'); } catch (e) {}
+    }
+    function answeredNotDriving(clockIn) {
+        try { return !!localStorage.getItem(notDrivingKey(clockIn)); } catch (e) { return false; }
+    }
     function askDrivingIfUnasked(status) {
         if (!status || status.driving_shift !== 'unasked') return;
         if (!window.MwTripLog || !window.MW_USER_ID || drivingAskInFlight) return;
         if (!isFieldDevice()) return;                       // the office desktop is not a cab
         if (/\/crm\/driver-(log|log-post|portal)\.php/.test(window.location.pathname)) return;
-
-        // Only a "No" that could not reach the server yet (no signal — it is queued on the phone
-        // and will file itself) is remembered locally, so the queue isn't filled with repeats.
-        var key = 'mw_not_driving_queued_' + window.MW_USER_ID + '_' + String(status.clock_in || '').slice(0, 10);
-        try { if (sessionStorage.getItem(key)) return; } catch (e) {}
+        if (answeredNotDriving(status.clock_in)) return;
 
         drivingAskInFlight = true;
         window.MwTripLog.afterClockIn({ driver_question_required: true }, window.MW_USER_ID).then(function (url) {
             drivingAskInFlight = false;
             if (url) { window.location.href = url; return; }     // Yes → pre-trip form
-            try { sessionStorage.setItem(key, '1'); } catch (e) {}
+            rememberNotDriving(status.clock_in);
         }, function () { drivingAskInFlight = false; });
     }
 

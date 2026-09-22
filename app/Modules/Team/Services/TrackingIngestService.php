@@ -326,6 +326,77 @@ class TrackingIngestService
         }
     }
 
+    /**
+     * Shape the device's compliance events (setup gate skipped, manual overrides, …).
+     * Each needs an id (so the phone can delete it once stored), a type and a millisecond
+     * timestamp; anything else is optional. Unknown or absurd timestamps are dropped.
+     *
+     * @return array<int, array{id:string,type:string,ts:int,lat:float,lng:float,acc:?int,visit_id:?int,job_id:?int,reason:?string,metadata:?string}>
+     */
+    public static function normalizeEvents(array $input, int $nowTs): array
+    {
+        $raw = isset($input['events']) && is_array($input['events']) ? $input['events'] : [];
+        $out = [];
+        foreach (array_slice($raw, 0, 200) as $ev) {
+            if (!is_array($ev)) continue;
+            $id   = isset($ev['id']) ? substr((string)$ev['id'], 0, 64) : '';
+            $type = isset($ev['type']) ? substr(trim((string)$ev['type']), 0, 40) : '';
+            $ms   = isset($ev['t']) && is_numeric($ev['t']) ? (int)$ev['t'] : 0;
+            $ts   = $ms > 100000000000 ? intdiv($ms, 1000) : $ms;      // ms or s, either way
+            if ($id === '' || $type === '' || $ts <= 0) continue;
+            if ($ts > $nowTs + self::MAX_FUTURE_SECONDS || $ts < $nowTs - 30 * 86400) continue;
+            $out[] = [
+                'id'       => $id,
+                'type'     => $type,
+                'ts'       => $ts,
+                'lat'      => isset($ev['lat']) && is_numeric($ev['lat']) ? (float)$ev['lat'] : 0.0,
+                'lng'      => isset($ev['lng']) && is_numeric($ev['lng']) ? (float)$ev['lng'] : 0.0,
+                'acc'      => isset($ev['acc']) && is_numeric($ev['acc']) ? (int)round((float)$ev['acc']) : null,
+                'visit_id' => !empty($ev['visit_id']) ? (int)$ev['visit_id'] : null,
+                'job_id'   => !empty($ev['job_id']) ? (int)$ev['job_id'] : null,
+                'reason'   => isset($ev['reason']) ? substr((string)$ev['reason'], 0, 1000) : null,
+                'metadata' => isset($ev['metadata']) ? substr((string)$ev['metadata'], 0, 4000) : null,
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * Store compliance events; duplicates (same user, type and second) are counted as done
+     * so a replayed queue never double-writes. Returns the ids the device may now delete.
+     *
+     * @return array{stored:int, done:string[]}
+     */
+    public function ingestComplianceEvents(int $userId, array $events): array
+    {
+        $done = []; $stored = 0;
+        if (!$events || !$this->hasTable('compliance_events')) {
+            return ['stored' => 0, 'done' => array_column($events, 'id')];
+        }
+        try {
+            $dup = $this->db->prepare("
+                SELECT 1 FROM compliance_events
+                WHERE user_id = ? AND event_type = ? AND ABS(TIMESTAMPDIFF(SECOND, device_timestamp, FROM_UNIXTIME(?))) < 2 LIMIT 1
+            ");
+            $ins = $this->db->prepare("
+                INSERT INTO compliance_events
+                    (user_id, event_type, latitude, longitude, accuracy_meters, visit_id, job_id, reason, metadata, device_timestamp, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, FROM_UNIXTIME(?), NOW())
+            ");
+            foreach ($events as $e) {
+                $dup->execute([$userId, $e['type'], $e['ts']]);
+                if (!$dup->fetchColumn()) {
+                    $ins->execute([$userId, $e['type'], $e['lat'], $e['lng'], $e['acc'], $e['visit_id'], $e['job_id'], $e['reason'], $e['metadata'], $e['ts']]);
+                    $stored++;
+                }
+                $done[] = $e['id'];
+            }
+        } catch (Throwable $ex) {
+            error_log("TrackingIngestService: compliance insert failed for user {$userId}: " . $ex->getMessage());
+        }
+        return ['stored' => $stored, 'done' => $done];
+    }
+
     // ── Schema probes (migration 1116 is run by hand) ───────────────────────
 
     private function hasColumn(string $table, string $column): bool

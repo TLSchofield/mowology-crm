@@ -57,7 +57,8 @@ try {
     $ingest = new TrackingIngestService($db);
 
     $points = TrackingIngestService::normalizePoints($input, $nowTs);
-    if (!$points) {
+    $events = TrackingIngestService::normalizeEvents($input, $nowTs);
+    if (!$points && !$events) {
         http_response_code(400);
         echo json_encode(['success' => false, 'message' => 'lat and lng are required']);
         exit;
@@ -119,6 +120,10 @@ try {
         $ingest->recordHealth($userId, $input['device'], $newest['ts'] ?? null);
     }
 
+    // Compliance events ride along with the fixes (setup gate skipped, overrides, …). They
+    // are about the device, not the shift, so they are stored whether or not fixes may be.
+    $eventResult = $ingest->ingestComplianceEvents($userId, $events);
+
     echo json_encode([
         'success'      => true,
         'id'           => $result['last_id'],
@@ -130,6 +135,8 @@ try {
         'rejected'     => $result['rejected'],
         'auto_started' => $autoStartResult,
         'auto_stopped' => $autoStopResult,
+        'events_stored' => $eventResult['stored'],
+        'events_done'   => $eventResult['done'],
         'policy'       => TrackingIngestService::policy(
             $flags['active'], $flags['tracking'], $consentOk, $clockedIn,
             $activeTimer ? (int)$activeTimer['visit_id'] : null
