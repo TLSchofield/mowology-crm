@@ -112,7 +112,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $filePath = '/uploads/photos/' . $vp['filename'];
                 // Check if already imported
                 $stmtChk = $db->prepare(
-                    "SELECT id FROM media_assets WHERE context_type = 'visit_photo' AND filename = ? LIMIT 1"
+                    "SELECT id FROM media_assets WHERE context_type = 'visit_photo' AND stored_filename = ? LIMIT 1"
                 );
                 $stmtChk->execute([$vp['filename']]);
                 $existing = $stmtChk->fetchColumn();
@@ -120,10 +120,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     return (int)$existing;
                 }
                 $stmtIns = $db->prepare(
-                    "INSERT INTO media_assets (filename, file_path, context_type, status, created_at)
-                     VALUES (?, ?, 'visit_photo', 'ready', NOW())"
+                    "INSERT INTO media_assets (stored_filename, original_filename, file_path, context_type, status, created_at)
+                     VALUES (?, ?, ?, 'visit_photo', 'ready', NOW())"
                 );
-                $stmtIns->execute([$vp['filename'], $filePath]);
+                $stmtIns->execute([$vp['filename'], $vp['original_filename'] ?? $vp['filename'], $filePath]);
                 return (int)$db->lastInsertId();
             }
 
@@ -159,18 +159,18 @@ try {
         JOIN job_plans jp ON jp.id = jv.plan_id
         JOIN properties p  ON p.id  = jp.property_id
         WHERE jv.is_flagged = 1
-          AND jv.status = 'completed'
+          AND jv.status IN ('completed', 'in_progress')
           AND NOT EXISTS (
               SELECT 1 FROM ba_pairs bp
               JOIN media_assets ma_b ON ma_b.id = bp.before_id
               WHERE ma_b.context_type = 'visit_photo'
                 AND EXISTS (
                     SELECT 1 FROM visit_photos vp2
-                    WHERE vp2.filename = ma_b.filename
+                    WHERE vp2.filename = ma_b.stored_filename COLLATE utf8mb4_general_ci
                       AND vp2.visit_id = jv.id
                 )
           )
-        ORDER BY jv.completed_at DESC
+        ORDER BY jv.completed_at DESC, jv.updated_at DESC
         LIMIT 50
     ");
     $rawVisits = $stmtFv->fetchAll(PDO::FETCH_ASSOC);
