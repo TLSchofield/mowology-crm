@@ -408,15 +408,29 @@ class OwnerFreedomService
         // 7. Weak-margin service
         if (!empty($in['weak_service'])) {
             $ws = $in['weak_service'];
+            $svc = ucwords(str_replace('_', ' ', (string)$ws['service_type']));
+            if ((float)$ws['margin_pct'] < -100) {
+                // A margin this negative is a pricing-data problem, not a business one.
+                $out[] = [
+                    'key'    => 'weak-margin-data',
+                    'rank'   => 'first',
+                    'title'  => $svc . ' visits are recorded far below cost',
+                    'why'    => 'Margin snapshots show ' . number_format((float)$ws['margin_pct'], 0) . '% — the visit amount is near zero while labour was logged. That is almost always a plan with no price, not a real loss.',
+                    'action' => 'Open the plans for this service and give each a per-visit or monthly price, then run the margin snapshot backfill.',
+                    'impact' => 'Accuracy',
+                    'href'   => '/crm/jobs/plans.php',
+                ];
+            } else {
             $out[] = [
                 'key'    => 'weak-margin',
                 'rank'   => 'lever',
-                'title'  => ucwords(str_replace('_', ' ', (string)$ws['service_type'])) . ' runs at ' . number_format((float)$ws['margin_pct'], 0) . '% margin',
+                'title'  => $svc . ' runs at ' . number_format((float)$ws['margin_pct'], 0) . '% margin',
                 'why'    => 'It brought in $' . number_format((float)$ws['revenue'], 0) . ' this period but keeps little of it. Low-margin work needs more of your hours per dollar of profit.',
                 'action' => 'Reprice it, tighten the crew size or minutes on those plans, or stop offering it.',
                 'impact' => 'Lift to 35%+',
                 'href'   => '/crm/profitability_appstack.php',
             ];
+            }
         }
 
         // 8. Concentration
@@ -574,7 +588,7 @@ class OwnerFreedomService
         $add('visits_invoiced', 'Completed work is invoiced',
             $uninv === null ? 'unknown' : ($uninv === 0 ? 'ok' : ($uninv <= 5 ? 'warn' : 'fail')),
             $uninv === null ? '—' : ($uninv === 0 ? 'Nothing older than 14 days waiting' : "$uninv completed visits over 14 days old not invoiced"),
-            'Revenue here is invoiced revenue. Work you did but never billed makes the business look weaker than it is.',
+            'Revenue here is invoiced revenue. One-off work you did but never billed makes the business look weaker than it is (contract visits bill monthly and are not counted).',
             'Run contract billing or invoice the visits from the Jobs list.', '/crm/jobs/index.php');
 
         // Expenses tracked
@@ -860,9 +874,12 @@ class OwnerFreedomService
                   AND (jv.assigned_crew_id = ? OR EXISTS (SELECT 1 FROM visit_crew_assignments vca WHERE vca.visit_id = jv.id AND vca.user_id = ?))
                   AND EXISTS (SELECT 1 FROM job_time_entries jte WHERE jte.visit_id = jv.id AND jte.user_id = ? AND jte.status IN ('completed','edited'))", [$from, $to, $owner, $owner, $owner]);
         }
+        // Only per-visit plans are invoiced visit-by-visit; monthly/seasonal plans bill through contracts.
         $c['uninvoiced_visits'] = $this->intOrNull("
-            SELECT COUNT(*) FROM job_visits WHERE status = 'completed' AND is_invoiced = 0 AND invoice_id IS NULL
-              AND scheduled_date < DATE_SUB(CURDATE(), INTERVAL 14 DAY) AND scheduled_date >= DATE_SUB(CURDATE(), INTERVAL 180 DAY)", []);
+            SELECT COUNT(*) FROM job_visits jv JOIN job_plans jp ON jp.id = jv.plan_id
+            WHERE jv.status = 'completed' AND jv.is_invoiced = 0 AND jv.invoice_id IS NULL
+              AND jp.pricing_model = 'per_visit' AND jp.is_recurring = 0
+              AND jv.scheduled_date < DATE_SUB(CURDATE(), INTERVAL 14 DAY) AND jv.scheduled_date >= DATE_SUB(CURDATE(), INTERVAL 180 DAY)", []);
 
         $c['expenses_30d']   = $this->intOrNull("SELECT COUNT(*) FROM expenses WHERE expense_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) AND status IN ('draft','approved','forwarded')", []);
         $c['expenses_total'] = $this->intOrNull("SELECT COUNT(*) FROM expenses WHERE expense_date BETWEEN ? AND ? AND status IN ('draft','approved','forwarded')", [$from, $to]);

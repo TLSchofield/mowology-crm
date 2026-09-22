@@ -214,6 +214,22 @@ class OwnerFreedomServiceTest extends TestCase
         $this->assertSame(['set-target'], array_column($dirs, 'key'));
     }
 
+    /** @test */
+    public function absurdly_negative_service_margin_is_flagged_as_a_pricing_data_problem(): void
+    {
+        $s = $this->settings();
+        $in = $this->inputs(['weak_service' => ['service_type' => '7_day_lawn_cut', 'revenue' => 800.0, 'margin_pct' => -3031.0]]);
+        $dirs = OwnerFreedomService::recommend(OwnerFreedomService::compute($in, $s), $in, $s, []);
+        $keys = array_column($dirs, 'key');
+        $this->assertContains('weak-margin-data', $keys);
+        $this->assertNotContains('weak-margin', $keys);
+        $this->assertSame('first', $dirs[array_search('weak-margin-data', $keys, true)]['rank']);
+
+        $in2 = $this->inputs(['weak_service' => ['service_type' => 'hedge_trimming', 'revenue' => 6100.0, 'margin_pct' => 18.0]]);
+        $dirs2 = OwnerFreedomService::recommend(OwnerFreedomService::compute($in2, $s), $in2, $s, []);
+        $this->assertContains('weak-margin', array_column($dirs2, 'key'));
+    }
+
     // ── data quality ────────────────────────────────────────────────────────────
 
     /** @test */
