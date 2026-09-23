@@ -36,6 +36,7 @@
 @import "pages/service-landing.css";
 
 @import "pages/privacy.css";
+@import "pages/blog.css";
 
 /* ---- CMS Modules ---- */
 @import "modules/cms-modules.css";

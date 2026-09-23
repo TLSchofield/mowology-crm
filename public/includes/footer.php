@@ -25,6 +25,7 @@
             <li><a href="/about">About Us</a></li>
             <li><a href="/contact">Contact</a></li>
             <li><a href="/quote">Get a Free Quote</a></li>
+            <li><a href="/blog">Tips &amp; Guides</a></li>
             <li><a href="/privacy">Privacy Policy</a></li>
           </ul>
         </div>
@@ -33,20 +34,14 @@
           <h3>Services</h3>
           <ul>
             <?php
-            // Sitewide links to every service landing page. These pages are the
-            // site's main ranking targets and must be reachable from every page —
-            // keep this list in sync with /services/*.php.
-            $__footerServices = [
-                '/services/strata-landscaping-maintenance' => 'Strata Landscaping Maintenance',
-                '/services/commercial-landscape-maintenance' => 'Commercial Landscape Maintenance',
-                '/services/professional-lawn-mowing-care'    => 'Lawn Mowing &amp; Lawn Care',
-                '/services/hedge-trimming'                   => 'Hedge Trimming &amp; Shaping',
-                '/services'                                  => 'All Services',
-            ];
-            foreach ($__footerServices as $__href => $__label):
+            // Sitewide links to every service landing page (file-based + CMS) — these
+            // pages are the site's ranking targets and must be reachable from every page.
+            require_once __DIR__ . '/service-links.php';
+            foreach (mw_serviceLinks() as $__svc):
             ?>
-            <li><a href="<?= h($__href) ?>"><?= $__label ?></a></li>
-            <?php endforeach; unset($__footerServices, $__href, $__label); ?>
+            <li><a href="<?= h($__svc['url']) ?>"><?= h($__svc['title']) ?></a></li>
+            <?php endforeach; unset($__svc); ?>
+            <li><a href="/services">All Services</a></li>
           </ul>
         </div>
 

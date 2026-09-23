@@ -162,6 +162,8 @@ function cms_checkRedirectOrFallback(string $slug): void
         'services'      => 'services_static.php',
         'quote'         => 'quote.php',
         'get-free-quote' => 'get-free-quote.php',
+        'blog'          => 'blog.php',        // article index (articles are CMS pages under blog/)
+        'blog/feed'     => 'blog-feed.php',   // RSS
     ];
 
     if (isset($legacyMap[$slug])) {

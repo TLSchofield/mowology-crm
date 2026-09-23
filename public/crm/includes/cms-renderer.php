@@ -74,6 +74,12 @@ function cms_renderPage(array $page): void
     }
     $extraHead .= cms_renderStructuredData($page, $blocks);
 
+    // Article layout: its stylesheet is linked here because production serves a
+    // flattened master.css bundle that predates pages/blog.css.
+    if (($page['layout_template'] ?? '') === 'article') {
+        $extraHead .= '<link rel="stylesheet" href="' . h(asset('/assets/css/pages/blog.css')) . '">' . "\n";
+    }
+
     // Resolve path to public includes (works in both local dev and production)
     // cms-renderer.php is at /public/crm/includes/ → public root is 2 dirs up
     $publicRoot = dirname(dirname(__DIR__));
@@ -330,6 +336,9 @@ function cms_renderStructuredData(array $page, array $blocks = []): string
         'telephone'   => $phone,
         'email'       => $email,
         'foundingDate' => defined('SITE_FOUNDED') ? (string)SITE_FOUNDED : '2012',
+        'sameAs'      => defined('SITE_SAME_AS') ? SITE_SAME_AS : [],
+        'openingHoursSpecification' => defined('SITE_OPENING_HOURS')
+            ? [array_merge(['@type' => 'OpeningHoursSpecification'], SITE_OPENING_HOURS)] : [],
         'address'     => [
             '@type'           => 'PostalAddress',
             'addressLocality' => 'Vancouver',
@@ -347,6 +356,27 @@ function cms_renderStructuredData(array $page, array $blocks = []): string
     }
 
     $schemas = [];
+
+    // Blog articles (layout "article", slug blog/…): BlogPosting + FAQPage.
+    if (($page['layout_template'] ?? '') === 'article') {
+        require_once APP_ROOT . '/Modules/CMS/Services/ArticleService.php';
+        $meta = ArticleService::meta($page);
+        $schemas[] = ArticleService::blogPostingSchema($page, $meta, [
+            'name' => $siteName,
+            'url'  => $siteUrl,
+            'logo' => $siteUrl . '/assets/img/logo/mowology-logo.jpg',
+        ]);
+        $faq = ArticleService::faqSchema($meta['faq_items'] ?? []);
+        if ($faq) {
+            $schemas[] = $faq;
+        }
+        $schemas[] = array_merge(['@context' => 'https://schema.org'], $localBusiness);
+        $out = '';
+        foreach ($schemas as $schema) {
+            $out .= '<script type="application/ld+json">' . json_encode($schema, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . '</script>' . "\n";
+        }
+        return $out;
+    }
 
     switch ($page['page_type'] ?? 'custom') {
 

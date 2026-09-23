@@ -71,6 +71,44 @@ define('SITE_YEAR', date('Y'));
 define('SITE_FOUNDED', 2012);
 define('SITE_YEARS_IN_BUSINESS', max(1, (int)date('Y') - SITE_FOUNDED));
 
+// Public profiles of the business (schema.org sameAs). Google and AI engines
+// build their picture of "Mowology" from the agreement between these listings
+// and the site — keep name, phone, hours and founding year identical on all.
+define('SITE_SAME_AS', [
+    'https://www.yelp.ca/biz/mowology-vancouver-2',
+    'https://homestars.com/companies/2804132-mowology-lawns-landscapes',
+    'https://www.bbb.org/ca/bc/vancouver/profile/lawn-care/mowology-lawn-and-landscapes-ltd-0037-1368602',
+    'https://www.yellowpages.ca/bus/British-Columbia/Vancouver/Mowology-Lawns-Landscapes-Ltd/8128394.html',
+    'https://www.instagram.com/mowology',
+    'https://www.facebook.com/mowology',
+]);
+// Office hours as shown in the footer (Mon–Fri 8:00–16:00 Pacific).
+define('SITE_OPENING_HOURS', [
+    'dayOfWeek' => ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
+    'opens'     => '08:00',
+    'closes'    => '16:00',
+]);
+
+if (!function_exists('mw_localBusinessSchemaExtras')) {
+    /**
+     * Fields every LocalBusiness node on the site should carry (homepage,
+     * CMS structured data, service-page provider). Merge into the node.
+     */
+    function mw_localBusinessSchemaExtras(): array
+    {
+        return [
+            '@id'          => SITE_URL . '/#business',
+            'foundingDate' => (string)SITE_FOUNDED,
+            'sameAs'       => SITE_SAME_AS,
+            'openingHoursSpecification' => [array_merge(['@type' => 'OpeningHoursSpecification'], SITE_OPENING_HOURS)],
+            'areaServed'   => array_map(
+                fn($c) => ['@type' => 'City', 'name' => $c, 'addressRegion' => 'BC', 'addressCountry' => 'CA'],
+                ['Vancouver', 'Burnaby', 'Richmond']
+            ),
+        ];
+    }
+}
+
 // Store full site record for downstream use (header.php, footer.php, etc.)
 $GLOBALS['__cms_site'] = $__site;
 unset($__site, $__siteFuncsPath);

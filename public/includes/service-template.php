@@ -275,17 +275,8 @@ $ctaBlock = $service['cta'] ?? [];
        These pages are the site's ranking targets; before this block they had no
        internal links at all. Reads the sibling data files (small arrays). -->
   <?php
-  $__relatedServices = [];
-  foreach (glob(__DIR__ . '/service-data/*.php') ?: [] as $__dataFile) {
-      $__data = include $__dataFile;
-      if (is_array($__data) && !empty($__data['slug']) && $__data['slug'] !== ($service['slug'] ?? '')) {
-          $__relatedServices[$__data['slug']] = [
-              'title' => $__data['title'] ?? $__data['slug'],
-              'desc'  => $__data['related_blurb'] ?? ($__data['hero']['subheadline'] ?? ''),
-          ];
-      }
-  }
-  ksort($__relatedServices);
+  require_once __DIR__ . '/service-links.php';
+  $__relatedServices = mw_serviceLinks($service['slug'] ?? null);
   ?>
   <?php if ($__relatedServices): ?>
   <section class="slp-section slp-alt slp-related">
@@ -294,7 +285,7 @@ $ctaBlock = $service['cta'] ?? [];
       <div class="slp-benefits-grid">
         <?php foreach ($__relatedServices as $__slug => $__rel): ?>
           <div class="slp-benefit">
-            <strong><a href="/services/<?= h($__slug) ?>"><?= h($__rel['title']) ?></a></strong>
+            <strong><a href="<?= h($__rel['url']) ?>"><?= h($__rel['title']) ?></a></strong>
             <?php if ($__rel['desc'] !== ''): ?>
               <p><?= h($__rel['desc']) ?></p>
             <?php endif; ?>
@@ -307,7 +298,7 @@ $ctaBlock = $service['cta'] ?? [];
       </div>
     </div>
   </section>
-  <?php endif; unset($__relatedServices, $__dataFile, $__data, $__slug, $__rel); ?>
+  <?php endif; unset($__relatedServices, $__slug, $__rel); ?>
 
   <!-- Bottom CTA -->
   <?php if (!empty($ctaBlock)): ?>

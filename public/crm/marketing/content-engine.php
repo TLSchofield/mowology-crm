@@ -195,15 +195,42 @@ $activePage = 'marketing';
                     </div>
                 </div>
 
-                <!-- Publish button -->
+                <!-- Publish to the website -->
                 <?php if ($canEdit): ?>
                 <div class="card border-0 shadow-sm border border-success" style="border-width:2px!important;">
                     <div class="card-body p-3">
-                        <h6 class="mb-2">Ready to publish?</h6>
-                        <p class="text-muted small mb-3">Add photos, review the copy, then publish and amplify.</p>
-                        <button class="btn btn-success w-100" onclick="showStep(3)">
-                            Publish &amp; Amplify →
+                        <h6 class="mb-2">Publish to mowology.ca</h6>
+                        <p class="text-muted small mb-3">Creates the page at <code>/blog/&lt;slug&gt;</code> with BlogPosting + FAQ schema, then amplify it.</p>
+                        <div class="mb-2">
+                            <label class="form-label small fw-semibold mb-1">URL slug</label>
+                            <div class="input-group input-group-sm">
+                                <span class="input-group-text">/blog/</span>
+                                <input type="text" id="ceSlug" class="form-control" placeholder="from-the-title">
+                            </div>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label small fw-semibold mb-1">Byline</label>
+                            <input type="text" id="ceAuthor" class="form-control form-control-sm" value="<?= h(trim((string)($user['name'] ?? (($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? ''))))) ?>">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small fw-semibold mb-1">Visibility</label>
+                            <select id="ceStatus" class="form-select form-select-sm">
+                                <option value="published">Publish now</option>
+                                <option value="draft">Save as draft (edit in CMS first)</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-success w-100" id="ceBtnPublish" onclick="publishArticle()">
+                            <span class="spinner-border spinner-border-sm d-none me-1" id="cePublishSpinner"></span>
+                            <span id="cePublishLabel">Publish Article</span>
                         </button>
+                        <div id="cePublishError" class="alert alert-danger small mt-2 mb-0 d-none"></div>
+                        <div id="cePublishResult" class="small mt-3 d-none">
+                            <div class="alert alert-success mb-2 py-2">
+                                <strong>Live:</strong> <a id="cePublishedLink" href="#" target="_blank" rel="noopener"></a>
+                            </div>
+                            <a id="ceEditInCmsLink" href="#" class="btn btn-sm btn-outline-secondary w-100 mb-2">Edit in CMS</a>
+                            <button class="btn btn-sm btn-primary w-100" onclick="showStep(3)">Amplify →</button>
+                        </div>
                     </div>
                 </div>
                 <?php endif; ?>
@@ -309,8 +336,70 @@ const ceState = {
     suggestedLinks: [],
     photoPrompts: [],
     wordCount: 0,
-    articleUrl: '',  // set after CMS publish (future)
+    articleUrl: '',  // set by publishArticle()
+    pageId: 0,       // CMS page id set by publishArticle()
+    keyword: '', city: '', serviceType: '', season: '',
 };
+
+// ── Publish to CMS (/blog/<slug>) ────────────────────────────────────────
+function slugFromTitle(t) {
+    return (t || '').toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
+}
+
+async function publishArticle() {
+    ceState.title    = document.getElementById('ceTitle').value.trim();
+    ceState.metaDesc = document.getElementById('ceMetaDesc').value.trim();
+    ceState.bodyHtml = document.getElementById('ceBodyHtml').value;
+
+    const btn     = document.getElementById('ceBtnPublish');
+    const spinner = document.getElementById('cePublishSpinner');
+    const label   = document.getElementById('cePublishLabel');
+    hideError('cePublishError');
+
+    if (!ceState.title || !ceState.bodyHtml.trim()) {
+        showError('cePublishError', 'The article needs a title and a body.');
+        return;
+    }
+
+    btn.disabled = true;
+    spinner.classList.remove('d-none');
+    try {
+        const res = await fetch('/crm/api/publish-article.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                page_id:          ceState.pageId || 0,
+                title:            ceState.title,
+                body_html:        ceState.bodyHtml,
+                meta_description: ceState.metaDesc,
+                slug:             document.getElementById('ceSlug').value.trim(),
+                author:           document.getElementById('ceAuthor').value.trim(),
+                status:           document.getElementById('ceStatus').value,
+                keyword:          ceState.keyword,
+                city:             ceState.city,
+                service_type:     ceState.serviceType,
+                season:           ceState.season,
+                faq_items:        ceState.faqItems,
+            }),
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || 'Publish failed');
+
+        ceState.pageId     = data.page_id;
+        ceState.articleUrl = data.url;
+        document.getElementById('ceSlug').value = (data.slug || '').replace(/^blog\//, '');
+        const link = document.getElementById('cePublishedLink');
+        link.href = data.url; link.textContent = data.url;
+        document.getElementById('ceEditInCmsLink').href = data.edit_url;
+        document.getElementById('cePublishResult').classList.remove('d-none');
+        label.textContent = data.status === 'published' ? 'Republish (save changes)' : 'Update draft';
+    } catch (err) {
+        showError('cePublishError', err.message);
+    } finally {
+        btn.disabled = false;
+        spinner.classList.add('d-none');
+    }
+}
 
 // ── Step navigation ──────────────────────────────────────────────────────
 function showStep(n) {
@@ -359,6 +448,16 @@ async function generateArticle() {
         ceState.title         = data.title || '';
         ceState.metaDesc      = data.meta_description || '';
         ceState.bodyHtml      = data.body_html || '';
+        ceState.keyword       = keyword;
+        ceState.city          = city;
+        ceState.serviceType   = serviceType;
+        ceState.season        = (document.getElementById('ceSeason') || {}).value || '';
+        ceState.pageId        = 0;
+        ceState.articleUrl    = '';
+        const slugEl = document.getElementById('ceSlug');
+        if (slugEl) slugEl.value = slugFromTitle(data.title || '');
+        const pr = document.getElementById('cePublishResult');
+        if (pr) pr.classList.add('d-none');
         ceState.schemaJson    = data.schema_json || '';
         ceState.faqItems      = data.faq_items || [];
         ceState.suggestedLinks = data.suggested_links || [];
@@ -410,17 +509,21 @@ async function runCascade() {
     spinner.classList.remove('d-none');
     hideError('ceCascadeError');
 
-    // Note: article_id is 0 here — in the future this will be the CMS page ID
-    // created when the article is published to the CMS. For now the cascade
-    // runs from the in-memory draft.
+    if (!ceState.pageId || !ceState.articleUrl) {
+        showError('ceCascadeError', 'Publish the article to mowology.ca first (Step 2) so the channels can link to it.');
+        btn.disabled = false;
+        spinner.classList.add('d-none');
+        return;
+    }
+
     try {
         const res = await fetch('/crm/api/cascade.php', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                article_id:       0,
+                article_id:       ceState.pageId,
                 title:            ceState.title,
-                url:              ceState.articleUrl || 'https://mowology.ca/blog/',
+                url:              ceState.articleUrl,
                 body_html:        ceState.bodyHtml,
                 meta_description: ceState.metaDesc,
                 channels,

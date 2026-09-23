@@ -24,6 +24,9 @@ $heroImg = '/assets/img/hero/hero-lawn-care-1920x1080.jpg';
   "email": <?= json_encode(SITE_EMAIL) ?>,
   "description": <?= json_encode('Professional landscaping and grounds maintenance for strata, property managers, and residential properties in Metro Vancouver. Photo-verified service reports, fully insured crews, ' . SITE_YEARS_IN_BUSINESS . '+ years experience.') ?>,
   "foundingDate": <?= json_encode((string)SITE_FOUNDED) ?>,
+  "@id": <?= json_encode(SITE_URL . '/#business') ?>,
+  "sameAs": <?= json_encode(SITE_SAME_AS, JSON_UNESCAPED_SLASHES) ?>,
+  "openingHoursSpecification": <?= json_encode([array_merge(['@type' => 'OpeningHoursSpecification'], SITE_OPENING_HOURS)]) ?>,
   "image": <?= json_encode(SITE_URL . '/assets/img/hero/hero-lawn-care-1920x1080.jpg') ?>,
   "priceRange": "$$",
   "areaServed": [

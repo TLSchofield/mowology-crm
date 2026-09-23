@@ -36,6 +36,8 @@ $sitemapPriority = [
     'portfolio'       => ['priority' => '0.6', 'changefreq' => 'weekly'],
     'custom'          => ['priority' => '0.5', 'changefreq' => 'monthly'],
     'landing'         => ['priority' => '0.8', 'changefreq' => 'weekly'],
+    'blog'            => ['priority' => '0.7', 'changefreq' => 'weekly'],
+    'article'         => ['priority' => '0.7', 'changefreq' => 'monthly'],
 ];
 $defaultSitemapMeta = ['priority' => '0.5', 'changefreq' => 'monthly'];
 
@@ -83,6 +85,9 @@ try {
         }
 
         $meta = $sitemapPriority[$page['page_type']] ?? $defaultSitemapMeta;
+        if (strpos($slug, 'blog/') === 0) {
+            $meta = $sitemapPriority['article'];
+        }
         $entries[$loc] = [
             'lastmod'    => date('Y-m-d', strtotime($page['updated_at'])),
             'changefreq' => $meta['changefreq'],
@@ -98,6 +103,7 @@ try {
         '/about'    => ['file' => 'about.php',    'type' => 'about'],
         '/contact'  => ['file' => 'contact.php',  'type' => 'contact'],
         '/privacy'  => ['file' => 'privacy.php',  'type' => 'custom'],
+        '/blog'     => ['file' => 'blog.php',     'type' => 'blog'],
     ];
     foreach (glob(__DIR__ . '/services/*.php') ?: [] as $serviceFile) {
         $serviceSlug = basename($serviceFile, '.php');
