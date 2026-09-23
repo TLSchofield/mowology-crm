@@ -65,6 +65,12 @@ date_default_timezone_set($__site['timezone'] ?? 'America/Vancouver');
 // Year constant (used in copyright footers, etc.)
 define('SITE_YEAR', date('Y'));
 
+// Founding year — the ONE place this is stated. Every "Est.", "years experience",
+// foundingDate schema value and llms.txt claim must derive from it (the site used
+// to say 2019, 2010 and "8+ years" at once; BBB and the owner say 2012).
+define('SITE_FOUNDED', 2012);
+define('SITE_YEARS_IN_BUSINESS', max(1, (int)date('Y') - SITE_FOUNDED));
+
 // Store full site record for downstream use (header.php, footer.php, etc.)
 $GLOBALS['__cms_site'] = $__site;
 unset($__site, $__siteFuncsPath);

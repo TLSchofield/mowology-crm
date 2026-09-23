@@ -329,6 +329,7 @@ function cms_renderStructuredData(array $page, array $blocks = []): string
         'url'         => $siteUrl,
         'telephone'   => $phone,
         'email'       => $email,
+        'foundingDate' => defined('SITE_FOUNDED') ? (string)SITE_FOUNDED : '2012',
         'address'     => [
             '@type'           => 'PostalAddress',
             'addressLocality' => 'Vancouver',

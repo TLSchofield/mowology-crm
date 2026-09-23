@@ -2,19 +2,8 @@
 declare(strict_types=1);
 require_once __DIR__ . '/includes/bootstrap.php';
 
-// CMS-first: render from database if CMS version exists and is published
-require_once __DIR__ . '/crm/includes/cms-functions.php';
-$_cmsPage = cms_getPageBySlug('about');
-if ($_cmsPage && $_cmsPage['status'] === 'published') {
-    require_once __DIR__ . '/crm/includes/cms-token-engine.php';
-    require_once __DIR__ . '/crm/includes/cms-renderer.php';
-    cms_renderPage($_cmsPage);
-    exit;
-}
-unset($_cmsPage);
-
 $pageTitle = 'About Us | Mowology Landscaping';
-$pageDescription = "Learn about Mowology - Metro Vancouver's trusted landscaping company serving property management and residential clients since 2010.";
+$pageDescription = "Learn about Mowology - Metro Vancouver's trusted landscaping company serving property management and residential clients since " . SITE_FOUNDED . ".";
 $activeNav = 'about';
 
 require __DIR__ . '/includes/head.php';
@@ -32,7 +21,7 @@ require __DIR__ . '/includes/header.php';
         <div class="container">
             <div class="about-content">
                 <h2>Our Story</h2>
-                <p class="lead-text">Mowology was founded on a simple principle: landscaping services should be reliable, professional, and exceed expectations. Since 2010, we've been serving property management companies and residential clients across Metro Vancouver with that commitment.</p>
+                <p class="lead-text">Mowology was founded on a simple principle: landscaping services should be reliable, professional, and exceed expectations. Since <?= SITE_FOUNDED ?>, we've been serving property management companies and residential clients across Metro Vancouver with that commitment.</p>
                 
                 <p>What started as a small team with a few lawn mowers has grown into one of Vancouver's most trusted landscaping companies. But despite our growth, our core values remain the same: quality work, reliable service, and treating every property like it's our own.</p>
 
@@ -119,10 +108,7 @@ require __DIR__ . '/includes/header.php';
                     <div class="trust-number">15+</div>
                     <div class="trust-label">Years Serving Metro Vancouver</div>
                 </div>
-                <div class="trust-item">
-                    <div class="trust-number">500+</div>
-                    <div class="trust-label">Properties Under Care</div>
-                </div>
+
                 <div class="trust-item">
                     <div class="trust-number">98%</div>
                     <div class="trust-label">Client Retention Rate</div>
@@ -130,34 +116,6 @@ require __DIR__ . '/includes/header.php';
                 <div class="trust-item">
                     <div class="trust-number">5⭐</div>
                     <div class="trust-label">Average Client Rating</div>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <section class="certifications">
-        <div class="container">
-            <h2 class="section-title">Certifications & Credentials</h2>
-            <div class="cert-grid">
-                <div class="cert-card">
-                    <h3>🛡️ Insurance Coverage</h3>
-                    <p>$5,000,000 General Liability Insurance</p>
-                    <p>Full WCB Coverage</p>
-                </div>
-                <div class="cert-card">
-                    <h3>✓ Licensed & Bonded</h3>
-                    <p>Licensed Business in BC</p>
-                    <p>Bonded for Client Protection</p>
-                </div>
-                <div class="cert-card">
-                    <h3>🌱 Certified Professionals</h3>
-                    <p>ISA Certified Arborists on Staff</p>
-                    <p>Landscape Industry Certified</p>
-                </div>
-                <div class="cert-card">
-                    <h3>🏆 Industry Recognition</h3>
-                    <p>Better Business Bureau Member</p>
-                    <p>Vancouver Island Landscape Association</p>
                 </div>
             </div>
         </div>

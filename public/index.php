@@ -22,7 +22,8 @@ $heroImg = '/assets/img/hero/hero-lawn-care-1920x1080.jpg';
   "url": <?= json_encode(SITE_URL) ?>,
   "telephone": <?= json_encode('+1' . SITE_PHONE_TEL) ?>,
   "email": <?= json_encode(SITE_EMAIL) ?>,
-  "description": "Professional landscaping and grounds maintenance for strata, property managers, and residential properties in Metro Vancouver. Photo-verified service reports, fully insured crews, 8+ years experience.",
+  "description": <?= json_encode('Professional landscaping and grounds maintenance for strata, property managers, and residential properties in Metro Vancouver. Photo-verified service reports, fully insured crews, ' . SITE_YEARS_IN_BUSINESS . '+ years experience.') ?>,
+  "foundingDate": <?= json_encode((string)SITE_FOUNDED) ?>,
   "image": <?= json_encode(SITE_URL . '/assets/img/hero/hero-lawn-care-1920x1080.jpg') ?>,
   "priceRange": "$$",
   "areaServed": [
@@ -96,7 +97,7 @@ $heroImg = '/assets/img/hero/hero-lawn-care-1920x1080.jpg';
     <div class="container">
       <div class="mw-hero__content">
 
-        <div class="mw-hero__badge">Metro Vancouver &middot; Est. 2019</div>
+        <div class="mw-hero__badge">Metro Vancouver &middot; Est. <?= SITE_FOUNDED ?></div>
 
         <h1 class="mw-hero__headline">
           <?php
@@ -126,7 +127,7 @@ $heroImg = '/assets/img/hero/hero-lawn-care-1920x1080.jpg';
           </div>
           <div class="mw-hero__trust-sep"></div>
           <div class="mw-hero__trust-item">
-            <span class="mw-hero__trust-num">8+</span>
+            <span class="mw-hero__trust-num"><?= SITE_YEARS_IN_BUSINESS ?>+</span>
             <span>Years Experience</span>
           </div>
           <div class="mw-hero__trust-sep"></div>
@@ -159,7 +160,7 @@ $heroImg = '/assets/img/hero/hero-lawn-care-1920x1080.jpg';
         <div class="mw-stat__circle">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
         </div>
-        <p class="mw-stat__num">8+</p>
+        <p class="mw-stat__num"><?= SITE_YEARS_IN_BUSINESS ?>+</p>
         <p class="mw-stat__label">Years Experience</p>
       </div>
       <div class="mw-stat">

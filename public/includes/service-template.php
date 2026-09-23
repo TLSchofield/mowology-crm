@@ -122,6 +122,7 @@ if ($schemaData) {
             'telephone' => SITE_PHONE_DISPLAY,
             'email'     => SITE_EMAIL,
             'url'       => SITE_URL,
+            'foundingDate' => defined('SITE_FOUNDED') ? (string)SITE_FOUNDED : '2012',
         ],
         'areaServed' => array_map(function ($area) {
             return ['@type' => 'City', 'name' => $area];

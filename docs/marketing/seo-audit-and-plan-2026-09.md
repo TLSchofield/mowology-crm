@@ -153,7 +153,7 @@ Google truncates titles around 60 characters and descriptions around 155–160. 
 | Fact | Site | Third parties |
 |------|------|---------------|
 | Legal/brand name | "Mowology" | "Mowology Lawns & Landscapes Ltd" (Yelp, YP, HERE), "Mowology Lawn and Landscapes Ltd." (BBB) |
-| Founded | "Est. 2019" (home hero), "8+ years" (home stats, llms.txt), "since 2010" (about page + meta description) | 2012 (BBB) |
+| Founded | **Resolved 2026-09-23: 2012** (owner confirmed; matches BBB). `SITE_FOUNDED` in `bootstrap.php` now drives the hero badge, years-in-business stats, `foundingDate` schema, About copy and llms.txt. Previously "Est. 2019", "8+ years" and "since 2010" at once. | 2012 (BBB) |
 | Address | none on site; schema has no `address` or `geo` | 2845 W 15th Ave, Vancouver V6K 3A1 on Yelp, YP, BBB, HERE |
 | Hours | Mon–Fri 8:00–16:00 (llms.txt); no `openingHours` in schema | Mon–Fri 8:00–18:00 (listings) |
 | Email | `office@mowology.ca` (schema) | `hello@mowology.ca` (llms.txt) |
