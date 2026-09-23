@@ -5,10 +5,10 @@
  */
 return [
     'slug'  => 'snow-removal',
-    'title' => 'Snow Removal & Salting for Strata and Commercial Properties',
+    'title' => 'Vancouver Snow Removal Company for Strata and Commercial Properties',
     'related_blurb' => 'Walkways, entrances and parking areas cleared and salted, with a time-stamped record of every visit.',
 
-    'meta_title'       => 'Snow Removal & Salting Vancouver Strata | Mowology',
+    'meta_title'       => 'Snow Removal Company Vancouver | Strata & Commercial Salting | Mowology',
     'meta_description' => 'Snow removal and salting for strata, townhouse and commercial properties in Vancouver, Burnaby and Richmond. Every visit documented with times and photos.',
     'meta_keywords'    => 'snow removal vancouver strata, salting service burnaby, commercial snow removal richmond, ice control strata vancouver, winter property maintenance',
     'og_image'         => '/assets/img/hero/hero-strata-crew.jpg',

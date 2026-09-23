@@ -224,7 +224,7 @@ $heroImg = '/assets/img/hero/hero-lawn-care-1920x1080.jpg';
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
           </div>
           <h3>Residential Properties</h3>
-          <p>Professional garden care and landscape maintenance for homeowners who want beautiful, well-maintained outdoor spaces. From weekly <a href="/services/professional-lawn-mowing-care">lawn mowing and lawn care</a> to <a href="/services/hedge-trimming">hedge trimming</a>, seasonal cleanups and garden design.</p>
+          <p>Professional <a href="/services/yard-maintenance-vancouver">yard maintenance</a> and <a href="/services/landscape-maintenance-vancouver">landscape maintenance</a> for homeowners who want beautiful, well-maintained outdoor spaces. From weekly <a href="/services/professional-lawn-mowing-care">lawn care in Vancouver</a> to <a href="/services/hedge-trimming">hedge trimming</a>, seasonal cleanups and <a href="/services/kitsilano-landscaping">Kitsilano landscaping</a>.</p>
           <ul class="service-features">
             <li>Personalized service</li>
             <li>Flexible scheduling</li>
