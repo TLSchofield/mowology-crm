@@ -102,7 +102,7 @@ $canonicalUrl = SITE_URL . $canonicalPath;
   <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;0,700;1,600&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&display=swap"></noscript>
 
   <!-- Styles -->
-  <link rel="stylesheet" href="/assets/css/master.css">
+  <link rel="stylesheet" href="<?= h(asset('/assets/css/master.css')) ?>">
 
   <?= $extraHead ?>
 
