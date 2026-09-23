@@ -1378,7 +1378,10 @@ function cms_incrementPageView(int $pageId): void
 {
     try {
         $db = getDB();
-        $db->prepare("UPDATE cms_pages SET view_count = view_count + 1 WHERE id = ?")
+        // `updated_at = updated_at` defeats the column's ON UPDATE CURRENT_TIMESTAMP:
+        // a page view must not look like an edit (it fed a bogus <lastmod> into
+        // the sitemap for every CMS page).
+        $db->prepare("UPDATE cms_pages SET view_count = view_count + 1, updated_at = updated_at WHERE id = ?")
            ->execute([$pageId]);
     } catch (\Throwable $e) {
         // Never surface view-count errors to visitors
