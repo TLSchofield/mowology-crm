@@ -8,7 +8,7 @@
 
 CREATE TABLE IF NOT EXISTS device_tokens (
     id             INT UNSIGNED NOT NULL AUTO_INCREMENT,
-    user_id        INT UNSIGNED NOT NULL,
+    user_id        INT NOT NULL,           -- matches users.id (signed INT); FK needs the same type
     device_token   VARCHAR(255) NOT NULL,
     platform       ENUM('ios','android') NOT NULL DEFAULT 'ios',
     is_active      TINYINT(1) NOT NULL DEFAULT 1,
