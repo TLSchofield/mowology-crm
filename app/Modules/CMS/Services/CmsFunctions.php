@@ -1235,7 +1235,7 @@ function cms_logCmsActivity(int $userId, string $action, string $summary, array 
  * @param int $pageId
  * @return string|null Cached HTML, or null on miss / expired
  */
-function cms_getPageHtmlCache(int $pageId): ?string
+function cms_getPageHtmlCache(int $pageId, ?int $notOlderThan = null): ?string
 {
     try {
         $db = getDB();
@@ -1253,9 +1253,17 @@ function cms_getPageHtmlCache(int $pageId): ?string
         }
 
         // Check TTL
-        $age = time() - strtotime($row['cached_at']);
+        $cachedAt = strtotime($row['cached_at']);
+        $age = time() - $cachedAt;
         if ($age > (int)$row['ttl_seconds']) {
             return null; // Expired
+        }
+
+        // A cached page also goes stale when the shared public includes
+        // (head/header/footer) change: the HTML would keep pointing at old
+        // asset URLs, nav links, etc. until the TTL ran out.
+        if ($notOlderThan !== null && $cachedAt < $notOlderThan) {
+            return null;
         }
 
         return $row['cache_html'];

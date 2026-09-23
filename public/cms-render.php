@@ -101,7 +101,14 @@ try {
     // --- HTML Cache (P1-B) ---
     // Skip cache in preview mode so editors always see fresh content.
     // Serve cached HTML if fresh; otherwise render and cache the result.
-    $cachedHtml = $isPreviewMode ? null : cms_getPageHtmlCache((int)$page['id']);
+    // Cached HTML is discarded if the shared includes were deployed after it was
+    // cached (e.g. a changed stylesheet URL in head.php must reach every page now).
+    $includesMtime = max(array_map('filemtime', array_filter([
+        __DIR__ . '/includes/head.php',
+        __DIR__ . '/includes/header.php',
+        __DIR__ . '/includes/footer.php',
+    ], 'is_file')) ?: [0]);
+    $cachedHtml = $isPreviewMode ? null : cms_getPageHtmlCache((int)$page['id'], $includesMtime ?: null);
     if ($cachedHtml !== null) {
         echo $cachedHtml;
         exit;
