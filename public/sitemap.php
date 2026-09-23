@@ -15,8 +15,9 @@ require_once __DIR__ . '/includes/bootstrap.php';
 require_once __DIR__ . '/crm/includes/cms-functions.php';
 require_once __DIR__ . '/crm/includes/seo-functions.php';
 
-// Cache in /tmp
-$cacheFile = sys_get_temp_dir() . '/mowology_sitemap.xml';
+// Cache in /tmp. The file name carries this script's mtime so a deploy of
+// sitemap.php invalidates the cache instead of serving the old output for 24h.
+$cacheFile = sys_get_temp_dir() . '/mowology_sitemap_' . (int)filemtime(__FILE__) . '.xml';
 $cacheTime = 86400;  // 24 hours
 
 // Return cached if recent
