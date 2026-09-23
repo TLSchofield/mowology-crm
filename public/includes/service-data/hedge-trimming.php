@@ -7,8 +7,8 @@ return [
     'slug'  => 'hedge-trimming',
     'title' => 'Hedge Trimming & Shaping',
 
-    'meta_title'       => 'Hedge Trimming Vancouver | Professional Hedge Shaping | Mowology',
-    'meta_description' => 'Professional hedge trimming and shaping in Vancouver, Burnaby and Richmond. Laurel, cedar, boxwood, and more. Clean lines, proper technique, full cleanup included.',
+    'meta_title'       => 'Hedge Trimming Vancouver & Burnaby | Mowology',
+    'meta_description' => 'Hedge trimming and shaping in Vancouver, Burnaby and Richmond. Laurel, cedar, boxwood and more. Clean lines, proper timing, full cleanup included.',
     'meta_keywords'    => 'hedge trimming vancouver, hedge shaping burnaby, laurel hedge trimming, cedar hedge maintenance, hedge cutting richmond, professional hedge service',
     'og_image'         => '/assets/img/hero/hero-lawn-care-1920x1080.jpg',
 

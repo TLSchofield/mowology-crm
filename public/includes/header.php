@@ -28,11 +28,20 @@ if (!$nav) {
     $nav = [
         ['key' => 'home',      'label' => 'Home',      'href' => '/'],
         ['key' => 'services',  'label' => 'Services',  'href' => '/services'],
-        ['key' => 'portfolio', 'label' => 'Portfolio', 'href' => '/portfolio.php'],
-        ['key' => 'about',     'label' => 'About',     'href' => '/about.php'],
-        ['key' => 'contact',   'label' => 'Contact',   'href' => '/contact.php'],
+        ['key' => 'portfolio', 'label' => 'Portfolio', 'href' => '/portfolio'],
+        ['key' => 'about',     'label' => 'About',     'href' => '/about'],
+        ['key' => 'contact',   'label' => 'Contact',   'href' => '/contact'],
     ];
 }
+// SEO: the clean URL is canonical (.htaccess 301s the .php form). Normalise any
+// legacy .php hrefs coming from cms_menus so internal links never hit a redirect.
+foreach ($nav as &$__navItem) {
+    if (!empty($__navItem['href'])) {
+        $__navItem['href'] = preg_replace('#^/(about|contact|portfolio|privacy)\.php$#', '/$1', $__navItem['href']);
+        $__navItem['href'] = preg_replace('#^/(index\.php|home)$#', '/', $__navItem['href']);
+    }
+}
+unset($__navItem);
 unset($__siteRecord);
 ?>
 <body>

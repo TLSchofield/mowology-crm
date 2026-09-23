@@ -21,19 +21,32 @@
           <ul>
             <li><a href="/">Home</a></li>
             <li><a href="/services">Services</a></li>
-            <li><a href="/portfolio.php">Portfolio</a></li>
-            <li><a href="/about.php">About Us</a></li>
-            <li><a href="/contact.php">Contact</a></li>
+            <li><a href="/portfolio">Portfolio</a></li>
+            <li><a href="/about">About Us</a></li>
+            <li><a href="/contact">Contact</a></li>
+            <li><a href="/quote">Get a Free Quote</a></li>
+            <li><a href="/privacy">Privacy Policy</a></li>
           </ul>
         </div>
 
         <div class="footer-col">
           <h3>Services</h3>
           <ul>
-            <li><a href="/services#property-management">Property Management</a></li>
-            <li><a href="/services#residential">Residential Services</a></li>
-            <li><a href="/services#maintenance">Weekly Maintenance</a></li>
-            <li><a href="/services#seasonal">Seasonal Services</a></li>
+            <?php
+            // Sitewide links to every service landing page. These pages are the
+            // site's main ranking targets and must be reachable from every page —
+            // keep this list in sync with /services/*.php.
+            $__footerServices = [
+                '/services/strata-landscaping-maintenance' => 'Strata Landscaping Maintenance',
+                '/services/commercial-landscape-maintenance' => 'Commercial Landscape Maintenance',
+                '/services/professional-lawn-mowing-care'    => 'Lawn Mowing &amp; Lawn Care',
+                '/services/hedge-trimming'                   => 'Hedge Trimming &amp; Shaping',
+                '/services'                                  => 'All Services',
+            ];
+            foreach ($__footerServices as $__href => $__label):
+            ?>
+            <li><a href="<?= h($__href) ?>"><?= $__label ?></a></li>
+            <?php endforeach; unset($__footerServices, $__href, $__label); ?>
           </ul>
         </div>
 

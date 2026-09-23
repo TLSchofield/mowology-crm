@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/includes/bootstrap.php';
 
-$pageTitle = 'Mowology | Professional Landscaping & Grounds Maintenance | Vancouver, Burnaby, Richmond';
+$pageTitle = 'Landscaping & Grounds Maintenance Vancouver | Mowology';
 $pageDescription = 'Professional landscaping and grounds maintenance services in Vancouver, Burnaby & Richmond. Specializing in strata properties and residential gardens.';
 $pageKeywords = 'landscaping Vancouver, strata landscaping, property management landscaping, residential landscaping, grounds maintenance, Burnaby landscaping, Richmond landscaping';
 $activeNav = 'home';
@@ -102,9 +102,12 @@ $heroImg = '/assets/img/hero/hero-lawn-care-1920x1080.jpg';
           <?php
           $words = explode(' ', 'Professional Landscaping Services in Metro Vancouver');
           $baseDelay = 0.3;
+          // Words are separated by a real space (not just margin) so the H1's text
+          // content reads "Professional Landscaping Services in Metro Vancouver" to
+          // crawlers instead of one run-together token.
           foreach ($words as $i => $word) {
               $delay = number_format($baseDelay + ($i * 0.08), 2);
-              echo '<span class="mw-hero__word" style="animation-delay:' . $delay . 's">' . htmlspecialchars($word, ENT_QUOTES) . '</span>';
+              echo ($i > 0 ? ' ' : '') . '<span class="mw-hero__word" style="animation-delay:' . $delay . 's">' . htmlspecialchars($word, ENT_QUOTES) . '</span>';
           }
           ?>
         </h1>
@@ -186,15 +189,30 @@ $heroImg = '/assets/img/hero/hero-lawn-care-1920x1080.jpg';
           <div class="service-icon">
             <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="9" y1="14.5" x2="15" y2="14.5"/></svg>
           </div>
-          <h3>Property Management &amp; Strata</h3>
-          <p>Reliable, photo-verified landscaping for townhomes, condos, and multi-unit complexes. Weekly maintenance, seasonal cleanups, and emergency storm response by insured, strata-dedicated crews.</p>
+          <h3>Strata &amp; Property Management</h3>
+          <p>Reliable, photo-verified <a href="/services/strata-landscaping-maintenance">strata landscaping maintenance</a> for townhomes, condos, and multi-unit complexes. Weekly maintenance, seasonal cleanups, and emergency storm response by insured, strata-dedicated crews.</p>
           <ul class="service-features">
             <li>Photo-verified service reports</li>
             <li>Dedicated account managers</li>
             <li>Emergency response available</li>
             <li>Fully insured crews</li>
           </ul>
-          <a href="/services#property-management" class="btn-link">Learn More &rarr;</a>
+          <a href="/services/strata-landscaping-maintenance" class="btn-link">Strata Landscaping Maintenance &rarr;</a>
+        </div>
+
+        <div class="service-card">
+          <div class="service-icon">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 21v-6h6v6"/><line x1="9" y1="10" x2="9" y2="10.01"/><line x1="15" y1="10" x2="15" y2="10.01"/></svg>
+          </div>
+          <h3>Commercial Properties</h3>
+          <p>Year-round <a href="/services/commercial-landscape-maintenance">commercial landscape maintenance</a> for offices, retail centres, and business parks. Scheduled crews, full insurance, and a photo report after every visit so the grounds always reflect your business.</p>
+          <ul class="service-features">
+            <li>Weekly and bi-weekly programs</li>
+            <li>Lawn, beds, hedges and cleanups</li>
+            <li>Photo-verified visit reports</li>
+            <li>$5M liability insurance</li>
+          </ul>
+          <a href="/services/commercial-landscape-maintenance" class="btn-link">Commercial Landscape Maintenance &rarr;</a>
         </div>
 
         <div class="service-card">
@@ -202,14 +220,14 @@ $heroImg = '/assets/img/hero/hero-lawn-care-1920x1080.jpg';
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
           </div>
           <h3>Residential Properties</h3>
-          <p>Professional garden care and landscape maintenance for homeowners who want beautiful, well-maintained outdoor spaces. From weekly lawn care to seasonal cleanups and garden design.</p>
+          <p>Professional garden care and landscape maintenance for homeowners who want beautiful, well-maintained outdoor spaces. From weekly <a href="/services/professional-lawn-mowing-care">lawn mowing and lawn care</a> to <a href="/services/hedge-trimming">hedge trimming</a>, seasonal cleanups and garden design.</p>
           <ul class="service-features">
             <li>Personalized service</li>
             <li>Flexible scheduling</li>
             <li>Garden enhancement</li>
             <li>Seasonal programs</li>
           </ul>
-          <a href="/services#residential" class="btn-link">Learn More &rarr;</a>
+          <a href="/services/professional-lawn-mowing-care" class="btn-link">Lawn Mowing &amp; Lawn Care &rarr;</a>
         </div>
 
       </div>

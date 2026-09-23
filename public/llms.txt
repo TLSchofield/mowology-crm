@@ -1,34 +1,29 @@
-# Mowology — Professional Landscaping, Metro Vancouver
+# Mowology
 
-Mowology provides commercial and residential landscaping maintenance
-(lawn mowing, hedge trimming, strata grounds care) in Vancouver, Burnaby,
-and Richmond, BC. Est. 2019.
+> Mowology is a landscaping and grounds-maintenance company based in Vancouver, BC, serving strata councils, property managers, commercial properties and homeowners across Vancouver, Burnaby and Richmond. Every visit ends with a photo-verified service report, crews carry $5M liability insurance, and the company maintains 250+ properties.
 
-## What We Do
-- Weekly lawn mowing and grounds maintenance
-- Hedge trimming and shaping
-- Strata and property management landscaping
-- Seasonal cleanups (spring and fall)
-- Commercial landscape maintenance
+Contact: (778) 846-9273 · office@mowology.ca · Mon–Fri 8:00–16:00 Pacific.
+Free quotes: https://mowology.ca/quote
 
-## Why Mowology
-- Photo-verified service reports after every visit
-- Fully insured crews ($5M liability)
-- 250+ properties maintained
-- 8+ years experience
-- Serving property managers, strata councils, and homeowners
+## Services
 
-## Key Pages
-- Homepage: https://mowology.ca
-- Services: https://mowology.ca/services
-- Get a Quote: https://mowology.ca/jobFlow/jobFlow-getQuote.php
-- Portfolio: https://mowology.ca/portfolio.php
-- Contact: https://mowology.ca/contact.php
+- [Strata Landscaping Maintenance](https://mowology.ca/services/strata-landscaping-maintenance): Weekly grounds care for strata and multi-unit properties, with photo-verified visits and a dedicated account manager.
+- [Commercial Landscape Maintenance](https://mowology.ca/services/commercial-landscape-maintenance): Scheduled maintenance programs for offices, retail centres and business parks.
+- [Lawn Mowing & Lawn Care](https://mowology.ca/services/professional-lawn-mowing-care): Weekly mowing, edging, fertilizing, aeration and seasonal lawn programs for homes and businesses.
+- [Hedge Trimming & Shaping](https://mowology.ca/services/hedge-trimming): Laurel, cedar, boxwood and other hedges trimmed at the right time of year, with full cleanup.
+- [All Services](https://mowology.ca/services): Seasonal cleanups, garden bed maintenance, pruning, green-waste removal and snow removal for strata and commercial sites.
 
-## Service Areas
-Vancouver, Burnaby, Richmond — Metro Vancouver, BC, Canada
+## Company
 
-## Contact
-Phone: (778) 846-9273
-Email: hello@mowology.ca
-Hours: Monday–Friday 8:00–16:00
+- [About Mowology](https://mowology.ca/about): Who we are and how the photo-verified service model works.
+- [Portfolio](https://mowology.ca/portfolio): Before-and-after transformations from properties across Metro Vancouver.
+- [Contact](https://mowology.ca/contact): Phone, email and quote request.
+- [Privacy Policy](https://mowology.ca/privacy): How personal information is handled under PIPEDA.
+
+## Service area
+
+Vancouver (Kitsilano, Point Grey, Dunbar, Kerrisdale, Mount Pleasant, Downtown, West End, Commercial Drive), Burnaby (Metrotown, Brentwood, Lougheed, Deer Lake, Edmonds, Capitol Hill, Heights) and Richmond (City Centre, Steveston, Brighouse, Hamilton, Terra Nova), British Columbia, Canada.
+
+## Optional
+
+- [Sitemap](https://mowology.ca/sitemap.xml): Every indexable page.

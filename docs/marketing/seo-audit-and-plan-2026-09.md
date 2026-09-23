@@ -155,12 +155,12 @@ Google truncates titles around 60 characters and descriptions around 155–160. 
 | Address | none on site; schema has no `address` or `geo` | 2845 W 15th Ave, Vancouver V6K 3A1 on Yelp, YP, BBB, HERE |
 | Hours | Mon–Fri 8:00–16:00 (llms.txt); no `openingHours` in schema | Mon–Fri 8:00–18:00 (listings) |
 | Email | `office@mowology.ca` (schema) | `hello@mowology.ca` (llms.txt) |
-| Google review link | `https://g.page/r/mowology/review` → lands on google.com | — |
+| Google review link | none on the live site (the repo's footer carried a placeholder `g.page/r/mowology/review` that was never deployed) | — |
 | `sameAs` in schema | none | Yelp, HomeStars, BBB, YellowPages, Instagram, Facebook all exist |
 
 Google's local algorithm and every LLM build their picture of "Mowology" from the *agreement* between these sources. Right now there is no single fact they can trust.
 
-Fix: decide the truth once (founding year is the important one), store it in `business_settings`, render from there into: `LocalBusiness` schema (`address` or, if the W 15th address is a home and the business is a service-area business, omit the street and keep `areaServed` and match GBP's SAB setting), `openingHoursSpecification`, `sameAs[]`, `foundingDate`, footer NAP, `llms.txt`, About page. Then update Yelp, HomeStars, BBB, YellowPages, HERE, Bing Places, Apple Business Connect and GBP to match. Replace the review link with the real Place-ID review URL (`https://search.google.com/local/writereview?placeid=…`).
+Fix: decide the truth once (founding year is the important one), store it in `business_settings`, render from there into: `LocalBusiness` schema (`address` or, if the W 15th address is a home and the business is a service-area business, omit the street and keep `areaServed` and match GBP's SAB setting), `openingHoursSpecification`, `sameAs[]`, `foundingDate`, footer NAP, `llms.txt`, About page. Then update Yelp, HomeStars, BBB, YellowPages, HERE, Bing Places, Apple Business Connect and GBP to match. Add a review link using the real Place-ID review URL (`https://search.google.com/local/writereview?placeid=…`).
 
 Related: the reviews embedded in the homepage `LocalBusiness` schema are "self-serving" under Google's review-snippet policy and will not produce stars in results. Harmless, but do not expect rich results from them. Stars come from GBP.
 

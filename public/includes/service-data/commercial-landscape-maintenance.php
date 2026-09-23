@@ -8,7 +8,7 @@ return [
     'title' => 'Commercial Landscape Maintenance',
 
     'meta_title'       => 'Commercial Landscape Maintenance Vancouver | Mowology',
-    'meta_description' => 'Professional commercial landscape maintenance for offices, retail centres, and business parks in Vancouver, Burnaby and Richmond. Reliable crews, full insurance, and photo-verified service.',
+    'meta_description' => 'Commercial landscape maintenance for offices, retail centres and business parks in Vancouver, Burnaby and Richmond. Insured crews, photo-verified visits.',
     'meta_keywords'    => 'commercial landscaping vancouver, commercial grounds maintenance, office landscaping burnaby, business park landscaping richmond, commercial lawn care',
     'og_image'         => '/assets/img/hero/hero-lawn-care-1920x1080.jpg',
 

@@ -23,9 +23,19 @@ $pageKeywords    = $pageKeywords    ?? '';
 $pageImage       = $pageImage       ?? '/assets/img/hero/hero-lawn-care-1920x1080.jpg';
 $extraHead       = $extraHead       ?? '';
 
-// Build canonical URL from request
-$canonicalPath = strtok($_SERVER['REQUEST_URI'] ?? '/', '?');
-$canonicalUrl  = SITE_URL . $canonicalPath;
+// Canonical URL — derived from the request path but NORMALISED, so every alias
+// of a page (index.php, /home, about.php, trailing slash, ?query) declares the
+// same canonical. Before this, each variant canonicalised to itself and Google
+// indexed them as separate pages. A page may override by setting $canonicalPath.
+$canonicalPath = $canonicalPath ?? (strtok($_SERVER['REQUEST_URI'] ?? '/', '?') ?: '/');
+$canonicalPath = '/' . ltrim($canonicalPath, '/');
+$canonicalPath = preg_replace('#^/(index\.php|home|cms-render\.php)/?$#', '/', $canonicalPath);
+$canonicalPath = preg_replace('#^/(about|contact|portfolio|privacy|privacy-request|quote)\.php$#', '/$1', $canonicalPath);
+$canonicalPath = preg_replace('#^/services/([a-z0-9-]+)\.php$#', '/services/$1', $canonicalPath);
+if ($canonicalPath !== '/') {
+    $canonicalPath = rtrim($canonicalPath, '/');
+}
+$canonicalUrl = SITE_URL . $canonicalPath;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -46,6 +56,7 @@ $canonicalUrl  = SITE_URL . $canonicalPath;
   <meta name="google-site-verification" content="Do-QNfB0PFhccyeN4jFmEu1rUYjv5pKQa3UNqgygxjs">
 
   <link rel="canonical" href="<?= h($canonicalUrl) ?>">
+  <meta name="robots" content="max-image-preview:large">
 
   <!-- OpenGraph -->
   <meta property="og:type" content="website">

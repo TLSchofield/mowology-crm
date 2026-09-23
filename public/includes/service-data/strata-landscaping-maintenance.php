@@ -7,8 +7,8 @@ return [
     'slug'  => 'strata-landscaping-maintenance',
     'title' => 'Strata Landscaping & Maintenance',
 
-    'meta_title'       => 'Strata Landscaping & Maintenance Vancouver | Mowology',
-    'meta_description' => 'Professional strata landscaping and grounds maintenance for Vancouver, Burnaby and Richmond. Photo-verified visits, dedicated account managers, and $5M insurance coverage.',
+    'meta_title'       => 'Strata Landscaping Maintenance Vancouver | Mowology',
+    'meta_description' => 'Strata landscaping and grounds maintenance in Vancouver, Burnaby and Richmond. Photo-verified visits, a dedicated account manager and $5M insurance.',
     'meta_keywords'    => 'strata landscaping vancouver, strata maintenance burnaby, property management landscaping, grounds maintenance richmond, strata council landscaping',
     'og_image'         => '/assets/img/hero/hero-lawn-care-1920x1080.jpg',
 
