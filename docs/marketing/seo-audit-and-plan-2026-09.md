@@ -4,6 +4,8 @@
 **Scope:** Public site only (`/public/` root, CMS-rendered pages, `/services/*` landing pages). CRM, jobFlow and customer portal are out of scope and correctly blocked in robots.txt.
 **Status (2026-09-22):** Phase 0 shipped and verified on production (commit `9e7eb8fb` + sitemap cache fix). Not done from Phase 0: font consolidation (the live `master.css` is a flattened bundle that must not be redeployed from this branch), the hero CLS check, and the Search Console steps, which need the owner's login. The `/services` hub is a CMS (database) page, so its cards still need linking from the CMS editor; the footer and homepage now carry those links sitewide. A fifth landing page exists in the CMS (`/services/residential-lawn-care-kitsilano`) and is now in the sitemap, but the footer/related-services lists are file-driven and do not include it yet.
 
+**Phase 2 build shipped (2026-09-23, commit `810e0cfd`):** the Content Engine now publishes to `/blog/<slug>` (articles are CMS pages under `blog/` with the `article` layout, no schema change), `/blog` index + `/blog/feed` RSS are live, articles emit BlogPosting + FAQPage schema, and every LocalBusiness node carries `@id`, `sameAs` and opening hours. Footer/related-services lists are now built from one helper that includes CMS-authored landing pages. Still owner-gated: the founding-year text inside the CMS About page, the `/services` hub cards, GSC submission, GBP Place ID, and real price ranges for the pricing guide.
+
 **Goal:** Rank for strata / commercial / residential landscaping searches in Vancouver, Burnaby and Richmond on Google (organic + map pack) and get cited by AI answer engines (Google AI Overviews, ChatGPT, Perplexity, Claude, Gemini).
 
 ---
