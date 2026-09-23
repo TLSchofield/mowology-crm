@@ -69,7 +69,9 @@ $result = [
 
 try {
     $db    = getDB();
-    $pages = $db->query("SELECT id, title FROM cms_pages ORDER BY id ASC")->fetchAll(PDO::FETCH_ASSOC);
+    // cms_getPageCompletionScore() scores a page ROW (title, slug, meta fields + its blocks);
+    // passing only the id threw a TypeError for every page, silently, every night.
+    $pages = $db->query("SELECT id, title, slug, meta_title, meta_description FROM cms_pages ORDER BY id ASC")->fetchAll(PDO::FETCH_ASSOC);
 
     $updStmt = $db->prepare("UPDATE cms_pages SET seo_score = ?, updated_at = updated_at WHERE id = ?");
 
@@ -79,7 +81,7 @@ try {
                 $result['skipped']++;
                 continue;
             }
-            $score = cms_getPageCompletionScore((int)$pg['id']);
+            $score = cms_getPageCompletionScore($pg);
             $updStmt->execute([(int)$score, (int)$pg['id']]);
             $result['updated']++;
         } catch (\Throwable $e) {
@@ -89,6 +91,11 @@ try {
 
     $result['success'] = true;
     $result['summary'] = "Updated: {$result['updated']}, Skipped: {$result['skipped']}, Errors: " . count($result['errors']);
+    if ($result['errors']) {
+        // A page that cannot be scored is a failure worth seeing, not a footnote.
+        $cronStatus = 'error';
+        $cronError  = $result['errors'][0] . (count($result['errors']) > 1 ? ' (+' . (count($result['errors']) - 1) . ' more)' : '');
+    }
 
 } catch (\Throwable $e) {
     $result['success'] = false;

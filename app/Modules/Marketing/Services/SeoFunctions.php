@@ -396,27 +396,31 @@ function scoreRecommendation(array $data, PDO $db): array
  */
 function selectRecType(array $row, int $score, bool $hasExistingPage): string
 {
+    // Return values MUST be members of seo_recommendations.rec_type's ENUM
+    // (create_page, improve_page, title_meta, internal_links, add_photos, schema, seasonal).
+    // The old names (content_new, meta_optimization, …) were not, and MySQL stored '' —
+    // 60 recommendations went into the queue with no type from May to September 2026.
     $position = (float)($row['avg_position'] ?? 0);
     $ctr      = (float)($row['avg_ctr'] ?? 0);
 
     if (!$hasExistingPage) {
-        return 'content_new';
+        return 'create_page';
     }
 
     // Has existing page — what kind of optimization?
     if ($position <= 20 && $ctr < 0.02) {
-        return 'meta_optimization';
+        return 'title_meta';
     }
 
     if ($position > 20) {
-        return 'content_refresh';
+        return 'improve_page';
     }
 
     if ((int)($row['page_count'] ?? 1) > 1) {
-        return 'internal_link';
+        return 'internal_links';
     }
 
-    return 'content_refresh';
+    return 'improve_page';
 }
 
 /**

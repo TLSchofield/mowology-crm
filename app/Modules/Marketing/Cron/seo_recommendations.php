@@ -206,6 +206,7 @@ try {
         VALUES
             (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', NOW())
         ON DUPLICATE KEY UPDATE
+            rec_type = VALUES(rec_type),
             search_volume = VALUES(search_volume),
             clicks = VALUES(clicks),
             ctr = VALUES(ctr),
@@ -214,6 +215,14 @@ try {
             reason = VALUES(reason),
             updated_at = NOW()
     ");
+
+    // Self-heal: rows stored with a blank type (see selectRecType) have no page behind
+    // them, so they are 'create_page'. Cheap, idempotent, runs every night.
+    try {
+        $db->exec("UPDATE seo_recommendations SET rec_type = 'create_page' WHERE rec_type = '' OR rec_type IS NULL");
+    } catch (Throwable $healErr) {
+        error_log('[seo_recommendations] rec_type heal failed: ' . $healErr->getMessage());
+    }
 
     foreach ($queryRows as $row) {
         $stats['queries_analyzed']++;
