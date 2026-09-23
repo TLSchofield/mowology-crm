@@ -10,7 +10,7 @@ return [
 
     'meta_title'       => 'Lawn Aeration & Fertilizing Vancouver | Mowology',
     'meta_description' => 'Lawn care programs for Vancouver, Burnaby and Richmond: core aeration, fertilizing, lime, overseeding and moss control timed for the coast.',
-    'meta_keywords'    => 'lawn aeration vancouver, lawn fertilizing burnaby, overseeding richmond, moss control vancouver lawn, lawn care program strata',
+    'meta_keywords'    => 'lawn aeration vancouver, power raking vancouver, lawn fertilizing burnaby, overseeding richmond, moss control vancouver lawn, lawn care program strata',
     'og_image'         => '/assets/img/hero/optimized-lawn-cut-800.jpg',
 
     'hero' => [
@@ -32,7 +32,7 @@ return [
                 'Seasonal fertilizing matched to the growth cycle, not a fixed calendar',
                 'Lime application to counter the acidic soils common across the Lower Mainland',
                 'Overseeding of thin or bare areas after aeration',
-                'Moss control and de-thatching where winter moisture has taken over',
+                'Moss control and power raking (de-thatching) where winter moisture has taken over',
                 'Weed control in lawns and along edges',
                 'Photo report after every treatment visit',
             ],
@@ -62,7 +62,7 @@ return [
 
     'faq' => [
         ['q' => 'When should lawns be aerated in Vancouver?', 'a' => 'Spring (March to May) or early fall (September to October), when the grass is actively growing and can recover quickly. Fall aeration followed by overseeding is the strongest combination for thin coastal lawns.'],
-        ['q' => 'Why does my lawn have so much moss?', 'a' => 'Moss thrives in the shade, moisture and acidic soil that most Lower Mainland lawns have. Aeration, lime, correct fertilizing and overseeding change those conditions so grass can outcompete it.'],
+        ['q' => 'Why does my lawn have so much moss?', 'a' => 'Moss thrives in the shade, moisture and acidic soil that most Lower Mainland lawns have. Power raking removes the moss and thatch; aeration, lime, correct fertilizing and overseeding then change the conditions so grass can outcompete it.'],
         ['q' => 'Do you fertilize on a fixed schedule?', 'a' => 'No. Applications follow the lawn\'s growth cycle and the season, with lime added where soil acidity calls for it. A property with heavy shade gets a different plan than a full-sun boulevard.'],
         ['q' => 'Can the program include weekly mowing?', 'a' => 'Yes. Most clients combine a lawn care program with weekly or bi-weekly mowing so one crew looks after the lawn all year. See our lawn mowing service for details.'],
         ['q' => 'Do you service strata and commercial lawns?', 'a' => 'Yes. Common-property lawns, boulevards and commercial frontages in Vancouver, Burnaby and Richmond are scheduled with the right equipment, and the council or property manager gets a photo report after every visit.'],

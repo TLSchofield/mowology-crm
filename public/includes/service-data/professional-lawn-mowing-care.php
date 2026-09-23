@@ -17,8 +17,8 @@ return [
     'slug'  => 'professional-lawn-mowing-care',
     'title' => 'Professional Lawn Mowing & Lawn Care Vancouver',
 
-    'meta_title'       => 'Lawn Mowing & Lawn Care Vancouver | Mowology',
-    'meta_description' => 'Weekly lawn mowing and lawn care for homes, strata and commercial properties in Vancouver, Burnaby and Richmond. Photo-verified visits, free quotes.',
+    'meta_title'       => 'Lawn Mowing & Lawn Maintenance Vancouver | Mowology',
+    'meta_description' => 'Weekly lawn mowing, lawn care and yard maintenance for homes, strata and commercial properties in Vancouver, Burnaby and Richmond. Photo-verified, free quotes.',
     'meta_keywords'    => 'lawn mowing vancouver, lawn care vancouver, lawn maintenance service, lawn mowing burnaby, strata landscaping vancouver, snow removal vancouver, landscaping services vancouver',
     'og_image'         => '/assets/img/hero/hero-lawn-care-1920x1080.jpg',
 
