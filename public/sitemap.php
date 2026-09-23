@@ -17,8 +17,11 @@ require_once __DIR__ . '/crm/includes/seo-functions.php';
 
 // Cache in /tmp. The file name carries this script's mtime so a deploy of
 // sitemap.php invalidates the cache instead of serving the old output for 24h.
-$cacheFile = sys_get_temp_dir() . '/mowology_sitemap_' . (int)filemtime(__FILE__) . '.xml';
-$cacheTime = 86400;  // 24 hours
+// The key also changes when a service landing page is added or edited, so a
+// new /services/*.php shows up without waiting for the cache to expire.
+$cacheKey  = (int)filemtime(__FILE__) . '_' . (int)max(array_map('filemtime', glob(__DIR__ . '/services/*.php') ?: [__FILE__]));
+$cacheFile = sys_get_temp_dir() . '/mowology_sitemap_' . $cacheKey . '.xml';
+$cacheTime = 3600;   // 1 hour (CMS articles appear within the hour)
 
 // Return cached if recent
 if (file_exists($cacheFile) && (time() - filemtime($cacheFile)) < $cacheTime) {
