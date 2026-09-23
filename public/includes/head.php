@@ -26,14 +26,6 @@ $extraHead       = $extraHead       ?? '';
 // Build canonical URL from request
 $canonicalPath = strtok($_SERVER['REQUEST_URI'] ?? '/', '?');
 $canonicalUrl  = SITE_URL . $canonicalPath;
-
-// Load active theme for this site (safe — falls back to defaults if table missing)
-$__themeFuncs = dirname(__DIR__) . '/app/Modules/CMS/Services/CmsThemeFunctions.php';
-$__activeTheme = null;
-if (file_exists($__themeFuncs)) {
-    require_once $__themeFuncs;
-    $__activeTheme = cms_getActiveTheme(defined('CMS_SITE_ID') ? (int)CMS_SITE_ID : 1);
-}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -50,6 +42,8 @@ if (file_exists($__themeFuncs)) {
   <?php if (trim($pageKeywords) !== ''): ?>
   <meta name="keywords" content="<?= h($pageKeywords) ?>">
   <?php endif; ?>
+
+  <meta name="google-site-verification" content="Do-QNfB0PFhccyeN4jFmEu1rUYjv5pKQa3UNqgygxjs">
 
   <link rel="canonical" href="<?= h($canonicalUrl) ?>">
 
@@ -82,27 +76,22 @@ if (file_exists($__themeFuncs)) {
   <link rel="icon" type="image/png" sizes="16x16" href="/assets/favicon/favicon-16x16.png">
   <link rel="manifest" href="/assets/favicon/site.webmanifest">
 
-  <!-- Fonts -->
+  <!-- Hero image preload: responsive srcset so mobile downloads the small WebP -->
+  <?php if (!empty($heroImg)): ?>
+  <link rel="preload" as="image"
+    imagesrcset="/assets/img/hero/hero-lawn-care-480w.webp 480w, /assets/img/hero/hero-lawn-care-1080w.webp 1080w, /assets/img/hero/hero-lawn-care-1920w.webp 1920w"
+    imagesizes="100vw"
+    fetchpriority="high">
+  <?php endif; ?>
+
+  <!-- Fonts (async — non-render-blocking) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <?php
-  // Use theme fonts if available, otherwise fall back to default stack
-  $__fontUrl = ($__activeTheme && function_exists('cms_buildFontUrl'))
-      ? cms_buildFontUrl($__activeTheme)
-      : '';
-  if ($__fontUrl):
-  ?>
-  <link href="<?= htmlspecialchars($__fontUrl) ?>" rel="stylesheet">
-  <?php else: ?>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Montserrat:wght@400;500;600;700&family=Open+Sans:wght@400;600&family=Playfair+Display:ital,wght@0,600;0,700;1,600&display=swap" rel="stylesheet">
-  <?php endif; ?>
+  <link rel="preload" href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;0,700;1,600&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'">
+  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;0,700;1,600&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&display=swap"></noscript>
 
   <!-- Styles -->
-  <link rel="stylesheet" href="<?= asset('/assets/css/master.css') ?>">
-
-  <?php if ($__activeTheme && function_exists('cms_buildThemeCss')): ?>
-  <style id="cms-theme-vars"><?= cms_buildThemeCss($__activeTheme) ?></style>
-  <?php endif; ?>
+  <link rel="stylesheet" href="/assets/css/master.css">
 
   <?= $extraHead ?>
 

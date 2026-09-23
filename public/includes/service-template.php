@@ -130,6 +130,22 @@ if ($schemaData) {
     $extraHead = '<script type="application/ld+json">' . json_encode($jsonLd, JSON_UNESCAPED_SLASHES) . '</script>';
 }
 
+// FAQPage schema for AI search citation and rich results
+if (!empty($service['faq'])) {
+    $faqSchema = [
+        '@context'   => 'https://schema.org',
+        '@type'      => 'FAQPage',
+        'mainEntity' => array_map(function ($faq) {
+            return [
+                '@type' => 'Question',
+                'name'  => $faq['q'],
+                'acceptedAnswer' => ['@type' => 'Answer', 'text' => $faq['a']],
+            ];
+        }, $service['faq']),
+    ];
+    $extraHead = ($extraHead ?? '') . '<script type="application/ld+json">' . json_encode($faqSchema, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . '</script>';
+}
+
 require __DIR__ . '/head.php';
 require __DIR__ . '/header.php';
 
