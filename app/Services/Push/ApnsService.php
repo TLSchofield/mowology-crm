@@ -35,8 +35,9 @@ declare(strict_types=1);
  * │     trigger APNs rate-limiting.                                           │
  * │                                                                           │
  * │  4. SANDBOX vs PRODUCTION. APNS_SANDBOX constant controls the endpoint.  │
- * │     Tokens registered via TestFlight or Xcode builds go to sandbox;     │
- * │     App Store builds go to production. Mixing them causes 400 errors.   │
+ * │     Only Xcode-run development builds use sandbox. TestFlight and App    │
+ * │     Store builds (everything Xcode Cloud ships) use PRODUCTION — leave   │
+ * │     APNS_SANDBOX undefined/false. Mixing them causes 400 BadDeviceToken. │
  * └───────────────────────────────────────────────────────────────────────────┘
  */
 
