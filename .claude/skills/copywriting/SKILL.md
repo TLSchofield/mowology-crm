@@ -2,7 +2,7 @@
 name: copywriting
 description: When the user wants to write, rewrite, or improve marketing copy for any page — including homepage, landing pages, pricing pages, feature pages, about pages, or product pages. Also use when the user says "write copy for," "improve this copy," "rewrite this page," "marketing copy," "headline help," "CTA copy," "value proposition," "tagline," "subheadline," "hero section copy," "above the fold," "this copy is weak," "make this more compelling," or "help me describe my product." Use this whenever someone is working on website text that needs to persuade or convert. For email copy, see email-sequence. For popup copy, see popup-cro. For editing existing copy, see copy-editing.
 metadata:
-  version: 1.4.0
+  version: 1.5.0
 ---
 
 # Copywriting
@@ -31,6 +31,8 @@ Gather this context (ask if not provided):
 - What makes it different from alternatives?
 - What's the key transformation or outcome?
 - Any proof points (numbers, testimonials, case studies)?
+
+If "what makes it different" doesn't have a sharp answer, don't guess — run Dunford's five-question positioning worksheet first (`references/legends-library.md` Vol. 17: competitive alternatives, unique attributes, value and proof, target segment, market category). A headline written before positioning is settled usually just describes the product.
 
 ### 4. Context
 - Where is traffic coming from? (ads, organic, email)
@@ -79,6 +81,8 @@ Each section should advance one argument. Build a logical flow down the page.
 
 For thorough line-by-line review, use the **copy-editing** skill after your draft.
 
+**Persuasion audit**: before calling a draft done, check it against Cialdini's seven levers (`references/legends-library.md` Vol. 15 — reciprocity, commitment/consistency, social proof, authority, liking, scarcity, unity). A page relying on only one or two is leaving conversion on the table; a page with any *fabricated* scarcity or proof is actively working against itself and must be fixed, not just flagged.
+
 ---
 
 ## Best Practices
@@ -122,7 +126,9 @@ Puns and wit make copy memorable—but only if it fits the brand and doesn't und
 
 **For natural transition phrases**: See [references/natural-transitions.md](references/natural-transitions.md)
 
-**For principles distilled from Hopkins, Ogilvy, Schwartz, Halbert, Kennedy, Hormozi, and 8 others**: See [references/legends-library.md](references/legends-library.md) — use its Quick Cross-Reference table to pull the right principle for headline, offer, proof, or urgency problems.
+**For principles distilled from Hopkins, Ogilvy, Schwartz, Halbert, Kennedy, Hormozi, Cialdini, StoryBrand, Dunford, and others**: See [references/legends-library.md](references/legends-library.md) — use its Quick Cross-Reference table to pull the right principle for headline, offer, proof, positioning, narrative, or urgency problems.
+
+**For a quick-pick table of body-copy sequencing formulas (AIDA, PAS, BAB, FAB, 4 Ps, QUEST, ACCA)**: See the "Classic Copywriting Formulas" section at the top of [references/copy-frameworks.md](references/copy-frameworks.md).
 
 **For long-form persuasive copy (sales pages, service pages, direct mail, long emails)**: See [references/sugarman-handbook.md](references/sugarman-handbook.md) — the owner's copy of Joseph Sugarman's *Adweek Copywriting Handbook*, distilled into the 15 axioms, the 7-step process, the slippery-slide opening, the 64-point checklist (10 graphic elements, 23 copy elements, 31 psychological triggers), lessons from 13 annotated ads, and a pre-ship checklist. Its "Problem → Sugarman Tool" table at the end maps symptoms (bounce before reading, claims not believed, weak close) to the right section.
 
@@ -199,6 +205,7 @@ Examples:
 - Tell the story of why you exist
 - Connect mission to customer benefit
 - Still include a CTA
+- Use StoryBrand's arc (`references/legends-library.md` Vol. 16) to structure it: the customer is the hero, the company is the guide. If a paragraph is mainly about "our journey" rather than the customer's want, problem, and the plan you give them, it belongs on a supporting page, not here.
 
 ---
 

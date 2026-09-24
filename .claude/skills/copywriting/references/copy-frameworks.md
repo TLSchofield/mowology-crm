@@ -1,12 +1,31 @@
 # Copy Frameworks Reference
 
-Headline formulas, page section types, and structural templates.
+Headline formulas, page section types, structural templates, and body-copy sequencing formulas.
 
 ## Contents
+- Classic Copywriting Formulas (which one to reach for, and how to hybridize them)
 - Headline Formulas (outcome-focused, problem-focused, audience-focused, differentiation-focused, proof-focused, additional formulas)
 - Landing Page Section Types (core sections, supporting sections)
 - Page Structure Templates (feature-heavy page, varied engaging page, compact landing page, enterprise/B2B landing page, product launch page)
 - Section Writing Tips (problem section, benefits section, how it works section, testimonial selection)
+
+## Classic Copywriting Formulas
+
+Quick reference for sequencing the *body* of a piece, once the headline and positioning are settled. These are compressed shorthand for the fuller methods elsewhere in this skill (Sugarman's copy sequence, Bly's motivating sequence, StoryBrand's arc in `legends-library.md` Vol. 16) — reach for the short formula when the piece is an ad, email, or short page; reach for the fuller method when it's a long sales page.
+
+| Formula | Sequence | Best for |
+|---|---|---|
+| **AIDA** | Attention → Interest → Desire → Action | Full sales pages and long ads to a cold, unaware-to-problem-aware audience. The default "grandfather" structure. |
+| **PAS** | Problem → Agitate → Solution | Ads, emails, and openings where the reader already feels the problem — agitation makes the solution feel necessary rather than optional. |
+| **BAB** | Before → After → Bridge | Coaching, transformation, and lifestyle products — paints the after-state, then positions the product as the bridge to it. |
+| **FAB** | Feature → Advantage → Benefit | B2B and technical/product-heavy copy, where the reader needs the mechanism spelled out before they'll believe the benefit. |
+| **4 Ps** | Promise → Picture → Proof → Push | Direct-response ads and sales letters — promise the outcome, help the reader picture having it, prove it's real, then push for the order. |
+| **QUEST** | Qualify → Understand → Educate → Stimulate → Transition | Longer-form content and email sequences where the reader needs to be pre-qualified and educated before the ask. |
+| **ACCA** | Awareness → Comprehension → Conviction → Action | B2B and considered purchases — slower-moving, more rational buyers who need to fully understand before committing. |
+
+**How to choose**: match the formula to the reader's awareness stage (see `legends-library.md` Vol. 3, Schwartz) and the channel's attention budget — a short formula (PAS, BAB) for a feed ad or email, a longer one (AIDA, 4 Ps, Sugarman's full sequence) for a page the reader has already chosen to visit.
+
+**Hybridizing**: most working long-form copy blends formulas rather than following one end to end — a common pattern is PAS for the hook, FAB for the body (once interest is established and the reader wants mechanism), and AIDA's Action step for the close. Don't announce which formula you're using in the copy itself; the reader should feel a persuasive flow, not a template.
 
 ## Headline Formulas
 

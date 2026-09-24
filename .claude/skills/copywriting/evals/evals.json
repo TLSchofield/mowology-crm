@@ -139,6 +139,21 @@
         "Uses short sections with a strong cover headline"
       ],
       "files": []
+    },
+    {
+      "id": 10,
+      "prompt": "We're rewriting our About page. We're a 6-person company that builds fleet-tracking software for landscaping companies. We started because our founder ran a landscaping crew and hated not knowing where his trucks were. We want it to feel personal but still convert visitors to book a demo.",
+      "expected_output": "Should structure the page using StoryBrand's SB7 arc from legends-library.md Vol. 16: the customer (a fleet/landscaping owner) is the hero with a stated want, a three-level problem (external: don't know where trucks are; internal: stress/feeling out of control; philosophical: running a business they can trust), the company positioned as guide (empathy from the founder's own crew experience, authority from the product), a plan, a call to action (book a demo), light stakes for inaction, and a success picture. The founder's own story should illustrate empathy/authority for the guide role, not become the main subject of the page. Should still include a clear CTA and should not turn the whole page into an origin-story monologue about the company.",
+      "assertions": [
+        "References or applies the StoryBrand / SB7 framework",
+        "Positions the customer, not the company, as the hero",
+        "Addresses the problem at more than just the surface/external level",
+        "Uses the founder's story to establish empathy and authority for the company as guide, not as the main subject",
+        "Includes a clear plan and call to action",
+        "Still includes a CTA to book a demo",
+        "Avoids making the entire page an internal company narrative"
+      ],
+      "files": []
     }
   ]
 }

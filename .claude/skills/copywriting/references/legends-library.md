@@ -200,6 +200,57 @@ Distilled from the current generation of direct-response marketers (Hormozi-era 
 
 ---
 
+## Volume 15 — Robert Cialdini: The Seven Principles of Influence
+
+Cialdini's *Influence* (1984) and *Pre-Suasion* (2016) are the most-cited persuasion research outside direct-response copywriting itself — worth keeping distinct from the Sugarman/Kennedy/Hormozi volumes above because Cialdini's principles are experimentally tested social-psychology findings, not copywriter's-eye rules of thumb, and the two traditions cross-check each other.
+
+**The seven principles:**
+1. **Reciprocity** — give first, ask second. A genuinely useful free resource (teardown, tool, sample, real advice) creates an obligation that makes the later ask land as repayment, not a cold pitch.
+2. **Commitment & consistency** — get a small, easy "yes" first (an opinion, a low-stakes signup); people act to stay consistent with a position they've already taken, which is why a tiny first step increases follow-through on the bigger ask.
+3. **Social proof** — people look to others' behavior to decide their own, especially under uncertainty. Strongest when the "others" are similar to the reader (peers, not celebrities, for most B2B and consumer decisions).
+4. **Authority** — genuine expertise or credentials shorten the trust-building work. Signaled by credentials, media mentions, visible depth of knowledge — must be real; borrowed authority that doesn't hold up under scrutiny backfires.
+5. **Liking** — people say yes to those they like. Similarity, genuine compliments, and cooperation toward a shared goal all build liking; an authentic "why we built this" reads as more persuasive than a polished mission statement.
+6. **Scarcity** — people want more of what's less available. Only works when the scarcity is real and specific (a real seat count, a real deadline); invented scarcity that's later revealed as fake destroys trust for every principle that follows it.
+7. **Unity** (added 2016, *Pre-Suasion*) — shared identity, not just similarity. "We" language that names an actual shared category (same profession, same struggle, same in-group) is a stronger lever than liking alone, and it amplifies the other six: unity established first makes social proof, scarcity, and authority all land harder.
+
+**Apply it**: before finalizing a page, check which of the seven are present and whether any are counterfeit. A page with strong scarcity but zero reciprocity or unity is leaving levers unused; a page with fabricated scarcity is actively working against itself.
+
+---
+
+## Volume 16 — Donald Miller: StoryBrand and the Customer-as-Hero Structure
+
+Miller's *Building a StoryBrand* (2017; 2.0 edition 2025) supplies a narrative arc, not an argument sequence — useful precisely where Sugarman/Bly's persuasion-sequence tools run thin: About pages, brand story sections, homepage narrative, founder videos, anywhere the goal is resonance before a specific ask.
+
+**The core reversal**: the customer is the hero of the story. The brand is the guide (think Yoda, not Luke) — present, expert, and in service of the hero's goal, never the protagonist itself. A page that talks mainly about "us" and our journey has cast the wrong character as hero.
+
+**The seven-part arc (SB7):**
+1. **A character** (the customer) **wants something.** State the goal in one plain sentence.
+2. **Faces a problem**, at three depths: an *external* obstacle (the tangible thing in their way), an *internal* frustration that obstacle causes (stress, doubt, embarrassment), and a *philosophical* stake (why this matters beyond the immediate problem). Most copy stops at external; the internal level is usually the real reason people buy.
+3. **Meets a guide** (the brand), who earns trust two ways: *empathy* (we understand what you're going through) and *authority* (and we have the track record/expertise to help).
+4. **Who gives them a plan** — a short, concrete series of steps (a process plan) or a set of assurances that defuses risk (an agreement plan). Ambiguity about "what happens next" is a common reason interested prospects don't convert.
+5. **And calls them to action** — both a direct ask (buy, book, start) and a lower-stakes transitional ask (download, watch, subscribe) for readers not ready for the direct one.
+6. **That helps them avoid failure** — name, briefly, what stays true or gets worse if they don't act. Used sparingly; this is seasoning, not the main dish.
+7. **And ends in success** — paint the specific after-state: what changes, concretely, once the problem is solved.
+
+**Apply it**: draft the character's one-sentence want first, then the three-level problem statement, before writing a word of "about us" copy. If a passage can't be traced to one of the seven beats, cut it or move it to a supporting page.
+
+---
+
+## Volume 17 — April Dunford: Positioning as a Prerequisite to Copy
+
+Dunford's *Obviously Awesome* (2019) treats positioning as strategy work that has to happen *before* copywriting, not a headline exercise — this fills the gap left by a bare "what makes it different" question with an actual method for answering it. Positioning determines what the copy should claim; copywriting decides how to say it.
+
+**The five components, worked in order:**
+1. **Competitive alternatives** — what would the customer do if this product didn't exist? Often not a direct competitor: a spreadsheet, a manual process, a competing priority, or "nothing" are all real alternatives, and each implies a different pitch.
+2. **Unique attributes** — what does this product have or do that the alternatives don't? List honestly; a short true list beats a long padded one.
+3. **Value and proof** — for each unique attribute, what does it *make possible* for the customer, and what proof backs the claim? An attribute with no corresponding value is a feature waiting to become a benefit.
+4. **Target market segment(s)** — of everyone who could theoretically buy, which specific segment values this value the most? A product can be "best" for a narrow segment while being unremarkable for the broad market — narrowing the target often makes claims true that were false for a wider audience.
+5. **Market category** — what frame of reference should the customer use to evaluate this at all? The category you claim (e.g., "project management tool" vs. "operating system for agencies") sets the expectations and comparison set the reader will judge every other claim against.
+
+**Apply it**: run this as a five-question worksheet before drafting a headline. A headline written before positioning is settled is usually describing the product instead of claiming a position for it. Store the answers in `.agents/product-marketing-context.md` (see the `product-marketing-context` skill) so later copy tasks don't re-derive them.
+
+---
+
 ## Quick Cross-Reference
 
 | Problem you're solving | Start with |
@@ -214,3 +265,7 @@ Distilled from the current generation of direct-response marketers (Hormozi-era 
 | Opening feels slow | Vol. 7 (Sugarman), Vol. 10 (Bird — cut paragraph one) |
 | Long-form sales/service page, weak close, objections unhandled | `sugarman-handbook.md` (full Sugarman method + checklist) |
 | Need a headline taxonomy, a customer profile sheet, or a per-medium checklist (brochure, landing page, email, PR) | `bly-copywriters-handbook.md` (Bly's frameworks: 8 headline types, 4 U's, BDF, motivating sequence) |
+| Persuasion feels thin or one-note | Vol. 15 (Cialdini — check all 7 levers, not just one) |
+| About page, brand story, founder video, homepage narrative | Vol. 16 (Miller/StoryBrand — customer is the hero) |
+| Don't know what to claim before writing a headline | Vol. 17 (Dunford — settle positioning first) |
+| Choosing a body-copy formula (AIDA/PAS/BAB/FAB/etc.) | `copy-frameworks.md` "Classic Copywriting Formulas" table |
