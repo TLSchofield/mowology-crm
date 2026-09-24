@@ -223,6 +223,7 @@ private struct ServiceBadge: View {
         contactPhone: nil,
         companyName: nil,
         lawnSqft: nil,
+        crewIds: [1],
         crewNames: ["John Doe"],
         visitCount: 1,
         visits: [sampleVisit],

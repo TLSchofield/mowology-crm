@@ -36,6 +36,12 @@ enum APIEndpoint {
     /// positions for crew. Self-only for crew, all crew for admin/manager.
     case scheduleCrewTrails(date: String)
 
+    /// GET /api/schedule/team-members — active crew, for the assignment picker. Admin/manager only.
+    case teamMembers
+
+    /// POST /api/schedule/assign-crew — assign or unassign crew on a stop. Admin/manager only.
+    case assignCrew
+
     /// POST /api/schedule/clock — clock in or clock out.
     case scheduleClock
 
@@ -187,6 +193,12 @@ enum APIEndpoint {
             var components = URLComponents(string: "\(baseURLString)/schedule/crew-trails")
             components?.queryItems = [URLQueryItem(name: "date", value: date)]
             return components?.url
+
+        case .teamMembers:
+            return URL(string: "\(baseURLString)/schedule/team-members")
+
+        case .assignCrew:
+            return URL(string: "\(baseURLString)/schedule/assign-crew")
 
         case .scheduleClock:
             return URL(string: "\(baseURLString)/schedule/clock")
@@ -379,6 +391,8 @@ enum APIEndpoint {
              .scheduleTimerActive,
              .scheduleLocation,
              .scheduleCrewTrails,
+             .teamMembers,
+             .assignCrew,
              .scheduleClock,
              .scheduleClockStatus,
              .scheduleTimesheetWeek,
@@ -430,6 +444,7 @@ enum APIEndpoint {
         case .scheduleDay,
              .scheduleWeek,
              .scheduleCrewTrails,
+             .teamMembers,
              .scheduleClockStatus,
              .scheduleTimesheetWeek,
              .visitWork,
@@ -440,6 +455,7 @@ enum APIEndpoint {
 
         case .scheduleTimer,
              .scheduleLocation,
+             .assignCrew,
              .scheduleClock,
              .visitFlag,
              .visitWorkAction,

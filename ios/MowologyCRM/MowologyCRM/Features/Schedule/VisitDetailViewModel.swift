@@ -33,6 +33,12 @@ final class VisitDetailViewModel: ObservableObject {
     /// Visit IDs with an in-flight flag toggle request — drives the heart loading indicator.
     @Published private(set) var flagLoadingIds: Set<Int>    = []
 
+    /// Local override for the stop's assigned crew — wins over stop.crewIds/crewNames once set.
+    @Published private(set) var crewIdsOverride:   [Int]?
+    @Published private(set) var crewNamesOverride: [String]?
+    @Published var teamMembers:      [TeamMember] = []
+    @Published var isCrewActionBusy: Bool = false
+
     // MARK: - Private
 
     private let stop: Stop
@@ -385,6 +391,43 @@ final class VisitDetailViewModel: ObservableObject {
         }
 
         flagLoadingIds.remove(visitId)
+    }
+
+    // MARK: - Crew Assignment
+
+    var currentCrewIds:   [Int]    { crewIdsOverride   ?? stop.crewIds }
+    var currentCrewNames: [String] { crewNamesOverride ?? stop.crewNames }
+
+    /// Loads the active team member list for the assignment picker. Cached for the
+    /// life of this view model — reopening the sheet doesn't refetch.
+    func loadTeamMembers() async {
+        guard teamMembers.isEmpty else { return }
+        do {
+            let response: TeamMembersResponse = try await apiClient.request(.teamMembers)
+            teamMembers = response.members
+        } catch {
+            // Non-fatal — the sheet shows an empty list; dismissing and reopening retries.
+        }
+    }
+
+    func assignCrew(_ crewIds: [Int]) async {
+        guard !isCrewActionBusy else { return }
+        isCrewActionBusy = true
+
+        do {
+            let response: CrewAssignResponse = try await apiClient.request(
+                .assignCrew,
+                body: ["stop_id": stop.stopId, "crew_ids": crewIds]
+            )
+            if response.success {
+                crewIdsOverride   = response.crewIds
+                crewNamesOverride = response.crewNames
+            }
+        } catch {
+            setError(apiErrorMessage(error))
+        }
+
+        isCrewActionBusy = false
     }
 
     // MARK: - Private

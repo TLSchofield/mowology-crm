@@ -21,6 +21,9 @@ struct VisitDetailView: View {
     /// The visit the crew is about to skip — drives the reason dialog.
     @State private var skippingVisit: Visit?
 
+    /// Drives the crew-assignment picker sheet.
+    @State private var isShowingCrewSheet = false
+
 
     // MARK: - Init
 
@@ -52,7 +55,7 @@ struct VisitDetailView: View {
                 accessNotesSection
                 visitsSection
 
-                if isAdmin && !stop.crewNames.isEmpty {
+                if isAdmin {
                     crewSection
                 }
 
@@ -68,6 +71,9 @@ struct VisitDetailView: View {
         .task { await viewModel.restoreActiveTimer() }
         .sheet(item: $completingVisit) { visit in
             VisitCompletionSheet(visit: visit, detailVM: viewModel, authSession: authSession)
+        }
+        .sheet(isPresented: $isShowingCrewSheet) {
+            CrewAssignSheet(viewModel: viewModel)
         }
         .confirmationDialog(
             "Skip this visit?",
@@ -580,28 +586,49 @@ struct VisitDetailView: View {
 
     private var crewSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            sectionHeader("Crew", icon: "person.2.fill")
-
-            VStack(spacing: 0) {
-                ForEach(Array(stop.crewNames.enumerated()), id: \.offset) { index, name in
-                    HStack {
-                        Image(systemName: "person.circle.fill")
-                            .foregroundStyle(Color.MW.green)
-                            .font(.title3)
-                        Text(name)
-                            .font(.body)
-                        Spacer()
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-
-                    if index < stop.crewNames.count - 1 {
-                        Divider().padding(.leading, 52)
-                    }
+            HStack {
+                sectionHeader("Crew", icon: "person.2.fill")
+                Spacer()
+                Button {
+                    isShowingCrewSheet = true
+                } label: {
+                    Text(viewModel.currentCrewNames.isEmpty ? "Assign" : "Edit")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Color.MW.green)
                 }
             }
-            .background(Color(.systemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
+
+            if viewModel.currentCrewNames.isEmpty {
+                Text("No crew assigned")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(.systemBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(Array(viewModel.currentCrewNames.enumerated()), id: \.offset) { index, name in
+                        HStack {
+                            Image(systemName: "person.circle.fill")
+                                .foregroundStyle(Color.MW.green)
+                                .font(.title3)
+                            Text(name)
+                                .font(.body)
+                            Spacer()
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+
+                        if index < viewModel.currentCrewNames.count - 1 {
+                            Divider().padding(.leading, 52)
+                        }
+                    }
+                }
+                .background(Color(.systemBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
         }
     }
 
@@ -662,5 +689,76 @@ struct VisitDetailView: View {
                 openURL(url)
             }
         }
+    }
+}
+
+// MARK: - Crew assign sheet
+
+/// Multi-select crew picker for a stop — the mobile mirror of the CRM web schedule
+/// page's crew-assign checkbox modal. Selection order sets the "lead" crew member
+/// (first in the list the server receives), so it's derived from team-member list
+/// order rather than tap order to stay deterministic.
+private struct CrewAssignSheet: View {
+    @ObservedObject var viewModel: VisitDetailViewModel
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var selectedIds: Set<Int> = []
+
+    private var orderedSelection: [Int] {
+        viewModel.teamMembers.map(\.id).filter { selectedIds.contains($0) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List(viewModel.teamMembers) { member in
+                Button {
+                    if selectedIds.contains(member.id) {
+                        selectedIds.remove(member.id)
+                    } else {
+                        selectedIds.insert(member.id)
+                    }
+                } label: {
+                    HStack {
+                        Text(member.name).foregroundStyle(.primary)
+                        Spacer()
+                        if selectedIds.contains(member.id) {
+                            Image(systemName: "checkmark")
+                                .foregroundStyle(Color.MW.green)
+                        }
+                    }
+                }
+            }
+            .overlay {
+                if viewModel.teamMembers.isEmpty {
+                    ProgressView()
+                }
+            }
+            .navigationTitle("Assign Crew")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }.foregroundStyle(Color.MW.green)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    if viewModel.isCrewActionBusy {
+                        ProgressView()
+                    } else {
+                        Button("Save") {
+                            Task {
+                                await viewModel.assignCrew(orderedSelection)
+                                dismiss()
+                            }
+                        }
+                        .foregroundStyle(Color.MW.green)
+                        .fontWeight(.semibold)
+                    }
+                }
+            }
+            .task {
+                selectedIds = Set(viewModel.currentCrewIds)
+                await viewModel.loadTeamMembers()
+            }
+        }
+        .presentationDragIndicator(.visible)
     }
 }

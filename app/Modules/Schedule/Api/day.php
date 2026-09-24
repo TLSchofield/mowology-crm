@@ -161,6 +161,7 @@ foreach ($dayStops as $stop) {
         'contact_name'     => isset($stop['contact_name']) ? (string)$stop['contact_name'] : null,
         'company_name'     => isset($stop['company_name']) ? (string)$stop['company_name'] : null,
         'lawn_sqft'        => isset($stop['lawn_sqft']) ? (float)$stop['lawn_sqft'] : null,
+        'crew_ids'         => $stop['crew_ids'] ?? ($stop['crew_id'] ? [(int)$stop['crew_id']] : []),
         'crew_names'       => $stop['crew_names'] ?? ($stop['crew_name'] ? [(string)$stop['crew_name']] : []),
         'visit_count'      => count($visits),
         'visits'           => $visits,
