@@ -98,8 +98,8 @@ try {
                 if (!$ckChk->fetch()) {
                     $db->prepare(
                         "INSERT INTO time_clock_entries
-                         (user_id, clock_in, clock_in_lat, clock_in_lng, status, created_at, updated_at)
-                         VALUES (?, NOW(), ?, ?, 'active', NOW(), NOW())"
+                         (user_id, clock_in, clock_in_lat, clock_in_lng, status, created_at)
+                         VALUES (?, NOW(), ?, ?, 'active', NOW())"
                     )->execute([$user['id'], $lat, $lng]);
                     $autoClockInPerformed = true;
                     $autoClockInTime      = date('Y-m-d H:i:s');
