@@ -13,14 +13,14 @@ return [
     'meta_title'       => 'Lawn Installation Vancouver | Sod, Seeding & Topdressing | Mowology',
     'meta_description' => 'Lawn installation in Vancouver: new sod laid and rolled, seeded lawns for larger areas, and topdressing with overseeding to rebuild a tired lawn. Fixed quote after a site visit.',
     'meta_keywords'    => 'lawn installation vancouver, sod installation vancouver, new lawn vancouver, lawn seeding vancouver, lawn topdressing vancouver, lawn replacement vancouver',
-    'og_image'         => '/assets/img/services/lawn-installation/new-sod-lawn-after-1600.jpg',
+    'og_image'         => '/assets/img/services/lawn-installation/new-sod-lawn-after-1600.jpg?v=2',
 
     'hero' => [
         'headline'    => 'Lawn Installation in Vancouver: <em>New Sod, Done Properly</em>',
         'subheadline' => 'Fresh sod laid and rolled in a day, seeded lawns for bigger areas, or topdressing and overseeding to rebuild the lawn you have — then mowed and fed by the same crew until it is established. Homes, laneway lots, townhomes and strata common areas.',
         'cta_text'    => 'Get a Lawn Installation Quote →',
         'cta_url'     => '/quote?service=maintenance&src=lawn-installation-vancouver',
-        'image'       => '/assets/img/services/lawn-installation/fresh-sod-pallet-delivery-1600.jpg',
+        'image'       => '/assets/img/services/lawn-installation/fresh-sod-pallet-delivery-1600.jpg?v=2',
         'image_alt'   => 'Pallet of fresh-cut sod rolls delivered kerbside for a Vancouver lawn installation',
     ],
 
@@ -30,8 +30,8 @@ return [
             'heading' => 'Chafer Beetle Damage to a New Lawn, Same Vancouver Front Yard',
             'pairs'   => [
                 [
-                    'before'  => '/assets/img/services/lawn-installation/chafer-damaged-lawn-before-800.jpg',
-                    'after'   => '/assets/img/services/lawn-installation/new-sod-lawn-after-800.jpg',
+                    'before'  => '/assets/img/services/lawn-installation/chafer-damaged-lawn-before-800.jpg?v=2',
+                    'after'   => '/assets/img/services/lawn-installation/new-sod-lawn-after-800.jpg?v=2',
                     'caption' => 'Front lawn torn up by crows and raccoons digging for chafer grubs — stripped, soil rebuilt, new sod laid and established.',
                 ],
             ],
@@ -41,10 +41,10 @@ return [
             'heading' => 'What the Job Looks Like',
             'intro'   => 'Our own crew, our own photos. This is the work between the before and the after.',
             'items'   => [
-                ['src' => '/assets/img/services/lawn-installation/old-lawn-stripped-soil-prepared-800.jpg', 'srcset' => '/assets/img/services/lawn-installation/old-lawn-stripped-soil-prepared-800.jpg 800w, /assets/img/services/lawn-installation/old-lawn-stripped-soil-prepared-1600.jpg 1600w', 'alt' => 'Old lawn stripped and soil graded and prepared before new sod, Vancouver', 'caption' => 'Old turf out, soil graded and prepared.'],
-                ['src' => '/assets/img/services/lawn-installation/sod-rolls-on-prepared-soil-800.jpg', 'srcset' => '/assets/img/services/lawn-installation/sod-rolls-on-prepared-soil-800.jpg 800w, /assets/img/services/lawn-installation/sod-rolls-on-prepared-soil-1600.jpg 1600w', 'alt' => 'Fresh sod rolls set out across prepared soil ready to lay', 'caption' => 'Rolls set out on the day they were cut.'],
-                ['src' => '/assets/img/services/lawn-installation/laying-sod-vancouver-backyard-800.jpg', 'srcset' => '/assets/img/services/lawn-installation/laying-sod-vancouver-backyard-800.jpg 800w, /assets/img/services/lawn-installation/laying-sod-vancouver-backyard-1600.jpg 1600w', 'alt' => 'Mowology crew member laying sod in a Vancouver backyard', 'caption' => 'Laid staggered like brickwork, tight to the last row.'],
-                ['src' => '/assets/img/services/lawn-installation/checking-sod-seams-800.jpg', 'srcset' => '/assets/img/services/lawn-installation/checking-sod-seams-800.jpg 800w, /assets/img/services/lawn-installation/checking-sod-seams-1600.jpg 1600w', 'alt' => 'Crew member pressing sod seams closed by hand after laying', 'caption' => 'Every seam pressed closed before rolling and watering in.'],
+                ['src' => '/assets/img/services/lawn-installation/old-lawn-stripped-soil-prepared-800.jpg?v=2', 'srcset' => '/assets/img/services/lawn-installation/old-lawn-stripped-soil-prepared-800.jpg?v=2 800w, /assets/img/services/lawn-installation/old-lawn-stripped-soil-prepared-1600.jpg?v=2 1600w', 'alt' => 'Old lawn stripped and soil graded and prepared before new sod, Vancouver', 'caption' => 'Old turf out, soil graded and prepared.'],
+                ['src' => '/assets/img/services/lawn-installation/sod-rolls-on-prepared-soil-800.jpg?v=2', 'srcset' => '/assets/img/services/lawn-installation/sod-rolls-on-prepared-soil-800.jpg?v=2 800w, /assets/img/services/lawn-installation/sod-rolls-on-prepared-soil-1600.jpg?v=2 1600w', 'alt' => 'Fresh sod rolls set out across prepared soil ready to lay', 'caption' => 'Rolls set out on the day they were cut.'],
+                ['src' => '/assets/img/services/lawn-installation/laying-sod-vancouver-backyard-800.jpg?v=2', 'srcset' => '/assets/img/services/lawn-installation/laying-sod-vancouver-backyard-800.jpg?v=2 800w, /assets/img/services/lawn-installation/laying-sod-vancouver-backyard-1600.jpg?v=2 1600w', 'alt' => 'Mowology crew member laying sod in a Vancouver backyard', 'caption' => 'Laid staggered like brickwork, tight to the last row.'],
+                ['src' => '/assets/img/services/lawn-installation/checking-sod-seams-800.jpg?v=2', 'srcset' => '/assets/img/services/lawn-installation/checking-sod-seams-800.jpg?v=2 800w, /assets/img/services/lawn-installation/checking-sod-seams-1600.jpg?v=2 1600w', 'alt' => 'Crew member pressing sod seams closed by hand after laying', 'caption' => 'Every seam pressed closed before rolling and watering in.'],
             ],
         ],
         [
