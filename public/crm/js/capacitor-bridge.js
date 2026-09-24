@@ -486,13 +486,45 @@
                 return this._detecting;
             },
 
-            _token: function() {
+            _postToken: function(csrf) {
                 return fetch('/api/team/tracking-token', {
                     method: 'POST',
                     credentials: 'same-origin',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf || '' },
                     body: '{}'
-                }).then(function(r) { return r.ok ? r.json() : null; });
+                }).then(function(r) {
+                    return r.json().then(function(d) { return { status: r.status, data: d }; })
+                                   .catch(function() { return { status: r.status, data: null }; });
+                });
+            },
+
+            /**
+             * A tracking token, with CSRF refresh-and-retry.
+             *
+             * MW_CSRF_TOKEN is baked in by appstack_head.php, so it exists only on AppStack
+             * pages. The crew app launches into app-launch.php → homebase.php, which are
+             * standalone pages: there was no token in the markup, the POST came back 403, and
+             * start() gave up WITHOUT STARTING THE NATIVE ENGINE — silently. Drivers were
+             * unaffected because they land on driver-portal.php, which is an AppStack page.
+             * Same refresh-and-retry postClockAction() uses in time-clock-widget.js.
+             */
+            _token: function() {
+                var self = this;
+                return this._postToken(window.MW_CSRF_TOKEN).then(function(res) {
+                    if (res.data && res.data.success) return res.data;
+                    return fetch('/crm/api/get-csrf.php', { credentials: 'same-origin' })
+                        .then(function(r) { return r.json(); })
+                        .then(function(d) {
+                            if (!d || !d.token) return null;
+                            window.MW_CSRF_TOKEN = d.token;          // every other caller benefits too
+                            return self._postToken(d.token).then(function(retry) {
+                                if (retry.data && retry.data.success) return retry.data;
+                                console.warn('[MwNative] tracking token refused (' + retry.status + ') — native tracking not started');
+                                return null;
+                            });
+                        })
+                        .catch(function() { return null; });
+                });
             },
 
             _api: function(token, method, query, body) {
@@ -720,7 +752,8 @@
                 if (this._starting) return;
                 this._starting = true;
                 this._token().then(function(t) {
-                    if (!t || !t.success || !t.token) return null;      // not logged in / tracking off for this user
+                    if (!t || !t.success) { console.warn('[MwNative] no tracking token — native tracking not started'); return null; }
+                    if (!t.token) return null;                          // tracking is off for this user — nothing to do
                     return self._ensureDisclosed(t.token).then(function(ok) {
                         if (!ok) return null;
                         return MwTracking.requestTrackingPermissions().then(function(perms) {
