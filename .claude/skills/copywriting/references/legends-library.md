@@ -180,7 +180,7 @@ Value = (Dream Outcome × Perceived Likelihood of Achievement)
 Wiebe's "copyhackers" discipline: the highest-converting words are rarely the copywriter's own — they're lifted from the customer's mouth.
 
 - **Mine reviews, support tickets, and interview transcripts** for the exact phrases customers use to describe the problem and the win. Those phrases outperform invented ones because they already carry the reader's trust.
-- **The "4 U's" for headline QA**: Urgent, Unique, Useful, specific enough to feel Ultra-specific.
+- **The "4 U's" for headline QA**: Urgent, Unique, Useful, specific enough to feel Ultra-specific. (The formula originates with Bly; see `bly-copywriters-handbook.md` §2 for his eight headline types to score with it.)
 - **Message-match**: the words on the ad/link must reappear near-verbatim on the landing page headline, or trust drops at the click.
 
 **Apply it**: before writing final copy, pull 5–10 direct customer quotes (reviews, tickets, calls) and check whether your draft's key phrases already appear in that list. If not, consider swapping in the customer's actual words.
@@ -213,3 +213,4 @@ Distilled from the current generation of direct-response marketers (Hormozi-era 
 | Writing for ads/social/short-form | Vol. 14 |
 | Opening feels slow | Vol. 7 (Sugarman), Vol. 10 (Bird — cut paragraph one) |
 | Long-form sales/service page, weak close, objections unhandled | `sugarman-handbook.md` (full Sugarman method + checklist) |
+| Need a headline taxonomy, a customer profile sheet, or a per-medium checklist (brochure, landing page, email, PR) | `bly-copywriters-handbook.md` (Bly's frameworks: 8 headline types, 4 U's, BDF, motivating sequence) |

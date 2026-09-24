@@ -123,6 +123,22 @@
         "No exclamation points or hype clich\u00e9s"
       ],
       "files": []
+    },
+    {
+      "id": 9,
+      "prompt": "I need a one-page service brochure (print and PDF) for our commercial snow removal and salting service, aimed at property managers of strip malls and medical offices. We have 24/7 dispatch, GPS-tracked trucks, and photo proof of every visit. Give me the headline options and the full brochure copy.",
+      "expected_output": "Should load references/bly-copywriters-handbook.md for the brochure format. Should ask or assume where in the buying process the brochure is used and whether it stands alone. Should provide multiple headline candidates across Bly's headline types and note which are strongest on the 4 U's. Should follow the service-brochure contents list: services offered, benefits, methodology (dispatch, GPS, photo proof as proof elements), client list or testimonials placeholder, fees/terms, key-people bios, and a clear next step plus contact basics. Should sell benefits (liability reduction, tenant safety, no 3 a.m. calls) ahead of features, and use a BDF-style read of the property manager (beliefs about contractors, desire for zero complaints, fear of slip-and-fall claims). Should be organized in short sections with a cover headline and a call to action, and should not omit contact details.",
+      "assertions": [
+        "Loads or references bly-copywriters-handbook.md",
+        "Provides several headline options spanning different headline types",
+        "Scores or comments on headlines using the 4 U's",
+        "Follows the service-brochure contents list (services, benefits, method, proof, terms, people, CTA)",
+        "Leads with benefits and places features as proof",
+        "Reflects the property manager's beliefs, desires, and fears",
+        "Includes contact details and a clear next step",
+        "Uses short sections with a strong cover headline"
+      ],
+      "files": []
     }
   ]
 }

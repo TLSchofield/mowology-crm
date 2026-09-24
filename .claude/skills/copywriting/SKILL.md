@@ -2,7 +2,7 @@
 name: copywriting
 description: When the user wants to write, rewrite, or improve marketing copy for any page — including homepage, landing pages, pricing pages, feature pages, about pages, or product pages. Also use when the user says "write copy for," "improve this copy," "rewrite this page," "marketing copy," "headline help," "CTA copy," "value proposition," "tagline," "subheadline," "hero section copy," "above the fold," "this copy is weak," "make this more compelling," or "help me describe my product." Use this whenever someone is working on website text that needs to persuade or convert. For email copy, see email-sequence. For popup copy, see popup-cro. For editing existing copy, see copy-editing.
 metadata:
-  version: 1.3.0
+  version: 1.4.0
 ---
 
 # Copywriting
@@ -126,6 +126,8 @@ Puns and wit make copy memorable—but only if it fits the brand and doesn't und
 
 **For long-form persuasive copy (sales pages, service pages, direct mail, long emails)**: See [references/sugarman-handbook.md](references/sugarman-handbook.md) — the owner's copy of Joseph Sugarman's *Adweek Copywriting Handbook*, distilled into the 15 axioms, the 7-step process, the slippery-slide opening, the 64-point checklist (10 graphic elements, 23 copy elements, 31 psychological triggers), lessons from 13 annotated ads, and a pre-ship checklist. Its "Problem → Sugarman Tool" table at the end maps symptoms (bounce before reading, claims not believed, weak close) to the right section.
 
+**For headline taxonomy, customer profiling, and format-by-format checklists (brochures, landing pages, email, PR, content marketing)**: See [references/bly-copywriters-handbook.md](references/bly-copywriters-handbook.md) — Robert Bly's *Copywriter's Handbook* frameworks: four headline functions, eight headline types, the 4 U's, eleven clarity rules, the five-step motivating sequence, the BDF customer sheet, the secondary promise, and per-medium checklists. Distilled from the owner's summary edition, so use it as an index of frameworks and pair it with the Sugarman file for execution. Its section 9 reconciles where Bly and Sugarman disagree (the opening line).
+
 **Subheadline**
 - Expands on headline
 - Adds specificity
@@ -225,6 +227,7 @@ Maintain consistency, but adjust intensity:
 
 When the page has to carry a considered purchase on its own (a sales page, a service landing page, a long email, a direct-mail letter), draft it the Sugarman way and run his pre-ship checklist before delivering. Full detail in [references/sugarman-handbook.md](references/sugarman-handbook.md); the short version:
 
+0. **Prep with Bly's sheets** (`bly-copywriters-handbook.md` §4): the feature/benefit table, the BDF customer profile (beliefs, desires, feelings), the USP, and a secondary promise. Draft eight headline candidates, one per Bly type, and score them on the 4 U's.
 1. **Name the concept** before writing. If you can only name the product, you're not ready.
 2. **Open to be read, not to sell.** First sentence under ten words, no benefit in it. The first two or three statements must be ones the reader can't say "no" or "not me" to. Every element above the copy exists to get sentence one read.
 3. **Sequence by objections.** List the questions a live buyer would ask, in order; make each a section that raises the objection and resolves it. Include one dense, true technical paragraph and every physical fact.
