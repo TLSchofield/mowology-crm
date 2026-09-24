@@ -147,6 +147,9 @@ if (!empty($service['faq'])) {
     $extraHead = ($extraHead ?? '') . '<script type="application/ld+json">' . json_encode($faqSchema, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . '</script>';
 }
 
+// The service-page stylesheet is linked directly: the live master.css is a flattened bundle
+// that does not pick up additions to pages/service-landing.css.
+$extraHead = ($extraHead ?? '') . '<link rel="stylesheet" href="/assets/css/pages/service-landing.css?v=20260923">';
 require __DIR__ . '/head.php';
 require __DIR__ . '/header.php';
 
@@ -222,6 +225,22 @@ $ctaBlock = $service['cta'] ?? [];
               <h3><?= h($step['title']) ?></h3>
               <p><?= h($step['desc']) ?></p>
             </div>
+          <?php endforeach; ?>
+        </div>
+      </div>
+    </section>
+
+    <?php elseif ($section['type'] === 'gallery'): ?>
+    <section class="slp-section<?= $altBg ?>">
+      <div class="container">
+        <h2 class="slp-heading"><?= h($section['heading'] ?? 'On the Job') ?></h2>
+        <?php if (!empty($section['intro'])): ?><p class="slp-intro"><?= h($section['intro']) ?></p><?php endif; ?>
+        <div class="slp-gallery-grid">
+          <?php foreach (($section['items'] ?? []) as $g): ?>
+            <figure class="slp-gallery-item">
+              <img src="<?= h($g['src']) ?>"<?= !empty($g['srcset']) ? ' srcset="' . h($g['srcset']) . '" sizes="(max-width: 700px) 100vw, 50vw"' : '' ?> alt="<?= h($g['alt'] ?? '') ?>" loading="lazy" decoding="async" width="800" height="600">
+              <?php if (!empty($g['caption'])): ?><figcaption><?= h($g['caption']) ?></figcaption><?php endif; ?>
+            </figure>
           <?php endforeach; ?>
         </div>
       </div>

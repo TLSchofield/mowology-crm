@@ -300,3 +300,28 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ── Photo gallery (real job photos; see 'gallery' section type) ── */
+.slp-gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 20px;
+}
+.slp-gallery-item {
+  margin: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--mowology-light, #f4f7f5);
+}
+.slp-gallery-item img {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  display: block;
+}
+.slp-gallery-item figcaption {
+  padding: 10px 14px;
+  font-size: 0.9rem;
+  color: var(--text-muted, #556);
+}
