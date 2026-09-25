@@ -527,6 +527,31 @@
                 });
             },
 
+            /** Clock the crew member out from the setup gate. Resolves true on success. */
+            _clockOutFromGate: function () {
+                var post = function (csrf) {
+                    return fetch('/crm/api/time-clock.php', {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf || '' },
+                        body: JSON.stringify({ action: 'clock_out' })
+                    }).then(function (r) { return r.json().catch(function () { return null; }); });
+                };
+                return post(window.MW_CSRF_TOKEN)
+                    .then(function (d) {
+                        if (d && d.success) return true;
+                        // Same CSRF drift this file already handles for the tracking token.
+                        return fetch('/crm/api/get-csrf.php', { credentials: 'same-origin' })
+                            .then(function (r) { return r.json(); })
+                            .then(function (c) {
+                                if (!c || !c.token) return false;
+                                window.MW_CSRF_TOKEN = c.token;
+                                return post(c.token).then(function (d2) { return !!(d2 && d2.success); });
+                            });
+                    })
+                    .catch(function () { return false; });
+            },
+
             _api: function(token, method, query, body) {
                 return fetch('/api/schedule/tracking' + (query || ''), {
                     method: method,
@@ -608,6 +633,13 @@
              * and battery state to device_tracking_health.
              */
             _setupOk: function(p) {
+                // gpsEnabled is the DEVICE's Location master switch, which is not the
+                // same thing as the app's permission: on 2026-09-25 the truck tablet had
+                // "Allow all the time" granted and ticked green here while Location was
+                // switched off system-wide, so it reported GPS 0m all day and the gate
+                // said nothing. Only enforced when the field is present — an older APK
+                // that cannot report it must not be blocked by an undefined.
+                if (p && p.gpsEnabled === false) return false;
                 return !!(p && p.location && p.background && p.batteryOptimizationIgnored);
             },
 
@@ -656,6 +688,12 @@
                             '&ldquo;While using the app&rdquo; stops working when the screen goes off.</div>' +
                         '<button type="button" class="mw-sg-btn" data-fix="location">Open location setting</button>' +
                     '</div></div>' +
+                    '<div class="mw-sg-row" data-row="gps" hidden><span class="mw-sg-dot">!</span><div class="mw-sg-main">' +
+                        '<div class="mw-sg-title">Location Services: On</div>' +
+                        '<div class="mw-sg-how">Your phone\'s Location switch is OFF. Granting the app permission is not enough &mdash; ' +
+                            'with this off nothing can get a position at all. Swipe down from the top and tap <b>Location</b>, ' +
+                            'or Settings &rarr; Location.</div>' +
+                    '</div></div>' +
                     '<div class="mw-sg-row" data-row="battery"><span class="mw-sg-dot">2</span><div class="mw-sg-main">' +
                         '<div class="mw-sg-title">Battery: Unrestricted</div>' +
                         '<div class="mw-sg-how">Tap the button and choose <b>Allow</b>. If nothing pops up: Settings &rarr; Apps &rarr; ' +
@@ -667,7 +705,7 @@
                         '<div class="mw-sg-how">So the app can tell you when a job timer starts or stops by itself.</div>' +
                         '<button type="button" class="mw-sg-btn" data-fix="notifications">Turn on notifications</button>' +
                     '</div></div>' +
-                    '<button type="button" class="mw-sg-skip" data-fix="skip" hidden>I can&rsquo;t change these on this phone &mdash; continue anyway</button>';
+                    '<button type="button" class="mw-sg-skip" data-fix="skip" hidden>I can&rsquo;t fix this now &mdash; clock me out</button>';
 
                 var last = null, timer = null, closed = false;
 
@@ -675,9 +713,14 @@
                     last = p || {};
                     var ok = {
                         location:      !!(last.location && last.background),
+                        gps:           last.gpsEnabled !== false,
                         battery:       !!last.batteryOptimizationIgnored,
                         notifications: last.notifications !== false
                     };
+                    // Only surfaced when the device actually says Location is off, so the
+                    // normal setup flow is unchanged for everyone else.
+                    var gpsRow = el.querySelector('[data-row="gps"]');
+                    if (gpsRow) gpsRow.hidden = (last.gpsEnabled !== false);
                     Object.keys(ok).forEach(function(k) {
                         var row = el.querySelector('[data-row="' + k + '"]');
                         if (!row) return;
@@ -688,9 +731,27 @@
                     });
                     if (self._setupOk(last)) close(true);
                 }
+                function showManualBatteryPath() {
+                    var row = el.querySelector('[data-row="battery"] .mw-sg-how');
+                    if (!row || row.getAttribute('data-manual')) return;
+                    row.setAttribute('data-manual', '1');
+                    row.innerHTML = 'The pop-up did not appear, or the setting did not take. '
+                        + 'Set it by hand: <b>Settings &rarr; Apps &rarr; Mowology Crew &rarr; Battery &rarr; Unrestricted</b>. '
+                        + 'On Samsung this is NOT the same as "Background usage limits" — that screen can already look fine '
+                        + 'while the app is still optimised. Come back here afterwards and it will tick itself.';
+                }
                 function check() {
                     if (closed) return;
-                    MwTracking.checkTrackingPermissions().then(paint, function() {});
+                    MwTracking.checkTrackingPermissions().then(paint, function (e) {
+                        // Never leave every row unticked with no explanation — that reads as
+                        // "you have set nothing up" when the truth is "we could not look".
+                        var hdr = el.querySelector('.mw-sg-lead');
+                        if (hdr && !hdr.getAttribute('data-err')) {
+                            hdr.setAttribute('data-err', '1');
+                            hdr.innerHTML += '<br><b>This app build cannot read its own permission state, '
+                                + 'so the ticks below may be wrong. Update the app, or use "continue anyway".</b>';
+                        }
+                    });
                 }
                 function close(done) {
                     if (closed) return;
@@ -710,16 +771,48 @@
                     var fix = ev.target && ev.target.getAttribute && ev.target.getAttribute('data-fix');
                     if (!fix) return;
                     if (fix === 'battery') {
-                        MwTracking.requestBatteryExemption().then(function() { setTimeout(check, 800); }, function() {});
+                        // Android only offers the exemption dialog once per install on some
+                        // OEMs, and an older APK may not implement the method at all — both
+                        // rejected here into an empty handler, so the button did nothing and
+                        // said nothing. A crew member taps it, the row stays orange, and the
+                        // only remaining option looks like "continue anyway".
+                        MwTracking.requestBatteryExemption().then(
+                            function() { setTimeout(check, 800); },
+                            function() { showManualBatteryPath(); }
+                        );
+                        // Samsung's "Unrestricted" lives somewhere different from the
+                        // whitelist this checks, so tell them where even on success-but-
+                        // unchanged: re-checking in 3 s catches the dialog being dismissed.
+                        setTimeout(function() {
+                            if (!closed && last && !last.batteryOptimizationIgnored) showManualBatteryPath();
+                        }, 3000);
                     } else if (fix === 'skip') {
-                        try { sessionStorage.setItem('mw_setup_gate_skipped', '1'); } catch (e) {}
+                        // This used to be "continue anyway": it closed the gate and let the
+                        // shift carry on untracked. The escape now CLOCKS YOU OUT instead,
+                        // so the only two outcomes are "settings fixed" or "not on the
+                        // clock" — you can no longer work a clocked-in shift with tracking
+                        // disabled. The Decision-Log's reason for having an escape at all is
+                        // preserved and is the whole point of this branch: never trap someone
+                        // who cannot grant the settings, because they still have to clock out.
                         try {
                             MwTracking.addComplianceEvent({
                                 eventType: 'tracking_setup_skipped',
                                 reason: JSON.stringify(last || {})
                             });
                         } catch (e) {}
-                        close(false);
+                        var btn = ev.target;
+                        btn.disabled = true;
+                        btn.textContent = 'Clocking you out…';
+                        self._clockOutFromGate().then(function (ok) {
+                            if (!ok) {
+                                // Offline or the endpoint refused. Let them out rather than
+                                // trap them, but say plainly that the shift is still open.
+                                try { sessionStorage.setItem('mw_setup_gate_skipped', '1'); } catch (e) {}
+                                alert('Could not reach the server to clock you out. You are STILL CLOCKED IN — '
+                                    + 'clock out from the Time Clock screen, or tell the office.');
+                            }
+                            close(false);
+                        });
                     } else {
                         // location / notifications: the permission flow asks for whatever is still
                         // missing; on Android 11+ "all the time" can only be chosen in Settings, so
@@ -1309,9 +1402,20 @@
                     return;
                 }
 
-                // If we can't read the installed version, allow through — avoids
-                // blocking on older APKs that predate the getVersion() interface.
-                if (!minVersion || !installed) return;
+                if (!minVersion) return;   // server sets no minimum — nothing to enforce
+
+                // An APK old enough to predate getVersion() is, by definition, older
+                // than any version that can report one. This used to `return` on an
+                // unknown version, so the oldest installs — precisely the ones the
+                // minimum exists to catch — were the only builds exempt from it.
+                // Safe to block here: the whole module already returned at the top
+                // unless Capacitor.isNativePlatform(), so a desktop browser never
+                // reaches this.
+                if (!installed) {
+                    console.warn('[MwNative] installed version unreadable — treating as pre-getVersion build');
+                    _showUpdateOverlay(android);
+                    return;
+                }
 
                 if (_semverLessThan(installed, minVersion)) {
                     _showUpdateOverlay(android);
@@ -1373,10 +1477,31 @@
                 '<li>If asked, choose <b>Settings &rarr; Allow from this source</b>, go back and tap <b>Install</b>.</li>' +
                 '<li>Open the app again and sign in.</li>' +
             '</ol>' +
-            '<p style="margin:1.1rem 0 0;font-size:.75rem;color:#5a8870;">You must update to continue using this app.</p>';
+            '<p style="margin:1.1rem 0 0;font-size:.75rem;color:#5a8870;">You must update to continue using this app.</p>' +
+            // A blocking update screen must never leave someone stuck ON the clock: if the
+            // install fails or there is no signal to download over, the shift would run to
+            // the 12 h auto clock-out with no way to end it from the phone. Same reasoning
+            // as the setup gate's escape — the way out is clocking out, not carrying on.
+            '<button type="button" id="mw-fu-clockout" style="margin:1.4rem 0 0;background:none;' +
+                'border:1px solid #2f6b55;color:#93c9b8;padding:.6rem 1.2rem;border-radius:8px;' +
+                'font-size:.8rem;-webkit-tap-highlight-color:transparent;">' +
+                'Can&rsquo;t update right now &mdash; clock me out</button>';
 
         document.body.style.overflow = 'hidden';
         document.body.appendChild(el);
+
+        var coBtn = el.querySelector('#mw-fu-clockout');
+        if (coBtn) {
+            coBtn.addEventListener('click', function () {
+                coBtn.disabled = true;
+                coBtn.textContent = 'Clocking you out…';
+                window.MwNative.engine._clockOutFromGate().then(function (ok) {
+                    coBtn.textContent = ok
+                        ? 'Clocked out — you can install the update now'
+                        : 'Could not reach the server. You are STILL CLOCKED IN — tell the office.';
+                });
+            });
+        }
         console.log('[MwNative] Force update overlay shown — installed:', installed, 'required:', data.min_version || data.version);
     }
 

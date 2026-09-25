@@ -2,8 +2,8 @@
     "android": {
         "version": "1.3.2",
         "build": 12,
-        "min_version": "1.3.1",
-        "min_build": 11,
+        "min_version": "1.3.2",
+        "min_build": 12,
         "apk_url": "/crm/downloads/mowology-crew.apk",
         "released": "2026-09-22",
         "release_notes": "Tracking set-up problems are now reported to the office automatically, and the driver question no longer repeats.",
