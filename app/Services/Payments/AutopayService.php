@@ -316,10 +316,15 @@ class AutopayService
                 co.stripe_customer_id        AS co_stripe_customer_id,
                 co.stripe_payment_method_id  AS co_stripe_payment_method_id,
                 co.autopay_enabled           AS co_autopay_enabled,
+                co.company_name              AS co_company_name,
+                co.billing_email             AS co_billing_email,
+                cobc.email                   AS co_billing_contact_email,
+                cobc.first_name              AS co_billing_contact_first,
                 jp.autopay_override
             FROM invoices i
             LEFT JOIN contacts  ct ON i.contact_id  = ct.id
             LEFT JOIN companies co ON i.company_id  = co.id
+            LEFT JOIN contacts  cobc ON cobc.id     = co.billing_contact_id
             LEFT JOIN job_plans jp ON i.plan_id     = jp.id
             WHERE i.id = ?
             LIMIT 1
@@ -335,7 +340,10 @@ class AutopayService
             $row['stripe_customer_id']       = $row['co_stripe_customer_id'];
             $row['stripe_payment_method_id'] = $row['co_stripe_payment_method_id'];
             $row['autopay_enabled']          = $row['co_autopay_enabled'];
+            // Which card is being charged decides who can authenticate it.
+            $row['payment_source']           = 'company';
         } else {
+            $row['payment_source']           = 'contact';
             $row['stripe_customer_id']       = $row['ct_stripe_customer_id'];
             $row['stripe_payment_method_id'] = $row['ct_stripe_payment_method_id'];
             $row['autopay_enabled']          = $row['ct_autopay_enabled'];
@@ -373,12 +381,31 @@ class AutopayService
      */
     private function notifyAuthRequired(array $data, int $invoiceId): void
     {
-        $email = $data['contact_email'] ?? null;
+        // 3DS can only be completed by whoever HOLDS the card, so this notice
+        // follows the payment source — NOT the invoice's billing recipient.
+        // Deliberate, and easy to "correct" wrongly: reminders were rerouted to
+        // the management firm's accounts inbox 2026-09-25, and this email looks
+        // like the same bug. It isn't. Sending a strata's property manager a
+        // prompt to authenticate a council member's personal card would be both
+        // useless and a disclosure of that person's card activity to a third
+        // party. What WAS wrong: a company-card charge still notified the
+        // individual contact, who may not hold that card at all.
+        if (($data['payment_source'] ?? 'contact') === 'company') {
+            $email     = $data['co_billing_contact_email'] ?: ($data['co_billing_email'] ?: null);
+            $firstName = $data['co_billing_contact_first']
+                ?: ($data['co_company_name'] ? $data['co_company_name'] . ' accounts' : 'there');
+        } else {
+            $email     = $data['contact_email'] ?? null;
+            $firstName = $data['contact_first'] ?? 'there';
+        }
         if (!$email) {
+            // No way to reach the cardholder — tell the office rather than
+            // emailing the wrong person or failing in silence.
+            error_log("[autopay] 3DS required on invoice {$invoiceId} but no cardholder email (source: "
+                      . ($data['payment_source'] ?? 'contact') . ')');
             return;
         }
 
-        $firstName = $data['contact_first'] ?? 'there';
         $portalUrl = 'https://mowology.ca/customer/invoice.php?token=' . urlencode($data['access_token'] ?? '');
 
         $subject = 'Action required: please complete payment for Invoice ' . htmlspecialchars($data['invoice_number'], ENT_QUOTES);

@@ -43,7 +43,7 @@ try {
             'url'      => '/crm/clients_appstack.php?action=view_contact&id=' . $r['id'],
         ];
     }
-} catch (PDOException $e) { /* skip silently */ }
+} catch (PDOException $e) { error_log('[global-search] branch failed: ' . $e->getMessage()); }
 
 // ── Companies ─────────────────────────────────────────
 try {
@@ -67,7 +67,36 @@ try {
             'url'      => '/crm/companies/view.php?id=' . $r['id'],
         ];
     }
-} catch (PDOException $e) { /* skip silently */ }
+} catch (PDOException $e) {
+    // This branch silently returned NOTHING for months: searching "obsidian" or
+    // "dorset" found the contacts who work there but never the company itself,
+    // which is how OBSIDIAN PROPERTY MANAGEMENT LTD came to be reported as "not
+    // in the CRM" while sitting in the companies list. The catch hid a schema
+    // error on one of the optional columns. Log it, then retry on company_name
+    // alone — a drift should cost us city/email matching, not every company.
+    error_log('[global-search] companies branch failed: ' . $e->getMessage());
+    try {
+        $stmt = $db->prepare("
+            SELECT id, company_name, company_type, account_status
+            FROM companies
+            WHERE account_status = 'active' AND company_name LIKE ?
+            ORDER BY company_name
+            LIMIT 5
+        ");
+        $stmt->execute([$term]);
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $results[] = [
+                'category' => 'Companies',
+                'icon'     => 'briefcase',
+                'label'    => $r['company_name'],
+                'sublabel' => ucfirst(str_replace('_', ' ', $r['company_type'] ?? '')),
+                'url'      => '/crm/companies/view.php?id=' . $r['id'],
+            ];
+        }
+    } catch (PDOException $e2) {
+        error_log('[global-search] companies fallback ALSO failed: ' . $e2->getMessage());
+    }
+}
 
 // ── Properties ────────────────────────────────────────
 try {
@@ -86,18 +115,19 @@ try {
         $owner = trim(($r['first_name'] ?? '') . ' ' . ($r['last_name'] ?? ''));
         $sublabel = $r['city'] ?: '';
         if ($owner) $sublabel .= ($sublabel ? ' · ' : '') . $owner;
-        $contactUrl = $r['site_contact_id']
-            ? '/crm/clients_appstack.php?action=view_contact&id=' . $r['site_contact_id']
-            : '/crm/clients_appstack.php';
+        // Link to the PROPERTY. This used to point at the site contact, so the
+        // id in the url was a CONTACT id while the row was labelled with a
+        // property address — follow "2515 Woodland Drive" and you landed on a
+        // different building entirely. properties/view.php takes the real id.
         $results[] = [
             'category' => 'Properties',
             'icon'     => 'map-pin',
             'label'    => $r['address'],
             'sublabel' => $sublabel,
-            'url'      => $contactUrl,
+            'url'      => '/crm/properties/view.php?id=' . $r['id'],
         ];
     }
-} catch (PDOException $e) { /* skip silently */ }
+} catch (PDOException $e) { error_log('[global-search] branch failed: ' . $e->getMessage()); }
 
 // ── Quotes ────────────────────────────────────────────
 try {
@@ -120,7 +150,7 @@ try {
             'url'      => '/crm/quotes/view.php?id=' . $r['id'],
         ];
     }
-} catch (PDOException $e) { /* skip silently */ }
+} catch (PDOException $e) { error_log('[global-search] branch failed: ' . $e->getMessage()); }
 
 // ── Job Plans ─────────────────────────────────────────
 try {
@@ -143,7 +173,7 @@ try {
             'url'      => '/crm/jobs/view.php?id=' . $r['id'],
         ];
     }
-} catch (PDOException $e) { /* skip silently */ }
+} catch (PDOException $e) { error_log('[global-search] branch failed: ' . $e->getMessage()); }
 
 // ── Invoices ──────────────────────────────────────────
 try {
@@ -166,7 +196,7 @@ try {
             'url'      => '/crm/invoices/view.php?id=' . $r['id'],
         ];
     }
-} catch (PDOException $e) { /* skip silently */ }
+} catch (PDOException $e) { error_log('[global-search] branch failed: ' . $e->getMessage()); }
 
 // ── Team Members ──────────────────────────────────────
 try {
@@ -188,6 +218,6 @@ try {
             'url'      => '/crm/team/index.php',
         ];
     }
-} catch (PDOException $e) { /* skip silently */ }
+} catch (PDOException $e) { error_log('[global-search] branch failed: ' . $e->getMessage()); }
 
 echo json_encode(['success' => true, 'results' => $results]);
