@@ -250,8 +250,30 @@ function getContactsForTrigger(PDO $db, string $type, array $config, array $rule
 
         case 'invoice_overdue':
             $days = (int)($config['overdue_days'] ?? 7);
+            // Audience is whoever the invoice was BILLED to, not invoices.contact_id —
+            // for a strata that column holds the council rep who signed the contract,
+            // while the invoice itself went to the management firm's accounts contact
+            // (snapshotted in invoice_contacts). Mirrors the precedence in
+            // InvoiceRouting::resolveReminderRecipients(), which is the authority;
+            // an invoice routed to a contactless PM inbox matches no contact and is
+            // correctly skipped here rather than falling back to the rep.
             $stmt = $db->prepare("$base
-                INNER JOIN invoices i ON i.contact_id = c.id
+                INNER JOIN invoices i
+                    ON c.id = CASE WHEN EXISTS (
+                                SELECT 1 FROM invoice_contacts ic0
+                                 WHERE ic0.invoice_id = i.id
+                                   AND (ic0.bounced IS NULL OR ic0.bounced = 0)
+                                   AND ic0.contact_role IN ('primary_recipient','billing_contact','accounting','property_manager','strata_manager')
+                             )
+                             THEN (
+                                SELECT ic.contact_id FROM invoice_contacts ic
+                                 WHERE ic.invoice_id = i.id
+                                   AND (ic.bounced IS NULL OR ic.bounced = 0)
+                                   AND ic.contact_role IN ('primary_recipient','billing_contact','accounting','property_manager','strata_manager')
+                                 ORDER BY FIELD(ic.contact_role,'billing_contact','accounting','primary_recipient','property_manager','strata_manager'), ic.id
+                                 LIMIT 1
+                             )
+                             ELSE i.contact_id END
                 WHERE $mktFilter
                   AND i.status IN ('sent','overdue')
                   AND i.due_date < DATE_SUB(NOW(), INTERVAL ? DAY)

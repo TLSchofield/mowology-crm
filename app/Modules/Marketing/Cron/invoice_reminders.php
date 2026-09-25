@@ -54,6 +54,9 @@ $MAX_REMINDERS   = 3;
 $COOLDOWN_DAYS   = 3;
 $APPROACHING_DAYS = 3; // days before due_date to send first reminder
 
+// Who a reminder goes to is NOT invoices.contact_id — see resolveReminderRecipients().
+require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceRouting.php';
+
 try {
     // Find invoices eligible for a reminder:
     //  - Status in (sent, viewed, overdue, partial)
@@ -66,14 +69,8 @@ try {
             i.id, i.invoice_number, i.balance_due, i.due_date, i.status,
             i.reminder_count, i.last_reminder_sent_at, i.access_token,
             i.contact_id, i.company_id,
-            COALESCE(ct.first_name, '') as contact_first,
-            COALESCE(ct.last_name, '')  as contact_last,
-            COALESCE(ct.email, '')      as contact_email,
-            COALESCE(NULLIF(ct.mobile,''), NULLIF(ct.phone,'')) as contact_phone,
-            ct.receive_sms,
             c.company_name
         FROM invoices i
-        LEFT JOIN contacts  ct ON i.contact_id = ct.id
         LEFT JOIN companies c  ON i.company_id = c.id
         WHERE i.status IN ('sent', 'viewed', 'overdue', 'partial')
           AND i.balance_due > 0.01
@@ -110,16 +107,30 @@ try {
             $reminderType = 'overdue';
         }
 
-        $contactName = trim($inv['contact_first'] . ' ' . $inv['contact_last']) ?: ($inv['company_name'] ?: 'Valued Customer');
-        $firstName   = $inv['contact_first'] ?: 'there';
+        // ── Who actually gets chased for this money ──────────────────────
+        // invoices.contact_id is the contract's counterparty (for a strata, the
+        // council rep who signed) — not the party the invoice was billed to.
+        $recipients = resolveReminderRecipients($invoiceId);
+        if (empty($recipients)) {
+            // Don't burn one of the three reminders on an invoice we can't address.
+            remLog("  SKIPPED {$inv['invoice_number']} — no billing recipient resolved");
+            continue;
+        }
 
-        // ── Send email reminder ──────────────────────────────────────────
-        if (!empty($inv['contact_email'])) {
+        $amount   = '$' . number_format((float)$inv['balance_due'], 2);
+        $viewUrl  = !empty($inv['access_token'])
+            ? 'https://mowology.ca/customer/invoice.php?token=' . urlencode($inv['access_token'])
+            : '';
+        $sentTo   = [];
+
+        foreach ($recipients as $rcpt) {
+            $contactName = $rcpt['contact_name'] ?: ($inv['company_name'] ?: 'Valued Customer');
+            // A PM's accounts inbox has no first name — don't greet it "Hi ,".
+            $firstName   = trim(explode(' ', $rcpt['contact_name'])[0] ?? '') ?: 'there';
+
+            // ── Send email reminder ──────────────────────────────────────
             require_once APP_ROOT . '/Services/Messaging/EmailWrapper.php';
             $companyInfo = EmailWrapper::getCompanyInfo();
-
-            // Build subject and body based on reminder type
-            $amount = '$' . number_format((float)$inv['balance_due'], 2);
 
             if ($reminderType === 'approaching') {
                 $subject  = "Reminder: Invoice {$inv['invoice_number']} due soon";
@@ -143,12 +154,6 @@ try {
                           . "If you've already sent payment, please disregard this reminder.";
             }
 
-            // Build the portal link
-            $viewUrl = '';
-            if (!empty($inv['access_token'])) {
-                $viewUrl = 'https://mowology.ca/customer/invoice.php?token=' . urlencode($inv['access_token']);
-            }
-
             $emailBody = EmailWrapper::wrap(
                 $bodyText,
                 'View &amp; Pay Invoice',
@@ -156,37 +161,42 @@ try {
                 $companyInfo
             );
 
-            $result = sendCrmEmail($inv['contact_email'], $subject, $emailBody);
+            $result = sendCrmEmail($rcpt['email_address'], $subject, $emailBody);
             if ($result) {
                 $emailsSent++;
-                remLog("  Email sent to {$contactName} for {$inv['invoice_number']} ({$reminderType})");
+                $sentTo[] = $contactName . ' <' . $rcpt['email_address'] . '>';
+                remLog("  Email sent to {$contactName} <{$rcpt['email_address']}> ({$rcpt['contact_role']}, via {$rcpt['source']}) for {$inv['invoice_number']} ({$reminderType})");
             } else {
-                remLog("  Email FAILED for {$contactName} ({$inv['invoice_number']})");
+                remLog("  Email FAILED for {$contactName} <{$rcpt['email_address']}> ({$inv['invoice_number']})");
+            }
+
+            // ── Send SMS reminder (no URLs!) ─────────────────────────────
+            if (!empty($rcpt['receive_sms']) && !empty($rcpt['phone'])) {
+                if ($reminderType === 'overdue') {
+                    $smsMsg = "Mowology: Invoice {$inv['invoice_number']} ({$amount}) is overdue. Check your email to pay. Questions? (778) 846-9273.";
+                } else {
+                    $smsMsg = "Mowology: Reminder - Invoice {$inv['invoice_number']} ({$amount}) due soon. Check your email to pay. (778) 846-9273.";
+                }
+
+                // Ensure under 160 chars
+                if (strlen($smsMsg) > 160) {
+                    $smsMsg = "Mowology: Invoice {$inv['invoice_number']} reminder ({$amount} due). Check email to pay. (778) 846-9273.";
+                }
+
+                $smsResult = sendSms($rcpt['phone'], $smsMsg, 'Mowology');
+                if ($smsResult['success']) {
+                    $smsSent++;
+                    remLog("  SMS sent to {$contactName}");
+                } else {
+                    remLog("  SMS FAILED for {$contactName}");
+                }
             }
         }
 
-        // ── Send SMS reminder (no URLs!) ─────────────────────────────────
-        if ($inv['receive_sms'] && !empty($inv['contact_phone'])) {
-            $amount = '$' . number_format((float)$inv['balance_due'], 2);
-
-            if ($reminderType === 'overdue') {
-                $smsMsg = "Mowology: Invoice {$inv['invoice_number']} ({$amount}) is overdue. Check your email to pay. Questions? (778) 846-9273.";
-            } else {
-                $smsMsg = "Mowology: Reminder - Invoice {$inv['invoice_number']} ({$amount}) due soon. Check your email to pay. (778) 846-9273.";
-            }
-
-            // Ensure under 160 chars
-            if (strlen($smsMsg) > 160) {
-                $smsMsg = "Mowology: Invoice {$inv['invoice_number']} reminder ({$amount} due). Check email to pay. (778) 846-9273.";
-            }
-
-            $smsResult = sendSms($inv['contact_phone'], $smsMsg, 'Mowology');
-            if ($smsResult['success']) {
-                $smsSent++;
-                remLog("  SMS sent to {$contactName}");
-            } else {
-                remLog("  SMS FAILED for {$contactName}");
-            }
+        if (empty($sentTo)) {
+            // Every recipient failed — leave the counter alone so the next run retries.
+            remLog("  NOT counted for {$inv['invoice_number']} — every recipient failed");
+            continue;
         }
 
         // ── Update reminder tracking on invoice ──────────────────────────
@@ -198,8 +208,8 @@ try {
             WHERE id = ?
         ")->execute([$invoiceId]);
 
-        // Activity log
-        $logDetail = ucfirst($reminderType) . " payment reminder sent to {$contactName}";
+        // Activity log — names every recipient, so "who did we chase?" is answerable.
+        $logDetail = ucfirst($reminderType) . ' payment reminder sent to ' . implode(', ', $sentTo);
         $db->prepare("
             INSERT INTO activity_log (user_id, action, details, invoice_id, created_at)
             VALUES (NULL, 'Payment reminder sent', ?, ?, NOW())

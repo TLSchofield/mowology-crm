@@ -206,6 +206,131 @@ function resolveManagementBillingRecipient(int $propertyId): array {
 
 
 /**
+ * Who should receive a PAYMENT REMINDER for this invoice.
+ *
+ * `invoices.contact_id` is the contract's counterparty — for a strata that is the
+ * council member / strata representative who signed, and it is deliberately kept
+ * as the financial record. It is NOT who gets billed: the send paths route the
+ * invoice itself to the management firm's accounts contact and snapshot that in
+ * `invoice_contacts`. Reminder senders that re-derived the recipient from
+ * `invoices.contact_id` therefore chased the strata rep for money that was
+ * invoiced to the property manager.
+ *
+ * Precedence:
+ *   1. The invoice's own `invoice_contacts` snapshot — where it actually went.
+ *      Billing roles only: cc/bcc are copies, not the party being asked to pay.
+ *      Bounced rows are skipped. A contactless row (contact_id NULL/0, an
+ *      email_address-routed PM inbox) is a valid recipient with no SMS.
+ *   2. Live PM routing for the property, if the invoice has no snapshot rows
+ *      (invoices created before invoice_contacts was written on every path).
+ *   3. `invoices.contact_id` — the original behaviour, for non-managed clients.
+ *
+ * Deliberately NOT falling through from 1 to 3: once an invoice says where it
+ * was sent, disagreeing with it is how this bug happened. An invoice routed to
+ * an email-only PM inbox yields a recipient with no contact row rather than
+ * silently reverting to the rep.
+ *
+ * @param int $invoiceId
+ * @return array<int,array{contact_id:int,contact_name:string,contact_role:string,email_address:string,receive_sms:bool,phone:?string,source:string}>
+ */
+function resolveReminderRecipients(int $invoiceId, ?PDO $db = null): array {
+    $db = $db ?: getDB();
+
+    try {
+        $inv = $db->prepare("SELECT id, contact_id, property_id FROM invoices WHERE id = ?");
+        $inv->execute([$invoiceId]);
+        $invoice = $inv->fetch(PDO::FETCH_ASSOC);
+        if (!$invoice) {
+            return [];
+        }
+
+        // ── 1. The invoice's own recipient snapshot ───────────────────────────
+        $snap = $db->prepare("
+            SELECT ic.contact_id, ic.contact_role, ic.email_address,
+                   ct.first_name, ct.last_name, ct.mobile, ct.phone, ct.receive_sms
+            FROM invoice_contacts ic
+            LEFT JOIN contacts ct ON ct.id = ic.contact_id
+            WHERE ic.invoice_id = ?
+              AND (ic.bounced IS NULL OR ic.bounced = 0)
+              AND ic.contact_role IN ('primary_recipient','billing_contact','accounting','property_manager','strata_manager')
+            ORDER BY FIELD(ic.contact_role,'billing_contact','accounting','primary_recipient','property_manager','strata_manager'), ic.id
+        ");
+        $snap->execute([$invoiceId]);
+        $rows = $snap->fetchAll(PDO::FETCH_ASSOC);
+
+        $recipients = [];
+        $seen = [];
+        foreach ($rows as $r) {
+            // The snapshot's email wins: it is where the invoice was actually sent.
+            $email = trim((string)$r['email_address']);
+            if ($email === '') {
+                $email = trim((string)($r['email'] ?? ''));
+            }
+            if ($email === '' || isset($seen[strtolower($email)])) {
+                continue;
+            }
+            $seen[strtolower($email)] = true;
+            $cid  = (int)($r['contact_id'] ?? 0);
+            $name = trim(($r['first_name'] ?? '') . ' ' . ($r['last_name'] ?? ''));
+            $recipients[] = [
+                'contact_id'    => $cid,
+                'contact_name'  => $name,
+                'contact_role'  => $r['contact_role'],
+                'email_address' => $email,
+                // No contact row (email-only PM inbox) can never be texted.
+                'receive_sms'   => $cid > 0 && !empty($r['receive_sms']),
+                'phone'         => $cid > 0 ? ($r['mobile'] ?: $r['phone'] ?: null) : null,
+                'source'        => 'invoice_contacts',
+            ];
+        }
+        if (!empty($recipients)) {
+            return $recipients;
+        }
+
+        // ── 2. No snapshot — resolve PM routing live ──────────────────────────
+        if (!empty($invoice['property_id'])) {
+            foreach (resolveManagementBillingRecipient((int)$invoice['property_id']) as $pm) {  // uses getDB() itself
+                $recipients[] = [
+                    'contact_id'    => (int)$pm['contact_id'],
+                    'contact_name'  => $pm['contact_name'],
+                    'contact_role'  => $pm['contact_role'],
+                    'email_address' => $pm['email_address'],
+                    'receive_sms'   => !empty($pm['receive_sms']),
+                    'phone'         => $pm['phone'] ?? null,
+                    'source'        => 'pm_routing',
+                ];
+            }
+            if (!empty($recipients)) {
+                return $recipients;
+            }
+        }
+
+        // ── 3. Fall back to the invoice's own contact ─────────────────────────
+        if (!empty($invoice['contact_id'])) {
+            $c = $db->prepare("SELECT id, first_name, last_name, email, mobile, phone, receive_sms FROM contacts WHERE id = ?");
+            $c->execute([(int)$invoice['contact_id']]);
+            $contact = $c->fetch(PDO::FETCH_ASSOC);
+            if ($contact && !empty($contact['email'])) {
+                $recipients[] = [
+                    'contact_id'    => (int)$contact['id'],
+                    'contact_name'  => trim($contact['first_name'] . ' ' . $contact['last_name']),
+                    'contact_role'  => 'primary_recipient',
+                    'email_address' => $contact['email'],
+                    'receive_sms'   => !empty($contact['receive_sms']),
+                    'phone'         => $contact['mobile'] ?: $contact['phone'] ?: null,
+                    'source'        => 'invoice_contact_id',
+                ];
+            }
+        }
+
+        return $recipients;
+    } catch (Throwable $e) {
+        error_log('resolveReminderRecipients error: ' . $e->getMessage());
+        return [];
+    }
+}
+
+/**
  * Get recipient list for direct client (no property manager)
  *
  * @param array $property Property data
