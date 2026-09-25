@@ -82,16 +82,23 @@ try {
             try {
                 $db->prepare("
                     INSERT INTO product_upsells
-                        (base_product_id, upsell_product_id, upsell_bundle_id, type, display_text,
+                        (base_product_id, upsell_product_id, upsell_bundle_id, upsell_type, display_text,
                          bundled_price, is_popular, is_active, sort_order, created_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, 1, 0, NOW())
                 ")->execute([$baseId, $upsellId, $bundleId, $type, $text ?: null, $bundledPrc, $popular]);
             } catch (PDOException $e) {
+                // Only fall back for the specific "unknown column upsell_bundle_id" case
+                $msg = $e->getMessage();
+                $missingBundleCol = (stripos($msg, 'upsell_bundle_id') !== false)
+                    && (stripos($msg, 'Unknown column') !== false || stripos($msg, '1054') !== false);
+                if (!$missingBundleCol) {
+                    throw new Exception('Insert failed: ' . $msg);
+                }
                 if ($bundleId) throw new Exception('Bundle upsells require migration 1021 — please run it first');
                 // Fall back to product-only insert
                 $db->prepare("
                     INSERT INTO product_upsells
-                        (base_product_id, upsell_product_id, type, display_text,
+                        (base_product_id, upsell_product_id, upsell_type, display_text,
                          bundled_price, is_popular, is_active, sort_order, created_at)
                     VALUES (?, ?, ?, ?, ?, ?, 1, 0, NOW())
                 ")->execute([$baseId, $upsellId, $type, $text ?: null, $bundledPrc, $popular]);
@@ -126,7 +133,7 @@ try {
             }
             if (array_key_exists('type', $input)) {
                 $type = in_array($input['type'], ['addon', 'recommended', 'upgrade']) ? $input['type'] : 'addon';
-                $updates[] = 'type = ?';
+                $updates[] = 'upsell_type = ?';
                 $params[]  = $type;
             }
 

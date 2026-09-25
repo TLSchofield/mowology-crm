@@ -1,16 +1,22 @@
-<?php
+<?php declare(strict_types=1);
 /**
  * One-shot backfill: populate visit_margin_snapshots for all completed visits.
- *
- * Finds completed job_visits that don't have a margin snapshot yet
- * and runs VisitCompletionService::capture() on each one.
- *
- * Safe to run multiple times — uses INSERT ... ON DUPLICATE KEY UPDATE.
- *
- * Also fixes the resolveMaterialCost issue where expenses.visit_id or
- * expenses.total_amount may not exist on production — handles gracefully.
  */
-declare(strict_types=1);
+// Override global error handler so we see actual errors (not JSON blob)
+set_error_handler(function($severity, $message, $file, $line) {
+    echo "[PHP ERROR] {$message} in {$file}:{$line}\n";
+    return true;
+});
+set_exception_handler(function(Throwable $e) {
+    echo "[EXCEPTION] " . $e->getMessage() . "\n" . $e->getTraceAsString() . "\n";
+    exit(1);
+});
+register_shutdown_function(function() {
+    $err = error_get_last();
+    if ($err && in_array($err['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR])) {
+        echo "[FATAL] {$err['message']} in {$err['file']}:{$err['line']}\n";
+    }
+});
 
 if (!defined('APP_ROOT')) {
     $__dir = __DIR__;
@@ -32,12 +38,17 @@ if (($user['role'] ?? '') !== 'admin') {
     die('Admin only.');
 }
 
+ini_set('display_errors', '1');
+error_reporting(E_ALL);
 header('Content-Type: text/plain; charset=utf-8');
-ob_implicit_flush(true);
+// Disable output buffering so progress streams to browser
+while (ob_get_level()) ob_end_flush();
+ob_implicit_flush(1);
 
 $db = getDB();
 
 echo "=== Backfill visit_margin_snapshots ===\n\n";
+echo "PHP " . PHP_VERSION . " | APP_ROOT: " . (defined('APP_ROOT') ? APP_ROOT : 'NOT SET') . "\n\n";
 
 // Step 0: Check if visit_margin_snapshots table exists
 try {
@@ -49,26 +60,39 @@ try {
 }
 
 // Step 1: Find all completed visits without a snapshot
-$stmt = $db->query("
-    SELECT
-        jv.id AS visit_id,
-        jv.assigned_crew_id,
-        jv.plan_id,
-        jv.scheduled_date,
-        jv.actual_duration_minutes,
-        jp.service_type,
-        jp.estimated_duration_minutes,
-        jp.price_per_visit,
-        jp.property_id,
-        jp.contact_id
-    FROM job_visits jv
-    JOIN job_plans jp ON jp.id = jv.plan_id
-    LEFT JOIN visit_margin_snapshots vms ON vms.visit_id = jv.id
-    WHERE jv.status = 'completed'
-      AND vms.id IS NULL
-    ORDER BY jv.scheduled_date ASC
-");
-$visits = $stmt->fetchAll(PDO::FETCH_ASSOC);
+echo "Querying completed visits...\n";
+flush();
+
+// Use simple query — VisitCompletionService::capture() loads its own data
+try {
+    $stmt = $db->query("
+        SELECT
+            jv.id AS visit_id,
+            jv.assigned_crew_id,
+            jv.scheduled_date
+        FROM job_visits jv
+        LEFT JOIN visit_margin_snapshots vms ON vms.visit_id = jv.id
+        WHERE jv.status = 'completed'
+          AND vms.id IS NULL
+        ORDER BY jv.scheduled_date ASC
+    ");
+    $visits = $stmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (Throwable $e) {
+    echo "[ERROR] Query failed: " . $e->getMessage() . "\n";
+    // Fallback without LEFT JOIN (in case vms table issue)
+    try {
+        $stmt = $db->query("
+            SELECT jv.id AS visit_id, jv.assigned_crew_id, jv.scheduled_date
+            FROM job_visits jv WHERE jv.status = 'completed'
+            ORDER BY jv.scheduled_date ASC
+        ");
+        $visits = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        echo "Fallback: found " . count($visits) . " completed visits (will re-process all).\n";
+    } catch (Throwable $e2) {
+        echo "[FATAL] " . $e2->getMessage() . "\n";
+        exit;
+    }
+}
 
 $total = count($visits);
 echo "Found {$total} completed visits without snapshots.\n\n";

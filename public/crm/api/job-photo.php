@@ -39,7 +39,13 @@ if (!defined('APP_ROOT')) {
 
 function _jp_fetchPhoto(PDO $db, int $photoId): ?array
 {
-    $s = $db->prepare("SELECT id, visit_id, uploaded_by FROM visit_photos WHERE id = ? AND deleted_at IS NULL");
+    $s = $db->prepare("
+        SELECT ma.id, ml.context_id AS visit_id, ma.created_by AS uploaded_by
+        FROM media_assets ma
+        JOIN media_links ml ON ml.media_id = ma.id AND ml.context_type = 'job_visit'
+        WHERE ma.id = ? AND (ma.status IS NULL OR ma.status != 'deleted')
+        LIMIT 1
+    ");
     $s->execute([$photoId]);
     return $s->fetch(PDO::FETCH_ASSOC) ?: null;
 }
@@ -265,11 +271,11 @@ try {
             $newTags = array_values(array_filter(array_map(fn($t) => mb_substr(trim((string)$t), 0, 50), $newTags)));
             $newTags = array_slice($newTags, 0, 10);
 
-            $fetchStmt = $db->prepare("SELECT id, tags FROM visit_photos WHERE id IN ({$ph}) AND deleted_at IS NULL");
+            $fetchStmt = $db->prepare("SELECT id, tags_json AS tags FROM media_assets WHERE id IN ({$ph}) AND (status IS NULL OR status != 'deleted')");
             $fetchStmt->execute($photoIds);
             $rows = $fetchStmt->fetchAll(PDO::FETCH_ASSOC);
 
-            $updStmt = $db->prepare("UPDATE visit_photos SET tags = ? WHERE id = ?");
+            $updStmt = $db->prepare("UPDATE media_assets SET tags_json = ? WHERE id = ?");
             $updated = 0;
             foreach ($rows as $row) {
                 $existing = json_decode($row['tags'] ?? '[]', true) ?: [];
@@ -283,7 +289,7 @@ try {
         }
 
         if ($action === 'bulk_delete') {
-            $db->prepare("UPDATE visit_photos SET deleted_at = NOW() WHERE id IN ({$ph})")
+            $db->prepare("UPDATE media_assets SET status = 'deleted' WHERE id IN ({$ph})")
                ->execute($photoIds);
             echo json_encode(['success' => true, 'deleted' => count($photoIds)]);
             exit;
@@ -297,7 +303,7 @@ try {
                 exit;
             }
             $params = array_merge([$photoType], $photoIds);
-            $db->prepare("UPDATE visit_photos SET photo_type = ? WHERE id IN ({$ph}) AND deleted_at IS NULL")
+            $db->prepare("UPDATE media_links SET category = ? WHERE media_id IN ({$ph}) AND context_type = 'job_visit'")
                ->execute($params);
             echo json_encode(['success' => true, 'updated' => count($photoIds)]);
             exit;
@@ -373,7 +379,7 @@ try {
             $tags = array_values(array_filter(array_map(fn($t) => mb_substr(trim((string)$t), 0, 50), $tags)));
             $tags = array_slice($tags, 0, 10);
 
-            $db->prepare("UPDATE visit_photos SET tags = ? WHERE id = ?")
+            $db->prepare("UPDATE media_assets SET tags_json = ? WHERE id = ?")
                ->execute([json_encode($tags), $photoId]);
             echo json_encode(['success' => true, 'tags' => $tags]);
             exit;
@@ -493,15 +499,19 @@ try {
                 break;
             }
 
-            $chk = $db->prepare("SELECT id FROM visit_photos WHERE id = ? AND visit_id = ? AND deleted_at IS NULL");
-            $chk->execute([$photoId, $visitId]);
+            $chk = $db->prepare("
+                SELECT ma.id FROM media_assets ma
+                JOIN media_links ml ON ml.media_id = ma.id AND ml.context_type = 'job_visit' AND ml.context_id = ?
+                WHERE ma.id = ? AND (ma.status IS NULL OR ma.status != 'deleted')
+            ");
+            $chk->execute([$visitId, $photoId]);
             if (!$chk->fetch()) {
                 http_response_code(404);
                 echo json_encode(['error' => 'Photo not found']);
                 break;
             }
 
-            $db->prepare("UPDATE visit_photos SET deleted_at = NOW() WHERE id = ?")
+            $db->prepare("UPDATE media_assets SET status = 'deleted' WHERE id = ?")
                ->execute([$photoId]);
 
             $db->prepare("
@@ -525,8 +535,8 @@ try {
             }
 
             $stmt = $db->prepare("
-                UPDATE visit_photos SET sort_order = ?
-                WHERE id = ? AND visit_id = ? AND deleted_at IS NULL
+                UPDATE media_links SET sort_order = ?
+                WHERE media_id = ? AND context_type = 'job_visit' AND context_id = ?
             ");
             foreach (array_values($order) as $sortIdx => $pId) {
                 $stmt->execute([$sortIdx, (int)$pId, $visitId]);
