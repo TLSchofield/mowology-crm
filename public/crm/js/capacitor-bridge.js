@@ -827,6 +827,10 @@
                                 reason: JSON.stringify(last || {})
                             });
                         } catch (e) {}
+                        // "Later" has to mean later. Without this the gate returned on the
+                        // very next page load — every tab, every navigation — which is how a
+                        // nag stops being read and starts being tapped through blind.
+                        try { sessionStorage.setItem('mw_setup_gate_advisory_ack', '1'); } catch (e) {}
                         close(false);
                     } else if (fix === 'skip') {
                         // This used to be "continue anyway": it closed the gate and let the
@@ -892,9 +896,16 @@
                     return self._ensureDisclosed(t.token).then(function(ok) {
                         if (!ok) return null;
                         return MwTracking.requestTrackingPermissions().then(function(perms) {
-                            // Anything less than the full set gets the blocking setup screen. Start
-                            // the session first when we can, so tracking runs while they fix the rest.
-                            if (!self._setupOk(perms)) self._setupGate();
+                            // A blocking condition always gets the screen, every load, until it is
+                            // fixed. An advisory-only shortfall (battery) gets it until they tap
+                            // Continue, then stays quiet for the rest of the app session — it is
+                            // still on the Tracking Health page and still in device_tracking_health.
+                            // Start the session first when we can, so tracking runs regardless.
+                            if (!self._setupOk(perms)) {
+                                var acked = false;
+                                try { acked = !!sessionStorage.getItem('mw_setup_gate_advisory_ack'); } catch (e) {}
+                                if (self._setupBlocking(perms) || !acked) self._setupGate();
+                            }
                             if (!perms || !perms.location) {
                                 console.warn('[MwNative] location permission refused — native tracking not started');
                                 return null;
