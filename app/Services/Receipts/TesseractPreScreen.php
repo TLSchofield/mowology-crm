@@ -226,3 +226,46 @@ function isTesseractAvailable(): bool
 {
     return _findTesseractBin() !== null;
 }
+
+
+/**
+ * Return the Tesseract confidence threshold for a given vendor.
+ *
+ * Scores at or above this value use Tesseract directly (free, no Vision API call).
+ * Scores below it but >= 30 fall through to Google Cloud Vision.
+ *
+ * Per-vendor overrides can be stored in vendors.tesseract_threshold. When no
+ * override exists (column absent, vendor not found, or value NULL) we fall back
+ * to the global default of 70 — matching the decision matrix in this file's
+ * header comment.
+ *
+ * @param int|null $vendorId  Resolved vendor ID from a prior smart-match, or null
+ * @return int  Threshold score (0-100); default 70
+ */
+function getVendorTesseractThreshold(?int $vendorId): int
+{
+    $default = 70;
+
+    if ($vendorId === null) {
+        return $default;
+    }
+
+    try {
+        $db   = getDB();
+        $stmt = $db->prepare(
+            "SELECT tesseract_threshold FROM vendors WHERE id = ? AND tesseract_threshold IS NOT NULL LIMIT 1"
+        );
+        $stmt->execute([$vendorId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($row && isset($row['tesseract_threshold'])) {
+            $val = (int) $row['tesseract_threshold'];
+            // Clamp to a sane range — prevents misconfigured 0 or 200 from breaking decisions
+            return max(30, min(100, $val));
+        }
+    } catch (Throwable $e) {
+        // Non-fatal — fall back to default if DB unavailable or column missing
+    }
+
+    return $default;
+}

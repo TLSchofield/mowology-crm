@@ -156,7 +156,7 @@
     }
 
     showLoading();
-    debounceTimer = setTimeout(function() { fetchResults(q); }, 200);
+    debounceTimer = setTimeout(function() { fetchResults(q); }, 120);
   });
 
   // ── Overlay input: arrow keys + Enter ────────────
@@ -288,8 +288,13 @@
     body.innerHTML = html;
 
     body.querySelectorAll('.mw-spotlight-item').forEach(function(item) {
-      item.addEventListener('click', function() {
-        saveRecent(item.dataset.label, item.dataset.url, item.dataset.category);
+      item.addEventListener('click', function(e) {
+        e.preventDefault();
+        var url = item.dataset.url;
+        if (url) {
+          saveRecent(item.dataset.label, url, item.dataset.category);
+          window.location.href = url;
+        }
       });
     });
   }

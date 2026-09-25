@@ -7,6 +7,7 @@
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 requireLogin();
+session_write_close();
 
 header('Content-Type: application/json');
 

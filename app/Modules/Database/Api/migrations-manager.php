@@ -148,8 +148,11 @@ function handleListMigrations() {
                 'size' => filesize($file)
             ];
 
-            // Migrations with file dates before today are assumed already executed
-            if ($createdAt < $today) {
+            // Only files with done-/problem- prefix are assumed to have been applied
+            // before the migrations_log system existed. Numbered NNN_*.sql files are
+            // always treated as pending regardless of their file date, so a migration
+            // uploaded the night before doesn't silently vanish into assumedExecuted.
+            if (preg_match('/^(done-|problem-)/', $filename)) {
                 $entry['assumed'] = true;
                 $assumedExecuted[] = $entry;
             } else {

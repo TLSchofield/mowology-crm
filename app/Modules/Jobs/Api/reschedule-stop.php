@@ -50,6 +50,13 @@ try {
         throw new Exception('Missing required fields: stop_id, new_date');
     }
 
+    if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'error' => 'CSRF token invalid']);
+        exit;
+    }
+    session_write_close(); // CSRF verified — release session lock before DB work
+
     $stopId = (int)$input['stop_id'];
     $newDate = $input['new_date'];
     $newRouteOrder = isset($input['new_route_order']) ? (int)$input['new_route_order'] : null;

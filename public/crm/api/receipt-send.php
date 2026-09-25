@@ -56,6 +56,7 @@ session_write_close();
         echo json_encode(['success' => false, 'error' => 'Invalid security token']);
         exit;
     }
+    session_write_close();
 
     $action = $_GET['action'] ?? 'send';
 

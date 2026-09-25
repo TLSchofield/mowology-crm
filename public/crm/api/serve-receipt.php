@@ -32,6 +32,7 @@ require_once CRM_INCLUDES . '/functions.php';
 
 // Must be logged in
 requireLogin();
+session_write_close();
 
 // Must have permission to view expenses
 requirePermission('expenses.view');

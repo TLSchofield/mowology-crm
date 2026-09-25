@@ -26,6 +26,7 @@ if (!defined('APP_ROOT')) {
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 
 requireLogin();
+session_write_close();
 
 $address = trim($_GET['address'] ?? '');
 if (empty($address)) {

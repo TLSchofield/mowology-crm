@@ -163,6 +163,22 @@ if ($typeFilter === 'all' || $typeFilter === 'changes') {
     $allParams[] = $contactId;
 }
 
+// 7. Consent log events (CASL audit trail)
+if ($typeFilter === 'all' || $typeFilter === 'consent') {
+    $channelLabels = "CASE cl.consent_type WHEN 'marketing_email' THEN 'Email marketing' WHEN 'sms' THEN 'SMS' WHEN 'quote_followup' THEN 'Quote follow-up' ELSE cl.consent_type END";
+    $sourceLabels  = "CASE cl.consent_source WHEN 'admin_manual' THEN 'CRM admin' WHEN 'website_form' THEN 'website form' WHEN 'unsubscribe_link' THEN 'unsubscribe link' ELSE COALESCE(cl.consent_source,'unknown') END";
+    $unions[] = "(SELECT 'consent_changed' AS event_type,
+                  CONCAT($channelLabels, ' consent ', IF(cl.consent_given=1,'given','revoked')) AS title,
+                  CONCAT('Via ', $sourceLabels, IF(u.full_name IS NOT NULL, CONCAT(' by ', u.full_name), '')) AS detail,
+                  cl.created_at AS event_time,
+                  u.full_name AS user_name,
+                  cl.id AS entity_id, NULL AS entity_number
+                  FROM consent_log cl
+                  LEFT JOIN users u ON u.id = cl.updated_by_user_id
+                  WHERE cl.contact_id = ?)";
+    $allParams[] = $contactId;
+}
+
 if (empty($unions)) {
     echo json_encode(['success' => true, 'events' => [], 'total' => 0, 'page' => $page]);
     exit;

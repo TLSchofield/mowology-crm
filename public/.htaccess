@@ -1,6 +1,41 @@
 # Disable directory browsing
 Options -Indexes
 
+# ── Compression ───────────────────────────────────────────────────────────────
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/html text/plain text/css text/javascript \
+        application/javascript application/json application/xml \
+        image/svg+xml font/woff2
+</IfModule>
+
+# ── Browser Caching ───────────────────────────────────────────────────────────
+# mod_expires: used if available (some shared hosts don't enable it)
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType text/css               "access plus 1 year"
+    ExpiresByType application/javascript "access plus 1 year"
+    ExpiresByType text/javascript        "access plus 1 year"
+    ExpiresByType image/jpeg             "access plus 30 days"
+    ExpiresByType image/png              "access plus 30 days"
+    ExpiresByType image/webp             "access plus 30 days"
+    ExpiresByType image/gif              "access plus 30 days"
+    ExpiresByType image/svg+xml          "access plus 30 days"
+    ExpiresByType font/woff2             "access plus 1 year"
+    ExpiresByType application/font-woff  "access plus 1 year"
+    ExpiresByType application/json       "access plus 0 seconds"
+    ExpiresByType text/html              "access plus 0 seconds"
+</IfModule>
+# mod_headers fallback: explicit Cache-Control on static file types
+# CSS/JS have ?v= version params so 1-year cache is safe
+<IfModule mod_headers.c>
+    <FilesMatch "\.(css|js)$">
+        Header set Cache-Control "public, max-age=31536000, immutable"
+    </FilesMatch>
+    <FilesMatch "\.(jpg|jpeg|png|gif|webp|svg|ico|woff|woff2)$">
+        Header set Cache-Control "public, max-age=2592000"
+    </FilesMatch>
+</IfModule>
+
 # ── Security Headers ──────────────────────────────────────────────────────────
 <IfModule mod_headers.c>
     # Prevent clickjacking
@@ -90,6 +125,9 @@ RewriteRule ^sitemap\.xml$ /sitemap.php [L]
 
 # /quote → /quote.php (pass query string through)
 RewriteRule ^quote/?$ /quote.php [L,QSA]
+
+# /before-after → clean URL for public gallery page
+RewriteRule ^before-after/?$ /before-after.php [L,QSA]
 
 # /forgot-password and /reset-password — iOS app password reset flow
 RewriteRule ^forgot-password/?$ /forgot-password.php [L,QSA]

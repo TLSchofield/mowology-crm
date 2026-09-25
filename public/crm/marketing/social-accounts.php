@@ -2,8 +2,8 @@
 /**
  * Social Accounts — Connect and manage platform integrations.
  *
- * Google Business Profile: Full OAuth 2.0 + location selection (Phase 1).
- * Facebook / Instagram: Phase 2 scaffold with setup instructions.
+ * Google Business Profile: Full OAuth 2.0 + location selection.
+ * Facebook / Instagram: Meta Graph API with page selection + Instagram Business linkage.
  * LinkedIn: Phase 3 placeholder.
  *
  * Query params:
@@ -44,6 +44,24 @@ $errorMsg = htmlspecialchars($_GET['error']    ?? '');
           <div class="alert alert-danger alert-dismissible fade show">
               <strong>Connection failed:</strong> <?php echo $errorMsg; ?>
               <button type="button" class="close" data-dismiss="alert"><span>&times;</span></button>
+          </div>
+          <?php endif; ?>
+
+          <!-- OAuth Step: Select Facebook Page -->
+          <?php if ($step === 'select_page' && in_array($platform, ['facebook', 'instagram'], true) && $canApprove): ?>
+          <div class="card mb-4" style="border-color:#1877f2">
+              <div class="card-header" style="background:#1877f2;color:#fff">
+                  <h5 class="mb-0">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mr-2"><path d="M18 2h-3a5 5 0 00-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 011-1h3z"/></svg>
+                      Facebook Authorized — Select a Page to Connect
+                  </h5>
+              </div>
+              <div class="card-body">
+                  <p class="text-muted">Select the Facebook Page you want to publish to. Pages with a linked Instagram Business account show an Instagram badge — you can connect both at once.</p>
+                  <div id="pageList">
+                      <div class="mw-soc-loading">Loading your Facebook Pages...</div>
+                  </div>
+              </div>
           </div>
           <?php endif; ?>
 
@@ -112,21 +130,23 @@ $errorMsg = htmlspecialchars($_GET['error']    ?? '');
                               <h5 class="mb-0">Facebook Page</h5>
                               <p class="text-muted small mb-0">Posts, photos, stories</p>
                           </div>
-                          <span class="mw-soc-phase-badge mw-soc-phase-2">Phase 2</span>
                       </div>
                       <div class="mw-soc-platform-card-body">
-                          <div class="alert alert-info small mb-2">
-                              <strong>Phase 2</strong> — Meta API integration coming soon.
-                              Requires Facebook App review (typically 1-2 weeks).
-                          </div>
-                          <ul class="mw-soc-platform-features text-muted">
-                              <li>○ Photo &amp; video posts</li>
-                              <li>○ Page insights &amp; engagement</li>
-                              <li>○ Linked to Instagram</li>
+                          <ul class="mw-soc-platform-features">
+                              <li>✓ Photo &amp; multi-photo posts</li>
+                              <li>✓ Page insights &amp; engagement</li>
+                              <li>✓ Linked to Instagram Business</li>
+                              <li>✓ Automatic scheduling &amp; retry</li>
                           </ul>
-                          <button class="btn btn-outline-secondary btn-block" disabled>
-                              Coming in Phase 2
-                          </button>
+                          <?php if ($canApprove): ?>
+                          <a href="/crm/api/social/accounts.php?action=oauth-init&amp;platform=facebook"
+                             class="btn btn-block" style="background:#1877f2;color:#fff">
+                              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="mr-1"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                              Connect Facebook Page
+                          </a>
+                          <?php else: ?>
+                          <p class="text-muted small">An admin must connect this account.</p>
+                          <?php endif; ?>
                       </div>
                   </div>
               </div>
@@ -142,21 +162,24 @@ $errorMsg = htmlspecialchars($_GET['error']    ?? '');
                               <h5 class="mb-0">Instagram Business</h5>
                               <p class="text-muted small mb-0">Reels, posts, carousels</p>
                           </div>
-                          <span class="mw-soc-phase-badge mw-soc-phase-2">Phase 2</span>
                       </div>
                       <div class="mw-soc-platform-card-body">
-                          <div class="alert alert-info small mb-2">
-                              <strong>Phase 2</strong> — Connects via Facebook Page.
-                              Requires Instagram Business account linked to Facebook.
-                          </div>
-                          <ul class="mw-soc-platform-features text-muted">
-                              <li>○ Feed posts &amp; carousels</li>
-                              <li>○ Hashtag optimization</li>
-                              <li>○ Before/after visuals</li>
+                          <ul class="mw-soc-platform-features">
+                              <li>✓ Feed posts &amp; carousels (up to 10 images)</li>
+                              <li>✓ Hashtag optimization</li>
+                              <li>✓ Before/after visuals</li>
+                              <li>✓ Connected via Facebook Page OAuth</li>
                           </ul>
-                          <button class="btn btn-outline-secondary btn-block" disabled>
-                              Coming in Phase 2
-                          </button>
+                          <?php if ($canApprove): ?>
+                          <a href="/crm/api/social/accounts.php?action=oauth-init&amp;platform=facebook"
+                             class="btn btn-block" style="background:linear-gradient(45deg,#f09433,#e6683c,#dc2743,#cc2366);color:#fff">
+                              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="mr-1"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                              Connect Instagram (via Facebook)
+                          </a>
+                          <p class="text-muted x-small mt-1 mb-0">Requires Instagram Business account linked to a Facebook Page.</p>
+                          <?php else: ?>
+                          <p class="text-muted small">An admin must connect this account.</p>
+                          <?php endif; ?>
                       </div>
                   </div>
               </div>
@@ -217,6 +240,50 @@ $errorMsg = htmlspecialchars($_GET['error']    ?? '');
           </div>
           <?php endif; ?>
 
+          <!-- Facebook Page picker modal -->
+          <?php if ($canApprove): ?>
+          <div class="modal fade" id="pageModal" tabindex="-1">
+              <div class="modal-dialog">
+                  <div class="modal-content">
+                      <div class="modal-header" style="background:#1877f2;color:#fff">
+                          <h5 class="modal-title">Connect Facebook Page</h5>
+                          <button type="button" class="close" style="color:#fff" data-dismiss="modal"><span>&times;</span></button>
+                      </div>
+                      <div class="modal-body">
+                          <input type="hidden" id="selPageId">
+                          <input type="hidden" id="selPageToken">
+                          <input type="hidden" id="selIgUserId">
+                          <div class="form-group">
+                              <label>Facebook Page</label>
+                              <input type="text" class="form-control" id="selPageDisplay" readonly>
+                          </div>
+                          <div id="selIgInfo" class="form-group" style="display:none">
+                              <label>Instagram Account</label>
+                              <input type="text" class="form-control" id="selIgDisplay" readonly>
+                              <div id="selIgManual" style="display:none" class="mt-2">
+                                  <label class="small text-muted mb-1">Instagram Business Account ID <span class="text-danger">*</span><br>
+                                      <span class="font-weight-normal">Find it in Meta Business Suite → Accounts → Instagram accounts</span>
+                                  </label>
+                                  <input type="text" class="form-control form-control-sm" id="selIgUserIdManual" placeholder="e.g. 17841400000000000">
+                              </div>
+                          </div>
+                          <p class="text-muted small mb-0">The page access token is stored encrypted. It does not expire.</p>
+                      </div>
+                      <div class="modal-footer">
+                          <button class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                          <button class="btn btn-block" style="background:#1877f2;color:#fff" onclick="confirmConnectPage('facebook')">
+                              Connect Facebook Page
+                          </button>
+                          <button class="btn btn-block" id="btnConnectInstagram" onclick="confirmConnectPage('instagram')"
+                                  style="background:linear-gradient(45deg,#f09433,#cc2366);color:#fff;display:none">
+                              + Also Connect Instagram Business
+                          </button>
+                      </div>
+                  </div>
+              </div>
+          </div>
+          <?php endif; ?>
+
           <script>
           (function() {
               'use strict';
@@ -226,6 +293,20 @@ $errorMsg = htmlspecialchars($_GET['error']    ?? '');
               var step       = '<?php echo $step; ?>';
               var platform   = '<?php echo $platform; ?>';
 
+              // Platform icon SVGs — keyed by platform slug
+              var platformIcons = {
+                  gbp: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>',
+                  facebook: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 2h-3a5 5 0 00-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 011-1h3z"/></svg>',
+                  instagram: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M16 11.37A4 4 0 1112.63 8 4 4 0 0116 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>',
+                  linkedin: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 8a6 6 0 016 6v7h-4v-7a2 2 0 00-2-2 2 2 0 00-2 2v7h-4v-7a6 6 0 016-6z"/><rect x="2" y="9" width="4" height="12"/><circle cx="4" cy="4" r="2"/></svg>',
+              };
+              var platformStyles = {
+                  gbp:       'background:#34a853;color:#fff',
+                  facebook:  'background:#1877f2;color:#fff',
+                  instagram: 'background:linear-gradient(45deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888);color:#fff',
+                  linkedin:  'background:#0a66c2;color:#fff',
+              };
+
               // ── Load existing accounts ─────────────────────────────
               function loadAccounts() {
                   fetch('/crm/api/social/accounts.php?action=list')
@@ -233,39 +314,182 @@ $errorMsg = htmlspecialchars($_GET['error']    ?? '');
                       .then(function(data) {
                           var container = document.getElementById('accountsTable');
                           if (!data.success || !data.accounts.length) {
-                              container.innerHTML = '<div class="mw-soc-empty-state p-3"><p>No accounts connected yet.</p></div>';
+                              container.innerHTML = '<div class="text-center py-4">'
+                                  + '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#adb5bd" stroke-width="1.5" class="mb-3"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>'
+                                  + '<p class="text-muted mb-3">No platforms connected yet.</p>'
+                                  + '<a href="/crm/marketing/social-setup-wizard.php" class="btn btn-success">'
+                                  + '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="mr-1"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>'
+                                  + 'Run Setup Wizard</a>'
+                                  + '</div>';
                               return;
                           }
 
-                          var platformNames = {gbp:'Google Business Profile', facebook:'Facebook Page', instagram:'Instagram Business', linkedin:'LinkedIn'};
-                          var html = '<div class="table-responsive"><table class="table mb-0">'
-                              + '<thead><tr><th>Platform</th><th>Location / Page</th><th>Token Status</th><th>Last Sync</th><th>Status</th>';
-                          if (canApprove) html += '<th>Actions</th>';
-                          html += '</tr></thead><tbody>';
+                          var platformNames = {
+                              gbp:       'Google Business Profile',
+                              facebook:  'Facebook Page',
+                              instagram: 'Instagram Business',
+                              linkedin:  'LinkedIn'
+                          };
+                          var platformAbbr = {gbp:'GBP', facebook:'FB', instagram:'IG', linkedin:'LI'};
+
+                          var html = '<div class="mw-sw-platforms p-3">';
 
                           data.accounts.forEach(function(a) {
-                              var healthLabels = {good:'Active', expiring:'Expiring soon', expired:'Token expired', unknown:'Unknown'};
-                              var healthClasses = {good:'success', expiring:'warning', expired:'danger', unknown:'secondary'};
-                              var h = a.token_health;
+                              var healthLabels  = {good:'Active', expiring:'Expiring soon', expired:'Token expired', unknown:'Unknown'};
+                              var h             = a.token_health;
+                              var isActive      = !!a.is_active;
+                              var isVerified    = !!a.is_verified;
+                              var connDate      = a.connected_at ? new Date(a.connected_at).toLocaleDateString('en-CA', {year:'numeric',month:'short',day:'numeric'}) : '';
+                              var lastSync      = a.last_sync_at ? formatDt(a.last_sync_at) : null;
+                              var displayName   = esc(a.location_name_display || a.account_name);
+                              var abbr          = platformAbbr[a.platform] || a.platform.toUpperCase().substring(0,2);
+                              var platName      = esc(platformNames[a.platform] || a.platform);
 
-                              html += '<tr>';
-                              html += '<td><span class="mw-soc-platform-pill mw-soc-pl-' + esc(a.platform) + '">' + esc(platformNames[a.platform] || a.platform) + '</span></td>';
-                              html += '<td>' + esc(a.location_name_display || a.account_name) + '</td>';
-                              html += '<td><span class="badge badge-' + (healthClasses[h] || 'secondary') + '">' + esc(healthLabels[h] || h) + '</span></td>';
-                              html += '<td class="text-muted small">' + (a.last_sync_at ? formatDt(a.last_sync_at) : '—') + '</td>';
-                              html += '<td>' + (a.is_active ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-secondary">Paused</span>') + '</td>';
-                              if (canApprove) {
-                                  html += '<td class="text-nowrap">';
-                                  html += '<button class="btn btn-sm btn-outline-secondary mr-1" onclick="toggleAccount(' + a.id + ')">Toggle</button>';
-                                  html += '<button class="btn btn-sm btn-outline-danger" onclick="disconnectAccount(' + a.id + ', \'' + esc(a.account_name) + '\')">Disconnect</button>';
-                                  html += '</td>';
+                              html += '<div class="mw-sw-plat-row" style="cursor:default">';
+
+                              // Platform logo badge
+                              html += '<div class="mw-sw-plat-logo ' + a.platform + '">' + abbr + '</div>';
+
+                              // Name + meta
+                              html += '<div style="flex:1;min-width:0">';
+                              html += '<div class="mw-sw-plat-name">' + platName + '</div>';
+                              html += '<div class="mw-sw-plat-info">' + displayName;
+                              if (connDate) html += ' &mdash; connected ' + connDate;
+                              if (lastSync) html += ' &mdash; synced ' + lastSync;
+                              html += '</div></div>';
+
+                              // Status badges + actions
+                              html += '<div class="mw-sw-plat-status d-flex align-items-center flex-wrap" style="gap:6px">';
+
+                              if (!isActive) {
+                                  html += '<span class="mw-sw-plat-badge not-connected">Paused</span>';
+                              } else if (h === 'expired') {
+                                  html += '<span class="mw-sw-plat-badge not-connected">Token expired</span>';
+                              } else if (h === 'expiring') {
+                                  html += '<span class="badge badge-warning" style="font-size:.75rem">Expiring soon</span>';
+                              } else if (isVerified) {
+                                  html += '<span class="mw-sw-plat-badge connected">Verified</span>';
+                              } else {
+                                  html += '<span class="mw-sw-plat-badge not-connected">Unverified</span>';
                               }
-                              html += '</tr>';
+
+                              if (canApprove) {
+                                  // Reconnect button for expired/unverified tokens
+                                  if (h === 'expired' || (!isVerified && a.platform !== 'gbp')) {
+                                      var rUrl = a.platform === 'gbp'
+                                          ? '/crm/api/social/accounts.php?action=oauth-init&platform=gbp'
+                                          : '/crm/api/social/accounts.php?action=oauth-init&platform=facebook';
+                                      html += '<a href="' + rUrl + '" class="btn btn-sm btn-warning">Reconnect</a>';
+                                  }
+                                  html += '<button class="btn btn-sm btn-outline-secondary" onclick="toggleAccount(' + a.id + ')">'
+                                      + (isActive ? 'Pause' : 'Resume') + '</button>';
+                                  html += '<button class="btn btn-sm btn-outline-danger" onclick="disconnectAccount(' + a.id + ', \'' + displayName + '\')">Disconnect</button>';
+                              }
+
+                              html += '</div></div>'; // .mw-sw-plat-status + .mw-sw-plat-row
                           });
-                          html += '</tbody></table></div>';
+
+                          html += '</div>';
                           container.innerHTML = html;
                       });
               }
+
+              // ── Load Facebook Pages after OAuth ───────────────────
+              function loadPages() {
+                  var listDiv = document.getElementById('pageList');
+                  if (!listDiv) return;
+
+                  fetch('/crm/api/social/accounts.php?action=pages')
+                      .then(function(r) { return r.json(); })
+                      .then(function(data) {
+                          if (!data.success) {
+                              listDiv.innerHTML = '<div class="alert alert-danger">' + esc(data.error || 'Unknown error') + '</div>';
+                              return;
+                          }
+                          if (!data.pages || !data.pages.length) {
+                              listDiv.innerHTML = '<div class="alert alert-warning">No Facebook Pages found on this account. Make sure you manage at least one Facebook Page.</div>';
+                              return;
+                          }
+                          var html = '<div class="list-group">';
+                          data.pages.forEach(function(p) {
+                              var igBadge = p.ig_user_id
+                                  ? '<span class="badge badge-pill ml-2" style="background:linear-gradient(45deg,#f09433,#cc2366);color:#fff">Instagram linked</span>'
+                                  : '';
+                              html += '<div class="list-group-item list-group-item-action d-flex justify-content-between align-items-center" style="cursor:pointer"'
+                                  + ' onclick="selectPage(\'' + esc(p.page_id) + '\',\'' + esc(p.page_name).replace(/'/g, "\\'") + '\',\'' + esc(p.page_token).replace(/'/g, "\\'") + '\',\'' + esc(p.ig_user_id || '') + '\')">'
+                                  + '<div><strong>' + esc(p.page_name) + '</strong>' + igBadge + '</div>'
+                                  + '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>'
+                                  + '</div>';
+                          });
+                          html += '</div>';
+                          listDiv.innerHTML = html;
+                      })
+                      .catch(function(e) {
+                          if (listDiv) listDiv.innerHTML = '<div class="alert alert-danger">Could not load pages: ' + esc(e.message) + '</div>';
+                      });
+              }
+
+              window.selectPage = function(pageId, pageName, pageToken, igUserId) {
+                  document.getElementById('selPageId').value    = pageId;
+                  document.getElementById('selPageToken').value = pageToken;
+                  document.getElementById('selIgUserId').value  = igUserId || '';
+                  document.getElementById('selPageDisplay').value = pageName;
+
+                  var igInfo = document.getElementById('selIgInfo');
+                  var btnIg  = document.getElementById('btnConnectInstagram');
+                  // Always show the Instagram button — ig_user_id is looked up
+                  // server-side at connect time using the page token.
+                  if (igUserId) {
+                      document.getElementById('selIgDisplay').value = 'Instagram Business account linked (ID: ' + igUserId + ')';
+                  } else {
+                      document.getElementById('selIgDisplay').value = 'Will be looked up via page token at connect time';
+                  }
+                  igInfo.style.display = '';
+                  btnIg.style.display  = '';
+                  $('#pageModal').modal('show');
+              };
+
+              window.confirmConnectPage = function(platform) {
+                  var btn = platform === 'instagram'
+                      ? document.getElementById('btnConnectInstagram')
+                      : document.querySelector('#pageModal .modal-footer .btn[style*="1877f2"]');
+                  if (btn) { btn.disabled = true; btn.textContent = 'Connecting...'; }
+
+                  // Use manual IG ID if entered (fallback when API can't auto-detect)
+                  var igUserIdAuto   = document.getElementById('selIgUserId').value || null;
+                  var igUserIdManual = (document.getElementById('selIgUserIdManual') || {}).value || null;
+
+                  var body = {
+                      csrf_token:   csrf,
+                      platform:     platform,
+                      account_name: document.getElementById('selPageDisplay').value,
+                      page_id:      document.getElementById('selPageId').value,
+                      page_token:   document.getElementById('selPageToken').value,
+                      ig_user_id:   igUserIdAuto || igUserIdManual || null,
+                  };
+
+                  fetch('/crm/api/social/accounts.php?action=connect', {
+                      method: 'POST',
+                      headers: {'Content-Type': 'application/json'},
+                      body: JSON.stringify(body)
+                  }).then(function(r) { return r.json(); }).then(function(data) {
+                      if (data.success) {
+                          $('#pageModal').modal('hide');
+                          window.location.href = '/crm/marketing/social-accounts.php?msg=' + encodeURIComponent(data.message || 'Connected!');
+                      } else {
+                          // Show manual ID input on failure so user can enter it directly
+                          if (platform === 'instagram') {
+                              var manualDiv = document.getElementById('selIgManual');
+                              if (manualDiv) { manualDiv.style.display = ''; }
+                          }
+                          alert('Error: ' + (data.error || 'Unknown error'));
+                          if (btn) { btn.disabled = false; btn.textContent = platform === 'instagram' ? '+ Also Connect Instagram Business' : 'Connect Facebook Page'; }
+                      }
+                  }).catch(function(e) {
+                      alert('Connect failed: ' + e.message);
+                      if (btn) { btn.disabled = false; }
+                  });
+              };
 
               // ── Load GBP locations after OAuth ────────────────────
               function loadLocations() {
@@ -396,6 +620,9 @@ $errorMsg = htmlspecialchars($_GET['error']    ?? '');
               if (canApprove) loadAudit();
               if (step === 'select_location' && platform === 'gbp') {
                   loadLocations();
+              }
+              if (step === 'select_page' && (platform === 'facebook' || platform === 'instagram')) {
+                  loadPages();
               }
           })();
           </script>

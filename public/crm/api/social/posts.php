@@ -190,11 +190,23 @@ try {
                         FROM social_post_platforms WHERE post_id = sp.id) AS platforms,
                        (SELECT ma.file_path FROM social_post_media spm
                         JOIN media_assets ma ON ma.id = spm.media_id
-                        WHERE spm.post_id = sp.id ORDER BY spm.sort_order LIMIT 1) AS thumb_path
+                        WHERE spm.post_id = sp.id ORDER BY spm.sort_order LIMIT 1) AS thumb_path,
+                       (SELECT GROUP_CONCAT(fail_reason ORDER BY platform SEPARATOR ' | ')
+                        FROM social_post_platforms
+                        WHERE post_id = sp.id AND fail_reason IS NOT NULL) AS fail_reason
                 FROM social_posts sp
                 LEFT JOIN users u ON u.id = sp.created_by
-                WHERE sp.status IN ('scheduled','approved','pending_approval')
-                  AND (sp.scheduled_at IS NULL OR sp.scheduled_at >= NOW())
+                WHERE (
+                    sp.status IN ('scheduled','approved','pending_approval','publishing')
+                    OR (
+                        -- Partial publish: post is 'published' but some platforms still failed
+                        sp.status = 'published'
+                        AND EXISTS (
+                            SELECT 1 FROM social_post_platforms
+                            WHERE post_id = sp.id AND status NOT IN ('published')
+                        )
+                    )
+                )
                 ORDER BY sp.scheduled_at IS NULL DESC, sp.scheduled_at ASC
                 LIMIT ?
             ");
@@ -213,22 +225,40 @@ try {
         }
 
         // ── Failed posts ─────────────────────────────────────────────
+
         case 'failed': {
             $stmt = $db->prepare("
                 SELECT sp.id, sp.title, sp.caption, sp.last_fail_reason,
                        sp.fail_count, sp.updated_at,
+                       (SELECT GROUP_CONCAT(CONCAT(platform, ':', COALESCE(fail_reason,''))
+                               ORDER BY platform SEPARATOR '||')
+                        FROM social_post_platforms WHERE post_id = sp.id) AS platform_errors,
                        (SELECT GROUP_CONCAT(platform ORDER BY platform SEPARATOR ',')
                         FROM social_post_platforms WHERE post_id = sp.id) AS platforms
                 FROM social_posts sp
                 WHERE sp.status = 'failed'
                 ORDER BY sp.updated_at DESC
-                LIMIT 10
+                LIMIT 20
             ");
             $stmt->execute();
             $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             foreach ($posts as &$p) {
                 $p['platforms'] = $p['platforms'] ? explode(',', $p['platforms']) : [];
+
+                // Build per-platform error detail array [platform => reason]
+                $platformErrors = [];
+                if (!empty($p['platform_errors'])) {
+                    foreach (explode('||', $p['platform_errors']) as $pair) {
+                        $colonPos = strpos($pair, ':');
+                        if ($colonPos !== false) {
+                            $pl  = substr($pair, 0, $colonPos);
+                            $err = substr($pair, $colonPos + 1);
+                            if ($pl) { $platformErrors[$pl] = $err ?: null; }
+                        }
+                    }
+                }
+                $p['platform_errors'] = $platformErrors;
             }
             unset($p);
 
@@ -278,37 +308,155 @@ try {
 
         // ── Media picker (for post editor) ───────────────────────────
         case 'media-pick': {
-            requirePermission('photos.upload');
+            requirePermission('marketing.view');
             $search = trim($_GET['q'] ?? '');
             $limit  = min(40, (int)($_GET['limit'] ?? 24));
 
-            $where  = "ma.mime_type LIKE 'image/%'";
-            $params = [];
+            $rows = [];
 
-            if ($search) {
-                $where .= ' AND (ma.alt_text LIKE ? OR ma.usage_context LIKE ?)';
-                $params[] = '%' . $search . '%';
-                $params[] = '%' . $search . '%';
+            // ── Source 1: media_assets (uploaded via Upload button) ──
+            try {
+                $maWhere  = "ma.mime_type LIKE 'image/%'";
+                $maParams = [];
+                if ($search) {
+                    $maWhere .= ' AND (ma.alt_text LIKE ? OR ma.original_filename LIKE ?)';
+                    $maParams[] = '%' . $search . '%';
+                    $maParams[] = '%' . $search . '%';
+                }
+                $maStmt = $db->prepare("
+                    SELECT ma.id, ma.file_path AS url_path, ma.alt_text AS caption,
+                           ma.image_width, ma.image_height,
+                           COALESCE(ma.upload_date, ma.created_at) AS taken_at,
+                           'media_asset' AS source, ma.id AS source_id
+                    FROM media_assets ma
+                    WHERE $maWhere
+                    ORDER BY COALESCE(ma.upload_date, ma.created_at) DESC
+                    LIMIT ?
+                ");
+                $maParams[] = $limit;
+                $maStmt->execute($maParams);
+                foreach ($maStmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                    $rows[] = $r;
+                }
+            } catch (\Throwable $e) {
+                error_log('media-pick media_assets: ' . $e->getMessage());
             }
 
-            $stmt = $db->prepare("
-                SELECT ma.id, ma.file_path, ma.alt_text, ma.image_width, ma.image_height,
-                       ma.upload_date, ma.usage_context
-                FROM media_assets ma
-                WHERE $where
-                ORDER BY ma.upload_date DESC
-                LIMIT ?
+            // ── Source 2: visit_photos (job site photos) ─────────────
+            try {
+                $vpWhere  = "vp.deleted_at IS NULL AND vp.filename IS NOT NULL";
+                $vpParams = [];
+                if ($search) {
+                    $vpWhere .= ' AND (vp.caption LIKE ? OR vp.tags LIKE ? OR vp.photo_type LIKE ?)';
+                    $vpParams[] = '%' . $search . '%';
+                    $vpParams[] = '%' . $search . '%';
+                    $vpParams[] = '%' . $search . '%';
+                }
+                $vpStmt = $db->prepare("
+                    SELECT vp.id, vp.filename, vp.thumb_path, vp.caption,
+                           vp.uploaded_at AS taken_at, vp.photo_type,
+                           'visit_photo' AS source, vp.id AS source_id
+                    FROM visit_photos vp
+                    WHERE $vpWhere
+                    ORDER BY vp.uploaded_at DESC
+                    LIMIT ?
+                ");
+                $vpParams[] = $limit;
+                $vpStmt->execute($vpParams);
+                foreach ($vpStmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                    $rows[] = $r;
+                }
+            } catch (\Throwable $e) {
+                error_log('media-pick visit_photos: ' . $e->getMessage());
+            }
+
+            // ── Normalise and sort by date ────────────────────────────
+            $media = [];
+            foreach ($rows as $r) {
+                if ($r['source'] === 'media_asset') {
+                    $media[] = [
+                        'id'        => (int)$r['id'],
+                        'url'       => '/' . ltrim($r['url_path'], '/'),
+                        'thumb_url' => '/' . ltrim($r['url_path'], '/'),
+                        'alt_text'  => $r['caption'] ?? '',
+                        'taken_at'  => $r['taken_at'],
+                        'source'    => 'media_asset',
+                        'source_id' => (int)$r['source_id'],
+                    ];
+                } else {
+                    $origUrl  = '/uploads/photos/' . $r['filename'];
+                    $thumbUrl = $r['thumb_path'] ? '/' . ltrim($r['thumb_path'], '/') : $origUrl;
+                    $media[]  = [
+                        'id'        => null, // resolved on selection
+                        'url'       => $origUrl,
+                        'thumb_url' => $thumbUrl,
+                        'alt_text'  => $r['caption'] ?? $r['photo_type'] ?? '',
+                        'taken_at'  => $r['taken_at'],
+                        'source'    => 'visit_photo',
+                        'source_id' => (int)$r['source_id'],
+                    ];
+                }
+            }
+
+            // Sort newest first
+            usort($media, function($a, $b) {
+                return strcmp($b['taken_at'] ?? '', $a['taken_at'] ?? '');
+            });
+
+            echo json_encode(['success' => true, 'media' => array_slice($media, 0, $limit)]);
+            break;
+        }
+
+        // ── Import visit_photo into media_assets, return media_assets.id ─
+        case 'import-visit-photo': {
+            requirePermission('marketing.view');
+            $vpId = (int)($_GET['vp_id'] ?? 0);
+            if (!$vpId) throw new InvalidArgumentException('Missing vp_id');
+
+            // Check if already imported
+            $existing = $db->prepare("
+                SELECT id FROM media_assets
+                WHERE original_filename = ? AND file_type = 'image'
+                LIMIT 1
             ");
-            $params[] = $limit;
-            $stmt->execute($params);
-            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            foreach ($rows as &$m) {
-                $m['url'] = '/' . ltrim($m['file_path'], '/');
+            $vp = $db->prepare("SELECT id, filename, thumb_path, caption, photo_type FROM visit_photos WHERE id = ? AND deleted_at IS NULL");
+            $vp->execute([$vpId]);
+            $vpRow = $vp->fetch(PDO::FETCH_ASSOC);
+            if (!$vpRow) throw new RuntimeException('Visit photo not found');
+
+            // Look for existing import by file_path
+            $existStmt = $db->prepare("SELECT id FROM media_assets WHERE file_path = ? LIMIT 1");
+            $existStmt->execute(['uploads/photos/' . $vpRow['filename']]);
+            $existRow = $existStmt->fetch(PDO::FETCH_ASSOC);
+            if ($existRow) {
+                echo json_encode(['success' => true, 'media_id' => (int)$existRow['id']]);
+                break;
             }
-            unset($m);
 
-            echo json_encode(['success' => true, 'media' => $rows]);
+            // Create media_assets record pointing to existing visit photo file
+            $filePath = 'uploads/photos/' . $vpRow['filename'];
+            $ext      = strtolower(pathinfo($vpRow['filename'], PATHINFO_EXTENSION));
+            $mimeMap  = ['jpg'=>'image/jpeg','jpeg'=>'image/jpeg','png'=>'image/png','gif'=>'image/gif','webp'=>'image/webp','heic'=>'image/heic'];
+            $mime     = $mimeMap[$ext] ?? 'image/jpeg';
+
+            $ins = $db->prepare("
+                INSERT INTO media_assets
+                    (original_filename, stored_filename, file_path, file_type, mime_type,
+                     alt_text, created_by, upload_date)
+                VALUES (?, ?, ?, 'image', ?, ?, ?, NOW())
+            ");
+            $ins->execute([
+                $vpRow['filename'],
+                $vpRow['filename'],
+                $filePath,
+                $mime,
+                $vpRow['caption'] ?: ($vpRow['photo_type'] . ' photo'),
+                $user['id'],
+            ]);
+            $newId = (int)$db->lastInsertId();
+
+            echo json_encode(['success' => true, 'media_id' => $newId]);
             break;
         }
 
@@ -322,6 +470,7 @@ try {
             $title       = trim($input['title'] ?? '');
             $caption     = trim($input['caption'] ?? '');
             $hashtags    = trim($input['hashtags'] ?? '');
+            $hashtagsInComment = !empty($input['hashtags_in_comment']) ? 1 : 0;
             $ctaAction   = trim($input['cta_action'] ?? '');
             $ctaUrl      = trim($input['cta_url'] ?? '');
             $neighborhood = trim($input['neighborhood'] ?? '');
@@ -332,6 +481,11 @@ try {
             $platformAccounts = $input['platform_accounts'] ?? []; // [['platform'=>'gbp','account_id'=>1], ...]
             $scheduledAt = !empty($input['scheduled_at']) ? $input['scheduled_at'] : null;
             $status      = $input['status'] ?? 'draft';
+
+            $validAnims    = ['wipe', 'split', 'zoom', 'fade', 'reveal', 'blinds'];
+            $rawAnim       = trim($input['animation_type'] ?? '');
+            $animationType = in_array($rawAnim, $validAnims, true) ? $rawAnim : null;
+            $videoMediaId  = !empty($input['video_media_id']) ? (int)$input['video_media_id'] : null;
 
             if (!$caption) {
                 throw new InvalidArgumentException('Caption is required');
@@ -390,30 +544,37 @@ try {
 
                 $db->prepare("
                     UPDATE social_posts
-                    SET title        = ?, caption      = ?, hashtags     = ?,
-                        cta_action   = ?, cta_url      = ?, neighborhood = ?,
-                        city         = ?, service_type = ?, template_id  = ?,
-                        scheduled_at = ?, status       = ?, updated_at   = NOW()
+                    SET title               = ?, caption      = ?, hashtags            = ?,
+                        hashtags_in_comment = ?,
+                        cta_action          = ?, cta_url      = ?, neighborhood        = ?,
+                        city                = ?, service_type = ?, template_id         = ?,
+                        scheduled_at        = ?, status       = ?, updated_at          = NOW(),
+                        animation_type      = ?, video_media_id = ?
                     WHERE id = ?
                 ")->execute([
                     $title ?: null, $caption, $hashtags ?: null,
+                    $hashtagsInComment,
                     $ctaAction ?: null, $ctaUrl ?: null, $neighborhood ?: null,
                     $city, $serviceType ?: null, $templateId,
-                    $scheduledAt, $status, $id
+                    $scheduledAt, $status,
+                    $animationType, $videoMediaId, $id
                 ]);
 
             } else {
                 // Insert new
                 $db->prepare("
                     INSERT INTO social_posts
-                        (title, caption, hashtags, cta_action, cta_url, neighborhood,
-                         city, service_type, template_id, scheduled_at, status, created_by)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        (title, caption, hashtags, hashtags_in_comment, cta_action, cta_url,
+                         neighborhood, city, service_type, template_id, scheduled_at, status,
+                         created_by, animation_type, video_media_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ")->execute([
                     $title ?: null, $caption, $hashtags ?: null,
+                    $hashtagsInComment,
                     $ctaAction ?: null, $ctaUrl ?: null, $neighborhood ?: null,
                     $city, $serviceType ?: null, $templateId,
-                    $scheduledAt, $status, $user['id']
+                    $scheduledAt, $status, $user['id'],
+                    $animationType, $videoMediaId
                 ]);
                 $id = (int)$db->lastInsertId();
             }
@@ -423,6 +584,15 @@ try {
             foreach ($mediaIds as $i => $mid) {
                 $db->prepare("INSERT INTO social_post_media (post_id, media_id, sort_order) VALUES (?, ?, ?)")
                    ->execute([$id, $mid, $i]);
+            }
+            // Append generated animation video (sort after images)
+            if ($videoMediaId) {
+                $chkVid = $db->prepare("SELECT id FROM media_assets WHERE id = ? AND file_type = 'video'");
+                $chkVid->execute([$videoMediaId]);
+                if ($chkVid->fetch()) {
+                    $db->prepare("INSERT INTO social_post_media (post_id, media_id, sort_order) VALUES (?, ?, ?)")
+                       ->execute([$id, $videoMediaId, count($mediaIds)]);
+                }
             }
 
             // Sync platform targets
@@ -584,22 +754,49 @@ try {
             $id = (int)($input['id'] ?? 0);
             if (!$id) { throw new InvalidArgumentException('Missing id'); }
 
-            $stmt = $db->prepare("SELECT * FROM social_posts WHERE id = ? AND status = 'failed'");
+            // Allow retry whenever the post exists AND has at least one
+            // non-published platform row (failed, pending, or stuck in processing).
+            // Don't restrict by social_posts.status — partial success (FB published,
+            // IG failed) leaves the post as 'published' which is still retryable.
+            $stmt = $db->prepare("SELECT sp.* FROM social_posts sp WHERE sp.id = ?");
             $stmt->execute([$id]);
             $post = $stmt->fetch(PDO::FETCH_ASSOC);
-            if (!$post) { throw new RuntimeException('Post not found or not in failed status'); }
+            if (!$post) { throw new RuntimeException('Post not found'); }
 
-            // Reset post and platform rows
-            $db->prepare("UPDATE social_posts SET status = 'scheduled', fail_count = 0, last_fail_reason = NULL WHERE id = ?")
-               ->execute([$id]);
-            $db->prepare("UPDATE social_post_platforms SET status = 'pending', fail_reason = NULL, retry_count = 0 WHERE post_id = ?")
-               ->execute([$id]);
-            $db->prepare("UPDATE social_queue SET status = 'pending', attempts = 0, locked_at = NULL, locked_by = NULL,
-                          scheduled_at = NOW() WHERE post_id = ? AND status = 'failed'")
-               ->execute([$id]);
+            // Count platforms that still need publishing
+            $sppStmt = $db->prepare("
+                SELECT COUNT(*) FROM social_post_platforms
+                WHERE post_id = ? AND status NOT IN ('published')
+            ");
+            $sppStmt->execute([$id]);
+            $retryableCount = (int)$sppStmt->fetchColumn();
 
-            GoogleBusinessService::auditLog($user['id'], 'post_retry', 'post', $id, 'Manually retried');
-            echo json_encode(['success' => true, 'message' => 'Post queued for retry']);
+            if ($retryableCount === 0) {
+                throw new RuntimeException('All platforms have already published successfully.');
+            }
+
+            // Only reset NON-published platforms — don't re-publish what already succeeded
+            $db->prepare("
+                UPDATE social_post_platforms
+                SET status = 'pending', fail_reason = NULL, retry_count = 0
+                WHERE post_id = ? AND status != 'published'
+            ")->execute([$id]);
+
+            // Reset queue entries for non-completed platforms
+            $db->prepare("
+                UPDATE social_queue SET status = 'pending', attempts = 0,
+                    locked_at = NULL, locked_by = NULL, scheduled_at = NOW()
+                WHERE post_id = ? AND status IN ('failed','processing','pending')
+            ")->execute([$id]);
+
+            // Mark post as scheduled so the publisher and auto-enqueue can pick it up
+            $db->prepare("
+                UPDATE social_posts SET status = 'scheduled', fail_count = 0, last_fail_reason = NULL
+                WHERE id = ?
+            ")->execute([$id]);
+
+            GoogleBusinessService::auditLog($user['id'], 'post_retry', 'post', $id, 'Manually retried failed platforms');
+            echo json_encode(['success' => true, 'message' => 'Failed platforms queued for retry']);
             break;
         }
 

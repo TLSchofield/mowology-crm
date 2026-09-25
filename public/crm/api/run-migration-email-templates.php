@@ -10,6 +10,7 @@ declare(strict_types=1);
 require_once dirname(__DIR__, 2) . '/loginAuth/auth.php';
 requireLogin();
 $user = getCurrentUser();
+session_write_close();
 
 // Admin-only: require role admin or manager
 $allowedRoles = ['admin', 'manager'];

@@ -21,6 +21,7 @@ unset($__dir, $__i);
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 requireLogin();
+session_write_close();
 if (!isAdmin()) {
     http_response_code(403);
     echo json_encode(['error' => 'Admin only']);

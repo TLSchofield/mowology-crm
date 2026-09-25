@@ -149,8 +149,11 @@ try {
         }
     }
 
-    // ── Enqueue if scheduled ──────────────────────────────────────────────
-    if ($scheduledAt && !empty($platforms) && $status === 'scheduled') {
+    // ── Enqueue for publishing ────────────────────────────────────────────
+    // 'scheduled' posts use the chosen time; 'approved' posts publish immediately (NOW).
+    // 'pending_approval' posts are not enqueued — they wait for approval first.
+    if (!empty($platforms) && in_array($status, ['scheduled', 'approved'], true)) {
+        $effectiveSchedule = $scheduledAt ?? date('Y-m-d H:i:s'); // NOW for approved/immediate
         $qStmt = $db->prepare("
             INSERT INTO social_queue
                 (post_id, account_id, platform, scheduled_at, status)
@@ -158,7 +161,7 @@ try {
             FROM social_post_platforms spp
             WHERE spp.post_id = ?
         ");
-        $qStmt->execute([$scheduledAt, $postId]);
+        $qStmt->execute([$effectiveSchedule, $postId]);
     }
 
     // ── Audit log ─────────────────────────────────────────────────────────

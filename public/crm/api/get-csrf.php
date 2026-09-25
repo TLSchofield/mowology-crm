@@ -28,5 +28,6 @@ header('Content-Type: application/json');
 header('Cache-Control: no-store');
 
 requireLogin();
+session_write_close();
 
 echo json_encode(['token' => generateCSRFToken()]);

@@ -54,10 +54,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $validToken && !empty($email)) {
             VALUES (?, ?, NOW())
         ")->execute([$email, $reason ?: null]);
 
-        // Update contact.receive_marketing
+        // Update contact.receive_marketing and clear express consent timestamp
         $db->prepare("
-            UPDATE contacts SET receive_marketing = 0 WHERE email = ?
+            UPDATE contacts SET receive_marketing = 0, consent_email_express_at = NULL WHERE email = ?
         ")->execute([$email]);
+
+        // CASL audit: write to consent_log for each affected contact
+        $contactStmt = $db->prepare("SELECT id FROM contacts WHERE email = ? LIMIT 1");
+        $contactStmt->execute([$email]);
+        $unsubContactId = (int)$contactStmt->fetchColumn();
+        if ($unsubContactId) {
+            $db->prepare("INSERT INTO consent_log (contact_id, consent_type, consent_given, consent_source, ip_address, user_agent) VALUES (?, 'marketing_email', 0, 'unsubscribe_link', ?, ?)")
+               ->execute([$unsubContactId, $_SERVER['REMOTE_ADDR'] ?? '', $_SERVER['HTTP_USER_AGENT'] ?? '']);
+        }
 
         // If we have a send ID, mark it
         if ($sendId) {

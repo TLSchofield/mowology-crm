@@ -32,6 +32,7 @@ try {
 
     requireLogin();
     $user = getCurrentUser();
+    session_write_close(); // writes to DB only — release session lock after auth
 
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
         throw new Exception('Method not allowed');

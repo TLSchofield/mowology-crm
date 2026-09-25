@@ -40,15 +40,22 @@ if (!defined('APP_ROOT')) {
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
     require_once CRM_INCLUDES . '/functions.php';
+    require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
 
-    requireLogin();
-    $user = getCurrentUser();
-    // Release session lock immediately — this endpoint never writes to $_SESSION.
-    // Without this, batch GPS syncs hold the session file lock while inserting
-    // many DB rows, blocking concurrent WebView navigations at session_start()
-    // and causing Android ERR_FAILED timeouts that look like logouts.
-    session_write_close();
-    $db   = getDB();
+    // Dual auth: JWT Bearer for iOS native, session cookie for web/Android.
+    $jwtPayload = getJwtUser();
+    if ($jwtPayload !== null) {
+        $user = ['id' => $jwtPayload['id'], 'name' => $jwtPayload['name'], 'role' => $jwtPayload['role']];
+    } else {
+        requireLogin();
+        $user = getCurrentUser();
+        // Release session lock immediately — JWT callers never start a session.
+        // Without this, batch GPS syncs hold the session file lock while inserting
+        // many DB rows, blocking concurrent WebView navigations at session_start()
+        // and causing Android ERR_FAILED timeouts that look like logouts.
+        session_write_close();
+    }
+    $db = getDB();
 
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
         http_response_code(405);

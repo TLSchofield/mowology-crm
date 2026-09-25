@@ -2,6 +2,7 @@
 header('Content-Type: application/json');
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 requireLogin();
+session_write_close();
 
 $db = getDB();
 $dbTime = $db->query("SELECT NOW() AS db_now, UTC_TIMESTAMP() AS db_utc")->fetch(PDO::FETCH_ASSOC);

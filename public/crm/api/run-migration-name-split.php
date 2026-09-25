@@ -9,6 +9,7 @@ header('Content-Type: application/json');
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 requireLogin();
 $user = getCurrentUser();
+session_write_close();
 if ($user['role'] !== 'admin') {
     echo json_encode(['error' => 'Admin only']);
     exit;

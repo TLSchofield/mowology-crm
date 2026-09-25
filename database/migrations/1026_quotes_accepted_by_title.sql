@@ -1,0 +1,15 @@
+-- ═══════════════════════════════════════════════════════════════
+-- Migration 1026 — quotes.accepted_by_title
+-- ═══════════════════════════════════════════════════════════════
+--
+-- Adds the signer's title/role at acceptance time so a strata or
+-- corporate quote signed by an authorized representative captures
+-- both *who* signed and *in what capacity* (e.g. Karen Haughton,
+-- Strata Council President, signing on behalf of "The Owners,
+-- Strata Plan BCS 4079").
+--
+-- The customer signing form requires this field when the quote
+-- has a company_id; for personal/residential quotes it stays NULL.
+--
+-- Additive. Rollback: ALTER TABLE quotes DROP COLUMN accepted_by_title;
+-- Apply via /crm/api/run-migration-1026.php (idempotent).

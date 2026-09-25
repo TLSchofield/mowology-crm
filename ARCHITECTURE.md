@@ -617,3 +617,34 @@ Customer fills form on /jobFlow/jobFlow-getQuote.php
 | `clearLoginAttempts($email, $ip)` | `void` | Clear attempts on success |
 
 Snake_case wrappers also exist (e.g., `is_logged_in()`, `require_login()`, `current_user()`).
+
+---
+
+## Receipt & Expense System
+
+Full cross-platform flow documented in **[`docs/crm/receipts-flow.md`](docs/crm/receipts-flow.md)**.
+
+### At a glance
+
+Two client paths → shared PHP parsing services → `media_assets` + `expenses` tables.
+
+| Client | Endpoint | Auth | Layer 1 OCR | Layer 2 OCR |
+|--------|----------|------|-------------|-------------|
+| iOS (SwiftUI) | `app/Modules/Expenses/Api/receipt-upload.php` | JWT Bearer | Apple Vision on-device (`VisionOCRService.swift`) | Google Cloud Vision |
+| Capacitor / CRM web | `app/Modules/Expenses/Api/receipt-intake.php` | CSRF + session | Tesseract (`TesseractPreScreen.php`) | Google Cloud Vision |
+
+### Key files
+
+| File | Purpose |
+|------|---------|
+| `ios/.../Core/Vision/VisionOCRService.swift` | On-device OCR: vendor, amounts (GST+PST), date, payment method |
+| `ios/.../Features/Receipts/ReceiptReviewView.swift` | Two-phase review form (Vision pre-fill → server merge) |
+| `ios/.../Core/Offline/ReceiptQueue.swift` | Disk-backed offline upload queue |
+| `app/Services/Receipts/ReceiptOCR.php` | Google Cloud Vision OAuth2 + word-confidence extraction |
+| `app/Services/Receipts/ReceiptParser.php` | Text → structured fields (total, GST, PST, date, line items) |
+| `app/Services/Receipts/ReceiptSmartMatch.php` | Vendor fuzzy-match + GPS proximity + category suggestions |
+| `app/Services/Receipts/ReceiptLearning.php` | Per-vendor correction patterns |
+| `app/Services/Receipts/TesseractPreScreen.php` | Tesseract pre-screen + `getVendorTesseractThreshold()` |
+| `public/crm/js/offline-receipts.js` | Web IndexedDB queue, upload retry, confidence dots |
+| `docs/crm/receipts-flow.md` | **Full flow doc** — read this before touching receipt code |
+| `docs/crm/receipts.md` | Async OCR queue infrastructure (dormant; future use) |

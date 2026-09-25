@@ -71,6 +71,7 @@ try {
     } elseif ($method === 'POST') {
         $input = json_decode(file_get_contents('php://input'), true) ?? [];
         verifyCSRFToken($input['csrf_token'] ?? '');
+        session_write_close();
 
         switch ($action) {
             case 'recalculate':

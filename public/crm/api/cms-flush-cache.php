@@ -20,6 +20,7 @@ session_write_close();
     if (!verifyCSRFToken($_POST['csrf_token'] ?? '')) {
         throw new \RuntimeException('Invalid CSRF token');
     }
+    session_write_close();
 
     // Count before truncate
     $db = getDB();

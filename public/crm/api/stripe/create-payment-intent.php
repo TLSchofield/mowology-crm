@@ -18,6 +18,7 @@ declare(strict_types=1);
 // ── Auth ─────────────────────────────────────────────────────────────────────
 require_once dirname(__DIR__, 3) . '/loginAuth/auth.php';
 requireLogin();
+session_write_close();
 requirePermission('billing.view');
 
 // ── Bootstrap ────────────────────────────────────────────────────────────────

@@ -26,12 +26,14 @@ if ($quoteId) {
                p.site_contact_id,
                COALESCE(qr.contact_id, p.site_contact_id) AS resolved_contact_id,
                COALESCE(qrc.first_name, pc.first_name) AS contact_first,
-               COALESCE(qrc.last_name,  pc.last_name)  AS contact_last
+               COALESCE(qrc.last_name,  pc.last_name)  AS contact_last,
+               c.company_name AS quote_company_name
         FROM quotes q
         JOIN properties p ON q.property_id = p.id
         LEFT JOIN quote_requests qr  ON qr.quote_id  = q.id
         LEFT JOIN contacts qrc       ON qrc.id = qr.contact_id
         LEFT JOIN contacts pc        ON pc.id  = p.site_contact_id
+        LEFT JOIN companies c        ON c.id   = q.company_id
         WHERE q.id = ? AND q.status = 'accepted'
     ");
     $stmt->execute([$quoteId]);
@@ -69,9 +71,7 @@ if ($quote) {
         $prefilledContactId   = $directContactId;
         $prefilledContactName = trim($dc['first_name'] . ' ' . $dc['last_name']);
         $prefilledPropertyId  = $directPropertyId;
-        $stmt2 = $db->prepare("SELECT id, address, city, province, postal_code, property_type FROM properties WHERE site_contact_id = ? AND status = 'active' ORDER BY address");
-        $stmt2->execute([$directContactId]);
-        $prefilledProperties = $stmt2->fetchAll(PDO::FETCH_ASSOC);
+        $prefilledProperties = getPropertiesForContact($directContactId, $db, true);
     }
 }
 
@@ -158,7 +158,22 @@ $activePage = 'contracts';
                               <div class="card-body">
                                   <div class="mw-form-row">
                                       <label class="mw-form-label">Client</label>
-                                      <div class="mw-form-value text-muted"><?php echo htmlspecialchars($contactName); ?></div>
+                                      <div class="mw-form-value text-muted">
+                                          <?php if (!empty($quote['quote_company_name'])): ?>
+                                              <strong><?php echo htmlspecialchars($quote['quote_company_name']); ?></strong>
+                                              <?php if (!empty($quote['accepted_by_name'])): ?>
+                                                  <div style="font-size:0.85em;">
+                                                      Signed by <?php echo htmlspecialchars($quote['accepted_by_name']); ?><?php
+                                                      if (!empty($quote['accepted_by_title'])) echo ', ' . htmlspecialchars($quote['accepted_by_title']);
+                                                      ?>
+                                                  </div>
+                                              <?php elseif ($contactName) : ?>
+                                                  <div style="font-size:0.85em;">Contact: <?php echo htmlspecialchars($contactName); ?></div>
+                                              <?php endif; ?>
+                                          <?php else: ?>
+                                              <?php echo htmlspecialchars($contactName); ?>
+                                          <?php endif; ?>
+                                      </div>
                                   </div>
                                   <div class="mw-form-row">
                                       <label class="mw-form-label">Property</label>

@@ -28,9 +28,9 @@ try {
     require_once CRM_INCLUDES . '/functions.php';
     require_once CRM_INCLUDES . '/timeclock-functions.php';
 
-    requireLogin();
-    $user = getCurrentUser();
+    $user = requireLoginOrJwt();
     requirePermission('timer.start');
+    session_write_close(); // release session lock before DB work
 
     // Determine action from GET or POST
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {

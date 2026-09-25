@@ -6,6 +6,7 @@
 require_once dirname(__DIR__) . '/../../loginAuth/auth.php';
 requireLogin();
 $user = getCurrentUser();
+session_write_close();
 if ($user['role'] !== 'admin') { http_response_code(403); die('Admin only'); }
 
 $db = getDB();

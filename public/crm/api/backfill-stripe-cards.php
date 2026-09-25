@@ -22,6 +22,7 @@ if (!defined('APP_ROOT')) {
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 requireLogin();
 $user = getCurrentUser();
+session_write_close();
 if (($user['role'] ?? '') !== 'admin') {
     http_response_code(403);
     echo json_encode(['error' => 'Admin only']);
