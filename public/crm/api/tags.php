@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 /**
  * Unified Tag API
  *
@@ -14,6 +15,21 @@
  * @package Mowology CRM
  */
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
+
+// Resolve APP_ROOT for shared exception helper (Phase 4 / Task 17).
+if (!defined('APP_ROOT')) {
+    $__dir = __DIR__;
+    for ($__i = 0; $__i < 5; $__i++) {
+        $__dir = dirname($__dir);
+        if (is_file($__dir . '/app/Core/paths.php')) {
+            require_once $__dir . '/app/Core/paths.php';
+            break;
+        }
+    }
+    unset($__dir, $__i);
+}
+require_once APP_ROOT . '/Core/Exceptions/ValidationException.php';
+
 requireLogin();
 $user = getCurrentUser();
 session_write_close();
@@ -23,17 +39,41 @@ header('Content-Type: application/json');
 $db = getDB();
 $action = $_GET['action'] ?? ($_POST['action'] ?? '');
 
+// Allowlist of entity types that tags may be attached to. Reject everything else
+// at the boundary so callers cannot probe arbitrary table names by passing
+// `entity_type=…` (the column is queried as a literal but a stray value would
+// silently return nothing — better to fail fast with a 422).
+const TAGS_ALLOWED_ENTITY_TYPES = [
+    'property', 'contact', 'company', 'job_visit', 'job_plan', 'quote', 'invoice',
+];
+
+/**
+ * Throws ValidationException if $type is not in the allowlist.
+ * Empty string is allowed by callers that don't pass entity_type (e.g. admin_list).
+ */
+function tags_assert_entity_type(string $type): void
+{
+    if ($type === '') return;
+    if (!in_array($type, TAGS_ALLOWED_ENTITY_TYPES, true)) {
+        throw new ValidationException('entity_type', 'Unsupported entity_type');
+    }
+}
+
+try {
+
 // ═══════════════════════════════════════════════════════
 //  GET — List tags on an entity
 // ═══════════════════════════════════════════════════════
 if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'list') {
-    $entityType = $_GET['entity_type'] ?? '';
+    $entityType = (string)($_GET['entity_type'] ?? '');
     $entityId = (int)($_GET['entity_id'] ?? 0);
 
-    if (!$entityType || !$entityId) {
-        http_response_code(400);
-        echo json_encode(['success' => false, 'error' => 'entity_type and entity_id required']);
-        exit;
+    if ($entityType === '') {
+        throw new ValidationException('entity_type', 'entity_type required');
+    }
+    tags_assert_entity_type($entityType);
+    if ($entityId < 1) {
+        throw new ValidationException('entity_id', 'entity_id required');
     }
 
     $stmt = $db->prepare("
@@ -128,22 +168,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
         exit;
     }
-    session_write_close();
 
     $postAction = $json['action'] ?? '';
 
     // ── Apply tag ─────────────────────────────────────
     if ($postAction === 'apply') {
-        $entityType = $json['entity_type'] ?? '';
+        $entityType = (string)($json['entity_type'] ?? '');
         $entityId = (int)($json['entity_id'] ?? 0);
         $tagId = (int)($json['tag_id'] ?? 0);
-        $tagValue = isset($json['tag_value']) ? trim($json['tag_value']) : null;
+        $tagValue = isset($json['tag_value']) ? trim((string)$json['tag_value']) : null;
 
-        if (!$entityType || !$entityId || !$tagId) {
-            http_response_code(400);
-            echo json_encode(['success' => false, 'error' => 'entity_type, entity_id, and tag_id required']);
-            exit;
-        }
+        if ($entityType === '') throw new ValidationException('entity_type', 'entity_type required');
+        tags_assert_entity_type($entityType);
+        if ($entityId < 1) throw new ValidationException('entity_id', 'entity_id required');
+        if ($tagId < 1)    throw new ValidationException('tag_id', 'tag_id required');
 
         // Verify tag exists and is active
         $tagStmt = $db->prepare("SELECT id, has_value FROM tags WHERE id = ? AND is_active = 1");
@@ -179,20 +217,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $entityTagId = (int)($json['entity_tag_id'] ?? 0);
 
         // Also support removal by entity+tag combo
-        $entityType = $json['entity_type'] ?? '';
+        $entityType = (string)($json['entity_type'] ?? '');
         $entityId = (int)($json['entity_id'] ?? 0);
         $tagId = (int)($json['tag_id'] ?? 0);
+        tags_assert_entity_type($entityType);
 
-        if ($entityTagId) {
+        if ($entityTagId > 0) {
             $stmt = $db->prepare("DELETE FROM entity_tags WHERE id = ?");
             $stmt->execute([$entityTagId]);
-        } elseif ($entityType && $entityId && $tagId) {
+        } elseif ($entityType !== '' && $entityId > 0 && $tagId > 0) {
             $stmt = $db->prepare("DELETE FROM entity_tags WHERE entity_type = ? AND entity_id = ? AND tag_id = ?");
             $stmt->execute([$entityType, $entityId, $tagId]);
         } else {
-            http_response_code(400);
-            echo json_encode(['success' => false, 'error' => 'entity_tag_id or (entity_type + entity_id + tag_id) required']);
-            exit;
+            throw new ValidationException(
+                'entity_tag_id',
+                'entity_tag_id or (entity_type + entity_id + tag_id) required'
+            );
         }
 
         echo json_encode(['success' => true, 'removed' => $stmt->rowCount()]);
@@ -313,3 +353,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 http_response_code(405);
 echo json_encode(['success' => false, 'error' => 'Method not allowed']);
+} catch (ValidationException $e) {
+    respondValidationError($e);
+}

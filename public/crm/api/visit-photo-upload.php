@@ -36,6 +36,7 @@ if (!defined('APP_ROOT')) {
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
     require_once CRM_INCLUDES . '/functions.php';
+    require_once APP_ROOT . '/Core/IdempotencyHelper.php';
 
     requireLogin();
     $user = getCurrentUser();
@@ -54,6 +55,36 @@ try {
         http_response_code(403);
         echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
         exit;
+    }
+
+    // ── Idempotency short-circuit ─────────────────────────────────────
+    // MwPhotoQueue uploads one queued record per request, so the header
+    // applies to that single file. If we already saved a row under this UUID,
+    // skip the variant generation and return the existing row.
+    $idemKey = readIdempotencyKeyHeader();
+    if ($idemKey) {
+        $existingId = lookupIdempotencyRow($db, 'visit_photos', $idemKey);
+        if ($existingId) {
+            $row = $db->prepare("SELECT id, filename, photo_type, thumb_path, view_path FROM visit_photos WHERE id = ?");
+            $row->execute([$existingId]);
+            $r = $row->fetch(PDO::FETCH_ASSOC);
+            if ($r) {
+                echo json_encode([
+                    'success' => true,
+                    'deduplicated' => true,
+                    'results' => [[
+                        'success'      => true,
+                        'media_id'     => (int)$r['id'],
+                        'uuid'         => $r['filename'],
+                        'thumb_url'    => $r['thumb_path'] ?: ('/uploads/photos/' . $r['filename']),
+                        'view_url'     => $r['view_path']  ?: ('/uploads/photos/' . $r['filename']),
+                        'photo_type'   => $r['photo_type'],
+                        'is_duplicate' => true,
+                    ]],
+                ]);
+                exit;
+            }
+        }
     }
 
     // Context validation
@@ -170,6 +201,7 @@ try {
 
     $ip      = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? null;
     $results = [];
+    $idemKeyUsed = false; // attach idempotency_key to the first row only
 
     foreach ($files as $file) {
         // Validate MIME via finfo (not extension)
@@ -197,7 +229,11 @@ try {
         $variants    = vphGenerateVariants($fullPath, $visitId, $base, $realMime);
         $photoSha256 = hash_file('sha256', $fullPath);
 
-        // Try full INSERT with all new columns (migration 1025). Fall back gracefully.
+        // Idempotency key applies to the first row only — multi-file batch uploads
+        // (rare; not used by MwPhotoQueue) leave subsequent rows un-keyed.
+        $rowIdemKey = (!$idemKeyUsed && $idemKey) ? $idemKey : null;
+
+        // Try full INSERT with all new columns (migration 1025+1023). Fall back gracefully.
         try {
             $db->prepare("
                 INSERT INTO visit_photos
@@ -205,8 +241,8 @@ try {
                      mime_type, caption, sort_order, thumb_path, grid_path, view_path,
                      uploaded_by, work_zone_id,
                      property_id, uploaded_by_name, service_type, sha256,
-                     gps_lat, gps_lng, gps_accuracy_m, captured_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     gps_lat, gps_lng, gps_accuracy_m, captured_at, idempotency_key)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ")->execute([
                 $visitId, $photoType, $filename, $file['name'],
                 $file['size'], $realMime, '', 0,
@@ -214,10 +250,36 @@ try {
                 $user['id'], $photoWorkZoneId,
                 $photoPropertyId, $user['full_name'] ?? $user['name'] ?? null,
                 $photoServiceType, $photoSha256,
-                $gpsLat, $gpsLng, $gpsAccuracy, $capturedAt,
+                $gpsLat, $gpsLng, $gpsAccuracy, $capturedAt, $rowIdemKey,
             ]);
+            $idemKeyUsed = $idemKeyUsed || ($rowIdemKey !== null);
         } catch (PDOException $insErr) {
-            // Pre-migration 1025 fallback — omit new columns
+            // Race: a concurrent retry won under the same idempotency_key —
+            // return the existing row instead of failing the whole batch.
+            if ($rowIdemKey && stripos($insErr->getMessage(), 'duplicate') !== false) {
+                $existingId = lookupIdempotencyRow($db, 'visit_photos', $rowIdemKey);
+                if ($existingId) {
+                    $row = $db->prepare("SELECT id, filename, photo_type, thumb_path, view_path FROM visit_photos WHERE id = ?");
+                    $row->execute([$existingId]);
+                    $r = $row->fetch(PDO::FETCH_ASSOC);
+                    if ($r) {
+                        @unlink($fullPath);
+                        $results[] = [
+                            'success'      => true,
+                            'media_id'     => (int)$r['id'],
+                            'uuid'         => $r['filename'],
+                            'thumb_url'    => $r['thumb_path'] ?: ('/uploads/photos/' . $r['filename']),
+                            'view_url'     => $r['view_path']  ?: ('/uploads/photos/' . $r['filename']),
+                            'photo_type'   => $r['photo_type'],
+                            'is_duplicate' => true,
+                            'deduplicated' => true,
+                        ];
+                        $idemKeyUsed = true;
+                        continue;
+                    }
+                }
+            }
+            // Pre-migration 1025/1023 fallback — omit new columns
             $db->prepare("
                 INSERT INTO visit_photos
                     (visit_id, photo_type, filename, original_filename, file_size,

@@ -377,7 +377,7 @@ try {
                 INSERT INTO social_posts
                     (title, caption, hashtags, neighborhood, service_type, template_id,
                      schedule_id, is_trial, is_auto_scheduled,
-                     cta_type, cta_url, status, scheduled_at, created_by)
+                     cta_action, cta_url, status, scheduled_at, created_by)
                 VALUES (?, ?, ?, ?, ?, ?, ?, 0, 1, ?, ?, 'approved', ?, ?)
             ");
             $insPlatStmt = $db->prepare("
@@ -394,8 +394,8 @@ try {
                     $src['title'], $src['caption'], $src['hashtags'],
                     $src['neighborhood'], $src['service_type'],
                     $src['template_id'] ?? null,
-                    $scheduleId, 0, 1,
-                    $src['cta_type'], $src['cta_url'],
+                    $scheduleId,
+                    $src['cta_action'] ?? $src['cta_type'] ?? '', $src['cta_url'],
                     $slot['scheduled_at'], $userId,
                 ]);
                 $newPostId = (int)$db->lastInsertId();
@@ -526,7 +526,7 @@ try {
                 INSERT INTO social_posts
                     (title, caption, hashtags, neighborhood, service_type, template_id,
                      schedule_id, is_trial, is_auto_scheduled,
-                     cta_type, cta_url, status, scheduled_at, created_by)
+                     cta_action, cta_url, status, scheduled_at, created_by)
                 VALUES (?, ?, ?, 'Vancouver', ?, ?, ?, 0, 1, ?, ?, 'approved', ?, ?)
             ");
             $insPlatStmt = $db->prepare("
@@ -552,7 +552,7 @@ try {
                 $insPostStmt->execute([
                     $tmpl['name'], $caption, $tmpl['hashtag_preset'],
                     $serviceType, $templateId,
-                    $scheduleId, 0, 1,
+                    $scheduleId,
                     $tmpl['cta_preset'], $tmpl['cta_url_preset'],
                     $slot['scheduled_at'], $userId,
                 ]);

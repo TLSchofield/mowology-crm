@@ -29,7 +29,7 @@ session_write_close();
 $db   = getDB();
 $year = max(2020, min(2099, intval($_GET['year'] ?? date('Y'))));
 $q    = intval($_GET['quarter'] ?? ceil((int)date('n') / 3));
-$fmt  = $_GET['format'] ?? 'json';
+$fmt  = ($_GET['format'] ?? '') === 'csv' ? 'csv' : 'json';
 
 // Resolve date range
 if ($q >= 1 && $q <= 4) {
@@ -46,66 +46,68 @@ if ($q >= 1 && $q <= 4) {
 }
 
 // ── Business settings ──────────────────────────────────────────────────────
-$bsRow = $db->query("SELECT company_name, gst_registration FROM business_settings LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+$bsRow = [];
+try {
+    $bsRow = $db->query("SELECT company_name, gst_registration FROM business_settings LIMIT 1")->fetch(PDO::FETCH_ASSOC) ?: [];
+} catch (\Throwable $__e) { /* silent */ }
 $businessName  = $bsRow['company_name']     ?? '';
 $gstRegNumber  = $bsRow['gst_registration'] ?? '';
 
 // ── Invoices in period ─────────────────────────────────────────────────────
-$invStmt = $db->prepare("
-    SELECT i.id, i.invoice_number, i.issue_date, i.status,
-           i.subtotal, i.tax_rate, i.tax_amount, i.gst_number,
-           i.total, i.amount_paid, i.balance_due, i.payment_method,
-           COALESCE(CONCAT(pc.first_name,' ',pc.last_name), co.company_name, 'Unknown') AS client_name
-    FROM invoices i
-    LEFT JOIN properties p  ON i.property_id = p.id
-    LEFT JOIN contacts   pc ON p.site_contact_id = pc.id
-    LEFT JOIN companies  co ON i.company_id = co.id
-    WHERE i.issue_date BETWEEN ? AND ?
-      AND i.status NOT IN ('draft','cancelled')
-    ORDER BY i.issue_date ASC
-");
-$invStmt->execute([$dateFrom, $dateTo]);
-$invoices = $invStmt->fetchAll(PDO::FETCH_ASSOC);
-
-// ── Expenses / ITCs in period ──────────────────────────────────────────────
-$expStmt = $db->prepare("
-    SELECT e.id, e.expense_date, e.description, e.vendor_name,
-           e.amount, e.gst_amount, e.total, e.category
-    FROM expenses e
-    WHERE e.expense_date BETWEEN ? AND ?
-      AND e.status != 'rejected'
-      AND e.gst_amount > 0
-    ORDER BY e.expense_date ASC
-");
+$invoices   = [];
+$apiErrors  = [];
 try {
+    $invStmt = $db->prepare("
+        SELECT i.id, i.invoice_number, i.issue_date, i.status,
+               i.subtotal, i.tax_rate, i.tax_amount, i.gst_number,
+               i.total, i.amount_paid, i.balance_due, i.payment_method,
+               COALESCE(CONCAT(pc.first_name,' ',pc.last_name), co.company_name, 'Unknown') AS client_name
+        FROM invoices i
+        LEFT JOIN properties p  ON i.property_id = p.id
+        LEFT JOIN contacts   pc ON p.site_contact_id = pc.id
+        LEFT JOIN companies  co ON i.company_id = co.id
+        WHERE i.issue_date BETWEEN ? AND ?
+          AND i.status NOT IN ('draft','cancelled')
+        ORDER BY i.issue_date ASC
+    ");
+    $invStmt->execute([$dateFrom, $dateTo]);
+    $invoices = $invStmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (\Throwable $__e) {
+    $apiErrors[] = 'invoice_query_failed';
+}
+
+// ── Expenses / ITCs in period — only approved expenses qualify for ITC claims ──
+$expenses = [];
+try {
+    $expStmt = $db->prepare("
+        SELECT e.id, e.expense_date, e.description,
+               e.vendor_name_raw AS vendor_name,
+               e.amount, e.gst_amount, e.total,
+               e.accounting_category AS category
+        FROM expenses e
+        WHERE e.expense_date BETWEEN ? AND ?
+          AND e.gst_amount > 0
+          AND e.status = 'approved'
+        ORDER BY e.expense_date ASC
+    ");
     $expStmt->execute([$dateFrom, $dateTo]);
     $expenses = $expStmt->fetchAll(PDO::FETCH_ASSOC);
-} catch (\Throwable $e) {
-    $expenses = [];
+} catch (\Throwable $__e) {
+    $apiErrors[] = 'expense_query_failed';
 }
 
 // ── Summary calculations ───────────────────────────────────────────────────
-$totalRevenue  = 0.0;
-$totalGstOut   = 0.0; // GST collected on invoices
-$totalPaid     = 0.0;
-
-foreach ($invoices as $inv) {
-    $totalRevenue += floatval($inv['subtotal']);
-    $totalGstOut  += floatval($inv['tax_amount']);
-    $totalPaid    += floatval($inv['amount_paid']);
-}
-
-$totalITC = 0.0; // Input Tax Credits from expenses
-foreach ($expenses as $exp) {
-    $totalITC += floatval($exp['gst_amount']);
-}
-
-$netTax = $totalGstOut - $totalITC;
+$totalRevenue = round((float)array_sum(array_column($invoices, 'subtotal')), 2);
+$totalGstOut  = round((float)array_sum(array_column($invoices, 'tax_amount')), 2);
+$totalPaid    = round((float)array_sum(array_column($invoices, 'amount_paid')), 2);
+$totalITC     = round((float)array_sum(array_column($expenses,  'gst_amount')), 2);
+$netTax       = round($totalGstOut - $totalITC, 2);
 
 // ── CSV export ─────────────────────────────────────────────────────────────
 if ($fmt === 'csv') {
+    $safePeriod = str_replace(' ', '-', $periodLabel);
     header('Content-Type: text/csv; charset=utf-8');
-    header('Content-Disposition: attachment; filename="gst-report-' . $periodLabel . '-' . date('Y-m-d') . '.csv"');
+    header('Content-Disposition: attachment; filename="gst-report-' . $safePeriod . '-' . date('Y-m-d') . '.csv"');
 
     $out = fopen('php://output', 'w');
     fwrite($out, "\xEF\xBB\xBF");
@@ -126,7 +128,7 @@ if ($fmt === 'csv') {
 
     // Invoice detail
     fputcsv($out, ['INVOICE DETAIL']);
-    fputcsv($out, ['Invoice #', 'Client', 'Issue Date', 'Status', 'Subtotal', 'GST Rate %', 'GST Collected', 'Total', 'Paid', 'Balance Due', 'Payment Method']);
+    fputcsv($out, ['Invoice #', 'Client', 'Issue Date', 'Status', 'Subtotal', 'GST Rate %', 'GST Reg #', 'GST Collected', 'Total', 'Paid', 'Balance Due', 'Payment Method']);
     foreach ($invoices as $inv) {
         fputcsv($out, [
             $inv['invoice_number'],
@@ -135,6 +137,7 @@ if ($fmt === 'csv') {
             $inv['status'],
             number_format((float)$inv['subtotal'], 2),
             number_format((float)($inv['tax_rate'] ?? 0.05) * 100, 2),
+            $inv['gst_number'] ?? $gstRegNumber,
             number_format((float)$inv['tax_amount'], 2),
             number_format((float)$inv['total'], 2),
             number_format((float)$inv['amount_paid'], 2),
@@ -166,16 +169,17 @@ if ($fmt === 'csv') {
 // ── JSON response ──────────────────────────────────────────────────────────
 header('Content-Type: application/json');
 echo json_encode([
-    'ok'          => true,
+    'ok'          => empty($apiErrors),
+    'errors'      => $apiErrors,
     'period'      => $periodLabel,
     'date_from'   => $dateFrom,
     'date_to'     => $dateTo,
     'gst_number'  => $gstRegNumber,
     'summary'     => [
-        'total_revenue'  => round($totalRevenue, 2),
-        'gst_collected'  => round($totalGstOut, 2),
-        'total_itc'      => round($totalITC, 2),
-        'net_tax'        => round($netTax, 2),
+        'total_revenue'  => $totalRevenue,
+        'gst_collected'  => $totalGstOut,
+        'total_itc'      => $totalITC,
+        'net_tax'        => $netTax,
         'invoice_count'  => count($invoices),
         'expense_count'  => count($expenses),
     ],
