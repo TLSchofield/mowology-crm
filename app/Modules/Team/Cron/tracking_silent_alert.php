@@ -32,6 +32,7 @@ for ($__i = 0; $__i < 5; $__i++) {
 }
 unset($__dir, $__i);
 // Under cron (CLI) nothing else defines getDB()/Database — the web shim gets them from auth.php.
+$__cronStart = microtime(true);
 require_once APP_ROOT . '/Core/config.php';
 
 if (php_sapi_name() === 'cli') {
@@ -44,6 +45,10 @@ if (php_sapi_name() === 'cli') {
 require_once CRM_INCLUDES . '/functions.php';
 require_once CRM_INCLUDES . '/messaging.php';
 require_once CRM_INCLUDES . '/timeclock-functions.php';
+// recordCronRun() lives here and is NOT pulled in by the CLI bootstrap chain,
+// so without this require the dashboard shows "Never run" however often the
+// cron actually fires — which is exactly how this one looked unscheduled.
+require_once APP_ROOT . '/Services/CrmFunctions.php';
 require_once APP_ROOT . '/Modules/Team/Services/TrackingHealthService.php';
 
 $db  = getDB();
@@ -126,12 +131,28 @@ try {
     $found = (new TrackingHealthService($db))->sweep(time(), $silentMinutes, $cooldownMinutes, $notify);
     $say(count($found) . ' silent of those clocked in; ' . count(array_filter($found, static fn ($f) => $f['alerted'])) . ' alerted this run.');
 
+    if (function_exists('recordCronRun')) {
+        recordCronRun(
+            'tracking_silent_alert',
+            'success',
+            count($found) . ' silent, ' . count(array_filter($found, static fn ($f) => $f['alerted'])) . ' alerted',
+            (int) round((microtime(true) - $__cronStart) * 1000),
+            null,
+            php_sapi_name() !== 'cli'
+        );
+    }
+
     if (php_sapi_name() !== 'cli') {
         echo json_encode(['success' => true, 'silent' => $found, 'log' => $log]);
     }
 } catch (Throwable $e) {
     error_log('[tracking_silent_alert] ' . $e->getMessage());
     $say('ERROR: ' . $e->getMessage());
+    if (function_exists('recordCronRun')) {
+        recordCronRun('tracking_silent_alert', 'error', 'Cron failed',
+            (int) round((microtime(true) - $__cronStart) * 1000),
+            $e->getMessage(), php_sapi_name() !== 'cli');
+    }
     if (php_sapi_name() !== 'cli') {
         http_response_code(500);
         echo json_encode(['success' => false, 'error' => 'Cron failed — see server log']);

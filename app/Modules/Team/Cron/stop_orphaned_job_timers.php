@@ -175,7 +175,9 @@ $result = [
 
 $durationMs = (int) round(microtime(true) * 1000) - $startMs;
 recordCronRun(
-    'stop_orphaned_timers',
+    // Must match the registry key in database_appstack.php, or the dashboard
+    // queries one key while the cron logs another and reports "Never run" forever.
+    'stop_orphaned_job_timers',
     $cronStatus,
     "Stopped: {$stopped} orphaned timers, Errors: {$errors}",
     $durationMs,
