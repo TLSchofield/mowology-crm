@@ -38,6 +38,25 @@ require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 require_once CRM_INCLUDES . '/functions.php';
 require_once CRM_INCLUDES . '/timeclock-functions.php';
 require_once CRM_INCLUDES . '/messaging.php';
+// recordCronRun() lives here and is NOT pulled in by the CLI bootstrap chain.
+// Without it this cron can never report a run, so "no record" on the Database
+// Manager looked identical to "not scheduled" — which is exactly how a truck
+// sat clocked in for 20 h with auto_clock_out_hours set to 12 and nobody able
+// to tell whether the job was running at all.
+require_once APP_ROOT . '/Services/CrmFunctions.php';
+
+$__cronStart = microtime(true);
+$__cronWeb   = php_sapi_name() !== 'cli';
+
+/** Record the run on every exit path, including the early "nothing to do" one. */
+function __autoClockoutRecord(string $status, string $summary, ?string $err = null): void
+{
+    global $__cronStart, $__cronWeb;
+    if (function_exists('recordCronRun')) {
+        recordCronRun('auto_clockout', $status, $summary,
+            (int) round((microtime(true) - $__cronStart) * 1000), $err, $__cronWeb);
+    }
+}
 
 $db = getDB();
 
@@ -56,6 +75,8 @@ $staleStmt->execute([$autoHours]);
 $entries = $staleStmt->fetchAll(PDO::FETCH_ASSOC);
 
 if (empty($entries)) {
+    // A clean no-op is still a run — recording it is the whole point.
+    __autoClockoutRecord('success', 'No stale entries (threshold ' . $autoHours . 'h)');
     echo "No stale entries found.\n";
     exit;
 }
@@ -109,5 +130,10 @@ foreach ($entries as $entry) {
         echo "ERROR for entry #{$entry['id']}: " . $e->getMessage() . "\n";
     }
 }
+
+__autoClockoutRecord(
+    $completed === count($entries) ? 'success' : 'warning',
+    "Completed {$completed} of " . count($entries) . " stale entries (threshold {$autoHours}h)"
+);
 
 echo "Done. Completed $completed stale entries.\n";

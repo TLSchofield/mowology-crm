@@ -616,7 +616,16 @@ function paintCronCard(card, row, loadFailed) {
 
 function timeAgo(dateStr) {
     if (!dateStr) return '—';
-    var d = new Date(dateStr.replace(' ', 'T') + 'Z'); // treat stored UTC
+    // cron_runs.ran_at is written by recordCronRun() through MySQL NOW(), i.e. in
+    // the app's timezone (America/Vancouver) — NOT UTC. Appending 'Z' declared it
+    // UTC and made every cron on this page read ~7h staler than it was: the run at
+    // 10:50 displayed as "7h ago" seconds after it happened, which is exactly the
+    // PDT offset. Parse the components explicitly so it is local time on every
+    // browser (a bare 'YYYY-MM-DD HH:MM:SS' is not portable across engines), which
+    // also makes this agree with formatDateTime()'s tooltip — the two disagreed.
+    var m = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/);
+    var d = m ? new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]) : new Date(dateStr);
+    if (isNaN(d.getTime())) return '—';
     var now = new Date();
     var diff = Math.floor((now - d) / 1000);
     if (diff < 0)   return 'just now';
