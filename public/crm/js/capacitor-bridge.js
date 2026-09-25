@@ -643,6 +643,21 @@
                 return !!(p && p.location && p.background && p.batteryOptimizationIgnored);
             },
 
+            /**
+             * The subset that actually makes a fix impossible, as opposed to merely
+             * unreliable. Location permission and the device Location switch are hard
+             * requirements: without them the OS returns nothing, whatever the app does.
+             * Battery exemption is not in that class — it decides how long the OS lets
+             * the service live, not whether a position can be obtained — and, crucially,
+             * the app has no way to grant it: the system dialog needs a manifest
+             * permission the APK has never declared, so the button always rejects. Only
+             * a blocking condition may hold the gate shut.
+             */
+            _setupBlocking: function(p) {
+                if (p && p.gpsEnabled === false) return true;
+                return !(p && p.location && p.background);
+            },
+
             _setupGate: function() {
                 if (document.getElementById('mw-setup-gate')) return;
                 if (!MwTracking || typeof MwTracking.checkTrackingPermissions !== 'function') return;
@@ -669,6 +684,7 @@
                         '.mw-sg-btn{display:block;width:100%;margin-top:10px;padding:13px;border:0;border-radius:10px;font-size:1rem;font-weight:700;' +
                             'background:var(--mw-lime);color:var(--mw-forest);}' +
                         '.mw-sg-row--ok .mw-sg-btn,.mw-sg-row--ok .mw-sg-how{display:none;}' +
+                        '.mw-sg-continue{margin-top:20px;}' +
                         '.mw-sg-skip{display:block;margin:22px auto 0;padding:10px;border:0;background:transparent;font-size:.82rem;' +
                             'text-decoration:underline;color:var(--mw-light);}';
                     document.head.appendChild(css);
@@ -680,8 +696,9 @@
                 el.setAttribute('aria-modal', 'true');
                 el.innerHTML =
                     '<h2>Finish setting up tracking</h2>' +
-                    '<p>Two phone settings decide whether location tracking keeps working with the phone in your pocket. ' +
-                        'It only runs while you are clocked in. This screen closes by itself once both are done.</p>' +
+                    '<p class="mw-sg-lead">These phone settings decide whether location tracking keeps working with the ' +
+                        'phone in your pocket. It only runs while you are clocked in. <b>Location</b> is the one that has ' +
+                        'to be right &mdash; this screen closes by itself as soon as it is.</p>' +
                     '<div class="mw-sg-row" data-row="location"><span class="mw-sg-dot">1</span><div class="mw-sg-main">' +
                         '<div class="mw-sg-title">Location: Allow all the time</div>' +
                         '<div class="mw-sg-how">Tap the button, then choose <b>Permissions &rarr; Location &rarr; Allow all the time</b>. ' +
@@ -705,9 +722,11 @@
                         '<div class="mw-sg-how">So the app can tell you when a job timer starts or stops by itself.</div>' +
                         '<button type="button" class="mw-sg-btn" data-fix="notifications">Turn on notifications</button>' +
                     '</div></div>' +
+                    '<button type="button" class="mw-sg-btn mw-sg-continue" data-fix="continue" hidden>Continue &mdash; ' +
+                        'I&rsquo;ll sort the battery setting later</button>' +
                     '<button type="button" class="mw-sg-skip" data-fix="skip" hidden>I can&rsquo;t fix this now &mdash; clock me out</button>';
 
-                var last = null, timer = null, closed = false;
+                var last = null, timer = null, closed = false, skipAllowed = false;
 
                 function paint(p) {
                     last = p || {};
@@ -729,7 +748,18 @@
                         row.className = 'mw-sg-row' + (ok[k] ? ' mw-sg-row--ok' : '');
                         dot.textContent = ok[k] ? '✓' : dot.getAttribute('data-n');
                     });
-                    if (self._setupOk(last)) close(true);
+                    if (self._setupOk(last)) { close(true); return; }
+                    // Battery exemption cannot be granted from inside the app, and on Samsung
+                    // the "Unrestricted" toggle crew are sent to does not always flip the flag
+                    // this reads. Holding the screen shut on it traps a device that is in fact
+                    // set up correctly: on 2026-09-25 the truck tablet sat here with location
+                    // green and the engine running behind the overlay, unable to get past.
+                    // The row still nags and device_tracking_health still records it.
+                    var blocking = self._setupBlocking(last);
+                    var cont = el.querySelector('[data-fix="continue"]');
+                    if (cont) cont.hidden = blocking;
+                    var skip = el.querySelector('[data-fix="skip"]');
+                    if (skip) skip.hidden = !(skipAllowed && blocking);
                 }
                 function showManualBatteryPath() {
                     var row = el.querySelector('[data-row="battery"] .mw-sg-how');
@@ -786,6 +816,18 @@
                         setTimeout(function() {
                             if (!closed && last && !last.batteryOptimizationIgnored) showManualBatteryPath();
                         }, 3000);
+                    } else if (fix === 'continue') {
+                        // Not a skip: everything that decides whether a position can be
+                        // obtained is already granted, so the shift stays on the clock and
+                        // tracking carries on. Recorded so the office can still see which
+                        // devices are running without the exemption.
+                        try {
+                            MwTracking.addComplianceEvent({
+                                eventType: 'tracking_setup_battery_deferred',
+                                reason: JSON.stringify(last || {})
+                            });
+                        } catch (e) {}
+                        close(false);
                     } else if (fix === 'skip') {
                         // This used to be "continue anyway": it closed the gate and let the
                         // shift carry on untracked. The escape now CLOCKS YOU OUT instead,
@@ -834,8 +876,8 @@
                 document.addEventListener('visibilitychange', check);   // back from Settings
                 timer = setInterval(check, 1500);
                 setTimeout(function() {
-                    var skip = el.querySelector('[data-fix="skip"]');
-                    if (skip && !closed) skip.hidden = false;
+                    skipAllowed = true;
+                    if (!closed) paint(last);
                 }, 45000);
                 check();
             },

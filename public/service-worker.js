@@ -19,7 +19,7 @@
  * URL so the WebView can use a service worker just like a browser can).
  */
 
-var CACHE_VERSION = 'mw-v67';
+var CACHE_VERSION = 'mw-v68';
 var SHELL_CACHE  = 'mw-shell-' + CACHE_VERSION;
 var PAGE_CACHE   = 'mw-pages-' + CACHE_VERSION;
 var IMG_CACHE    = 'mw-images-' + CACHE_VERSION;
@@ -55,7 +55,7 @@ var APP_SHELL = [
 
   /* ── Schedule page JS ── */
   '/crm/js/time-clock-widget.min.js?v=20260806a',
-  '/crm/js/capacitor-bridge.min.js?v=20260925a',
+  '/crm/js/capacitor-bridge.min.js?v=20260925b',
   '/crm/js/navigation-launcher.min.js?v=20260225c',
   '/crm/js/schedule-route-map.min.js?v=20260226b',
   '/crm/js/schedule-pill-workflow.min.js?v=20260310a',
