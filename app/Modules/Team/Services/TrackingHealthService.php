@@ -79,6 +79,7 @@ class TrackingHealthService
     {
         $stmt = $this->db->query("
             SELECT u.id AS user_id, u.full_name, tce.id AS clock_entry_id,
+                   IFNULL(u.device_type, 'personal') AS device_type,
                    UNIX_TIMESTAMP(tce.clock_in) AS clock_in_ts,
                    (SELECT UNIX_TIMESTAMP(MAX(clh.timestamp)) FROM crew_location_history clh
                      WHERE clh.crew_id = u.id AND clh.timestamp >= tce.clock_in) AS last_fix_ts
@@ -86,7 +87,6 @@ class TrackingHealthService
             JOIN users u ON u.id = tce.user_id
             WHERE tce.clock_out IS NULL AND tce.status = 'active'
               AND u.is_active = 1 AND u.location_tracking_enabled = 1
-              AND IFNULL(u.device_type, 'personal') <> 'truck'
         ");
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }

@@ -42,6 +42,22 @@ if (php_sapi_name() === 'cli') {
 
 require_once CRM_INCLUDES . '/functions.php';
 require_once CRM_INCLUDES . '/messaging.php';
+// recordCronRun() is not pulled in by the CLI bootstrap chain; without it this
+// cron can never report and the Database Manager shows "Never run" forever,
+// which is indistinguishable from "not scheduled".
+require_once APP_ROOT . '/Services/CrmFunctions.php';
+
+$__cronStart = microtime(true);
+
+function __fcoRecord(string $status, string $summary, ?string $err = null): void
+{
+    global $__cronStart;
+    if (function_exists('recordCronRun')) {
+        recordCronRun('forgot_clockout_sms', $status, $summary,
+            (int) round((microtime(true) - $__cronStart) * 1000), $err,
+            php_sapi_name() !== 'cli');
+    }
+}
 
 $db  = getDB();
 $log = [];
@@ -59,6 +75,8 @@ fcoLog('=== Forgot Clock-Out SMS Cron started ===');
 $enabledRow = $db->query("SELECT value FROM ops_settings WHERE `key` = 'forgot_clockout_sms_enabled' LIMIT 1")->fetch(PDO::FETCH_ASSOC);
 if (!$enabledRow || $enabledRow['value'] !== '1') {
     fcoLog('Feature disabled — exiting');
+    // Disabled is a legitimate outcome, not a non-run — say so rather than stay silent.
+    __fcoRecord('success', 'Feature disabled (forgot_clockout_sms_enabled != 1)');
     exit;
 }
 
@@ -199,8 +217,10 @@ try {
     }
 
     fcoLog("=== Done. Sent: {$sent}, Skipped: {$skipped} ===");
+    __fcoRecord('success', "Sent: {$sent}, Skipped: {$skipped}");
 
 } catch (\Throwable $e) {
     fcoLog('FATAL: ' . $e->getMessage());
+    __fcoRecord('error', 'Cron failed', $e->getMessage());
     exit(1);
 }

@@ -94,18 +94,25 @@ try {
         $userId = (int)$row['user_id'];
         $name   = (string)($row['full_name'] ?? "Employee #{$userId}");
         $first  = trim(explode(' ', $name)[0]);
-        $say("  SILENT {$minutes} min — #{$userId} {$name}. {$cause}");
+        // A truck tablet has no one holding it, so it gets no push and no SMS — but it
+        // is NOT exempt from being noticed. Trucks used to be excluded from the sweep
+        // entirely, which is how the Dodge Ram sat clocked in and GPS-silent for 21 h
+        // on 2026-09-25 with nothing raised anywhere.
+        $isTruck = ($row['device_type'] ?? 'personal') === 'truck';
+        $say("  SILENT {$minutes} min — #{$userId} {$name}" . ($isTruck ? ' [truck]' : '') . ". {$cause}");
 
-        // Employee: opening the app is the fix (it resumes tracking on foreground).
-        $push([$userId], 'Location tracking has stopped',
-              "You're clocked in but we haven't heard from your phone in {$minutes} min. Open the app to resume.");
+        if (!$isTruck) {
+            // Employee: opening the app is the fix (it resumes tracking on foreground).
+            $push([$userId], 'Location tracking has stopped',
+                  "You're clocked in but we haven't heard from your phone in {$minutes} min. Open the app to resume.");
+        }
 
         $phoneStmt = $db->prepare("SELECT phone FROM users WHERE id = ?");
         $phoneStmt->execute([$userId]);
         $phone = trim((string)$phoneStmt->fetchColumn());
         // Crew SMS is opt-in (tracking_silent_sms_enabled): until the Android tracking rework
         // ships, its gaps are frequent and an hourly text would just teach people to ignore it.
-        if ($phone !== '' && getTimeClockSetting('tracking_silent_sms_enabled', '0') === '1') {
+        if (!$isTruck && $phone !== '' && getTimeClockSetting('tracking_silent_sms_enabled', '0') === '1') {
             // SMS rules: plain text, <=160 chars, NO URLs, office number included.
             $sms = "Hi {$first}, you're clocked in but location tracking stopped {$minutes} min ago. Please open the app to restart it. Questions? Call {$officePhone}";
             if (mb_strlen($sms) > 160) {
@@ -122,8 +129,11 @@ try {
         if ($officeEmail !== '') {
             $html = '<p><strong>' . htmlspecialchars($name) . '</strong> is clocked in but their phone has sent no location for <strong>'
                   . (int)$minutes . ' minutes</strong>.</p><p>Likely cause: ' . htmlspecialchars($cause) . '</p>'
-                  . '<p>They have been notified by push and SMS and asked to open the app, which restarts tracking. '
-                  . 'If this visit needs a location record (salting, snow), confirm with them now rather than later.</p>';
+                  . ($isTruck
+                      ? '<p>This is a TRUCK tablet, so nobody has been messaged — it needs checking in person. '
+                        . 'The usual cause is location set to "While using" or the app not being battery-exempt.</p>'
+                      : '<p>They have been notified by push and SMS and asked to open the app, which restarts tracking. '
+                        . 'If this visit needs a location record (salting, snow), confirm with them now rather than later.</p>');
             sendCrmEmail($officeEmail, "Tracking silent: {$name} ({$minutes} min)", $html, null, $sender);
         }
     };
