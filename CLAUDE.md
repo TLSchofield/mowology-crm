@@ -83,15 +83,17 @@ This is a critical constraint for all SQL queries and schema changes:
 
 ---
 
-## 1c. Architectural Knowledge Layer — Check Before Refactoring
+## 1c. Architectural Knowledge Layer — Check Before Coding
 
-Before any refactor, architecture change, or "safely upgrade this" task (including when using `/anthropic-skills:safe-production-refactoring-architect`), read the relevant doc(s) in the Obsidian vault first:
+**Before changing any code in this repo** — a bug fix, a one-line patch, a new feature, a refactor, an "architecture change" or a "safely upgrade this" task (including when using `/anthropic-skills:safe-production-refactoring-architect`) — read the relevant doc(s) in the Obsidian vault first:
 
 `/Users/timschofield/Library/Mobile Documents/iCloud~md~obsidian/Documents/30-PROJECTS/Active/Mowology-CRM/Architecture/`
 
 Start at `_Architecture-Index.md`, then the doc matching the system being touched (Integration-Map, Known-Failure-Patterns, Decision-Log, Tech-Debt-Map, or a dedicated doc like Accounting-Ledger). This is a targeted read (one doc, a few KB) instead of re-deriving coupling risks, silent-failure traps, and "why is it built this way" from scratch via grep/Read across the codebase. Treat vault content as a starting hypothesis, not ground truth — spot-check anything load-bearing against the current code before acting on it (the vault decays like any doc).
 
-After the refactor, use `/obsidian` (bare, no arguments) to log what changed back into the vault — it auto-detects scope from the session.
+This used to say "before any refactor". It was narrowed in practice to mean only big rewrites, and on 2026-09-24 a two-day GPS outage was diagnosed from scratch while `Known-Failure-Patterns.md` already held the matching CSRF trap. It now means **any** code change. A `PreToolUse` hook (`.claude/hooks/vault-check.py`, wired in `.claude/settings.json`) injects the vault index on the first code edit of each session so this cannot be skipped by forgetting; the hook is a reminder, the reading is still the rule.
+
+After the work, use `/obsidian` (bare, no arguments) to log what changed back into the vault — it auto-detects scope from the session.
 
 ---
 
