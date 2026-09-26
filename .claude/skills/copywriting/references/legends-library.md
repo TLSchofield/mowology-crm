@@ -119,6 +119,8 @@ Kennedy's direct-response discipline: copy without a real deadline and a real re
 
 **Apply it**: check every CTA for a real, specific reason to act today. If there isn't one, the offer needs work before the copy does.
 
+**Full treatment**: `kennedy-ultimate-sales-letter.md` — his 28-step production system from blank page to mailbox, including five price-objection reframes, the damaging-admission technique, a two-pass strategy/style edit method, and the follow-up-sequence argument (the sale is rarely won on message one). Use this when the task is producing and shipping a piece, not just writing persuasive lines.
+
 ---
 
 ## Volume 9 — Gary Bencivenga: Proof Stacking
@@ -322,6 +324,9 @@ Whitman worked under Gary Halbert and dedicates *Cashvertising* (2009) to Halber
 | Benefit claim feels flat or forgettable | Vol. 20 (Whitman — reframe around the Life-Force 8, not a learned want) |
 | Need to pre-empt a competitor's future counter-argument | Vol. 20 (Whitman's Inoculation Theory) |
 | Final pre-ship pass on a considered piece of copy | `whitman-cashvertising.md` §5 (46-point Killer Ad checklist), alongside `sugarman-handbook.md` §9 |
+| Need an actual production process, not just persuasion technique | `kennedy-ultimate-sales-letter.md` (28-step system, blank page to mailbox) |
+| Price objection needs reframing | `kennedy-ultimate-sales-letter.md` §3 (five reframes) |
+| Draft needs editing but not sure what kind | `kennedy-ultimate-sales-letter.md` §3 (strategy pass vs. style pass — two different edits) |
 | Persuasion feels thin or one-note | Vol. 15 (Cialdini — check all 7 levers, not just one) |
 | Copy argues well but doesn't convert | Vol. 18 (Scott — show the action, don't just make the case) |
 | Not sure an ad/headline actually works, just that it "feels right" | Vol. 19 (Starch — key it, test it, don't guess) |

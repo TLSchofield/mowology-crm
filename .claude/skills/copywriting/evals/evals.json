@@ -193,6 +193,19 @@
         "References or applies whitman-cashvertising.md concepts by name or content"
       ],
       "files": []
+    },
+    {
+      "id": 14,
+      "prompt": "I've written a first draft of a direct-mail letter for a $3,000 landscaping design consultation. It's decent but I'm not sure if it needs more work, and I'm worried the price will scare people off. What should I do before sending it?",
+      "expected_output": "Should recognize this calls for kennedy-ultimate-sales-letter.md's production process rather than just a line-edit. Should distinguish a 'rewrite for strategy' pass (is the argument/offer/sequence right) from a 'rewrite for style' pass (word choice, rhythm) per \u00a73, and recommend doing strategy first. Should address the price concern using one of Kennedy's price-reframing techniques from \u00a73 (e.g. breaking the price into a smaller unit, comparing to a relevant alternative cost, or justifying via ROI/value) rather than just suggesting to lower the price or hide it. Should recommend a cool-off period and getting a second opinion from someone with relevant direct-response/sales experience specifically (\u00a75), not just anyone. Should not simply rewrite the letter without first identifying what stage of the process it's actually at.",
+      "assertions": [
+        "References or applies kennedy-ultimate-sales-letter.md",
+        "Distinguishes a strategy-level edit from a style-level edit",
+        "Recommends a specific price-reframing technique rather than just lowering or hiding the price",
+        "Recommends a cool-off period and/or a second opinion from someone with relevant experience",
+        "Does not jump straight to line-editing without diagnosing what stage the draft is at"
+      ],
+      "files": []
     }
   ]
 }

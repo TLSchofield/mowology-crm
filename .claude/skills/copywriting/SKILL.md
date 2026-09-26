@@ -2,7 +2,7 @@
 name: copywriting
 description: When the user wants to write, rewrite, or improve marketing copy for any page — including homepage, landing pages, pricing pages, feature pages, about pages, or product pages. Also use when the user says "write copy for," "improve this copy," "rewrite this page," "marketing copy," "headline help," "CTA copy," "value proposition," "tagline," "subheadline," "hero section copy," "above the fold," "this copy is weak," "make this more compelling," or "help me describe my product." Use this whenever someone is working on website text that needs to persuade or convert. For email copy, see email-sequence. For popup copy, see popup-cro. For editing existing copy, see copy-editing.
 metadata:
-  version: 1.8.0
+  version: 1.9.0
 ---
 
 # Copywriting
@@ -265,6 +265,12 @@ Every named case study elsewhere in this skill predates 2020. Before writing a h
 ## Psychological Checklists
 
 For a menu of specific psychological levers to check a draft against — beyond Sugarman's 31 triggers and Cialdini's 7 principles already covered — see [references/whitman-cashvertising.md](references/whitman-cashvertising.md): the Life-Force 8 primal desires (ads built on these outpull ads built only on learned wants), 17 consumer-psychology principles including the Inoculation Theory (pre-empt a competitor's future counter-argument by naming and refuting it first), 41 numbered ad-agency secrets, and a 46-point pre-ship "Killer Ad" checklist.
+
+---
+
+## From Draft to Mailbox
+
+Sugarman and Whitman tell you what makes copy persuasive. [references/kennedy-ultimate-sales-letter.md](references/kennedy-ultimate-sales-letter.md) covers the other half: an actual 28-step production process for taking a sales letter (or any long-form piece) from a blank page to delivered — diagnosing the customer and offer, the "damaging admission" technique, five ways to reframe price objections, a strategy-pass/style-pass two-edit method, pretesting, and the operational tail (cooling off, second opinions, production, mailing) that determines whether a technically excellent piece of copy actually reaches its reader intact. Use this when the task is "how do I get this written and shipped," not just "what should it say."
 
 ---
 
