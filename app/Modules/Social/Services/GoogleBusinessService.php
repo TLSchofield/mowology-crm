@@ -110,7 +110,7 @@ class GoogleBusinessService
         if ($expiresAt) {
             $expiresTs = strtotime($expiresAt);
             if ($expiresTs > time() + 600) {
-                return SocialEncryption::decrypt($account['access_token_enc'] ?? '');
+                return SocialEncryption::requireToken($account['access_token_enc'] ?? '', 'Google access token');
             }
         }
 
@@ -119,10 +119,7 @@ class GoogleBusinessService
             throw new RuntimeException('No refresh token available — user must re-authenticate');
         }
 
-        $refreshToken = SocialEncryption::decrypt($refreshEnc);
-        if (!$refreshToken) {
-            throw new RuntimeException('Could not decrypt refresh token');
-        }
+        $refreshToken = SocialEncryption::requireToken($refreshEnc, 'Google refresh token');
 
         $tokenData = self::refreshAccessToken($refreshToken);
 

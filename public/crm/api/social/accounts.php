@@ -89,7 +89,7 @@ try {
             $stmt = $db->query("
                 SELECT sa.id, sa.platform, sa.account_name, sa.location_name_display,
                        sa.is_active, sa.is_verified, sa.token_expires_at, sa.last_sync_at,
-                       sa.connected_at, u.full_name AS connected_by_name
+                       sa.connected_at, sa.meta_json, u.full_name AS connected_by_name
                 FROM social_accounts sa
                 LEFT JOIN users u ON u.id = sa.connected_by
                 WHERE sa.is_active >= 0
@@ -113,6 +113,15 @@ try {
                     $a['token_health'] = 'good';
                 }
                 unset($a['token_expires_at']); // Don't expose to frontend
+
+                // The real thing: what the hourly connection check last found.
+                // token_health above only reasons about the expiry DATE, which for
+                // a Meta page token is always NULL — so it reported "good" right
+                // through a three-month outage. This is the authoritative field;
+                // null means never checked.
+                $meta         = json_decode($a['meta_json'] ?? '{}', true) ?: [];
+                $a['health']  = is_array($meta['health'] ?? null) ? $meta['health'] : null;
+                unset($a['meta_json']);
             }
             unset($a);
 

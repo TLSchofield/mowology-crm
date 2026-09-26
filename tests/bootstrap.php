@@ -102,5 +102,10 @@ require_once __DIR__ . '/../app/Modules/Jobs/Services/SeasonalOutlookRefreshServ
 require_once __DIR__ . '/../app/Modules/Jobs/Services/CrewAssignmentService.php';
 require_once __DIR__ . '/../app/Modules/Portfolio/Services/BeforeAfterService.php';
 
+// Social (Meta/GBP publishing — credential contract + connection health)
+require_once __DIR__ . '/../app/Modules/Social/Services/SocialEncryption.php';
+require_once __DIR__ . '/../app/Modules/Social/Services/MetaService.php';
+require_once __DIR__ . '/../app/Modules/Social/Services/SocialAccountHealth.php';
+
 // Integration test base class (needed when --testsuite Integration is run)
 require_once __DIR__ . '/Integration/ApiTestCase.php';

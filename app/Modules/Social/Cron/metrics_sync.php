@@ -138,15 +138,24 @@ try {
         $platform       = $row['platform'];
 
         try {
-            $pageToken = SocialEncryption::decrypt($row['access_token_enc'] ?? '');
-            if (!$pageToken) {
-                throw new RuntimeException('Could not decrypt page token for account ' . $row['account_id']);
-            }
+            $pageToken = SocialEncryption::requireToken(
+                $row['access_token_enc'] ?? '',
+                'page token for social account #' . $row['account_id']
+            );
 
             if ($platform === 'facebook') {
                 $metrics = MetaService::fetchFacebookMetrics($platformPostId, $pageToken);
             } else {
                 $metrics = MetaService::fetchInstagramMetrics($platformPostId, $pageToken);
+            }
+
+            // null = the fetch failed. Writing zeros here would record "nobody
+            // saw this post" as though it were measured, which is exactly how
+            // the Instagram numbers stayed plausibly empty for so long.
+            if ($metrics === null) {
+                throw new RuntimeException(
+                    "Insights fetch failed for {$platform} post {$platformPostId} — see error_log for the Graph response."
+                );
             }
 
             $upsert->execute([

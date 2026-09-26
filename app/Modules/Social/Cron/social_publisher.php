@@ -38,6 +38,8 @@ require_once APP_ROOT . '/Modules/Social/Services/SocialEncryption.php';
 require_once APP_ROOT . '/Modules/Social/Services/GoogleBusinessService.php';
 require_once APP_ROOT . '/Modules/Social/Services/MetaService.php';
 require_once APP_ROOT . '/Modules/Social/Services/SocialPublisher.php';
+require_once APP_ROOT . '/Modules/Social/Services/SocialAccountHealth.php';
+require_once CRM_INCLUDES . '/messaging.php';   // SocialAccountHealth emails the office on a fresh failure
 
 $isCli      = php_sapi_name() === 'cli';
 $fromWeb    = !$isCli;
@@ -76,6 +78,25 @@ try {
         echo json_encode(['success' => false, 'error' => $msg]);
         exit;
     }
+
+    // ── Connection health ───────────────────────────────────────────
+    // Runs here rather than in a cron of its own: a new cron entry needs a human
+    // to schedule it in cPanel and would have sat dormant, which is exactly how
+    // social_metrics_sync ended up never running. Rate-limited to hourly per
+    // account inside sweep(), and it can never throw.
+    $health = ['checked' => 0, 'failed' => 0, 'alerted' => 0, 'notes' => []];
+    try {
+        $health = SocialAccountHealth::sweep($db);
+        if ($isCli && $health['checked'] > 0) {
+            echo "Connection check: " . implode('; ', $health['notes']) . "\n";
+        }
+    } catch (\Throwable $e) {
+        error_log('social_publisher: health sweep failed (publishing continues): ' . $e->getMessage());
+    }
+
+    $healthNote = $health['failed'] > 0
+        ? " | accounts unhealthy: {$health['failed']}"
+        : '';
 
     // ── Release stale locks (items locked > 5 minutes ago) ─────────
     $db->prepare("
@@ -122,9 +143,20 @@ try {
     $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     if (empty($items)) {
-        $msg = 'No posts due for publishing.';
+        $msg = 'No posts due for publishing.' . $healthNote;
+        // Record the idle run too. A cron that only reports when it has work
+        // reads as "Never run" in the Cron Manager forever, which is
+        // indistinguishable from not being scheduled at all.
+        recordCronRun(
+            'social_publisher',
+            $health['failed'] > 0 ? 'warning' : 'success',
+            $msg,
+            (int) round(microtime(true) * 1000) - $startMs,
+            null,
+            $fromWeb
+        );
         if ($isCli) { echo "$msg\n"; exit(0); }
-        echo json_encode(['success' => true, 'message' => $msg, 'processed' => 0]);
+        echo json_encode(['success' => true, 'message' => $msg, 'processed' => 0, 'health' => $health]);
         exit;
     }
 
@@ -193,7 +225,8 @@ try {
     // ── Summary ─────────────────────────────────────────────────────
     $summary = [
         'success'   => true,
-        'message'   => "Published: $published, Failed: $failed, Total: " . count($items),
+        'health'    => $health,
+        'message'   => "Published: $published, Failed: $failed, Total: " . count($items) . $healthNote,
         'published' => $published,
         'failed'    => $failed,
         'results'   => $results,
@@ -203,7 +236,7 @@ try {
     recordCronRun(
         'social_publisher',
         $cronStatus,
-        "Published: {$published}, Failed: {$failed}, Total: " . count($items),
+        "Published: {$published}, Failed: {$failed}, Total: " . count($items) . $healthNote,
         $durationMs,
         $cronError,
         $fromWeb

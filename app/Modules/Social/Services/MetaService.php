@@ -28,10 +28,54 @@ declare(strict_types=1);
 
 class MetaService
 {
-    private const AUTH_URL  = 'https://www.facebook.com/v19.0/dialog/oauth';
-    private const TOKEN_URL = 'https://graph.facebook.com/v19.0/oauth/access_token';
-    private const PAGES_URL = 'https://graph.facebook.com/v19.0/me/accounts';
-    private const GRAPH_URL = 'https://graph.facebook.com/v19.0/';
+    /**
+     * Graph API version — a DELIBERATE pin, overridable as META_GRAPH_VERSION
+     * in secrets.php so a bump needs no code deploy.
+     *
+     * v23.0 was released 2025-05-29 and is supported until roughly 2027-05.
+     * **Check that date before assuming this is current.** The previous pin was
+     * v19.0, which expired 2026-05-21 and kept working anyway: for the Graph API
+     * (unlike the Marketing API) a call to an expired version is silently
+     * rerouted to the oldest version still alive, so an expired pin never
+     * announces itself — it just means you are running on a version you did not
+     * choose, changing under you with no deploy.
+     *
+     * Before bumping past v25.0, note that post_impressions and
+     * post_impressions_unique are deprecated above it. The insights fetch below
+     * drops metrics the API rejects instead of failing the whole request, so a
+     * bump degrades rather than breaks — but confirm what the Facebook numbers
+     * mean afterwards rather than trusting that they still arrive.
+     */
+    private const DEFAULT_GRAPH_VERSION = 'v23.0';
+
+    public static function graphVersion(): string
+    {
+        if (defined('META_GRAPH_VERSION') && preg_match('/^v\d+\.\d+$/', (string)META_GRAPH_VERSION)) {
+            return (string)META_GRAPH_VERSION;
+        }
+
+        return self::DEFAULT_GRAPH_VERSION;
+    }
+
+    private static function authUrl(): string
+    {
+        return 'https://www.facebook.com/' . self::graphVersion() . '/dialog/oauth';
+    }
+
+    private static function tokenUrl(): string
+    {
+        return 'https://graph.facebook.com/' . self::graphVersion() . '/oauth/access_token';
+    }
+
+    private static function pagesUrl(): string
+    {
+        return 'https://graph.facebook.com/' . self::graphVersion() . '/me/accounts';
+    }
+
+    private static function graphUrl(): string
+    {
+        return 'https://graph.facebook.com/' . self::graphVersion() . '/';
+    }
 
     // OAuth scopes for page + Instagram management.
     // instagram_content_publish is required to create media containers and publish
@@ -48,7 +92,7 @@ class MetaService
             throw new RuntimeException('META_APP_ID not set in secrets.php. See MetaService.php for setup instructions.');
         }
 
-        return self::AUTH_URL . '?' . http_build_query([
+        return self::authUrl() . '?' . http_build_query([
             'client_id'     => META_APP_ID,
             'redirect_uri'  => META_REDIRECT_URI,
             'scope'         => self::FB_SCOPES,
@@ -69,7 +113,7 @@ class MetaService
     public static function exchangeCode(string $code): array
     {
         // Step 1: Exchange code for short-lived user token
-        $short = self::httpPostForm(self::TOKEN_URL, [
+        $short = self::httpPostForm(self::tokenUrl(), [
             'client_id'     => META_APP_ID,
             'client_secret' => META_APP_SECRET,
             'redirect_uri'  => META_REDIRECT_URI,
@@ -82,7 +126,7 @@ class MetaService
         }
 
         // Step 2: Extend to long-lived token (60 days ≈ 5,183,944 seconds)
-        $longUrl = self::TOKEN_URL . '?' . http_build_query([
+        $longUrl = self::tokenUrl() . '?' . http_build_query([
             'grant_type'        => 'fb_exchange_token',
             'client_id'         => META_APP_ID,
             'client_secret'     => META_APP_SECRET,
@@ -112,7 +156,7 @@ class MetaService
     public static function listPages(string $userToken): array
     {
         // Step 1: get pages + their page tokens using the user token
-        $url = self::PAGES_URL . '?' . http_build_query([
+        $url = self::pagesUrl() . '?' . http_build_query([
             'fields'       => 'id,name,access_token',
             'access_token' => $userToken,
         ]);
@@ -137,7 +181,7 @@ class MetaService
                     // Try both field names — Meta renamed the field in newer API versions.
                     // instagram_business_account = classic Graph API field
                     // connected_instagram_account = newer alias, accessible without Instagram OAuth scopes
-                    $igUrl  = self::GRAPH_URL . $p['id'] . '?' . http_build_query([
+                    $igUrl  = self::graphUrl() . $p['id'] . '?' . http_build_query([
                         'fields'       => 'instagram_business_account,connected_instagram_account',
                         'access_token' => $pageToken,
                     ]);
@@ -172,7 +216,7 @@ class MetaService
         $fields = ['instagram_business_account', 'connected_instagram_account'];
         foreach ($fields as $field) {
             try {
-                $url  = self::GRAPH_URL . $pageId . '?' . http_build_query([
+                $url  = self::graphUrl() . $pageId . '?' . http_build_query([
                     'fields'       => $field,
                     'access_token' => $pageToken,
                 ]);
@@ -189,7 +233,7 @@ class MetaService
 
         // Method 2: instagram_accounts edge on the page
         try {
-            $url  = self::GRAPH_URL . $pageId . '/instagram_accounts?' . http_build_query([
+            $url  = self::graphUrl() . $pageId . '/instagram_accounts?' . http_build_query([
                 'access_token' => $pageToken,
             ]);
             $data = self::httpGet($url);
@@ -215,15 +259,10 @@ class MetaService
      */
     public static function ensureFreshToken(array $account): string
     {
-        $token = SocialEncryption::decrypt($account['access_token_enc'] ?? '');
-
-        if (!$token) {
-            throw new RuntimeException(
-                'Meta account has no page token. Please reconnect the account at Social Accounts settings.'
-            );
-        }
-
-        return $token;
+        // requireToken() separates "nothing stored" from "stored but will not
+        // decrypt". Collapsing those two into "has no page token" is what hid a
+        // three-month publishing outage — see SocialEncryption's docblock.
+        return SocialEncryption::requireToken($account['access_token_enc'] ?? '', 'Facebook page token');
     }
 
     // ── Facebook posting ─────────────────────────────────────────────
@@ -472,113 +511,232 @@ class MetaService
     // ── Metrics ──────────────────────────────────────────────────────
 
     /**
-     * Fetch engagement metrics for a published Facebook Page post.
+     * Run an insights request and return name => value, or null if the request
+     * could not be answered.
      *
-     * Returns ['impressions', 'reach', 'clicks', 'likes', 'comments_count', 'shares', 'saves']
-     * On API error, logs and returns zeros — metric sync must be non-fatal.
+     * Graph fails the ENTIRE request if any one metric in the list is invalid,
+     * and Meta retires metric names on its own schedule (Instagram's
+     * `impressions` on 2025-04-21; Facebook's `post_impressions` above v25). So
+     * on failure this retries metric-by-metric and keeps whatever the live API
+     * version still answers: a retired name costs you that one number instead of
+     * the whole row.
+     *
+     * @param string[] $metrics
+     * @return array<string,mixed>|null
      */
-    public static function fetchFacebookMetrics(string $platformPostId, string $pageToken): array
+    private static function insights(string $objectId, array $metrics, string $token): ?array
     {
-        $defaults = ['impressions' => 0, 'reach' => 0, 'clicks' => 0, 'likes' => 0, 'comments_count' => 0, 'shares' => 0, 'saves' => 0];
+        $result = self::insightsRequest($objectId, $metrics, $token);
+        if ($result !== null) {
+            return $result;
+        }
 
-        $url = self::GRAPH_URL . $platformPostId . '/insights?' . http_build_query([
-            'metric'       => 'post_impressions,post_impressions_unique,post_clicks_by_type_unique,post_reactions_by_type_total,post_activity_by_action_type',
-            'access_token' => $pageToken,
+        if (count($metrics) <= 1) {
+            return null;
+        }
+
+        $merged = [];
+        $anyOk  = false;
+
+        foreach ($metrics as $metric) {
+            $one = self::insightsRequest($objectId, [$metric], $token);
+            if ($one === null) {
+                error_log("MetaService::insights — dropping metric '{$metric}' for {$objectId}; "
+                    . 'the API version in use (' . self::graphVersion() . ') will not answer it.');
+                continue;
+            }
+            $anyOk  = true;
+            $merged = array_merge($merged, $one);
+        }
+
+        return $anyOk ? $merged : null;
+    }
+
+    /** @return array<string,mixed>|null */
+    private static function insightsRequest(string $objectId, array $metrics, string $token): ?array
+    {
+        $url = self::graphUrl() . $objectId . '/insights?' . http_build_query([
+            'metric'       => implode(',', $metrics),
+            'access_token' => $token,
         ]);
 
         try {
             $data = self::httpGet($url);
-
-            if (isset($data['error'])) {
-                error_log('MetaService fetchFacebookMetrics error for ' . $platformPostId . ': ' . json_encode($data['error']));
-                return $defaults;
-            }
-
-            $metrics = [];
-            foreach ($data['data'] ?? [] as $item) {
-                $metrics[$item['name']] = $item['values'][0]['value'] ?? 0;
-            }
-
-            // post_reactions and post_activity return nested arrays — sum them
-            $reactions = $metrics['post_reactions_by_type_total'] ?? 0;
-            if (is_array($reactions)) {
-                $reactions = (int)array_sum($reactions);
-            }
-
-            $activity = $metrics['post_activity_by_action_type'] ?? [];
-            $comments = is_array($activity) ? (int)($activity['comment'] ?? 0) : 0;
-            $shares   = is_array($activity) ? (int)($activity['share'] ?? 0) : 0;
-
-            $clicks = $metrics['post_clicks_by_type_unique'] ?? 0;
-            if (is_array($clicks)) {
-                $clicks = (int)array_sum($clicks);
-            }
-
-            return [
-                'impressions'   => (int)($metrics['post_impressions'] ?? 0),
-                'reach'         => (int)($metrics['post_impressions_unique'] ?? 0),
-                'clicks'        => $clicks,
-                'likes'         => $reactions,
-                'comments_count' => $comments,
-                'shares'        => $shares,
-                'saves'         => 0, // Not available via Facebook post insights
-            ];
         } catch (\Throwable $e) {
-            error_log('MetaService fetchFacebookMetrics exception for ' . $platformPostId . ': ' . $e->getMessage());
-            return $defaults;
+            error_log('MetaService insights transport error for ' . $objectId . ': ' . $e->getMessage());
+            return null;
         }
+
+        if (isset($data['error'])) {
+            error_log('MetaService insights error for ' . $objectId . ' [' . implode(',', $metrics) . ']: '
+                . json_encode($data['error']));
+            return null;
+        }
+
+        $out = [];
+        foreach ($data['data'] ?? [] as $item) {
+            $name = $item['name'] ?? '';
+            if ($name === '') {
+                continue;
+            }
+            $out[$name] = $item['values'][0]['value']
+                ?? $item['total_value']['value']
+                ?? $item['value']
+                ?? 0;
+        }
+
+        return $out;
+    }
+
+    /** Sum a metric that Graph may return as either a scalar or a keyed array. */
+    private static function flatten($value): int
+    {
+        return is_array($value) ? (int)array_sum($value) : (int)$value;
+    }
+
+    /**
+     * Fetch engagement metrics for a published Facebook Page post.
+     *
+     * @return array|null null means the fetch FAILED. It must not be confused
+     *         with a row of zeros, which means "published, no engagement" — the
+     *         previous zero-on-error default is why Instagram metrics looked
+     *         like a quiet audience for over a year instead of a broken call.
+     */
+    public static function fetchFacebookMetrics(string $platformPostId, string $pageToken): ?array
+    {
+        $metrics = self::insights($platformPostId, [
+            'post_impressions',
+            'post_impressions_unique',
+            'post_clicks_by_type_unique',
+            'post_reactions_by_type_total',
+            'post_activity_by_action_type',
+        ], $pageToken);
+
+        if ($metrics === null) {
+            return null;
+        }
+
+        $activity = $metrics['post_activity_by_action_type'] ?? [];
+
+        return [
+            'impressions'    => self::flatten($metrics['post_impressions'] ?? 0),
+            'reach'          => self::flatten($metrics['post_impressions_unique'] ?? 0),
+            'clicks'         => self::flatten($metrics['post_clicks_by_type_unique'] ?? 0),
+            'likes'          => self::flatten($metrics['post_reactions_by_type_total'] ?? 0),
+            'comments_count' => is_array($activity) ? (int)($activity['comment'] ?? 0) : 0,
+            'shares'         => is_array($activity) ? (int)($activity['share'] ?? 0) : 0,
+            'saves'          => 0, // Not exposed by Facebook post insights.
+        ];
     }
 
     /**
      * Fetch engagement metrics for a published Instagram media post.
      *
-     * Returns ['impressions', 'reach', 'clicks', 'likes', 'comments_count', 'shares', 'saves']
-     * On API error, logs and returns zeros — metric sync must be non-fatal.
+     * `impressions` is NOT requested: Meta deprecated it for media insights on
+     * 2025-04-21, and media created on/after 2024-07-02 returns an error for it.
+     * `views` is the replacement and is what now lands in the impressions
+     * column — the two are not the same measure (views runs ~25% higher), so
+     * treat any Instagram impressions series as having a discontinuity here.
+     *
+     * @return array|null null means the fetch failed; see fetchFacebookMetrics().
      */
-    public static function fetchInstagramMetrics(string $igMediaId, string $pageToken): array
+    public static function fetchInstagramMetrics(string $igMediaId, string $pageToken): ?array
     {
-        $defaults = ['impressions' => 0, 'reach' => 0, 'clicks' => 0, 'likes' => 0, 'comments_count' => 0, 'shares' => 0, 'saves' => 0];
+        $metrics = self::insights($igMediaId, [
+            'views',
+            'reach',
+            'likes',
+            'comments',
+            'shares',
+            'saved',
+        ], $pageToken);
 
-        $url = self::GRAPH_URL . $igMediaId . '/insights?' . http_build_query([
-            'metric'       => 'impressions,reach,likes,comments,shares,saved',
-            'access_token' => $pageToken,
-        ]);
-
-        try {
-            $data = self::httpGet($url);
-
-            if (isset($data['error'])) {
-                error_log('MetaService fetchInstagramMetrics error for ' . $igMediaId . ': ' . json_encode($data['error']));
-                return $defaults;
-            }
-
-            $metrics = [];
-            foreach ($data['data'] ?? [] as $item) {
-                $metrics[$item['name']] = $item['values'][0]['value'] ?? ($item['value'] ?? 0);
-            }
-
-            return [
-                'impressions'    => (int)($metrics['impressions'] ?? 0),
-                'reach'          => (int)($metrics['reach'] ?? 0),
-                'clicks'         => 0, // IG media insights don't expose link clicks
-                'likes'          => (int)($metrics['likes'] ?? 0),
-                'comments_count' => (int)($metrics['comments'] ?? 0),
-                'shares'         => (int)($metrics['shares'] ?? 0),
-                'saves'          => (int)($metrics['saved'] ?? 0),
-            ];
-        } catch (\Throwable $e) {
-            error_log('MetaService fetchInstagramMetrics exception for ' . $igMediaId . ': ' . $e->getMessage());
-            return $defaults;
+        if ($metrics === null) {
+            return null;
         }
+
+        return [
+            'impressions'    => self::flatten($metrics['views'] ?? 0),
+            'reach'          => self::flatten($metrics['reach'] ?? 0),
+            'clicks'         => 0, // IG media insights do not expose link clicks.
+            'likes'          => self::flatten($metrics['likes'] ?? 0),
+            'comments_count' => self::flatten($metrics['comments'] ?? 0),
+            'shares'         => self::flatten($metrics['shares'] ?? 0),
+            'saves'          => self::flatten($metrics['saved'] ?? 0),
+        ];
     }
 
     /**
      * Generic metrics fetch — routes to platform-specific method.
      * Kept for backward compatibility with SocialPublisher dispatch.
      */
-    public static function fetchPostMetrics(string $platformPostId, string $accessToken): array
+    public static function fetchPostMetrics(string $platformPostId, string $accessToken): ?array
     {
         return self::fetchFacebookMetrics($platformPostId, $accessToken);
+    }
+
+    // ── Connection health ────────────────────────────────────────────
+
+    /**
+     * Can this account still reach the API with the credential we hold?
+     *
+     * Deliberately cheap (one Graph call) and ordered so the local failure is
+     * reported without spending a request: a token that will not decrypt is a
+     * key problem, and asking Meta about it tells you nothing.
+     *
+     * @return array{ok:bool,reason:string,detail:string}
+     *         reason is one of: ok | no_token | decrypt_failed | api_error |
+     *         instagram_unlinked
+     */
+    public static function checkTokenHealth(array $account): array
+    {
+        $platform = (string)($account['platform'] ?? 'facebook');
+
+        try {
+            $pageToken = self::ensureFreshToken($account);
+        } catch (\Throwable $e) {
+            $msg = $e->getMessage();
+            return [
+                'ok'     => false,
+                'reason' => str_contains($msg, 'could not be decrypted') ? 'decrypt_failed' : 'no_token',
+                'detail' => $msg,
+            ];
+        }
+
+        $pageId = (string)($account['account_id_external'] ?? '');
+        if ($pageId === '') {
+            return ['ok' => false, 'reason' => 'no_token', 'detail' => 'No Facebook Page ID stored for this account.'];
+        }
+
+        try {
+            $data = self::httpGet(self::graphUrl() . $pageId . '?' . http_build_query([
+                'fields'       => 'id,name',
+                'access_token' => $pageToken,
+            ]));
+        } catch (\Throwable $e) {
+            return ['ok' => false, 'reason' => 'api_error', 'detail' => 'Graph unreachable: ' . $e->getMessage()];
+        }
+
+        if (isset($data['error'])) {
+            return [
+                'ok'     => false,
+                'reason' => 'api_error',
+                'detail' => 'Graph rejected the page token: ' . ($data['error']['message'] ?? json_encode($data['error'])),
+            ];
+        }
+
+        if ($platform === 'instagram') {
+            $meta = json_decode($account['meta_json'] ?? '{}', true) ?: [];
+            if (empty($meta['ig_user_id']) && !self::fetchInstagramUserId($pageId, $pageToken)) {
+                return [
+                    'ok'     => false,
+                    'reason' => 'instagram_unlinked',
+                    'detail' => 'The page token works, but no Instagram Business account resolves from this Page.',
+                ];
+            }
+        }
+
+        return ['ok' => true, 'reason' => 'ok', 'detail' => 'Reached ' . ($data['name'] ?? $pageId) . '.'];
     }
 
     // ── Configuration check ──────────────────────────────────────────
@@ -665,7 +823,7 @@ class MetaService
         for ($i = 0; $i < $maxAttempts; $i++) {
             sleep($sleepSecs);
 
-            $url    = self::GRAPH_URL . $containerId . '?' . http_build_query([
+            $url    = self::graphUrl() . $containerId . '?' . http_build_query([
                 'fields'       => 'status_code',
                 'access_token' => $accessToken,
             ]);
@@ -694,7 +852,7 @@ class MetaService
 
     private static function graphPost(string $path, array $data): array
     {
-        $url = self::GRAPH_URL . ltrim($path, '/');
+        $url = self::graphUrl() . ltrim($path, '/');
         return self::httpPostForm($url, $data);
     }
 

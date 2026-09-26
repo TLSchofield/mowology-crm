@@ -361,8 +361,24 @@ $errorMsg = htmlspecialchars($_GET['error']    ?? '');
                               // Status badges + actions
                               html += '<div class="mw-sw-plat-status d-flex align-items-center flex-wrap" style="gap:6px">';
 
+                              // Live connection check wins over every expiry heuristic below:
+                              // a Meta page token has no expiry date, so the heuristics
+                              // said "good" for three months while nothing could post.
+                              var hc = a.health;
+                              var hcReasons = {
+                                  decrypt_failed:     'Key mismatch',
+                                  no_token:           'No token stored',
+                                  api_error:          'Rejected by platform',
+                                  instagram_unlinked: 'Instagram unlinked'
+                              };
+
                               if (!isActive) {
                                   html += '<span class="mw-sw-plat-badge not-connected">Paused</span>';
+                              } else if (hc && hc.status === 'error') {
+                                  html += '<span class="mw-sw-plat-badge not-connected" title="' + esc(hc.detail || '') + '">'
+                                        + esc(hcReasons[hc.reason] || 'Not working') + '</span>';
+                              } else if (hc && hc.status === 'ok') {
+                                  html += '<span class="mw-sw-plat-badge connected" title="Checked ' + esc(hc.checked_at || '') + '">Verified</span>';
                               } else if (h === 'expired') {
                                   html += '<span class="mw-sw-plat-badge not-connected">Token expired</span>';
                               } else if (h === 'expiring') {
@@ -371,6 +387,14 @@ $errorMsg = htmlspecialchars($_GET['error']    ?? '');
                                   html += '<span class="mw-sw-plat-badge connected">Verified</span>';
                               } else {
                                   html += '<span class="mw-sw-plat-badge not-connected">Unverified</span>';
+                              }
+
+                              // Never checked yet, or checked and broken — say so in words,
+                              // next to the badge, where someone will actually read it.
+                              if (isActive && hc && hc.status === 'error' && hc.detail) {
+                                  html += '<div class="mw-sw-plat-info text-danger" style="flex-basis:100%">' + esc(hc.detail) + '</div>';
+                              } else if (isActive && !hc) {
+                                  html += '<span class="badge badge-light" style="font-size:.7rem" title="The publisher cron checks each account hourly">Not checked yet</span>';
                               }
 
                               if (canApprove) {
