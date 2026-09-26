@@ -245,6 +245,19 @@
         "Connects each headline back to a rationale, not just a list of taglines"
       ],
       "files": []
+    },
+    {
+      "id": 18,
+      "prompt": "We're planning a cold-outreach direct mail campaign to 5,000 small business owners. We have three list options to choose from at different prices, and we're debating whether to use a branded envelope with our logo and a bold teaser line, or something plainer. What should we do?",
+      "expected_output": "Should apply halbert-boron-letters.md's 'Pile A vs. Pile B' principle: recommend against a branded envelope with a bold teaser line, since that flags the mail as commercial and routes it to the pile that often goes unopened; recommend a plain, personal-looking envelope (handwritten or typed address, no corner card/logo, real stamp) instead. Should apply the ten-tier list hierarchy / recency-frequency-unit-of-sale criteria to help evaluate the three list options, asking about how recent, how frequent, and how large the prior purchases were on each list rather than just picking by price. Should not recommend the eye-catching branded envelope approach as the default choice.",
+      "assertions": [
+        "Recommends a plain, personal-looking envelope over a branded/teaser one",
+        "References or applies the Pile A vs Pile B concept from halbert-boron-letters.md",
+        "Applies recency/frequency/unit-of-sale criteria (or the ten-tier hierarchy) to evaluate the list options",
+        "Does not recommend a bold branded teaser envelope as the right approach",
+        "Ties the envelope recommendation back to the fact that unopened mail can't convert"
+      ],
+      "files": []
     }
   ]
 }

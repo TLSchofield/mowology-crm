@@ -97,6 +97,8 @@ Halbert prized visceral, conversational copy and obsessive attention to the buyi
 
 **Apply it**: before writing, ask "is this a starving crowd?" No amount of copy technique fixes a weak market fit.
 
+**Full treatment**: `halbert-boron-letters.md` — the real letters Halbert wrote his son from federal prison, distilled in full: the ten-tier mailing-list hierarchy, the "Pile A vs. Pile B" envelope principle (arguably the single most-quoted idea in direct mail), hand-copying proven ads as a training method, and his own specific take on AIDA. Personal letters, not a manual — read it for voice as much as content.
+
 ---
 
 ## Volume 7 — Joe Sugarman: Psychological Sequence & Slippery Slope
@@ -345,3 +347,6 @@ Whitman worked under Gary Halbert and dedicates *Cashvertising* (2009) to Halber
 | Need proven headline formulas backed by decades of split-testing | `caples-tested-advertising-methods.md` (35 formulas + finding the right appeal) |
 | Not sure which appeal (fear/greed/duty/etc.) fits the product | `caples-tested-advertising-methods.md` §2 (Finding the Right Appeal) |
 | Need a concrete list of ways to actually test an ad | `caples-tested-advertising-methods.md` §5 (17 testing methods) |
+| Cold email/mail keeps getting ignored before it's even read | `halbert-boron-letters.md` (Pile A vs. Pile B — the envelope decides everything) |
+| Want a concrete way to internalize what makes copy work, not just read about it | `halbert-boron-letters.md` (hand-copying proven ads) |
+| Need to rank or choose between mailing lists / audience segments | `halbert-boron-letters.md` (the ten-tier list hierarchy: recency, frequency, unit of sale) |

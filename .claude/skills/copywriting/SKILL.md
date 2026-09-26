@@ -2,7 +2,7 @@
 name: copywriting
 description: When the user wants to write, rewrite, or improve marketing copy for any page — including homepage, landing pages, pricing pages, feature pages, about pages, or product pages. Also use when the user says "write copy for," "improve this copy," "rewrite this page," "marketing copy," "headline help," "CTA copy," "value proposition," "tagline," "subheadline," "hero section copy," "above the fold," "this copy is weak," "make this more compelling," or "help me describe my product." Use this whenever someone is working on website text that needs to persuade or convert. For email copy, see email-sequence. For popup copy, see popup-cro. For editing existing copy, see copy-editing.
 metadata:
-  version: 1.11.0
+  version: 1.12.0
 ---
 
 # Copywriting
@@ -281,6 +281,8 @@ Sugarman and Whitman tell you what makes copy persuasive. [references/kennedy-ul
 [references/ogilvy-on-advertising.md](references/ogilvy-on-advertising.md) is the full execution manual: complete print-ad rules (headlines, body copy, layout, typography, all backed by cited research findings), TV and direct-mail chapters, 18 numbered research findings, and Ogilvy's own profiles of the field's founders (Lasker, Resor, Rubicam, Burnett, Hopkins, Bernbach) — useful for About pages and brand-story work, not just for headline rules.
 
 [references/caples-tested-advertising-methods.md](references/caples-tested-advertising-methods.md) is the testing backbone under the headline-writing advice elsewhere in this skill: 35 proven headline formulas, a method for finding the right emotional appeal (and a list of appeals that backfire), 19 copy types rated recommended/cautioned/avoided, 20 ways to increase copy's selling power, and 17 concrete ways to test an ad. Reach for this whenever a headline needs a specific, testable pattern rather than a general principle.
+
+[references/halbert-boron-letters.md](references/halbert-boron-letters.md) is different in kind from every other reference here — a father's real letters to his son, not a manual. Reach for it for the "Pile A vs. Pile B" envelope principle (arguably the most-quoted single idea in direct mail — a promotion is worthless if the envelope never gets opened), the ten-tier mailing-list hierarchy, and hand-copying proven ads as a training method. Also worth reading for voice: this is what "write like you talk to one person" sounds like sustained for a whole book.
 
 ---
 
