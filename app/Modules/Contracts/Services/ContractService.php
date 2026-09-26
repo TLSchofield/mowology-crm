@@ -17,6 +17,22 @@ class ContractService
 
     public function __construct(private PDO $db) {}
 
+    private ?ContractTermsService $terms = null;
+
+    /**
+     * Terms are resolved through their own service. Lazy because most callers
+     * of ContractService never touch them, and it keeps the constructor
+     * signature stable for the pages that already `new ContractService($db)`.
+     */
+    private function terms(): ContractTermsService
+    {
+        if ($this->terms === null) {
+            require_once __DIR__ . '/ContractTermsService.php';
+            $this->terms = new ContractTermsService($this->db);
+        }
+        return $this->terms;
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // E-SIGNATURE — Send
     // ─────────────────────────────────────────────────────────────────────────
@@ -124,8 +140,12 @@ class ContractService
      * @param string $signatureData base64 PNG from SignaturePad canvas
      * @return bool true if saved; false if token was invalid/already used
      */
-    public function recordSignature(string $token, string $signatureData, string $signerIp): bool
-    {
+    public function recordSignature(
+        string $token,
+        string $signatureData,
+        string $signerIp,
+        bool   $termsAcknowledged = false
+    ): bool {
         $row = $this->getSignatureRequest($token);
         if (!$row) {
             return false;
@@ -140,6 +160,29 @@ class ContractService
                 SET status = 'signed', signature_data = ?, signed_at = ?, signed_ip = ?
                 WHERE signature_token = ?
             ")->execute([$signatureData, $now, $signerIp, $token]);
+
+            // Fingerprint the wording they were shown. Storing the hash rather
+            // than a second copy means the signature row proves the terms were
+            // not edited afterwards, without duplicating the document.
+            try {
+                $sealed = $this->terms()->termsForVersion(
+                    (int)$row['contract_id'],
+                    (int)$row['contract_version']
+                );
+                $this->db->prepare("
+                    UPDATE contract_signatures
+                    SET terms_acknowledged = ?, terms_body_hash = ?
+                    WHERE signature_token = ?
+                ")->execute([
+                    $termsAcknowledged ? 1 : 0,
+                    $sealed ? ContractTermsService::hashBody($sealed['body']) : null,
+                    $token,
+                ]);
+            } catch (\Throwable $e) {
+                // Migration 1119 not applied here. Never fail a signature over
+                // the audit trail for it — the signature itself is the record.
+                error_log('[ContractService] terms acknowledgement not stored: ' . $e->getMessage());
+            }
 
             $this->db->prepare("
                 UPDATE contracts
@@ -294,6 +337,11 @@ class ContractService
             $contract['notes'],
             $contract['signature_status'],
         ]);
+
+        // The wording goes in with the numbers. A version that records the
+        // price but not the terms cannot answer the only question that matters
+        // after an incident: what did the client actually agree to.
+        $this->terms()->snapshotOntoVersion($contractId, $nextVersion);
 
         $this->db->prepare(
             "UPDATE contracts SET current_version = ?, updated_at = NOW() WHERE id = ?"

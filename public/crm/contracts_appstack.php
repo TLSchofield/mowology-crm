@@ -91,6 +91,11 @@ $activePage = 'contracts';
                   <p class="text-muted mb-0">Service agreements linking billing to plans</p>
               </div>
               <div class="mw-header-actions">
+                  <?php if (($user['role'] ?? '') === 'admin'): ?>
+                      <a href="contracts/terms.php" class="btn btn-outline-secondary mr-2">
+                          <i data-feather="file-text" style="width:14px;height:14px;"></i> Terms
+                      </a>
+                  <?php endif; ?>
                   <a href="contracts/create.php" class="btn btn-primary">
                       <i data-feather="plus" style="width:14px;height:14px;"></i> New Contract
                   </a>

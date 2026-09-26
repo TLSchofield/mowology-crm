@@ -75,6 +75,11 @@ if ($quote) {
     }
 }
 
+// ── Terms templates ───────────────────────────────────────────────────────
+require_once APP_ROOT . '/Modules/Contracts/Services/ContractTermsService.php';
+$termsSvc       = new ContractTermsService($db);
+$termsTemplates = $termsSvc->listTemplates(true);
+
 // ── POST: create contract ─────────────────────────────────────────────────
 $error = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'] ?? '')) {
@@ -90,7 +95,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         'end_date'       => $_POST['end_date'] ?? '',
         'renewal_date'   => $_POST['renewal_date'] ?? '',
         'notes'          => trim($_POST['notes'] ?? ''),
+        'terms_template_id' => intval($_POST['terms_template_id'] ?? 0) ?: null,
     ];
+
+    // Seasonal templates decide two things the form should not be trusted with:
+    // a snow contract must never auto-renew, and its end date is the end of the
+    // season, not whatever was typed. "Nov 1 to Mar 31" is a billing boundary,
+    // not a sentence in the terms.
+    if (!empty($data['terms_template_id'])) {
+        $tpl = $termsSvc->getTemplate((int)$data['terms_template_id']);
+        if ($tpl) {
+            if ($termsSvc->forcesNoAutoRenew($tpl)) {
+                $data['auto_renew']   = 0;
+                $data['renewal_date'] = '';
+            }
+            $window = $termsSvc->seasonWindow($tpl, $data['start_date'] ?: null);
+            if ($window && empty($data['end_date'])) {
+                $data['end_date'] = $window['end'];
+            }
+        }
+    }
 
     $result = createContract($data, (int)$user['id']);
 
@@ -268,6 +292,28 @@ $activePage = 'contracts';
                                   <input type="date" id="start_date" name="start_date" class="form-control" hidden
                                          value="<?php echo htmlspecialchars($defaultStartDate); ?>" required>
                               </div>
+
+                              <?php if ($termsTemplates): ?>
+                              <div class="mw-form-row">
+                                  <label class="mw-form-label" for="terms_template_id">Terms &amp; Conditions</label>
+                                  <select id="terms_template_id" name="terms_template_id" class="form-control">
+                                      <option value="">Use the default for this service</option>
+                                      <?php foreach ($termsTemplates as $t): ?>
+                                          <option value="<?php echo (int)$t['id']; ?>"
+                                                  data-season="<?php echo htmlspecialchars((string)($t['season_end'] ?? '')); ?>"
+                                                  data-norenew="<?php echo !empty($t['forces_no_auto_renew']) ? '1' : '0'; ?>">
+                                              <?php echo htmlspecialchars($t['name']); ?><?php
+                                                  echo !empty($t['season_start']) && !empty($t['season_end'])
+                                                      ? ' (' . htmlspecialchars($t['season_start']) . ' to ' . htmlspecialchars($t['season_end']) . ')'
+                                                      : ''; ?>
+                                          </option>
+                                      <?php endforeach; ?>
+                                  </select>
+                                  <small class="text-muted d-block mt-1" id="termsHint">
+                                      The client sees these in full and must tick to agree before they can sign.
+                                  </small>
+                              </div>
+                              <?php endif; ?>
 
                               <div class="row">
                                   <div class="col-sm-6">
@@ -784,6 +830,28 @@ $activePage = 'contracts';
     window._hideAddPropertyBtn = function () {
         addPropertyBtnRow.style.display = 'none';
     };
+})();
+</script>
+
+<script>
+// Mirror the server-side seasonal guard in the UI. The server still enforces
+// it — this only stops the end date and renewal fields looking editable when
+// the chosen terms are going to overrule them anyway.
+(function () {
+    var sel  = document.getElementById('terms_template_id');
+    var hint = document.getElementById('termsHint');
+    if (!sel || !hint) return;
+    var base = hint.textContent;
+    sel.addEventListener('change', function () {
+        var opt = sel.options[sel.selectedIndex];
+        if (opt && opt.getAttribute('data-norenew') === '1') {
+            var end = opt.getAttribute('data-season') || '';
+            hint.textContent = base + ' This is a seasonal agreement: auto-renew is switched off'
+                + (end ? ' and it ends on ' + end + ' of the season it starts in' : '') + '.';
+        } else {
+            hint.textContent = base;
+        }
+    });
 })();
 </script>
 

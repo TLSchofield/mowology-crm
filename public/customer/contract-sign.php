@@ -20,10 +20,12 @@ for ($__i = 0; $__i < 7; $__i++) {
 unset($__dir, $__i);
 
 require_once APP_ROOT . '/Modules/Contracts/Services/ContractService.php';
+require_once APP_ROOT . '/Modules/Contracts/Services/ContractTermsService.php';
 
-$db    = getDB();
-$svc   = new ContractService($db);
-$error = '';
+$db       = getDB();
+$svc      = new ContractService($db);
+$termsSvc = new ContractTermsService($db);
+$error    = '';
 
 // ── Resolve the signature request ─────────────────────────────────────────
 $token = trim($_GET['token'] ?? '');
@@ -38,6 +40,14 @@ if (empty($token)) {
     }
 }
 
+// The wording sealed with the version being signed — not whatever the template
+// says today. `snapshot => false` means this contract predates migration 1119
+// and we are showing a live resolution instead of a sealed copy.
+$terms = null;
+if ($row) {
+    $terms = $termsSvc->termsForVersion((int)$row['contract_id'], (int)$row['contract_version']);
+}
+
 // ── Handle POST (sign / decline) ──────────────────────────────────────────
 $success = '';
 $action  = $_POST['action'] ?? '';
@@ -47,13 +57,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $row) {
         $signerName    = trim($_POST['signer_name'] ?? '');
         $signatureData = trim($_POST['signature_data'] ?? '');
 
+        $acknowledged = !empty($_POST['terms_acknowledged']);
+
         if (empty($signerName)) {
             $error = 'Please enter your full name.';
         } elseif (empty($signatureData) || $signatureData === 'data:,') {
             $error = 'Please draw your signature in the box above.';
+        } elseif ($terms && !$acknowledged) {
+            // Server-side too: the checkbox is the record that they were shown
+            // the liability wording, and a client-side-only gate proves nothing.
+            $error = 'Please confirm you have read and agree to the terms and conditions.';
         } else {
             $signerIp = $_SERVER['REMOTE_ADDR'] ?? '';
-            $saved    = $svc->recordSignature($token, $signatureData, $signerIp);
+            $saved    = $svc->recordSignature($token, $signatureData, $signerIp, $acknowledged);
             if ($saved) {
                 $success = 'Contract signed successfully. We will be in touch to confirm your service schedule.';
                 $row     = null; // don't re-show the form
@@ -95,6 +111,15 @@ if ($row) {
         .ctr-billing-label { color:var(--p-text-mid,#6b7280); }
         .ctr-billing-value { font-weight:600; color:var(--p-text,#1f2937); }
         .ctr-sig-note { font-size:.78rem; color:var(--p-text-mid,#6b7280); margin-top:6px; }
+        /* Terms are long. Cap the height so the signature pad stays reachable on
+           a phone, but never hide the text behind a "read more" — a disclaimer
+           the client had to expand is one they can say they never saw. */
+        .ctr-terms-body { font-size:.84rem; line-height:1.6; color:var(--p-text,#1f2937);
+            white-space:pre-line; max-height:340px; overflow-y:auto; padding-right:8px;
+            border-left:3px solid var(--p-border,#e5e7eb); padding-left:14px; }
+        .ctr-terms-ack { display:flex; gap:10px; align-items:flex-start; margin-bottom:18px;
+            font-size:.86rem; line-height:1.5; color:var(--p-text,#1f2937); cursor:pointer; }
+        .ctr-terms-ack input { margin-top:3px; flex-shrink:0; width:18px; height:18px; }
     </style>
 </head>
 <body>
@@ -221,18 +246,40 @@ if ($row) {
             </div>
         </div>
 
+        <?php if ($terms): ?>
+        <!-- Terms & conditions — shown in full, above the pad, every time. -->
+        <div class="portal-info-card">
+            <div class="portal-info-card-header">Terms &amp; Conditions</div>
+            <div class="portal-info-card-body">
+                <div class="ctr-terms-body"><?php echo htmlspecialchars($terms['body']); ?></div>
+            </div>
+        </div>
+        <?php endif; ?>
+
         <!-- Signature form -->
         <div class="portal-info-card">
             <div class="portal-info-card-header">Sign This Contract</div>
             <div class="portal-info-card-body">
                 <p style="font-size:.875rem;color:#6b7280;margin-bottom:20px;line-height:1.55;">
-                    By signing below you agree to the terms of this service contract with Mowology Landscaping.
-                    Your digital signature is legally binding.
+                    <?php if ($terms): ?>
+                        By signing below you agree to the Terms &amp; Conditions shown above and to this
+                        service contract with Mowology Landscaping. Your digital signature is legally binding.
+                    <?php else: ?>
+                        By signing below you agree to this service contract with Mowology Landscaping.
+                        Your digital signature is legally binding.
+                    <?php endif; ?>
                 </p>
 
                 <form method="POST" id="signForm">
                     <input type="hidden" name="action" value="sign">
                     <input type="hidden" name="signature_data" id="signatureData">
+
+                    <?php if ($terms): ?>
+                        <label class="ctr-terms-ack">
+                            <input type="checkbox" name="terms_acknowledged" id="termsAck" value="1" required>
+                            <span>I have read and agree to the Terms &amp; Conditions above.</span>
+                        </label>
+                    <?php endif; ?>
 
                     <div class="portal-form-group">
                         <label class="portal-form-label">Full Name *</label>

@@ -100,6 +100,34 @@ function createContract(array $data, int $userId): array {
             $userId,
         ]);
         $contractId = (int)$db->lastInsertId();
+
+        // Terms template + seasonal guard are written separately so this insert
+        // keeps working on an environment where migration 1119 hasn't run yet.
+        // A snow contract that silently auto-renews into April is a billing
+        // problem nobody notices until the invoice goes out, so the guard is
+        // applied in data here rather than trusted to whoever fills the form.
+        if (!empty($data['terms_template_id']) || isset($data['auto_renew'])) {
+            try {
+                $sets   = [];
+                $params = [];
+                if (!empty($data['terms_template_id']) && $db->query("SHOW COLUMNS FROM contracts LIKE 'terms_template_id'")->fetch()) {
+                    $sets[]   = 'terms_template_id = ?';
+                    $params[] = (int)$data['terms_template_id'];
+                }
+                if (isset($data['auto_renew'])) {
+                    $sets[]   = 'auto_renew = ?';
+                    $params[] = !empty($data['auto_renew']) ? 1 : 0;
+                }
+                if ($sets) {
+                    $params[] = $contractId;
+                    $db->prepare("UPDATE contracts SET " . implode(', ', $sets) . " WHERE id = ?")
+                       ->execute($params);
+                }
+            } catch (PDOException $e) {
+                error_log('createContract terms/renew not applied: ' . $e->getMessage());
+            }
+        }
+
         return ['success' => true, 'contract_id' => $contractId, 'contract_number' => $contractNumber, 'errors' => []];
     } catch (PDOException $e) {
         error_log('createContract error: ' . $e->getMessage());
