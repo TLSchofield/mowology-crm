@@ -2,7 +2,7 @@
 name: copywriting
 description: When the user wants to write, rewrite, or improve marketing copy for any page — including homepage, landing pages, pricing pages, feature pages, about pages, or product pages. Also use when the user says "write copy for," "improve this copy," "rewrite this page," "marketing copy," "headline help," "CTA copy," "value proposition," "tagline," "subheadline," "hero section copy," "above the fold," "this copy is weak," "make this more compelling," or "help me describe my product." Use this whenever someone is working on website text that needs to persuade or convert. For email copy, see email-sequence. For popup copy, see popup-cro. For editing existing copy, see copy-editing.
 metadata:
-  version: 1.5.0
+  version: 1.6.0
 ---
 
 # Copywriting
@@ -126,11 +126,13 @@ Puns and wit make copy memorable—but only if it fits the brand and doesn't und
 
 **For natural transition phrases**: See [references/natural-transitions.md](references/natural-transitions.md)
 
-**For principles distilled from Hopkins, Ogilvy, Schwartz, Halbert, Kennedy, Hormozi, Cialdini, StoryBrand, Dunford, and others**: See [references/legends-library.md](references/legends-library.md) — use its Quick Cross-Reference table to pull the right principle for headline, offer, proof, positioning, narrative, or urgency problems.
+**For principles distilled from Hopkins, Ogilvy, Schwartz, Halbert, Kennedy, Hormozi, Cialdini, StoryBrand, Dunford, Scott, Starch, and others**: See [references/legends-library.md](references/legends-library.md) — use its Quick Cross-Reference table to pull the right principle for headline, offer, proof, positioning, narrative, psychology, measurement, or urgency problems.
 
 **For a quick-pick table of body-copy sequencing formulas (AIDA, PAS, BAB, FAB, 4 Ps, QUEST, ACCA)**: See the "Classic Copywriting Formulas" section at the top of [references/copy-frameworks.md](references/copy-frameworks.md).
 
 **For long-form persuasive copy (sales pages, service pages, direct mail, long emails)**: See [references/sugarman-handbook.md](references/sugarman-handbook.md) — the owner's copy of Joseph Sugarman's *Adweek Copywriting Handbook*, distilled into the 15 axioms, the 7-step process, the slippery-slide opening, the 64-point checklist (10 graphic elements, 23 copy elements, 31 psychological triggers), lessons from 13 annotated ads, and a pre-ship checklist. Its "Problem → Sugarman Tool" table at the end maps symptoms (bounce before reading, claims not believed, weak close) to the right section.
+
+**For the historical roots underneath everything above (public-domain, sourced in full)**: See [references/hopkins-scientific-advertising.md](references/hopkins-scientific-advertising.md) (1923 — Hopkins' own compressed manual; states "cure sells, prevention doesn't" eighty-three years before Sugarman numbered it as Axiom 15), [references/hopkins-my-life-in-advertising.md](references/hopkins-my-life-in-advertising.md) (1927 memoir — the same principles through 11 real campaigns: Schlitz, Palmolive, Pepsodent, Van Camp's), [references/scott-psychology-of-advertising.md](references/scott-psychology-of-advertising.md) (1913 — the first experimental psychology of advertising, direct ancestor of Cialdini's *Influence*), and [references/starch-advertising-principles.md](references/starch-advertising-principles.md) (1914 — the origin of ad-readership testing and the "Starch Score," direct ancestor of A/B testing). Reach for these when a persuasion technique needs its *why*, or when a claim needs to be *measured* rather than just made.
 
 **For headline taxonomy, customer profiling, and format-by-format checklists (brochures, landing pages, email, PR, content marketing)**: See [references/bly-copywriters-handbook.md](references/bly-copywriters-handbook.md) — Robert Bly's *Copywriter's Handbook* frameworks: four headline functions, eight headline types, the 4 U's, eleven clarity rules, the five-step motivating sequence, the BDF customer sheet, the secondary promise, and per-medium checklists. Distilled from the owner's summary edition, so use it as an index of frameworks and pair it with the Sugarman file for execution. Its section 9 reconciles where Bly and Sugarman disagree (the opening line).
 

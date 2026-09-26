@@ -12,8 +12,11 @@ Hopkins treated advertising as salesmanship in print, not art. Every claim neede
 - **Specificity as proof**: precise numbers ("87%," "in 11 minutes") read as tested fact; round numbers read as guesses.
 - **Test everything**: treat every headline, offer, and price as a hypothesis. Sample offers and coupons existed specifically to make response countable.
 - **Free trial / sampling**: let the product argue for itself once it's in the customer's hands — lower the risk of the first step to zero.
+- **Cure sells, prevention doesn't** — stated here first, in 1923, eighty-three years before Sugarman numbered the same rule as his own Axiom 15.
 
 **Apply it**: whenever a benefit claim appears in copy, ask "what's the reason-why?" If there isn't one, either find it or soften the claim.
+
+**Full treatment**: both of Hopkins' books are now available in full, sourced directly (public domain, pre-1929) — `hopkins-scientific-advertising.md` (1923, his compressed manual of rules — the book Ogilvy said to read three times) and `hopkins-my-life-in-advertising.md` (1927, the same principles shown through 11 campaign case studies: Schlitz, Palmolive, Pepsodent, Van Camp's, and more). Use those for anything beyond the summary above; this volume is the short version.
 
 ---
 
@@ -251,6 +254,36 @@ Dunford's *Obviously Awesome* (2019) treats positioning as strategy work that ha
 
 ---
 
+## Volume 18 — Walter Dill Scott: The Psychology Under the Persuasion
+
+Scott (Northwestern University's Psychological Laboratory) ran the first experimental-psychology research on advertising in 1903, publishing this book in 1908–1913 — fifteen years before Hopkins' *Scientific Advertising*. Where Hopkins asks "what's the argument?", Scott asked "what actually happens in the reader's mind, and can I measure it?" His vocabulary — suggestion, imitation, instinct, habit — is the direct ancestor of Cialdini's *Influence* (Vol. 15): reciprocity, social proof, authority, liking, and commitment/consistency are Scott's mechanisms, re-derived under stricter lab conditions three-quarters of a century later.
+
+- **Suggestion beats pure argument**: "we reason rarely, but act under suggestion constantly" — most action follows an idea absorbed with little scrutiny, not one reached by weighing evidence. Show the action you want imitated (someone already using and satisfied); don't just make the case.
+- **The social-illusion effect**: repeated exposure to a claim can get misremembered as something a friend recommended, once the ad's origin fades from memory — an early account of why familiarity reads as trust.
+- **Habit as the real profit driver**: the value of a first sale is mostly in what it starts, not what it earns — budget acquisition against the habit it creates, not the single transaction.
+- **Diagnose the decision type before choosing an approach**: some buyers decide on impulse, some methodically, some by deferring to authority — a single persuasive approach doesn't fit all of them.
+
+**Apply it**: when copy argues well but doesn't convert, check whether it ever shows the action you want imitated — an ad with a watertight argument and nobody in it doing the thing is a common, fixable gap.
+
+**Full treatment**: `scott-psychology-of-advertising.md` — twelve mechanisms in full (suggestion, memory, feelings, sympathy/imitation, instincts, the will's decision types, habit, attention experiments, unconscious influence), plus an explicit flag on what's dated 1908-vintage psychology (fixed-instinct theory, gendered decision claims) versus what still holds.
+
+---
+
+## Volume 19 — Daniel Starch: Measuring Whether It Worked
+
+Starch (University of Wisconsin) wrote this in 1914, and later gave his name to the "Starch Score," still a live advertising-industry term. His contribution is orthogonal to persuasion technique: not what makes an ad good, but how to find out whether a specific ad actually got read, remembered, and acted on — the direct ancestor of A/B testing and modern CRO measurement.
+
+- **The magazine test**: show real readers a real publication under realistic conditions, take it away, and ask what they remember — the historical prototype of ad-recall testing, corrected for what they already knew before seeing it.
+- **The order-of-merit test**: rank competing headlines or value props behaviorally, using fictitious brand names to control for existing bias, against a real sample of the target audience — his early version of a controlled headline test.
+- **Keying**: a unique code, URL, or coupon per placement is the only way to know which channel or ad actually produced a result — obvious now, novel enough in 1914 that Starch had to argue for it.
+- **Fatigue vs. pool exhaustion**: response decaying toward zero means the message is worn out; response decaying but staying nonzero usually means you've exhausted the easy-to-convert segment, not the message — the fix differs for each.
+
+**Apply it**: pair any persuasion technique from the other volumes with one of Starch's measurement methods — a hypothesis (from Hopkins, Sugarman, Cialdini, etc.) paired with no way to check it is just an opinion with better formatting.
+
+**Full treatment**: `starch-advertising-principles.md` — his full taxonomy of attention/interest/response, the historical keying methods, the order-of-merit test, and guidance on choosing media, with period-specific data (1914 ad rates) explicitly flagged as historical color.
+
+---
+
 ## Quick Cross-Reference
 
 | Problem you're solving | Start with |
@@ -265,7 +298,13 @@ Dunford's *Obviously Awesome* (2019) treats positioning as strategy work that ha
 | Opening feels slow | Vol. 7 (Sugarman), Vol. 10 (Bird — cut paragraph one) |
 | Long-form sales/service page, weak close, objections unhandled | `sugarman-handbook.md` (full Sugarman method + checklist) |
 | Need a headline taxonomy, a customer profile sheet, or a per-medium checklist (brochure, landing page, email, PR) | `bly-copywriters-handbook.md` (Bly's frameworks: 8 headline types, 4 U's, BDF, motivating sequence) |
+| Want Hopkins' full manual (not the 4-bullet summary) | `hopkins-scientific-advertising.md` (1923 — the book Ogilvy said to read 3x) |
+| Want to see Hopkins' principles through real campaign case studies | `hopkins-my-life-in-advertising.md` (1927 memoir — Schlitz, Palmolive, Pepsodent, Van Camp's, and 7 more) |
+| Want the psychology under a persuasion technique, not just the technique | `scott-psychology-of-advertising.md` (1913 — direct ancestor of Cialdini) |
+| Need to actually measure whether an ad/headline is working | `starch-advertising-principles.md` (1914 — early A/B testing and readership scoring) |
 | Persuasion feels thin or one-note | Vol. 15 (Cialdini — check all 7 levers, not just one) |
+| Copy argues well but doesn't convert | Vol. 18 (Scott — show the action, don't just make the case) |
+| Not sure an ad/headline actually works, just that it "feels right" | Vol. 19 (Starch — key it, test it, don't guess) |
 | About page, brand story, founder video, homepage narrative | Vol. 16 (Miller/StoryBrand — customer is the hero) |
 | Don't know what to claim before writing a headline | Vol. 17 (Dunford — settle positioning first) |
 | Choosing a body-copy formula (AIDA/PAS/BAB/FAB/etc.) | `copy-frameworks.md` "Classic Copywriting Formulas" table |

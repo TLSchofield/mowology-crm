@@ -154,6 +154,19 @@
         "Avoids making the entire page an internal company narrative"
       ],
       "files": []
+    },
+    {
+      "id": 11,
+      "prompt": "We sell a garage-door tune-up service (spring check, track lubrication, safety-sensor test) for $89. Most homeowners only think about their garage door when it's already broken. Write ad copy that gets people to book before it fails.",
+      "expected_output": "Should recognize this as a prevention-framed product (Hopkins Scientific Advertising \u00a710 / Sugarman Axiom 15) and reposition it as a cure or reward rather than pure prevention \u2014 e.g. framing around a specific feared cure-moment (the door failing with a car trapped inside, or a spring snapping) or a positive reward (quiet, smooth operation) rather than abstract future breakdown prevention. Should use specific, checkable claims (Hopkins \u00a77 / Caples) rather than vague ones like 'keeps your door working well.' Should consider a keyed/trackable response mechanism or at least a clear single CTA. Should avoid negative/accusatory framing (Hopkins \u00a718 \u2014 'why haven't you checked your door?') in favor of positive, assumed-compliance framing ('book your tune-up' rather than warnings).",
+      "assertions": [
+        "Identifies this as a prevention-type product and addresses the cure/reward-vs-prevention problem explicitly",
+        "Repositions around a cure-moment or concrete reward rather than abstract prevention",
+        "Uses specific, checkable claims rather than vague reassurance",
+        "Uses positive, assumed-compliance framing rather than negative/accusatory framing",
+        "Includes a single clear call to action"
+      ],
+      "files": []
     }
   ]
 }
