@@ -359,6 +359,10 @@ if ($hasPropCoords && !$hasBorder) {
                       ? '../jobs/create-from-quote.php?quote_id=' . (int)$contract['quote_id'] . '&contract_id=' . $contractId
                       : '../jobs/create.php?contract_id=' . $contractId . '&property_id=' . (int)$contract['property_id'] . '&contact_id=' . (int)$contract['contact_id'];
                   ?>
+                  <a href="pdf.php?id=<?php echo $contractId; ?>&amp;inline=1" target="_blank" rel="noopener"
+                     class="btn btn-outline-secondary" title="Open the contract as a PDF to print or email">
+                      <i data-feather="printer" style="width:14px;height:14px;"></i> PDF
+                  </a>
                   <a href="<?php echo $addPlanUrl; ?>" class="btn btn-primary">
                       <i data-feather="plus" style="width:14px;height:14px;"></i> Add Plan
                   </a>

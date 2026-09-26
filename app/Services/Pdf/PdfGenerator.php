@@ -407,6 +407,90 @@ class PdfGenerator
     /**
      * Create an mPDF instance with Mowology defaults.
      */
+    /**
+     * Generate a contract PDF.
+     *
+     * Serves both purposes from one document: a record of an e-signed contract
+     * (with the captured signature rendered in), or a printable copy for wet
+     * signing when it has not been signed yet.
+     *
+     * $versionNumber selects which sealed version's TERMS to print. Defaults to
+     * the contract's current version. This matters: reprinting a contract after
+     * the template was revised must show the wording that was signed, not
+     * today's — which is why the terms come from ContractTermsService rather
+     * than a join.
+     *
+     * @return array{success: bool, path?: string, relative_path?: string, version?: int, filename?: string, error?: string}
+     */
+    public function generateContractPdf(int $contractId, ?int $versionNumber = null): array
+    {
+        try {
+            $stmt = $this->db->prepare("
+                SELECT c.*,
+                       p.address AS property_address, p.city AS property_city,
+                       ct.first_name, ct.last_name,
+                       co.company_name
+                FROM contracts c
+                LEFT JOIN properties p  ON c.property_id = p.id
+                LEFT JOIN contacts   ct ON c.contact_id  = ct.id
+                LEFT JOIN companies  co ON co.primary_contact_id = ct.id
+                WHERE c.id = ?
+            ");
+            $stmt->execute([$contractId]);
+            $contract = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$contract) {
+                return ['success' => false, 'error' => 'Contract not found'];
+            }
+
+            $version = $versionNumber ?? (int)($contract['current_version'] ?? 1);
+
+            // Terms as sealed with that version.
+            require_once APP_ROOT . '/Modules/Contracts/Services/ContractTermsService.php';
+            $terms = (new ContractTermsService($this->db))->termsForVersion($contractId, $version);
+
+            // The signature for that version, if it has been signed.
+            $signature = null;
+            try {
+                $sig = $this->db->prepare("
+                    SELECT * FROM contract_signatures
+                    WHERE contract_id = ? AND contract_version = ? AND status = 'signed'
+                    ORDER BY signed_at DESC LIMIT 1
+                ");
+                $sig->execute([$contractId, $version]);
+                $signature = $sig->fetch(PDO::FETCH_ASSOC) ?: null;
+            } catch (\Throwable $e) {
+                // contract_signatures absent in this environment — print the
+                // wet-signature variant rather than failing.
+            }
+
+            // Tenant identity always comes from business_settings, never hardcoded.
+            $biz = [];
+            try {
+                $biz = $this->db->query("SELECT * FROM business_settings WHERE id = 1")
+                                ->fetch(PDO::FETCH_ASSOC) ?: [];
+            } catch (\Throwable $e) {
+            }
+
+            $html = $this->renderTemplate('contract.php', [
+                'contract'    => $contract,
+                'terms'       => $terms,
+                'signature'   => $signature,
+                'biz'         => $biz,
+                'projectRoot' => $this->projectRoot,
+            ]);
+
+            $mpdf = $this->createMpdf();
+            $mpdf->WriteHTML($html);
+
+            $number = $contract['contract_number'] ?? ('CONTRACT-' . $contractId);
+            return $this->savePdf($mpdf, 'contract', $contractId, $number, $version);
+
+        } catch (\Throwable $e) {
+            error_log("PdfGenerator::generateContractPdf error: " . $e->getMessage());
+            return ['success' => false, 'error' => $e->getMessage()];
+        }
+    }
+
     private function createMpdf(): \Mpdf\Mpdf
     {
         // Prefer a project-controlled temp dir that we know PHP can write to
@@ -452,7 +536,7 @@ class PdfGenerator
     /**
      * Save PDF to storage and update the database record.
      */
-    private function savePdf(\Mpdf\Mpdf $mpdf, string $type, int $id, string $number): array
+    private function savePdf(\Mpdf\Mpdf $mpdf, string $type, int $id, string $number, ?int $forcedVersion = null): array
     {
         $dir = $this->storagePath . '/' . $type . 's';
 
@@ -461,12 +545,19 @@ class PdfGenerator
             mkdir($dir, 0755, true);
         }
 
-        // Determine next version number
-        $table = ($type === 'quote') ? 'quotes' : 'invoices';
-        $stmt = $this->db->prepare("SELECT pdf_version FROM {$table} WHERE id = ?");
-        $stmt->execute([$id]);
-        $current = $stmt->fetch(PDO::FETCH_ASSOC);
-        $newVersion = (int)($current['pdf_version'] ?? 0) + 1;
+        // Determine next version number. A caller may supply one instead, for
+        // document types that have no pdf_version column to read or write —
+        // contracts are regenerated deterministically from their sealed
+        // version, so there is nothing to track on the row.
+        if ($forcedVersion !== null) {
+            $newVersion = $forcedVersion;
+        } else {
+            $table = ($type === 'quote') ? 'quotes' : 'invoices';
+            $stmt = $this->db->prepare("SELECT pdf_version FROM {$table} WHERE id = ?");
+            $stmt->execute([$id]);
+            $current = $stmt->fetch(PDO::FETCH_ASSOC);
+            $newVersion = (int)($current['pdf_version'] ?? 0) + 1;
+        }
 
         // Clean filename
         $safeNumber = preg_replace('/[^A-Za-z0-9\-]/', '', $number);
@@ -479,13 +570,15 @@ class PdfGenerator
         // Write PDF file
         $mpdf->Output($fullPath, \Mpdf\Output\Destination::FILE);
 
-        // Update database
-        $stmt = $this->db->prepare("
-            UPDATE {$table}
-            SET pdf_path = ?, pdf_version = ?, pdf_generated_at = NOW()
-            WHERE id = ?
-        ");
-        $stmt->execute([$relativePath, $newVersion, $id]);
+        // Update database — skipped for types that track nothing on the row.
+        if ($forcedVersion === null) {
+            $stmt = $this->db->prepare("
+                UPDATE {$table}
+                SET pdf_path = ?, pdf_version = ?, pdf_generated_at = NOW()
+                WHERE id = ?
+            ");
+            $stmt->execute([$relativePath, $newVersion, $id]);
+        }
 
         return [
             'success' => true,

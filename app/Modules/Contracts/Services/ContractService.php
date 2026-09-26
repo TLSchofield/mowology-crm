@@ -205,6 +205,103 @@ class ContractService
         }
     }
 
+    /**
+     * File a countersigned paper copy against a contract.
+     *
+     * The electronic path proves what was on screen, when, and from where. A
+     * scan proves none of that — so the one thing that CAN be tied to it, the
+     * terms revision printed in the PDF footer, is required rather than
+     * optional. A filed scan with no revision is a signature with no provable
+     * link to the disclaimers, which is worse than no record at all because it
+     * looks like one.
+     *
+     * @param int $mediaId       media_assets.id of the uploaded scan
+     * @param int $termsVersion  revision number printed on the returned copy
+     * @return bool
+     */
+    public function recordWetSignature(
+        int    $contractId,
+        int    $mediaId,
+        int    $termsVersion,
+        string $signerName,
+        string $signedDate,
+        int    $filedByUserId
+    ): bool {
+        if ($contractId <= 0 || $mediaId <= 0) {
+            throw new \InvalidArgumentException('A filed copy needs both a contract and an uploaded scan.');
+        }
+        if ($termsVersion <= 0) {
+            throw new \InvalidArgumentException(
+                'Record which terms revision the signed copy carries — it is printed in the PDF footer.'
+            );
+        }
+
+        $contract = $this->getContract($contractId);
+        if (!$contract) {
+            return false;
+        }
+        $version = (int)($contract['current_version'] ?? 1);
+        if ($version < 1) {
+            $this->snapshotVersion($contractId, $filedByUserId, 'Sealed when filing a signed paper copy');
+            $version = 1;
+        }
+
+        $this->db->beginTransaction();
+        try {
+            $now = date('Y-m-d H:i:s');
+
+            $this->db->prepare("
+                INSERT INTO contract_signatures
+                    (contract_id, contract_version, signature_token, token_expires_at,
+                     signer_name, status, signature_method, terms_acknowledged,
+                     wet_terms_version, wet_media_id, wet_filed_by, wet_filed_at,
+                     signed_at, sent_by)
+                VALUES (?, ?, ?, ?, ?, 'signed', 'wet', 1, ?, ?, ?, ?, ?, ?)
+            ")->execute([
+                $contractId,
+                $version,
+                // Never a usable link: a filed paper copy must not hand anyone a
+                // signing URL. Random, unique, and already spent.
+                bin2hex(random_bytes(32)),
+                $now,
+                $signerName,
+                $termsVersion,
+                $mediaId,
+                $filedByUserId,
+                $now,
+                $signedDate ?: $now,
+                $filedByUserId,
+            ]);
+
+            $this->db->prepare(
+                "UPDATE contracts SET signature_status = 'signed', updated_at = NOW() WHERE id = ?"
+            )->execute([$contractId]);
+
+            $this->db->prepare("
+                UPDATE contract_versions
+                SET signature_status = 'signed', signed_at = ?, signed_by_name = ?
+                WHERE contract_id = ? AND version_number = ?
+            ")->execute([$signedDate ?: $now, $signerName, $contractId, $version]);
+
+            // Link the scan into the unified media system rather than a
+            // contract-specific table (migration 300's context/category model).
+            try {
+                $this->db->prepare("
+                    INSERT INTO media_links (media_id, context_type, context_id, category, visibility, linked_by)
+                    VALUES (?, 'contract', ?, 'signed_copy', 'internal', ?)
+                ")->execute([$mediaId, $contractId, $filedByUserId]);
+            } catch (\Throwable $e) {
+                error_log('[ContractService] signed copy not linked to media: ' . $e->getMessage());
+            }
+
+            $this->db->commit();
+            return true;
+        } catch (\Throwable $e) {
+            $this->db->rollBack();
+            throw $e;
+        }
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // E-SIGNATURE — Decline
     // ─────────────────────────────────────────────────────────────────────────

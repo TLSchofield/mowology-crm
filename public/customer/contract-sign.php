@@ -120,6 +120,11 @@ if ($row) {
         .ctr-terms-ack { display:flex; gap:10px; align-items:flex-start; margin-bottom:18px;
             font-size:.86rem; line-height:1.5; color:var(--p-text,#1f2937); cursor:pointer; }
         .ctr-terms-ack input { margin-top:3px; flex-shrink:0; width:18px; height:18px; }
+        .ctr-pdf-actions { margin-bottom:18px; padding:12px 14px; border-radius:8px;
+            background:var(--p-bg-alt,#f8fafc); font-size:.85rem; }
+        .ctr-pdf-link { color:#2D8659; font-weight:600; text-decoration:underline; }
+        .ctr-pdf-sep { color:var(--p-text-mid,#6b7280); margin:0 6px; }
+        .ctr-pdf-note { margin-top:6px; font-size:.79rem; color:var(--p-text-mid,#6b7280); line-height:1.5; }
     </style>
 </head>
 <body>
@@ -273,6 +278,18 @@ if ($row) {
                 <form method="POST" id="signForm">
                     <input type="hidden" name="action" value="sign">
                     <input type="hidden" name="signature_data" id="signatureData">
+
+                    <div class="ctr-pdf-actions">
+                        <a href="/customer/api/contract-pdf.php?token=<?php echo urlencode($token); ?>&amp;inline=1"
+                           target="_blank" rel="noopener" class="ctr-pdf-link">Open a printable copy</a>
+                        <span class="ctr-pdf-sep">&middot;</span>
+                        <a href="/customer/api/contract-pdf.php?token=<?php echo urlencode($token); ?>"
+                           class="ctr-pdf-link">Download PDF</a>
+                        <div class="ctr-pdf-note">
+                            Prefer to sign on paper? Print the copy, sign it and email it back to us &mdash;
+                            or sign below and we&rsquo;ll do the rest.
+                        </div>
+                    </div>
 
                     <?php if ($terms): ?>
                         <label class="ctr-terms-ack">
