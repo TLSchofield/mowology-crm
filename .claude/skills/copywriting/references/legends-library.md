@@ -24,13 +24,15 @@ Hopkins treated advertising as salesmanship in print, not art. Every claim neede
 
 Ogilvy fused big-idea creative with rigorous research discipline — copy should be provocative in concept and disciplined in execution.
 
-- **The headline carries 80% of the ad's value.** If it doesn't stop the right reader, nothing below it matters.
+- **Five times as many people read the headline as read the body copy.** If it doesn't stop the right reader, roughly five-sixths of the space you paid for is wasted. (Correction: earlier drafts of this volume cited a flat "80% of the ad's value" figure not actually in the source — the real number is this 5-to-1 readership ratio, plus a separate finding that omitting the brand name from the headline costs about 80% of the trademark-registration benefit. See the full treatment for both, cited correctly.)
 - **Long copy sells** — to an interested prospect, more relevant information increases conversion, not fatigue. Length isn't the enemy; irrelevance is.
 - **Know the product cold** before writing a word. Ogilvy read the client's category and product history exhaustively before drafting.
 - **Brand image compounds**: every ad is a deposit into how the brand is perceived, not just a single conversion event.
 - **Never write an ad you wouldn't want your own family to read** — a durable house rule against manipulative claims.
 
 **Apply it**: draft the headline five to ten different ways before picking one. Judge long-form copy by relevance-per-sentence, not word count.
+
+**Full treatment**: `ogilvy-on-advertising.md` — his complete print-advertising rules (headlines, body copy, layout, typography), TV and direct-mail chapters, all 18 of his numbered research findings, and his own profiles of Lasker, Resor, Rubicam, Burnett, Hopkins, and Bernbach. Use that file for anything beyond the summary above; this volume is the short version.
 
 ---
 
@@ -48,6 +50,8 @@ Ogilvy fused big-idea creative with rigorous research discipline — copy should
 **Market sophistication** (how many similar claims the market has already heard) determines whether you can lead with a plain claim or need a fresh mechanism/angle to cut through fatigue.
 
 **Apply it**: before writing a headline, identify the audience's awareness stage. Unaware/problem-aware audiences need story and agitation; most-aware audiences need the offer stated plainly and fast.
+
+**Full treatment**: `schwartz-breakthrough-advertising.md` — widely regarded as the single most legendary book in direct-response copywriting. The full five-stage awareness framework, the separate concept of market sophistication (five stages of its own), all 38 headline-strengthening techniques, and his seven techniques for making a claim land (Intensification, Identification, Gradualization, Redefinition, Mechanization, Concentration, Camouflage). This is the theory underneath Sugarman's slippery slide and Hopkins' reason-why — use it when the question is *why* a technique works, not just how to execute it.
 
 ---
 
@@ -333,3 +337,6 @@ Whitman worked under Gary Halbert and dedicates *Cashvertising* (2009) to Halber
 | About page, brand story, founder video, homepage narrative | Vol. 16 (Miller/StoryBrand — customer is the hero) |
 | Don't know what to claim before writing a headline | Vol. 17 (Dunford — settle positioning first) |
 | Choosing a body-copy formula (AIDA/PAS/BAB/FAB/etc.) | `copy-frameworks.md` "Classic Copywriting Formulas" table |
+| Need Ogilvy's actual print/TV/direct-mail rules, not the 4-bullet summary | `ogilvy-on-advertising.md` |
+| Want to know *why* a persuasion technique works, not just how to run it | `schwartz-breakthrough-advertising.md` (awareness + sophistication + the 7 techniques) |
+| Writing an About page or brand story and need real profiles of the field's founders | `ogilvy-on-advertising.md` §7 (Lasker, Resor, Rubicam, Burnett, Hopkins, Bernbach) |

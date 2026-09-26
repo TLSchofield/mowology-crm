@@ -206,6 +206,32 @@
         "Does not jump straight to line-editing without diagnosing what stage the draft is at"
       ],
       "files": []
+    },
+    {
+      "id": 15,
+      "prompt": "Draft a headline for a project management SaaS tool. Our audience already knows they need PM software (they use spreadsheets today) but has never heard of our product. The market is flooded with PM tool ads making similar 'simplify your workflow' claims.",
+      "expected_output": "Should identify the audience as Solution-Aware (schwartz-breakthrough-advertising.md \u00a72 \u2014 they know solutions exist, don't know this product) and note the market is highly sophisticated (\u00a73 \u2014 many similar claims already seen), meaning a plain benefit claim will blend in and a fresh mechanism/angle or new identification is needed rather than another 'simplify your workflow' headline. Should draw on the 38 headline-strengthening techniques (\u00a74) or the seven techniques (redefinition/mechanization, \u00a76a/6b) to produce a genuinely differentiated headline rather than a generic one. Should not just produce a generic benefit headline without addressing the sophistication problem explicitly.",
+      "assertions": [
+        "Identifies the audience's awareness stage as solution-aware, not product-aware or unaware",
+        "Identifies the market as highly sophisticated and explains why a plain claim would fail",
+        "References or draws on schwartz-breakthrough-advertising.md by name or content",
+        "Produces a headline that uses a fresh angle/mechanism rather than a generic simplify-your-workflow claim",
+        "Explains the reasoning, not just the output"
+      ],
+      "files": []
+    },
+    {
+      "id": 16,
+      "prompt": "Write the print-ad body copy and layout notes for a $400 espresso machine, aimed at home baristas who already own a cheaper machine. Include a headline, body copy, and notes on illustration and typography.",
+      "expected_output": "Should apply Ogilvy's actual print-advertising rules from ogilvy-on-advertising.md \u00a73 rather than generic layout advice: headline should include a specific benefit/news element and consider the brand name; illustration notes should favor a photograph showing the product in use over abstract/artistic imagery per his illustration rules; body copy should include specifics (Ogilvy's factual/testimonial-style body copy preference) rather than vague superlatives; typography notes should reflect his readability rules (e.g. serif body text, avoiding reverse type / low-contrast type on complex backgrounds). Should not cite the old incorrect 'headline carries 80% of the ad's value' framing \u2014 if referencing readership importance, should reflect the corrected 5-to-1 headline-to-body readership figure or avoid a fabricated statistic entirely.",
+      "assertions": [
+        "Applies specific Ogilvy print-copy rules (headline, body copy, illustration, typography) rather than generic advice",
+        "Illustration guidance favors a real photograph of product-in-use over abstract art",
+        "Body copy includes specific factual claims rather than vague superlatives",
+        "Typography notes reflect real readability rules (e.g. serif type, avoiding reverse type)",
+        "Does not repeat the incorrect 'headline carries 80% of the ad's value' claim as if it were exact"
+      ],
+      "files": []
     }
   ]
 }

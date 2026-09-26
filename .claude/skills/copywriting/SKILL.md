@@ -2,7 +2,7 @@
 name: copywriting
 description: When the user wants to write, rewrite, or improve marketing copy for any page — including homepage, landing pages, pricing pages, feature pages, about pages, or product pages. Also use when the user says "write copy for," "improve this copy," "rewrite this page," "marketing copy," "headline help," "CTA copy," "value proposition," "tagline," "subheadline," "hero section copy," "above the fold," "this copy is weak," "make this more compelling," or "help me describe my product." Use this whenever someone is working on website text that needs to persuade or convert. For email copy, see email-sequence. For popup copy, see popup-cro. For editing existing copy, see copy-editing.
 metadata:
-  version: 1.9.0
+  version: 1.10.0
 ---
 
 # Copywriting
@@ -271,6 +271,14 @@ For a menu of specific psychological levers to check a draft against — beyond 
 ## From Draft to Mailbox
 
 Sugarman and Whitman tell you what makes copy persuasive. [references/kennedy-ultimate-sales-letter.md](references/kennedy-ultimate-sales-letter.md) covers the other half: an actual 28-step production process for taking a sales letter (or any long-form piece) from a blank page to delivered — diagnosing the customer and offer, the "damaging admission" technique, five ways to reframe price objections, a strategy-pass/style-pass two-edit method, pretesting, and the operational tail (cooling off, second opinions, production, mailing) that determines whether a technically excellent piece of copy actually reaches its reader intact. Use this when the task is "how do I get this written and shipped," not just "what should it say."
+
+---
+
+## The Two Deepest References
+
+[references/schwartz-breakthrough-advertising.md](references/schwartz-breakthrough-advertising.md) is the theory underneath everything else here: copy can't create desire, only channel desire that already exists — his five stages of awareness, five stages of market sophistication, 38 headline-strengthening techniques, and seven techniques for making a claim land (Intensification, Identification, Gradualization, Redefinition, Mechanization, Concentration, Camouflage). Reach for this when a technique from elsewhere in the skill isn't working and you need to know *why*, not just try a different technique.
+
+[references/ogilvy-on-advertising.md](references/ogilvy-on-advertising.md) is the full execution manual: complete print-ad rules (headlines, body copy, layout, typography, all backed by cited research findings), TV and direct-mail chapters, 18 numbered research findings, and Ogilvy's own profiles of the field's founders (Lasker, Resor, Rubicam, Burnett, Hopkins, Bernbach) — useful for About pages and brand-story work, not just for headline rules.
 
 ---
 
