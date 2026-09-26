@@ -4,6 +4,8 @@ An original-wording distillation of Joseph Sugarman's *The Adweek Copywriting Ha
 
 Use this reference for **long-form persuasive copy** (landing pages, sales pages, service pages, direct mail, long emails) and for **diagnosing why copy isn't being read**. For headline formulas see `copy-frameworks.md`; for the other legends see `legends-library.md` (Volume 7 there is the short version of this).
 
+**Section 11** is built from Sugarman's earlier book, *Advertising Secrets of the Written Word* (DelStar, 1998) — the direct predecessor of the 2007 Adweek Handbook, same seminar (1977–1988), same 13 ad case studies, same appendix structure. The two books are roughly 90% identical; Section 11 covers only what's genuinely new or different in the earlier edition, so it doesn't repeat what Sections 1–10 already say.
+
 ---
 
 ## Contents
@@ -18,6 +20,7 @@ Use this reference for **long-form persuasive copy** (landing pages, sales pages
 8. Writing for different media (with what still holds online)
 9. Pre-ship checklist
 10. Problem → Sugarman tool cross-reference
+11. What's new in the 1998 edition (*Advertising Secrets of the Written Word*)
 
 ---
 
@@ -370,3 +373,39 @@ Run this on any long-form draft before handing it over.
 | Stuck for an angle | §2 restate the problem 5–10 times; Axiom 7 assumed constraints; Axiom 10 incubate |
 | Writing for email / web / local ads | §8 media notes |
 | Too long, reads flat | §2 editing pass; element 21; trigger 27 leave the last inference to the reader |
+| Copy engages the reader's intellect, not just their attention | §11 Getting the Mind to Work |
+| Opening needs a stronger hook and the product itself is dull | §11 Telling a Story |
+
+---
+
+## 11. What's New in the 1998 Edition
+
+Sugarman's earlier book states the same seminar material, mostly identically, but with one real historical difference and two chapters the 2007 edition compressed into single triggers rather than keeping as full chapters.
+
+### The trigger list grew from 24 to 31
+
+The 1998 book explicitly calls its psychological-triggers chapter a list of **24** triggers ("Some of the 24 psychological triggers to buying may not have been obvious to you"). By 2007, the same chapter had grown to 31. Sugarman kept refining and adding triggers over the intervening decade — the 31-trigger list in Section 5c above is the mature version and the one to use; this note is here only so the discrepancy doesn't look like an error if you ever see both books cited together. The 1998 book's own axiom numbering also differs from the 2007 book's (cure-vs-prevention is Axiom 15 in the 2007 book; the 1998 printing's OCR is too degraded to state its number with confidence, but it is clearly a lower number, confirming the axioms were renumbered, not just added to, as the list grew).
+
+### Getting the Mind to Work (a full chapter in 1998; folded into Trigger 27 by 2007)
+
+**The claim:** the more effort a reader's mind has to spend to reach a conclusion on its own, the more enjoyable and persuasive the copy feels. Sugarman ties this to a whole-brain theory of engagement — thinking, intuition, sensation, and emotion all firing together — and warns that copy which spells out its own conclusion patronizes the reader and reads as flat.
+
+**The Seiko example** (the same one behind Trigger 27's one-line summary in Section 5c, given in full here): the ad states the rival Seiko sells for $300 and costs jewelers $150, then stops — never adding the obvious next line, that jewelers are making a fortune on every sale. The reader reaches that conclusion unprompted, and Sugarman argues the unstated conclusion lands harder than a stated one would have.
+
+**The jogging-machine counter-example (new, not in the 2007 book):** Sugarman ran an ad for an indoor jogging platform showing only the unit and its digital distance readout — deliberately withholding a photo of someone actually jogging on it, on the theory that showing too much would rob the reader of the small mental work of picturing themselves using it. It sold well. His Japanese supplier pushed back, insisted a photo of a person jogging on the unit would obviously sell better, and got their way — full-color, with a model shown using it. The ad bombed. Sugarman offers this as a direct, costed lesson: showing the reader the conclusion instead of letting them reach it can kill an otherwise-working ad.
+
+**Apply:** for any claim with an obvious, slightly uncomfortable implication (a markup, a competitor's weakness, a social contrast), state the facts and stop one line short of the conclusion — and before adding an image or line that "helpfully" completes the picture for the reader, ask whether it's removing the small mental work that was making the ad land.
+
+### Telling a Story (a full chapter in 1998; folded into Trigger 26 by 2007)
+
+Sugarman states plainly that his most successful print campaigns — BluBlocker, the Bone Fone, the Magic Stat thermostat ("Magic Baloney") — all used a story as the ad's structural spine, not just an opening hook. Three examples given in full here, in more narrative depth than the compressed ad summaries in Section 7:
+
+- **BluBlocker ("Vision Breakthrough"):** opens as a first-person true story about a friend named Len raving about a pair of sunglasses before any product claim is made — the story itself is the vehicle that gets the reader through the ad's UV/blue-light education and into the pitch. Reported result: 100,000 pairs at $59.95 from this ad alone, then roughly 8 million pairs over six years once it moved to infomercial.
+- **"Mail Order Mansion":** the story (an invitation to a real-estate developer's Malibu party, a private jet, the reveal of a $6 million house for sale) runs nearly the *entire length* of the ad, with the actual offer only summarized at the very end — the story is not decoration on top of the pitch, it structurally *is* the ad.
+- **"A Fluke of Nature"** (Frank Schultz's grapefruit ad, written right after attending Sugarman's seminar): opens "I'm a farmer," then spends five paragraphs on the discovery story before the product claims arrive — Sugarman notes the ad ran in some form for 18 years.
+
+**Apply:** when a product is plain or the category is dull, don't reach for a stronger claim — reach for a story that can carry the reader through the education and the pitch on its own, the way BluBlocker's origin story did more work than any UV-protection statistic could have alone.
+
+### What wasn't carried forward
+
+Appendix E of the 1998 book ("Classic JS&A Ads") is a set of complete, verbatim JS&A ad reproductions with no accompanying analysis — a Mickey Math novelty-calculator ad among them. These aren't distilled here: there's no commentary to paraphrase, only full ad text, and reproducing it at length would break this file's own paraphrase-and-cite convention. If you want to read the ads themselves rather than the technique extracted from them, the source book is the place, not this reference.
