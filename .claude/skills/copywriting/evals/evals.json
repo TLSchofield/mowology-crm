@@ -232,6 +232,19 @@
         "Does not repeat the incorrect 'headline carries 80% of the ad's value' claim as if it were exact"
       ],
       "files": []
+    },
+    {
+      "id": 17,
+      "prompt": "We're launching a $49/month online course teaching small business owners how to do their own bookkeeping. Give me 5 headline options and tell me how you'd test which one to run.",
+      "expected_output": "Should draw on caples-tested-advertising-methods.md's 35 proven headline formulas (\u00a72) to produce 5 headlines spanning different formula types (e.g. news, self-interest/how-to, price/value, curiosity, testimonial-style), not 5 variations on the same angle. Should also apply the 'finding the right appeal' method (\u00a72) to identify which emotional appeal (fear of penalties/audits, greed/savings, pride/independence, duty) fits this audience before finalizing. For testing, should reference one or more of the 17 concrete testing methods (\u00a75) \u2014 e.g. split-run testing, keyed response tracking \u2014 rather than a vague 'A/B test it' answer. Should not just produce 5 generic headlines without connecting them to named formulas or an appeal rationale.",
+      "assertions": [
+        "Produces headlines using distinctly different named formula types, not 5 variations of one angle",
+        "References or applies caples-tested-advertising-methods.md by name or content",
+        "Identifies a specific emotional appeal appropriate to the audience before or alongside the headlines",
+        "Recommends a specific, concrete testing method rather than a vague 'test it' answer",
+        "Connects each headline back to a rationale, not just a list of taglines"
+      ],
+      "files": []
     }
   ]
 }

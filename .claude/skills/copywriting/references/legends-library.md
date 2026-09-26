@@ -70,6 +70,8 @@ Caples ran split tests on headlines for decades and found some headline types re
 
 **Apply it**: write one headline per pattern (self-interest, curiosity, news, quick/easy) and pick the most specific, most believable one — don't default to the cleverest.
 
+**Full treatment**: `caples-tested-advertising-methods.md` — his complete testing-backed system: the strategic case for testing over opinion, all 35 of his proven headline formulas, his method for finding the right emotional appeal (and appeals that backfire), 19 copy types rated recommended/cautioned/avoided, 20 ways to increase copy's selling power, mass-market readability rules, layout and small-ad tactics, and 17 concrete ways to test an ad. Use that file for anything beyond the summary above; this volume is the short version.
+
 ---
 
 ## Volume 5 — Robert Collier: Continuing the Conversation Already in the Reader's Mind
@@ -340,3 +342,6 @@ Whitman worked under Gary Halbert and dedicates *Cashvertising* (2009) to Halber
 | Need Ogilvy's actual print/TV/direct-mail rules, not the 4-bullet summary | `ogilvy-on-advertising.md` |
 | Want to know *why* a persuasion technique works, not just how to run it | `schwartz-breakthrough-advertising.md` (awareness + sophistication + the 7 techniques) |
 | Writing an About page or brand story and need real profiles of the field's founders | `ogilvy-on-advertising.md` §7 (Lasker, Resor, Rubicam, Burnett, Hopkins, Bernbach) |
+| Need proven headline formulas backed by decades of split-testing | `caples-tested-advertising-methods.md` (35 formulas + finding the right appeal) |
+| Not sure which appeal (fear/greed/duty/etc.) fits the product | `caples-tested-advertising-methods.md` §2 (Finding the Right Appeal) |
+| Need a concrete list of ways to actually test an ad | `caples-tested-advertising-methods.md` §5 (17 testing methods) |

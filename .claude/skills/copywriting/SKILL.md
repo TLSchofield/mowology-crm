@@ -2,7 +2,7 @@
 name: copywriting
 description: When the user wants to write, rewrite, or improve marketing copy for any page — including homepage, landing pages, pricing pages, feature pages, about pages, or product pages. Also use when the user says "write copy for," "improve this copy," "rewrite this page," "marketing copy," "headline help," "CTA copy," "value proposition," "tagline," "subheadline," "hero section copy," "above the fold," "this copy is weak," "make this more compelling," or "help me describe my product." Use this whenever someone is working on website text that needs to persuade or convert. For email copy, see email-sequence. For popup copy, see popup-cro. For editing existing copy, see copy-editing.
 metadata:
-  version: 1.10.0
+  version: 1.11.0
 ---
 
 # Copywriting
@@ -279,6 +279,8 @@ Sugarman and Whitman tell you what makes copy persuasive. [references/kennedy-ul
 [references/schwartz-breakthrough-advertising.md](references/schwartz-breakthrough-advertising.md) is the theory underneath everything else here: copy can't create desire, only channel desire that already exists — his five stages of awareness, five stages of market sophistication, 38 headline-strengthening techniques, and seven techniques for making a claim land (Intensification, Identification, Gradualization, Redefinition, Mechanization, Concentration, Camouflage). Reach for this when a technique from elsewhere in the skill isn't working and you need to know *why*, not just try a different technique.
 
 [references/ogilvy-on-advertising.md](references/ogilvy-on-advertising.md) is the full execution manual: complete print-ad rules (headlines, body copy, layout, typography, all backed by cited research findings), TV and direct-mail chapters, 18 numbered research findings, and Ogilvy's own profiles of the field's founders (Lasker, Resor, Rubicam, Burnett, Hopkins, Bernbach) — useful for About pages and brand-story work, not just for headline rules.
+
+[references/caples-tested-advertising-methods.md](references/caples-tested-advertising-methods.md) is the testing backbone under the headline-writing advice elsewhere in this skill: 35 proven headline formulas, a method for finding the right emotional appeal (and a list of appeals that backfire), 19 copy types rated recommended/cautioned/avoided, 20 ways to increase copy's selling power, and 17 concrete ways to test an ad. Reach for this whenever a headline needs a specific, testable pattern rather than a general principle.
 
 ---
 
