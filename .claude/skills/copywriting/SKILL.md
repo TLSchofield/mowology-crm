@@ -2,7 +2,7 @@
 name: copywriting
 description: When the user wants to write, rewrite, or improve marketing copy for any page — including homepage, landing pages, pricing pages, feature pages, about pages, or product pages. Also use when the user says "write copy for," "improve this copy," "rewrite this page," "marketing copy," "headline help," "CTA copy," "value proposition," "tagline," "subheadline," "hero section copy," "above the fold," "this copy is weak," "make this more compelling," or "help me describe my product." Use this whenever someone is working on website text that needs to persuade or convert. For email copy, see email-sequence. For popup copy, see popup-cro. For editing existing copy, see copy-editing.
 metadata:
-  version: 1.6.0
+  version: 1.7.0
 ---
 
 # Copywriting
@@ -215,6 +215,8 @@ Examples:
 
 Before writing, establish:
 
+If the brand has existing writing (site copy, past emails, founder posts, support replies), don't guess at these — extract them with the seven-axis method in [references/brand-voice-extraction.md](references/brand-voice-extraction.md) and build a voice card from evidence instead of a one-line brief.
+
 **Formality level:**
 - Casual/conversational
 - Professional but friendly
@@ -245,6 +247,18 @@ When the page has to carry a considered purchase on its own (a sales page, a ser
 6. **Edit by half.** Hunt "that," intensifiers, throat-clearing; vary sentence length; incubate overnight before the final read.
 
 Then tick through the checklist in section 9 of the reference.
+
+---
+
+## Legal & Compliance
+
+Before delivering any draft with a testimonial, a specific number or "up to"/"as low as" claim, a strikethrough price, a health/earnings claim, a "Made in USA" claim, a free-trial/subscription offer, a marketing email, a named-competitor comparison, or a guarantee — run it against the checklist in [references/legal-compliance-guardrails.md](references/legal-compliance-guardrails.md) §11. This is not a substitute for legal review; it's what tells you and the client *when* legal review is actually needed. Two or more flagged items on one page means it needs a lawyer's pass before it ships, not just a copy edit.
+
+---
+
+## Current Reference Points (2026)
+
+Every named case study elsewhere in this skill predates 2020. Before writing a homepage or landing page, skim [references/modern-swipe-file-2026.md](references/modern-swipe-file-2026.md) for how the same historical principles (specificity, positive framing, reason-why, raise-and-resolve) show up on real, currently-live pages — then fetch the client's own closest competitors' current pages the same way rather than relying on memory of what SaaS pages "usually" look like.
 
 ---
 

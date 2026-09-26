@@ -302,6 +302,9 @@ Starch (University of Wisconsin) wrote this in 1914, and later gave his name to 
 | Want to see Hopkins' principles through real campaign case studies | `hopkins-my-life-in-advertising.md` (1927 memoir — Schlitz, Palmolive, Pepsodent, Van Camp's, and 7 more) |
 | Want the psychology under a persuasion technique, not just the technique | `scott-psychology-of-advertising.md` (1913 — direct ancestor of Cialdini) |
 | Need to actually measure whether an ad/headline is working | `starch-advertising-principles.md` (1914 — early A/B testing and readership scoring) |
+| Testimonial, income claim, guarantee, or subscription offer needs a legal check | `legal-compliance-guardrails.md` (FTC endorsement/pricing/health/earnings/subscription rules) |
+| Need to derive a client's actual voice instead of guessing | `brand-voice-extraction.md` (seven-axis method from their own writing samples) |
+| Want a current (2026), not historical, example to point to | `modern-swipe-file-2026.md` (Linear, Ahrefs, Basecamp — fetched and verified live) |
 | Persuasion feels thin or one-note | Vol. 15 (Cialdini — check all 7 levers, not just one) |
 | Copy argues well but doesn't convert | Vol. 18 (Scott — show the action, don't just make the case) |
 | Not sure an ad/headline actually works, just that it "feels right" | Vol. 19 (Starch — key it, test it, don't guess) |
