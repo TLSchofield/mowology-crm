@@ -2,7 +2,7 @@
 name: copywriting
 description: When the user wants to write, rewrite, or improve marketing copy for any page — including homepage, landing pages, pricing pages, feature pages, about pages, or product pages. Also use when the user says "write copy for," "improve this copy," "rewrite this page," "marketing copy," "headline help," "CTA copy," "value proposition," "tagline," "subheadline," "hero section copy," "above the fold," "this copy is weak," "make this more compelling," or "help me describe my product." Use this whenever someone is working on website text that needs to persuade or convert. For email copy, see email-sequence. For popup copy, see popup-cro. For editing existing copy, see copy-editing.
 metadata:
-  version: 1.7.0
+  version: 1.8.0
 ---
 
 # Copywriting
@@ -259,6 +259,12 @@ Before delivering any draft with a testimonial, a specific number or "up to"/"as
 ## Current Reference Points (2026)
 
 Every named case study elsewhere in this skill predates 2020. Before writing a homepage or landing page, skim [references/modern-swipe-file-2026.md](references/modern-swipe-file-2026.md) for how the same historical principles (specificity, positive framing, reason-why, raise-and-resolve) show up on real, currently-live pages — then fetch the client's own closest competitors' current pages the same way rather than relying on memory of what SaaS pages "usually" look like.
+
+---
+
+## Psychological Checklists
+
+For a menu of specific psychological levers to check a draft against — beyond Sugarman's 31 triggers and Cialdini's 7 principles already covered — see [references/whitman-cashvertising.md](references/whitman-cashvertising.md): the Life-Force 8 primal desires (ads built on these outpull ads built only on learned wants), 17 consumer-psychology principles including the Inoculation Theory (pre-empt a competitor's future counter-argument by naming and refuting it first), 41 numbered ad-agency secrets, and a 46-point pre-ship "Killer Ad" checklist.
 
 ---
 

@@ -284,6 +284,20 @@ Starch (University of Wisconsin) wrote this in 1914, and later gave his name to 
 
 ---
 
+## Volume 20 — Drew Eric Whitman: Cashvertising's Enumerated Checklists
+
+Whitman worked under Gary Halbert and dedicates *Cashvertising* (2009) to Halbert and Caples — a direct-line descendant of the direct-response tradition above, formalized into numbered checklists rather than prose principles. Its distinctive contribution is the Life-Force 8: eight primal, biological desires (survival, food, safety, sex, comfort, freedom from fear, care for loved ones, social approval) that Whitman argues outpull the "learned" secondary wants (cleanliness, efficiency, curiosity, and similar) by a wide margin whenever an ad can genuinely connect to one.
+
+- **The Life-Force 8 beats the Nine Learned Wants**: check which register a draft is actually appealing to — a headline about "saving time" (learned) is weaker than the same benefit reframed around safety, comfort, or protecting a loved one (primal), when the product genuinely supports the reframe.
+- **The Inoculation Theory**: name and gently refute a competitor's likely future counter-argument before the competitor makes it, the way a vaccine primes an immune response — the reader's resistance to that argument is weakened before they ever hear it from the other side.
+- **The 46-point "Killer Ad" checklist**: a full pre-ship review across headline, opening line, body, credibility, and layout — use it as a final pass alongside Sugarman's own checklist.
+
+**Apply it**: when a benefit claim feels flat, check whether it's pitched at a learned want that could be reframed around one of the Life-Force 8 instead.
+
+**Full treatment**: `whitman-cashvertising.md` — the full Life-Force 8 and Nine Learned Wants, all 17 consumer-psychology principles (including his own gloss on Cialdini's six weapons of influence), all 41 numbered ad-agency secrets, the 101 hot-list items grouped by theme, and the full 46-point checklist rebuilt as an original pre-ship tool.
+
+---
+
 ## Quick Cross-Reference
 
 | Problem you're solving | Start with |
@@ -305,6 +319,9 @@ Starch (University of Wisconsin) wrote this in 1914, and later gave his name to 
 | Testimonial, income claim, guarantee, or subscription offer needs a legal check | `legal-compliance-guardrails.md` (FTC endorsement/pricing/health/earnings/subscription rules) |
 | Need to derive a client's actual voice instead of guessing | `brand-voice-extraction.md` (seven-axis method from their own writing samples) |
 | Want a current (2026), not historical, example to point to | `modern-swipe-file-2026.md` (Linear, Ahrefs, Basecamp — fetched and verified live) |
+| Benefit claim feels flat or forgettable | Vol. 20 (Whitman — reframe around the Life-Force 8, not a learned want) |
+| Need to pre-empt a competitor's future counter-argument | Vol. 20 (Whitman's Inoculation Theory) |
+| Final pre-ship pass on a considered piece of copy | `whitman-cashvertising.md` §5 (46-point Killer Ad checklist), alongside `sugarman-handbook.md` §9 |
 | Persuasion feels thin or one-note | Vol. 15 (Cialdini — check all 7 levers, not just one) |
 | Copy argues well but doesn't convert | Vol. 18 (Scott — show the action, don't just make the case) |
 | Not sure an ad/headline actually works, just that it "feels right" | Vol. 19 (Starch — key it, test it, don't guess) |

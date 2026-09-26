@@ -180,6 +180,19 @@
         "Does not simply write appealing copy around the unresolved compliance issues"
       ],
       "files": []
+    },
+    {
+      "id": 13,
+      "prompt": "Write a headline and opening paragraph for a home water-filtration system. Current draft headline is 'Save Time on Water Maintenance with Our Easy-Install Filter.' The client's main competitor markets heavily on 'certified lab-tested purity' \u2014 we don't have that certification yet.",
+      "expected_output": "Should recognize the current headline appeals to a Learned Want (efficiency/time-saving) and reframe around one or more Life-Force 8 desires (safety of family/loved ones, freedom from fear/danger, physical comfort) from whitman-cashvertising.md \u00a71, since water safety is a strong candidate for primal reframing. Should address the competitor's certification claim using the Inoculation Theory (\u00a72, principle 7) \u2014 naming and gently addressing the certification gap or offering a different, honest counter-claim before the reader encounters the competitor's certification claim elsewhere \u2014 rather than ignoring it or making an unsubstantiated certification claim of their own (which would also trip legal-compliance-guardrails.md \u00a72/\u00a74). Should not fabricate a certification claim.",
+      "assertions": [
+        "Identifies the current headline as appealing to a learned want rather than a primal one",
+        "Reframes the headline or opening around a Life-Force 8 desire (safety, family protection, fear reduction)",
+        "Addresses the competitor's certification claim using inoculation (naming/pre-empting) rather than ignoring it",
+        "Does not fabricate or imply a certification the client does not have",
+        "References or applies whitman-cashvertising.md concepts by name or content"
+      ],
+      "files": []
     }
   ]
 }
