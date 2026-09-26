@@ -24,13 +24,15 @@ if ($filterStatus !== 'all') {
 
 $contracts = $db->prepare("
     SELECT c.*,
-           p.address AS property_address, p.city AS property_city,
+           p.address AS property_address, p.city AS property_city, p.property_name,
            ct.first_name, ct.last_name,
+           co.company_name,
            q.quote_number,
            COUNT(jp.id) AS plan_count
     FROM contracts c
     JOIN  properties p  ON c.property_id = p.id
     JOIN  contacts ct   ON c.contact_id  = ct.id
+    LEFT JOIN companies co ON co.primary_contact_id = ct.id
     LEFT JOIN quotes q  ON c.quote_id    = q.id
     LEFT JOIN job_plans jp ON jp.contract_id = c.id
     {$where}
@@ -173,7 +175,7 @@ $activePage = 'contracts';
           <?php else: ?>
               <div class="card">
                   <div class="table-responsive">
-                      <table class="mw-table">
+                      <table class="table table-hover mb-0">
                           <thead>
                               <tr>
                                   <th>Contract</th>
@@ -198,10 +200,17 @@ $activePage = 'contracts';
                                           <?php endif; ?>
                                       </td>
                                       <td>
-                                          <?php echo htmlspecialchars($c['property_address']); ?><br>
-                                          <span class="text-muted small"><?php echo htmlspecialchars($c['property_city']); ?></span>
+                                          <?php echo htmlspecialchars($c['property_address']); ?>
+                                          <?php if (!empty($c['property_name'])): ?>
+                                              <div class="text-muted small"><?php echo htmlspecialchars($c['property_name']); ?></div>
+                                          <?php endif; ?>
                                       </td>
-                                      <td><?php echo htmlspecialchars(trim($c['first_name'] . ' ' . $c['last_name'])); ?></td>
+                                      <td>
+                                          <?php echo htmlspecialchars(trim($c['first_name'] . ' ' . $c['last_name'])); ?>
+                                          <?php if (!empty($c['company_name'])): ?>
+                                              <div class="text-muted small"><?php echo htmlspecialchars($c['company_name']); ?></div>
+                                          <?php endif; ?>
+                                      </td>
                                       <td>
                                           <span class="mw-badge-status"><?php echo (int)$c['plan_count']; ?> plan<?php echo $c['plan_count'] != 1 ? 's' : ''; ?></span>
                                       </td>
