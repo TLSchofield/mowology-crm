@@ -71,7 +71,7 @@ return [
     'cta' => [
         'headline'       => 'Get a Free Lawn Care Quote',
         'subheadline'    => 'Tell us what the lawn is doing and we will recommend a program with one clear price. No obligation.',
-        'primary_text'   => 'Request Free Quote',
+        'primary_text'   => 'Get My Lawn Care Quote',
         'primary_url'    => '/quote?service=lawn_care&src=lawn-care-programs-landing',
         'secondary_text' => 'Call 778-846-9273',
         'secondary_url'  => 'tel:7788469273',

@@ -39,8 +39,17 @@ if (!function_exists('mw_serviceLinks')) {
                 try {
                     $siteId = defined('CMS_SITE_ID') ? (int)CMS_SITE_ID : 1;
                     $now    = date('Y-m-d H:i:s');
+                    // Pages authored by the CMS page generator store literal {{TOKENS}}
+                    // (NEIGHBOURHOOD, CITY, PHONE...) in title / meta_description and
+                    // only resolve them at render time. Reading the raw column here
+                    // showed "{{NEIGHBOURHOOD}}, {{CITY}}" verbatim in every card that
+                    // linked to such a page, so resolve them the way cms-renderer.php does.
+                    $tokenFile = dirname(__DIR__) . '/crm/includes/cms-token-engine.php';
+                    if (!function_exists('cms_buildTokenMap') && is_file($tokenFile)) {
+                        require_once $tokenFile;
+                    }
                     $stmt   = getDB()->prepare("
-                        SELECT slug, title, meta_description
+                        SELECT id, slug, title, meta_description
                           FROM cms_pages
                          WHERE site_id = ? AND slug LIKE 'services/%' AND status = 'published' AND noindex = 0
                            AND (publish_at IS NULL OR publish_at <= ?)
@@ -53,10 +62,26 @@ if (!function_exists('mw_serviceLinks')) {
                         if (isset($all[$slug])) {
                             continue; // file-based page wins for the same URL
                         }
+                        $title = (string)$row['title'];
+                        $desc  = (string)($row['meta_description'] ?? '');
+                        if (function_exists('cms_buildTokenMap') && function_exists('cms_resolveTokens')
+                            && (strpos($title . $desc, '{{') !== false)) {
+                            $tokenMap = cms_buildTokenMap((int)$row['id']);
+                            $title = cms_resolveTokens($title, $tokenMap, false);
+                            $desc  = cms_resolveTokens($desc, $tokenMap, false);
+                        }
+                        // A token the page never defined must never reach a visitor:
+                        // drop the blurb rather than print "{{TRUST_STATEMENT}}".
+                        if (strpos($desc, '{{') !== false) {
+                            $desc = '';
+                        }
+                        if (strpos($title, '{{') !== false) {
+                            $title = ucwords(str_replace('-', ' ', $slug));
+                        }
                         $all[$slug] = [
-                            'title' => (string)$row['title'],
+                            'title' => $title,
                             'url'   => '/' . ltrim((string)$row['slug'], '/'),
-                            'desc'  => (string)($row['meta_description'] ?? ''),
+                            'desc'  => $desc,
                         ];
                     }
                 } catch (\Throwable $e) {

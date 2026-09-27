@@ -71,7 +71,7 @@ return [
     'cta' => [
         'headline'       => 'Get a Free Winter Plan Quote',
         'subheadline'    => 'Tell us about the property and we will book a site walk and send a seasonal plan. No obligation.',
-        'primary_text'   => 'Request Free Quote',
+        'primary_text'   => 'Get My Winter Plan Quote',
         'primary_url'    => '/quote?service=snow_removal&src=snow-removal-landing',
         'secondary_text' => 'Call 778-846-9273',
         'secondary_url'  => 'tel:7788469273',

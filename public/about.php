@@ -90,7 +90,7 @@ require __DIR__ . '/includes/header.php';
                 </div>
                 <div class="difference-item">
                     <h3>⚡ Emergency Response</h3>
-                    <p>Storm damage? Fallen tree? We offer 24/7 emergency response for urgent situations, especially for our property management clients.</p>
+                    <p>Storm damage? Fallen tree? Call us and we respond within 24 hours, especially for our property management clients.</p>
                 </div>
                 <div class="difference-item">
                     <h3>💼 Account Managers</h3>
@@ -105,17 +105,17 @@ require __DIR__ . '/includes/header.php';
             <h2 class="section-title">Why Clients Trust Us</h2>
             <div class="trust-features">
                 <div class="trust-item">
-                    <div class="trust-number">15+</div>
+                    <div class="trust-number"><?= SITE_YEARS_IN_BUSINESS ?>+</div>
                     <div class="trust-label">Years Serving Metro Vancouver</div>
                 </div>
 
                 <div class="trust-item">
-                    <div class="trust-number">98%</div>
-                    <div class="trust-label">Client Retention Rate</div>
+                    <div class="trust-number">$5M</div>
+                    <div class="trust-label">Liability Coverage, Plus Full WCB</div>
                 </div>
                 <div class="trust-item">
-                    <div class="trust-number">5⭐</div>
-                    <div class="trust-label">Average Client Rating</div>
+                    <div class="trust-number">Every</div>
+                    <div class="trust-label">Visit Documented With a Photo Report</div>
                 </div>
             </div>
         </div>

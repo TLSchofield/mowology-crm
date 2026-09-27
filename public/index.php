@@ -104,10 +104,10 @@ $heroImg = '/assets/img/hero/hero-lawn-care-1920x1080.jpg';
 
         <h1 class="mw-hero__headline">
           <?php
-          $words = explode(' ', 'Professional Landscaping Services in Metro Vancouver');
+          $words = explode(' ', 'Landscaping Services in Metro Vancouver, Photo-Verified Every Visit');
           $baseDelay = 0.3;
           // Words are separated by a real space (not just margin) so the H1's text
-          // content reads "Professional Landscaping Services in Metro Vancouver" to
+          // content reads "Landscaping Services in Metro Vancouver, Photo-Verified Every Visit" to
           // crawlers instead of one run-together token.
           foreach ($words as $i => $word) {
               $delay = number_format($baseDelay + ($i * 0.08), 2);
@@ -116,10 +116,10 @@ $heroImg = '/assets/img/hero/hero-lawn-care-1920x1080.jpg';
           ?>
         </h1>
 
-        <p class="mw-hero__sub">Expert grounds maintenance for property management companies and residential properties in Vancouver, Burnaby &amp; Richmond</p>
+        <p class="mw-hero__sub">Weekly grounds maintenance for strata councils, property managers and homeowners in Vancouver, Burnaby &amp; Richmond, with a timestamped photo report after every visit</p>
 
         <div class="mw-hero__actions">
-          <a href="/jobFlow/jobFlow-getQuote.php" class="btn btn-primary">Get Free Quote</a>
+          <a href="/jobFlow/jobFlow-getQuote.php" class="btn btn-primary">Get My Free Quote</a>
           <a href="/services" class="btn btn-secondary">Our Services</a>
         </div>
 
@@ -194,11 +194,11 @@ $heroImg = '/assets/img/hero/hero-lawn-care-1920x1080.jpg';
             <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="9" y1="14.5" x2="15" y2="14.5"/></svg>
           </div>
           <h3>Strata &amp; Property Management</h3>
-          <p>Reliable, photo-verified <a href="/services/strata-landscaping-maintenance">strata landscaping maintenance</a> for townhomes, condos, and multi-unit complexes. Weekly maintenance, seasonal cleanups, and emergency storm response by insured, strata-dedicated crews.</p>
+          <p>Reliable, photo-verified <a href="/services/strata-landscaping-maintenance">strata landscaping maintenance</a> for townhomes, condos, and multi-unit complexes. Weekly maintenance and seasonal cleanups by insured, strata-dedicated crews, plus a fast call-out when a storm drops branches across a walkway.</p>
           <ul class="service-features">
             <li>Photo-verified service reports</li>
             <li>Dedicated account managers</li>
-            <li>Emergency response available</li>
+            <li>Storm call-outs within 24 hours</li>
             <li>Fully insured crews</li>
           </ul>
           <a href="/services/strata-landscaping-maintenance" class="btn-link">Strata Landscaping Maintenance &rarr;</a>
@@ -407,7 +407,7 @@ $heroImg = '/assets/img/hero/hero-lawn-care-1920x1080.jpg';
       <h2>Ready to Elevate Your Property's Landscape?</h2>
       <p>Get a free, no-obligation quote for your property</p>
       <div class="cta-buttons">
-        <a href="/jobFlow/jobFlow-getQuote.php" class="btn btn-primary-large">Request Free Quote</a>
+        <a href="/jobFlow/jobFlow-getQuote.php" class="btn btn-primary-large">Get My Property Quote</a>
         <a href="tel:7788469273" class="btn btn-secondary-large">Call 778-846-9273</a>
       </div>
     </div>

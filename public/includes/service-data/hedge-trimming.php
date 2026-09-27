@@ -70,7 +70,7 @@ return [
     'cta' => [
         'headline'       => 'Get a Free Hedge Trimming Quote',
         'subheadline'    => 'Tell us about your hedges and we will send you a clear price. No obligation.',
-        'primary_text'   => 'Request Free Quote',
+        'primary_text'   => 'Get My Hedge Trimming Quote',
         'primary_url'    => '/quote?service=hedge_trimming&src=hedge-landing',
         'secondary_text' => 'Call 778-846-9273',
         'secondary_url'  => 'tel:7788469273',

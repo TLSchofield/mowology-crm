@@ -64,7 +64,7 @@
  *   'cta' => [
  *     'headline'      => 'Ready for a Quote?',
  *     'subheadline'   => 'Free, no-obligation...',
- *     'primary_text'  => 'Request Free Quote',
+ *     'primary_text'  => 'Get My Free Quote',
  *     'primary_url'   => '/quote?service=hedge_trimming',
  *     'secondary_text' => 'Call 778-846-9273',
  *     'secondary_url' => 'tel:7788469273',

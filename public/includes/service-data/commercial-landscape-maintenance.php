@@ -72,7 +72,7 @@ return [
     'cta' => [
         'headline'       => 'Get a Free Commercial Landscaping Quote',
         'subheadline'    => 'Free property assessment and detailed proposal. No obligation.',
-        'primary_text'   => 'Request Free Quote',
+        'primary_text'   => 'Book a Commercial Site Walk',
         'primary_url'    => '/quote?service=maintenance&property_type=commercial&src=commercial-landing',
         'secondary_text' => 'Call 778-846-9273',
         'secondary_url'  => 'tel:7788469273',
