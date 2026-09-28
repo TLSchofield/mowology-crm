@@ -96,6 +96,16 @@ def compose_brief(piece, ctx):
         '`## Alternatives` (2–3 headline/CTA options), `## Compliance flags` (any number, testimonial or guarantee that needs checking). ',
         f"Then set this piece's status to `review` in `tools/marketing-studio/state/pipeline.json` (id `{piece['id']}`).",
     ]
+    tb = [t for t in piece.get('tacticsBrief', []) if t.get('name')]
+    if tb:
+        lines += ['', '## Tactics (Pip Decks concepts, chosen for this piece type)', '',
+                  'Apply each card. The owner\'s answer for this piece wins over the standing answer.', '']
+        for t in tb:
+            lines.append(f"- **{t['name']}** ({t.get('deck', '')}): {t.get('ask', '')}")
+            if t.get('standing'):
+                lines.append(f"  - Standing answer: {t['standing']}")
+            if t.get('answer'):
+                lines.append(f"  - For this piece: {t['answer']}")
     if piece.get('revisionNotes'):
         lines += ['', '## Revision notes', '', piece['revisionNotes'].strip(), '']
     return '\n'.join(lines) + '\n'

@@ -55,6 +55,9 @@
     clearTimeout(state.saveTimer);
     const run = async () => {
       if (!state.piece.type) return;
+      const t = S.types.find((x) => x.id === state.piece.type) || {}; const ans = (state.piece.brief && state.piece.brief.tactics) || {};
+      state.piece.tacticsBrief = (t.tactics || []).map((id) => S.tactics.cards.find((x) => x.id === id)).filter(Boolean)
+        .map((c) => ({ deck: S.tactics.decks[c.deck], name: c.name, ask: c.ask, standing: c.mow || '', answer: (ans[c.id] || '').trim() }));
       const d = await api('/api/pipeline', { piece: state.piece });
       // Merge only the server-assigned fields back; never replace the object,
       // or edits made while the request was in flight (and every closure
@@ -188,6 +191,28 @@
     const chosen = new Set((b.proof || '').split(' | ').filter(Boolean));
     S.proofs.forEach((x) => { const c = document.createElement('button'); c.type = 'button'; c.className = 'chip'; c.textContent = x; c.setAttribute('aria-pressed', chosen.has(x)); c.onclick = () => { chosen.has(x) ? chosen.delete(x) : chosen.add(x); b.proof = [...chosen].join(' | '); save(); renderBrief.refresh(); }; pr.querySelector('.chips').appendChild(c); });
     body.appendChild(pr);
+    // tactics for this piece (Pip Decks concepts, our words)
+    const ids = t.tactics || [];
+    if (ids.length) {
+      b.tactics = b.tactics || {};
+      const deck = document.createElement('div'); deck.className = 'field';
+      deck.innerHTML = `<span class="field__label">Tactics for this piece</span><p class="hint">Cards from Brand Tactics and Storyteller Tactics chosen for a ${esc((t.label || '').toLowerCase())}. Mowology's standing answer is on each card; add the answer for this piece and it travels to Claude with the brief.</p><div class="deck"></div>`;
+      const host = deck.querySelector('.deck');
+      ids.forEach((id, i) => {
+        const c = S.tactics.cards.find((x) => x.id === id); if (!c) return;
+        const card = document.createElement('article'); card.className = 'tactic';
+        const fid = 'tac_' + id;
+        card.innerHTML = `<header class="tactic__head"><span class="tactic__deck">${esc(S.tactics.decks[c.deck])}</span><span class="tactic__n">${i + 1}</span></header>
+          <h4 class="tactic__name">${esc(c.name)}</h4>
+          <p class="tactic__ask">${esc(c.ask)}</p>
+          ${c.mow ? `<p class="tactic__mow"><span>Standing answer</span>${esc(c.mow)}</p>` : ''}
+          <label class="tactic__label" for="${fid}">For this piece</label>
+          <textarea id="${fid}" rows="2" placeholder="${esc(c.mow ? 'Sharpen it for this reader, or leave the standing answer' : 'Your answer, in the customer’s words if you have them')}">${esc(b.tactics[id] || '')}</textarea>`;
+        card.querySelector('textarea').oninput = (e) => { b.tactics[id] = e.target.value; save(); };
+        host.appendChild(card);
+      });
+      body.appendChild(deck);
+    }
     const row = document.createElement('div'); row.className = 'row';
     row.appendChild(field('Must say', 'mustSay', b.mustSay, 'e.g. the snow plan is for strata and commercial only', (v) => { b.mustSay = v; save(); }));
     row.appendChild(field('Must not say', 'mustNotSay', b.mustNotSay, 'e.g. no prices; no "24/7"', (v) => { b.mustNotSay = v; save(); }));
@@ -204,6 +229,8 @@
     const aw = S.awareness.find((a) => a.label === state.piece.brief.awareness);
     if (aw) body.appendChild(panel(`<h3>Opening for this reader</h3><p>${esc(state.piece.brief.awareness)} → <strong>${esc(aw.lead)}</strong> lead. ${esc(aw.note)}</p>`));
     if (c.never && c.never.length) body.appendChild(panel(`<h3>Never</h3><ul class="never">${c.never.map((n) => `<li>${esc(n)}</li>`).join('')}</ul>`));
+    const strat = S.tactics.strategyCards.map((id) => S.tactics.cards.find((x) => x.id === id)).filter((x) => x && x.mow);
+    if (strat.length) body.appendChild(panel(`<h3>Strategy card</h3><p class="hint">Mowology’s standing answers to the Brand Tactics cards. Every piece should agree with these; if one doesn’t, change the piece or change the card in ${esc(c.contextPath || '.agents/product-marketing-context.md')}.</p><dl class="strategy">${strat.map((x) => `<div><dt>${esc(x.name)}</dt><dd>${esc(x.mow)}</dd></div>`).join('')}</dl>`));
     const flags = document.createElement('div'); flags.className = 'panel';
     flags.innerHTML = `<h3>Compliance flags in this piece</h3><p class="hint">Tick anything the draft will contain. Two or more ticked means a careful read of the compliance checklist before it ships.</p><ul class="checks"></ul>`;
     const ul = flags.querySelector('ul'); state.piece.flags = state.piece.flags || {};

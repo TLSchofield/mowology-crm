@@ -9,7 +9,7 @@
         "copywriting"
       ],
       "ship": "CRM email template or a one-off from Tim",
-      "status": "review",
+      "status": "with-claude",
       "brief": {
         "audience": "Strata council",
         "awareness": "Product-aware",
@@ -19,7 +19,10 @@
         "mustSay": "",
         "mustNotSay": "",
         "length": "Under 150 words, one ask, one attachment named",
-        "notes": "Council president said their current contractor \"never sends anything\". Property has cedar hedges along the lane and a drainage problem at the north entrance."
+        "notes": "Council president said their current contractor \"never sends anything\". Property has cedar hedges along the lane and a drainage problem at the north entrance.",
+        "tactics": {
+          "rolls_royce": "The president said the current guy \"never sends anything\". The photo report is the answer to that sentence."
+        }
       },
       "checks": {
         "0": true,
@@ -35,12 +38,69 @@
       "ship_checks": {},
       "id": "a229772ffc",
       "created": 1790607140,
-      "updated": 1790607420,
+      "updated": 1790607744,
       "slug": "follow-up-kitsilano-townhouse-site-walk",
       "flags": {},
-      "handedOff": 1790607231,
+      "handedOff": 1790607756,
       "briefPath": "tools/marketing-studio/outbox/follow-up-kitsilano-townhouse-site-walk.md",
-      "draftPath": "tools/marketing-studio/outbox/follow-up-kitsilano-townhouse-site-walk.draft.md"
+      "draftPath": "tools/marketing-studio/outbox/follow-up-kitsilano-townhouse-site-walk.draft.md",
+      "tacticsBrief": [
+        {
+          "deck": "Brand Tactics",
+          "name": "Find The Fear",
+          "ask": "Name the fear underneath the request. Copy that answers the fear outsells copy that describes the service.",
+          "standing": "Council: a slip claim or a resident complaint with no record to show. Manager: being the one who gets chased. Homeowner: paying for visits nobody can see.",
+          "answer": ""
+        },
+        {
+          "deck": "Storyteller Tactics",
+          "name": "Simple Sales Story",
+          "ask": "\u201cSomeone like you uses this.\u201d Name the kind of customer and what changed for them.",
+          "standing": "",
+          "answer": ""
+        },
+        {
+          "deck": "Storyteller Tactics",
+          "name": "Rolls Royce Moment",
+          "ask": "One vivid, specific detail that carries the whole claim. Ten general claims lose to it.",
+          "standing": "Pattern: the treasurer who stopped driving over on Thursdays once the photos started arriving. Use a real one from the site walk.",
+          "answer": "The president said the current guy \"never sends anything\". The photo report is the answer to that sentence."
+        },
+        {
+          "deck": "Storyteller Tactics",
+          "name": "Leave It Out",
+          "ask": "Cut anything that doesn\u2019t serve the one action. Especially the second benefit.",
+          "standing": "",
+          "answer": ""
+        }
+      ]
+    },
+    {
+      "title": "Fall Clean Up - Seek ",
+      "type": "email_sequence",
+      "typeLabel": "Email sequence",
+      "skills": [
+        "email-sequence"
+      ],
+      "ship": "CRM campaigns (Marketing \u2192 Campaigns)",
+      "status": "brief",
+      "brief": {
+        "audience": "",
+        "awareness": "",
+        "action": "",
+        "keyword": "",
+        "proof": "",
+        "mustSay": "",
+        "mustNotSay": "",
+        "length": "700\u20131,000 words, FAQ of 5, one CTA",
+        "notes": ""
+      },
+      "checks": {},
+      "ship_checks": {},
+      "id": "09529d5570",
+      "slug": "service-landing-page",
+      "created": 1790607770,
+      "updated": 1790607811
     }
   ]
 }

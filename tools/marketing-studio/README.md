@@ -14,3 +14,7 @@ A local, single-user workbench that walks one piece of marketing copy from brief
 **Files:** `server.py` (stdlib only), `app/` (vanilla HTML/CSS/JS), `state/pipeline.json` (your pieces), `outbox/` (briefs and drafts; ignored by git), `design/directions.md` (the art direction).
 
 Workflow content (piece types, awareness → lead map, proof list, rubric, keyword hints) is plain data in `app/content.js`.
+
+## Tactics cards
+
+Each piece type surfaces three to six concept cards from Pip Decks' *Brand Tactics* and *Storyteller Tactics* (in our own words, `app/content.js` → `tactics`). Every card carries Mowology's standing answer where one exists; the owner adds the answer for the piece in hand, and both go to Claude in the brief under `## Tactics`. The Voice step shows the standing answers as a strategy card. To change a standing answer, edit `content.js` and `.agents/product-marketing-context.md` together so the skills and the Studio agree.

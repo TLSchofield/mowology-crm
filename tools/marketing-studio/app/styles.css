@@ -208,3 +208,22 @@ textarea { min-height: 96px; resize: vertical; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ── Tactics deck (brief step) ─────────────────────────────────────────── */
+.deck { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--s-4); }
+.tactic { display: grid; gap: var(--s-2); align-content: start; padding: var(--s-4) var(--s-5); background: var(--surface-2); border: 1px solid var(--line); border-top: 3px solid var(--gold-deep); border-radius: var(--r-2); box-shadow: var(--shadow-1); }
+.tactic__head { display: flex; justify-content: space-between; align-items: baseline; }
+.tactic__deck { font-size: var(--t-12); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-faint); }
+.tactic__n { font-family: var(--font-display); font-size: var(--t-22); color: var(--gold); line-height: 1; }
+.tactic__name { font-family: var(--font-display); font-weight: 600; font-size: var(--t-22); line-height: 1.15; }
+.tactic__ask { font-size: var(--t-14); color: var(--ink); }
+.tactic__mow { font-size: var(--t-13); color: var(--ink-muted); border-left: 2px solid var(--line-strong); padding-left: var(--s-3); }
+.tactic__mow span { display: block; font-size: var(--t-12); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: var(--s-1); }
+.tactic__label { font-size: var(--t-13); color: var(--ink-muted); margin-top: var(--s-1); }
+.tactic textarea { min-height: 56px; font-size: var(--t-14); }
+/* ── Strategy card (voice step) ────────────────────────────────────────── */
+.strategy { display: grid; gap: var(--s-3); margin-top: var(--s-3); }
+.strategy > div { display: grid; grid-template-columns: minmax(140px, .382fr) .618fr; gap: var(--s-4); padding: var(--s-3) 0; border-top: 1px solid var(--line); }
+.strategy dt { font-weight: 500; }
+.strategy dd { margin: 0; color: var(--ink-muted); font-size: var(--t-14); }
+@media (max-width: 640px) { .strategy > div { grid-template-columns: 1fr; gap: var(--s-1); } }
