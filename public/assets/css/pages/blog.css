@@ -41,6 +41,10 @@
 .mw-article-body .faq-item { border-top: 1px solid var(--border-color, #e0e0e0); padding: 16px 0; }
 .mw-article-body .faq-question { margin: 0 0 6px; font-size: 1.1rem; color: var(--text-dark, #1a1a1a); }
 .mw-article-body .faq-answer { margin: 0; }
+.mw-article-body figure.article-figure { margin: 2rem 0; }
+.mw-article-body figure.article-figure img { width: 100%; height: auto; display: block; border-radius: var(--radius-md, 12px); }
+.mw-article-body figure.article-figure figcaption { font-size: 0.9rem; color: var(--text-light, #6a6a6a); margin-top: 8px; }
+.mw-article-body figure.article-figure figcaption:empty { display: none; }
 .mw-article-body .article-cta { margin-top: 2rem; padding: 18px 22px; background: var(--bg-green-tint, #f0f7f4); border-left: 4px solid var(--color-primary, #2D8659); border-radius: var(--radius-sm, 6px); font-weight: 600; }
 
 .mw-blog-grid {

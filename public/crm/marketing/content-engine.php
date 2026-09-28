@@ -195,6 +195,34 @@ $activePage = 'marketing';
             <!-- Right: Sidebar -->
             <div class="col-lg-4">
 
+                <!-- Photos: choose from the media library -->
+                <div class="card border-0 shadow-sm mb-3">
+                    <div class="card-header bg-white border-bottom py-3">
+                        <span class="fw-semibold">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="me-1"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                            Photos
+                        </span>
+                    </div>
+                    <div class="card-body p-3">
+                        <p class="text-muted small mb-2">Pick from the media library (Portfolio uploads) or upload a new one.</p>
+                        <div class="mb-3">
+                            <div class="small fw-semibold mb-1">Hero image <span class="text-muted fw-normal">(top of article + social preview)</span></div>
+                            <div id="ceHeroPreview" class="d-none mb-2">
+                                <img id="ceHeroImg" src="" alt="" class="img-fluid rounded border" style="max-height:120px;">
+                            </div>
+                            <div class="d-flex gap-2">
+                                <button type="button" class="btn btn-sm btn-outline-success" onclick="chooseHeroImage()">Choose hero image</button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary d-none" id="ceHeroClear" onclick="clearHeroImage()">Remove</button>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="small fw-semibold mb-1">Photos in the article</div>
+                            <p class="text-muted small mb-2">Click where you want it in the Article Body, then:</p>
+                            <button type="button" class="btn btn-sm btn-outline-success" onclick="insertArticlePhoto()">Insert photo at cursor</button>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Photo prompts -->
                 <div class="card border-0 shadow-sm mb-3">
                     <div class="card-header bg-white border-bottom py-3">
@@ -377,7 +405,62 @@ const ceState = {
     articleUrl: '',  // set by publishArticle()
     pageId: 0,       // CMS page id set by publishArticle()
     keyword: '', city: '', serviceType: '', season: '',
+    ogImagePath: '',  // hero image (site-relative), set via chooseHeroImage()
 };
+
+// ── Photos: media library → hero / inline figure ─────────────────────────
+async function articleImageInfo(media) {
+    // Resolve the best responsive variant for a media asset (falls back to the original).
+    try {
+        const r = await fetch('/crm/api/article-image.php?media_id=' + encodeURIComponent(media.id), { credentials: 'same-origin' });
+        const d = await r.json();
+        if (d.success) return d;
+    } catch (e) { /* fall through */ }
+    return { hero: media.file_path, inline: media.file_path, inline_webp: null, alt: media.alt_text || '', caption: '', width: null, height: null };
+}
+
+function chooseHeroImage() {
+    if (typeof openMediaPicker !== 'function') { showError('cePublishError', 'Media picker not available on this page.'); return; }
+    openMediaPicker(async function (media) {
+        const info = await articleImageInfo(media);
+        ceState.ogImagePath = info.hero || media.file_path;
+        const img = document.getElementById('ceHeroImg');
+        img.src = info.thumb || info.inline || ceState.ogImagePath;
+        img.alt = info.alt || '';
+        document.getElementById('ceHeroPreview').classList.remove('d-none');
+        document.getElementById('ceHeroClear').classList.remove('d-none');
+    });
+}
+
+function clearHeroImage() {
+    ceState.ogImagePath = '';
+    document.getElementById('ceHeroPreview').classList.add('d-none');
+    document.getElementById('ceHeroClear').classList.add('d-none');
+}
+
+function insertArticlePhoto() {
+    if (typeof openMediaPicker !== 'function') { showError('cePublishError', 'Media picker not available on this page.'); return; }
+    const ta = document.getElementById('ceBodyHtml');
+    const pos = ta.selectionStart || ta.value.length;   // remember the cursor before the modal steals focus
+    openMediaPicker(async function (media) {
+        const info = await articleImageInfo(media);
+        const alt  = (info.alt || '').replace(/"/g, '&quot;');
+        const dims = (info.width && info.height) ? ' width="' + info.width + '" height="' + info.height + '"' : '';
+        const img  = info.inline_webp
+            ? '<picture><source type="image/webp" srcset="' + info.inline_webp + '"><img src="' + info.inline + '" alt="' + alt + '" loading="lazy"' + dims + '></picture>'
+            : '<img src="' + info.inline + '" alt="' + alt + '" loading="lazy"' + dims + '>';
+        const cap  = info.caption ? '<figcaption>' + escHtml(info.caption) + '</figcaption>' : '<figcaption></figcaption>';
+        const html = '\n<figure class="article-figure">' + img + cap + '</figure>\n';
+        // Insert on a line boundary so we never land inside a tag.
+        let at = pos;
+        const nextNl = ta.value.indexOf('\n', at);
+        if (nextNl !== -1 && at > 0 && ta.value[at - 1] !== '\n') at = nextNl + 1;
+        ta.value = ta.value.slice(0, at) + html + ta.value.slice(at);
+        ceState.bodyHtml = ta.value;
+        ta.focus();
+        ta.setSelectionRange(at + html.length, at + html.length);
+    });
+}
 
 // ── Prepared drafts (server-embedded) ────────────────────────────────────
 const cePreparedDrafts = <?= json_encode(array_map(fn($d) => [
@@ -416,6 +499,7 @@ function loadPreparedDraft(key) {
     ceState.schemaJson     = '';
     ceState.pageId         = 0;
     ceState.articleUrl     = '';
+    clearHeroImage();
 
     document.getElementById('ceTitle').value      = ceState.title;
     document.getElementById('ceMetaDesc').value   = ceState.metaDesc;
@@ -472,6 +556,7 @@ async function publishArticle() {
                 service_type:     ceState.serviceType,
                 season:           ceState.season,
                 faq_items:        ceState.faqItems,
+                og_image_path:    ceState.ogImagePath || '',
             }),
         });
         const data = await res.json();
@@ -727,4 +812,6 @@ function escHtml(str) {
 document.getElementById('ceMetaDesc').addEventListener('input', updateMetaCharCount);
 </script>
 
+<?php include dirname(__DIR__) . '/cms/block-forms/media-picker-modal.php'; ?>
+<script>window.csrfToken = window.csrfToken || (document.querySelector('meta[name="csrf-token"]') || {}).content || '';</script>
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

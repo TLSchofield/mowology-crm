@@ -39,7 +39,49 @@ if ($mediaId <= 0) {
     exit;
 }
 try {
-    $info = (new ArticleService(getDB()))->imageUrls($mediaId);
+    $service = new ArticleService(getDB());
+    $info    = $service->imageUrls($mediaId);
+
+    // Older uploads have no responsive variants, so the picker would put a
+    // multi-megabyte original into the article. Generate them once, on demand.
+    if ($info && $info['inline'] === $info['hero'] && preg_match('#^/_media/original/#', (string)$info['inline'])) {
+        $abs = PUBLIC_ROOT . $info['inline'];
+        $gen = APP_ROOT . '/Services/Media/MediaVariantGenerator.php';
+        if (is_file($abs) && is_file($gen)) {
+            require_once $gen;
+            // Only the two widths an article needs (inline 1024, hero 1600), JPEG + WebP.
+            // The full generator makes 8 widths × 3 formats and blows past the request
+            // time limit on a 12-megapixel phone photo.
+            if (function_exists('variantResize') && function_exists('variantInsertRecord')) {
+                @set_time_limit(90);
+                $dims = @getimagesize($abs);
+                $ow = (int)($dims[0] ?? 0);
+                $oh = (int)($dims[1] ?? 0);
+                if ($ow > 0 && $oh > 0) {
+                    $rel   = dirname($info['inline']);                       // /_media/original/YYYY/MM
+                    $ym    = basename(dirname($rel)) . '/' . basename($rel); // YYYY/MM
+                    $uuid  = pathinfo($info['inline'], PATHINFO_FILENAME);
+                    $vdir  = PUBLIC_ROOT . '/_media/variants/' . $ym;
+                    if (!is_dir($vdir)) { @mkdir($vdir, 0755, true); }
+                    $db = getDB();
+                    foreach ([1024, 1600] as $w) {
+                        if ($ow <= $w && $w !== 1024) { continue; }      // never upscale for the hero
+                        $tw = min($w, $ow);
+                        $th = (int)round($oh * $tw / $ow);
+                        foreach (['jpeg' => 'jpg', 'webp' => 'webp'] as $fmt => $ext) {
+                            $file = "{$uuid}_{$tw}w.{$ext}";
+                            $dest = $vdir . '/' . $file;
+                            $web  = '/_media/variants/' . $ym . '/' . $file;
+                            if (is_file($dest) || variantResize($abs, $dest, $tw, $th, $fmt, $fmt === 'webp' ? 80 : 82)) {
+                                variantInsertRecord($db, $mediaId, 'responsive', $fmt, $tw, $th, $web, (int)@filesize($dest), 82);
+                            }
+                        }
+                    }
+                    $info = $service->imageUrls($mediaId) ?: $info;
+                }
+            }
+        }
+    }
     if (!$info) {
         http_response_code(404);
         echo json_encode(['success' => false, 'error' => 'Media not found']);
