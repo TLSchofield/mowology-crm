@@ -2,7 +2,7 @@
 name: copywriting
 description: When the user wants to write, rewrite, or improve marketing copy for any page — including homepage, landing pages, pricing pages, feature pages, about pages, or product pages. Also use when the user says "write copy for," "improve this copy," "rewrite this page," "marketing copy," "headline help," "CTA copy," "value proposition," "tagline," "subheadline," "hero section copy," "above the fold," "this copy is weak," "make this more compelling," or "help me describe my product." Use this whenever someone is working on website text that needs to persuade or convert. For email copy, see email-sequence. For popup copy, see popup-cro. For editing existing copy, see copy-editing.
 metadata:
-  version: 1.12.0
+  version: 1.13.0
 ---
 
 # Copywriting
@@ -253,6 +253,12 @@ Then tick through the checklist in section 9 of the reference.
 ## Legal & Compliance
 
 Before delivering any draft with a testimonial, a specific number or "up to"/"as low as" claim, a strikethrough price, a health/earnings claim, a "Made in USA" claim, a free-trial/subscription offer, a marketing email, a named-competitor comparison, or a guarantee — run it against the checklist in [references/legal-compliance-guardrails.md](references/legal-compliance-guardrails.md) §11. This is not a substitute for legal review; it's what tells you and the client *when* legal review is actually needed. Two or more flagged items on one page means it needs a lawyer's pass before it ships, not just a copy edit.
+
+---
+
+## Objections for Service Buyers
+
+When the buyer is a committee or a household buying a recurring local service (grounds, cleaning, snow, trades) rather than a SaaS trial, use [references/objection-handling-service-buyers.md](references/objection-handling-service-buyers.md): the five objection families, an objection-by-buyer table for strata councils, property managers and homeowners with honest answers, proof ranked by strength, which objection is live at each Schwartz awareness stage, where each answer goes on a landing page, a quote follow-up and a proposal letter, and a pre-ship check. It synthesises Sugarman's raise-and-resolve, Kennedy's price reframes and damaging admission, Whitman's inoculation and Collier's "conversation already in their head" for that buyer, so start here instead of re-deriving them.
 
 ---
 
