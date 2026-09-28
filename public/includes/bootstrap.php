@@ -78,7 +78,7 @@ define('SITE_YEARS_IN_BUSINESS', max(1, (int)date('Y') - SITE_FOUNDED));
 // The Maps URL below is the public listing; a direct "write a review" deep link needs
 // the Place ID (ChIJ…) or the g.page/r/…/review short link from the GBP dashboard.
 define('SITE_GBP_URL', 'https://www.google.com/maps?cid=15220268177293590228');
-define('SITE_REVIEW_URL', SITE_GBP_URL);
+define('SITE_REVIEW_URL', 'https://g.page/r/CQx6tjUVhh6yEAI/review'); // GBP 'Ask for reviews' short link (owner, 2026-09-27)
 
 define('SITE_SAME_AS', [
     SITE_GBP_URL,
