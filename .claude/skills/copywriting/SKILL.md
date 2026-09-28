@@ -2,7 +2,7 @@
 name: copywriting
 description: When the user wants to write, rewrite, or improve marketing copy for any page — including homepage, landing pages, pricing pages, feature pages, about pages, or product pages. Also use when the user says "write copy for," "improve this copy," "rewrite this page," "marketing copy," "headline help," "CTA copy," "value proposition," "tagline," "subheadline," "hero section copy," "above the fold," "this copy is weak," "make this more compelling," or "help me describe my product." Use this whenever someone is working on website text that needs to persuade or convert. For email copy, see email-sequence. For popup copy, see popup-cro. For editing existing copy, see copy-editing.
 metadata:
-  version: 1.13.0
+  version: 1.14.0
 ---
 
 # Copywriting
@@ -277,6 +277,18 @@ For a menu of specific psychological levers to check a draft against — beyond 
 ## From Draft to Mailbox
 
 Sugarman and Whitman tell you what makes copy persuasive. [references/kennedy-ultimate-sales-letter.md](references/kennedy-ultimate-sales-letter.md) covers the other half: an actual 28-step production process for taking a sales letter (or any long-form piece) from a blank page to delivered — diagnosing the customer and offer, the "damaging admission" technique, five ways to reframe price objections, a strategy-pass/style-pass two-edit method, pretesting, and the operational tail (cooling off, second opinions, production, mailing) that determines whether a technically excellent piece of copy actually reaches its reader intact. Use this when the task is "how do I get this written and shipped," not just "what should it say."
+
+---
+
+## Proof, Reason-Why and Offers: Bencivenga
+
+[references/bencivenga-bullets.md](references/bencivenga-bullets.md) distils all 22 issues of Gary Bencivenga's free e-letter: the credo technique (stand for something in the copy itself), "claim never bigger than proof" and the jury test, predict-by-proof headlines, the three reason-whys (why you, why true, why now) and the power of "because", his ten research questions, the fifteen-item offer and guarantee checklist (a longer guarantee reduces refunds), the "monkey's fist" small first yes, and a consolidated testing section. One caveat the file states itself: despite the name, the source contains no method for writing bullets or fascinations as a copy device; that gap stays open. Use it when a page has claims but thin proof, or an offer that reads as ordinary.
+
+---
+
+## Choosing the Opening
+
+Before writing the first 300 to 600 words of any page, letter or email, pick the lead type with [references/masterson-forde-great-leads.md](references/masterson-forde-great-leads.md): the Rule of One (one idea, one emotion, one story, one benefit, one response), the awareness question that decides how direct to be, and the six leads from Offer to Story with each one's formula, rules and tests, plus a table mapping them onto service-business situations (renewal, landing page, guide, proposal to a council that "already has a contractor", cold letter). Sugarman's open-to-be-read rule is an indirect lead for a skeptical reader; for a most-aware reader the deal belongs in line one. One lead per piece.
 
 ---
 
