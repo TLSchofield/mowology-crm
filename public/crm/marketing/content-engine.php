@@ -252,7 +252,7 @@ $activePage = 'marketing';
                         </div>
                         <div class="mb-3">
                             <label class="form-label small fw-semibold mb-1">Visibility</label>
-                            <select id="ceStatus" class="form-select form-select-sm">
+                            <select id="ceStatus" class="form-select form-select-sm" onchange="syncPublishLabel()">
                                 <option value="published">Publish now</option>
                                 <option value="draft">Save as draft (edit in CMS first)</option>
                             </select>
@@ -264,7 +264,7 @@ $activePage = 'marketing';
                         <div id="cePublishError" class="alert alert-danger small mt-2 mb-0 d-none"></div>
                         <div id="cePublishResult" class="small mt-3 d-none">
                             <div class="alert alert-success mb-2 py-2">
-                                <strong>Live:</strong> <a id="cePublishedLink" href="#" target="_blank" rel="noopener"></a>
+                                <strong id="cePublishedState">Live:</strong> <a id="cePublishedLink" href="#" target="_blank" rel="noopener"></a>
                             </div>
                             <a id="ceEditInCmsLink" href="#" class="btn btn-sm btn-outline-secondary w-100 mb-2">Edit in CMS</a>
                             <button class="btn btn-sm btn-primary w-100" onclick="showStep(3)">Amplify →</button>
@@ -387,6 +387,18 @@ const cePreparedDrafts = <?= json_encode(array_map(fn($d) => [
     'service_type' => $d['service_type'] ?? '', 'season' => $d['season'] ?? '', 'word_count' => $d['word_count'] ?? 0,
 ], $preparedDrafts), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP) ?: '{}' ?>;
 
+// Button text follows the Visibility choice so "Save as draft" never reads as "Publish".
+function syncPublishLabel() {
+    const status = document.getElementById('ceStatus').value;
+    const label  = document.getElementById('cePublishLabel');
+    if (!label) return;
+    if (ceState.pageId) {
+        label.textContent = status === 'published' ? 'Republish (save changes)' : 'Update draft';
+    } else {
+        label.textContent = status === 'published' ? 'Publish Article' : 'Save as Draft (not public)';
+    }
+}
+
 function loadPreparedDraft(key) {
     const d = cePreparedDrafts[key];
     if (!d) return;
@@ -417,6 +429,7 @@ function loadPreparedDraft(key) {
     document.getElementById('ceWordCountBadge').textContent = ceState.wordCount.toLocaleString() + ' words';
     renderPhotoPrompts(ceState.photoPrompts);
     renderSuggestedLinks(ceState.suggestedLinks);
+    syncPublishLabel();
     showStep(2);
 }
 
@@ -469,9 +482,11 @@ async function publishArticle() {
         document.getElementById('ceSlug').value = (data.slug || '').replace(/^blog\//, '');
         const link = document.getElementById('cePublishedLink');
         link.href = data.url; link.textContent = data.url;
+        const st = document.getElementById('cePublishedState');
+        if (st) st.textContent = data.status === 'published' ? 'Live:' : 'Saved as draft (not public yet):';
         document.getElementById('ceEditInCmsLink').href = data.edit_url;
         document.getElementById('cePublishResult').classList.remove('d-none');
-        label.textContent = data.status === 'published' ? 'Republish (save changes)' : 'Update draft';
+        syncPublishLabel();
     } catch (err) {
         showError('cePublishError', err.message);
     } finally {

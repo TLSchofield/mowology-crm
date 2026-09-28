@@ -177,6 +177,90 @@ class ArticleService
         return [];
     }
 
+    /**
+     * Choose article image URLs from a media asset's generated variants.
+     *
+     * @param array  $variants media_variants rows: [{variant_type, format, width, height, file_path}]
+     * @param string $original the asset's own file_path, used when no suitable variant exists
+     * @return array{hero:string, inline:string, inline_webp:?string, thumb:?string, width:?int, height:?int}
+     *   hero   → widest responsive JPEG up to 1600px (OG image + article header)
+     *   inline → responsive JPEG nearest to 1024px for in-body figures (webp twin when present)
+     */
+    public static function pickImageVariants(array $variants, string $original): array
+    {
+        $resp = array_values(array_filter($variants, fn($v) => ($v['variant_type'] ?? '') === 'responsive' && !empty($v['file_path'])));
+        $jpeg = array_values(array_filter($resp, fn($v) => in_array(strtolower((string)($v['format'] ?? '')), ['jpeg', 'jpg'], true)));
+        $webp = array_values(array_filter($resp, fn($v) => strtolower((string)($v['format'] ?? '')) === 'webp'));
+        usort($jpeg, fn($a, $b) => (int)$a['width'] <=> (int)$b['width']);
+
+        $nearest = function (array $rows, int $target) {
+            $best = null;
+            foreach ($rows as $r) {
+                if ($best === null || abs((int)$r['width'] - $target) < abs((int)$best['width'] - $target)) {
+                    $best = $r;
+                }
+            }
+            return $best;
+        };
+        $heroRow = null;
+        foreach ($jpeg as $r) {
+            if ((int)$r['width'] <= 1600) {
+                $heroRow = $r; // sorted ascending → ends on the widest ≤ 1600
+            }
+        }
+        $inlineRow = $nearest($jpeg, 1024);
+        $inlineWebp = $inlineRow ? $nearest(array_values(array_filter($webp, fn($v) => (int)$v['width'] === (int)$inlineRow['width'])), (int)$inlineRow['width']) : null;
+        $thumb = null;
+        foreach ($variants as $v) {
+            if (($v['variant_type'] ?? '') === 'thumb_square' && in_array(strtolower((string)($v['format'] ?? '')), ['jpeg', 'jpg'], true)) {
+                $thumb = $v['file_path'];
+                break;
+            }
+        }
+        return [
+            'hero'        => $heroRow['file_path'] ?? $original,
+            'inline'      => $inlineRow['file_path'] ?? $original,
+            'inline_webp' => $inlineWebp['file_path'] ?? null,
+            'thumb'       => $thumb,
+            'width'       => isset($inlineRow['width']) ? (int)$inlineRow['width'] : null,
+            'height'      => isset($inlineRow['height']) ? (int)$inlineRow['height'] : null,
+        ];
+    }
+
+    /** Image URLs + alt/caption for one media_assets row, for the Content Engine picker. */
+    public function imageUrls(int $mediaId): ?array
+    {
+        $stmt = $this->db->prepare("SELECT id, file_path, alt_text, caption, original_filename, image_width, image_height FROM media_assets WHERE id = ? LIMIT 1");
+        $stmt->execute([$mediaId]);
+        $asset = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$asset) {
+            return null;
+        }
+        $variants = [];
+        try {
+            $vs = $this->db->prepare("SELECT variant_type, format, width, height, file_path FROM media_variants WHERE media_id = ?");
+            $vs->execute([$mediaId]);
+            $variants = $vs->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        } catch (Throwable $e) {
+            $variants = []; // table absent → fall back to the original
+        }
+        $picked = self::pickImageVariants($variants, (string)$asset['file_path']);
+        $alt = trim((string)($asset['alt_text'] ?? ''));
+        if ($alt === '') {
+            $alt = trim((string)($asset['caption'] ?? ''));
+        }
+        if ($alt === '') {
+            $alt = ucfirst(str_replace(['-', '_'], ' ', pathinfo((string)$asset['original_filename'], PATHINFO_FILENAME)));
+        }
+        return array_merge($picked, [
+            'id'      => (int)$asset['id'],
+            'alt'     => $alt,
+            'caption' => trim((string)($asset['caption'] ?? '')),
+            'width'   => $picked['width'] ?? ($asset['image_width'] ? (int)$asset['image_width'] : null),
+            'height'  => $picked['height'] ?? ($asset['image_height'] ? (int)$asset['image_height'] : null),
+        ]);
+    }
+
     // ── Persistence ──────────────────────────────────────────────────────────
 
     /**

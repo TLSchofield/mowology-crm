@@ -12,6 +12,7 @@
  *   author           string  Byline (optional)
  *   keyword, city, service_type, season   strings (optional; stored for schema/keywords)
  *   faq_items        array   [{question, answer}] (optional; emitted as FAQPage schema)
+ *   og_image_path    string  site-relative hero image path from the media library (optional)
  *   status           string  'published' | 'draft' (default draft)
  *   page_id          int     update an existing article instead of creating one
  *
@@ -41,7 +42,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 $user = getCurrentUser();
-if (!hasPermission($user, 'marketing.edit')) {
+if (!userHasPermission('marketing.edit')) {
     http_response_code(403);
     echo json_encode(['success' => false, 'error' => 'marketing.edit permission required']);
     exit;
@@ -65,6 +66,11 @@ $draft = [
     'service_type'     => trim((string)($body['service_type'] ?? '')),
     'season'           => trim((string)($body['season'] ?? '')),
     'faq_items'        => is_array($body['faq_items'] ?? null) ? $body['faq_items'] : [],
+    'og_image_path'    => (function ($v) {
+        // Only a site-relative image path is accepted (no external URLs, no traversal).
+        $v = trim((string)$v);
+        return ($v !== '' && preg_match('#^/[A-Za-z0-9_\-./]+\.(jpe?g|png|webp|avif)$#i', $v) && strpos($v, '..') === false) ? $v : null;
+    })($body['og_image_path'] ?? ''),
     'status'           => ($body['status'] ?? 'draft') === 'published' ? 'published' : 'draft',
 ];
 

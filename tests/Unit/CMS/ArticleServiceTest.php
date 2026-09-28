@@ -141,6 +141,30 @@ final class ArticleServiceTest extends TestCase
         $this->assertSame(1, $svc->countPublished(), 'update did not create a second block or page');
     }
 
+    public function testPickImageVariantsPrefersWideJpegForHeroAndNearest1024ForInline(): void
+    {
+        $rows = [
+            ['variant_type' => 'responsive', 'format' => 'jpeg', 'width' => 320,  'height' => 240,  'file_path' => '/v/320.jpg'],
+            ['variant_type' => 'responsive', 'format' => 'jpeg', 'width' => 1024, 'height' => 768,  'file_path' => '/v/1024.jpg'],
+            ['variant_type' => 'responsive', 'format' => 'webp', 'width' => 1024, 'height' => 768,  'file_path' => '/v/1024.webp'],
+            ['variant_type' => 'responsive', 'format' => 'jpeg', 'width' => 1600, 'height' => 1200, 'file_path' => '/v/1600.jpg'],
+            ['variant_type' => 'responsive', 'format' => 'jpeg', 'width' => 1920, 'height' => 1440, 'file_path' => '/v/1920.jpg'],
+            ['variant_type' => 'thumb_square', 'format' => 'jpeg', 'width' => 300, 'height' => 300, 'file_path' => '/t/300.jpg'],
+        ];
+        $p = ArticleService::pickImageVariants($rows, '/o/orig.jpg');
+        $this->assertSame('/v/1600.jpg', $p['hero']);
+        $this->assertSame('/v/1024.jpg', $p['inline']);
+        $this->assertSame('/v/1024.webp', $p['inline_webp']);
+        $this->assertSame('/t/300.jpg', $p['thumb']);
+        $this->assertSame([1024, 768], [$p['width'], $p['height']]);
+
+        $none = ArticleService::pickImageVariants([], '/o/orig.jpg');
+        $this->assertSame('/o/orig.jpg', $none['hero']);
+        $this->assertSame('/o/orig.jpg', $none['inline']);
+        $this->assertNull($none['inline_webp']);
+        $this->assertNull($none['thumb']);
+    }
+
     public function testSaveRejectsEmptyTitleOrBody(): void
     {
         $svc = new ArticleService($this->db(), 1);
