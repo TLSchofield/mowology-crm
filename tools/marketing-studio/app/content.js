@@ -74,12 +74,12 @@ window.STUDIO = {
   proofs: [
     'Photo report after every visit', '$5M liability insurance', 'WorkSafeBC coverage', 'Founded 2012',
     '250+ properties maintained', '56 Google reviews at 4.5', 'HomeStars 4.6 (17 reviews)', 'Response within 24 hours, usually same day',
-    'Storm call-outs within 24 hours', 'Dedicated crew per route', 'Named account contact',
+    'Storm call-outs within 24 hours', 'Dedicated crew per route', 'Named account contact', 'All-electric service on request (battery trimmers, blower, commercial mower)',
   ],
 
   compliance: [
     'A specific number or percentage', 'A testimonial or named customer', 'A guarantee or "guaranteed" wording',
-    'A price or "from $" claim', 'A comparison naming a competitor', 'A claim about equipment (electric, no fumes) not yet confirmed',
+    'A price or "from $" claim', 'A comparison naming a competitor', 'An electric claim that implies every visit is electric (it is on request)',
   ],
 
   reviewRubric: [

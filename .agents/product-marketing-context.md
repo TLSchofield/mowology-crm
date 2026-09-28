@@ -19,7 +19,7 @@ Source of truth for facts: `public/includes/bootstrap.php` (`SITE_FOUNDED`, `SIT
 | Question | Answer |
 |---|---|
 | Competitive alternatives | The incumbent contractor a council already has; the cheapest of three quotes; an in-house caretaker; the homeowner's own Saturday; doing nothing until spring. |
-| Unique attributes | Photo-verified visits after every service (the operational habit competitors don't have); dedicated crew per route; a named account contact; the business runs its own CRM built around proof-of-work. **[confirm]** Battery-electric equipment on residential routes ("no fumes in your garden, less noise in the neighbourhood" is the owner's Instagram bio and Google shows searches for "electric lawn mowing service vancouver" reaching the site, yet the website never says it). |
+| Unique attributes | Photo-verified visits after every service (the operational habit competitors don't have); dedicated crew per route; a named account contact; the business runs its own CRM built around proof-of-work. An all-electric service on request (confirmed by the owner 2026-09-28): battery trimmers and string trimmers, a small electric blower, and a commercial-grade electric mower. "No fumes in your garden, less noise in the neighbourhood" is the owner's own line; Google already sends searches for "electric lawn mowing service vancouver" to the site, and the website does not say it yet. |
 | Value | The client can see the work was done without driving over; the council has a record if a dispute or a slip claim arrives; the manager stops chasing. |
 | Best-fit segment | Strata councils and property managers with recurring multi-building grounds contracts, where proof and reliability matter more than the lowest quote. Homeowners on weekly plans are the second segment. |
 | Category | Grounds maintenance contractor for strata and commercial property (not "landscape design", not one-off yard work). |
@@ -45,6 +45,7 @@ Awareness on arrival: search traffic for a service is solution- or product-aware
 - Founded 2012; 250+ properties maintained.
 - 56 Google reviews, 4.5 average; HomeStars 4.6 (17); Yelp 4.2 (10). Quote counts and averages only as of the date checked.
 - Response to quote requests within 24 hours, usually same day on weekdays (the quote form's own promise).
+- All-electric service available on request: battery trimmers and string trimmers, a small electric blower, a commercial-grade electric mower (owner, 2026-09-28). Say "available on request" or "if you want it"; do not say every visit is electric.
 - Storm call-outs within 24 hours for property-management clients (the site copy was corrected from "24/7 emergency response" on 2026-09-26; keep it at 24 hours unless the owner commits to more).
 
 Do not use: "98% retention", "15+ years", "5-star average", "ISA certified arborists", "bonded", "Vancouver Island Landscape Association". These appeared in drafts and were removed as unverifiable.
@@ -125,6 +126,6 @@ Violation test: "We're thrilled to elevate your outdoor space with exceptional s
 
 ## 9. Open questions for the owner
 
-1. **Electric equipment [confirm]:** is "no fumes, less noise" true on the residential routes today? If yes, it belongs on the lawn-mowing page and the homepage; searches for it already reach the site.
+1. ~~Electric equipment~~ **Answered 2026-09-28:** all-electric service is offered on request (see §4). Next: add it to the lawn-mowing page and the homepage; searches for it already reach the site.
 2. **Emails:** do you want the CRM's quote and invoice templates retuned to this voice (calmer, no exclamation marks)?
 3. **Tagline:** "A higher degree of service" is the historical line. Keep it, or let "photo-verified" carry the positioning?
