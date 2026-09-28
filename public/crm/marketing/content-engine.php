@@ -18,6 +18,20 @@ requirePermission('marketing.view');
 
 $canEdit = userHasPermission('marketing.edit');
 
+// Prepared drafts: hand-written articles under app/Modules/Marketing/Drafts/*.php
+// (same shape as ArticleGeneratorService output). Loading one skips the Claude
+// call and drops straight into Step 2 for review + publish.
+$preparedDrafts = [];
+foreach (glob(APP_ROOT . '/Modules/Marketing/Drafts/*.php') ?: [] as $__draftFile) {
+    $__d = include $__draftFile;
+    if (is_array($__d) && !empty($__d['title']) && !empty($__d['body_html'])) {
+        $__d['key'] = $__d['key'] ?? basename($__draftFile, '.php');
+        $__d['word_count'] = str_word_count(strip_tags((string)$__d['body_html']));
+        $preparedDrafts[$__d['key']] = $__d;
+    }
+}
+unset($__draftFile, $__d);
+
 $pageTitle  = 'Content Engine';
 $activePage = 'marketing';
 ?>
@@ -105,6 +119,30 @@ $activePage = 'marketing';
                         <div class="form-text">These details become the case study section — the most human-sounding part of the article.</div>
                     </div>
                 </div>
+
+                <?php if ($preparedDrafts): ?>
+                <div class="mt-4 p-3 border rounded bg-light">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h6 class="mb-0">Prepared drafts <span class="text-muted fw-normal small">(written for you, no AI call needed)</span></h6>
+                        <span class="text-muted small"><?= count($preparedDrafts) ?> ready</span>
+                    </div>
+                    <div class="list-group list-group-flush">
+                        <?php foreach ($preparedDrafts as $__key => $__draft): ?>
+                        <div class="list-group-item bg-transparent px-0 d-flex justify-content-between align-items-center gap-3">
+                            <div>
+                                <div class="fw-semibold"><?= h($__draft['title']) ?></div>
+                                <div class="text-muted small">
+                                    <?= h($__draft['keyword'] ?? '') ?> &middot; <?= (int)$__draft['word_count'] ?> words &middot; /blog/<?= h($__draft['slug'] ?? $__key) ?>
+                                </div>
+                            </div>
+                            <?php if ($canEdit): ?>
+                            <button class="btn btn-sm btn-outline-success flex-shrink-0" onclick="loadPreparedDraft(<?= h(json_encode((string)$__key)) ?>)">Load &rarr;</button>
+                            <?php endif; ?>
+                        </div>
+                        <?php endforeach; unset($__key, $__draft); ?>
+                    </div>
+                </div>
+                <?php endif; ?>
 
                 <div class="mt-4 d-flex gap-2 align-items-center">
                     <?php if ($canEdit): ?>
@@ -340,6 +378,47 @@ const ceState = {
     pageId: 0,       // CMS page id set by publishArticle()
     keyword: '', city: '', serviceType: '', season: '',
 };
+
+// ── Prepared drafts (server-embedded) ────────────────────────────────────
+const cePreparedDrafts = <?= json_encode(array_map(fn($d) => [
+    'title' => $d['title'], 'slug' => $d['slug'] ?? '', 'meta_description' => $d['meta_description'] ?? '',
+    'body_html' => $d['body_html'], 'faq_items' => $d['faq_items'] ?? [], 'suggested_links' => $d['suggested_links'] ?? [],
+    'photo_prompts' => $d['photo_prompts'] ?? [], 'keyword' => $d['keyword'] ?? '', 'city' => $d['city'] ?? '',
+    'service_type' => $d['service_type'] ?? '', 'season' => $d['season'] ?? '', 'word_count' => $d['word_count'] ?? 0,
+], $preparedDrafts), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP) ?: '{}' ?>;
+
+function loadPreparedDraft(key) {
+    const d = cePreparedDrafts[key];
+    if (!d) return;
+    ceState.title          = d.title || '';
+    ceState.metaDesc       = d.meta_description || '';
+    ceState.bodyHtml       = d.body_html || '';
+    ceState.faqItems       = d.faq_items || [];
+    ceState.suggestedLinks = d.suggested_links || [];
+    ceState.photoPrompts   = d.photo_prompts || [];
+    ceState.wordCount      = d.word_count || 0;
+    ceState.keyword        = d.keyword || '';
+    ceState.city           = d.city || '';
+    ceState.serviceType    = d.service_type || '';
+    ceState.season         = d.season || '';
+    ceState.schemaJson     = '';
+    ceState.pageId         = 0;
+    ceState.articleUrl     = '';
+
+    document.getElementById('ceTitle').value      = ceState.title;
+    document.getElementById('ceMetaDesc').value   = ceState.metaDesc;
+    document.getElementById('ceBodyHtml').value   = ceState.bodyHtml;
+    document.getElementById('ceSchemaJson').value = '';
+    const slugEl = document.getElementById('ceSlug');
+    if (slugEl) slugEl.value = d.slug || slugFromTitle(ceState.title);
+    const pr = document.getElementById('cePublishResult');
+    if (pr) pr.classList.add('d-none');
+    updateMetaCharCount();
+    document.getElementById('ceWordCountBadge').textContent = ceState.wordCount.toLocaleString() + ' words';
+    renderPhotoPrompts(ceState.photoPrompts);
+    renderSuggestedLinks(ceState.suggestedLinks);
+    showStep(2);
+}
 
 // ── Publish to CMS (/blog/<slug>) ────────────────────────────────────────
 function slugFromTitle(t) {

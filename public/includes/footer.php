@@ -51,6 +51,7 @@
             <li><a href="tel:<?= h(SITE_PHONE_TEL) ?>"><?= h(SITE_PHONE_DISPLAY) ?></a></li>
             <li><a href="mailto:<?= h(SITE_EMAIL) ?>"><?= h(SITE_EMAIL) ?></a></li>
             <li>Mon - Fri: 8:00 - 16:00</li>
+            <li><a href="<?= h(SITE_REVIEW_URL) ?>" rel="noopener noreferrer" target="_blank">Review us on Google</a></li>
           </ul>
         </div>
       </div>

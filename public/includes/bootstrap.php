@@ -74,7 +74,14 @@ define('SITE_YEARS_IN_BUSINESS', max(1, (int)date('Y') - SITE_FOUNDED));
 // Public profiles of the business (schema.org sameAs). Google and AI engines
 // build their picture of "Mowology" from the agreement between these listings
 // and the site — keep name, phone, hours and founding year identical on all.
+// Google Business Profile (owner-supplied listing id 15220268177293590228, 2026-09-27).
+// The Maps URL below is the public listing; a direct "write a review" deep link needs
+// the Place ID (ChIJ…) or the g.page/r/…/review short link from the GBP dashboard.
+define('SITE_GBP_URL', 'https://www.google.com/maps?cid=15220268177293590228');
+define('SITE_REVIEW_URL', SITE_GBP_URL);
+
 define('SITE_SAME_AS', [
+    SITE_GBP_URL,
     'https://www.yelp.ca/biz/mowology-vancouver-2',
     'https://homestars.com/companies/2804132-mowology-lawns-landscapes',
     'https://www.bbb.org/ca/bc/vancouver/profile/lawn-care/mowology-lawn-and-landscapes-ltd-0037-1368602',
