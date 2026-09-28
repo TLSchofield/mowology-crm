@@ -109,6 +109,15 @@ try {
         __DIR__ . '/includes/footer.php',
     ], 'is_file')) ?: [0]);
     $cachedHtml = $isPreviewMode ? null : cms_getPageHtmlCache((int)$page['id'], $includesMtime ?: null);
+    // Diagnostic (harmless to keep): lets curl -I show whether a CMS page came from
+    // cms_page_cache and which include mtime the staleness check used.
+    if (!headers_sent()) {
+        $__meta = function_exists('cms_getPageHtmlCacheMeta') ? cms_getPageHtmlCacheMeta((int)$page['id']) : [];
+        header('X-Mw-Cms-Cache: ' . ($cachedHtml !== null ? 'hit' : 'miss')
+            . '; includes-mtime=' . (int)$includesMtime . '; page=' . (int)$page['id']
+            . '; cached-ts=' . (int)($__meta['cached_ts'] ?? 0) . '; ttl=' . (int)($__meta['ttl_seconds'] ?? 0)
+            . '; db-now=' . (int)($__meta['db_now'] ?? 0) . '; php-now=' . time());
+    }
     if ($cachedHtml !== null) {
         echo $cachedHtml;
         exit;

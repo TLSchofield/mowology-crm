@@ -1279,6 +1279,22 @@ function cms_getPageHtmlCache(int $pageId, ?int $notOlderThan = null): ?string
 }
 
 /**
+ * Cache-row metadata for diagnostics: when the row was written (MySQL epoch),
+ * its TTL, and MySQL's own idea of "now" so clock/timezone skew is visible.
+ */
+function cms_getPageHtmlCacheMeta(int $pageId): array
+{
+    try {
+        $stmt = getDB()->prepare("SELECT UNIX_TIMESTAMP(cached_at) AS cached_ts, ttl_seconds, UNIX_TIMESTAMP() AS db_now FROM cms_page_cache WHERE page_id = ? LIMIT 1");
+        $stmt->execute([$pageId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row ? array_map('intval', $row) : ['cached_ts' => 0, 'ttl_seconds' => 0, 'db_now' => 0];
+    } catch (\Throwable $e) {
+        return ['cached_ts' => -1, 'ttl_seconds' => -1, 'db_now' => -1];
+    }
+}
+
+/**
  * Store rendered HTML for a page.
  *
  * @param int    $pageId
