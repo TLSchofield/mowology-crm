@@ -128,8 +128,8 @@ $activePage = 'marketing';
                     </div>
                     <div class="list-group list-group-flush">
                         <?php foreach ($preparedDrafts as $__key => $__draft): ?>
-                        <div class="list-group-item bg-transparent px-0 d-flex justify-content-between align-items-center gap-3">
-                            <div>
+                        <div class="list-group-item bg-transparent px-0 d-flex flex-wrap justify-content-between align-items-center gap-3">
+                            <div class="flex-grow-1 overflow-hidden text-break">
                                 <div class="fw-semibold"><?= h($__draft['title']) ?></div>
                                 <div class="text-muted small">
                                     <?= h($__draft['keyword'] ?? '') ?> &middot; <?= (int)$__draft['word_count'] ?> words &middot; /blog/<?= h($__draft['slug'] ?? $__key) ?>
