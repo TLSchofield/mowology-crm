@@ -1,0 +1,46 @@
+{
+  "pieces": [
+    {
+      "title": "Follow-up: Kitsilano townhouse site walk",
+      "type": "quote_followup",
+      "typeLabel": "Quote follow-up email",
+      "skills": [
+        "email-sequence",
+        "copywriting"
+      ],
+      "ship": "CRM email template or a one-off from Tim",
+      "status": "review",
+      "brief": {
+        "audience": "Strata council",
+        "awareness": "Product-aware",
+        "action": "Reply to confirm the site walk date and send the scope sheet",
+        "keyword": "",
+        "proof": "Photo report after every visit | $5M liability insurance",
+        "mustSay": "",
+        "mustNotSay": "",
+        "length": "Under 150 words, one ask, one attachment named",
+        "notes": "Council president said their current contractor \"never sends anything\". Property has cedar hedges along the lane and a drainage problem at the north entrance."
+      },
+      "checks": {
+        "0": true,
+        "1": true,
+        "2": true,
+        "3": true,
+        "4": true,
+        "5": true,
+        "6": true,
+        "7": true,
+        "8": true
+      },
+      "ship_checks": {},
+      "id": "a229772ffc",
+      "created": 1790607140,
+      "updated": 1790607420,
+      "slug": "follow-up-kitsilano-townhouse-site-walk",
+      "flags": {},
+      "handedOff": 1790607231,
+      "briefPath": "tools/marketing-studio/outbox/follow-up-kitsilano-townhouse-site-walk.md",
+      "draftPath": "tools/marketing-studio/outbox/follow-up-kitsilano-townhouse-site-walk.draft.md"
+    }
+  ]
+}
