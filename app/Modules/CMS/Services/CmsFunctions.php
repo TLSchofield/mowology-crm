@@ -1239,8 +1239,13 @@ function cms_getPageHtmlCache(int $pageId, ?int $notOlderThan = null): ?string
 {
     try {
         $db = getDB();
+        // UNIX_TIMESTAMP() converts in MySQL's own session timezone — the same one
+        // NOW() wrote cached_at in — so the epoch is comparable with PHP's time()
+        // and filemtime(). strtotime() on the raw column applied PHP's timezone
+        // (America/Vancouver) to a UTC-written value, which made every cache row look
+        // hours younger than it was and defeated the not-older-than check.
         $stmt = $db->prepare("
-            SELECT cache_html, cached_at, ttl_seconds
+            SELECT cache_html, UNIX_TIMESTAMP(cached_at) AS cached_ts, ttl_seconds
             FROM cms_page_cache
             WHERE page_id = ?
             LIMIT 1
@@ -1253,7 +1258,7 @@ function cms_getPageHtmlCache(int $pageId, ?int $notOlderThan = null): ?string
         }
 
         // Check TTL
-        $cachedAt = strtotime($row['cached_at']);
+        $cachedAt = (int)$row['cached_ts'];
         $age = time() - $cachedAt;
         if ($age > (int)$row['ttl_seconds']) {
             return null; // Expired
