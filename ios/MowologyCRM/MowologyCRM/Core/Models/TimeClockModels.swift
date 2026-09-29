@@ -116,10 +116,14 @@ struct TimerStopResponse: Decodable {
 /// Response from POST /api/schedule/visit-flag
 struct VisitFlagResponse: Decodable {
     let success:   Bool
+    /// The signed-in user's own endorsement after the toggle.
     let isFlagged: Bool
+    /// Everyone endorsing the visit now. Nil from a server that predates per-crew endorsements.
+    let endorsedBy: [String]?
 
     enum CodingKeys: String, CodingKey {
         case success
-        case isFlagged = "is_flagged"
+        case isFlagged  = "is_flagged"
+        case endorsedBy = "endorsed_by"
     }
 }

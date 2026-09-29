@@ -13,12 +13,15 @@ struct VisitPhoto: Decodable, Identifiable {
     let photoType: String
     let photoUrl: String
     let thumbUrl: String?
+    /// Who took it — in-house record, never shown to clients.
+    let takenBy: String?
 
     enum CodingKeys: String, CodingKey {
         case id
         case photoType = "photo_type"
         case photoUrl  = "photo_url"
         case thumbUrl  = "thumb_url"
+        case takenBy   = "taken_by"
     }
 
     /// Paths come back web-root relative.

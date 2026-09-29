@@ -30,6 +30,8 @@ final class VisitDetailViewModel: ObservableObject {
 
     /// Local override for flag state: [visitId: isFlagged]. Wins over Visit.isFlagged once set.
     @Published private(set) var flagOverrides:  [Int: Bool] = [:]
+    /// Local override for who endorsed: [visitId: names]. Wins over Visit.endorsedBy once set.
+    @Published private(set) var endorsedByOverrides: [Int: [String]] = [:]
     /// Visit IDs with an in-flight flag toggle request — drives the heart loading indicator.
     @Published private(set) var flagLoadingIds: Set<Int>    = []
 
@@ -372,6 +374,11 @@ final class VisitDetailViewModel: ObservableObject {
         flagOverrides[visit.visitId] ?? visit.isFlagged
     }
 
+    /// Everyone endorsing the visit, preferring the latest toggle response.
+    func endorsedBy(for visit: Visit) -> [String] {
+        endorsedByOverrides[visit.visitId] ?? visit.endorsedBy
+    }
+
     func toggleFlag(_ visit: Visit) async {
         let visitId = visit.visitId
         guard !flagLoadingIds.contains(visitId) else { return }
@@ -385,6 +392,7 @@ final class VisitDetailViewModel: ObservableObject {
             )
             if response.success {
                 flagOverrides[visitId] = response.isFlagged
+                if let names = response.endorsedBy { endorsedByOverrides[visitId] = names }
             }
         } catch {
             // Non-fatal — the heart reverts to its previous state silently.

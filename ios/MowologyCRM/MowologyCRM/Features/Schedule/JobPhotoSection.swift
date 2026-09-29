@@ -53,6 +53,8 @@ final class JobPhotoViewModel: ObservableObject {
     /// instead of blank slots (and keeps the After slot unlocked).
     @Published var remoteBefore: VisitPhoto? = nil
     @Published var remoteAfter:  VisitPhoto? = nil
+    /// Every before and after on the server, befores first — one per crew member who took one.
+    @Published var remoteProofShots: [VisitPhoto] = []
     @Published var remoteExtras: [VisitPhoto] = []
 
     /// Extras captured in this session, newest last.
@@ -131,6 +133,7 @@ final class JobPhotoViewModel: ObservableObject {
 
         remoteBefore = photos.last { $0.photoType == "before" }
         remoteAfter  = photos.last { $0.photoType == "after" }
+        remoteProofShots = photos.filter { $0.photoType == "before" } + photos.filter { $0.photoType == "after" }
         remoteExtras = photos.filter { $0.photoType == "additional" }
         // The server list now includes everything this session uploaded.
         if !isUploading && extrasPendingSync == 0 { localExtras = [] }
@@ -223,6 +226,8 @@ struct JobPhotoSection: View {
     /// stays immutable. Defaults to false so existing call sites need no changes.
     let isFlagged:      Bool
     let isFlagLoading:  Bool
+    /// Everyone who endorsed this visit — several crew can each give their own heart.
+    let endorsedBy:     [String]
     /// Nil = hide the heart slot entirely (backward-compat for callers that don't support flagging).
     let onFlagToggle:   (() async -> Void)?
 
@@ -231,12 +236,14 @@ struct JobPhotoSection: View {
 
     init(visitId: Int, isActive: Bool, authSession: AuthSession,
          isFlagged: Bool = false, isFlagLoading: Bool = false,
+         endorsedBy: [String] = [],
          onFlagToggle: (() async -> Void)? = nil) {
         self.visitId      = visitId
         self.isActive     = isActive
         self.authSession  = authSession
         self.isFlagged    = isFlagged
         self.isFlagLoading = isFlagLoading
+        self.endorsedBy   = endorsedBy
         self.onFlagToggle = onFlagToggle
         _vm = StateObject(wrappedValue: JobPhotoViewModel(visitId: visitId,
                                                           authSession: authSession))
@@ -304,6 +311,15 @@ struct JobPhotoSection: View {
                     heartSlot()
                 }
             }
+
+            if !endorsedBy.isEmpty {
+                Label("Endorsed by \(endorsedBy.joined(separator: ", "))", systemImage: "heart.fill")
+                    .font(.caption)
+                    .foregroundStyle(Color.MW.orange)
+                    .lineLimit(2)
+            }
+
+            crewShotsStrip()
 
             extrasStrip()
         }
@@ -512,6 +528,56 @@ struct JobPhotoSection: View {
             .accessibilityLabel(filled ? "\(label) photo — tap to retake" : "Take \(label.lowercased()) photo")
         }
         .frame(maxWidth: .infinity)
+    }
+
+    // MARK: - Every before / after, by crew member
+
+    /// The two slots above show one Before and one After. When several crew each took
+    /// their own, nothing is hidden: every one is listed here with who took it.
+    @ViewBuilder
+    private func crewShotsStrip() -> some View {
+        if vm.remoteProofShots.count > 1
+            && (vm.remoteProofShots.filter { $0.photoType == "before" }.count > 1
+                || vm.remoteProofShots.filter { $0.photoType == "after" }.count > 1) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("All before & after (\(vm.remoteProofShots.count))")
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(alignment: .top, spacing: 8) {
+                        ForEach(vm.remoteProofShots) { photo in
+                            VStack(alignment: .leading, spacing: 3) {
+                                AsyncImage(url: photo.thumbnailURL) { phase in
+                                    if let img = phase.image {
+                                        img.resizable().scaledToFill()
+                                    } else {
+                                        Color(.systemGray6)
+                                    }
+                                }
+                                .frame(width: 84, height: 84)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                                .overlay(alignment: .bottomLeading) {
+                                    Text(photo.photoType.capitalized)
+                                        .font(.system(size: 9, weight: .bold))
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 2)
+                                        .background(.black.opacity(0.55), in: Capsule())
+                                        .padding(4)
+                                }
+
+                                Text(photo.takenBy ?? "Unknown")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .frame(width: 84, alignment: .leading)
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - Heart Endorsement Slot

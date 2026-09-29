@@ -140,6 +140,26 @@ try {
     error_log('[schedule/day] service history failed: ' . $e->getMessage());
 }
 
+// ── Endorsements (one heart per crew member) ──────────────────────────────────
+// Optional garnish too; before migration 1121 this stays empty.
+$perCrewEndorsements = false;
+$endorsementsByVisit = [];
+try {
+    require_once APP_ROOT . '/Modules/Jobs/Services/VisitEndorsementService.php';
+    $endorsements = new VisitEndorsementService(getDB());
+    $visitIdsForEndorsements = [];
+    foreach ($dayStops as $stop) {
+        foreach (($stop['visits'] ?? []) as $v) {
+            $visitIdsForEndorsements[] = (int)($v['visit_id'] ?? 0);
+        }
+    }
+    $perCrewEndorsements = $endorsements->perCrewEnabled();
+    $endorsementsByVisit = $endorsements->forVisits($visitIdsForEndorsements);
+} catch (Throwable $e) {
+    $perCrewEndorsements = false;
+    error_log('[schedule/day] endorsements failed: ' . $e->getMessage());
+}
+
 // ── Shape response ────────────────────────────────────────────────────────────
 $stops = [];
 foreach ($dayStops as $stop) {
@@ -164,7 +184,13 @@ foreach ($dayStops as $stop) {
             'scheduled_start'    => isset($v['scheduled_time_start'])
                 ? substr((string)$v['scheduled_time_start'], 0, 5)
                 : null,
-            'is_flagged'          => (bool)($v['is_flagged'] ?? false),
+            // is_flagged is the CALLER's own heart once per-crew endorsements exist
+            // (migration 1121); before that it is the single visit flag.
+            'is_flagged'          => $perCrewEndorsements
+                ? in_array((int)$jwtUser['id'], $endorsementsByVisit[(int)($v['visit_id'] ?? 0)]['user_ids'] ?? [], true)
+                : (bool)($v['is_flagged'] ?? false),
+            'visit_endorsed'      => (bool)($v['is_flagged'] ?? false),
+            'endorsed_by'         => $endorsementsByVisit[(int)($v['visit_id'] ?? 0)]['names'] ?? [],
             'contact_has_reviewed'=> (bool)($v['contact_has_reviewed'] ?? false),
             // Contract / monthly-flat work is billed by the contract, never per visit —
             // the completion sheet must not offer an invoice for it (schedule.php does the same).

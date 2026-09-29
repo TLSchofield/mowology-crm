@@ -330,7 +330,7 @@ $orStatusLabel = ($orStatus === 'enrolled') ? 'Active Program' : (($orStatus ===
                         data-photo-history="<?php echo $phVisitId; ?>"
                         data-photo-history-label="<?php echo htmlspecialchars((string)($stop['property_address'] ?? '')); ?>">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10.5" r="1.5"/><polyline points="21 15 16 10 7 19"/></svg>
-                    Photo history
+                    Photos
                 </button>
                 <?php endif; ?>
             <?php endif; ?>
@@ -655,7 +655,7 @@ $orStatusLabel = ($orStatus === 'enrolled') ? 'Active Program' : (($orStatus ===
                     data-photo-history="<?php echo $phVisitId; ?>"
                     data-photo-history-label="<?php echo htmlspecialchars((string)($stop['property_address'] ?? '')); ?>">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10.5" r="1.5"/><polyline points="21 15 16 10 7 19"/></svg>
-                Photo history
+                Photos
             </button>
             <?php endif; ?>
 

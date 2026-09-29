@@ -61,7 +61,7 @@ try {
     $db = getDB();
 
     // Load visit
-    $stmt = $db->prepare("SELECT id, assigned_crew_id, status, is_flagged, social_draft_id FROM job_visits WHERE id = ?");
+    $stmt = $db->prepare("SELECT id, stop_id, assigned_crew_id, status, is_flagged, social_draft_id FROM job_visits WHERE id = ?");
     $stmt->execute([$visitId]);
     $visit = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -71,9 +71,11 @@ try {
         exit;
     }
 
-    // Auth: crew must own the visit or be admin
-    $isMyCrew = (int)($visit['assigned_crew_id'] ?? 0) === (int)$user['id'];
-    if (!$isAdmin && !$isMyCrew) {
+    // Auth: the assigned crew member, anyone on the stop's crew, or office
+    require_once APP_ROOT . '/Modules/Jobs/Services/VisitWorkService.php';
+    require_once APP_ROOT . '/Modules/Jobs/Services/VisitEndorsementService.php';
+    $stopCrew = (new VisitWorkService($db))->stopCrewIds(isset($visit['stop_id']) ? (int)$visit['stop_id'] : null);
+    if (!VisitWorkService::canAccess($visit, (int)$user['id'], (bool)$isAdmin, $stopCrew)) {
         http_response_code(403);
         echo json_encode(['error' => 'Not authorized']);
         exit;
@@ -87,15 +89,17 @@ try {
         exit;
     }
 
-    // Toggle
-    $newFlag = $visit['is_flagged'] ? 0 : 1;
-    $db->prepare("UPDATE job_visits SET is_flagged = ? WHERE id = ?")
-       ->execute([$newFlag, $visitId]);
+    // Toggle — each crew member has their own endorsement
+    $endorsement = (new VisitEndorsementService($db))->toggle($visitId, (int)$user['id'], (bool)$isAdmin);
+    $newFlag     = $endorsement['mine'] ? 1 : 0;
 
-    $responseExtra = [];
+    $responseExtra = [
+        'visit_endorsed' => $endorsement['endorsed'],
+        'endorsed_by'    => $endorsement['endorsed_by'],
+    ];
 
-    // When crew flags a completed visit, auto-generate a social draft
-    if ($newFlag === 1 && strtolower((string)($visit['status'] ?? '')) === 'completed') {
+    // The first endorsement of a completed visit auto-generates a social draft
+    if ($endorsement['newly_endorsed'] && strtolower((string)($visit['status'] ?? '')) === 'completed') {
         require_once APP_ROOT . '/Modules/Social/Services/SocialHashtagEngine.php';
         require_once APP_ROOT . '/Modules/Social/Services/SocialCardGenerator.php';
         require_once APP_ROOT . '/Modules/Social/Services/SocialDraftPipeline.php';

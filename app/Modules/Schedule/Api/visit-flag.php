@@ -12,7 +12,8 @@ declare(strict_types=1);
  *
  * Body: { "visit_id": 42 }
  *
- * Response 200: { "success": true, "is_flagged": true }
+ * Response 200: { "success": true, "is_flagged": true, "visit_endorsed": true, "endorsed_by": ["Name"] }
+ *   is_flagged = the caller's own endorsement; visit_endorsed = anyone's.
  *
  * Crew can toggle visits assigned to them or to a stop they are on; admin can toggle any.
  * Locked visits (status = completed/cancelled) cannot be unflagged by crew.
@@ -92,22 +93,28 @@ if (!$isAdmin && in_array(strtolower((string)$visit['status']), $lockedStatuses,
     exit;
 }
 
-// ── Toggle ────────────────────────────────────────────────────────────────────
-$newFlag = $visit['is_flagged'] ? 0 : 1;
+// ── Toggle — each crew member has their own endorsement ───────────────────────
+require_once APP_ROOT . '/Modules/Jobs/Services/VisitEndorsementService.php';
 
 try {
-    $db->prepare('UPDATE job_visits SET is_flagged = ? WHERE id = ?')
-       ->execute([$newFlag, $visitId]);
+    $result = (new VisitEndorsementService($db))->toggle($visitId, (int)$jwtUser['id'], $isAdmin);
 } catch (Throwable $e) {
+    error_log('[schedule/visit-flag] ' . $e->getMessage());
     http_response_code(500);
     echo json_encode(['error' => 'Could not update flag']);
     exit;
 }
 
-// Endorsed → into the portfolio approval queue (no-op until both photos exist).
-if ($newFlag === 1) {
+// Endorsed → into the portfolio approval queue (idempotent; no-op until both photos exist).
+if ($result['mine']) {
     require_once APP_ROOT . '/Modules/Jobs/Services/VisitLifecycleService.php';
     VisitLifecycleService::queueForPortfolio($visitId, (int)$jwtUser['id']);
 }
 
-echo json_encode(['success' => true, 'is_flagged' => (bool)$newFlag]);
+// is_flagged is THIS user's heart; visit_endorsed is "anyone endorsed".
+echo json_encode([
+    'success'        => true,
+    'is_flagged'     => $result['mine'],
+    'visit_endorsed' => $result['endorsed'],
+    'endorsed_by'    => $result['endorsed_by'],
+]);

@@ -71,11 +71,13 @@ class VisitPhotoService
         $in = implode(',', array_fill(0, count(self::PROOF_TYPES), '?'));
         $stmt = $this->db->prepare("
             SELECT ma.id, ml.category, ma.file_path, ma.thumb_path, ma.captured_at, ma.created_at,
+                   u.full_name AS taken_by,
                    (SELECT mv.file_path FROM media_variants mv
                      WHERE mv.media_id = ma.id AND mv.variant_type = 'thumb_square'
                      ORDER BY mv.id ASC LIMIT 1) AS variant_thumb
             FROM media_links ml
             JOIN media_assets ma ON ma.id = ml.media_id
+            LEFT JOIN users u ON u.id = COALESCE(ml.linked_by, ma.created_by)
             WHERE ml.context_type = 'job_visit'
               AND ml.context_id = ?
               AND ml.category IN ($in)
@@ -83,7 +85,11 @@ class VisitPhotoService
         ");
         $stmt->execute(array_merge([$visitId], self::PROOF_TYPES));
 
-        return array_map([self::class, 'shape'], $stmt->fetchAll(PDO::FETCH_ASSOC));
+        // In-house list: carries who took each photo (several crew can shoot one visit).
+        return array_map(static function (array $row): array {
+            $name = trim((string)($row['taken_by'] ?? ''));
+            return self::shape($row) + ['taken_by' => $name !== '' ? $name : null];
+        }, $stmt->fetchAll(PDO::FETCH_ASSOC));
     }
 
     /**

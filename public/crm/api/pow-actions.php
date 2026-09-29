@@ -466,7 +466,9 @@ try {
         }
 
         // Auth: admin always; crew only if stop_date = today
-        $isSameDayCrew = (int)($rvRow['assigned_crew_id'] ?? 0) === (int)$user['id']
+        require_once APP_ROOT . '/Modules/Jobs/Services/VisitWorkService.php';
+        $rvStopCrew    = (new VisitWorkService($db))->stopCrewIds(isset($rvRow['stop_id']) ? (int)$rvRow['stop_id'] : null);
+        $isSameDayCrew = VisitWorkService::canAccess($rvRow, (int)$user['id'], false, $rvStopCrew)
                          && $rvRow['stop_date'] === date('Y-m-d');
         if (!$isAdmin && !$isSameDayCrew) {
             http_response_code(403);
@@ -526,13 +528,17 @@ try {
         exit;
     }
 
-    $isCrew  = (int)($visit['assigned_crew_id'] ?? 0) === (int)$user['id'];
+    // The assigned crew member OR anyone on the stop's crew — a stop can carry
+    // several people, and the lead being away must not lock the card.
+    require_once APP_ROOT . '/Modules/Jobs/Services/VisitWorkService.php';
+    $stopCrewIds = (new VisitWorkService($db))->stopCrewIds(isset($visit['stop_id']) ? (int)$visit['stop_id'] : null);
+    $isCrew      = VisitWorkService::canAccess($visit, (int)$user['id'], false, $stopCrewIds);
 
     if (!$isAdmin && !$isCrew) {
         http_response_code(403);
         echo json_encode([
             'success'   => false,
-            'error'     => 'This visit is assigned to another crew member.',
+            'error'     => 'This visit is assigned to another crew.',
             'code'      => 'NOT_AUTHORIZED',
             'retryable' => false,
         ]);
@@ -565,15 +571,22 @@ try {
 
             $svcType = $input['service_type'] ?? $visit['service_type'] ?? null;
 
-            $db->prepare("
+            // status = 'scheduled' in the WHERE: with several crew on a stop, two phones
+            // can press Start together — only the first may win.
+            $startStmt = $db->prepare("
                 UPDATE job_visits SET
                     status = 'in_progress',
                     started_at = NOW(),
                     gps_arrival_lat = ?,
                     gps_arrival_lng = ?,
                     service_type = COALESCE(?, service_type)
-                WHERE id = ?
-            ")->execute([$lat, $lng, $svcType, $visitId]);
+                WHERE id = ? AND status = 'scheduled'
+            ");
+            $startStmt->execute([$lat, $lng, $svcType, $visitId]);
+            if ($startStmt->rowCount() === 0) {
+                echo json_encode(['success' => false, 'error' => 'A crew mate already started this visit']);
+                break;
+            }
 
             addAuditLog($db, $visitId, (int)$user['id'], 'start', null, $ip);
 

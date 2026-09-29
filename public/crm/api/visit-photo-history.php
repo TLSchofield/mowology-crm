@@ -2,7 +2,7 @@
 /**
  * Visit Photo History API (session) — the Android / web schedule card.
  *
- * GET ?visit_id=42 → { success, history:[ { visit_id, date, service, status, photos:[…] } ] }
+ * GET ?visit_id=42 → { success, current:[photo…], history:[ { visit_id, date, service, status, crew, photos:[…] } ] }
  *
  * Photos from earlier visits at the same property, newest visit first. Same
  * VisitPhotoService as the iOS endpoint (/api/schedule/visit-photos?mode=history).
@@ -38,10 +38,14 @@ try {
         exit;
     }
 
+    $photos = new VisitPhotoService(getDB());
     echo json_encode([
         'success'  => true,
         'visit_id' => $visitId,
-        'history'  => (new VisitPhotoService(getDB()))->historyForVisit($visitId),
+        // This visit's own photos, every one named — the card shows a single
+        // Before and After, so a second crew member's shots are only visible here.
+        'current'  => $photos->listForVisit($visitId),
+        'history'  => $photos->historyForVisit($visitId),
     ]);
 } catch (Throwable $e) {
     error_log('visit-photo-history.php: ' . $e->getMessage());

@@ -9,7 +9,7 @@
 (function () {
     'use strict';
 
-    var cache = {};      // visitId -> history array
+    var cache = {};      // visitId -> { at, data }
     var sheet = null;
     var viewer = null;
     var flat = [];       // every photo in the open history, for the viewer
@@ -66,7 +66,7 @@
             '<div class="mw-ph-panel">' +
                 '<div class="mw-ph-handle"></div>' +
                 '<div class="mw-ph-head">' +
-                    '<div><p class="mw-ph-title">Photo history</p><p class="mw-ph-sub"></p></div>' +
+                    '<div><p class="mw-ph-title">Photos</p><p class="mw-ph-sub"></p></div>' +
                     '<button type="button" class="mw-ph-close" data-ph-close aria-label="Close">&#10005;</button>' +
                 '</div>' +
                 '<div class="mw-ph-body"></div>' +
@@ -85,9 +85,20 @@
         document.body.style.overflow = '';
     }
 
-    function renderHistory(history) {
+    function renderHistory(data) {
         var body = sheet.querySelector('.mw-ph-body');
+        var history = (data.history || []).slice();
         flat = [];
+
+        // This visit first: every photo with who took it, so a crew mate's
+        // before/after is never hidden behind the card's single slot.
+        if (data.current && data.current.length) {
+            var names = [];
+            data.current.forEach(function (p) {
+                if (p.taken_by && names.indexOf(p.taken_by) === -1) names.push(p.taken_by);
+            });
+            history.unshift({ date: '', service: 'This visit', crew: names, photos: data.current, perPhotoNames: names.length > 1 });
+        }
 
         if (!history.length) {
             body.innerHTML = '<p class="mw-ph-empty">No photos from earlier visits here yet.</p>';
@@ -99,7 +110,7 @@
             var crew = (visit.crew || []).join(', ');
             html += '<div class="mw-ph-visit">' +
                 '<div class="mw-ph-visit-head">' +
-                    '<span class="mw-ph-date">' + esc(dateLabel(visit.date)) + '</span>' +
+                    (visit.date ? '<span class="mw-ph-date">' + esc(dateLabel(visit.date)) + '</span>' : '') +
                     '<span class="mw-ph-service">' + esc(visit.service) + '</span>' +
                     '<span class="mw-ph-ago">' + esc(agoLabel(visit.date)) + '</span>' +
                 '</div>' +
@@ -107,7 +118,10 @@
                 '<div class="mw-ph-strip">';
             (visit.photos || []).forEach(function (photo) {
                 var label = typeLabel(photo.photo_type);
-                var caption = [dateLabel(visit.date), visit.service, photo.taken_by || crew, label].filter(Boolean).join(' · ');
+                var caption = [visit.date ? dateLabel(visit.date) : '', visit.service, photo.taken_by || crew, label].filter(Boolean).join(' · ');
+                if (visit.perPhotoNames && photo.taken_by) {
+                    label = [label, photo.taken_by.split(' ')[0]].filter(Boolean).join(' · ');
+                }
                 flat.push({ url: photo.photo_url, caption: caption });
                 html += '<button type="button" class="mw-ph-thumb" data-ph-index="' + (flat.length - 1) + '">' +
                     '<img src="' + esc(photo.thumb_url || photo.photo_url) + '" alt="' + esc(caption) + '" loading="lazy">' +
@@ -126,15 +140,16 @@
         sheet.hidden = false;
         document.body.style.overflow = 'hidden';
 
-        if (cache[visitId]) { renderHistory(cache[visitId]); return; }
+        // This visit's photos change during the day, so only reuse a recent answer.
+        if (cache[visitId] && Date.now() - cache[visitId].at < 60000) { renderHistory(cache[visitId].data); return; }
 
         sheet.querySelector('.mw-ph-body').innerHTML = '<p class="mw-ph-empty">Loading…</p>';
         fetch('/crm/api/visit-photo-history.php?visit_id=' + visitId, { credentials: 'same-origin' })
             .then(function (r) { return r.json(); })
             .then(function (d) {
                 if (!d || !d.success) throw new Error('failed');
-                cache[visitId] = d.history || [];
-                renderHistory(cache[visitId]);
+                cache[visitId] = { at: Date.now(), data: d };
+                renderHistory(d);
             })
             .catch(function () {
                 sheet.querySelector('.mw-ph-body').innerHTML =

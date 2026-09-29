@@ -459,6 +459,7 @@ struct VisitDetailView: View {
                     authSession:   authSession,
                     isFlagged:     isVisitFlagged,
                     isFlagLoading: isFlagLoading,
+                    endorsedBy:    viewModel.endorsedBy(for: visit),
                     onFlagToggle:  { await viewModel.toggleFlag(visit) }
                 )
 
