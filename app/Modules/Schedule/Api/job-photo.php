@@ -62,7 +62,7 @@ try {
     $db = getDB();
 
     // Verify visit exists and this user is allowed to upload to it
-    $vs = $db->prepare("SELECT id, assigned_crew_id, plan_id FROM job_visits WHERE id = ? LIMIT 1");
+    $vs = $db->prepare("SELECT id, stop_id, assigned_crew_id, plan_id FROM job_visits WHERE id = ? LIMIT 1");
     $vs->execute([$visitId]);
     $visit = $vs->fetch(PDO::FETCH_ASSOC);
 
@@ -73,7 +73,11 @@ try {
     }
 
     $isAdmin = in_array($role, ['admin', 'manager', 'staff']);
-    if (!$isAdmin && (int)$visit['assigned_crew_id'] !== $userId) {
+    // Anyone on the stop's crew may add photos, not only the lead the visit is
+    // assigned to — same rule as the Work Record and the photo list.
+    require_once APP_ROOT . '/Modules/Jobs/Services/VisitWorkService.php';
+    $stopCrew = (new VisitWorkService($db))->stopCrewIds(isset($visit['stop_id']) ? (int)$visit['stop_id'] : null);
+    if (!VisitWorkService::canAccess($visit, $userId, $isAdmin, $stopCrew)) {
         http_response_code(403);
         echo json_encode(['success' => false, 'message' => 'Not authorised for this visit']);
         exit;

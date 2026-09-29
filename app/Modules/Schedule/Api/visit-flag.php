@@ -14,7 +14,7 @@ declare(strict_types=1);
  *
  * Response 200: { "success": true, "is_flagged": true }
  *
- * Crew can only toggle visits assigned to them; admin can toggle any.
+ * Crew can toggle visits assigned to them or to a stop they are on; admin can toggle any.
  * Locked visits (status = completed/cancelled) cannot be unflagged by crew.
  */
 
@@ -59,7 +59,7 @@ $isAdmin = jwtIsAdmin($jwtUser['role']);
 // ── Load visit ────────────────────────────────────────────────────────────────
 try {
     $db   = getDB();
-    $stmt = $db->prepare('SELECT id, assigned_crew_id, status, is_flagged FROM job_visits WHERE id = ? LIMIT 1');
+    $stmt = $db->prepare('SELECT id, stop_id, assigned_crew_id, status, is_flagged FROM job_visits WHERE id = ? LIMIT 1');
     $stmt->execute([$visitId]);
     $visit = $stmt->fetch(PDO::FETCH_ASSOC);
 } catch (Throwable $e) {
@@ -75,7 +75,10 @@ if (!$visit) {
 }
 
 // ── Ownership check ───────────────────────────────────────────────────────────
-if (!$isAdmin && (int)($visit['assigned_crew_id'] ?? 0) !== $jwtUser['id']) {
+// Anyone on the stop's crew may endorse, not only the lead the visit is assigned to.
+require_once APP_ROOT . '/Modules/Jobs/Services/VisitWorkService.php';
+$stopCrew = (new VisitWorkService($db))->stopCrewIds(isset($visit['stop_id']) ? (int)$visit['stop_id'] : null);
+if (!VisitWorkService::canAccess($visit, (int)$jwtUser['id'], $isAdmin, $stopCrew)) {
     http_response_code(403);
     echo json_encode(['error' => 'Not your visit']);
     exit;
