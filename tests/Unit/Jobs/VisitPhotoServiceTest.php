@@ -56,8 +56,10 @@ final class VisitPhotoServiceTest extends TestCase
         $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $db->exec("CREATE TABLE job_plans (id INTEGER PRIMARY KEY, property_id INT, service_type TEXT, title TEXT)");
         $db->exec("CREATE TABLE job_visits (id INTEGER PRIMARY KEY, plan_id INT, scheduled_date TEXT, completed_at TEXT, status TEXT)");
-        $db->exec("CREATE TABLE media_assets (id INTEGER PRIMARY KEY, file_path TEXT, thumb_path TEXT, captured_at TEXT, created_at TEXT)");
-        $db->exec("CREATE TABLE media_links (id INTEGER PRIMARY KEY, media_id INT, context_type TEXT, context_id INT, category TEXT)");
+        $db->exec("CREATE TABLE media_assets (id INTEGER PRIMARY KEY, file_path TEXT, thumb_path TEXT, captured_at TEXT, created_at TEXT, created_by INT)");
+        $db->exec("CREATE TABLE media_links (id INTEGER PRIMARY KEY, media_id INT, context_type TEXT, context_id INT, category TEXT, linked_by INT)");
+        $db->exec("CREATE TABLE users (id INTEGER PRIMARY KEY, full_name TEXT)");
+        $db->exec("INSERT INTO users VALUES (1, 'Trevor James'), (2, 'Nigel Cass')");
         $db->exec("CREATE TABLE media_variants (id INTEGER PRIMARY KEY, media_id INT, variant_type TEXT, file_path TEXT)");
 
         $db->exec("INSERT INTO job_plans VALUES (1, 7, 'lawn_care', ''), (2, 7, 'gardening', 'Garden Tidy'), (3, 8, 'lawn_care', '')");
@@ -78,6 +80,9 @@ final class VisitPhotoServiceTest extends TestCase
             (4, 'job_visit', 12, 'before'),
             (5, 'job_visit', 20, 'after'),
             (6, 'job_visit', 11, 'issue')");
+        // Visit 10: both by Trevor (one via the link, one via the asset). Visit 11: nobody recorded.
+        $db->exec("UPDATE media_links SET linked_by = 1 WHERE media_id = 1");
+        $db->exec("UPDATE media_assets SET created_by = 1 WHERE id = 2");
         return $db;
     }
 
@@ -98,6 +103,17 @@ final class VisitPhotoServiceTest extends TestCase
         $this->assertSame(['before', 'after'], array_column($history[1]['photos'], 'photo_type'));
         // Visit 11 has an 'additional' and an 'issue' photo — only the proof one shows.
         $this->assertSame([3], array_column($history[0]['photos'], 'id'));
+    }
+
+    public function testHistoryNamesWhoTookThePhotos(): void
+    {
+        $history = (new VisitPhotoService($this->historyDb()))->historyForVisit(12);
+
+        $this->assertSame(['Trevor James'], $history[1]['crew']);
+        $this->assertSame('Trevor James', $history[1]['photos'][0]['taken_by']);
+        // Unknown author is an empty list, never a made-up name.
+        $this->assertSame([], $history[0]['crew']);
+        $this->assertNull($history[0]['photos'][0]['taken_by']);
     }
 
     public function testHistoryRespectsTheVisitLimitAndUnknownVisits(): void

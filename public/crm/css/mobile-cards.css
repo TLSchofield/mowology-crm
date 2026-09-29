@@ -6531,3 +6531,9 @@ button.mw-mc-or-full-tile:active { opacity: 0.82; }
 .mw-ph-viewer-nav:disabled {
     opacity: 0.25;
 }
+.mw-ph-crew {
+    margin: -4px 0 8px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--mw-green, #2D8659);
+}

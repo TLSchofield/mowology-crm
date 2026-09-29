@@ -16,13 +16,20 @@ struct PhotoHistoryVisit: Decodable, Identifiable {
     let date: String
     let service: String
     let status: String
+    /// Who took the photos — in-house record, never shown to clients.
+    let crew: [String]?
     let photos: [VisitPhoto]
 
     var id: Int { visitId }
 
+    var crewLine: String? {
+        guard let crew, !crew.isEmpty else { return nil }
+        return crew.joined(separator: ", ")
+    }
+
     enum CodingKeys: String, CodingKey {
         case visitId = "visit_id"
-        case date, service, status, photos
+        case date, service, status, crew, photos
     }
 }
 
@@ -140,6 +147,13 @@ struct PhotoHistorySection: View {
                 }
             }
 
+            if let crewLine = visit.crewLine {
+                Label(crewLine, systemImage: "person.fill")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(visit.photos) { photo in
@@ -216,6 +230,7 @@ struct PhotoHistorySection: View {
 
     private static func caption(for visit: PhotoHistoryVisit, photo: VisitPhoto) -> String {
         var parts = [dateLabel(visit.date), visit.service]
+        if let crewLine = visit.crewLine { parts.append(crewLine) }
         if photo.photoType == "before" || photo.photoType == "after" {
             parts.append(photo.photoType.capitalized)
         }

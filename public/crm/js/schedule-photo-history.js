@@ -96,15 +96,18 @@
 
         var html = '';
         history.forEach(function (visit) {
+            var crew = (visit.crew || []).join(', ');
             html += '<div class="mw-ph-visit">' +
                 '<div class="mw-ph-visit-head">' +
                     '<span class="mw-ph-date">' + esc(dateLabel(visit.date)) + '</span>' +
                     '<span class="mw-ph-service">' + esc(visit.service) + '</span>' +
                     '<span class="mw-ph-ago">' + esc(agoLabel(visit.date)) + '</span>' +
-                '</div><div class="mw-ph-strip">';
+                '</div>' +
+                (crew ? '<div class="mw-ph-crew">' + esc(crew) + '</div>' : '') +
+                '<div class="mw-ph-strip">';
             (visit.photos || []).forEach(function (photo) {
                 var label = typeLabel(photo.photo_type);
-                var caption = [dateLabel(visit.date), visit.service, label].filter(Boolean).join(' · ');
+                var caption = [dateLabel(visit.date), visit.service, photo.taken_by || crew, label].filter(Boolean).join(' · ');
                 flat.push({ url: photo.photo_url, caption: caption });
                 html += '<button type="button" class="mw-ph-thumb" data-ph-index="' + (flat.length - 1) + '">' +
                     '<img src="' + esc(photo.thumb_url || photo.photo_url) + '" alt="' + esc(caption) + '" loading="lazy">' +

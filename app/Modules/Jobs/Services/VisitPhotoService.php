@@ -91,10 +91,11 @@ class VisitPhotoService
      * photos, newest visit first, each with its photos oldest first. The visit being
      * looked at is left out — its photos are already on the card.
      *
-     * Deliberately carries no crew names (same rule as ServiceHistoryService): the
-     * history answers "what did this site look like", not "who took the picture".
+     * Carries who took each photo. This is an IN-HOUSE record — the office needs to
+     * know whose work it is looking at. Never reuse this payload for anything a
+     * client can see; client-facing proof stays anonymous.
      *
-     * @return array<int,array{visit_id:int,date:string,service:string,status:string,photos:array}>
+     * @return array<int,array{visit_id:int,date:string,service:string,status:string,crew:string[],photos:array}>
      */
     public function historyForVisit(int $visitId, int $maxVisits = 12): array
     {
@@ -110,7 +111,7 @@ class VisitPhotoService
     }
 
     /**
-     * @return array<int,array{visit_id:int,date:string,service:string,status:string,photos:array}>
+     * @return array<int,array{visit_id:int,date:string,service:string,status:string,crew:string[],photos:array}>
      */
     public function historyForProperty(int $propertyId, int $excludeVisitId = 0, int $maxVisits = 12): array
     {
@@ -144,12 +145,13 @@ class VisitPhotoService
         $vIn      = implode(',', array_fill(0, count($visitIds), '?'));
         $stmt = $this->db->prepare("
             SELECT ml.context_id AS visit_id, ma.id, ml.category, ma.file_path, ma.thumb_path,
-                   ma.captured_at, ma.created_at,
+                   ma.captured_at, ma.created_at, u.full_name AS taken_by,
                    (SELECT mv.file_path FROM media_variants mv
                      WHERE mv.media_id = ma.id AND mv.variant_type = 'thumb_square'
                      ORDER BY mv.id ASC LIMIT 1) AS variant_thumb
             FROM media_links ml
             JOIN media_assets ma ON ma.id = ml.media_id
+            LEFT JOIN users u ON u.id = COALESCE(ml.linked_by, ma.created_by)
             WHERE ml.context_type = 'job_visit'
               AND ml.context_id IN ($vIn)
               AND ml.category IN ($in)
@@ -159,7 +161,8 @@ class VisitPhotoService
 
         $byVisit = [];
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            $byVisit[(int)$row['visit_id']][] = self::shape($row);
+            $name = trim((string)($row['taken_by'] ?? ''));
+            $byVisit[(int)$row['visit_id']][] = self::shape($row) + ['taken_by' => $name !== '' ? $name : null];
         }
 
         $order = ['before' => 0, 'after' => 1, 'additional' => 2];
@@ -174,6 +177,7 @@ class VisitPhotoService
                 'date'     => substr((string)($v['completed_at'] ?: $v['scheduled_date']), 0, 10),
                 'service'  => self::serviceLabel($v['title'] ?? null, $v['service_type'] ?? null),
                 'status'   => (string)$v['status'],
+                'crew'     => array_values(array_unique(array_filter(array_column($photos, 'taken_by')))),
                 'photos'   => $photos,
             ];
         }
