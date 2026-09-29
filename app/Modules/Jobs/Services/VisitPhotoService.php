@@ -85,4 +85,109 @@ class VisitPhotoService
 
         return array_map([self::class, 'shape'], $stmt->fetchAll(PDO::FETCH_ASSOC));
     }
+
+    /**
+     * Photo history for the property a visit is at: earlier visits that have proof
+     * photos, newest visit first, each with its photos oldest first. The visit being
+     * looked at is left out — its photos are already on the card.
+     *
+     * Deliberately carries no crew names (same rule as ServiceHistoryService): the
+     * history answers "what did this site look like", not "who took the picture".
+     *
+     * @return array<int,array{visit_id:int,date:string,service:string,status:string,photos:array}>
+     */
+    public function historyForVisit(int $visitId, int $maxVisits = 12): array
+    {
+        $stmt = $this->db->prepare("
+            SELECT jp.property_id FROM job_visits jv
+            JOIN job_plans jp ON jv.plan_id = jp.id
+            WHERE jv.id = ?
+        ");
+        $stmt->execute([$visitId]);
+        $propertyId = (int)$stmt->fetchColumn();
+
+        return $propertyId > 0 ? $this->historyForProperty($propertyId, $visitId, $maxVisits) : [];
+    }
+
+    /**
+     * @return array<int,array{visit_id:int,date:string,service:string,status:string,photos:array}>
+     */
+    public function historyForProperty(int $propertyId, int $excludeVisitId = 0, int $maxVisits = 12): array
+    {
+        $maxVisits = max(1, min(50, $maxVisits));
+        $in        = implode(',', array_fill(0, count(self::PROOF_TYPES), '?'));
+
+        // Step 1: the most recent visits at this property that have any proof photo.
+        $stmt = $this->db->prepare("
+            SELECT jv.id, jv.scheduled_date, jv.completed_at, jv.status, jp.service_type, jp.title
+            FROM job_visits jv
+            JOIN job_plans jp ON jv.plan_id = jp.id
+            WHERE jp.property_id = ?
+              AND jv.id != ?
+              AND EXISTS (
+                  SELECT 1 FROM media_links ml
+                  WHERE ml.context_type = 'job_visit'
+                    AND ml.context_id = jv.id
+                    AND ml.category IN ($in)
+              )
+            ORDER BY jv.scheduled_date DESC, jv.id DESC
+            LIMIT $maxVisits
+        ");
+        $stmt->execute(array_merge([$propertyId, $excludeVisitId], self::PROOF_TYPES));
+        $visits = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        if (!$visits) {
+            return [];
+        }
+
+        // Step 2: every proof photo on those visits, in one read.
+        $visitIds = array_map(static fn (array $v): int => (int)$v['id'], $visits);
+        $vIn      = implode(',', array_fill(0, count($visitIds), '?'));
+        $stmt = $this->db->prepare("
+            SELECT ml.context_id AS visit_id, ma.id, ml.category, ma.file_path, ma.thumb_path,
+                   ma.captured_at, ma.created_at,
+                   (SELECT mv.file_path FROM media_variants mv
+                     WHERE mv.media_id = ma.id AND mv.variant_type = 'thumb_square'
+                     ORDER BY mv.id ASC LIMIT 1) AS variant_thumb
+            FROM media_links ml
+            JOIN media_assets ma ON ma.id = ml.media_id
+            WHERE ml.context_type = 'job_visit'
+              AND ml.context_id IN ($vIn)
+              AND ml.category IN ($in)
+            ORDER BY ma.id ASC
+        ");
+        $stmt->execute(array_merge($visitIds, self::PROOF_TYPES));
+
+        $byVisit = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $byVisit[(int)$row['visit_id']][] = self::shape($row);
+        }
+
+        $order = ['before' => 0, 'after' => 1, 'additional' => 2];
+        $out   = [];
+        foreach ($visits as $v) {
+            $photos = $byVisit[(int)$v['id']] ?? [];
+            usort($photos, static fn (array $a, array $b): int =>
+                [$order[$a['photo_type']] ?? 9, $a['id']] <=> [$order[$b['photo_type']] ?? 9, $b['id']]);
+
+            $out[] = [
+                'visit_id' => (int)$v['id'],
+                'date'     => substr((string)($v['completed_at'] ?: $v['scheduled_date']), 0, 10),
+                'service'  => self::serviceLabel($v['title'] ?? null, $v['service_type'] ?? null),
+                'status'   => (string)$v['status'],
+                'photos'   => $photos,
+            ];
+        }
+        return $out;
+    }
+
+    /** The plan's own title when it has one, else the service type made readable. */
+    public static function serviceLabel(?string $title, ?string $serviceType): string
+    {
+        $title = trim((string)$title);
+        if ($title !== '') {
+            return $title;
+        }
+        $type = trim((string)$serviceType);
+        return $type !== '' ? ucwords(str_replace('_', ' ', $type)) : 'Service';
+    }
 }

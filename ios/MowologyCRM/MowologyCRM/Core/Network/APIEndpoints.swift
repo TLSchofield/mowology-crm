@@ -160,6 +160,10 @@ enum APIEndpoint {
     /// GET /api/schedule/visit-photos?visit_id=N — proof photos already taken on a visit.
     case scheduleVisitPhotos(visitId: Int)
 
+    /// GET /api/schedule/visit-photos?visit_id=&mode=history — photos from earlier visits
+    /// at the same property. Uses `mode`, not `action`: the /api/ rewrite owns `action`.
+    case scheduleVisitPhotoHistory(visitId: Int)
+
     /// POST /api/schedule/invoice — invoice a completed visit (timed extras + invoice).
     /// Body: { action: "preview"|"create"|"send", ... }
     case scheduleInvoice
@@ -380,6 +384,14 @@ enum APIEndpoint {
             components?.queryItems = [URLQueryItem(name: "visit_id", value: "\(visitId)")]
             return components?.url
 
+        case .scheduleVisitPhotoHistory(let visitId):
+            var components = URLComponents(string: "\(baseURLString)/schedule/visit-photos")
+            components?.queryItems = [
+                URLQueryItem(name: "visit_id", value: "\(visitId)"),
+                URLQueryItem(name: "mode",     value: "history")
+            ]
+            return components?.url
+
         case .scheduleInvoice:
             return URL(string: "\(baseURLString)/schedule/invoice")
         }
@@ -433,6 +445,7 @@ enum APIEndpoint {
              .quizQuestion,
              .scheduleJobPhoto,
              .scheduleVisitPhotos,
+             .scheduleVisitPhotoHistory,
              .fieldJobNearby,
              .fieldJobAction,
              .fieldSearch,
@@ -487,6 +500,7 @@ enum APIEndpoint {
              .scheduleQuotes,
              .recommendationOptions,
              .scheduleVisitPhotos,
+             .scheduleVisitPhotoHistory,
              .scheduleTimerActive,
              .fieldJobNearby,
              .fieldSearch,

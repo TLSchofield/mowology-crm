@@ -24,6 +24,12 @@ declare(strict_types=1);
  * }
  *
  * thumb_url falls back to photo_url when no thumbnail was generated.
+ *
+ * GET /api/schedule/visit-photos?visit_id=N&mode=history
+ * Earlier visits at the same property that have photos, newest first
+ * (uses `mode`, not `action` — the /api/ rewrite owns `action`):
+ * { "success": true, "visit_id": 42, "history": [
+ *     { "visit_id": 31, "date": "2026-09-15", "service": "Lawn Care", "status": "completed", "photos": [...] } ] }
  */
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
@@ -84,10 +90,21 @@ try {
         exit;
     }
 
+    $photos = new VisitPhotoService($db);
+
+    if (($_GET['mode'] ?? '') === 'history') {
+        echo json_encode([
+            'success'  => true,
+            'visit_id' => $visitId,
+            'history'  => $photos->historyForVisit($visitId),
+        ]);
+        exit;
+    }
+
     echo json_encode([
         'success'  => true,
         'visit_id' => $visitId,
-        'photos'   => (new VisitPhotoService($db))->listForVisit($visitId),
+        'photos'   => $photos->listForVisit($visitId),
     ]);
 
 } catch (Throwable $e) {

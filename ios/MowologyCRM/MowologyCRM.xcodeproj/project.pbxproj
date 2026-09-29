@@ -99,6 +99,7 @@
 		EABB90D2A068915C9ECF47B2 /* FieldSearchModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A1E4E199B9C01EFB35BDB1D /* FieldSearchModels.swift */; };
 		EE9D883AD6DA3E70A5F4F2F6 /* CrewAssignment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21C82FF277952D2240D88C83 /* CrewAssignment.swift */; };
 		07F09F1C65F52262239683E5 /* MoveStopSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 012351B5F6A5D4F76A5667E0 /* MoveStopSheet.swift */; };
+		5786B09173A05AFA499FBA44 /* PhotoHistorySection.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC32DBE5A2AA1CD03B853C12 /* PhotoHistorySection.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -196,6 +197,7 @@
 		1A1E4E199B9C01EFB35BDB1D /* FieldSearchModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FieldSearchModels.swift; sourceTree = "<group>"; };
 		21C82FF277952D2240D88C83 /* CrewAssignment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrewAssignment.swift; sourceTree = "<group>"; };
 		012351B5F6A5D4F76A5667E0 /* MoveStopSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoveStopSheet.swift; sourceTree = "<group>"; };
+		DC32DBE5A2AA1CD03B853C12 /* PhotoHistorySection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoHistorySection.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -351,6 +353,7 @@
 				7E36D1B08DD110B8CD45FA79 /* FieldJobView.swift */,
 				D39B0AB7D29775E426AEA32A /* ServiceHistoryGrid.swift */,
 				012351B5F6A5D4F76A5667E0 /* MoveStopSheet.swift */,
+				DC32DBE5A2AA1CD03B853C12 /* PhotoHistorySection.swift */,
 			);
 			path = Schedule;
 			sourceTree = "<group>";
@@ -600,6 +603,7 @@
 				EABB90D2A068915C9ECF47B2 /* FieldSearchModels.swift in Sources */,
 				EE9D883AD6DA3E70A5F4F2F6 /* CrewAssignment.swift in Sources */,
 				07F09F1C65F52262239683E5 /* MoveStopSheet.swift in Sources */,
+				5786B09173A05AFA499FBA44 /* PhotoHistorySection.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

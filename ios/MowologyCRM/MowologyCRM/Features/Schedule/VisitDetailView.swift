@@ -59,6 +59,11 @@ struct VisitDetailView: View {
                 accessNotesSection
                 visitsSection
 
+                if let anyVisit = stop.visits.first {
+                    PhotoHistorySection(visitId: anyVisit.visitId,
+                                        apiClient: APIClient(authSession: authSession))
+                }
+
                 if isAdmin {
                     crewSection
                     if stop.canBeMoved {
