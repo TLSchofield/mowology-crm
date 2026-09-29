@@ -79,7 +79,9 @@ struct ScheduleView: View {
                         isAdmin:       authSession.user?.isAdmin ?? false,
                         routes:        viewModel.crewRoutes,
                         liveCrew:      viewModel.crewLive,
-                        currentUserId: authSession.user?.id
+                        currentUserId: authSession.user?.id,
+                        userLocation:  viewModel.userLocation,
+                        onMove:        { movingStop = $0 }
                     )
                 }
             }

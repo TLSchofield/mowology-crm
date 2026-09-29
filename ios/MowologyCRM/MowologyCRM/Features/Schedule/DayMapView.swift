@@ -16,9 +16,18 @@ struct DayMapView: View {
     var routes: [CrewRoute] = []
     var liveCrew: [CrewLiveLocation] = []
     var currentUserId: Int? = nil
+    /// Device position, for the distance shown on each carousel card.
+    var userLocation: CLLocation? = nil
+    /// Admin only: asks the parent to open the Move Stop sheet for this stop.
+    var onMove: ((Stop) -> Void)? = nil
 
-    @State private var selectedStop: Stop?
+    /// The stop in focus — the carousel card on screen and the enlarged pin.
+    /// nil means "overview": every stop fitted on the map, carousel at its first card.
+    @State private var selectedId: Int?
     @State private var position: MapCameraPosition = .automatic
+    @State private var isCarouselCollapsed = false
+
+    private let selectionFeedback = UISelectionFeedbackGenerator()
 
     private var mappableStops: [Stop] {
         stops.filter { $0.latitude != nil && $0.longitude != nil }
@@ -45,26 +54,99 @@ struct DayMapView: View {
                 map
             }
 
-            if let stop = selectedStop {
-                StopBottomCard(stop: stop) {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                        selectedStop = nil
-                    }
-                }
-                .transition(.asymmetric(
-                    insertion: .move(edge: .bottom).combined(with: .opacity),
-                    removal:   .move(edge: .bottom).combined(with: .opacity)
-                ))
-                .zIndex(1)
+            if !mappableStops.isEmpty {
+                carousel
+                    .zIndex(1)
             }
         }
         .onAppear  { fitCameraToAll() }
-        .onChange(of: stops) { _, _ in
-            withAnimation { selectedStop = nil }
-            fitCameraToAll()
+        .onChange(of: stops.map(\.id)) { _, ids in
+            // A poll refresh keeps the same stops — hold the crew's place. Only a
+            // different day (or a stop leaving it) returns to the overview.
+            if let selectedId, !ids.contains(selectedId) {
+                self.selectedId = nil
+                fitCameraToAll()
+            } else if selectedId == nil {
+                fitCameraToAll()
+            }
         }
-        .onChange(of: routes)   { _, _ in fitCameraToAll() }
-        .onChange(of: liveCrew) { _, _ in fitCameraToAll() }
+        .onChange(of: selectedId) { _, id in
+            guard let id, let stop = mappableStops.first(where: { $0.id == id }) else { return }
+            selectionFeedback.selectionChanged()
+            focusCamera(on: stop)
+        }
+        // Trails and live pins refresh every poll; only refit while in overview.
+        .onChange(of: routes)   { _, _ in if selectedId == nil { fitCameraToAll() } }
+        .onChange(of: liveCrew) { _, _ in if selectedId == nil { fitCameraToAll() } }
+    }
+
+    // MARK: - Carousel
+
+    /// Swipe the cards and the map follows; tap a pin and the cards follow.
+    private var carousel: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                Button {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                        isCarouselCollapsed.toggle()
+                    }
+                } label: {
+                    Image(systemName: isCarouselCollapsed ? "chevron.up" : "chevron.down")
+                        .font(.footnote.weight(.bold))
+                        .foregroundStyle(Color.MW.green)
+                        .frame(width: 56, height: 30)
+                        .background(.regularMaterial, in: Capsule())
+                }
+                .accessibilityLabel(isCarouselCollapsed ? "Show stops" : "Hide stops")
+
+                if selectedId != nil {
+                    Button {
+                        selectedId = nil
+                        fitCameraToAll()
+                    } label: {
+                        Label("All stops", systemImage: "arrow.up.left.and.arrow.down.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Color.MW.green)
+                            .padding(.horizontal, 12)
+                            .frame(height: 30)
+                            .background(.regularMaterial, in: Capsule())
+                    }
+                    .transition(.opacity)
+                }
+            }
+
+            if !isCarouselCollapsed {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(spacing: 10) {
+                        ForEach(Array(mappableStops.enumerated()), id: \.element.id) { index, stop in
+                            StopCarouselCard(
+                                stop: stop,
+                                routeOrder: index + 1,
+                                total: mappableStops.count,
+                                distanceMeters: distance(to: stop),
+                                canMove: isAdmin && stop.canBeMoved && onMove != nil,
+                                onMove: { onMove?(stop) }
+                            )
+                            .containerRelativeFrame(.horizontal)
+                            .id(stop.id)
+                        }
+                    }
+                    .scrollTargetLayout()
+                }
+                .scrollTargetBehavior(.viewAligned)
+                .scrollPosition(id: $selectedId)
+                .contentMargins(.horizontal, 28, for: .scrollContent)
+                .frame(height: StopCarouselCard.height)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .padding(.bottom, 10)
+        .animation(.easeInOut(duration: 0.2), value: selectedId == nil)
+    }
+
+    private func distance(to stop: Stop) -> CLLocationDistance? {
+        guard let userLocation, let lat = stop.latitude, let lng = stop.longitude else { return nil }
+        return userLocation.distance(from: CLLocation(latitude: lat, longitude: lng))
     }
 
     // MARK: - Map
@@ -115,12 +197,13 @@ struct DayMapView: View {
                 ) {
                     StopPin(
                         stop: stop,
-                        isSelected: selectedStop?.id == stop.id,
+                        isSelected: selectedId == stop.id,
                         routeOrder: (mappableStops.firstIndex(where: { $0.id == stop.id }) ?? 0) + 1
                     )
                     .onTapGesture {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                            selectedStop = selectedStop?.id == stop.id ? nil : stop
+                            isCarouselCollapsed = false
+                            selectedId = stop.id
                         }
                     }
                 }
@@ -188,6 +271,20 @@ struct DayMapView: View {
             longitudeDelta: max((lngs.max()! - lngs.min()!) * 1.6, 0.012)
         )
         withAnimation(.easeInOut(duration: 0.5)) {
+            position = .region(MKCoordinateRegion(center: center, span: span))
+        }
+    }
+
+    /// Street-level view of one stop. The centre sits a little south of the pin
+    /// so the pin lands in the clear area above the carousel, not behind it.
+    private func focusCamera(on stop: Stop) {
+        guard let lat = stop.latitude, let lng = stop.longitude else { return }
+        let span = MKCoordinateSpan(latitudeDelta: 0.012, longitudeDelta: 0.012)
+        let center = CLLocationCoordinate2D(
+            latitude:  lat - (isCarouselCollapsed ? 0 : span.latitudeDelta * 0.18),
+            longitude: lng
+        )
+        withAnimation(.easeInOut(duration: 0.45)) {
             position = .region(MKCoordinateRegion(center: center, span: span))
         }
     }
@@ -305,101 +402,126 @@ private struct PinTail: Shape {
     }
 }
 
-// MARK: - Bottom Card
+// MARK: - Carousel Card
 
-private struct StopBottomCard: View {
+/// One stop in the map carousel. The whole card opens the stop; Directions and
+/// Move are reachable without leaving the map.
+private struct StopCarouselCard: View {
+
+    static let height: CGFloat = 148
 
     let stop: Stop
-    let onDismiss: () -> Void
+    let routeOrder: Int
+    let total: Int
+    let distanceMeters: Double?
+    let canMove: Bool
+    let onMove: () -> Void
+
+    private var statusColor: Color {
+        stop.isComplete ? Color(.systemGray) : Color.MW.green
+    }
+
+    private var distanceText: String? {
+        guard let m = distanceMeters else { return nil }
+        return m < 1000 ? "\(Int((m / 10).rounded()) * 10) m" : String(format: "%.1f km", m / 1000)
+    }
 
     var body: some View {
-        NavigationLink(value: stop) {
-            VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 10) {
+            NavigationLink(value: stop) {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(stop.estimatedArrival ?? "Anytime")
+                            .font(.subheadline.monospacedDigit().bold())
+                            .foregroundStyle(statusColor)
 
-                // Drag handle
-                Capsule()
-                    .fill(Color(.systemGray4))
-                    .frame(width: 36, height: 4)
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 10)
-                    .padding(.bottom, 14)
+                        if stop.isComplete {
+                            Label("Done", systemImage: "checkmark.circle.fill")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        } else if stop.isInProgress {
+                            Label("In progress", systemImage: "play.circle.fill")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(Color.MW.green)
+                        }
 
-                HStack(alignment: .top, spacing: 14) {
+                        Spacer()
 
-                    // Status icon
-                    ZStack {
-                        Circle()
-                            .fill(stop.isComplete
-                                  ? Color(.systemGray5)
-                                  : Color.MW.green.opacity(0.12))
-                            .frame(width: 46, height: 46)
-                        Image(systemName: stop.isComplete
-                              ? "checkmark.circle.fill"
-                              : (stop.isInProgress ? "play.circle.fill" : "calendar.circle"))
-                            .font(.system(size: 24))
-                            .foregroundStyle(stop.isComplete ? Color(.systemGray2) : Color.MW.green)
+                        if let distanceText {
+                            Label(distanceText, systemImage: "location.fill")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+                        Text("\(routeOrder)/\(total)")
+                            .font(.caption.monospacedDigit().weight(.semibold))
+                            .foregroundStyle(.secondary)
                     }
 
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(stop.propertyAddress)
-                            .font(.headline)
-                            .foregroundStyle(.primary)
+                    Text(stop.headline ?? stop.propertyAddress)
+                        .font(.body.bold())
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+
+                    Text(stop.headline == nil ? stop.propertyCity : stop.fullAddress)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+
+                    if let line = stop.historyLine {
+                        Label(line.service.map { "\($0): \(line.text)" } ?? line.text,
+                              systemImage: line.warning ? "exclamationmark.circle.fill" : "clock.arrow.circlepath")
+                            .font(.caption)
                             .lineLimit(1)
-                        Text(stop.propertyCity)
-                            .font(.subheadline)
+                            .foregroundStyle(line.warning ? Color.MW.orange : .secondary)
+                    } else if let first = stop.visits.first {
+                        Text(first.serviceTypeLabel + (stop.visits.count > 1 ? " +\(stop.visits.count - 1)" : ""))
+                            .font(.caption)
                             .foregroundStyle(.secondary)
-
-                        // Service badges (up to 2)
-                        if !stop.visits.isEmpty {
-                            HStack(spacing: 5) {
-                                ForEach(stop.visits.prefix(2)) { visit in
-                                    Text(visit.serviceTypeLabel)
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundStyle(Color.MW.green)
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 3)
-                                        .background(Color.MW.green.opacity(0.1))
-                                        .clipShape(Capsule())
-                                }
-                                if stop.visits.count > 2 {
-                                    Text("+\(stop.visits.count - 2)")
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            .padding(.top, 2)
-                        }
-
-                        // ETA
-                        if let eta = stop.estimatedArrival {
-                            HStack(spacing: 4) {
-                                Image(systemName: "clock")
-                                    .font(.caption2)
-                                Text(eta)
-                                    .font(.caption)
-                            }
-                            .foregroundStyle(.secondary)
-                            .padding(.top, 2)
-                        }
+                            .lineLimit(1)
                     }
-
-                    Spacer()
-
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Color(.systemGray3))
-                        .padding(.top, 4)
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
-            .background(Color(.systemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .shadow(color: .black.opacity(0.12), radius: 16, x: 0, y: -4)
+            .buttonStyle(.plain)
+
+            Spacer(minLength: 0)
+
+            HStack(spacing: 8) {
+                Button(action: openDirections) {
+                    Label("Directions", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
+                        .font(.caption.weight(.semibold))
+                        .frame(maxWidth: .infinity, minHeight: 34)
+                        .foregroundStyle(.white)
+                        .background(Color.MW.green, in: RoundedRectangle(cornerRadius: 9))
+                }
+
+                if canMove {
+                    Button(action: onMove) {
+                        Label("Move", systemImage: "calendar.badge.clock")
+                            .font(.caption.weight(.semibold))
+                            .frame(maxWidth: .infinity, minHeight: 34)
+                            .foregroundStyle(Color.MW.green)
+                            .background(Color.MW.green.opacity(0.10), in: RoundedRectangle(cornerRadius: 9))
+                    }
+                }
+            }
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
-        .padding(.horizontal, 12)
-        .padding(.bottom, 8)
+        .padding(14)
+        .frame(height: Self.height)
+        .background(Color(.systemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .shadow(color: .black.opacity(0.14), radius: 12, x: 0, y: 3)
+    }
+
+    private func openDirections() {
+        guard let lat = stop.latitude, let lng = stop.longitude else { return }
+        let item = MKMapItem(placemark: MKPlacemark(
+            coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lng)
+        ))
+        item.name = stop.headline ?? stop.fullAddress
+        item.openInMaps(launchOptions: [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving])
     }
 }
 
