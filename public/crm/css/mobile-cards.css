@@ -6190,3 +6190,119 @@ button.mw-mc-or-full-tile:active { opacity: 0.82; }
 @keyframes mw-inv-spin {
     to { transform: rotate(360deg); }
 }
+
+
+/* ── Move stop to another date (admin/manager) ──
+   Icon-only footer button beside Skip, plus the date sheet it opens.
+   The panel is anchored near the TOP of the screen: MwDatePicker opens its
+   calendar below the trigger, so a bottom sheet would push it off-screen. */
+.mw-mc-footer-btn-move {
+    flex: 0 0 auto;
+    background: var(--mw-ink-0, #fff);
+    color: var(--mw-green, #2D8659);
+    border: 1.5px solid var(--mw-light, #E8F3F0);
+    min-height: 52px;
+    padding: 10px 14px;
+    margin-left: 4px;
+}
+.mw-mc-footer-btn-move:active {
+    background: var(--mw-light, #E8F3F0);
+}
+.mw-mc-card-footer.is-timing .mw-mc-footer-btn-move {
+    display: none;   /* a job with a running timer cannot be moved */
+}
+
+.mw-move-sheet {
+    position: fixed;
+    inset: 0;
+    z-index: 9800;
+}
+.mw-move-sheet[hidden] {
+    display: none;
+}
+.mw-move-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(13, 59, 46, 0.55);
+}
+.mw-move-panel {
+    position: absolute;
+    top: calc(env(safe-area-inset-top, 0px) + 8vh);
+    left: 16px;
+    right: 16px;
+    max-width: 420px;
+    margin: 0 auto;
+    background: var(--mw-ink-0, #fff);
+    border-radius: 18px;
+    padding: 20px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.22);
+}
+.mw-move-title {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--mw-forest, #0D3B2E);
+}
+.mw-move-sub {
+    margin: 4px 0 14px;
+    font-size: 0.85rem;
+    color: var(--mw-ink-500, #6b7280);
+}
+.mw-move-quick {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+.mw-move-chip {
+    flex: 1;
+    min-height: 44px;
+    border-radius: 10px;
+    border: 1.5px solid var(--mw-light, #E8F3F0);
+    background: var(--mw-ink-0, #fff);
+    color: var(--mw-green, #2D8659);
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+.mw-move-chip.is-selected {
+    background: var(--mw-light, #E8F3F0);
+    border-color: var(--mw-green, #2D8659);
+}
+.mw-move-trigger {
+    width: 100%;
+    min-height: 48px;
+    justify-content: space-between;
+}
+.mw-move-warning {
+    margin: 12px 0 0;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: rgba(232, 93, 4, 0.08);
+    color: var(--mw-orange, #e85d04);
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+.mw-move-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 16px;
+}
+.mw-move-btn {
+    flex: 1;
+    min-height: 52px;
+    border-radius: 10px;
+    border: none;
+    font-size: 0.9rem;
+    font-weight: 700;
+}
+.mw-move-btn-cancel {
+    background: var(--mw-ink-0, #fff);
+    color: var(--mw-ink-500, #6b7280);
+    border: 1.5px solid var(--mw-ink-200, #e2e6ec);
+}
+.mw-move-btn-confirm {
+    background: var(--mw-green, #2D8659);
+    color: var(--mw-ink-0, #fff);
+}
+.mw-move-btn-confirm:disabled {
+    opacity: 0.45;
+}

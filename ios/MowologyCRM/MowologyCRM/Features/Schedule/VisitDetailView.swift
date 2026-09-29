@@ -24,6 +24,10 @@ struct VisitDetailView: View {
     /// Drives the crew-assignment picker sheet.
     @State private var isShowingCrewSheet = false
 
+    /// Drives the Move Stop sheet.
+    @State private var isShowingMoveSheet = false
+    @Environment(\.dismiss) private var dismissDetail
+
 
     // MARK: - Init
 
@@ -57,6 +61,9 @@ struct VisitDetailView: View {
 
                 if isAdmin {
                     crewSection
+                    if stop.canBeMoved {
+                        moveSection
+                    }
                 }
 
                 Spacer(minLength: 24)
@@ -74,6 +81,12 @@ struct VisitDetailView: View {
         }
         .sheet(isPresented: $isShowingCrewSheet) {
             CrewAssignSheet(viewModel: viewModel)
+        }
+        .sheet(isPresented: $isShowingMoveSheet) {
+            // The stop has left this day — go back to the schedule, which reloads itself.
+            MoveStopSheet(stop: stop, apiClient: APIClient(authSession: authSession)) { _ in
+                dismissDetail()
+            }
         }
         .confirmationDialog(
             "Skip this visit?",
@@ -580,6 +593,29 @@ struct VisitDetailView: View {
         default:
             EmptyView()
         }
+    }
+
+    // MARK: - Move Section
+
+    private var moveSection: some View {
+        Button {
+            isShowingMoveSheet = true
+        } label: {
+            HStack {
+                Image(systemName: "calendar.badge.clock")
+                Text("Move to another date")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .foregroundStyle(Color.MW.green)
+            .padding(14)
+            .background(Color(.systemBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Crew Section

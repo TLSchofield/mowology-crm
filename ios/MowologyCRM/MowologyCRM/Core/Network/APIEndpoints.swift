@@ -42,6 +42,9 @@ enum APIEndpoint {
     /// POST /api/schedule/assign-crew — assign or unassign crew on a stop. Admin/manager only.
     case assignCrew
 
+    /// POST /api/schedule/reschedule-stop — move a stop to another date. Admin/manager only.
+    case rescheduleStop
+
     /// POST /api/schedule/clock — clock in or clock out.
     case scheduleClock
 
@@ -199,6 +202,9 @@ enum APIEndpoint {
 
         case .assignCrew:
             return URL(string: "\(baseURLString)/schedule/assign-crew")
+
+        case .rescheduleStop:
+            return URL(string: "\(baseURLString)/schedule/reschedule-stop")
 
         case .scheduleClock:
             return URL(string: "\(baseURLString)/schedule/clock")
@@ -393,6 +399,7 @@ enum APIEndpoint {
              .scheduleCrewTrails,
              .teamMembers,
              .assignCrew,
+             .rescheduleStop,
              .scheduleClock,
              .scheduleClockStatus,
              .scheduleTimesheetWeek,
@@ -456,6 +463,7 @@ enum APIEndpoint {
         case .scheduleTimer,
              .scheduleLocation,
              .assignCrew,
+             .rescheduleStop,
              .scheduleClock,
              .visitFlag,
              .visitWorkAction,

@@ -1241,7 +1241,7 @@ $pageTitle = 'Schedule';
 $activePage = 'schedule';
 $bodyClass  = 'mw-page-schedule'; // Hides global mobile nav bars — schedule has its own
 $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
-$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260921b" rel="stylesheet">';
+$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260929a" rel="stylesheet">';
 $extraHead .= '<script src="/crm/js/offline-queue.js?v=20260619a" defer></script>';
 // Prefetch every day visible in the strip so any day tap is instant
 foreach ($stripDays as $_sd) {
@@ -2978,6 +2978,34 @@ if ($apiKey) {
 
           </div><!-- /.mw-mc-container -->
 
+          <?php if (in_array($user['role'] ?? '', ['admin', 'manager'], true)): ?>
+          <!-- ── Move Stop Sheet (admin/manager) — driven by schedule-move-stop.js ── -->
+          <div id="mw-move-sheet" class="mw-move-sheet" role="dialog" aria-modal="true" aria-labelledby="mw-move-title" hidden>
+              <div class="mw-move-backdrop" data-move-close></div>
+              <div class="mw-move-panel">
+                  <p class="mw-move-title" id="mw-move-title">Move to another date</p>
+                  <p class="mw-move-sub" id="mw-move-sub"></p>
+                  <div class="mw-move-quick">
+                      <button type="button" class="mw-move-chip" data-move-days="1">Next day</button>
+                      <button type="button" class="mw-move-chip" data-move-days="7">+1 week</button>
+                  </div>
+                  <button type="button" class="mw-datepicker-trigger mw-move-trigger"
+                          data-mw-dp-commit="input" data-mw-dp-target="#mw-move-date"
+                          data-mw-dp-placeholder="Pick a date">
+                      <svg class="mw-datepicker-cal-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                      <span class="mw-datepicker-date" data-mw-dp-label></span>
+                      <svg class="mw-datepicker-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                  </button>
+                  <input type="date" id="mw-move-date" hidden>
+                  <p class="mw-move-warning" id="mw-move-warning" hidden></p>
+                  <div class="mw-move-actions">
+                      <button type="button" class="mw-move-btn mw-move-btn-cancel" data-move-close>Cancel</button>
+                      <button type="button" class="mw-move-btn mw-move-btn-confirm" id="mw-move-confirm" disabled>Move</button>
+                  </div>
+              </div>
+          </div>
+          <?php endif; ?>
+
           <!-- ── Job Completion Sheet ──────────────────────── -->
           <div id="mw-completion-sheet-backdrop" class="mw-csheet-backdrop"></div>
           <div id="mw-completion-sheet" class="mw-csheet" role="dialog" aria-modal="true">
@@ -3972,6 +4000,7 @@ function mwTogglePurchaseItem(checkbox) {
 <script src="../js/batch-camera.js?v=20260421a" defer></script>
 <script src="../js/schedule-pill-workflow.js?v=20260827b" defer></script>
 <script src="<?= _av('/crm/js/schedule-drag-drop.js') ?>" defer></script>
+<script src="<?= _av('/crm/js/schedule-move-stop.js') ?>" defer></script>
 <?php if ($canFieldCreate): ?>
 <script src="../js/field-job.js?v=20260716a" defer></script>
 <?php endif; ?>

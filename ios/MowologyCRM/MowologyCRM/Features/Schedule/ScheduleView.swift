@@ -21,6 +21,8 @@ struct ScheduleView: View {
     @State private var path: [Stop] = []
     /// "Add a job / visit on the spot" sheet.
     @State private var showingFieldJob = false
+    /// The stop being moved to another date — drives the Move Stop sheet.
+    @State private var movingStop: Stop?
     @ObservedObject private var notificationRouter = NotificationRouter.shared
 
     private let impactLight  = UIImpactFeedbackGenerator(style: .light)
@@ -67,7 +69,8 @@ struct ScheduleView: View {
                         isOffline:    viewModel.isOffline,
                         isAdmin:      authSession.user?.isAdmin ?? false,
                         userLocation: viewModel.userLocation,
-                        onRefresh:    { await viewModel.refresh() }
+                        onRefresh:    { await viewModel.refresh() },
+                        onMove:       { movingStop = $0 }
                     )
                 } else {
                     DayMapView(
@@ -104,6 +107,11 @@ struct ScheduleView: View {
         .onReceive(NotificationCenter.default.publisher(for: .mwSchedulePushReceived)) { _ in
             Task { await viewModel.refreshSilently() }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .mwStopMoved)) { note in
+            let from = note.userInfo?["from"] as? String ?? ""
+            let to   = note.userInfo?["to"]   as? String ?? ""
+            Task { await viewModel.stopMoved(from: from, to: to) }
+        }
         .onDisappear {
             viewModel.stopPolling()
         }
@@ -122,6 +130,9 @@ struct ScheduleView: View {
         }
         .sheet(isPresented: $showDatePicker) {
             datePicker
+        }
+        .sheet(item: $movingStop) { stop in
+            MoveStopSheet(stop: stop, apiClient: viewModel.client)
         }
         .fullScreenCover(isPresented: $viewModel.quizRequired) {
             QuizView(authSession: authSession) {

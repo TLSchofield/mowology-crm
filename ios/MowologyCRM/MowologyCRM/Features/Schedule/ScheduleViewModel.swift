@@ -173,6 +173,18 @@ final class ScheduleViewModel: ObservableObject {
         await loadSchedule(for: date, reloadWeek: weekChanged)
     }
 
+    /// A stop just moved between two dates — drop both cached days (memory and
+    /// disk-backed load path) and reload the day on screen plus the week strip.
+    func stopMoved(from: String, to: String) async {
+        stopCache.removeValue(forKey: from)
+        stopCache.removeValue(forKey: to)
+        stopCache.removeValue(forKey: isoDateString(from: selectedDate))
+        await loadSchedule(for: selectedDate, reloadWeek: true)
+    }
+
+    /// Builds a client for sheets launched from the schedule (e.g. Move Stop).
+    var client: APIClient { apiClient }
+
     /// Invalidates the cache for the current day and reloads.
     func invalidateAndRefresh() async {
         stopCache.removeValue(forKey: isoDateString(from: selectedDate))

@@ -18,6 +18,8 @@ struct DayListView: View {
     /// Device position the list is sorted from; nil until a fix arrives.
     var userLocation: CLLocation? = nil
     let onRefresh: () async -> Void
+    /// Admin only: asks the parent to open the Move Stop sheet for this stop.
+    var onMove: ((Stop) -> Void)? = nil
 
     /// Tracks whether the one-time initial scroll has already fired.
     @State private var hasAutoScrolled = false
@@ -78,6 +80,25 @@ struct DayListView: View {
                     .listRowSeparator(.hidden)
                     .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                     .id(stop.id)
+                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                        if isAdmin, stop.canBeMoved, let onMove {
+                            Button {
+                                onMove(stop)
+                            } label: {
+                                Label("Move", systemImage: "calendar.badge.clock")
+                            }
+                            .tint(Color.MW.green)
+                        }
+                    }
+                    .contextMenu {
+                        if isAdmin, stop.canBeMoved, let onMove {
+                            Button {
+                                onMove(stop)
+                            } label: {
+                                Label("Move to another date", systemImage: "calendar.badge.clock")
+                            }
+                        }
+                    }
                 }
             }
             .listStyle(.plain)
