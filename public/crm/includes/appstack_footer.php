@@ -322,6 +322,14 @@
       if (!btn || btn.disabled) return;
       // Skip if the button has data-no-loading
       if (btn.hasAttribute('data-no-loading')) return;
+      // Defer one tick: a button disabled during the submit event is dropped from
+      // the posted data, so name="action" buttons would submit with no action.
+      // Also lets us see whether a later handler / confirm() cancelled the submit.
+      setTimeout(function() { if (!e.defaultPrevented) mwShowSubmitLoading(btn); }, 0);
+    });
+
+    function mwShowSubmitLoading(btn) {
+      if (btn.disabled) return;
       // Disable and show spinner
       btn.disabled = true;
       btn.dataset.mwOrigText = btn.innerHTML;
@@ -345,7 +353,7 @@
           delete btn.dataset.mwOrigText;
         }
       }, 8000);
-    });
+    }
 
     // Also intercept AJAX-triggered buttons with class .mw-btn-loading
     document.addEventListener('click', function(e) {
