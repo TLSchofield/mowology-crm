@@ -219,6 +219,13 @@ foreach ($dayStops as $stop) {
         'longitude'        => $hasCoords ? (float)$stop['longitude'] : null,
         'contact_id'       => isset($stop['contact_id']) ? (int)$stop['contact_id'] : null,
         'contact_name'     => isset($stop['contact_name']) ? (string)$stop['contact_name'] : null,
+        // Phone/email/notes were added to getCalendarStops() and the web calendar-stops.php in
+        // May 2026 but never to this endpoint — so the iOS Call button and Access Info card
+        // silently never appeared. The phone decodes all four as optional.
+        'contact_phone'    => !empty($stop['contact_phone']) ? (string)$stop['contact_phone'] : null,
+        'contact_email'    => !empty($stop['contact_email']) ? (string)$stop['contact_email'] : null,
+        'property_notes'   => !empty($stop['property_notes']) ? (string)$stop['property_notes'] : null,
+        'stop_notes'       => !empty($stop['stop_notes']) ? (string)$stop['stop_notes'] : null,
         'company_name'     => isset($stop['company_name']) ? (string)$stop['company_name'] : null,
         'lawn_sqft'        => isset($stop['lawn_sqft']) ? (float)$stop['lawn_sqft'] : null,
         'crew_ids'         => $stop['crew_ids'] ?? ($stop['crew_id'] ? [(int)$stop['crew_id']] : []),

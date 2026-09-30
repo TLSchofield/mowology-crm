@@ -167,13 +167,14 @@ struct VisitDetailView: View {
 
     // MARK: - Compact Property Header
 
+    /// No "Property" header and no street address here — the nav title already shows the
+    /// address, so this card only adds what the title can't: building name/city, arrival,
+    /// directions, and a way to reach the client.
     private var compactPropertySection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            sectionHeader("Property", icon: "house.fill")
-
             VStack(spacing: 0) {
 
-                // Row 1: map-pin icon (tappable) + address/city + arrival + Maps pill
+                // Row 1: map-pin icon (tappable) + building name/city + arrival + Maps pill
                 HStack(spacing: 12) {
                     Button { openInMaps() } label: {
                         Image(systemName: "mappin.circle.fill")
@@ -183,13 +184,20 @@ struct VisitDetailView: View {
                     .buttonStyle(.plain)
 
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(stop.propertyAddress)
-                            .font(.subheadline.bold())
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                        Text(stop.propertyCity)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        // Building name only — the client's name gets its own row below.
+                        if let name = stop.propertyName?.trimmingCharacters(in: .whitespaces), !name.isEmpty {
+                            Text(name)
+                                .font(.subheadline.bold())
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                            Text(stop.propertyCity)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text(stop.propertyCity)
+                                .font(.subheadline.bold())
+                                .foregroundStyle(.primary)
+                        }
                     }
 
                     Spacer()
@@ -217,7 +225,7 @@ struct VisitDetailView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
 
-                // Row 2: contact name + optional Call pill
+                // Row 2: contact name + phone/email buttons
                 let displayName = stop.contactName ?? stop.companyName
                 if let name = displayName {
                     Divider().padding(.leading, 52)
@@ -234,23 +242,19 @@ struct VisitDetailView: View {
 
                         Spacer()
 
-                        if let phone = stop.contactPhone, !phone.isEmpty {
-                            let digits = phone.filter { $0.isNumber || $0 == "+" }
-                            Button {
-                                if let url = URL(string: "tel:\(digits)") { openURL(url) }
-                            } label: {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "phone.fill")
-                                    Text("Call")
-                                }
-                                .font(.caption.bold())
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 5)
-                                .background(Color.MW.green.opacity(0.1))
-                                .foregroundStyle(Color.MW.green)
-                                .clipShape(Capsule())
-                            }
-                            .buttonStyle(.plain)
+                        // Phone + email are always drawn so the row reads the same on every
+                        // stop; they only light up (and tap) when the office has the detail.
+                        let digits = (stop.contactPhone ?? "").filter { $0.isNumber || $0 == "+" }
+                        let email  = (stop.contactEmail ?? "").trimmingCharacters(in: .whitespaces)
+                        contactActionButton(icon: "phone.fill",
+                                            label: "Call \(name)",
+                                            enabled: !digits.isEmpty) {
+                            if let url = URL(string: "tel:\(digits)") { openURL(url) }
+                        }
+                        contactActionButton(icon: "envelope.fill",
+                                            label: "Email \(name)",
+                                            enabled: !email.isEmpty) {
+                            if let url = URL(string: "mailto:\(email)") { openURL(url) }
                         }
                     }
                     .padding(.horizontal, 16)
@@ -260,6 +264,22 @@ struct VisitDetailView: View {
             .background(Color(.systemBackground))
             .clipShape(RoundedRectangle(cornerRadius: 12))
         }
+    }
+
+    /// Round icon button for reaching the contact. Disabled = greyed, no tap target.
+    private func contactActionButton(icon: String, label: String, enabled: Bool,
+                                     action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.subheadline.bold())
+                .frame(width: 36, height: 36)
+                .background(enabled ? Color.MW.green.opacity(0.12) : Color(.systemGray6))
+                .foregroundStyle(enabled ? Color.MW.green : Color(.systemGray3))
+                .clipShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .accessibilityLabel(label)
     }
 
     // MARK: - Access Notes Section

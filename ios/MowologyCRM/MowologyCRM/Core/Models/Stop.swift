@@ -22,6 +22,7 @@ struct Stop: Codable, Identifiable, Hashable {
     let contactId: Int?
     let contactName: String?
     let contactPhone: String?
+    let contactEmail: String?
     let companyName: String?
     let lawnSqft: Int?
     let crewIds: [Int]
@@ -50,6 +51,7 @@ struct Stop: Codable, Identifiable, Hashable {
         case contactId        = "contact_id"
         case contactName      = "contact_name"
         case contactPhone     = "contact_phone"
+        case contactEmail     = "contact_email"
         case companyName      = "company_name"
         case lawnSqft         = "lawn_sqft"
         case crewIds          = "crew_ids"

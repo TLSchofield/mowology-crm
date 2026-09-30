@@ -220,7 +220,7 @@ private struct ServiceBadge: View {
         longitude: -123.1207,
         contactId: 1,
         contactName: "Bob Jones",
-        contactPhone: nil,
+        contactPhone: nil, contactEmail: nil,
         companyName: nil,
         lawnSqft: nil,
         crewIds: [1],
