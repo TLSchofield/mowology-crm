@@ -51,6 +51,12 @@ if (!$property) {
 $hasBillingEntity   = array_key_exists('billing_entity_name',   $property);
 $hasPropertyManager = array_key_exists('property_manager_id',   $property);
 
+// On-site contact — who crew call at the gate. Separate from site_contact_id (the
+// billing client); lives in property_contacts via OnsiteContactService.
+require_once APP_ROOT . '/Modules/Contacts/Services/OnsiteContactService.php';
+$onsiteSvc       = new OnsiteContactService($db);
+$onsiteAvailable = $onsiteSvc->isAvailable();
+
 // ── POST handler ─────────────────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!$canEdit) {
@@ -144,6 +150,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $sql = "UPDATE properties SET " . implode(', ', $set) . " WHERE id = ?";
                 $db->prepare($sql)->execute($params);
 
+                // On-site contact: a typed name wins over the picker; empty picker clears.
+                if ($onsiteAvailable) {
+                    $newName = trim($_POST['onsite_new_name'] ?? '');
+                    $pickId  = (int)($_POST['onsite_contact_id'] ?? 0);
+                    try {
+                        if ($newName !== '') {
+                            $onsiteSvc->quickAddAndAssign(
+                                $propertyId, $newName,
+                                trim($_POST['onsite_new_phone'] ?? '') ?: null,
+                                trim($_POST['onsite_new_email'] ?? '') ?: null
+                            );
+                        } elseif ($pickId > 0) {
+                            $current = $onsiteSvc->getForProperty($propertyId);
+                            if (!$current || (int)$current['contact_id'] !== $pickId) {
+                                $onsiteSvc->setForProperty($propertyId, $pickId);
+                            }
+                        } else {
+                            $onsiteSvc->clearForProperty($propertyId);
+                        }
+                    } catch (InvalidArgumentException $e) {
+                        // Property itself is saved; only the on-site contact was rejected.
+                        throw new RuntimeException('Saved, but the on-site contact was not: ' . $e->getMessage());
+                    }
+                }
+
                 try {
                     logActivityExtended(
                         $user['id'],
@@ -155,6 +186,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 header('Location: view.php?id=' . $propertyId . '&updated=1' . ($returnTo ? '&return_to=' . urlencode($returnTo) : ''));
                 exit;
+            } catch (RuntimeException $e) {
+                $error = $e->getMessage();
             } catch (Throwable $e) {
                 error_log('Property edit error: ' . $e->getMessage());
                 $error = 'Error saving property. Please try again.';
@@ -174,6 +207,9 @@ try {
 } catch (Throwable $e) {
     $contactsList = [];
 }
+
+// Current on-site contact (null when none, or when the table is missing)
+$onsiteContact = $onsiteAvailable ? $onsiteSvc->getForProperty($propertyId) : null;
 
 // Companies list for property manager dropdown
 try {
@@ -310,7 +346,7 @@ if ($apiKey) {
                                 </select>
                             </div>
                             <div class="form-group col-md-4">
-                                <label class="form-label">Property Manager <span class="text-muted" style="font-weight:400;">(person / on-site contact)</span></label>
+                                <label class="form-label">Client contact <span class="text-muted" style="font-weight:400;">(owner / billing person)</span></label>
                                 <select name="site_contact_id" id="siteContactPicker" class="form-control mw-searchable" data-placeholder="Search contacts…" data-none-label="No contact" <?= $canEdit ? '' : 'disabled' ?>>
                                     <option value="">— none —</option>
                                     <?php foreach ($contactsList as $c):
@@ -411,6 +447,49 @@ if ($apiKey) {
                         </div>
                     </div>
                 </div>
+
+                <?php if ($onsiteAvailable): ?>
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">On-site contact</h5>
+                        <small class="text-muted">The person crew call from the gate — caretaker, building manager, tenant. Shown on the crew phone above the client.</small>
+                    </div>
+                    <div class="card-body">
+                        <p class="mb-3">
+                            <?php if ($onsiteContact): ?>
+                                <strong><?= htmlspecialchars($onsiteContact['name']) ?></strong>
+                                <?php if ($onsiteContact['phone']): ?> · <a href="tel:<?= htmlspecialchars($onsiteContact['phone']) ?>"><?= htmlspecialchars($onsiteContact['phone']) ?></a><?php endif; ?>
+                                <?php if ($onsiteContact['email']): ?> · <a href="mailto:<?= htmlspecialchars($onsiteContact['email']) ?>"><?= htmlspecialchars($onsiteContact['email']) ?></a><?php endif; ?>
+                            <?php else: ?>
+                                <span class="text-muted">None set — crew currently see the client contact.</span>
+                            <?php endif; ?>
+                        </p>
+                        <div class="form-row">
+                            <div class="form-group col-md-6">
+                                <label class="form-label">Pick an existing contact</label>
+                                <select name="onsite_contact_id" class="form-control mw-searchable" data-placeholder="Search contacts…" data-none-label="No on-site contact" <?= $canEdit ? '' : 'disabled' ?>>
+                                    <option value="">— none —</option>
+                                    <?php foreach ($contactsList as $c):
+                                        $label = trim(($c['first_name'] ?? '') . ' ' . ($c['last_name'] ?? ''));
+                                        if (!empty($c['email'])) $label .= ' · ' . $c['email'];
+                                        $sel = $onsiteContact && (int)$onsiteContact['contact_id'] === (int)$c['id'] ? ' selected' : '';
+                                    ?>
+                                    <option value="<?= (int)$c['id'] ?>"<?= $sel ?>><?= htmlspecialchars($label) ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="form-group col-md-6">
+                                <label class="form-label">…or add a new one <span class="text-muted" style="font-weight:400;">(name wins over the picker)</span></label>
+                                <input type="text" name="onsite_new_name" class="form-control mb-2" placeholder="Full name" autocomplete="off" <?= $canEdit ? '' : 'disabled' ?>>
+                                <div class="form-row">
+                                    <div class="col-6"><input type="tel" name="onsite_new_phone" class="form-control" placeholder="Mobile" autocomplete="off" <?= $canEdit ? '' : 'disabled' ?>></div>
+                                    <div class="col-6"><input type="email" name="onsite_new_email" class="form-control" placeholder="Email" autocomplete="off" <?= $canEdit ? '' : 'disabled' ?>></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <?php endif; ?>
 
                 <?php if ($canEdit): ?>
                 <div class="mw-form-actions mb-4">

@@ -80,6 +80,7 @@ try {
             'company_name'      => $stop['company_name'] ?? null,
             'contact_name'      => $stop['contact_name'] ?? null,
             'contact_phone'     => $stop['contact_phone'] ?? null,
+            'onsite_contact'    => $stop['onsite_contact'] ?? null,
             'property_notes'    => $stop['property_notes'] ?? null,
             'stop_notes'        => $stop['stop_notes'] ?? null,
             'lawn_sqft'         => isset($stop['lawn_sqft']) && $stop['lawn_sqft'] > 0 ? (float)$stop['lawn_sqft'] : null,

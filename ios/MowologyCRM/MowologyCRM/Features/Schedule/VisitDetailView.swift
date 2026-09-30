@@ -225,45 +225,61 @@ struct VisitDetailView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
 
-                // Row 2: contact name + phone/email buttons
-                let displayName = stop.contactName ?? stop.companyName
-                if let name = displayName {
+                // Row 2: who to call from the gate. The on-site contact leads when the
+                // office has set one; the billing client always follows so crew can still
+                // reach the account holder.
+                if let osc = stop.onsiteContact, !osc.name.isEmpty {
                     Divider().padding(.leading, 52)
-
-                    HStack(spacing: 12) {
-                        Image(systemName: "person.circle.fill")
-                            .font(.title2)
-                            .foregroundStyle(Color(.systemGray3))
-
-                        Text(name)
-                            .font(.subheadline.bold())
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-
-                        Spacer()
-
-                        // Phone + email are always drawn so the row reads the same on every
-                        // stop; they only light up (and tap) when the office has the detail.
-                        let digits = (stop.contactPhone ?? "").filter { $0.isNumber || $0 == "+" }
-                        let email  = (stop.contactEmail ?? "").trimmingCharacters(in: .whitespaces)
-                        contactActionButton(icon: "phone.fill",
-                                            label: "Call \(name)",
-                                            enabled: !digits.isEmpty) {
-                            if let url = URL(string: "tel:\(digits)") { openURL(url) }
-                        }
-                        contactActionButton(icon: "envelope.fill",
-                                            label: "Email \(name)",
-                                            enabled: !email.isEmpty) {
-                            if let url = URL(string: "mailto:\(email)") { openURL(url) }
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
+                    contactRow(name: osc.name, tag: "ON SITE", icon: "figure.wave.circle.fill",
+                               iconTint: Color.MW.green, phone: osc.phone, email: osc.email)
+                }
+                if let name = stop.contactName ?? stop.companyName {
+                    Divider().padding(.leading, 52)
+                    contactRow(name: name, tag: stop.onsiteContact == nil ? nil : "CLIENT",
+                               icon: "person.circle.fill", iconTint: Color(.systemGray3),
+                               phone: stop.contactPhone, email: stop.contactEmail)
                 }
             }
             .background(Color(.systemBackground))
             .clipShape(RoundedRectangle(cornerRadius: 12))
         }
+    }
+
+    /// One person line: avatar, name (+ optional small role tag), phone and email buttons.
+    /// Phone + email are always drawn so every row reads the same; they only light up
+    /// (and tap) when the office has the detail.
+    private func contactRow(name: String, tag: String?, icon: String, iconTint: Color,
+                            phone: String?, email: String?) -> some View {
+        let digits  = (phone ?? "").filter { $0.isNumber || $0 == "+" }
+        let address = (email ?? "").trimmingCharacters(in: .whitespaces)
+        return HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.title2)
+                .foregroundStyle(iconTint)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(name)
+                    .font(.subheadline.bold())
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                if let tag {
+                    Text(tag)
+                        .font(.caption2.bold())
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer()
+
+            contactActionButton(icon: "phone.fill", label: "Call \(name)", enabled: !digits.isEmpty) {
+                if let url = URL(string: "tel:\(digits)") { openURL(url) }
+            }
+            contactActionButton(icon: "envelope.fill", label: "Email \(name)", enabled: !address.isEmpty) {
+                if let url = URL(string: "mailto:\(address)") { openURL(url) }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
     }
 
     /// Round icon button for reaching the contact. Disabled = greyed, no tap target.

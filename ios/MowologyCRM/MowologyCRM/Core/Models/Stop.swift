@@ -7,6 +7,19 @@
 
 import Foundation
 
+/// The on-site person for a property — caretaker, building manager, tenant.
+struct OnsiteContact: Codable, Hashable {
+    let contactId: Int
+    let name: String
+    let phone: String?
+    let email: String?
+
+    enum CodingKeys: String, CodingKey {
+        case contactId = "contact_id"
+        case name, phone, email
+    }
+}
+
 struct Stop: Codable, Identifiable, Hashable {
     let stopId: Int
     let stopDate: String?
@@ -23,6 +36,9 @@ struct Stop: Codable, Identifiable, Hashable {
     let contactName: String?
     let contactPhone: String?
     let contactEmail: String?
+    /// Who crew call from the gate (property_contacts.site_supervisor). nil = none set,
+    /// in which case the contact_* fields (the billing client) are all there is.
+    let onsiteContact: OnsiteContact?
     let companyName: String?
     let lawnSqft: Int?
     let crewIds: [Int]
@@ -52,6 +68,7 @@ struct Stop: Codable, Identifiable, Hashable {
         case contactName      = "contact_name"
         case contactPhone     = "contact_phone"
         case contactEmail     = "contact_email"
+        case onsiteContact    = "onsite_contact"
         case companyName      = "company_name"
         case lawnSqft         = "lawn_sqft"
         case crewIds          = "crew_ids"

@@ -80,6 +80,7 @@ try {
                 'latitude'          => $stop['latitude']  ? (float)$stop['latitude']  : null,
                 'longitude'         => $stop['longitude'] ? (float)$stop['longitude'] : null,
                 'contact_name'      => $stop['contact_name'] ?? '',
+                'onsite_contact'    => $stop['onsite_contact'] ?? null,
                 'crew_ids'          => $stop['crew_ids'] ?? [],
                 'crew_names'        => $stop['crew_names'] ?? [],
                 'visits'            => $visits,

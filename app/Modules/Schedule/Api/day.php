@@ -226,6 +226,9 @@ foreach ($dayStops as $stop) {
         'contact_email'    => !empty($stop['contact_email']) ? (string)$stop['contact_email'] : null,
         'property_notes'   => !empty($stop['property_notes']) ? (string)$stop['property_notes'] : null,
         'stop_notes'       => !empty($stop['stop_notes']) ? (string)$stop['stop_notes'] : null,
+        // Who crew call at the gate (property_contacts.site_supervisor). null = none set;
+        // the contact_* fields above stay the billing client.
+        'onsite_contact'   => $stop['onsite_contact'] ?? null,
         'company_name'     => isset($stop['company_name']) ? (string)$stop['company_name'] : null,
         'lawn_sqft'        => isset($stop['lawn_sqft']) ? (float)$stop['lawn_sqft'] : null,
         'crew_ids'         => $stop['crew_ids'] ?? ($stop['crew_id'] ? [(int)$stop['crew_id']] : []),

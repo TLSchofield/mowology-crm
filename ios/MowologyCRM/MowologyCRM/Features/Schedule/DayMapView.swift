@@ -535,7 +535,7 @@ private struct StopCarouselCard: View {
                     propertyId: 1, propertyAddress: "3304 West 12th Avenue",
                     propertyCity: "Vancouver", propertyName: nil,
                     latitude: 49.2604, longitude: -123.1625,
-                    contactId: 1, contactName: "Gary Hudson", contactPhone: nil, contactEmail: nil,
+                    contactId: 1, contactName: "Gary Hudson", contactPhone: nil, contactEmail: nil, onsiteContact: nil,
                     companyName: nil,
                     lawnSqft: nil, crewIds: [1], crewNames: ["Tim SCH"],
                     visitCount: 1,

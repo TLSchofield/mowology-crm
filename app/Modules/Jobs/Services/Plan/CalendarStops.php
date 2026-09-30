@@ -85,6 +85,24 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
     } catch (Exception $e) { /* ignore */ }
     $routePinSelect = $hasRoutePin ? ', cs.route_pin' : '';
 
+    // On-site contact (property_contacts.site_supervisor) — the person crew call at the
+    // gate, distinct from ct (site_contact_id = the billing client). Joined on a
+    // correlated LIMIT 1 so it can never multiply stop rows; skipped entirely when the
+    // table is missing so the schedule still loads.
+    require_once dirname(__DIR__, 3) . '/Contacts/Services/OnsiteContactService.php';
+    $oscSelect = '';
+    $oscJoin   = '';
+    if ((new OnsiteContactService($db))->isAvailable()) {
+        $oscSelect = ",
+            osc.id AS onsite_contact_id,
+            osc.first_name AS onsite_first_name,
+            osc.last_name AS onsite_last_name,
+            osc.mobile AS onsite_mobile,
+            osc.phone AS onsite_phone,
+            osc.email AS onsite_email";
+        $oscJoin = "LEFT JOIN contacts osc ON osc.id = " . OnsiteContactService::primaryIdSubquery('p') . "\n";
+    }
+
     // Single query: stops with their visits.
     // Note: lawn_sqft + last_completed_date used to be computed via two
     // correlated subqueries in the SELECT list, producing O(N) extra
@@ -139,11 +157,13 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
             ctr.billing_cycle AS contract_billing_cycle,
             COALESCE(jv.is_flagged, 0) AS is_flagged,
             COALESCE(ct.has_reviewed, 0) AS contact_has_reviewed
+            {$oscSelect}
         FROM calendar_stops cs
         JOIN properties p ON cs.property_id = p.id
         LEFT JOIN company_properties cp ON p.id = cp.property_id
         LEFT JOIN companies co ON cp.company_id = co.id
         LEFT JOIN contacts ct ON p.site_contact_id = ct.id
+        {$oscJoin}
         LEFT JOIN users u ON cs.crew_id = u.id
         LEFT JOIN job_visits jv ON jv.stop_id = cs.id AND jv.status NOT IN ('cancelled')
         LEFT JOIN job_plans jp ON jv.plan_id = jp.id
@@ -294,6 +314,14 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
                 'contact_name'  => $row['contact_name'],
                 'contact_phone' => $row['contact_mobile'] ?: ($row['contact_phone'] ?? null),
                 'contact_email' => !empty($row['contact_email']) ? trim($row['contact_email']) : null,
+                'onsite_contact' => !empty($row['onsite_contact_id']) ? OnsiteContactService::shape([
+                    'id'         => $row['onsite_contact_id'],
+                    'first_name' => $row['onsite_first_name'],
+                    'last_name'  => $row['onsite_last_name'],
+                    'mobile'     => $row['onsite_mobile'],
+                    'phone'      => $row['onsite_phone'],
+                    'email'      => $row['onsite_email'],
+                ]) : null,
                 'property_name' => $row['property_name'],
                 'property_notes' => !empty($row['property_notes']) ? trim($row['property_notes']) : null,
                 'stop_notes'     => !empty($row['stop_notes'])     ? trim($row['stop_notes'])     : null,
