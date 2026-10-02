@@ -4,6 +4,7 @@
  */
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
+require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceLineItems.php';
 
 requireLogin();
 $user = getCurrentUser();
@@ -361,6 +362,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $dueDate       = $_POST['due_date'] ?? date('Y-m-d', strtotime('+30 days'));
         $description   = trim($_POST['description'] ?? '');
         $subtotal      = floatval($_POST['subtotal'] ?? 0);
+        // The form posts editable line-item rows (InvoiceLineItems). When it does, they
+        // ARE the invoice: the old plan-copy and single-amount paths below are skipped.
+        $manualLines = null;
+        if (InvoiceLineItems::posted($_POST)) {
+            $parsedLines      = InvoiceLineItems::fromPost($_POST);
+            $manualLines      = $parsedLines['items'];
+            $subtotal         = $parsedLines['subtotal'];
+            $usePlanLineItems = false;
+        }
         // Read GST rate from business settings (falls back to 5% if not configured)
         $bsStmt = $db->query("SELECT gst_rate, gst_registration FROM business_settings LIMIT 1");
         $bs = $bsStmt ? $bsStmt->fetch(PDO::FETCH_ASSOC) : [];
@@ -412,7 +422,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!$companyId && !$contactId) {
             $error = 'Please select a customer.';
         } elseif ($subtotal <= 0) {
-            $error = 'Please enter a valid amount.';
+            $error = $manualLines !== null ? 'Add at least one line item with a price.' : 'Please enter a valid amount.';
         } elseif (empty($selectedRecipients)) {
             $error = 'Please select at least one invoice recipient.';
         } else {
@@ -517,7 +527,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 }
 
-                if (!$usePlanLineItems) {
+                if ($manualLines !== null) {
+                    $liStmt = $db->prepare("
+                        INSERT INTO invoice_line_items
+                            (invoice_id, title, description, quantity, unit_price, line_total, visit_id, service_date, sort_order)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ");
+                    foreach ($manualLines as $i => $li) {
+                        $liStmt->execute([
+                            $invoiceId,
+                            $li['title'],
+                            $li['description'],
+                            $li['quantity'],
+                            $li['unit_price'],
+                            $li['line_total'],
+                            $li['visit_id'] ?: ($linkedVisitId ?: null),
+                            $li['service_date'] ?: $serviceDate,
+                            $i,
+                        ]);
+                    }
+                } elseif (!$usePlanLineItems) {
                     $db->prepare("
                         INSERT INTO invoice_line_items (invoice_id, description, quantity, unit_price, line_total, visit_id, service_date)
                         VALUES (?, ?, 1, ?, ?, ?, ?)
@@ -883,78 +912,42 @@ if ($apiKey) {
                             </div>
                         </div>
 
-                        <!-- ── Description & Amount ── -->
+                        <!-- ── Line items (editable; prefilled from the job plan or visit) ── -->
                         <?php
-                        $planLineItems = $prefill['plan_line_items'] ?? [];
-                        $lineItemsSubtotal = array_sum(array_column($planLineItems, 'line_total'));
+                        $initialLines = [];
+                        // After a failed submit, show what was typed rather than the original prefill.
+                        foreach (($manualLines ?? []) as $ml) {
+                            $initialLines[] = ['title' => (string)$ml['title'], 'description' => $ml['description'],
+                                               'quantity' => $ml['quantity'], 'unit_price' => $ml['unit_price']];
+                        }
+                        foreach ($initialLines ? [] : ($prefill['plan_line_items'] ?? []) as $pli) {
+                            $initialLines[] = [
+                                'title'       => (string)($pli['service_type'] ?? ''),
+                                'description' => (string)($pli['description'] ?? ''),
+                                'quantity'    => (float)($pli['quantity'] ?? 1),
+                                'unit_price'  => (float)($pli['unit_price'] ?? 0),
+                            ];
+                        }
+                        if (!$initialLines && (float)($prefill['amount'] ?? 0) > 0) {
+                            $initialLines[] = [
+                                'title'       => '',
+                                'description' => (string)($prefill['description'] ?? ''),
+                                'quantity'    => 1,
+                                'unit_price'  => (float)$prefill['amount'],
+                            ];
+                        }
+                        $formTaxRate = 0.05;
+                        try {
+                            $trStmt = $db->query("SELECT gst_rate FROM business_settings LIMIT 1");
+                            $trRow  = $trStmt ? $trStmt->fetch(PDO::FETCH_ASSOC) : null;
+                            if ($trRow && $trRow['gst_rate'] !== null) $formTaxRate = round((float)$trRow['gst_rate'] / 100, 4);
+                        } catch (Throwable $e) { /* keep 5% */ }
                         ?>
-                        <?php if ($planLineItems): ?>
-                        <!-- Zero-re-entry: line items auto-populated from quote/plan -->
-                        <input type="hidden" name="use_plan_line_items" value="1">
-                        <input type="hidden" name="subtotal" value="<?php echo htmlspecialchars((string)$lineItemsSubtotal); ?>">
-                        <input type="hidden" name="service_date" value="<?php echo htmlspecialchars($prefill['scheduled_date'] ?? ''); ?>">
-
-                        <div class="alert alert-success d-flex align-items-center gap-2 py-2 mb-3" style="font-size:.85rem;">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><polyline points="20 6 9 17 4 12"/></svg>
-                            Line items auto-populated from job plan — no re-entry needed
+                        <?php if (!empty($prefill['plan_line_items'])): ?>
+                        <div class="alert alert-success py-2 mb-3" style="font-size:.85rem;">
+                            Lines filled in from the job plan. Change, remove or add to them before creating the invoice.
                         </div>
-
-                        <table class="table table-sm table-bordered mb-0" style="font-size:.85rem;">
-                            <thead class="table-light">
-                                <tr>
-                                    <th>Service</th>
-                                    <th style="width:70px;">Qty</th>
-                                    <th style="width:90px;">Unit Price</th>
-                                    <th style="width:90px;">Line Total</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($planLineItems as $pli): ?>
-                                <tr>
-                                    <td>
-                                        <div class="font-weight-600"><?php echo htmlspecialchars($pli['service_type'] ?? 'Service'); ?></div>
-                                        <?php if (!empty($pli['description'])): ?>
-                                        <div class="text-muted" style="font-size:.8rem;"><?php echo htmlspecialchars($pli['description']); ?></div>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td><?php echo htmlspecialchars((string)$pli['quantity']); ?> <span class="text-muted"><?php echo htmlspecialchars($pli['unit_type'] ?? ''); ?></span></td>
-                                    <td>$<?php echo number_format(floatval($pli['unit_price']), 2); ?></td>
-                                    <td>$<?php echo number_format(floatval($pli['line_total']), 2); ?></td>
-                                </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-
-                        <div class="mw-totals-box mt-3">
-                            <div class="mw-totals-row">
-                                <span>Subtotal</span>
-                                <span class="mw-totals-value">$<?php echo number_format($lineItemsSubtotal, 2); ?></span>
-                            </div>
-                            <div class="mw-totals-row">
-                                <span>GST (5%)</span>
-                                <span class="mw-totals-value">$<?php echo number_format($lineItemsSubtotal * 0.05, 2); ?></span>
-                            </div>
-                            <div class="mw-totals-row grand">
-                                <span>Total</span>
-                                <span class="mw-totals-value">$<?php echo number_format($lineItemsSubtotal * 1.05, 2); ?></span>
-                            </div>
-                        </div>
-
-                        <?php else: ?>
-                        <!-- Manual / no plan items: single description + amount -->
-                        <div class="mw-form-group">
-                            <label class="form-label">Description</label>
-                            <textarea name="description" class="form-control" rows="2"
-                                      placeholder="Services rendered…"><?php echo htmlspecialchars($prefill['description'] ?? ''); ?></textarea>
-                        </div>
-
-                        <div class="mw-form-group" style="max-width:300px;">
-                            <label class="form-label">Amount (before tax) *</label>
-                            <input type="number" name="subtotal" id="subtotalInput" class="form-control"
-                                   step="0.01" min="0" required
-                                   value="<?php echo htmlspecialchars($prefill['amount'] ?? ''); ?>"
-                                   oninput="calculateTotals()">
-                        </div>
+                        <?php endif; ?>
 
                         <div class="mw-form-group" style="max-width:260px;">
                             <label class="form-label">Service Date <span class="text-muted">(optional)</span></label>
@@ -967,13 +960,32 @@ if ($apiKey) {
                                    value="<?php echo htmlspecialchars($prefill['scheduled_date'] ?? date('Y-m-d')); ?>">
                         </div>
 
-                        <div class="mw-totals-box">
+                        <label class="form-label">Line Items *</label>
+                        <table class="table table-sm table-bordered mb-0" style="font-size:.85rem;">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Service / description</th>
+                                    <th style="width:90px;">Qty</th>
+                                    <th style="width:120px;">Unit Price</th>
+                                    <th style="width:100px;" class="text-right">Line Total</th>
+                                    <th style="width:44px;"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="invLineItemsBody"></tbody>
+                        </table>
+                        <div class="d-flex mt-2" style="gap:8px;flex-wrap:wrap;">
+                            <div id="invServicePicker"></div>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="invAddLineBtn">+ Add Line</button>
+                        </div>
+                        <input type="hidden" name="subtotal" id="subtotalInput" value="0">
+
+                        <div class="mw-totals-box mt-3">
                             <div class="mw-totals-row">
                                 <span>Subtotal</span>
                                 <span class="mw-totals-value" id="subtotalDisplay">$0.00</span>
                             </div>
                             <div class="mw-totals-row">
-                                <span>GST (5%)</span>
+                                <span>GST (<?php echo rtrim(rtrim(number_format($formTaxRate * 100, 2), '0'), '.'); ?>%)</span>
                                 <span class="mw-totals-value" id="taxDisplay">$0.00</span>
                             </div>
                             <div class="mw-totals-row grand">
@@ -981,7 +993,12 @@ if ($apiKey) {
                                 <span class="mw-totals-value" id="totalDisplay">$0.00</span>
                             </div>
                         </div>
-                        <?php endif; ?>
+                        <script src="/crm/js/mw-service-picker.js?v=20261002a"></script>
+                        <script>
+                        window.MW_INV_LINES   = <?php echo json_encode($initialLines, JSON_HEX_TAG | JSON_HEX_AMP | JSON_INVALID_UTF8_SUBSTITUTE) ?: '[]'; ?>;
+                        window.MW_INV_CATALOG = <?php echo json_encode(InvoiceLineItems::catalog($db), JSON_HEX_TAG | JSON_HEX_AMP | JSON_INVALID_UTF8_SUBSTITUTE) ?: '[]'; ?>;
+                        window.MW_INV_TAX     = <?php echo json_encode($formTaxRate); ?>;
+                        </script>
 
                         <?php
                         // Extras add-on preview
@@ -1445,16 +1462,73 @@ document.getElementById('invoiceForm').addEventListener('submit', function (e) {
     }
 });
 
-// ── Totals calculation ──
+// ── Line items + totals ──
+const invLinesBody = document.getElementById('invLineItemsBody');
+
 function calculateTotals() {
-    const el = document.getElementById('subtotalInput');
-    if (!el) return;
-    const subtotal = parseFloat(el.value) || 0;
-    const tax   = subtotal * 0.05;
+    if (!invLinesBody) return;
+    let subtotal = 0;
+    invLinesBody.querySelectorAll('.mw-li-row').forEach(function (row) {
+        const q  = parseFloat(row.querySelector('.mw-li-qty').value)  || 0;
+        const u  = parseFloat(row.querySelector('.mw-li-unit').value) || 0;
+        const lt = Math.round((q || 1) * u * 100) / 100;
+        row.querySelector('.mw-li-total').textContent = '$' + lt.toFixed(2);
+        subtotal += lt;
+    });
+    subtotal = Math.round(subtotal * 100) / 100;
+    const tax   = Math.round(subtotal * (window.MW_INV_TAX || 0.05) * 100) / 100;
     const total = subtotal + tax;
+    document.getElementById('subtotalInput').value         = subtotal.toFixed(2);
     document.getElementById('subtotalDisplay').textContent = '$' + subtotal.toFixed(2);
     document.getElementById('taxDisplay').textContent      = '$' + tax.toFixed(2);
     document.getElementById('totalDisplay').textContent    = '$' + total.toFixed(2);
+}
+
+function addInvoiceLine(data) {
+    data = data || {};
+    const row = document.createElement('tr');
+    row.className = 'mw-li-row';
+    row.innerHTML =
+        '<td><div class="text-muted mw-li-title-label" style="font-size:.75rem;"></div>' +
+            '<input type="text" name="li_description[]" class="form-control form-control-sm mw-li-desc" placeholder="Describe the work">' +
+            '<input type="hidden" name="li_title[]" value=""></td>' +
+        '<td><input type="number" step="0.01" min="0" name="li_quantity[]" class="form-control form-control-sm mw-li-qty" value="1"></td>' +
+        '<td><input type="number" step="0.01" min="0" name="li_unit_price[]" class="form-control form-control-sm mw-li-unit" value="0.00"></td>' +
+        '<td class="mw-li-total text-right font-weight-600 pr-2">$0.00</td>' +
+        '<td><button type="button" class="btn btn-sm btn-outline-danger mw-li-remove" title="Remove">&times;</button></td>';
+    row.querySelector('.mw-li-title-label').textContent = data.title || '';
+    row.querySelector('input[name="li_title[]"]').value = data.title || '';
+    row.querySelector('.mw-li-desc').value = data.description || '';
+    if (data.quantity != null) row.querySelector('.mw-li-qty').value = String(data.quantity);
+    if (data.unit_price != null) row.querySelector('.mw-li-unit').value = (parseFloat(data.unit_price) || 0).toFixed(2);
+    row.querySelectorAll('.mw-li-qty, .mw-li-unit').forEach(function (inp) { inp.addEventListener('input', calculateTotals); });
+    row.querySelector('.mw-li-remove').addEventListener('click', function () {
+        row.remove();
+        if (!invLinesBody.querySelector('.mw-li-row')) addInvoiceLine();   // always keep one row
+        calculateTotals();
+    });
+    invLinesBody.appendChild(row);
+    calculateTotals();
+    return row;
+}
+
+if (invLinesBody) {
+    (window.MW_INV_LINES || []).forEach(function (l) { addInvoiceLine(l); });
+    if (!invLinesBody.querySelector('.mw-li-row')) addInvoiceLine();
+    document.getElementById('invAddLineBtn').addEventListener('click', function () {
+        addInvoiceLine().querySelector('.mw-li-desc').focus();
+    });
+    if (window.MwServicePicker) {
+        MwServicePicker.attach(document.getElementById('invServicePicker'), window.MW_INV_CATALOG || [], function (svc) {
+            // A fresh blank row is replaced rather than left empty above the picked service.
+            const rows = invLinesBody.querySelectorAll('.mw-li-row');
+            if (rows.length === 1) {
+                const r = rows[0];
+                if (!r.querySelector('.mw-li-desc').value && !(parseFloat(r.querySelector('.mw-li-unit').value) > 0)) r.remove();
+            }
+            addInvoiceLine({ title: svc.name, description: svc.description || svc.name, quantity: 1, unit_price: svc.base_price });
+        });
+    }
 }
 calculateTotals();
 

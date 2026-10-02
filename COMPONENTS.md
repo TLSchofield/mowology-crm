@@ -109,6 +109,23 @@ Reference catalog of shared, reusable JS/CSS UI components under `public/crm/js/
 
 ---
 
+### MwServicePicker ("Add from services")
+- **File:** `public/crm/js/mw-service-picker.js` (load per page; not in the global footer)
+- **Purpose:** Searchable dropdown of the product/service catalog that hands the picked service to your line-item table. Reuses the quote builder's `.mw-template-*` styles.
+- **Usage:**
+  ```html
+  <div id="invServicePicker"></div>
+  <script>
+  MwServicePicker.attach(document.getElementById('invServicePicker'), catalog, function (svc) {
+      addRow({ title: svc.name, description: svc.description, unit_price: svc.base_price });
+  });
+  </script>
+  ```
+  `catalog` comes from `InvoiceLineItems::catalog($db)` (`app/Modules/Invoices/Services/InvoiceLineItems.php`), which also parses the posted `li_*[]` rows (`fromPost()`).
+- **Used by:** `invoices/create.php`, `invoices/edit.php`. `quotes/create.php` still has its own older copy inline.
+
+---
+
 ## Layout & Navigation
 
 ### Card Layout Manager

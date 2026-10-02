@@ -180,6 +180,10 @@ try {
 
 } catch (PDOException $e) {
     error_log('Send install link DB error: ' . $e->getMessage());
+    // The PHP error_log location on this host is unknown; this file is readable over FTP.
+    if (function_exists('_loginDebugLog')) {
+        _loginDebugLog('[send-install-link] PDO ' . $e->getCode() . ': ' . $e->getMessage() . ' @ ' . basename($e->getFile()) . ':' . $e->getLine());
+    }
     http_response_code(500);
     echo json_encode(['error' => 'A database error occurred. Please try again.']);
 } catch (Exception $e) {

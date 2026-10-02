@@ -30,6 +30,7 @@
  */
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
+require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceLineItems.php';
 
 requireLogin();
 $user = getCurrentUser();
@@ -165,41 +166,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ];
         }
 
-        // Line items
-        $postDescriptions = $_POST['li_description']  ?? [];
-        $postQuantities   = $_POST['li_quantity']     ?? [];
-        $postUnitPrices   = $_POST['li_unit_price']   ?? [];
-        $postSortOrders   = $_POST['li_sort_order']   ?? [];
-        $postVisitIds     = $_POST['li_visit_id']     ?? [];
-        $postServiceDates = $_POST['li_service_date'] ?? [];
-        $postTitles       = $_POST['li_title']        ?? [];
-
-        $cleanLineItems = [];
-        $runningSubtotal = 0.0;
-        $rowCount = max(count($postDescriptions), count($postUnitPrices));
-        for ($i = 0; $i < $rowCount; $i++) {
-            $desc = trim((string)($postDescriptions[$i] ?? ''));
-            $qty  = floatval($postQuantities[$i] ?? 0);
-            $unit = floatval($postUnitPrices[$i] ?? 0);
-            // Skip completely empty rows
-            if ($desc === '' && $qty === 0.0 && $unit === 0.0) continue;
-            if ($qty <= 0) $qty = 1;
-            $lineTotal = round($qty * $unit, 2);
-            $runningSubtotal += $lineTotal;
-            $visitId     = intval($postVisitIds[$i] ?? 0);
-            $serviceDate = trim((string)($postServiceDates[$i] ?? ''));
-            $title       = trim((string)($postTitles[$i] ?? ''));
-            $cleanLineItems[] = [
-                'description'  => $desc !== '' ? $desc : 'Services rendered',
-                'quantity'     => $qty,
-                'unit_price'   => $unit,
-                'line_total'   => $lineTotal,
-                'sort_order'   => intval($postSortOrders[$i] ?? $i),
-                'visit_id'     => $visitId > 0 ? $visitId : null,
-                'service_date' => $serviceDate !== '' ? $serviceDate : null,
-                'title'        => $title !== '' ? $title : null,
-            ];
-        }
+        // Line items — parsing shared with create.php (InvoiceLineItems).
+        $parsedLines     = InvoiceLineItems::fromPost($_POST);
+        $cleanLineItems  = $parsedLines['items'];
+        $runningSubtotal = $parsedLines['subtotal'];
 
         if (empty($cleanLineItems)) {
             $error = 'Please keep at least one line item.';
@@ -700,9 +670,12 @@ $activePage = 'invoices';
                             </tbody>
                         </table>
 
-                        <button type="button" class="btn btn-sm btn-outline-secondary mt-2" id="addLineItemBtn">
-                            <i data-feather="plus" class="mr-1"></i> Add Line
-                        </button>
+                        <div class="d-flex mt-2" style="gap:8px;flex-wrap:wrap;">
+                            <div id="invServicePicker"></div>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="addLineItemBtn">
+                                <i data-feather="plus" class="mr-1"></i> Add Line
+                            </button>
+                        </div>
 
                         <div class="mw-totals-box mt-3">
                             <div class="mw-totals-row">
@@ -758,6 +731,7 @@ $activePage = 'invoices';
                 </p>
             </form>
 
+<script src="/crm/js/mw-service-picker.js?v=20261002a"></script>
 <script>
 (function () {
     'use strict';
@@ -822,7 +796,8 @@ $activePage = 'invoices';
     // after a row is removed.
     var liRowCounter = 0;
 
-    addBtn.addEventListener('click', function () {
+    function addRow(data) {
+        data = data || {};
         var dateId = 'li-service-date-new-' + (liRowCounter++);
         var row = document.createElement('tr');
         row.className = 'mw-li-row';
@@ -842,12 +817,26 @@ $activePage = 'invoices';
             '<input type="hidden" name="li_sort_order[]" value="' + tbody.querySelectorAll('.mw-li-row').length + '">' +
             '<input type="hidden" name="li_visit_id[]" value="0">' +
             '<input type="hidden" name="li_title[]" value="">';
+        // Values are set as properties, never concatenated into the HTML above.
+        row.querySelector('.mw-li-desc').value = data.description || data.title || '';
+        row.querySelector('input[name="li_title[]"]').value = data.title || '';
+        if (data.unit_price != null) row.querySelector('.mw-li-unit').value = (parseFloat(data.unit_price) || 0).toFixed(2);
         tbody.appendChild(row);
         wireRow(row);
         if (window.mwInitDatePickers) window.mwInitDatePickers(row);
         row.querySelector('.mw-li-desc').focus();
         recalc();
-    });
+    }
+
+    addBtn.addEventListener('click', function () { addRow(); });
+
+    if (window.MwServicePicker) {
+        MwServicePicker.attach(document.getElementById('invServicePicker'),
+            <?php echo json_encode(InvoiceLineItems::catalog($db), JSON_HEX_TAG | JSON_HEX_AMP | JSON_INVALID_UTF8_SUBSTITUTE) ?: '[]'; ?>,
+            function (svc) {
+                addRow({ title: svc.name, description: svc.description || svc.name, unit_price: svc.base_price });
+            });
+    }
 
     // ── Recipients editor ──────────────────────────────
     var rcptBody  = document.getElementById('recipientsBody');

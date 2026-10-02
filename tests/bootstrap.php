@@ -55,6 +55,7 @@ require_once __DIR__ . '/../app/Modules/Contracts/Services/ContractTermsService.
 
 // Invoices
 require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceFromVisitService.php';
+require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceLineItems.php';
 require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceRouting.php';
 
 // CMS
