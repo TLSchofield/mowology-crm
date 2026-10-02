@@ -5,6 +5,7 @@
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 require_once dirname(__DIR__) . '/includes/timeclock-functions.php';
+require_once APP_ROOT . '/Modules/Team/Services/TrackingSetupGate.php';
 
 requireLogin();
 $user = getCurrentUser();
@@ -43,6 +44,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'auto_arrival_service_types' => implode(',', $arrivalTypes),
             'gps_interval_standard_ms' => max(10000, min(120000, (int)($_POST['gps_interval_standard_ms'] ?? 30000))),
             'gps_interval_heightened_ms' => max(5000, min(30000, (int)($_POST['gps_interval_heightened_ms'] ?? 10000))),
+            TrackingSetupGate::SETTING => implode(',', TrackingSetupGate::parseIds(
+                implode(',', array_map('strval', (array)($_POST['tracking_setup_user_ids'] ?? [])))
+            )),
         ];
 
         $stmt = $db->prepare("
@@ -75,6 +79,15 @@ $autoArrivalServiceTypes = array_filter(array_map('trim', explode(',', $autoArri
 // GPS interval settings
 $gpsIntervalStandard = (int)getTimeClockSetting('gps_interval_standard_ms', '30000');
 $gpsIntervalHeightened = (int)getTimeClockSetting('gps_interval_heightened_ms', '10000');
+
+// Users who must prove full location setup before a self clock-in (TrackingSetupGate)
+$trackingSetupIds = TrackingSetupGate::parseIds(getTimeClockSetting(TrackingSetupGate::SETTING, ''));
+$crewPhones = $db->query("
+    SELECT id, TRIM(COALESCE(NULLIF(TRIM(CONCAT(IFNULL(first_name,''), ' ', IFNULL(last_name,''))), ''), full_name)) AS display_name
+    FROM users
+    WHERE is_active = 1 AND IFNULL(device_type, 'personal') <> 'truck'
+    ORDER BY display_name
+")->fetchAll(PDO::FETCH_ASSOC);
 
 // Available service types
 $allServiceTypes = [
@@ -194,6 +207,23 @@ $activePage = 'timeclock';
                        name="require_gps_for_job_start" value="1"
                     <?php echo $requireGpsJob === '1' ? 'checked' : ''; ?>>
                 <label class="custom-control-label" for="requireGpsJob"></label>
+            </div>
+        </div>
+
+        <div class="mw-tcs-row" style="flex-direction: column; align-items: flex-start;">
+            <div class="mw-tcs-label mb-2">
+                Require full location setup to clock in
+                <small>Ticked people can only clock themselves in from the Crew app with Location set to "Allow all the time" and Precise on. Office clock-ins are not affected.</small>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px 24px; width: 100%;">
+                <?php foreach ($crewPhones as $cp): ?>
+                <div class="custom-control custom-checkbox">
+                    <input type="checkbox" class="custom-control-input" id="tsu_<?php echo (int)$cp['id']; ?>"
+                           name="tracking_setup_user_ids[]" value="<?php echo (int)$cp['id']; ?>"
+                        <?php echo in_array((int)$cp['id'], $trackingSetupIds, true) ? 'checked' : ''; ?>>
+                    <label class="custom-control-label" for="tsu_<?php echo (int)$cp['id']; ?>"><?php echo htmlspecialchars((string)$cp['display_name']); ?></label>
+                </div>
+                <?php endforeach; ?>
             </div>
         </div>
     </div>

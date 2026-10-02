@@ -643,11 +643,16 @@ function dpClockIn() {
 
     var lat = null, lng = null;
     function doClockIn() {
-        fetch('/crm/api/time-clock.php', {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({action: 'clock_in', lat: lat, lng: lng})
+        // TrackingSetupGate: the server refuses gated users without a full snapshot.
+        var perms = (window.MwNative && window.MwNative.trackingPermissions)
+            ? window.MwNative.trackingPermissions() : Promise.resolve(null);
+        perms.then(function(trackingPerms) {
+            return fetch('/crm/api/time-clock.php', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({action: 'clock_in', lat: lat, lng: lng, tracking_perms: trackingPerms})
+            });
         })
         .then(function(r){ return r.json(); })
         .then(function(data) {

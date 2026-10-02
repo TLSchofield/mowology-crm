@@ -82,6 +82,16 @@ try {
             $lng = isset($input['lng']) ? (float)$input['lng'] : null;
             $autoStarted = !empty($input['auto_started']);
 
+            // A gated user (TrackingSetupGate) must clock in through the checked path;
+            // starting a job must not clock them in around it.
+            require_once APP_ROOT . '/Modules/Team/Services/TrackingSetupGate.php';
+            if (TrackingSetupGate::appliesTo(getTimeClockSetting(TrackingSetupGate::SETTING, ''), (int)$user['id'])
+                && !getActiveClockEntry($user['id'])) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'error' => 'Clock in first, using the Clock In button.', 'tracking_setup_required' => true]);
+                break;
+            }
+
             $entryId = startVisitTimer($visitId, $user['id'], $lat, $lng, $autoStarted);
 
             // Auto clock-in globally if user is not already clocked in

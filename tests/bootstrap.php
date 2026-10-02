@@ -74,6 +74,7 @@ require_once __DIR__ . '/../app/Modules/Team/Services/ProximityAutoStartService.
 require_once __DIR__ . '/../app/Modules/Team/Services/TrackingIngestService.php';
 require_once __DIR__ . '/../app/Modules/Team/Services/TrackingConsentService.php';
 require_once __DIR__ . '/../app/Modules/Team/Services/TrackingHealthService.php';
+require_once __DIR__ . '/../app/Modules/Team/Services/TrackingSetupGate.php';
 require_once __DIR__ . '/../app/Modules/Team/Services/DepartureAutoStopService.php';
 
 // Driver (commercial vehicle trip inspections)

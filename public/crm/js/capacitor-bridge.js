@@ -1187,6 +1187,20 @@
     }
 
     // ── Auto-initialize ─────────────────────────────────────
+    /**
+     * The phone's location-permission snapshot, sent with a clock-in so the server can
+     * refuse it for users on the tracking_setup_required list (TrackingSetupGate).
+     * Resolves null — never rejects — when the plugin is missing or slow; the server
+     * treats null as "could not confirm", which refuses only gated users.
+     */
+    window.MwNative.trackingPermissions = function() {
+        if (!MwTracking || typeof MwTracking.checkTrackingPermissions !== 'function') return Promise.resolve(null);
+        return Promise.race([
+            MwTracking.checkTrackingPermissions().then(function(p) { return p || null; }, function() { return null; }),
+            new Promise(function(resolve) { setTimeout(function() { resolve(null); }, 3000); })
+        ]);
+    };
+
     window.MwNative.network.init();
     window.MwNative.notifications.init();
     window.MwNative.push.init();

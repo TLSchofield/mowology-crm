@@ -176,6 +176,21 @@ try {
                 $entryId = (int)$existingEntry['id'];
                 $alreadyClockedIn = true;
             } else {
+                // Named users must prove the phone can track before a self clock-in
+                // (TrackingSetupGate). An admin clocking someone in is never gated.
+                if ($targetUserId === $user['id']) {
+                    require_once APP_ROOT . '/Modules/Team/Services/TrackingSetupGate.php';
+                    $refusal = TrackingSetupGate::refusal(
+                        getTimeClockSetting(TrackingSetupGate::SETTING, ''),
+                        (int)$targetUserId,
+                        isset($input['tracking_perms']) && is_array($input['tracking_perms']) ? $input['tracking_perms'] : null
+                    );
+                    if ($refusal !== null) {
+                        http_response_code(403);
+                        echo json_encode(['success' => false, 'error' => $refusal, 'tracking_setup_required' => true]);
+                        break;
+                    }
+                }
                 // Only enforce require_gps_for_clock_in for self clock-ins — an
                 // admin clocking in a different user has no reason to supply
                 // that user's location.

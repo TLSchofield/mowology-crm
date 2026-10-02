@@ -748,11 +748,16 @@
     // (schedule-pill-workflow.js doUploadPhoto).
     // callback(status, data) — data is null on network failure.
     function postClockAction(action, lat, lng, callback, _isRetry) {
-        fetch('/crm/api/time-clock.php', {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
-            body: JSON.stringify({ action: action, lat: lat, lng: lng })
+        // Clock-in carries the phone's location-permission snapshot (TrackingSetupGate).
+        var perms = (action === 'clock_in' && window.MwNative && window.MwNative.trackingPermissions)
+            ? window.MwNative.trackingPermissions() : Promise.resolve(null);
+        perms.then(function(trackingPerms) {
+            return fetch('/crm/api/time-clock.php', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
+                body: JSON.stringify({ action: action, lat: lat, lng: lng, tracking_perms: trackingPerms })
+            });
         })
         .then(function(r) {
             return r.json().then(function(data) { return { status: r.status, data: data }; });
