@@ -100,7 +100,7 @@ $allServiceTypes = [
 ];
 
 $pageTitle = 'Time Clock Settings';
-$activePage = 'timeclock';
+$activePage = 'timeclock-settings';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 

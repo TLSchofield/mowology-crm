@@ -55,7 +55,7 @@ $timesheets = $stmt->fetchAll(PDO::FETCH_ASSOC);
 $staff = getStaffMembers();
 
 $pageTitle = 'Timesheets';
-$activePage = 'timeclock';
+$activePage = 'timesheets';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 

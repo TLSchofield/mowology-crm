@@ -117,7 +117,7 @@ $hourlyRate   = (float)($ts['hourly_rate'] ?? 0);
 $pay          = OvertimeCalculator::calculate($dailyMinutes, $hourlyRate);
 
 $pageTitle = 'Timesheet — ' . htmlspecialchars($ts['employee_name']);
-$activePage = 'timeclock';
+$activePage = 'timesheets';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 

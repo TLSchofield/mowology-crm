@@ -42,7 +42,10 @@ $empStmt = $db->prepare("
     SELECT id, full_name, email, hourly_rate, role
     FROM users
     WHERE is_active = 1
-      AND role IN ('admin', 'manager', 'team_member')
+      -- Every person who clocks in gets paid. This used to filter on role IN
+      -- ('admin','manager','team_member'), but crew are created with role 'user',
+      -- so they silently dropped off the wages page. Truck tablets are not people.
+      AND IFNULL(device_type, 'personal') <> 'truck'
     ORDER BY full_name ASC
 ");
 $empStmt->execute();
@@ -193,7 +196,7 @@ $curMonStart = date('Y-m-01');
 $curMonEnd   = date('Y-m-t');
 
 $pageTitle  = 'Payroll Summary';
-$activePage = 'timeclock';
+$activePage = 'payroll';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
