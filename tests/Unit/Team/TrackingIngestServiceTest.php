@@ -184,4 +184,19 @@ class TrackingIngestServiceTest extends TestCase
         $this->assertSame(TrackingConsentService::DISCLOSURE_VERSION, $d['version']);
         $this->assertStringContainsString('your employer', TrackingConsentService::disclosure('')['summary']);
     }
+
+    public function test_low_power_transitions_are_logged_only_when_the_state_changes(): void
+    {
+        $t = [TrackingIngestService::class, 'lowPowerTransition'];
+        $this->assertSame('low_power_on',  $t(true, 0, 1));
+        $this->assertSame('low_power_off', $t(true, 1, 0));
+        $this->assertNull($t(true, 1, 1));
+        $this->assertNull($t(true, 0, 0));
+        // First report from a device, or a previously unknown state: only "already on" is news.
+        $this->assertSame('low_power_on', $t(false, null, 1));
+        $this->assertNull($t(false, null, 0));
+        $this->assertSame('low_power_on', $t(true, null, 1));
+        // A device that stops reporting the flag is not a transition.
+        $this->assertNull($t(true, 1, null));
+    }
 }

@@ -295,6 +295,18 @@ class TrackingIngestService
         }
         $perm = in_array($device['permission'] ?? null, ['always', 'when_in_use', 'denied'], true) ? $device['permission'] : 'unknown';
         $bool = static fn ($v) => $v === null ? null : (int)(bool)$v;
+        $prevLowPower = null; $hadRow = false;
+        try {
+            $prev = $this->db->prepare("SELECT low_power_mode FROM device_tracking_health WHERE user_id = ? AND device_id = ? LIMIT 1");
+            $prev->execute([$userId, $deviceId]);
+            $row = $prev->fetch(PDO::FETCH_ASSOC);
+            if ($row !== false) {
+                $hadRow = true;
+                $prevLowPower = $row['low_power_mode'] === null ? null : (int)$row['low_power_mode'];
+            }
+        } catch (Throwable $e) {
+            // Transition logging is a nice-to-have; the health upsert below must still run.
+        }
         try {
             $this->db->prepare("
                 INSERT INTO device_tracking_health
@@ -324,6 +336,46 @@ class TrackingIngestService
         } catch (Throwable $e) {
             error_log("TrackingIngestService: health upsert failed for user {$userId}: " . $e->getMessage());
         }
+
+        $transition = self::lowPowerTransition($hadRow, $prevLowPower, $bool($device['low_power'] ?? null));
+        if ($transition !== null && $this->hasTable('compliance_events')) {
+            try {
+                $this->db->prepare("
+                    INSERT INTO compliance_events (user_id, event_type, reason, metadata, device_timestamp, created_at)
+                    VALUES (?, ?, ?, ?, FROM_UNIXTIME(?), NOW())
+                ")->execute([
+                    $userId, $transition, 'Seen on upload (not the exact moment it was switched)',
+                    json_encode([
+                        'device_id' => $deviceId,
+                        'platform'  => $device['platform'] ?? null,
+                        'battery'   => $device['battery'] ?? null,
+                    ]),
+                    $newestFixTs ?? time(),
+                ]);
+            } catch (Throwable $e) {
+                error_log("TrackingIngestService: low-power event failed for user {$userId}: " . $e->getMessage());
+            }
+        }
+    }
+
+    /**
+     * Low Power Mode / Battery Saver on↔off, as an event worth keeping. The health row
+     * holds only the latest state, so without this there is no history of when a phone
+     * was put into power saving during a shift. A first report that is already ON counts
+     * as "on"; unknown (null) never produces an event. PURE.
+     */
+    public static function lowPowerTransition(bool $hadRow, ?int $prev, ?int $now): ?string
+    {
+        if ($now === null) {
+            return null;
+        }
+        if (!$hadRow || $prev === null) {
+            return $now === 1 ? 'low_power_on' : null;
+        }
+        if ($prev === $now) {
+            return null;
+        }
+        return $now === 1 ? 'low_power_on' : 'low_power_off';
     }
 
     /**
