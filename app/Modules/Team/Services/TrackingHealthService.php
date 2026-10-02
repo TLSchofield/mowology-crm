@@ -48,10 +48,19 @@ class TrackingHealthService
     }
 
     /** What the device last said about itself, turned into a likely cause a human can act on. PURE. */
-    public static function likelyCause(?array $health): string
+    public static function likelyCause(?array $health, ?int $clockInTs = null): string
     {
         if (!$health) {
             return 'No device report yet — the app may be closed or out of date.';
+        }
+        // The health row is overwritten on every upload and never expires. A phone whose
+        // background tracker stopped keeps its LAST report forever, so reading the flags
+        // below off a stale row blamed Nigel's 10-day outage (2026-09-23 →) on "Low Power
+        // Mode is on" — a setting from his last good day, when tracking was working fine.
+        $seenTs = isset($health['last_seen_ts']) && is_numeric($health['last_seen_ts']) ? (int)$health['last_seen_ts'] : null;
+        if ($clockInTs !== null && $seenTs !== null && $seenTs < $clockInTs) {
+            return 'The phone\'s background tracker has not reported since ' . date('M j', $seenTs)
+                 . ' — it is not running. Check the app\'s Location permission is "Allow all the time" with Precise on.';
         }
         $perm = $health['location_permission'] ?? 'unknown';
         if ($perm === 'denied')      { return 'Location access is turned off for the app.'; }
@@ -94,7 +103,7 @@ class TrackingHealthService
     public function latestHealth(int $userId): ?array
     {
         try {
-            $stmt = $this->db->prepare("SELECT * FROM device_tracking_health WHERE user_id = ? ORDER BY last_seen_at DESC LIMIT 1");
+            $stmt = $this->db->prepare("SELECT *, UNIX_TIMESTAMP(last_seen_at) AS last_seen_ts FROM device_tracking_health WHERE user_id = ? ORDER BY last_seen_at DESC LIMIT 1");
             $stmt->execute([$userId]);
             return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
         } catch (Throwable $e) {
@@ -144,7 +153,7 @@ class TrackingHealthService
             $minutes = (int)floor(($nowTs - max($clockIn, $lastFix ?? 0)) / 60);
             $alerted = false;
             if (self::shouldAlert($this->lastAlertTs($userId), $nowTs, $cooldownMinutes)) {
-                $notify($row, self::likelyCause($this->latestHealth($userId)), $minutes);
+                $notify($row, self::likelyCause($this->latestHealth($userId), $clockIn), $minutes);
                 $this->markAlerted($userId, $nowTs);
                 $alerted = true;
             }

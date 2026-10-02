@@ -56,5 +56,10 @@ class TrackingHealthServiceTest extends TestCase
         $this->assertStringContainsString('Low Power', TrackingHealthService::likelyCause(['location_permission' => 'always', 'low_power_mode' => 1]));
         $this->assertStringContainsString('nearly flat', TrackingHealthService::likelyCause(['location_permission' => 'always', 'battery_percent' => 3]));
         $this->assertStringContainsString('closed', TrackingHealthService::likelyCause(['location_permission' => 'always', 'battery_percent' => 80]));
+        // A report from before this shift is stale: say so instead of repeating its flags.
+        $stale = ['location_permission' => 'always', 'low_power_mode' => 1, 'last_seen_ts' => 1790000000];
+        $this->assertStringContainsString('has not reported since', TrackingHealthService::likelyCause($stale, 1790000000 + 86400));
+        $this->assertStringContainsString('Low Power', TrackingHealthService::likelyCause($stale, 1790000000 - 60));
+        $this->assertStringContainsString('Low Power', TrackingHealthService::likelyCause($stale));
     }
 }
