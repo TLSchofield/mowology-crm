@@ -165,6 +165,76 @@ class QuoteServiceTest extends TestCase
         $this->assertNull($result['contact_id']);
     }
 
+    // ── preferManagingContact() ──────────────────────────────────────────────
+
+    private function managedQuote(int $siteContactEmployer): array
+    {
+        return [
+            'company_id'               => 4,
+            'contact_id'               => 2,
+            'contact_first'            => 'Jodi',
+            'contact_last'             => 'Peacock',
+            'contact_email'            => 'invoices@vml.example',
+            'contact_phone'            => '604-263-1766',
+            'prop_contact_id'          => 9,
+            'prop_contact_first'       => 'Alena',
+            'prop_contact_last'        => 'Radosovska',
+            'prop_contact_email'       => 'alena@vml.example',
+            'prop_contact_phone'       => '604-263-0000',
+            'prop_contact_employer_id' => $siteContactEmployer,
+            'qr_email'                 => null,
+            'qr_phone'                 => null,
+            'qr_first_name'            => null,
+            'qr_last_name'             => null,
+            'qr_contact_id'            => null,
+            'billing_email'            => 'invoices@vml.example',
+            'billing_phone'            => null,
+            'company_name'             => 'Vancouver Management',
+        ];
+    }
+
+    /** @test */
+    public function quote_goes_to_the_property_manager_who_works_for_the_company(): void
+    {
+        $quote  = QuoteService::preferManagingContact($this->managedQuote(4));
+        $result = $this->service()->resolveContact($quote);
+
+        $this->assertSame('alena@vml.example', $result['email']);
+        $this->assertSame('Alena Radosovska',  $result['name']);
+        $this->assertSame(9,                    $result['contact_id']);
+        $this->assertSame('Alena Radosovska',  $this->service()->resolveDisplayName($quote));
+    }
+
+    /** @test */
+    public function site_contact_from_outside_the_company_does_not_displace_company_contact(): void
+    {
+        $quote  = QuoteService::preferManagingContact($this->managedQuote(0));
+        $result = $this->service()->resolveContact($quote);
+
+        $this->assertSame('invoices@vml.example', $result['email']);
+        $this->assertSame('Jodi Peacock',         $result['name']);
+    }
+
+    /** @test */
+    public function site_contact_employed_by_a_different_company_is_ignored(): void
+    {
+        $quote = QuoteService::preferManagingContact($this->managedQuote(99));
+        $this->assertSame('invoices@vml.example', $this->service()->resolveContact($quote)['email']);
+    }
+
+    /** @test */
+    public function quote_request_contact_still_wins_over_the_manager(): void
+    {
+        $quote = $this->managedQuote(4);
+        $quote['qr_email']      = 'asker@example.com';
+        $quote['qr_first_name'] = 'Asker';
+        $quote['qr_last_name']  = 'Person';
+        $quote['qr_contact_id'] = 11;
+
+        $result = $this->service()->resolveContact(QuoteService::preferManagingContact($quote));
+        $this->assertSame('asker@example.com', $result['email']);
+    }
+
     // ── resolveDisplayName() ──────────────────────────────────────────────────
 
     /** @test */

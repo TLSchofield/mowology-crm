@@ -40,9 +40,11 @@ class QuoteService
      *
      * Contact resolution priority:
      *   1. quote_requests contact (the person who submitted the online form)
-     *   2. Company primary contact (from company_properties junction)
-     *   3. Property site contact
-     *   4. Company billing fields
+     *   2. The property's manager, when the site contact works for the quoting
+     *      company (see preferManagingContact())
+     *   3. Company primary contact (from company_properties junction)
+     *   4. Property site contact
+     *   5. Company billing fields
      *
      * Returns null if the quote does not exist.
      */
@@ -75,6 +77,7 @@ class QuoteService
                 pc.last_name    AS prop_contact_last,
                 pc.email        AS prop_contact_email,
                 pc.phone        AS prop_contact_phone,
+                pc.employer_company_id AS prop_contact_employer_id,
                 u.full_name     AS created_by_name
             FROM quotes q
             LEFT JOIN properties p           ON q.property_id = p.id
@@ -89,7 +92,33 @@ class QuoteService
         ");
         $stmt->execute([$quoteId]);
         $quote = $stmt->fetch(PDO::FETCH_ASSOC);
-        return $quote ?: null;
+        return $quote ? self::preferManagingContact($quote) : null;
+    }
+
+    /**
+     * A managed building's quote goes to the property manager who runs it, not
+     * to the management company's primary contact (often an accounts inbox).
+     *
+     * When the property's site contact is employed by the quoting company, their
+     * details replace the company-contact fields, so send, the on-screen
+     * customer box and the PDF all resolve to the manager. A site contact who
+     * does not work for the company (an onsite caretaker, a tenant) never
+     * displaces the company contact.
+     */
+    public static function preferManagingContact(array $quote): array
+    {
+        $companyId  = (int)($quote['company_id'] ?? 0);
+        $employerId = (int)($quote['prop_contact_employer_id'] ?? 0);
+        if (!$companyId || $employerId !== $companyId || empty($quote['prop_contact_id'])) {
+            return $quote;
+        }
+
+        $quote['contact_id']    = $quote['prop_contact_id'];
+        $quote['contact_first'] = $quote['prop_contact_first'] ?? null;
+        $quote['contact_last']  = $quote['prop_contact_last'] ?? null;
+        $quote['contact_email'] = $quote['prop_contact_email'] ?? null;
+        $quote['contact_phone'] = $quote['prop_contact_phone'] ?? null;
+        return $quote;
     }
 
     /**
