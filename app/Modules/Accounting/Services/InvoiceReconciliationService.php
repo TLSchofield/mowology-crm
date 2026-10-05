@@ -1064,7 +1064,9 @@ class InvoiceReconciliationService
 
     private function deriveMethod(string $description): string
     {
-        if (preg_match('/\b(INTERAC|E-TRANSFER|E\s*TRF|ETRANSFER|ETRF|IDP\s+PURCHASE)\b/i', $description)) {
+        // No trailing word boundary on the e-Transfer forms: one bank prints them run
+        // together ("ETRANSFERCREDIT(KAMALJEETSINGH)"), which a whole-word match missed.
+        if (preg_match('/\b(INTERAC\b|E-TRANSFER|E\s*TRF|ETRANSFER|ETRF\b|IDP\s+PURCHASE\b)/i', $description)) {
             return 'e_transfer';
         }
         if (preg_match('/\bSTRIPE\b/i', $description)) return 'stripe';

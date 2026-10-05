@@ -489,4 +489,22 @@ class InvoiceReconciliationServiceTest extends TestCase
         $reasons = array_merge(...array_map(fn($c) => $c['reasons'], $svc->candidatesForInvoice(1) ?: [['reasons' => []]]));
         $this->assertEmpty(array_filter($reasons, fn($r) => str_starts_with($r, 'Memo names')));
     }
+
+    /** One bank prints e-Transfers run together — those were recorded as "Other". */
+    public function testDeriveMethodRecognisesRunTogetherEtransfer(): void
+    {
+        $svc = new InvoiceReconciliationService($this->createMock(PDO::class));
+        $m = new ReflectionMethod($svc, 'deriveMethod');
+        foreach ([
+            'ETRANSFERCREDIT(KAMALJEETSINGH)',
+            'e-Transfer credit Ref 20260811190153669303 KAMALJEET SINGH',
+            'INTERAC E-TRANSFER',
+            'E TRF DEP',
+        ] as $desc) {
+            $this->assertSame('e_transfer', $m->invoke($svc, $desc), $desc);
+        }
+        $this->assertSame('cheque', $m->invoke($svc, 'CHEQUE DEPOSIT 0042'));
+        $this->assertSame('other', $m->invoke($svc, 'BILL PAYMENT 88213'));
+    }
 }
+
