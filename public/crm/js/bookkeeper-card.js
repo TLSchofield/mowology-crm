@@ -318,5 +318,45 @@
         else if (e.key === 'ArrowLeft') { idx = (idx - 1 + queue.length) % queue.length; render(); }
     });
 
+    // ── Questions for you (unbilled materials) ─────────────────────────────
+    var pqBox = document.getElementById('mw-pq');
+    function loadQuestions() {
+        if (!pqBox) return;
+        fetch(API + '?mode=questions', { cache: 'no-store' })
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                var qs = (d && d.ok && d.questions) || [];
+                var found = d && d.found_to_bill_month ? Number(d.found_to_bill_month) : 0;
+                if (!qs.length && !found) { pqBox.hidden = true; return; }
+                pqBox.hidden = false;
+                pqBox.innerHTML = '<div class="mw-pq-head"><b>Questions for you</b>' +
+                    (found ? '<span>Found to bill this month: <b>$' + found.toFixed(2) + '</b></span>' : '') + '</div>' +
+                    qs.map(function (q) {
+                        return '<div class="mw-pq-item" data-q="' + esc(q.id) + '"><p>' + esc(q.question) + '</p>' +
+                            '<div class="mw-pq-btns">' +
+                              '<button type="button" data-ans="invoice">🧾 Forgot — invoice it</button>' +
+                              (q.contract_id ? '<button type="button" data-ans="contract">📄 In the contract</button>' : '') +
+                              '<button type="button" data-ans="not_billable">🚫 Not billable</button>' +
+                            '</div></div>';
+                    }).join('');
+            })
+            .catch(function () { pqBox.hidden = true; });
+    }
+    if (pqBox) {
+        pqBox.addEventListener('click', function (e) {
+            var ans = e.target.getAttribute('data-ans');
+            if (!ans) return;
+            var item = e.target.closest('.mw-pq-item');
+            var id = item.getAttribute('data-q');
+            item.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+            post({ mode: 'answer', question_id: id, answer: ans }).then(function (d) {
+                if (d && d.ok && d.invoice_url) { window.open(d.invoice_url, '_blank', 'noopener'); }
+                item.innerHTML = '<p class="mw-pq-done">' + esc((d && d.message) || 'Saved') + '</p>';
+                setTimeout(loadQuestions, 1500);
+            }).catch(function () { item.querySelectorAll('button').forEach(function (b) { b.disabled = false; }); });
+        });
+        loadQuestions();
+    }
+
     load();
 })();

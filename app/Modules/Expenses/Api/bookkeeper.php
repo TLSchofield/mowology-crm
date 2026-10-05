@@ -13,6 +13,8 @@
  * GET  ?mode=queue     Prepared receipts for the carousel.
  * POST {mode: 'decide', suggestion_id, overrides?: {field: value}, save_draft?: bool, csrf_token}
  * POST {mode: 'prepare', max?, csrf_token}   Prepare the next receipts (daily-capped).
+ * GET  ?mode=questions  Penny's open questions (scans for unbilled materials first).
+ * POST {mode: 'answer', question_id, answer: invoice|contract|not_billable, csrf_token}
  *
  * ?mode=, not ?action= (see the /api/ router note in the vault). Owner/admin only:
  * every backtest call spends API credit.
@@ -193,6 +195,20 @@ try {
                 if (!$svc->ready()) throw new RuntimeException('Not ready — check ?mode=status');
                 set_time_limit(240);
                 echo json_encode(['ok' => true] + $desk->prepare((int)($input['max'] ?? 2)));
+            }
+            break;
+        }
+
+        case 'questions':
+        case 'answer': {
+            require_once APP_ROOT . '/Modules/Expenses/Services/PennyQuestionService.php';
+            $pq = new PennyQuestionService($db);
+            if ($mode === 'questions') {
+                $pq->scan(10);
+                echo json_encode(['ok' => true, 'questions' => $pq->open(5), 'found_to_bill_month' => $pq->foundToBillMonth()]);
+            } else {
+                if ($method !== 'POST') throw new RuntimeException('POST required');
+                echo json_encode($pq->answer((int)($input['question_id'] ?? 0), (string)($input['answer'] ?? ''), (int)$user['id']));
             }
             break;
         }

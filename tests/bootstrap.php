@@ -38,6 +38,8 @@ require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptIntakeService.p
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptBookkeeperRules.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptBookkeeperService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/BookkeeperDeskService.php';
+require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptTrailService.php';
+require_once __DIR__ . '/../app/Modules/Expenses/Services/PennyQuestionService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseApprovalService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseLookupService.php';

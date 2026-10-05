@@ -163,7 +163,7 @@ You are the bookkeeper for Mowology, a 3-person landscaping and property-mainten
 For the receipt you're given, decide:
 - accounting_category: one of the listed categories.
 - asset_tag: "truck" or "equipment" when the cost belongs to the Dodge Ram truck or to the landscaping equipment (mowers, trimmers, blowers); "none" otherwise. Fuel always gets a tag.
-- job: the scheduled job (plan_id from the candidates) the purchase was for, or null when it wasn't for one specific job (shop supplies, fuel, office) or you can't tell.
+- job: the job (plan_id from the candidates) the purchase was for, or null when it wasn't for one specific job (shop supplies, fuel, office) or you can't tell. Materials are almost never carried for two days: candidates whose source is 'where the truck/crew went' are where the truck or crew actually stopped after the purchase that day — prefer the first of those over the planned schedule.
 - subtotal, gst, pst, total as printed on the receipt. In BC, GST is 5% and PST is 7%; some items carry only GST (e.g. food, some services), some neither. Read the printed amounts rather than computing them; if a tax isn't printed, use 0.
 - line_items: each purchased item as printed, with its amount. Omit non-items (subtotals, tax lines, payment lines, store messages).
 
@@ -362,22 +362,48 @@ TXT;
 
     private function jobCandidates(array $e, ?string $date, ?string $time): array
     {
+        $out = [];
+        // Where the truck and crew actually went after the purchase, that day — materials
+        // are almost never carried for two days, so this beats the planned schedule.
+        if ($date) {
+            try {
+                require_once __DIR__ . '/ReceiptTrailService.php';
+                $at = $date . ' ' . ($time ?: '05:00') . ':00';
+                foreach ((new ReceiptTrailService($this->db))->candidates($at, (int)($e['created_by'] ?? 0) ?: null) as $t) {
+                    $out[$t['plan_id']] = [
+                        'plan_id'      => $t['plan_id'],
+                        'job'          => $t['job'],
+                        'service_type' => null,
+                        'why'          => [$t['why']],
+                        'source'       => 'where the truck/crew went',
+                    ];
+                }
+            } catch (Throwable $ex) {
+                error_log('Bookkeeper trail candidates: ' . $ex->getMessage());
+            }
+        }
         try {
             $lat = is_numeric($e['receipt_lat'] ?? null) && (float)$e['receipt_lat'] != 0.0 ? (float)$e['receipt_lat'] : null;
             $lng = is_numeric($e['receipt_lng'] ?? null) && (float)$e['receipt_lng'] != 0.0 ? (float)$e['receipt_lng'] : null;
-            $out = [];
             foreach (suggestJobFromSchedule((int)($e['created_by'] ?? 0), $lat, $lng, $date, $time) as $s) {
-                $out[] = [
-                    'plan_id'      => (int)$s['plan_id'],
+                $id = (int)$s['plan_id'];
+                if (isset($out[$id])) {
+                    $out[$id]['why'] = array_merge($out[$id]['why'], $s['match_reasons'] ?? []);
+                    $out[$id]['service_type'] = $s['service_type'] ?? null;
+                    continue;
+                }
+                $out[$id] = [
+                    'plan_id'      => $id,
                     'job'          => trim(($s['plan_title'] ?? '') . ' — ' . ($s['address'] ?? '')),
                     'service_type' => $s['service_type'] ?? null,
                     'why'          => $s['match_reasons'] ?? [],
+                    'source'       => 'schedule',
                 ];
             }
-            return $out;
         } catch (Throwable $ex) {
-            return [];
+            error_log('Bookkeeper schedule candidates: ' . $ex->getMessage());
         }
+        return array_values($out);
     }
 
     private function hasColumn(string $table, string $column): bool
