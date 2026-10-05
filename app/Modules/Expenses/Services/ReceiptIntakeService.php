@@ -37,6 +37,34 @@ class ReceiptIntakeService
         $this->db = $db;
     }
 
+    /**
+     * EXIF GPS tags (degree/minute/second rationals + N/S/E/W refs) → [lat, lng],
+     * or null when absent, malformed or (0,0).
+     */
+    public static function exifGpsToDecimal(array $exif): ?array
+    {
+        $toFloat = static function ($v): ?float {
+            if (is_numeric($v)) return (float)$v;
+            if (is_string($v) && preg_match('#^(-?\d+)/(\d+)$#', $v, $m)) {
+                return (int)$m[2] === 0 ? null : (int)$m[1] / (int)$m[2];
+            }
+            return null;
+        };
+        $coord = static function ($parts, $ref) use ($toFloat): ?float {
+            if (!is_array($parts) || count($parts) < 3) return null;
+            [$d, $m, $s] = array_map($toFloat, array_slice(array_values($parts), 0, 3));
+            if ($d === null || $m === null || $s === null) return null;
+            $v = $d + $m / 60 + $s / 3600;
+            return in_array(strtoupper((string)$ref), ['S', 'W'], true) ? -$v : $v;
+        };
+        $lat = $coord($exif['GPSLatitude'] ?? null, $exif['GPSLatitudeRef'] ?? 'N');
+        $lng = $coord($exif['GPSLongitude'] ?? null, $exif['GPSLongitudeRef'] ?? 'E');
+        if ($lat === null || $lng === null || abs($lat) > 90 || abs($lng) > 180 || ($lat == 0.0 && $lng == 0.0)) {
+            return null;
+        }
+        return [round($lat, 7), round($lng, 7)];
+    }
+
     public static function isAllowedMimeType(string $mimeType): bool
     {
         return in_array($mimeType, self::ALLOWED_MIME_TYPES, true);
@@ -142,6 +170,18 @@ class ReceiptIntakeService
 
         if (!move_uploaded_file($uploadedFile['tmp_name'], $filePath)) {
             return ['success' => false, 'error' => 'Failed to save uploaded file', 'http_code' => 500];
+        }
+
+        // ── Photo's own location, read before EXIF is stripped ───────────
+        // When the client sent no live location (a photo picked from the library, a
+        // browser without permission), the camera's GPS tag is the next best thing.
+        if (($lat === null || $lng === null) && in_array($mimeType, ['image/jpeg', 'image/jpg'], true)
+            && function_exists('exif_read_data')) {
+            $exif = @exif_read_data($filePath, 'GPS');
+            $gps = is_array($exif) ? self::exifGpsToDecimal($exif) : null;
+            if ($gps) {
+                [$lat, $lng] = $gps;
+            }
         }
 
         // ── Strip EXIF metadata by re-encoding through GD ─────────────────

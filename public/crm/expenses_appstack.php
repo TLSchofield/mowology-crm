@@ -2154,18 +2154,28 @@ async function submitReceiptExport() {
         if (!file) return;
         e.target.value = ''; // Bug #5 fix: reset so the same photo can be re-selected after a failed upload
 
-        // Bug #8 fix: refresh GPS at capture time (non-blocking — updates currentGpsLat/Lng in the
-        // background while compression runs; uses page-load value if GPS hasn't resolved by upload time)
-        if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(
-                function(pos) {
-                    currentGpsLat = pos.coords.latitude;
-                    currentGpsLng = pos.coords.longitude;
-                },
-                function() { /* silently use last-known position */ },
-                { timeout: 8000, enableHighAccuracy: false }
-            );
-        }
+        // Location at capture: fetched while compression runs and awaited (max 4s) before
+        // upload, so the receipt carries where it was photographed — that teaches the
+        // vendor's store location and matches the job. A desktop computer's location is
+        // the office, not the store: send none from non-touch devices.
+        var isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints || 0) > 0;
+        if (!isTouchDevice) { currentGpsLat = null; currentGpsLng = null; }
+        var gpsAtCapture = (isTouchDevice && navigator.geolocation)
+            ? new Promise(function(resolve) {
+                var done = false;
+                var finish = function() { if (!done) { done = true; resolve(); } };
+                navigator.geolocation.getCurrentPosition(
+                    function(pos) {
+                        currentGpsLat = pos.coords.latitude;
+                        currentGpsLng = pos.coords.longitude;
+                        finish();
+                    },
+                    finish,   // denied/unavailable: fall back to the page-load position
+                    { timeout: 4000, enableHighAccuracy: true, maximumAge: 30000 }
+                );
+                setTimeout(finish, 4500);
+            })
+            : Promise.resolve();
 
         // Show spinner immediately — before compression even starts
         document.getElementById('capturePrompt').style.display = 'none';
@@ -2179,8 +2189,9 @@ async function submitReceiptExport() {
         if (mobileCap) mobileCap.style.display = 'none';
         if (mobileSpin) mobileSpin.style.display = 'flex';
 
-        // Phase 2.1: Compress before upload
-        compressReceiptImage(file).then(function(uploadFile) {
+        // Phase 2.1: Compress before upload (location fix resolves alongside)
+        Promise.all([compressReceiptImage(file), gpsAtCapture]).then(function(res) {
+            var uploadFile = res[0];
             if (spinLabel) spinLabel.textContent = 'Uploading…';
 
             // Save to IDB before attempting upload — photo survives any network failure

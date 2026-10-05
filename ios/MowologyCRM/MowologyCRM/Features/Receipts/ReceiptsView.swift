@@ -176,8 +176,25 @@ struct ReceiptsView: View {
 
     // MARK: - Capture handler
 
+    private static func captureFix() async -> CLLocation? {
+        let lm = GPSTrackingService.shared.locationManager
+        return await withTaskGroup(of: CLLocation?.self) { group in
+            group.addTask { @MainActor in try? await lm.currentLocation() }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 4_000_000_000)
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+    }
+
     private func handleCapture(_ compressed: Data) async {
-        let loc = locationManager.location
+        // A fresh fix (≤4 s) so the receipt carries where it was photographed — that
+        // teaches the vendor's store location and matches the job. The cached
+        // CLLocationManager value alone was often nil on a cold start.
+        let loc = await Self.captureFix() ?? locationManager.location
         capturedImageData = compressed
         captureLat = loc?.coordinate.latitude
         captureLng = loc?.coordinate.longitude

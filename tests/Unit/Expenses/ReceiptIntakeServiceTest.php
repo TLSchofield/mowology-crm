@@ -57,4 +57,23 @@ class ReceiptIntakeServiceTest extends TestCase
         $this->assertTrue(ReceiptIntakeService::isRateLimited(20));
         $this->assertTrue(ReceiptIntakeService::isRateLimited(25));
     }
+
+    public function test_exif_gps_rationals_convert_to_decimal(): void
+    {
+        // 49°15'36" N, 123°7'12" W — Vancouver
+        $gps = ReceiptIntakeService::exifGpsToDecimal([
+            'GPSLatitude'  => ['49/1', '15/1', '3600/100'], 'GPSLatitudeRef'  => 'N',
+            'GPSLongitude' => ['123/1', '7/1', '12/1'],     'GPSLongitudeRef' => 'W',
+        ]);
+        $this->assertEqualsWithDelta(49.26, $gps[0], 0.0001);
+        $this->assertEqualsWithDelta(-123.12, $gps[1], 0.0001);
+    }
+
+    public function test_exif_gps_missing_zero_or_malformed_is_null(): void
+    {
+        $this->assertNull(ReceiptIntakeService::exifGpsToDecimal([]));
+        $this->assertNull(ReceiptIntakeService::exifGpsToDecimal(['GPSLatitude' => ['0/1', '0/1', '0/1'], 'GPSLongitude' => ['0/1', '0/1', '0/1']]));
+        $this->assertNull(ReceiptIntakeService::exifGpsToDecimal(['GPSLatitude' => ['49/0', '0/1', '0/1'], 'GPSLongitude' => ['1/1', '0/1', '0/1']]));
+    }
 }
+
