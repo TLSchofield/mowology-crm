@@ -190,6 +190,23 @@ an expense until the owner decides. `/crm/api/bookkeeper.php`: `?mode=status`,
 `?mode=report`, POST `mode=backtest` (final values hidden, scored per field) —
 `expenses.approve` only.
 
+## Penny's desk — dashboard card + carousel
+
+`BookkeeperDeskService` (via `/crm/api/bookkeeper.php` `?mode=stats|queue`, POST
+`decide|prepare`) drives the department-heads deck on the dashboard
+(`public/crm/includes/dept-heads-deck.php`, `public/crm/js/bookkeeper-card.js`,
+styles in `mowology-brand.css` "DEPARTMENT HEADS DECK"; headshots `/crm/img/heads/`).
+- **Decide:** writes category, `asset_tag`, job (+ property), subtotal/GST/PST/total;
+  records per-field accepted/overridden in `expense_suggestions.outcome_json`
+  (scorecard + worked examples); then `ExpenseApprovalService::approve()` — the
+  self-approval rule still applies, and approval teaches the reader. Line items are
+  shown, not changed, in this version.
+- **Prepare:** text-only first, photo retry only when the amounts don't add up; up to 3
+  rounds of 2 per visible page view while < 5 are ready; daily cap
+  `ops_settings.bookkeeper_daily_cap` (default 40).
+- **Numbers:** right-first-time from real decisions (backtest until 5 exist); net
+  saving only from real decisions × the Owner Freedom rate − AI cost.
+
 ## Line-item learning (migration 1115)
 
 The parser's self-learning loop covers line items, not just header fields. Signals
