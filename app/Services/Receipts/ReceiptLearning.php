@@ -98,12 +98,11 @@ function headerCorrections(array $original, array $final, ?string $vendorName): 
     $fields = [];
     foreach ($pairs as $field => [$ocrVal, $userVal]) {
         if (empty($ocrVal) && empty($userVal)) continue;
-        $fields[$field] = [
-            'ocr'       => $ocrVal,
-            'user'      => $userVal,
-            'corrected' => normalizeFieldValue($field, $ocrVal === null ? null : (string)$ocrVal)
-                       !== normalizeFieldValue($field, $userVal === null ? null : (string)$userVal),
-        ];
+        $corrected = $field === 'vendor'
+            ? !sameVendorName($ocrVal === null ? null : (string)$ocrVal, $userVal === null ? null : (string)$userVal)
+            : normalizeFieldValue($field, $ocrVal === null ? null : (string)$ocrVal)
+              !== normalizeFieldValue($field, $userVal === null ? null : (string)$userVal);
+        $fields[$field] = ['ocr' => $ocrVal, 'user' => $userVal, 'corrected' => $corrected];
     }
 
     $suggested = trim((string)($original['accounting_category'] ?? $original['suggested_accounting_category'] ?? ''));
@@ -113,6 +112,32 @@ function headerCorrections(array $original, array $final, ?string $vendorName): 
         : null;
 
     return ['fields' => $fields, 'category' => $category];
+}
+
+/**
+ * Does the receipt's printed vendor name refer to the vendor the user kept?
+ * The header reads "HOME DEPOT #7012" where the CRM says "Home Depot", so a plain
+ * string compare made nearly every approval a vendor "correction" — which dragged
+ * the vendor's accuracy rate down and forced needless Vision re-scans.
+ */
+function sameVendorName(?string $printed, ?string $kept): bool
+{
+    $norm = static function (?string $v): string {
+        $v = strtoupper((string)$v);
+        $v = preg_replace('/(#|NO\.?|STORE)\s*\d+/', ' ', $v);          // store numbers
+        $v = preg_replace('/\b(INC|LTD|LIMITED|CORP|CO|THE)\b\.?/', ' ', $v);
+        return preg_replace('/[^A-Z0-9]/', '', $v);
+    };
+    $a = $norm($printed);
+    $b = $norm($kept);
+    if ($a === '' || $b === '') {
+        return $a === $b;
+    }
+    if ($a === $b) {
+        return true;
+    }
+    // Containment only for real names — "CO" must not match "COSTCO".
+    return min(strlen($a), strlen($b)) >= 4 && (str_contains($a, $b) || str_contains($b, $a));
 }
 
 /**
@@ -290,11 +315,14 @@ function learnFromConfirmedExpense(PDO $db, int $expenseId, ?array $fallbackBase
         }
 
         $baseline = captureBaseline($row['ocr_parsed_json'] ?? null) ?? $fallbackBaseline;
+        if (!$baseline) {
+            return false;   // nothing trustworthy to compare against; leave unclaimed
+        }
 
         // Claim the receipt first so a concurrent approve/send can't double-count it.
         $claim = $db->prepare("UPDATE expenses SET learning_recorded_at = NOW() WHERE id = ? AND learning_recorded_at IS NULL");
         $claim->execute([$expenseId]);
-        if ($claim->rowCount() === 0 || !$baseline) {
+        if ($claim->rowCount() === 0) {
             return false;
         }
 

@@ -115,4 +115,29 @@ class ReceiptHeaderLearningTest extends TestCase
     {
         $this->assertSame(['total' => '10.00'], withSuggestedCategory(['total' => '10.00'], []));
     }
+
+    // ── sameVendorName ────────────────────────────────────────────────
+
+    public function test_printed_vendor_header_matches_the_crm_name(): void
+    {
+        $this->assertTrue(sameVendorName('HOME DEPOT #7012', 'Home Depot'));
+        $this->assertTrue(sameVendorName('CANADIAN TIRE STORE 0391', 'Canadian Tire'));
+        $this->assertTrue(sameVendorName('RONA INC.', 'Rona'));
+        $this->assertTrue(sameVendorName('Shell', 'SHELL'));
+    }
+
+    public function test_a_different_vendor_is_still_a_correction(): void
+    {
+        $this->assertFalse(sameVendorName('PETRO-CANADA', 'Shell'));
+        $this->assertFalse(sameVendorName('COSTCO', 'Co'));
+        $d = headerCorrections(['vendor_hint' => 'ESSO'], [], 'Chevron');
+        $this->assertTrue($d['fields']['vendor']['corrected']);
+    }
+
+    public function test_vendor_case_and_store_number_are_not_corrections(): void
+    {
+        $d = headerCorrections(['vendor_hint' => 'HOME DEPOT #7012'], [], 'Home Depot');
+        $this->assertFalse($d['fields']['vendor']['corrected']);
+    }
 }
+
