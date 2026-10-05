@@ -207,6 +207,20 @@ styles in `mowology-brand.css` "DEPARTMENT HEADS DECK"; headshots `/crm/img/head
 - **Numbers:** right-first-time from real decisions (backtest until 5 exist); net
   saving only from real decisions × the Owner Freedom rate − AI cost.
 
+## Where the truck went (job from the trail) and Penny's questions (migration 1126)
+
+- **Trail:** `ReceiptTrailService::candidates($purchaseAt, $userId)` — materials are used
+  the same day, so the job is where the crew actually went after the purchase: visits
+  started (`job_visits.started_at`), truck stops (`vehicle_location_pings`, Trackimo) and
+  the purchaser's phone stops (`crew_location_history`, `is_office` excluded). Stop =
+  ≥5 min within 120 m → nearest property within 200 m → its job plan. These lead Penny's
+  job candidates (`source: where the truck/crew went`) ahead of the schedule.
+- **Questions:** `PennyQuestionService` — approved Materials / Disposal/Dump /
+  Subcontractors receipts on a job, 3–60 days old, with no invoice line for that
+  job/property mentioning them (−7/+45 days) become `penny_questions`; asked on Penny's
+  card. Answers: `invoice` (opens `invoices/create.php?plan_id=`, counts to "found to
+  bill"), `contract` / `not_billable` (never ask again for that job or contract + vendor).
+
 ## Line-item learning (migration 1115)
 
 The parser's self-learning loop covers line items, not just header fields. Signals
