@@ -4,8 +4,8 @@
  * One prepared receipt at a time: photo, Penny's suggestion with her reasons, the
  * hard checks, then Approve (A) · Edit (E) · Skip (→). Approving writes the values,
  * records the decision (her scorecard + learning) and approves the expense.
- * When fewer than 5 receipts are prepared it asks for 2 more in the background,
- * once per page load. API: /crm/api/bookkeeper.php (?mode=queue / decide / prepare).
+ * When fewer than 5 receipts are prepared it asks for 2 more in the background (up to
+ * 3 rounds per page view, only while the tab is visible). API: /crm/api/bookkeeper.php (?mode=queue / decide / prepare).
  */
 (function () {
     'use strict';
@@ -15,11 +15,14 @@
     var API = '/crm/api/bookkeeper.php';
     var CATEGORIES = [];
     try { CATEGORIES = JSON.parse(root.getAttribute('data-categories') || '[]'); } catch (e) {}
+    var BACKLOG = parseInt(root.getAttribute('data-backlog') || '0', 10);
     var queue = [];
     var idx = 0;
     var editing = false;
     var busy = false;
-    var prepared = false;
+    var rounds = 0;          // background preparation rounds this page view (max 3 × 2 receipts)
+    var preparing = false;
+    var capped = false;
 
     function esc(s) {
         return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -52,20 +55,37 @@
             .then(function (d) {
                 queue = (d && d.ok && d.queue) ? d.queue : [];
                 idx = 0;
+                topUp();
                 render();
-                if (queue.length < 5 && !prepared && document.visibilityState === 'visible') {
-                    prepared = true;
-                    post({ mode: 'prepare', max: 2 }).then(function (p) {
-                        if (p && p.ok && p.prepared && p.prepared.length) load();
-                    }).catch(function () {});
-                }
             })
             .catch(function () { root.innerHTML = '<div class="mw-rc-empty">Couldn\'t load receipts — refresh to try again.</div>'; });
     }
 
+    /** Prepare 2 more in the background while fewer than 5 are ready (≤ 3 rounds per view). */
+    function topUp() {
+        if (queue.length >= 5 || preparing || capped || rounds >= 3 || BACKLOG <= queue.length) return;
+        if (document.visibilityState !== 'visible') {
+            document.addEventListener('visibilitychange', function once() {
+                if (document.visibilityState === 'visible') { document.removeEventListener('visibilitychange', once); topUp(); render(); }
+            });
+            return;
+        }
+        preparing = true;
+        rounds++;
+        post({ mode: 'prepare', max: 2 }).then(function (p) {
+            preparing = false;
+            if (p && p.capped) { capped = true; render(); return; }
+            if (p && p.ok && p.prepared && p.prepared.length) { load(); } else { capped = true; render(); }
+        }).catch(function () { preparing = false; render(); });
+    }
+
     function render(msg) {
         if (!queue.length) {
-            root.innerHTML = '<div class="mw-rc-empty">' + (prepared ? 'I\'m preparing the next receipts — check back in a minute.' : 'All caught up — nothing waiting for you. 🎉') + '</div>';
+            var text = preparing ? 'I\'m preparing your receipts — they\'ll appear here in a moment…'
+                : capped && BACKLOG > 0 ? 'I\'ve prepared as many as I can for now — more tomorrow, or open All receipts.'
+                : BACKLOG > 0 ? 'Getting your receipts ready…'
+                : 'All caught up — nothing waiting for you. 🎉';
+            root.innerHTML = '<div class="mw-rc-empty">' + text + '</div>';
             return;
         }
         if (idx >= queue.length) idx = 0;
@@ -149,7 +169,7 @@
                     queue.splice(idx, 1);
                     editing = false;
                     render(d.message || 'Approved');
-                    if (queue.length < 3) { prepared = false; load(); }
+                    if (queue.length < 3) { load(); }
                 } else {
                     render((d && (d.message || d.error)) || 'Could not save');
                 }

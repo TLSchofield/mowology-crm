@@ -105,7 +105,7 @@ $__team = [
         </div>
       </div>
 
-      <div class="mw-rc" id="mw-rc" aria-live="polite" data-categories="<?= h(json_encode(array_values(EXPENSE_ACCOUNTING_CATEGORIES))) ?>">
+      <div class="mw-rc" id="mw-rc" aria-live="polite" data-categories="<?= h(json_encode(array_values(EXPENSE_ACCOUNTING_CATEGORIES))) ?>" data-backlog="<?= (int)$__toReview ?>">
         <div class="mw-rc-empty">Loading receipts…</div>
       </div>
 
