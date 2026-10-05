@@ -87,7 +87,7 @@ function emailCompanyDetails(): array
     $d = [
         'name'    => 'Mowology Landscaping',
         'address' => '2845 West 15th Ave, Vancouver, BC V6K 3A1',
-        'phone'   => '(604) 358-1818',
+        'phone'   => '(778) 846-9273',
         'email'   => 'info@mowology.ca',
     ];
 
@@ -205,8 +205,8 @@ function buildMergeData(
         'last_name'        => htmlspecialchars($contact['last_name'] ?? '', ENT_QUOTES, 'UTF-8'),
         'email'            => htmlspecialchars($contact['email'] ?? '', ENT_QUOTES, 'UTF-8'),
         'property_address' => htmlspecialchars($address, ENT_QUOTES, 'UTF-8'),
-        'company_name'     => 'Mowology Landscaping',
-        'company_phone'    => '(604) 358-1818',
+        'company_name'     => htmlspecialchars(emailCompanyDetails()['name'], ENT_QUOTES, 'UTF-8'),
+        'company_phone'    => htmlspecialchars(emailCompanyDetails()['phone'], ENT_QUOTES, 'UTF-8'),
         'unsubscribe_url'  => htmlspecialchars($unsubscribeUrl, ENT_QUOTES, 'UTF-8'),
         'cta_url'          => 'https://mowology.ca/quote',
         'review_url'       => 'https://g.page/r/mowology/review',

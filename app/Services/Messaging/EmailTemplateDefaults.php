@@ -29,7 +29,7 @@ if (!function_exists('emailTemplateDefaults')) {
                 'subject' => 'Your quote from Mowology: {{quote_number}}',
                 'cta'     => 'Read the quote',
                 'body'    => "Hi {{customer_first_name}},\n\n"
-                    . "Your quote is ready. It comes to {{quote_amount}} for the work we talked about, and it holds until {{quote_valid_until}}.\n\n"
+                    . "Your quote is ready: {{quote_amount}}, and it holds until {{quote_valid_until}}.\n\n"
                     . "Open it below and read the scope line by line. If anything is missing, or you'd like it split up differently, reply to this email and we'll adjust it.\n\n"
                     . "Once it reads right, you can accept it online and we'll book the first visit.\n\n"
                     . "{{company_name}}\n{{company_phone}}",
@@ -55,7 +55,7 @@ if (!function_exists('emailTemplateDefaults')) {
                     . "You can pay by card from the button below, or by any of the methods listed under it.\n\n"
                     . "If a line on it doesn't look right, reply here before the due date and we'll sort it out.\n\n"
                     . "{{company_name}}\n{{company_phone}}"
-                    . "\n\nP.S. If there's anything else the property needs, hedges, a fall cleanup, the winter snow plan, reply here and we'll price it on the next visit.",
+                    . "\n\nP.S. If the property needs anything else, say a hedge trim, a fall cleanup or aeration before winter, reply here and we'll price it on the next visit.",
                 'vars'    => array_merge($common, ['{{invoice_number}}', '{{amount_due}}', '{{due_date}}']),
             ],
             'receipt_sent' => [
@@ -67,7 +67,7 @@ if (!function_exists('emailTemplateDefaults')) {
                     . "Your receipt is at the button below if you need it for your records.\n\n"
                     . "Thank you for the payment.\n\n"
                     . "{{company_name}}\n{{company_phone}}"
-                    . "\n\nP.S. If there's anything else the property needs, hedges, a fall cleanup, the winter snow plan, reply here and we'll price it on the next visit.",
+                    . "\n\nP.S. If the property needs anything else, say a hedge trim, a fall cleanup or aeration before winter, reply here and we'll price it on the next visit.",
                 'vars'    => array_merge($common, ['{{invoice_number}}', '{{amount_paid}}', '{{payment_date}}']),
             ],
             'job_complete' => [
@@ -79,7 +79,7 @@ if (!function_exists('emailTemplateDefaults')) {
                     . "The report below has the photos they took before they left, what was done, and any notes for you.\n\n"
                     . "If something in the photos isn't how you'd want it, reply to this email and we'll come back to it.\n\n"
                     . "{{company_name}}\n{{company_phone}}"
-                    . "\n\nP.S. If there's anything else the property needs, hedges, a fall cleanup, the winter snow plan, reply here and we'll price it on the next visit.",
+                    . "\n\nP.S. If the property needs anything else, say a hedge trim, a fall cleanup or aeration before winter, reply here and we'll price it on the next visit.",
                 'vars'    => array_merge($common, ['{{service_type}}', '{{job_date}}', '{{property_address}}']),
             ],
         ];

@@ -622,7 +622,7 @@ function sendFertilizerCompletionNotification(int $visitId): bool
 
     // ── Compose body content (materials, photos, GPS, progress) ──
     $greeting = '<p style="margin:0 0 8px;color:#555;font-family:\'Helvetica Neue\',Arial,sans-serif;">Hi ' . htmlspecialchars($visit['contact_first']) . ',</p>'
-              . '<p style="margin:0 0 20px;color:#555;font-family:\'Helvetica Neue\',Arial,sans-serif;">Our crew finished today\'s application. Here\'s what went down, and the photos they took before they left.</p>';
+              . '<p style="margin:0 0 20px;color:#555;font-family:\'Helvetica Neue\',Arial,sans-serif;">Our crew finished today\'s application. Here\'s what was done, and the photos they took before they left.</p>';
 
     $detailTable = '<table width="100%" cellpadding="0" cellspacing="0" style="border-top:1px solid #eee;">'
         . $materialsHtml

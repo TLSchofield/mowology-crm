@@ -437,6 +437,14 @@ function csrf() { return window.MW_CSRF_TOKEN || ''; }
                         'open'  => true,
                     ],
                     [
+                        'key'   => 'quote_followup',
+                        'label' => 'Quote Follow-Up',
+                        'icon'  => 'corner-up-left',
+                        'desc'  => 'Sent by the follow-up button on a quote, and automatically 3 and 7 days after a quote goes out unanswered.',
+                        'vars'  => ['{{customer_first_name}}', '{{customer_name}}', '{{quote_number}}', '{{quote_amount}}', '{{quote_valid_until}}', '{{company_name}}', '{{company_phone}}'],
+                        'open'  => false,
+                    ],
+                    [
                         'key'   => 'invoice_sent',
                         'label' => 'Invoice Sent',
                         'icon'  => 'credit-card',

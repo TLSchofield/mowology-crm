@@ -111,15 +111,17 @@ try {
         // Send email via CRM messaging system
         if (function_exists('sendCrmEmail')) {
             $contract = getContractById($contractId);
-            $subject  = "Your Service Contract — Please Sign";
-            $body     = "Hi {$signerName},\n\n"
-                . "Please review and digitally sign your service contract with Mowology Landscaping.\n\n"
-                . "Contract: " . ($contract['contract_number'] ?? '') . "\n"
-                . ($contract['title'] ? "Title: " . $contract['title'] . "\n" : '')
-                . "\nSign here (link valid for 14 days):\n{$signUrl}\n\n"
-                . "If you have any questions, call us at (778) 846-9273.\n\n"
-                . "Thank you,\nMowology Landscaping Team";
-            sendCrmEmail($signerEmail, $subject, $body, $signerName);
+            require_once APP_ROOT . '/Services/Messaging/EmailWrapper.php';
+            $companyInfo = EmailWrapper::getCompanyInfo();
+            $subject  = "Your Mowology contract is ready to sign";
+            $text     = "Hi {$signerName},\n\n"
+                . "Your service contract is ready. Read it through, and if it matches what we agreed, sign it from the button below. The link works for 14 days.\n\n"
+                . "Contract: " . ($contract['contract_number'] ?? '')
+                . ($contract['title'] ? "\n" . $contract['title'] : '') . "\n\n"
+                . "If anything in it isn't right, reply to this email before you sign and we'll correct it.\n\n"
+                . $companyInfo['company_name'] . "\n" . $companyInfo['company_phone'];
+            $body = EmailWrapper::wrap(EmailWrapper::textToHtml($text), 'Read and sign the contract', $signUrl, $companyInfo);
+            sendCrmEmail($signerEmail, $subject, $body);
         }
 
         echo json_encode([

@@ -237,7 +237,7 @@ class ReviewRequestService
               How did we do, ' . $firstName . '?
             </h1>
             <p style="color:#b2d8c9;margin:8px 0 0;font-size:14px;">
-              Your feedback means everything to our crew.
+              One minute, and it helps the next person deciding whether to call us.
             </p>
           </div>
 
@@ -245,13 +245,11 @@ class ReviewRequestService
           <div style="background:#fff;border:1px solid #dce8e2;border-top:none;border-radius:0 0 10px 10px;padding:32px;">
 
             <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 18px;">
-              Thank you for trusting Mowology with your property. We hope the work
-              met — or exceeded — your expectations.
+              Thanks for having us at the property today.
             </p>
             <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 28px;">
-              If you have a moment, we&rsquo;d be grateful for a quick Google review.
-              It helps other homeowners find quality landscaping services and motivates
-              our whole team.
+              If the work was what you expected, a short Google review would help the next
+              council or homeowner deciding whether to call us. It takes about a minute.
             </p>
 
             <!-- CTA button -->
@@ -260,7 +258,7 @@ class ReviewRequestService
                  style="display:inline-block;padding:16px 36px;background:#2D8659;color:#fff;
                         text-decoration:none;border-radius:8px;font-weight:700;font-size:16px;
                         letter-spacing:0.2px;">
-                &#9733; Leave a Google Review
+                Write a Google review
               </a>
             </p>
 
@@ -271,8 +269,8 @@ class ReviewRequestService
             <hr style="border:none;border-top:1px solid #f0f0f0;margin:28px 0;">
 
             <p style="color:#6B7280;font-size:13px;line-height:1.5;margin:0;">
-              Not satisfied with something? We want to make it right.
-              Reply to this email or call us at <strong>(778) 846-9273</strong>.
+              If something wasn&rsquo;t right, tell us first. Reply to this email or call
+              <strong>(778) 846-9273</strong> and we&rsquo;ll fix it before anything else.
             </p>
           </div>
 
@@ -285,7 +283,7 @@ class ReviewRequestService
 
         return sendEmail(
             $contact['email'],
-            'How was your recent Mowology service? ⭐',
+            'How did the visit go, ' . ($contact['first_name'] ?: 'there') . '?',
             $html,
             null,
             'Mowology'

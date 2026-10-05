@@ -105,15 +105,16 @@ try {
     $notesHtml = nl2br(htmlspecialchars($notes, ENT_QUOTES, 'UTF-8'));
 
     if (function_exists('sendCrmEmail')) {
+        require_once APP_ROOT . '/Services/Messaging/EmailWrapper.php';
+        $companyInfo = EmailWrapper::getCompanyInfo();
+        $privacyText = "Hi {$name},\n\n"
+            . "We have your privacy request ({$typeLabel}, reference #{$id}).\n\n"
+            . "We'll respond within 30 days, as PIPEDA requires. If you need to add anything to the request, reply to this email.\n\n"
+            . $companyInfo['company_name'] . "\n" . $companyInfo['company_phone'];
         sendCrmEmail(
             $email,
-            "Privacy Request Received — Mowology",
-            "Hi {$nameHtml},\n\n"
-            . "We have received your Privacy {$typeLabel} Request (reference #{$id}).\n\n"
-            . "We will respond within 30 days as required by PIPEDA.\n\n"
-            . "If you have questions, contact us at office@mowology.ca or (778) 846-9273.\n\n"
-            . "Thank you,\nMowology Landscaping",
-            $name
+            "We have your privacy request",
+            EmailWrapper::wrap(EmailWrapper::textToHtml($privacyText), null, null, $companyInfo)
         );
 
         // Admin notification

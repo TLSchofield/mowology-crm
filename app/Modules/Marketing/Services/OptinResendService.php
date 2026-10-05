@@ -362,20 +362,21 @@ class OptinResendService
         $name = htmlspecialchars($firstName !== '' ? $firstName : 'there', ENT_QUOTES, 'UTF-8');
         $href = htmlspecialchars($confirmUrl, ENT_QUOTES, 'UTF-8');
 
-        $body = '<h2 style="margin:0 0 12px;color:#1A5F4A;font-size:20px;">Oops — that last link didn\'t work</h2>
+        $phone = function_exists('emailCompanyDetails')
+            ? htmlspecialchars(emailCompanyDetails()['phone'], ENT_QUOTES, 'UTF-8')
+            : '(778) 846-9273';
+        $body = '<h2 style="margin:0 0 12px;color:#1A5F4A;font-size:20px;">The last link we sent you didn\'t work</h2>
 <p>Hi ' . $name . ',</p>
-<p>We recently emailed you to confirm your marketing email preferences, but the confirmation
-button in that message was broken — our apologies.</p>
-<p>Here is a fresh link that works. If you\'d like to keep receiving occasional updates about
-seasonal services, special offers, and landscaping tips, just confirm below:</p>
+<p>We emailed you recently to confirm you still want to hear from us, and the button in that message was broken. Our apologies.</p>
+<p>Here is one that works. If you\'d like the occasional note about seasonal work and what the crews are seeing on properties, confirm below:</p>
 <p style="margin:24px 0;">
   <a href="' . $href . '"
      style="background:#2D8659;color:#fff;padding:14px 28px;text-decoration:none;border-radius:6px;font-size:16px;font-weight:600;display:inline-block;">
-    &#10003; Yes, keep me subscribed
+    Keep me on the list
   </a>
 </p>
-<p style="color:#666;font-size:13px;">If you do not wish to receive marketing emails, simply ignore this message — you will not be added.</p>
-<p style="color:#666;font-size:13px;">This link expires in 30 days. Questions? Call us at (604) 358-1818.</p>';
+<p style="color:#666;font-size:13px;">If you\'d rather not, ignore this message and you won\'t be added.</p>
+<p style="color:#666;font-size:13px;">The link works for 30 days. Questions? Call ' . $phone . '.</p>';
 
         if (function_exists('wrapInBrandedEmail')) {
             return wrapInBrandedEmail($body, $unsubUrl);

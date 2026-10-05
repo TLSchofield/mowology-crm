@@ -237,7 +237,7 @@ class ReferralRewardService
 
             // Resolve the reward product name for the email
             $product = self::resolveRewardProduct($contactId, $db);
-            $productName = $product ? htmlspecialchars($product['name'], ENT_QUOTES, 'UTF-8') : 'a complimentary service';
+            $productName = $product ? htmlspecialchars($product['name'], ENT_QUOTES, 'UTF-8') : 'service';
 
             $firstName   = htmlspecialchars($contact['first_name'] ?? 'Valued Customer', ENT_QUOTES, 'UTF-8');
             $urlSafe     = htmlspecialchars($url, ENT_QUOTES, 'UTF-8');
@@ -249,10 +249,10 @@ class ReferralRewardService
               <!-- Header -->
               <div style="background:#1A5F4A;border-radius:10px 10px 0 0;padding:28px 32px;">
                 <h1 style="color:#fff;margin:0;font-size:22px;font-weight:700;letter-spacing:-0.3px;">
-                  Share Mowology — Earn a Free Service
+                  A free ' . $productName . ' for a referral
                 </h1>
                 <p style="color:#b2d8c9;margin:8px 0 0;font-size:14px;">
-                  Your personal referral link is inside
+                  Your link is below
                 </p>
               </div>
 
@@ -263,12 +263,12 @@ class ReferralRewardService
                   Hi ' . $firstName . ',
                 </p>
                 <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 16px;">
-                  You&rsquo;re one of our favourite clients, so we want to offer you something special.
-                  Refer a neighbour, friend, or family member to Mowology and when they complete
-                  their first service, <strong>you&rsquo;ll receive ' . $productName . ' — on us.</strong>
+                  Most of our new clients come from someone like you mentioning us to a neighbour.
+                  We&rsquo;d like to make that worth your while.
                 </p>
                 <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 24px;">
-                  All they need to do is book through your personal link below:
+                  Send your link to anyone who might want us. When they finish their first visit,
+                  <strong>we book you in for a free ' . $productName . '.</strong>
                 </p>
 
                 <!-- CTA button -->
@@ -276,20 +276,20 @@ class ReferralRewardService
                   <a href="' . $urlSafe . '"
                      style="display:inline-block;padding:16px 36px;background:#2D8659;color:#fff;
                             text-decoration:none;border-radius:8px;font-weight:700;font-size:16px;">
-                    Share Your Referral Link
+                    Share your link
                   </a>
                 </p>
 
                 <p style="text-align:center;color:#6B7280;font-size:13px;margin:0 0 28px;">
-                  Or share your code: <strong style="color:#2D8659;font-size:16px;letter-spacing:1px;">' . $codeSafe . '</strong>
+                  Or give them your code: <strong style="color:#2D8659;font-size:16px;letter-spacing:1px;">' . $codeSafe . '</strong>
                 </p>
 
                 <div style="background:#f0f9f5;border:1px solid #b7dfc9;border-radius:8px;padding:16px 20px;margin:0 0 24px;">
                   <p style="color:#1A5F4A;font-size:14px;font-weight:700;margin:0 0 8px;">How it works</p>
                   <ol style="color:#374151;font-size:14px;line-height:1.8;margin:0;padding-left:20px;">
-                    <li>Share your link or code with anyone you know</li>
-                    <li>They book and complete their first Mowology service</li>
-                    <li>We contact you to schedule your free ' . $productName . '</li>
+                    <li>Share the link or the code.</li>
+                    <li>They book and we complete their first visit.</li>
+                    <li>We call you to schedule your free ' . $productName . '.</li>
                   </ol>
                 </div>
 
@@ -309,7 +309,7 @@ class ReferralRewardService
 
             $result = sendEmail(
                 $contact['email'],
-                'Refer a friend, earn a free service — your Mowology link inside',
+                'Your Mowology referral link, and what it earns you',
                 $html,
                 null,
                 'Mowology'
@@ -475,7 +475,7 @@ class ReferralRewardService
         $firstName   = htmlspecialchars($referrer['first_name'] ?? 'Valued Client', ENT_QUOTES, 'UTF-8');
         $productName = $product
             ? htmlspecialchars($product['name'], ENT_QUOTES, 'UTF-8')
-            : 'a complimentary service';
+            : 'service';
 
         $html = '
         <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#f7faf8;padding:24px 0;">
@@ -483,10 +483,10 @@ class ReferralRewardService
           <!-- Header -->
           <div style="background:#1A5F4A;border-radius:10px 10px 0 0;padding:28px 32px;">
             <h1 style="color:#fff;margin:0;font-size:22px;font-weight:700;letter-spacing:-0.3px;">
-              Your referral came through! &#127881;
+              Your referral came through
             </h1>
             <p style="color:#b2d8c9;margin:8px 0 0;font-size:14px;">
-              You&rsquo;ve earned your reward
+              A free ' . $productName . ' is yours
             </p>
           </div>
 
@@ -497,8 +497,8 @@ class ReferralRewardService
               Hi ' . $firstName . ',
             </p>
             <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 24px;">
-              Great news — the person you referred has completed their first Mowology service!
-              As a thank you, <strong>we&rsquo;re booking you in for ' . $productName . ' — completely on us.</strong>
+              The person you referred has had their first visit. As promised,
+              <strong>we&rsquo;re booking you in for a free ' . $productName . '.</strong>
             </p>
 
             <div style="background:#f0f9f5;border:1px solid #b7dfc9;border-radius:8px;padding:20px 24px;margin:0 0 24px;text-align:center;">
@@ -508,8 +508,8 @@ class ReferralRewardService
             </div>
 
             <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 24px;">
-              We&rsquo;ll be in touch shortly to schedule your free service at a time that works for you.
-              No action needed on your part — just sit back and enjoy!
+              We&rsquo;ll call to find a date that suits you. Nothing to do on your side.
+              Thank you for the referral.
             </p>
 
             <hr style="border:none;border-top:1px solid #f0f0f0;margin:24px 0;">
@@ -527,7 +527,7 @@ class ReferralRewardService
 
         sendEmail(
             $referrer['email'],
-            "You've earned a free {$productName} — thanks for the referral!",
+            "Your referral came through: a free {$productName} is yours",
             $html,
             null,
             'Mowology'
