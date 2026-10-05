@@ -133,6 +133,62 @@ class FieldRecommendationServiceTest extends TestCase
         }
     }
 
+    // ── Product-manager flags ────────────────────────────────────────────────
+    // Regression: these lived in a closure defined inside the delete-category
+    // branch of api-products.php, so every save-product call wrote the product
+    // and then fataled on an undefined variable — the UI reported failure for
+    // saves that had succeeded (products 39–41 on production, 2026-10-04).
+
+    public function test_product_flag_values_from_form_payload(): void
+    {
+        $this->assertSame([1, 1, 'Half Day Cleanup', 3], FieldRecommendationService::productFlagValues([
+            'field_recommendable' => 'on',
+            'field_auto_send'     => '1',
+            'field_label'         => '  Half Day Cleanup ',
+            'field_sort_order'    => '3',
+        ]));
+    }
+
+    public function test_product_flag_values_default_off_with_null_label(): void
+    {
+        // A blank label must be NULL, not '', so resolveLabel() falls back to the name.
+        $this->assertSame([0, 0, null, 0], FieldRecommendationService::productFlagValues([
+            'field_label' => '   ',
+        ]));
+    }
+
+    public function test_apply_product_flags_updates_the_saved_product(): void
+    {
+        $columns = $this->createMock(PDOStatement::class);
+        $columns->method('rowCount')->willReturn(1);
+
+        $update = $this->createMock(PDOStatement::class);
+        $update->expects($this->once())
+            ->method('execute')
+            ->with([1, 0, 'Aeration', 2, 41])
+            ->willReturn(true);
+
+        $db = $this->createMock(PDO::class);
+        $db->method('query')->willReturn($columns);
+        $db->expects($this->once())
+            ->method('prepare')
+            ->with($this->stringContains('UPDATE products'))
+            ->willReturn($update);
+
+        (new FieldRecommendationService($db))->applyProductFlags(41, [
+            'field_recommendable' => 1,
+            'field_label'         => 'Aeration',
+            'field_sort_order'    => 2,
+        ]);
+    }
+
+    public function test_save_product_uses_the_service_not_a_branch_local_closure(): void
+    {
+        $src = file_get_contents(__DIR__ . '/../../../app/Modules/Products/Api/api-products.php');
+        $this->assertStringNotContainsString('$applyFieldFlags', $src);
+        $this->assertSame(2, substr_count($src, '->applyProductFlags('), 'create and update paths');
+    }
+
     // ── Catalogue guard ──────────────────────────────────────────────────────
 
     public function test_service_requires_a_product(): void

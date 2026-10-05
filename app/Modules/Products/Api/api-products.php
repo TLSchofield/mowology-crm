@@ -19,6 +19,7 @@ if (!defined('APP_ROOT')) {
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 require_once CRM_INCLUDES . '/functions.php';
+require_once APP_ROOT . '/Modules/Products/Services/FieldRecommendationService.php';
 
 requireLogin();
 $user = getCurrentUser();
@@ -105,34 +106,6 @@ try {
     } elseif ($action === 'delete-category') {
         // Delete category (only if no products use it)
         $data = json_decode(file_get_contents('php://input'), true);
-
-        // ── Field-recommendable flags (migration 1114) ───────────────────────
-        // Applied as a separate guarded UPDATE rather than threaded through the
-        // INSERT/UPDATE param arrays above, which use fragile array_splice index
-        // maths. Silently skipped if 1114 has not been run yet.
-        $applyFieldFlags = function (int $productId) use ($db, $data) {
-            try {
-                if ($db->query("SHOW COLUMNS FROM products LIKE 'field_recommendable'")->rowCount() === 0) {
-                    return;
-                }
-            } catch (Exception $e) {
-                return;
-            }
-
-            $label = trim((string)($data['field_label'] ?? ''));
-
-            $db->prepare("
-                UPDATE products
-                SET field_recommendable = ?, field_auto_send = ?, field_label = ?, field_sort_order = ?
-                WHERE id = ?
-            ")->execute([
-                !empty($data['field_recommendable']) ? 1 : 0,
-                !empty($data['field_auto_send']) ? 1 : 0,
-                $label !== '' ? $label : null,
-                isset($data['field_sort_order']) ? (int)$data['field_sort_order'] : 0,
-                $productId,
-            ]);
-        };
 
         if (empty($data['id'])) {
             throw new Exception('Category ID is required');
@@ -408,7 +381,7 @@ try {
             $stmt->execute($params);
 
             $productId = $db->lastInsertId();
-            $applyFieldFlags((int)$productId);
+            (new FieldRecommendationService($db))->applyProductFlags((int)$productId, $data);
             echo json_encode([
                 'success' => true,
                 'id' => $productId,
@@ -520,7 +493,7 @@ try {
             $stmt = $db->prepare("UPDATE products SET {$setClauses} WHERE id = ?");
             $stmt->execute($params);
 
-            $applyFieldFlags((int)$data['id']);
+            (new FieldRecommendationService($db))->applyProductFlags((int)$data['id'], $data);
 
             echo json_encode([
                 'success' => true,

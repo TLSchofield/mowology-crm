@@ -85,6 +85,41 @@ class FieldRecommendationService
         return $options;
     }
 
+    /**
+     * Persist the office's field_* flags for a product saved from the product
+     * manager. A separate UPDATE rather than threaded through the save's
+     * INSERT/UPDATE param arrays, which use fragile array_splice index maths.
+     * Silently skipped if migration 1114 has not been run.
+     */
+    public function applyProductFlags(int $productId, array $data): void
+    {
+        if (!$this->hasFieldColumns()) {
+            return;
+        }
+
+        $this->db->prepare("
+            UPDATE products
+            SET field_recommendable = ?, field_auto_send = ?, field_label = ?, field_sort_order = ?
+            WHERE id = ?
+        ")->execute(array_merge(self::productFlagValues($data), [$productId]));
+    }
+
+    /**
+     * Form payload → [field_recommendable, field_auto_send, field_label, field_sort_order].
+     * A blank label is stored as NULL so resolveLabel() falls back to the name.
+     */
+    public static function productFlagValues(array $data): array
+    {
+        $label = trim((string)($data['field_label'] ?? ''));
+
+        return [
+            !empty($data['field_recommendable']) ? 1 : 0,
+            !empty($data['field_auto_send']) ? 1 : 0,
+            $label !== '' ? $label : null,
+            isset($data['field_sort_order']) ? (int)$data['field_sort_order'] : 0,
+        ];
+    }
+
     /** Has migration 1114 been run? Cached for the life of the request. */
     private function hasFieldColumns(): bool
     {
