@@ -40,7 +40,7 @@ class PennyBadgeService
             FROM expense_suggestions s
             JOIN expenses e ON e.id = s.expense_id
             LEFT JOIN vendors v ON v.id = e.vendor_id
-            WHERE s.source = 'live' AND s.status IN ('accepted', 'edited')
+            WHERE s.source = 'live' AND s.status IN ('accepted', 'edited') AND e.status IN ('approved', 'forwarded')
             ORDER BY s.decided_at DESC, s.id DESC
             LIMIT 500
         ")->fetchAll(PDO::FETCH_ASSOC);

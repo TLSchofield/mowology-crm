@@ -23,6 +23,17 @@ class ExpenseApprovalService
         $this->db = $db;
     }
 
+    /** The creator can't approve their own expense unless Team management exempts them. */
+    public function selfApprovalBlocked(int $createdBy, int $userId): bool
+    {
+        if ($createdBy !== $userId) {
+            return false;
+        }
+        $flagStmt = $this->db->prepare("SELECT can_approve_own_expenses FROM users WHERE id = ?");
+        $flagStmt->execute([$userId]);
+        return !(int)$flagStmt->fetchColumn();
+    }
+
     /**
      * @param int   $expenseId
      * @param array $currentUser  Must include 'id'.
@@ -55,12 +66,8 @@ class ExpenseApprovalService
         // Queried fresh rather than trusted from $currentUser: the session copy
         // (getCurrentUser()) would be stale until re-login, and the JWT payload
         // in receipt-actions.php only ever carries ['id' => ...].
-        if ((int)$expense['created_by'] === (int)$currentUser['id']) {
-            $flagStmt = $this->db->prepare("SELECT can_approve_own_expenses FROM users WHERE id = ?");
-            $flagStmt->execute([$currentUser['id']]);
-            if (!(int)$flagStmt->fetchColumn()) {
-                throw new Exception('Cannot approve your own expense');
-            }
+        if ($this->selfApprovalBlocked((int)$expense['created_by'], (int)$currentUser['id'])) {
+            throw new Exception('Cannot approve your own expense');
         }
 
         $stmt = $this->db->prepare("

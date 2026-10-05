@@ -297,7 +297,10 @@
         post({ mode: 'decide', suggestion_id: it.suggestion_id, overrides: values, save_draft: !!saveDraft })
             .then(function (d) {
                 busy = false;
-                if (d && d.ok && d.saved_draft) {
+                if (d && d.ok && d.blocked) {
+                    it.saved_draft = values;        // stays put, so the reason is read on this receipt
+                    render(d.message);
+                } else if (d && d.ok && d.saved_draft) {
                     it.saved_draft = values;
                     queue.splice(idx, 1);
                     queue.push(it);                 // come back to it last

@@ -51,6 +51,21 @@ class ExpenseApprovalServiceTest extends TestCase
         (new ExpenseApprovalService($db))->approve(42, ['id' => 5]);
     }
 
+    public function test_self_approval_check_is_answerable_before_approving(): void
+    {
+        $flag = function (int $v): PDO {
+            $s = $this->createMock(PDOStatement::class);
+            $s->method('execute')->willReturn(true);
+            $s->method('fetchColumn')->willReturn($v);
+            $db = $this->createMock(PDO::class);
+            $db->method('prepare')->willReturn($s);
+            return $db;
+        };
+        $this->assertFalse((new ExpenseApprovalService($flag(0)))->selfApprovalBlocked(9, 5), 'someone else submitted it');
+        $this->assertTrue((new ExpenseApprovalService($flag(0)))->selfApprovalBlocked(5, 5));
+        $this->assertFalse((new ExpenseApprovalService($flag(1)))->selfApprovalBlocked(5, 5), 'exempt in Team');
+    }
+
     public function test_approve_blocks_self_approval(): void
     {
         $db = $this->createMock(PDO::class);

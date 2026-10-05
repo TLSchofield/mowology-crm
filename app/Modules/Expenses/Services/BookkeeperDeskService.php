@@ -79,8 +79,11 @@ class BookkeeperDeskService
             WHERE s.source = 'live' AND s.status = 'pending' AND e.status IN ('draft', 'pending_approval')
         ");
 
-        $accepted = (int)$one("SELECT COUNT(*) FROM expense_suggestions WHERE source = 'live' AND status = 'accepted' AND decided_at >= ?", [$monthStart]);
-        $edited   = (int)$one("SELECT COUNT(*) FROM expense_suggestions WHERE source = 'live' AND status = 'edited' AND decided_at >= ?", [$monthStart]);
+        // Only decisions whose receipt really was approved (a refused approval once left
+        // suggestions marked decided on receipts still waiting).
+        $approved = "AND expense_id IN (SELECT id FROM expenses WHERE status IN ('approved', 'forwarded'))";
+        $accepted = (int)$one("SELECT COUNT(*) FROM expense_suggestions WHERE source = 'live' AND status = 'accepted' AND decided_at >= ? {$approved}", [$monthStart]);
+        $edited   = (int)$one("SELECT COUNT(*) FROM expense_suggestions WHERE source = 'live' AND status = 'edited' AND decided_at >= ? {$approved}", [$monthStart]);
         $codeOnly = (int)$one("SELECT COUNT(*) FROM expense_suggestions WHERE source = 'live' AND model = 'code' AND created_at >= ?", [$monthStart]);
         $made     = (int)$one("SELECT COUNT(*) FROM expense_suggestions WHERE source = 'live' AND created_at >= ?", [$monthStart]);
 
@@ -281,7 +284,7 @@ class BookkeeperDeskService
     public function decide(int $suggestionId, array $overrides, array $user, bool $approve = true): array
     {
         $stmt = $this->db->prepare("
-            SELECT s.*, e.status AS expense_status, e.forwarded_to_accounting, e.vendor_id,
+            SELECT s.*, e.status AS expense_status, e.forwarded_to_accounting, e.vendor_id, e.created_by AS expense_created_by,
                    COALESCE(v.name, e.vendor_name_raw) AS current_vendor
             FROM expense_suggestions s JOIN expenses e ON e.id = s.expense_id
             LEFT JOIN vendors v ON v.id = e.vendor_id
@@ -297,6 +300,15 @@ class BookkeeperDeskService
         }
         if (!in_array($row['expense_status'], ['draft', 'pending_approval'], true) || (int)$row['forwarded_to_accounting'] === 1) {
             return ['ok' => false, 'message' => 'This receipt has already been handled'];
+        }
+
+        // The self-approval rule, checked before anything is written: a refused approval
+        // must not mark her suggestion decided (it came straight back, re-prepared, and
+        // counted as a win). Keep the edits as a draft and say how to unblock it.
+        $blocked = $approve && (new ExpenseApprovalService($this->db))
+            ->selfApprovalBlocked((int)$row['expense_created_by'], (int)$user['id']);
+        if ($blocked) {
+            $approve = false;
         }
 
         $resolved = self::resolveFinal(json_decode((string)$row['suggestion_json'], true) ?: [], $overrides);
@@ -366,6 +378,10 @@ class BookkeeperDeskService
             throw $e;
         }
 
+        if ($blocked) {
+            return ['ok' => true, 'approved' => false, 'saved_draft' => true, 'blocked' => true,
+                    'message' => "Not approved — you submitted this receipt, and the self-approval rule stops you approving your own. Your edits are saved. Turn on \"Allow approving own submitted expenses\" for yourself in Team, or have someone else approve it."];
+        }
         if (!$approve) {
             return ['ok' => true, 'approved' => false, 'saved_draft' => true, 'message' => 'Saved as a draft — it stays here until you approve it'];
         }
@@ -376,7 +392,10 @@ class BookkeeperDeskService
             (new ExpenseApprovalService($this->db))->approve((int)$row['expense_id'], $user);
             return ['ok' => true, 'approved' => true, 'message' => $allAccepted ? 'Approved' : 'Approved with your changes'];
         } catch (Throwable $e) {
-            return ['ok' => true, 'approved' => false, 'message' => 'Saved — not approved: ' . $e->getMessage()];
+            // Not approved after all: put it back on the desk as a saved draft, undecided.
+            $this->db->prepare("UPDATE expense_suggestions SET status = 'pending', decided_by = NULL, decided_at = NULL, outcome_json = ? WHERE id = ?")
+               ->execute([json_encode(['draft' => $f, 'saved_by' => (int)$user['id'], 'saved_at' => date('c')]), $suggestionId]);
+            return ['ok' => true, 'approved' => false, 'saved_draft' => true, 'blocked' => true, 'message' => 'Not approved: ' . $e->getMessage() . ' — your edits are saved'];
         }
     }
 
