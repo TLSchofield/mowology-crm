@@ -139,7 +139,7 @@
                   (it.submitted_by ? ' · from ' + esc(it.submitted_by) : '') + '</div>' +
                 '<div class="mw-rc-fields">' + fields + '</div>' +
                 (checks ? '<div class="mw-rc-checks">' + checks + '</div>' : '') +
-                (s.notes ? '<div class="mw-rc-checks">📝 ' + esc(s.notes) + '</div>' : '') +
+                (s.notes ? '<div class="mw-rc-checks mw-rc-note" title="' + esc(s.notes) + '">📝 ' + esc(s.notes) + '</div>' : '') +
                 '<div class="mw-rc-actions">' +
                   '<button type="button" class="mw-rc-ok" data-act="approve">✓ ' + (editing ? 'Save &amp; approve' : 'Approve') + '</button>' +
                   '<button type="button" class="mw-rc-ed" data-act="' + (editing ? 'cancel' : 'edit') + '">' + (editing ? 'Cancel' : '✎ Edit') + '</button>' +

@@ -119,7 +119,7 @@ $__team = [
   <div class="mw-heads-side">
     <?php foreach ($__team as [$__slug, $__name, $__role, $__items]): ?>
     <section class="mw-head-card mw-head-soon">
-      <img class="mw-head-face" src="/crm/img/heads/<?= $__slug ?>.jpg" alt="<?= h($__name) ?>, <?= h($__role) ?>" width="96" height="96" loading="lazy">
+      <img class="mw-head-face" src="/crm/img/heads/<?= $__slug ?>.jpg" alt="<?= h($__name) ?>, <?= h($__role) ?>" width="96" height="96">
       <div class="mw-head-nm"><?= h($__name) ?></div>
       <div class="mw-head-role"><?= h($__role) ?></div>
       <span class="mw-head-pill is-planned"><i></i><?= $__slug === 'sam' ? 'Coming next' : 'Planned' ?></span>

@@ -37612,7 +37612,8 @@ span.mw-icon-box--missing {
    =================================================================== */
 .mw-heads-deck { display: grid; grid-template-columns: 1.75fr 1fr; gap: var(--mw-space-4, 16px); margin-bottom: 1.5rem; align-items: stretch; }
 .mw-heads-side { display: grid; grid-template-columns: 1fr 1fr; gap: var(--mw-space-4, 16px); }
-.mw-heads-deck > *, .mw-head-feature > *, .mw-rc-slide > *, .mw-head-stats > *, .mw-rc-fields > * { min-width: 0; }
+.mw-heads-deck > *, .mw-heads-side > *, .mw-head-feature > *, .mw-rc-slide > *, .mw-head-stats > *, .mw-rc-fields > * { min-width: 0; }
+.mw-rc-note { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .mw-head-card { background: var(--mw-ink-0); border: 1px solid var(--mw-ink-200); border-radius: var(--mw-radius-lg); padding: 16px; box-shadow: var(--mw-shadow-sm); }
 
 /* Penny — featured */
@@ -37676,7 +37677,8 @@ span.mw-icon-box--missing {
 .mw-head-soon .mw-head-nm { font-weight: 700; font-size: .95rem; color: var(--mw-ink-900); }
 .mw-head-soon ul { text-align: left; margin: 10px 0 0; padding-left: 16px; font-size: .75rem; color: var(--mw-ink-500); line-height: 1.6; }
 
-@media (max-width: 1199.98px) {
+/* With the CRM sidebar open, side-by-side needs a wide screen */
+@media (max-width: 1499.98px) {
     .mw-heads-deck { grid-template-columns: 1fr; }
     .mw-heads-side { grid-template-columns: repeat(4, 1fr); }
 }
