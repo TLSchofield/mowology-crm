@@ -462,24 +462,26 @@ class QuoteService
     /**
      * The block a contract quote's email carries below the template text.
      *
-     * A contract quote is the seasonal agreement itself, and a property manager
-     * usually has to file a signed paper copy as well. So the email says both
-     * are required, points at the attached PDF to print, and prints the full
-     * terms in the body so they can be read without opening anything.
+     * A contract quote is the seasonal agreement itself, and signing it online
+     * IS signing the contract: the client draws a signature and ticks that they
+     * agree to the terms, and the contract made from it inherits that signature
+     * (ContractService::adoptQuoteSignature). No paper copy is asked for (owner
+     * decision 2026-10-04). The full terms are printed in the body so a manager
+     * can read them before opening the link; the attached PDF is for their files.
      *
      * Fixed in code rather than in the editable Settings template, so editing the
      * general "Quote Sent" wording can never drop the signing requirement.
      */
-    public static function contractSigningHtml(string $terms, string $signUrl, string $returnEmail): string
+    public static function contractSigningHtml(string $terms, string $signUrl, string $questionsEmail): string
     {
         $p   = "margin:0 0 16px;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.75;color:#0D3B2E;";
         $esc = static fn(string $s): string => htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 
         $html = '<div style="border:2px solid #2D8659;border-radius:6px;padding:16px 18px;margin:8px 0 20px;background:#E8F3F0;">'
-              . '<p style="' . $p . 'margin-bottom:10px;"><strong>This quote is a seasonal service contract. It must be signed twice:</strong></p>'
-              . '<p style="' . $p . 'margin-bottom:6px;">1. <strong>Online</strong>: <a href="' . $esc($signUrl) . '" style="color:#1A5F4A;">open the quote</a>, tick that you agree to the terms, and sign.</p>'
-              . '<p style="' . $p . 'margin-bottom:0;">2. <strong>On paper</strong>: print the attached PDF, sign and date it, and email the signed copy to '
-              . '<a href="mailto:' . $esc($returnEmail) . '" style="color:#1A5F4A;">' . $esc($returnEmail) . '</a>.</p>'
+              . '<p style="' . $p . 'margin-bottom:10px;"><strong>This quote is a seasonal service contract, and it must be signed online before service starts.</strong></p>'
+              . '<p style="' . $p . 'margin-bottom:6px;"><a href="' . $esc($signUrl) . '" style="color:#1A5F4A;">Open the quote</a>, read the Terms &amp; Conditions, tick that you agree, and sign. Your online signature is your signature on the contract; there is nothing to print or send back.</p>'
+              . '<p style="' . $p . 'margin-bottom:0;">The full terms are below, and a PDF copy is attached for your records. Questions? Reply to this email or write to '
+              . '<a href="mailto:' . $esc($questionsEmail) . '" style="color:#1A5F4A;">' . $esc($questionsEmail) . '</a>.</p>'
               . '</div>';
 
         $terms = trim(str_replace(["\r\n", "\r"], "\n", $terms));

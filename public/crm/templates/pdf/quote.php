@@ -246,9 +246,6 @@ $taxRate = floatval($quote['tax_rate'] ?? 0.05);
         max-height: 100px;
     }
 
-    .sign-line { border-bottom: 1px solid #94a3b8; height: 34px; }
-    .sign-label { font-size: 8pt; color: #64748b; padding-top: 4px; }
-
     .signature-meta {
         font-size: 8pt;
         color: #64748b;
@@ -435,28 +432,15 @@ $taxRate = floatval($quote['tax_rate'] ?? 0.05);
     </div>
 </div>
 <?php elseif (!empty($quote['is_contract'])): ?>
-<!-- Unsigned contract quote — ruled lines so this PDF is the printable contract:
-     the property manager signs it by hand and emails it back, as well as signing
-     online. Both parties sign, matching the contract PDF's paper route. -->
+<!-- Unsigned contract quote — signed online only (owner decision 2026-10-04:
+     no paper). The online acceptance is the contract signature; the contract
+     made from it inherits it. This copy is for the client's records. -->
 <div class="signature-section">
-    <div class="section-title">Signatures</div>
-    <p style="font-size:9pt;color:#475569;margin:0 0 4px;">
-        This quote is a seasonal service contract. By signing below, the Client accepts it<?php echo !empty($quote['terms']) ? ' and agrees to the Terms &amp; Conditions set out above' : ''; ?>.
-        Please also sign online, and email this signed copy to office@mowology.ca.
+    <div class="section-title">How to sign</div>
+    <p style="font-size:9pt;color:#475569;margin:0;">
+        This quote is a seasonal service contract. It is signed online: open the link in the email, read the Terms &amp; Conditions,
+        tick that you agree and sign. Your online signature is your signature on the contract. This copy is for your records.
     </p>
-    <table style="width:100%;border-collapse:collapse;margin-top:14px;">
-        <tr>
-            <td style="width:48%;"><div class="sign-line"></div><div class="sign-label">Client signature</div></td>
-            <td style="width:4%;"></td>
-            <td style="width:48%;"><div class="sign-line"></div><div class="sign-label">Print name and title</div></td>
-        </tr>
-        <tr><td colspan="3" style="height:14px;"></td></tr>
-        <tr>
-            <td><div class="sign-line"></div><div class="sign-label">Date</div></td>
-            <td></td>
-            <td><div class="sign-line"></div><div class="sign-label">For Mowology Landscaping</div></td>
-        </tr>
-    </table>
 </div>
 <?php endif; ?>
 

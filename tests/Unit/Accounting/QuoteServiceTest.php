@@ -238,15 +238,15 @@ class QuoteServiceTest extends TestCase
     // ── contractSigningHtml() ────────────────────────────────────────────────
 
     /** @test */
-    public function contract_email_states_both_signatures_are_required(): void
+    public function contract_email_requires_online_signature_and_no_paper(): void
     {
         $html = QuoteService::contractSigningHtml("TERM\n\nNo slip and fall liability.", 'https://x.test/q?t=1', 'office@example.com');
 
-        $this->assertStringContainsString('must be signed twice', $html);
-        $this->assertStringContainsString('<strong>Online</strong>', $html);
-        $this->assertStringContainsString('print the attached PDF', $html);
-        $this->assertStringContainsString('mailto:office@example.com', $html);
+        $this->assertStringContainsString('must be signed online', $html);
         $this->assertStringContainsString('href="https://x.test/q?t=1"', $html);
+        $this->assertStringContainsString('nothing to print or send back', $html);
+        $this->assertStringContainsString('mailto:office@example.com', $html);
+        $this->assertStringNotContainsString('On paper', $html);
     }
 
     /** @test */
@@ -265,8 +265,8 @@ class QuoteServiceTest extends TestCase
     public function contract_email_without_terms_still_carries_the_requirement(): void
     {
         $html = QuoteService::contractSigningHtml('   ', 'u', 'e@x.test');
-        $this->assertStringContainsString('must be signed twice', $html);
-        $this->assertStringNotContainsString('Terms &amp; Conditions', $html);
+        $this->assertStringContainsString('must be signed online', $html);
+        $this->assertStringNotContainsString('<strong>Terms &amp; Conditions</strong>', $html);
     }
 
     // ── resolveDisplayName() ──────────────────────────────────────────────────
