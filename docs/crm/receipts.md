@@ -201,6 +201,11 @@ styles in `mowology-brand.css` "DEPARTMENT HEADS DECK"; headshots `/crm/img/head
   (scorecard + worked examples); then `ExpenseApprovalService::approve()` — the
   self-approval rule still applies, and approval teaches the reader. Line items are
   shown, not changed, in this version.
+- **Vendor:** Penny reads the business off the receipt (`vendor` in her schema); the
+  carousel's Vendor box searches `/crm/api/vendors.php?action=search` (name/alias), or
+  takes a typed new name. `decide` changes `expenses.vendor_id`/`vendor_name_raw` only
+  when it is a different business (`sameVendorName` — "HOME DEPOT #7054" stays Home
+  Depot); an unknown name becomes a new vendor on approval, never on a saved draft.
 - **Prepare:** text-only first, photo retry only when the amounts don't add up; up to 3
   rounds of 2 per visible page view while < 5 are ready; daily cap
   `ops_settings.bookkeeper_daily_cap` (default 40).
