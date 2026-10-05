@@ -160,7 +160,7 @@ class BookkeeperDeskService
     {
         $limit = max(1, min(25, $limit));
         $rows = $this->db->query("
-            SELECT s.id AS suggestion_id, s.suggestion_json, s.checks_json, s.current_json, s.used_image,
+            SELECT s.id AS suggestion_id, s.suggestion_json, s.checks_json, s.current_json, s.used_image, s.outcome_json,
                    e.id AS expense_id, e.status, e.expense_date, e.total, e.receipt_media_id,
                    COALESCE(v.name, e.vendor_name_raw) AS vendor, u.full_name AS submitted_by
             FROM expense_suggestions s
@@ -168,7 +168,7 @@ class BookkeeperDeskService
             LEFT JOIN vendors v ON v.id = e.vendor_id
             LEFT JOIN users u ON u.id = e.created_by
             WHERE s.source = 'live' AND s.status = 'pending' AND e.status IN ('draft', 'pending_approval')
-            ORDER BY (e.status = 'pending_approval') DESC, e.expense_date ASC, e.id ASC
+            ORDER BY (s.outcome_json IS NOT NULL) ASC, (e.status = 'pending_approval') DESC, e.expense_date ASC, e.id ASC
             LIMIT {$limit}
         ")->fetchAll(PDO::FETCH_ASSOC);
 
@@ -189,6 +189,8 @@ class BookkeeperDeskService
                 'job_title'     => $jobId ? ($jobTitles[(int)$jobId] ?? null) : null,
                 'checks'        => json_decode((string)$r['checks_json'], true) ?: [],
                 'current'       => json_decode((string)$r['current_json'], true) ?: [],
+                // The owner's saved-but-not-approved edits, if any — the form reopens with them.
+                'saved_draft'   => (json_decode((string)($r['outcome_json'] ?? ''), true) ?: [])['draft'] ?? null,
             ];
         }
         return $out;
@@ -256,10 +258,14 @@ class BookkeeperDeskService
     }
 
     /**
-     * Approve a prepared receipt, optionally with the owner's edits.
-     * @return array{ok: bool, message: string, approved?: bool}
+     * Approve a prepared receipt, optionally with the owner's edits — or, with
+     * $approve false, save the edits as a draft to come back to: the values are written
+     * to the expense and kept on the suggestion (outcome_json.draft), the suggestion
+     * stays pending, and the expense keeps its status (draft stays draft, submitted
+     * stays submitted). Nothing is approved and nothing is learned until approval.
+     * @return array{ok: bool, message: string, approved?: bool, saved_draft?: bool}
      */
-    public function decide(int $suggestionId, array $overrides, array $user): array
+    public function decide(int $suggestionId, array $overrides, array $user, bool $approve = true): array
     {
         $stmt = $this->db->prepare("
             SELECT s.*, e.status AS expense_status, e.forwarded_to_accounting
@@ -313,15 +319,24 @@ class BookkeeperDeskService
                 $f['accounting_category'], $f['asset_tag'], $f['job'], $propertyId,
                 $f['subtotal'], $f['gst'], $f['pst'], $f['total'], (int)$row['expense_id'],
             ]);
-            $this->db->prepare("
-                UPDATE expense_suggestions
-                SET status = ?, outcome_json = ?, decided_by = ?, decided_at = NOW()
-                WHERE id = ?
-            ")->execute([$allAccepted ? 'accepted' : 'edited', json_encode($resolved['outcome']), (int)$user['id'], $suggestionId]);
+            if ($approve) {
+                $this->db->prepare("
+                    UPDATE expense_suggestions
+                    SET status = ?, outcome_json = ?, decided_by = ?, decided_at = NOW()
+                    WHERE id = ?
+                ")->execute([$allAccepted ? 'accepted' : 'edited', json_encode($resolved['outcome']), (int)$user['id'], $suggestionId]);
+            } else {
+                $this->db->prepare("UPDATE expense_suggestions SET outcome_json = ? WHERE id = ?")
+                   ->execute([json_encode(['draft' => $f, 'saved_by' => (int)$user['id'], 'saved_at' => date('c')]), $suggestionId]);
+            }
             $this->db->commit();
         } catch (Throwable $e) {
             $this->db->rollBack();
             throw $e;
+        }
+
+        if (!$approve) {
+            return ['ok' => true, 'approved' => false, 'saved_draft' => true, 'message' => 'Saved as a draft — it stays here until you approve it'];
         }
 
         // Approval is separate: the self-approval rule still applies, and approval is

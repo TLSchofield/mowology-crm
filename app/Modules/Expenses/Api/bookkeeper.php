@@ -11,7 +11,7 @@
  * Dashboard card (BookkeeperDeskService):
  * GET  ?mode=stats     The card's numbers.
  * GET  ?mode=queue     Prepared receipts for the carousel.
- * POST {mode: 'decide', suggestion_id, overrides?: {field: value}, csrf_token}
+ * POST {mode: 'decide', suggestion_id, overrides?: {field: value}, save_draft?: bool, csrf_token}
  * POST {mode: 'prepare', max?, csrf_token}   Prepare the next receipts (daily-capped).
  *
  * ?mode=, not ?action= (see the /api/ router note in the vault). Owner/admin only:
@@ -186,7 +186,7 @@ try {
             } elseif ($mode === 'decide') {
                 if ($method !== 'POST') throw new RuntimeException('POST required');
                 $overrides = is_array($input['overrides'] ?? null) ? $input['overrides'] : [];
-                $res = $desk->decide((int)($input['suggestion_id'] ?? 0), $overrides, $user);
+                $res = $desk->decide((int)($input['suggestion_id'] ?? 0), $overrides, $user, empty($input['save_draft']));
                 echo json_encode($res);
             } else {
                 if ($method !== 'POST') throw new RuntimeException('POST required');

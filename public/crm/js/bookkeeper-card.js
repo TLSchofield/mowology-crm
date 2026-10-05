@@ -2,7 +2,7 @@
  * Penny's receipt carousel (dashboard → department heads deck).
  *
  * One prepared receipt at a time: photo, Penny's suggestion with her reasons, the
- * hard checks, then Approve (A) · Edit (E) · Skip (→). Approving writes the values,
+ * hard checks. Every field is editable in place; Approve (A) · Save draft (S) · Skip (→). Approving writes the values,
  * records the decision (her scorecard + learning) and approves the expense.
  * When fewer than 5 receipts are prepared it asks for 2 more in the background (up to
  * 3 rounds per page view, only while the tab is visible). API: /crm/api/bookkeeper.php (?mode=queue / decide / prepare).
@@ -18,7 +18,6 @@
     var BACKLOG = parseInt(root.getAttribute('data-backlog') || '0', 10);
     var queue = [];
     var idx = 0;
-    var editing = false;
     var busy = false;
     var rounds = 0;          // background preparation rounds this page view (max 3 × 2 receipts)
     var preparing = false;
@@ -101,38 +100,43 @@
             return '<span class="' + (c.ok ? '' : 'is-bad') + '">' + (c.ok ? '✓ ' : '⚠ ') + esc(c.message) + '</span>';
         }).join(' &nbsp; ');
 
-        var fields;
-        if (!editing) {
-            var job = val(s, 'job');
-            fields =
-                fld('Category', '<span class="' + (changed(it, 'accounting_category') ? 'mw-rc-changed' : '') + '">' + esc(val(s, 'accounting_category') || '—') + '</span> ' + conf(s, 'accounting_category'), why(s, 'accounting_category')) +
-                fld('For', '<span>' + esc(tagLabel(val(s, 'asset_tag'))) + '</span> ' + conf(s, 'asset_tag'), why(s, 'asset_tag')) +
-                fld('Total · GST · PST', money(val(s, 'total')) + ' · ' + money(val(s, 'gst')) + ' · ' + money(val(s, 'pst')) + ' ' + conf(s, 'total'), why(s, 'total')) +
-                fld('Job', esc(job ? (it.job_title || ('Job #' + job)) : 'None') + ' ' + conf(s, 'job'), why(s, 'job'));
-        } else {
-            var catOpts = CATEGORIES.map(function (c) {
-                return '<option' + (c === val(s, 'accounting_category') ? ' selected' : '') + '>' + esc(c) + '</option>';
-            }).join('');
-            var tag = val(s, 'asset_tag') || 'none';
-            var tagOpts = ['none', 'truck', 'equipment'].map(function (t) {
-                return '<option value="' + t + '"' + (t === tag ? ' selected' : '') + '>' + esc(tagLabel(t)) + '</option>';
-            }).join('');
-            var job2 = val(s, 'job');
-            fields =
-                fld('Category', '<select data-f="accounting_category">' + catOpts + '</select>', '') +
-                fld('For', '<select data-f="asset_tag">' + tagOpts + '</select>', '') +
-                fld('Total · GST · PST',
-                    '<input data-f="total" type="number" step="0.01" value="' + esc(val(s, 'total')) + '" aria-label="Total">' +
-                    '<input data-f="gst" type="number" step="0.01" value="' + esc(val(s, 'gst')) + '" aria-label="GST">' +
-                    '<input data-f="pst" type="number" step="0.01" value="' + esc(val(s, 'pst')) + '" aria-label="PST">', '') +
-                fld('Job', '<select data-f="job"><option value="">None</option>' +
-                    (job2 ? '<option value="' + esc(job2) + '" selected>' + esc(it.job_title || ('Job #' + job2)) + '</option>' : '') +
-                    '</select>', '');
-        }
+        // Always editable: the value shown is Penny's (or your saved draft); type over it.
+        var d = it.saved_draft || null;
+        var cur = function (f) { return d && Object.prototype.hasOwnProperty.call(d, f) ? d[f] : val(s, f); };
+        var mine = function (f) {      // differs from Penny's suggestion → your edit
+            var a = cur(f), b = val(s, f);
+            if (f === 'asset_tag') { a = a || 'none'; b = b || 'none'; }
+            return String(a == null ? '' : a) !== String(b == null ? '' : b);
+        };
+        var tagNow = cur('asset_tag') || 'none';
+        var catOpts = CATEGORIES.map(function (c) {
+            return '<option' + (c === cur('accounting_category') ? ' selected' : '') + '>' + esc(c) + '</option>';
+        }).join('');
+        var tagOpts = ['none', 'truck', 'equipment'].map(function (t) {
+            return '<option value="' + t + '"' + (t === tagNow ? ' selected' : '') + '>' + esc(tagLabel(t)) + '</option>';
+        }).join('');
+        var jobNow = cur('job');
+        var jobSug = val(s, 'job');
+        var jobOpts = '<option value="">None</option>' +
+            (jobSug ? '<option value="' + esc(jobSug) + '"' + (String(jobNow) === String(jobSug) ? ' selected' : '') + '>' + esc(it.job_title || ('Job #' + jobSug)) + '</option>' : '');
+        var amt = function (f, label) {
+            return '<label class="mw-rc-amt"><span>' + label + '</span><input class="mw-rc-in" data-f="' + f + '" type="number" step="0.01" inputmode="decimal" value="' + esc(cur(f)) + '" aria-label="' + label + '"></label>';
+        };
+        var tagFld = function (f, label, control, conff) {
+            return '<div class="mw-rc-fld' + (mine(f) ? ' is-yours' : '') + '" data-fld="' + f + '"><div class="mw-k">' + esc(label) +
+                ' ' + conf(s, conff || f) + '<span class="mw-rc-yours">edited by you</span></div>' +
+                '<div class="mw-v">' + control + '</div>' + why(s, conff || f) + '</div>';
+        };
+        var fields =
+            tagFld('accounting_category', 'Category', '<select class="mw-rc-in' + (changed(it, 'accounting_category') ? ' mw-rc-changed' : '') + '" data-f="accounting_category">' + catOpts + '</select>') +
+            tagFld('asset_tag', 'For', '<select class="mw-rc-in" data-f="asset_tag">' + tagOpts + '</select>') +
+            tagFld('total', 'Total · GST · PST', '<div class="mw-rc-amts">' + amt('total', 'Total') + amt('gst', 'GST') + amt('pst', 'PST') + '</div>') +
+            tagFld('job', 'Job', '<select class="mw-rc-in" data-f="job">' + jobOpts + '</select>');
 
         var top = function (closeBtn) {
             return '<div class="mw-rc-top">' +
-              '<span><b>Receipt ' + (idx + 1) + ' of ' + queue.length + '</b> · ' + (it.status === 'pending_approval' ? 'submitted for approval' : 'draft') + '</span>' +
+              '<span><b>Receipt ' + (idx + 1) + ' of ' + queue.length + '</b> · ' + (it.status === 'pending_approval' ? 'submitted for approval' : 'draft') +
+                (it.saved_draft ? ' · <span class="mw-rc-draftbadge">Saved draft</span>' : '') + '</span>' +
               '<span><button type="button" class="mw-rc-arrow" data-act="prev" aria-label="Previous">‹</button> ' +
               '<button type="button" class="mw-rc-arrow" data-act="next" aria-label="Next">›</button>' +
               (closeBtn ? ' <button type="button" class="mw-rc-arrow" data-act="close" aria-label="Close">✕</button>' : '') + '</span>' +
@@ -145,8 +149,8 @@
                 (checks ? '<div class="mw-rc-checks">' + checks + '</div>' : '') +
                 (s.notes ? '<div class="mw-rc-checks' + (fullNotes ? '' : ' mw-rc-note') + '" title="' + esc(s.notes) + '">📝 ' + esc(s.notes) + '</div>' : '') +
                 '<div class="mw-rc-actions">' +
-                  '<button type="button" class="mw-rc-ok" data-act="approve">✓ ' + (editing ? 'Save &amp; approve' : 'Approve') + '</button>' +
-                  '<button type="button" class="mw-rc-ed" data-act="' + (editing ? 'cancel' : 'edit') + '">' + (editing ? 'Cancel' : '✎ Edit') + '</button>' +
+                  '<button type="button" class="mw-rc-ok" data-act="approve">✓ Approve</button>' +
+                  '<button type="button" class="mw-rc-ed" data-act="draft">💾 Save draft</button>' +
                   '<button type="button" class="mw-rc-sk" data-act="next">Skip →</button>' +
                 '</div>' +
                 '<div class="mw-rc-msg">' + (msg ? esc(msg) : '') + '</div>';
@@ -159,7 +163,7 @@
                   (it.image_url ? '<img src="' + esc(it.image_url) + '" alt="Receipt photo" data-act="bigger" title="Click to zoom">' : '<div class="mw-rc-nophoto">No photo</div>') +
                 '</div>' +
                 '<div class="mw-rc-zoom-side">' + top(true) + detail(true) +
-                  '<div class="mw-rc-zoom-hint">Click the receipt to zoom · A approve · E edit · → skip · Esc close</div>' +
+                  '<div class="mw-rc-zoom-hint">Click the receipt to zoom · type straight into any field · A approve · S save draft · → skip · Esc close</div>' +
                 '</div>' +
               '</div>';
         }
@@ -176,20 +180,28 @@
         return '<div class="mw-rc-fld"><div class="mw-k">' + esc(k) + '</div><div class="mw-v">' + v + '</div>' + w + '</div>';
     }
 
-    function approve() {
+    function formValues() {
+        var out = {};
+        root.querySelectorAll('[data-f]').forEach(function (el) { out[el.getAttribute('data-f')] = el.value; });
+        return out;
+    }
+
+    /** Approve with whatever is in the fields (unchanged = Penny's value accepted), or save as a draft. */
+    function submit(saveDraft) {
         if (busy || !queue.length) return;
         var it = queue[idx];
-        var overrides = {};
-        if (editing) {
-            root.querySelectorAll('[data-f]').forEach(function (el) { overrides[el.getAttribute('data-f')] = el.value; });
-        }
+        var values = formValues();
         busy = true;
-        post({ mode: 'decide', suggestion_id: it.suggestion_id, overrides: overrides })
+        post({ mode: 'decide', suggestion_id: it.suggestion_id, overrides: values, save_draft: !!saveDraft })
             .then(function (d) {
                 busy = false;
-                if (d && d.ok) {
+                if (d && d.ok && d.saved_draft) {
+                    it.saved_draft = values;
                     queue.splice(idx, 1);
-                    editing = false;
+                    queue.push(it);                 // come back to it last
+                    render(d.message || 'Saved as a draft');
+                } else if (d && d.ok) {
+                    queue.splice(idx, 1);
                     render(d.message || 'Approved');
                     if (queue.length < 3) { load(); }
                 } else {
@@ -198,6 +210,7 @@
             })
             .catch(function () { busy = false; render('Network error — try again'); });
     }
+    function approve() { submit(false); }
 
     root.addEventListener('click', function (e) {
         if (e.target.getAttribute('data-zoom')) { setZoom(true); render(); return; }
@@ -206,10 +219,26 @@
         if (act === 'close') { setZoom(false); render(); }
         else if (act === 'bigger') { zoomBig = !zoomBig; render(); }
         else if (act === 'approve') approve();
-        else if (act === 'edit') { editing = true; render(); }
-        else if (act === 'cancel') { editing = false; render(); }
-        else if (act === 'next') { editing = false; idx = (idx + 1) % Math.max(1, queue.length); render(); }
-        else if (act === 'prev') { editing = false; idx = (idx - 1 + queue.length) % Math.max(1, queue.length); render(); }
+        else if (act === 'draft') submit(true);
+        else if (act === 'next') { idx = (idx + 1) % Math.max(1, queue.length); render(); }
+        else if (act === 'prev') { idx = (idx - 1 + queue.length) % Math.max(1, queue.length); render(); }
+    });
+
+    root.addEventListener('input', function (e) {
+        var f = e.target.getAttribute && e.target.getAttribute('data-f');
+        if (!f || !queue.length) return;
+        var s = queue[idx].suggestion || {};
+        var key = (f === 'gst' || f === 'pst') ? 'total' : f;
+        var box = root.querySelector('.mw-rc-fld[data-fld="' + key + '"]');
+        if (!box) return;
+        var edited = Array.prototype.some.call(box.querySelectorAll('[data-f]'), function (el) {
+            var name = el.getAttribute('data-f');
+            var sv = s[name] ? s[name].value : null;
+            if (name === 'asset_tag') sv = sv || 'none';
+            if (el.type === 'number') return el.value !== '' && Math.abs(parseFloat(el.value) - parseFloat(sv)) > 0.004;
+            return String(el.value) !== String(sv == null ? '' : sv);
+        });
+        box.classList.toggle('is-yours', edited);
     });
 
     document.addEventListener('keydown', function (e) {
@@ -218,9 +247,9 @@
         if (zoomed && e.key === 'Escape') { e.preventDefault(); setZoom(false); render(); return; }
         if (!root.offsetParent || !queue.length) return;
         if (e.key === 'a' || e.key === 'A') { e.preventDefault(); approve(); }
-        else if (e.key === 'e' || e.key === 'E') { e.preventDefault(); editing = true; render(); }
-        else if (e.key === 'ArrowRight') { editing = false; idx = (idx + 1) % queue.length; render(); }
-        else if (e.key === 'ArrowLeft') { editing = false; idx = (idx - 1 + queue.length) % queue.length; render(); }
+        else if (e.key === 's' || e.key === 'S') { e.preventDefault(); submit(true); }
+        else if (e.key === 'ArrowRight') { idx = (idx + 1) % queue.length; render(); }
+        else if (e.key === 'ArrowLeft') { idx = (idx - 1 + queue.length) % queue.length; render(); }
     });
 
     load();
