@@ -467,6 +467,11 @@ class ReceiptInboxService
             "UPDATE receipt_inbox_messages SET outcome = 'auto_posted' WHERE expense_id = ? AND outcome = 'pending'"
         )->execute([$expenseId]);
 
+        // An emailed receipt's extraction was written straight into the row, so the row as
+        // loaded (before these edits) is the baseline the approver's corrections are learned from.
+        require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
+        learnFromConfirmedExpense($this->db, $expenseId, baselineFromExpenseRow($exp));
+
         return ['ok' => true, 'message' => 'Approved — will post to the books on next sync'];
     }
 

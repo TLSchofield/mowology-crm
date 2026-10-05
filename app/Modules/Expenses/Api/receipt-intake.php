@@ -233,7 +233,7 @@ try {
             'ocr_available' => $ocrResult['success'],
             'ocr_source'    => $ocrSource,
             'ocr_text'      => $ocrText,
-            'parsed'        => $parsed,
+            'parsed'        => withSuggestedCategory($parsed, $suggestions),
             'suggestions'   => $suggestions,
         ]);
         exit;

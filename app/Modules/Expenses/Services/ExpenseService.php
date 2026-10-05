@@ -101,20 +101,13 @@ class ExpenseService
             $expenseId,
         ]);
 
-        // Record corrections for learning — mirrors expenses.php's handleUpdate() so a
-        // fix made from the phone teaches the vendor parse profile the same as a fix
-        // made on desktop, instead of only the initial post-scan review save counting.
+        // Line-item lessons only — mirrors expenses.php's handleUpdate(). Header/category
+        // fixes made from the phone are still learned: once, when the receipt is approved
+        // or sent (learnFromConfirmedExpense), against the capture baseline.
         if (!empty($expense['raw_ocr_json'])) {
             try {
-                require_once APP_ROOT . '/Services/Receipts/ReceiptParser.php';
                 require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
-                // After a rescan raw_ocr_json is the JSON Vision response, not text —
-                // re-parsing that blob as text produced garbage header lessons.
-                $ocrText = ocrTextFromStored($expense['raw_ocr_json']);
-                if ($ocrText !== '') {
-                    $ocrParsed = parseReceiptText($ocrText, null, getVendorLineItemProfile($vendorId));
-                    recordCorrections($vendorId, $vendorRaw, $ocrParsed, $input, $ocrText);
-                }
+                recordLineItemLessons($this->db, $vendorId, $vendorRaw, $input);
             } catch (Throwable $e) {
                 error_log('Receipt learning error (mobile update): ' . $e->getMessage());
             }

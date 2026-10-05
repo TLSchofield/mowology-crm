@@ -564,20 +564,19 @@ function handleCreate(PDO $db, ?array $input, array $user): void
         }
     }
 
-    // Record OCR corrections for learning (only if receipt was OCR'd)
+    // Learning (only if receipt was OCR'd): keep what the user was shown at capture as the
+    // baseline header lessons are judged against when the receipt is approved, and record
+    // the review card's line-item corrections now (identity-keyed, safe per save).
     if (!empty($input['raw_ocr_json']) && !empty($input['ocr_parsed'])) {
         try {
             require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
-            $ocrParsed = is_string($input['ocr_parsed']) ? json_decode($input['ocr_parsed'], true) : $input['ocr_parsed'];
-            if (is_array($ocrParsed)) {
-                recordCorrections(
-                    !empty($input['vendor_id']) ? (int)$input['vendor_id'] : null,
-                    $input['vendor_name_raw'] ?? null,
-                    $ocrParsed,
-                    $input,
-                    $input['raw_ocr_json']
-                );
-            }
+            storeCaptureBaseline($db, $expenseId, $input['ocr_parsed']);
+            recordLineItemLessons(
+                $db,
+                !empty($input['vendor_id']) ? (int)$input['vendor_id'] : null,
+                $input['vendor_name_raw'] ?? null,
+                $input
+            );
         } catch (Throwable $e) {
             // Learning is non-critical — log and continue
             error_log('Receipt learning error: ' . $e->getMessage());
@@ -641,7 +640,7 @@ function handleUpdate(PDO $db, ?array $input, array $user): void
     if (!$id) throw new Exception('Expense ID required');
 
     // Verify exists and fetch OCR text for learning
-    $check = $db->prepare("SELECT id, raw_ocr_json, vendor_id, status, forwarded_to_accounting FROM expenses WHERE id = ?");
+    $check = $db->prepare("SELECT id, raw_ocr_json, vendor_id, status, forwarded_to_accounting, match_confidence, property_id, contact_id FROM expenses WHERE id = ?");
     $check->execute([$id]);
     $existing = $check->fetch(PDO::FETCH_ASSOC);
     if (!$existing) throw new Exception('Expense not found');
@@ -723,12 +722,14 @@ function handleUpdate(PDO $db, ?array $input, array $user): void
         $input['gbp_category'] ?? null,
         $input['payment_method'] ?? null,
         !empty($input['receipt_media_id']) ? (int)$input['receipt_media_id'] : null,
-        (int)($input['match_confidence'] ?? 0),
+        // The desktop edit form doesn't send match_confidence / property_id / contact_id —
+        // absent keys keep the stored value instead of being wiped to 0/NULL on every edit.
+        array_key_exists('match_confidence', $input) ? (int)$input['match_confidence'] : (int)($existing['match_confidence'] ?? 0),
         $anomalyFlags ?: null,
         $anomalyScore,
         !empty($input['job_id']) ? (int)$input['job_id'] : null,
-        !empty($input['property_id']) ? (int)$input['property_id'] : null,
-        !empty($input['contact_id']) ? (int)$input['contact_id'] : null,
+        expenseKeptId($input, $existing, 'property_id'),
+        expenseKeptId($input, $existing, 'contact_id'),
         $input['notes'] ?? null,
         $status,
         !empty($input['odometer_start']) ? (int)$input['odometer_start'] : null,
@@ -761,21 +762,17 @@ function handleUpdate(PDO $db, ?array $input, array $user): void
         }
     }
 
-    // Record corrections for learning (re-parse stored OCR and compare to updated values).
-    // After a rescan raw_ocr_json holds the JSON Vision response — ocrTextFromStored()
-    // recovers the text instead of feeding a JSON blob to the parser.
-    require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
-    $ocrText = ocrTextFromStored($existing['raw_ocr_json'] ?? null);
-    if (!empty($ocrText)) {
+    // Line-item lessons only. Header/category lessons are recorded once, when the receipt
+    // is approved or sent (learnFromConfirmedExpense), against the capture baseline — not
+    // here against a fresh re-parse, which isn't what the user saw and re-counted on every save.
+    if (!empty($existing['raw_ocr_json'])) {
         try {
-            require_once APP_ROOT . '/Services/Receipts/ReceiptParser.php';
-            $ocrParsed = parseReceiptText($ocrText, null, getVendorLineItemProfile(!empty($input['vendor_id']) ? (int)$input['vendor_id'] : null));
-            recordCorrections(
+            require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
+            recordLineItemLessons(
+                $db,
                 !empty($input['vendor_id']) ? (int)$input['vendor_id'] : null,
                 $input['vendor_name_raw'] ?? null,
-                $ocrParsed,
-                $input,
-                $ocrText
+                $input
             );
         } catch (Throwable $e) {
             error_log('Receipt learning error (update): ' . $e->getMessage());
@@ -785,6 +782,16 @@ function handleUpdate(PDO $db, ?array $input, array $user): void
     echo json_encode(['success' => true, 'message' => 'Expense updated']);
 }
 
+
+
+/** Sent → use it (empty clears it); absent → keep what's stored. */
+function expenseKeptId(array $input, array $existing, string $key): ?int
+{
+    if (array_key_exists($key, $input)) {
+        return !empty($input[$key]) ? (int)$input[$key] : null;
+    }
+    return !empty($existing[$key]) ? (int)$existing[$key] : null;
+}
 
 function handleDelete(PDO $db, ?array $input, array $user): void
 {

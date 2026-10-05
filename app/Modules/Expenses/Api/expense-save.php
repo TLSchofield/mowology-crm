@@ -130,22 +130,18 @@ try {
         }
     }
 
-    // Record OCR corrections for self-learning
+    // Self-learning: keep the capture baseline for header lessons at approval time, and
+    // record the review sheet's line-item corrections now (see expenses.php handleCreate).
     if (!empty($input['raw_ocr_json']) && !empty($input['ocr_parsed'])) {
         try {
             require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
-            $ocrParsed = is_string($input['ocr_parsed'])
-                ? json_decode($input['ocr_parsed'], true)
-                : $input['ocr_parsed'];
-            if (is_array($ocrParsed)) {
-                recordCorrections(
-                    !empty($input['vendor_id']) ? (int)$input['vendor_id'] : null,
-                    $input['vendor_name_raw'] ?? null,
-                    $ocrParsed,
-                    $input,
-                    $input['raw_ocr_json']
-                );
-            }
+            storeCaptureBaseline($db, (int)$expenseId, $input['ocr_parsed']);
+            recordLineItemLessons(
+                $db,
+                !empty($input['vendor_id']) ? (int)$input['vendor_id'] : null,
+                $input['vendor_name_raw'] ?? null,
+                $input
+            );
         } catch (Throwable $e) {
             error_log('OCR learning error: ' . $e->getMessage());
         }

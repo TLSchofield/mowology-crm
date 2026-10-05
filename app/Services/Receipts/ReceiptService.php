@@ -137,6 +137,13 @@ function sendReceiptToAccounting(array $opts, ?int $userIdOverride = null): arra
             throw $e;
         }
 
+        // A draft can be sent without a separate approve step ("Save & Send"), so sending
+        // is also a confirmation. Idempotent — a receipt approved first was learned then.
+        if (!empty($opts['expense_id'])) {
+            require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
+            learnFromConfirmedExpense($db, (int)$opts['expense_id']);
+        }
+
         return [
             'success' => true,
             'message' => 'Receipt sent to ' . $toEmail,

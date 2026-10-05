@@ -66,6 +66,11 @@ class ExpenseApprovalService
         ");
         $stmt->execute([$currentUser['id'], $expenseId]);
 
+        // Approval is the moment the receipt's values are confirmed — teach the parser
+        // from capture baseline vs approved values, once. Never blocks the approval.
+        require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
+        learnFromConfirmedExpense($this->db, $expenseId);
+
         return ['success' => true, 'message' => 'Expense approved'];
     }
 

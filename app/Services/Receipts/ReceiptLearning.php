@@ -7,12 +7,16 @@
  * that improve accuracy over time.
  *
  * Two-phase system:
- *   1. recordCorrections() — called on expense save, diffs OCR vs user values
+ *   1. Recording — line-item lessons at every save (recordLineItemLessons(), identity-
+ *      keyed); header/category lessons once per receipt when it is confirmed
+ *      (learnFromConfirmedExpense(), capture baseline vs approved values).
  *   2. applyLearnedPatterns() — called during parsing, applies vendor-specific rules
  *
  * Usage:
  *   require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
- *   recordCorrections($vendorId, $ocrParsed, $userSaved, $ocrText);
+ *   storeCaptureBaseline($db, $expenseId, $input['ocr_parsed']);   // on create
+ *   recordLineItemLessons($db, $vendorId, $vendorName, $input);      // on every save
+ *   learnFromConfirmedExpense($db, $expenseId);                      // on approve/send
  *   $enhanced = applyLearnedPatterns($vendorId, $parsed, $ocrText);
  */
 
@@ -23,19 +27,32 @@ if (!defined('APP_ROOT')) {
 }
 
 /**
- * Record corrections the user made to OCR-parsed values.
- * Called when an expense is saved/updated after OCR intake.
+ * Record corrections the user made to OCR-parsed values — header fields, category
+ * and line items together. Kept for callers that already hold a trustworthy
+ * original; the save/approve paths now use the two halves below separately.
  *
- * @param int|null   $vendorId   Matched vendor ID (null if unknown)
+ * @param int|null    $vendorId   Matched vendor ID (null if unknown)
  * @param string|null $vendorName Vendor name (for unmatched vendors)
- * @param array      $ocrParsed  What the parser extracted (from parseReceiptText)
- * @param array      $userSaved  What the user actually saved
- * @param string     $ocrText    Raw OCR text (for context extraction)
+ * @param array       $ocrParsed  What the user was shown at capture
+ * @param array       $userSaved  What the user actually saved
+ * @param string      $ocrText    Raw OCR text (for context extraction)
  */
 function recordCorrections(?int $vendorId, ?string $vendorName, array $ocrParsed, array $userSaved, string $ocrText): void
 {
     $db = getDB();
+    $hadLineItemCorrections = recordLineItemLessons($db, $vendorId, $vendorName, $userSaved);
+    recordHeaderLessons($db, $vendorId, $vendorName, $ocrParsed, $userSaved, $ocrText, $hadLineItemCorrections);
+}
 
+/**
+ * Line-item lessons from a save payload. Each item carries the parser's original
+ * name (`ocr_name`) plus `removed` / `manual` flags from the review card, so these
+ * are identity-keyed and safe to record at every save — unlike header lessons.
+ *
+ * @return bool Whether any line-item correction was recorded
+ */
+function recordLineItemLessons(PDO $db, ?int $vendorId, ?string $vendorName, array $userSaved): bool
+{
     // A vendor's earliest corrections are often recorded before it has a vendor_id (the
     // receipt wasn't matched yet), landing in the vendor_id-IS-NULL bucket keyed by name.
     // Once this receipt resolves to a real vendor, fold any prior orphaned lessons for that
@@ -46,115 +63,248 @@ function recordCorrections(?int $vendorId, ?string $vendorName, array $ocrParsed
         adoptOrphanedLessons($db, $vendorId, $vendorName);
     }
 
-    // Fields to compare
-    $fieldMap = [
-        'total'    => ['ocr' => $ocrParsed['total'] ?? null,    'user' => $userSaved['total'] ?? null],
-        'gst'      => ['ocr' => $ocrParsed['gst'] ?? null,      'user' => $userSaved['gst_amount'] ?? null],
-        'subtotal' => ['ocr' => $ocrParsed['subtotal'] ?? null,  'user' => $userSaved['amount'] ?? null],
-        'date'     => ['ocr' => $ocrParsed['date'] ?? null,      'user' => $userSaved['expense_date'] ?? null],
-        'vendor'   => ['ocr' => $ocrParsed['vendor_hint'] ?? null, 'user' => $vendorName],
+    if (!$vendorId) {
+        return false;
+    }
+    $userItems = $userSaved['line_items'] ?? [];
+    if (is_string($userItems)) {
+        $userItems = json_decode($userItems, true) ?: [];
+    }
+    return is_array($userItems) && recordLineItemCorrectionsFromPayload($db, $vendorId, $vendorName, $userItems) > 0;
+}
+
+/**
+ * Which header fields differ between what the user was shown and what was kept.
+ * Pure — the decision half of recordHeaderLessons(), unit tested.
+ *
+ * Category is compared only when the original carries a suggestion: with nothing
+ * suggested there is nothing to correct, and logging null→X lessons (as the old
+ * re-parse baseline did on every save) teaches nothing.
+ *
+ * @param array $original Capture-time extraction (parsed keys: total, gst, subtotal, date, vendor_hint, accounting_category)
+ * @param array $final    Saved values (expense keys: total, gst_amount, amount, expense_date, accounting_category)
+ * @return array{fields: array<string, array{ocr: mixed, user: mixed, corrected: bool}>, category: ?array{ocr: string, user: string}}
+ */
+function headerCorrections(array $original, array $final, ?string $vendorName): array
+{
+    $pairs = [
+        'total'    => [$original['total'] ?? null,       $final['total'] ?? null],
+        'gst'      => [$original['gst'] ?? null,         $final['gst_amount'] ?? null],
+        'subtotal' => [$original['subtotal'] ?? null,    $final['amount'] ?? null],
+        'date'     => [$original['date'] ?? null,        $final['expense_date'] ?? null],
+        'vendor'   => [$original['vendor_hint'] ?? null, $vendorName],
     ];
 
-    $hadCorrections = false;
-
-    foreach ($fieldMap as $fieldName => $values) {
-        $ocrVal = $values['ocr'];
-        $userVal = $values['user'];
-
-        // Skip if both null/empty
+    $fields = [];
+    foreach ($pairs as $field => [$ocrVal, $userVal]) {
         if (empty($ocrVal) && empty($userVal)) continue;
-
-        // Normalize for comparison
-        $ocrNorm = normalizeFieldValue($fieldName, $ocrVal);
-        $userNorm = normalizeFieldValue($fieldName, $userVal);
-
-        // If they match, no correction needed — but still track for accuracy stats
-        $isCorrection = ($ocrNorm !== $userNorm);
-
-        if ($isCorrection) {
-            $hadCorrections = true;
-
-            // Extract context: find the OCR text around where this field's value appears
-            $context = extractOcrContext($ocrText, $fieldName, $ocrVal, $userVal);
-
-            // Check if we've seen this exact correction pattern before
-            $existing = findExistingLesson($db, $vendorId, $fieldName, $ocrVal, $userVal);
-
-            if ($existing) {
-                // Increment times_seen
-                $stmt = $db->prepare("
-                    UPDATE receipt_parse_lessons
-                    SET times_seen = times_seen + 1, updated_at = NOW()
-                    WHERE id = ?
-                ");
-                $stmt->execute([$existing['id']]);
-            } else {
-                // Insert new lesson
-                $stmt = $db->prepare("
-                    INSERT INTO receipt_parse_lessons
-                        (vendor_id, vendor_name, field_name, ocr_value, corrected_value, ocr_context)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                ");
-                $stmt->execute([
-                    $vendorId,
-                    $vendorName,
-                    $fieldName,
-                    $ocrVal,
-                    $userVal,
-                    $context,
-                ]);
-            }
-        }
+        $fields[$field] = [
+            'ocr'       => $ocrVal,
+            'user'      => $userVal,
+            'corrected' => normalizeFieldValue($field, $ocrVal === null ? null : (string)$ocrVal)
+                       !== normalizeFieldValue($field, $userVal === null ? null : (string)$userVal),
+        ];
     }
 
-    // ── Line item corrections ──────────────────────────────────────────
-    // Each saved item carries the parser's original name (`ocr_name`) plus
-    // `removed` / `manual` flags from the review card, so corrections are matched
-    // by identity, not by array position. (The old positional compare of
-    // ocr_parsed vs line_items was dead by construction — every client sent the
-    // OCR items through verbatim, so the two arrays were always identical.)
-    if ($vendorId) {
-        $userItems = $userSaved['line_items'] ?? [];
-        if (is_string($userItems)) {
-            $userItems = json_decode($userItems, true) ?: [];
-        }
-        if (is_array($userItems) && recordLineItemCorrectionsFromPayload($db, $vendorId, $vendorName, $userItems) > 0) {
-            $hadCorrections = true;
+    $suggested = trim((string)($original['accounting_category'] ?? $original['suggested_accounting_category'] ?? ''));
+    $kept      = trim((string)($final['accounting_category'] ?? ''));
+    $category  = ($suggested !== '' && $kept !== '' && $suggested !== $kept)
+        ? ['ocr' => $suggested, 'user' => $kept]
+        : null;
+
+    return ['fields' => $fields, 'category' => $category];
+}
+
+/**
+ * Header + category lessons: original (what the user was shown at capture) vs
+ * final (what was confirmed). Called once per receipt by learnFromConfirmedExpense().
+ */
+function recordHeaderLessons(PDO $db, ?int $vendorId, ?string $vendorName, array $original, array $final, string $ocrText, bool $hadCorrections = false): void
+{
+    $diff = headerCorrections($original, $final, $vendorName);
+
+    $fieldMap = [];
+    foreach ($diff['fields'] as $fieldName => $d) {
+        // Strings throughout: JSON baselines decode amounts as floats, and this file is
+        // strict_types, so a float reaching normalizeFieldValue() would throw.
+        $ocrVal  = $d['ocr'] === null ? null : (string)$d['ocr'];
+        $userVal = $d['user'] === null ? null : (string)$d['user'];
+        $fieldMap[$fieldName] = ['ocr' => $ocrVal, 'user' => $userVal];
+        if (!$d['corrected']) continue;
+        $hadCorrections = true;
+
+        $existing = findExistingLesson($db, $vendorId, $fieldName, $ocrVal, $userVal);
+        if ($existing) {
+            $db->prepare("UPDATE receipt_parse_lessons SET times_seen = times_seen + 1, updated_at = NOW() WHERE id = ?")
+               ->execute([$existing['id']]);
+        } else {
+            $db->prepare("
+                INSERT INTO receipt_parse_lessons
+                    (vendor_id, vendor_name, field_name, ocr_value, corrected_value, ocr_context)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ")->execute([
+                $vendorId, $vendorName, $fieldName, $ocrVal, $userVal,
+                extractOcrContext($ocrText, $fieldName, $ocrVal, $userVal),
+            ]);
         }
     }
 
     // ── Accounting category corrections ────────────────────────────────
-    // If the user changed the auto-suggested category, record it.
     // After 2+ identical corrections, the learned category overrides vendor default.
-    if ($vendorId) {
-        $ocrCategory  = $ocrParsed['accounting_category']  ?? null;
-        $userCategory = $userSaved['accounting_category']  ?? null;
-        if (!empty($userCategory) && $ocrCategory !== $userCategory) {
-            $existing = findExistingLesson($db, $vendorId, 'accounting_category', $ocrCategory, $userCategory);
-            if ($existing) {
-                $db->prepare("UPDATE receipt_parse_lessons SET times_seen = times_seen + 1, updated_at = NOW() WHERE id = ?")
-                   ->execute([$existing['id']]);
-                // Promote to vendor profile after 2+ consistent corrections
-                if ((int)$existing['times_seen'] >= 2) {
-                    $db->prepare("
-                        INSERT INTO vendor_parse_profiles (vendor_id, learned_accounting_category, category_correction_count)
-                        VALUES (?, ?, 1)
-                        ON DUPLICATE KEY UPDATE
-                            learned_accounting_category = VALUES(learned_accounting_category),
-                            category_correction_count = category_correction_count + 1,
-                            updated_at = NOW()
-                    ")->execute([$vendorId, $userCategory]);
-                }
-            } else {
-                $db->prepare("INSERT INTO receipt_parse_lessons (vendor_id, vendor_name, field_name, ocr_value, corrected_value, ocr_context) VALUES (?, ?, 'accounting_category', ?, ?, '')")
-                   ->execute([$vendorId, $vendorName, $ocrCategory, $userCategory]);
+    if ($vendorId && $diff['category']) {
+        [$ocrCategory, $userCategory] = [$diff['category']['ocr'], $diff['category']['user']];
+        $hadCorrections = true;
+        $existing = findExistingLesson($db, $vendorId, 'accounting_category', $ocrCategory, $userCategory);
+        if ($existing) {
+            $db->prepare("UPDATE receipt_parse_lessons SET times_seen = times_seen + 1, updated_at = NOW() WHERE id = ?")
+               ->execute([$existing['id']]);
+            // Promote to vendor profile after 2+ consistent corrections
+            if ((int)$existing['times_seen'] >= 2) {
+                $db->prepare("
+                    INSERT INTO vendor_parse_profiles (vendor_id, learned_accounting_category, category_correction_count)
+                    VALUES (?, ?, 1)
+                    ON DUPLICATE KEY UPDATE
+                        learned_accounting_category = VALUES(learned_accounting_category),
+                        category_correction_count = category_correction_count + 1,
+                        updated_at = NOW()
+                ")->execute([$vendorId, $userCategory]);
             }
+        } else {
+            $db->prepare("INSERT INTO receipt_parse_lessons (vendor_id, vendor_name, field_name, ocr_value, corrected_value, ocr_context) VALUES (?, ?, 'accounting_category', ?, ?, '')")
+               ->execute([$vendorId, $vendorName, $ocrCategory, $userCategory]);
         }
     }
 
     // Update vendor parse profile stats
     if ($vendorId) {
         updateVendorProfile($db, $vendorId, $fieldMap, $hadCorrections);
+    }
+}
+
+/** Have migration 1123's columns been added? Cached per request. */
+function receiptLearningBaselineReady(PDO $db): bool
+{
+    static $ready = null;
+    if ($ready === null) {
+        try {
+            $ready = $db->query("SHOW COLUMNS FROM expenses LIKE 'learning_recorded_at'")->rowCount() > 0;
+        } catch (Throwable $e) {
+            $ready = false;
+        }
+    }
+    return $ready;
+}
+
+/**
+ * The capture-time extraction as the learning baseline: the parser output the
+ * client echoed back, with the suggested category folded in when the client sent
+ * it separately (only the desktop review panel merged it before).
+ */
+function captureBaseline($ocrParsed, ?string $suggestedCategory = null): ?array
+{
+    $parsed = is_string($ocrParsed) ? json_decode($ocrParsed, true) : $ocrParsed;
+    if (!is_array($parsed) || $parsed === []) {
+        return null;
+    }
+    if (empty($parsed['accounting_category']) && !empty($parsed['suggested_accounting_category'])) {
+        $parsed['accounting_category'] = $parsed['suggested_accounting_category'];
+    }
+    if (empty($parsed['accounting_category']) && $suggestedCategory) {
+        $parsed['accounting_category'] = $suggestedCategory;
+    }
+    return $parsed;
+}
+
+/**
+ * The intake response's `parsed`, carrying the suggested category as
+ * `suggested_accounting_category`. Clients echo `parsed` back verbatim as
+ * `ocr_parsed` on save; only the desktop panel used to merge the suggestion in, so
+ * mobile and offline receipts never had a category baseline to learn from.
+ */
+function withSuggestedCategory(array $parsed, array $suggestions): array
+{
+    if (!empty($suggestions['accounting_category']) && empty($parsed['suggested_accounting_category'])) {
+        $parsed['suggested_accounting_category'] = (string)$suggestions['accounting_category'];
+    }
+    return $parsed;
+}
+
+/**
+ * Store what the user was shown at capture, once. Never overwrites — a later
+ * rescan or edit must not move the baseline the receipt is judged against.
+ */
+function storeCaptureBaseline(PDO $db, int $expenseId, $ocrParsed): void
+{
+    $baseline = captureBaseline($ocrParsed);
+    if (!$baseline || !receiptLearningBaselineReady($db)) {
+        return;
+    }
+    $db->prepare("UPDATE expenses SET ocr_parsed_json = ? WHERE id = ? AND ocr_parsed_json IS NULL")
+       ->execute([json_encode($baseline), $expenseId]);
+}
+
+/**
+ * Map an expense row's own values onto the parsed-key shape — the baseline for
+ * receipts whose extraction was written straight into the row (emailed receipts),
+ * captured before an approver's edits are applied.
+ */
+function baselineFromExpenseRow(array $row): array
+{
+    return [
+        'total'               => $row['total'] ?? null,
+        'gst'                 => $row['gst_amount'] ?? null,
+        'subtotal'            => $row['amount'] ?? null,
+        'date'                => $row['expense_date'] ?? null,
+        'vendor_hint'         => $row['vendor_name_raw'] ?? null,
+        'accounting_category' => $row['accounting_category'] ?? null,
+    ];
+}
+
+/**
+ * Record header lessons for a receipt that has just been confirmed (approved, or
+ * sent to accounting). Once per receipt: original-vs-confirmed, never re-counted on
+ * a re-save. Receipts with no stored baseline (pre-1123, or never OCR'd) are
+ * skipped rather than diffed against a re-parse that isn't what the user saw.
+ *
+ * Non-critical: never throws — learning must not block an approval.
+ *
+ * @param array|null $fallbackBaseline Used when ocr_parsed_json is empty (emailed receipts)
+ * @return bool Whether lessons were recorded
+ */
+function learnFromConfirmedExpense(PDO $db, int $expenseId, ?array $fallbackBaseline = null): bool
+{
+    try {
+        if (!receiptLearningBaselineReady($db)) {
+            return false;
+        }
+        $stmt = $db->prepare("
+            SELECT e.*, v.name AS vendor_name
+            FROM expenses e LEFT JOIN vendors v ON v.id = e.vendor_id
+            WHERE e.id = ?
+        ");
+        $stmt->execute([$expenseId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row || $row['learning_recorded_at'] !== null
+            || !in_array($row['status'], ['approved', 'forwarded'], true)) {
+            return false;
+        }
+
+        $baseline = captureBaseline($row['ocr_parsed_json'] ?? null) ?? $fallbackBaseline;
+
+        // Claim the receipt first so a concurrent approve/send can't double-count it.
+        $claim = $db->prepare("UPDATE expenses SET learning_recorded_at = NOW() WHERE id = ? AND learning_recorded_at IS NULL");
+        $claim->execute([$expenseId]);
+        if ($claim->rowCount() === 0 || !$baseline) {
+            return false;
+        }
+
+        $vendorId   = $row['vendor_id'] !== null ? (int)$row['vendor_id'] : null;
+        $vendorName = $row['vendor_name_raw'] ?: ($row['vendor_name'] ?? null);
+        recordHeaderLessons($db, $vendorId, $vendorName, $baseline, $row, ocrTextFromStored($row['raw_ocr_json'] ?? null));
+        return true;
+    } catch (Throwable $e) {
+        error_log('Receipt learning error (confirm #' . $expenseId . '): ' . $e->getMessage());
+        return false;
     }
 }
 

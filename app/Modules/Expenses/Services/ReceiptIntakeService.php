@@ -474,7 +474,7 @@ class ReceiptIntakeService
                 'decision'    => $preScreenDecision,
                 'low_quality' => $preScreen['low_quality'],
             ],
-            'parsed'            => $parsed,
+            'parsed'            => withSuggestedCategory($parsed, $suggestions),
             'suggestions'       => $suggestions,
             'job_suggestions'   => $jobSuggestions,
             'field_confidences' => $fieldConfidences,
