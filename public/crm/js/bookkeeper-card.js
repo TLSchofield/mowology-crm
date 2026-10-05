@@ -23,6 +23,8 @@
     var rounds = 0;          // background preparation rounds this page view (max 3 × 2 receipts)
     var preparing = false;
     var capped = false;
+    var zoomed = false;     // full-screen review: big receipt beside Penny's read
+    var zoomBig = false;    // receipt at 2× inside the full-screen view
 
     function esc(s) {
         return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -81,6 +83,7 @@
 
     function render(msg) {
         if (!queue.length) {
+            setZoom(false);
             var text = preparing ? 'I\'m preparing your receipts — they\'ll appear here in a moment…'
                 : capped && BACKLOG > 0 ? 'I\'ve prepared as many as I can for now — more tomorrow, or open All receipts.'
                 : BACKLOG > 0 ? 'Getting your receipts ready…'
@@ -127,27 +130,46 @@
                     '</select>', '');
         }
 
-        root.innerHTML =
-            '<div class="mw-rc-top">' +
+        var top = function (closeBtn) {
+            return '<div class="mw-rc-top">' +
               '<span><b>Receipt ' + (idx + 1) + ' of ' + queue.length + '</b> · ' + (it.status === 'pending_approval' ? 'submitted for approval' : 'draft') + '</span>' +
               '<span><button type="button" class="mw-rc-arrow" data-act="prev" aria-label="Previous">‹</button> ' +
-              '<button type="button" class="mw-rc-arrow" data-act="next" aria-label="Next">›</button></span>' +
-            '</div>' +
-            '<div class="mw-rc-slide">' + photo +
-              '<div>' +
-                '<div class="mw-rc-meta"><b>' + esc(it.vendor || 'Unknown vendor') + '</b> · ' + esc(it.date || '') +
+              '<button type="button" class="mw-rc-arrow" data-act="next" aria-label="Next">›</button>' +
+              (closeBtn ? ' <button type="button" class="mw-rc-arrow" data-act="close" aria-label="Close">✕</button>' : '') + '</span>' +
+            '</div>';
+        };
+        var detail = function (fullNotes) {
+            return '<div class="mw-rc-meta"><b>' + esc(it.vendor || 'Unknown vendor') + '</b> · ' + esc(it.date || '') +
                   (it.submitted_by ? ' · from ' + esc(it.submitted_by) : '') + '</div>' +
                 '<div class="mw-rc-fields">' + fields + '</div>' +
                 (checks ? '<div class="mw-rc-checks">' + checks + '</div>' : '') +
-                (s.notes ? '<div class="mw-rc-checks mw-rc-note" title="' + esc(s.notes) + '">📝 ' + esc(s.notes) + '</div>' : '') +
+                (s.notes ? '<div class="mw-rc-checks' + (fullNotes ? '' : ' mw-rc-note') + '" title="' + esc(s.notes) + '">📝 ' + esc(s.notes) + '</div>' : '') +
                 '<div class="mw-rc-actions">' +
                   '<button type="button" class="mw-rc-ok" data-act="approve">✓ ' + (editing ? 'Save &amp; approve' : 'Approve') + '</button>' +
                   '<button type="button" class="mw-rc-ed" data-act="' + (editing ? 'cancel' : 'edit') + '">' + (editing ? 'Cancel' : '✎ Edit') + '</button>' +
                   '<button type="button" class="mw-rc-sk" data-act="next">Skip →</button>' +
                 '</div>' +
-                '<div class="mw-rc-msg">' + (msg ? esc(msg) : '') + '</div>' +
-              '</div>' +
-            '</div>';
+                '<div class="mw-rc-msg">' + (msg ? esc(msg) : '') + '</div>';
+        };
+
+        var html = top(false) + '<div class="mw-rc-slide">' + photo + '<div>' + (zoomed ? '' : detail(false)) + '</div></div>';
+        if (zoomed) {
+            html += '<div class="mw-rc-zoom" role="dialog" aria-modal="true" aria-label="Receipt and Penny\'s read">' +
+                '<div class="mw-rc-zoom-img' + (zoomBig ? ' is-big' : '') + '">' +
+                  (it.image_url ? '<img src="' + esc(it.image_url) + '" alt="Receipt photo" data-act="bigger" title="Click to zoom">' : '<div class="mw-rc-nophoto">No photo</div>') +
+                '</div>' +
+                '<div class="mw-rc-zoom-side">' + top(true) + detail(true) +
+                  '<div class="mw-rc-zoom-hint">Click the receipt to zoom · A approve · E edit · → skip · Esc close</div>' +
+                '</div>' +
+              '</div>';
+        }
+        root.innerHTML = html;
+    }
+
+    function setZoom(on) {
+        zoomed = !!on;
+        if (!zoomed) zoomBig = false;
+        document.body.classList.toggle('mw-rc-zoom-open', zoomed);
     }
 
     function fld(k, v, w) {
@@ -178,11 +200,12 @@
     }
 
     root.addEventListener('click', function (e) {
-        var zoom = e.target.getAttribute('data-zoom');
-        if (zoom) { window.open(zoom, '_blank', 'noopener'); return; }
+        if (e.target.getAttribute('data-zoom')) { setZoom(true); render(); return; }
         var act = e.target.getAttribute('data-act');
         if (!act) return;
-        if (act === 'approve') approve();
+        if (act === 'close') { setZoom(false); render(); }
+        else if (act === 'bigger') { zoomBig = !zoomBig; render(); }
+        else if (act === 'approve') approve();
         else if (act === 'edit') { editing = true; render(); }
         else if (act === 'cancel') { editing = false; render(); }
         else if (act === 'next') { editing = false; idx = (idx + 1) % Math.max(1, queue.length); render(); }
@@ -192,6 +215,7 @@
     document.addEventListener('keydown', function (e) {
         var t = e.target.tagName;
         if (t === 'INPUT' || t === 'SELECT' || t === 'TEXTAREA' || e.metaKey || e.ctrlKey || e.altKey) return;
+        if (zoomed && e.key === 'Escape') { e.preventDefault(); setZoom(false); render(); return; }
         if (!root.offsetParent || !queue.length) return;
         if (e.key === 'a' || e.key === 'A') { e.preventDefault(); approve(); }
         else if (e.key === 'e' || e.key === 'E') { e.preventDefault(); editing = true; render(); }

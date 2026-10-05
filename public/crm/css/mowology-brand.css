@@ -37671,6 +37671,24 @@ span.mw-icon-box--missing {
 .mw-rc-msg { font-size: .78rem; margin-top: 8px; color: var(--mw-dark); min-height: 1em; }
 .mw-head-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 12px; font-size: .75rem; color: var(--mw-ink-500); }
 
+/* Full-screen review: the receipt large, Penny's read beside it */
+body.mw-rc-zoom-open { overflow: hidden; }
+.mw-rc-zoom { position: fixed; inset: 0; z-index: 1080; display: grid; grid-template-columns: minmax(0, 1fr) 440px;
+              background: color-mix(in srgb, var(--mw-forest) 90%, transparent); }
+.mw-rc-zoom-img { overflow: auto; display: flex; align-items: flex-start; justify-content: center; padding: 24px; }
+.mw-rc-zoom-img img { max-width: 100%; max-height: calc(100vh - 48px); object-fit: contain; border-radius: 8px;
+                      box-shadow: var(--mw-shadow-lg, var(--mw-shadow-md)); cursor: zoom-in; background: var(--mw-ink-0); }
+.mw-rc-zoom-img.is-big { align-items: flex-start; justify-content: flex-start; }
+.mw-rc-zoom-img.is-big img { max-width: none; max-height: none; width: 200%; cursor: zoom-out; }
+.mw-rc-zoom-side { background: var(--mw-ink-0); padding: 18px; overflow-y: auto; box-shadow: var(--mw-shadow-lg, var(--mw-shadow-md)); }
+.mw-rc-zoom-side .mw-rc-fields { grid-template-columns: 1fr; }
+.mw-rc-zoom-hint { margin-top: 14px; font-size: .7rem; color: var(--mw-ink-500); }
+@media (max-width: 767.98px) {
+    .mw-rc-zoom { grid-template-columns: 1fr; grid-template-rows: 55vh 1fr; }
+    .mw-rc-zoom-img { padding: 12px; }
+    .mw-rc-zoom-img img { max-height: calc(55vh - 24px); }
+}
+
 /* The rest of the team */
 .mw-head-soon { text-align: center; padding-top: 18px; }
 .mw-head-soon .mw-head-face { width: 96px; height: 96px; border-radius: 50%; object-fit: cover; display: block; margin: 0 auto 10px; box-shadow: 0 0 0 3px var(--mw-light), var(--mw-shadow-md); }
