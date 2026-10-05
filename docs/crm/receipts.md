@@ -157,6 +157,39 @@ by `learnFromConfirmedExpense()` in `ReceiptLearning.php`.
   phone match compares normalised 10-digit numbers.
 - Before 1123 runs, header lessons pause; nothing errors.
 
+## Recognition by time and place (migration 1124)
+
+- **Purchase time:** `extractPurchaseTime()` reads the printed time of day (80% of
+  live receipts print one; store-hours ranges are skipped) → `parsed.time`.
+- **Job:** `suggestJobFromSchedule($user, $lat, $lng, $date, $time)` matches the
+  receipt's own date against that day's stops for all crews — bought during a visit
+  +30, the purchaser's next stop within 3h +20 (supplies are bought on the way),
+  same day +10 (needs a second signal). No receipt date → today/tomorrow vs upload time.
+- **Store locations:** at confirmation `learnStoreLocation()` attaches the capture
+  point to the vendor's nearest spot within 150 m (running centroid) or starts a
+  `source='learned'` spot; a learned spot is used after 2 receipts. A spot carrying
+  3+ different vendors is home/office/truck and is never learned or used. When the
+  text names no vendor, `nearestKnownStore()` (≤300 m) does.
+- **Capture:** web/Android await a fresh fix (≤4 s) and send no location from
+  non-touch (desktop) devices; iOS uses the shared one-shot fix; intake reads EXIF GPS
+  before stripping when the client sent none.
+
+## AI bookkeeper (migration 1125)
+
+`ReceiptBookkeeperService` prepares each receipt for the owner: category, asset tag
+(`expenses.asset_tag` truck | equipment — one Fuel category, split for the GGOB cost
+drill-down), job, subtotal/GST/PST/total and line items, each with a reason and a
+confidence. Inputs: text (+ photo), captured values, the vendor's recent approved
+receipts, `ReceiptBookkeeperRules` hits (owner's rules: diesel → truck, gas ≤ $50 →
+equipment, EGO → equipment (soft)), the category list and time/place job candidates.
+Claude Opus 5.5 over HTTP (structured JSON, effort medium, `fallbacks: "default"`),
+key `ANTHROPIC_API_KEY` in secrets.php. Hard checks after the model: sums, GST 5% /
+PST ≤ 7%, category list, **firm owner rules override the model**, fuel must be tagged,
+the job must be a schedule candidate. Stored in `expense_suggestions`; nothing changes
+an expense until the owner decides. `/crm/api/bookkeeper.php`: `?mode=status`,
+`?mode=report`, POST `mode=backtest` (final values hidden, scored per field) —
+`expenses.approve` only.
+
 ## Line-item learning (migration 1115)
 
 The parser's self-learning loop covers line items, not just header fields. Signals
