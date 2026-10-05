@@ -254,6 +254,14 @@ function matchVendorFromOcr(string $ocrLower, PDO $db): ?array
     $bestMatch = null;
     $bestScore = 0;
 
+    // Phones printed on the receipt, separators stripped ("604-555-1234" → 6045551234).
+    // Comparing the vendor's digits against the raw text only matched receipts that
+    // print the number without separators.
+    if (!function_exists('extractPhoneNumbers')) {
+        require_once __DIR__ . '/ReceiptParser.php';
+    }
+    $ocrPhones = extractPhoneNumbers($ocrLower);
+
     foreach ($vendors as $vendor) {
         $score = 0;
         $reason = '';
@@ -280,7 +288,9 @@ function matchVendorFromOcr(string $ocrLower, PDO $db): ?array
         // Check phone number match (strong signal)
         if (!empty($vendor['phone'])) {
             $cleanPhone = preg_replace('/\D/', '', $vendor['phone']);
-            if (strlen($cleanPhone) >= 7 && strpos($ocrLower, $cleanPhone) !== false) {
+            $last10     = strlen($cleanPhone) >= 10 ? substr($cleanPhone, -10) : null;
+            if (($last10 !== null && in_array($last10, $ocrPhones, true))
+                || (strlen($cleanPhone) >= 7 && strpos($ocrLower, $cleanPhone) !== false)) {
                 $score = max($score, 80);
                 $reason = 'Phone match: ' . $vendor['phone'];
             }

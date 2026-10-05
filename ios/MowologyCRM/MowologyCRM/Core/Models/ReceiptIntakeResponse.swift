@@ -59,6 +59,11 @@ struct ParsedReceipt: Codable {
     /// Provenance: 'ocr' | 'vision' | 'llm'
     let lineItemsSource: String?
     let escalationReason: String?
+    /// Category the server suggested / learned for this receipt. Never shown here — it
+    /// rides back in `ocr_parsed` on save so the server can learn when the desktop
+    /// reviewer changes it. Codable drops unknown keys, so it must be declared.
+    let accountingCategory: String?
+    let suggestedAccountingCategory: String?
 
     enum CodingKeys: String, CodingKey {
         case total, gst, subtotal, pst, date
@@ -70,6 +75,8 @@ struct ParsedReceipt: Codable {
         case itemsSum          = "items_sum"
         case lineItemsSource   = "line_items_source"
         case escalationReason  = "escalation_reason"
+        case accountingCategory          = "accounting_category"
+        case suggestedAccountingCategory = "suggested_accounting_category"
     }
 
     var totalDouble: Double? { total.flatMap(Double.init) }

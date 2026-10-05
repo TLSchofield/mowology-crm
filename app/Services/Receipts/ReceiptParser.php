@@ -793,6 +793,73 @@ function findBareItemNameBackward(array $lines, int $priceLineIdx): ?string
 
 
 /**
+ * Phone numbers printed on a receipt, as 10-digit NANP strings (leading 1 dropped).
+ * Receipts print "(604) 555-1234", "604-555-1234", "604.555.1234", "1-800-…"; the
+ * vendor match compares digits, so the separators have to go first.
+ *
+ * @return string[] Unique, in order of appearance
+ */
+function extractPhoneNumbers(string $ocrText): array
+{
+    $found = [];
+    if (preg_match_all('/(?<![\d$.,])(?:\+?1[\s.\-]?)?\(?([2-9]\d{2})\)?[\s.\-]?(\d{3})[\s.\-]?(\d{4})(?![\d.,]\d)/', $ocrText, $m, PREG_SET_ORDER)) {
+        foreach ($m as $hit) {
+            $found[$hit[1] . $hit[2] . $hit[3]] = true;
+        }
+    }
+    // array_keys() turns numeric-string keys into ints; callers compare strings.
+    return array_map('strval', array_keys($found));
+}
+
+/**
+ * Store contact details printed in a receipt header — used to back-fill a vendor's
+ * phone/website/location the first time it's seen, which is what makes the phone
+ * match (the strongest vendor signal) work for vendors nobody typed in by hand.
+ * Called from intake since the 2026-09 parity pass but never defined until 2026-10-05,
+ * so every call threw into a silent catch.
+ *
+ * @return array{phone: ?string, website: ?string, address: ?string, city: ?string}
+ */
+function extractVendorLocationFromOcr(string $ocrText): array
+{
+    $out = ['phone' => null, 'website' => null, 'address' => null, 'city' => null];
+    if (trim($ocrText) === '') {
+        return $out;
+    }
+
+    $phones = extractPhoneNumbers($ocrText);
+    if ($phones) {
+        $p = $phones[0];
+        $out['phone'] = sprintf('(%s) %s-%s', substr($p, 0, 3), substr($p, 3, 3), substr($p, 6));
+    }
+
+    if (preg_match('/(?<![@\w.\-])((?:https?:\/\/)?(?:www\.)?[a-z0-9][a-z0-9\-]{1,62}\.(?:ca|com|net|org|shop))\b/i', $ocrText, $w)) {
+        $out['website'] = strtolower(preg_replace('#^(https?://)?(www\.)?#i', '', $w[1]));
+    }
+
+    // Header only: store details sit in the first lines, not among the items.
+    $lines = array_slice(array_values(array_filter(array_map('trim', preg_split('/\R/', $ocrText)), 'strlen')), 0, 12);
+    $suffix = 'ST|STREET|AVE|AVENUE|RD|ROAD|BLVD|BOULEVARD|DR|DRIVE|HWY|HIGHWAY|WAY|CRES|CRESCENT|PL|PLACE|LANE|LN|CT|COURT|PKWY|MALL|SQ|SQUARE';
+    foreach ($lines as $idx => $line) {
+        if ($out['address'] === null && preg_match('/^\d{1,6}[A-Z]?(?:[\s\-]+\d+)?\s+[A-Za-z0-9 .\'\-]{2,40}\b(?:' . $suffix . ')\b\.?(?:\s+[NSEW]{1,2})?/i', $line, $a)) {
+            $out['address'] = trim($a[0]);
+            // City is usually on the same line after a comma, or the next line ("VANCOUVER, BC V6K 1A1").
+            $cityLine = preg_match('/,\s*([A-Za-z .\'\-]{3,30})\s*,?\s*BC\b/i', $line, $c) ? $c[1] : ($lines[$idx + 1] ?? '');
+            if ($out['city'] === null && preg_match('/^([A-Za-z .\'\-]{3,30}?)\s*,?\s*(?:BC|B\.C\.|BRITISH COLUMBIA)\b/i', trim($cityLine), $c2)) {
+                $out['city'] = ucwords(strtolower(trim($c2[1])));
+            } elseif ($out['city'] === null && !empty($c[1] ?? null)) {
+                $out['city'] = ucwords(strtolower(trim($c[1])));
+            }
+        }
+        if ($out['city'] === null && preg_match('/^([A-Za-z .\'\-]{3,30}?)\s*,?\s*(?:BC|B\.C\.)\s+[A-Z]\d[A-Z]\s?\d[A-Z]\d\b/i', $line, $c3)) {
+            $out['city'] = ucwords(strtolower(trim($c3[1])));
+        }
+    }
+
+    return $out;
+}
+
+/**
  * Extract vendor hint from first meaningful lines.
  */
 function extractVendorHint(array $lines): ?string
