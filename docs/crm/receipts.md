@@ -128,6 +128,26 @@ for someone with no one else to approve their purchases (e.g. an owner who
 also submits a lot of his own receipts). Checked fresh from the DB inside
 `approve()`, not trusted from the session/JWT payload.
 
+## Header learning (migration 1123)
+
+Header fields (total, GST, subtotal, date, vendor) and the accounting category are
+learned **once per receipt, when it is confirmed** — approved
+(`ExpenseApprovalService`, `ReceiptInboxService::approve` for emailed receipts) or
+sent to accounting (`sendReceiptToAccounting`, since "Save & Send" skips approve) —
+by `learnFromConfirmedExpense()` in `ReceiptLearning.php`.
+
+- **Baseline** = what the user was shown at capture: the client echoes intake's
+  `parsed` back as `ocr_parsed`, stored once in `expenses.ocr_parsed_json`
+  (`storeCaptureBaseline()`, never overwritten). Intake adds
+  `parsed.suggested_accounting_category` so mobile/offline saves carry the category
+  suggestion too. Emailed receipts use the row as loaded before the approver's edits.
+- **Idempotent** via `expenses.learning_recorded_at` — re-saves and a later send don't
+  re-count. Receipts with no baseline (pre-1123, never OCR'd) are skipped, not diffed
+  against a re-parse (the old behaviour, which wasn't what the user saw).
+- Category is a lesson only when something was suggested and the user changed it.
+- Save paths record only the identity-keyed line-item lessons below.
+- Before 1123 runs, header lessons pause; nothing errors.
+
 ## Line-item learning (migration 1115)
 
 The parser's self-learning loop covers line items, not just header fields. Signals
