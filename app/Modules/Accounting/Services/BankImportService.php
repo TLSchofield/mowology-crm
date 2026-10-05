@@ -64,9 +64,17 @@ class BankImportService
     private const DEFAULT_EXPENSE_CODE = '6900';
     private const CREDIT_CARD_CODE     = '2400';   // Credit Card Payable (liability)
 
+    /** Import date ('Y-m-d'); tests pin it. A year-less row is never dated after it. */
+    private ?string $today = null;
+
     public function __construct(PDO $db)
     {
         $this->db = $db;
+    }
+
+    private function today(): string
+    {
+        return $this->today ?? date('Y-m-d');
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -346,6 +354,17 @@ class BankImportService
         int $bankAccountId = 0,
         ?array $balanceCheck = null
     ): array {
+
+        // A bank line cannot post after the day it is imported. A future date means
+        // the year was mis-inferred — refuse the batch rather than book it.
+        $latestAllowed = date('Y-m-d', strtotime($this->today() . ' +1 day'));
+        $future = array_values(array_filter($rows, static fn($r) => (string)($r['date'] ?? '') > $latestAllowed));
+        if ($future) {
+            throw new RuntimeException(sprintf(
+                '%d row(s) are dated after today (first: %s "%s") — check the statement year before importing.',
+                count($future), $future[0]['date'], substr((string)($future[0]['description'] ?? ''), 0, 60)
+            ), 422);
+        }
 
         $sessionId = $this->createSession([
             'filename'        => $bankName ?: 'bank_import',
@@ -1349,12 +1368,19 @@ class BankImportService
         // — i.e. the statement-period end. This ignores stray year references (a
         // print/due date) that would otherwise mis-date the whole statement. Earlier
         // rows are corrected by the year-rollover pass after parsing.
-        $statementYear = (int)date('Y');
-        $monthAbbr = 'Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec';
-        if (preg_match_all('/(?:\d{1,2}\s*(?:' . $monthAbbr . ')|(?:' . $monthAbbr . ')\s*\d{1,2}),?\s*(20\d{2})/i', $text, $ym)) {
-            $statementYear = max(array_map('intval', $ym[1]));
+        // When a full date is present its LATEST value (the period end, or a due
+        // date a few weeks after it) is the anchor: every year-less row is the most
+        // recent occurrence of its month/day on or before it — order-independent, so
+        // multi-account statements and Dec→Jan periods both date correctly. With only
+        // bare years, fall back to the rollover pass below. Either way, no year-less
+        // row is ever dated after the import date (a Dec-2025 statement imported in
+        // April 2026 once landed as Dec 2026 — 122 future rows).
+        $statementYear = (int)substr($this->today(), 0, 4);
+        $anchorDate    = $this->statementAnchorDate($text);
+        if ($anchorDate !== null) {
+            $statementYear = (int)substr($anchorDate, 0, 4);
         } elseif (preg_match_all('/\b(20\d{2})\b/', $text, $ym2)) {
-            $statementYear = max(array_map('intval', $ym2[1]));
+            $statementYear = min(max(array_map('intval', $ym2[1])), $statementYear);
         }
 
         // ── 3-column format detection (WITHDRAWALS | DEPOSITS | BALANCE) ─────
@@ -1498,8 +1524,9 @@ class BankImportService
             }
 
             // Parse date
-            $dateStr = $dateRaw;
-            if (!preg_match('/\d{4}/', $dateRaw)) {
+            $dateStr      = $dateRaw;
+            $yearInferred = !preg_match('/\d{4}/', $dateRaw);
+            if ($yearInferred) {
                 $dateStr = $dateRaw . ' ' . $statementYear;
             }
             $date = $this->parseDate($dateStr);
@@ -1591,6 +1618,7 @@ class BankImportService
 
             $rows[] = [
                 'date'            => $date,
+                '_year_inferred'  => $yearInferred,
                 'description'     => substr($desc, 0, 500),
                 'amount'          => round($amount, 2),
                 'type'            => $type,
@@ -1605,24 +1633,35 @@ class BankImportService
             ];
         }
 
-        // ── Year-boundary correction ──────────────────────────────────────────
-        // Transactions are chronological; a month that decreases vs the previous
-        // row marks a year rollover (Dec → Jan). The statement is anchored to its
-        // latest (statement-date) year, so earlier rows belong to prior years.
+        // ── Year assignment for year-less rows ────────────────────────────────
+        // Rows that carried their own year are left alone.
         if (!empty($rows)) {
-            $months = array_map(static fn($r) => (int)substr($r['date'], 5, 2), $rows);
-            $rollovers = 0;
-            for ($i = 1; $i < count($months); $i++) {
-                if ($months[$i] < $months[$i - 1]) $rollovers++;
+            if ($anchorDate !== null) {
+                foreach ($rows as $k => $r) {
+                    if (!$r['_year_inferred']) continue;
+                    $rows[$k]['date'] = $this->latestOnOrBefore((int)substr($r['date'], 5, 2), (int)substr($r['date'], 8, 2), $anchorDate);
+                }
+            } else {
+                // No full date to anchor on: transactions are chronological, so a
+                // month that drops by six or more marks a Dec → Jan rollover. (A
+                // smaller drop is a new account section restarting the period.)
+                $inferred = array_keys(array_filter($rows, static fn($r) => $r['_year_inferred']));
+                $months   = array_map(static fn($k) => (int)substr($rows[$k]['date'], 5, 2), $inferred);
+                $rollovers = 0;
+                for ($i = 1; $i < count($months); $i++) {
+                    if ($months[$i - 1] - $months[$i] >= 6) $rollovers++;
+                }
+                $year  = $statementYear - $rollovers;
+                $prevM = null;
+                foreach ($inferred as $k) {
+                    $m = (int)substr($rows[$k]['date'], 5, 2);
+                    $d = (int)substr($rows[$k]['date'], 8, 2);
+                    if ($prevM !== null && $prevM - $m >= 6) $year++;
+                    $rows[$k]['date'] = $this->latestOnOrBefore($m, $d, sprintf('%04d-12-31', $year));
+                    $prevM = $m;
+                }
             }
-            $year  = (int)$statementYear - $rollovers;
-            $prevM = null;
-            foreach ($rows as $k => $r) {
-                $m = (int)substr($r['date'], 5, 2);
-                if ($prevM !== null && $m < $prevM) $year++;
-                $rows[$k]['date'] = sprintf('%04d-%02d-%s', $year, $m, substr($r['date'], 8, 2));
-                $prevM = $m;
-            }
+            foreach ($rows as $k => $r) unset($rows[$k]['_year_inferred']);
         }
 
         // ── Derive opening balance from running balance column if not explicit ─
@@ -2498,6 +2537,11 @@ class BankImportService
             $dateRaw = trim($cols[$mapping['date']] ?? '');
             $date    = $this->parseDate($dateRaw);
             if (!$date) continue;
+            // A year-less export date ("Dec 07") gets the current year from
+            // strtotime — take its most recent past occurrence instead.
+            if (!preg_match('/\d{4}|\b\d{1,2}[\/\-][A-Za-z]{3}[\/\-]\d{2}\b|[\/\-]\d{2}$/', $dateRaw)) {
+                $date = $this->latestOnOrBefore((int)substr($date, 5, 2), (int)substr($date, 8, 2), $this->today());
+            }
 
             // Description
             $desc = trim($cols[$mapping['description']] ?? '');
@@ -2610,6 +2654,48 @@ class BankImportService
 
         $val = (float)$s;
         return $negative ? -$val : $val;
+    }
+
+    /**
+     * The latest month-attached full date in the statement text ("15 DEC 2025",
+     * "Dec 15, 2025", "15DEC2025"), capped at the import date — i.e. the period
+     * end (or a due date just after it). Null when the text has none.
+     */
+    private function statementAnchorDate(string $text): ?string
+    {
+        $mon = 'Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec';
+        $found = [];
+        if (preg_match_all('/\b(\d{1,2})\s*(' . $mon . ')[a-z]*\.?,?\s*(20\d{2})(?![.,]?\d)/i', $text, $a, PREG_SET_ORDER)) {
+            foreach ($a as $x) $found[] = [(int)$x[3], $x[2], (int)$x[1]];
+        }
+        if (preg_match_all('/\b(' . $mon . ')[a-z]*\.?\s*(\d{1,2}),?\s*(20\d{2})(?![.,]?\d)/i', $text, $b, PREG_SET_ORDER)) {
+            foreach ($b as $x) $found[] = [(int)$x[3], $x[1], (int)$x[2]];
+        }
+        $latest = null;
+        foreach ($found as [$y, $m, $d]) {
+            $mm = (int)date('n', strtotime("1 $m 2000"));
+            if (!checkdate($mm, $d, $y)) continue;
+            $iso = sprintf('%04d-%02d-%02d', $y, $mm, $d);
+            if ($latest === null || $iso > $latest) $latest = $iso;
+        }
+        if ($latest === null) return null;
+        return min($latest, $this->today());
+    }
+
+    /**
+     * The most recent occurrence of month/day on or before $limit (and never
+     * after the import date) — how a statement line with no year is dated.
+     */
+    private function latestOnOrBefore(int $month, int $day, string $limit): string
+    {
+        $limit = min($limit, $this->today());
+        $year  = (int)substr($limit, 0, 4);
+        for ($i = 0; $i < 8; $i++, $year--) {
+            if (!checkdate($month, $day, $year)) continue;   // 29 Feb in a non-leap year
+            $iso = sprintf('%04d-%02d-%02d', $year, $month, $day);
+            if ($iso <= $limit) return $iso;
+        }
+        return sprintf('%04d-%02d-%02d', (int)substr($limit, 0, 4), $month, $day);
     }
 
     /**
