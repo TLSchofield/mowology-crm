@@ -68,6 +68,21 @@ class ExpenseLookupServiceTest extends TestCase
         $this->assertSame(44, $result[0]['contact_id']);
     }
 
+    public function test_job_search_matches_the_job_title(): void
+    {
+        // "Willow Front Beds" lives in job_plans.title — Penny's carousel searches by it.
+        $sql = null;
+        $params = null;
+        $stmt = $this->createMock(PDOStatement::class);
+        $stmt->method('execute')->willReturnCallback(function ($p) use (&$params) { $params = $p; return true; });
+        $stmt->method('fetchAll')->willReturn([]);
+        $db = $this->createMock(PDO::class);
+        $db->method('prepare')->willReturnCallback(function ($q) use (&$sql, $stmt) { $sql = $q; return $stmt; });
+        (new ExpenseLookupService($db))->searchJobs('willow');
+        $this->assertStringContainsString('jp.title LIKE ?', $sql);
+        $this->assertCount(substr_count($sql, '?'), $params);
+    }
+
     // ── categories ───────────────────────────────────────────────────────
 
     public function test_categories_exposes_all_three_lists(): void

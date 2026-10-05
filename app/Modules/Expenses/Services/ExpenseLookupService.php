@@ -88,7 +88,8 @@ class ExpenseLookupService
     }
 
     /**
-     * Job-plan search for attaching an expense to a job. Returns property_id and
+     * Job-plan search (plan number, job title, service, address, client) for attaching
+     * an expense to a job. Returns property_id and
      * contact_id alongside the plan so the client can persist all three payer/site
      * identifiers the same way a GPS job suggestion does.
      */
@@ -103,6 +104,7 @@ class ExpenseLookupService
             SELECT
                 jp.id,
                 jp.plan_number,
+                jp.title,
                 jp.service_type,
                 jp.status,
                 jp.property_id,
@@ -114,6 +116,7 @@ class ExpenseLookupService
             LEFT JOIN contacts c ON c.id = p.site_contact_id
             WHERE (
                   jp.plan_number LIKE ?
+                  OR jp.title LIKE ?
                   OR jp.service_type LIKE ?
                   OR p.address LIKE ?
                   OR CONCAT(c.first_name, ' ', c.last_name) LIKE ?
@@ -121,7 +124,7 @@ class ExpenseLookupService
             ORDER BY jp.status = 'active' DESC, jp.id DESC
             LIMIT 15
         ");
-        $stmt->execute([$like, $like, $like, $like]);
+        $stmt->execute([$like, $like, $like, $like, $like]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }
 

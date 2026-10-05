@@ -37685,6 +37685,18 @@ select.mw-rc-in { cursor: pointer; }
 .mw-rc-fld.is-yours .mw-rc-yours { display: inline; }
 .mw-rc-draftbadge { font-weight: 700; color: var(--mw-color-warning); background: var(--mw-color-warning-bg); padding: 1px 8px; border-radius: var(--mw-radius-pill); }
 
+/* Job search in Penny's carousel */
+.mw-rc-job { position: relative; width: 100%; }
+.mw-rc-job [data-jobsearch] { padding-right: 24px; }
+.mw-rc-jobclear { position: absolute; right: 2px; top: 2px; border: 0; background: none; color: var(--mw-ink-500); font-size: 1rem; line-height: 1; padding: 2px 6px; }
+.mw-rc-jobres { position: absolute; left: -5px; right: 0; top: calc(100% + 4px); z-index: 30; max-height: 260px; overflow-y: auto;
+                background: var(--mw-ink-0); border: 1px solid var(--mw-ink-200); border-radius: 8px; box-shadow: var(--mw-shadow-md); padding: 4px; }
+.mw-rc-jobres button { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 7px 8px; border-radius: 6px;
+                       font-size: .8rem; font-weight: 600; color: var(--mw-forest); }
+.mw-rc-jobres button:hover, .mw-rc-jobres button:focus { background: var(--mw-light); outline: none; }
+.mw-rc-jobres small { display: block; font-weight: 400; color: var(--mw-ink-500); }
+.mw-rc-jobnone { padding: 8px; font-size: .78rem; color: var(--mw-ink-500); }
+
 /* Full-screen review: the receipt large, Penny's read beside it */
 body.mw-rc-zoom-open { overflow: hidden; }
 .mw-rc-zoom { position: fixed; inset: 0; z-index: 1080; display: grid; grid-template-columns: minmax(0, 1fr) 440px;

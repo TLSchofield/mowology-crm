@@ -24,6 +24,8 @@
     var capped = false;
     var zoomed = false;     // full-screen review: big receipt beside Penny's read
     var zoomBig = false;    // receipt at 2× inside the full-screen view
+    var jobLabels = {};     // job id → label, for jobs picked from search
+    var jobTimer = null;
 
     function esc(s) {
         return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -117,8 +119,14 @@
         }).join('');
         var jobNow = cur('job');
         var jobSug = val(s, 'job');
-        var jobOpts = '<option value="">None</option>' +
-            (jobSug ? '<option value="' + esc(jobSug) + '"' + (String(jobNow) === String(jobSug) ? ' selected' : '') + '>' + esc(it.job_title || ('Job #' + jobSug)) + '</option>' : '');
+        if (jobSug && it.job_title) jobLabels[jobSug] = it.job_title;
+        var jobLabel = jobNow ? (jobLabels[jobNow] || ('Job #' + jobNow)) : '';
+        var jobCtl = '<div class="mw-rc-job">' +
+              '<input class="mw-rc-in" data-jobsearch type="search" autocomplete="off" placeholder="None — search jobs…" value="' + esc(jobLabel) + '" aria-label="Search jobs">' +
+              '<input type="hidden" data-f="job" value="' + esc(jobNow || '') + '">' +
+              (jobNow ? '<button type="button" class="mw-rc-jobclear" data-act="jobclear" aria-label="No job">×</button>' : '') +
+              '<div class="mw-rc-jobres" hidden></div>' +
+            '</div>';
         var amt = function (f, label) {
             return '<label class="mw-rc-amt"><span>' + label + '</span><input class="mw-rc-in" data-f="' + f + '" type="number" step="0.01" inputmode="decimal" value="' + esc(cur(f)) + '" aria-label="' + label + '"></label>';
         };
@@ -131,7 +139,7 @@
             tagFld('accounting_category', 'Category', '<select class="mw-rc-in' + (changed(it, 'accounting_category') ? ' mw-rc-changed' : '') + '" data-f="accounting_category">' + catOpts + '</select>') +
             tagFld('asset_tag', 'For', '<select class="mw-rc-in" data-f="asset_tag">' + tagOpts + '</select>') +
             tagFld('total', 'Total · GST · PST', '<div class="mw-rc-amts">' + amt('total', 'Total') + amt('gst', 'GST') + amt('pst', 'PST') + '</div>') +
-            tagFld('job', 'Job', '<select class="mw-rc-in" data-f="job">' + jobOpts + '</select>');
+            tagFld('job', 'Job', jobCtl);
 
         var top = function (closeBtn) {
             return '<div class="mw-rc-top">' +
@@ -180,6 +188,46 @@
         return '<div class="mw-rc-fld"><div class="mw-k">' + esc(k) + '</div><div class="mw-v">' + v + '</div>' + w + '</div>';
     }
 
+    // ── Job search (title, address, client, plan number) ─────────────────
+    function jobResults(box, rows, penny) {
+        var res = box.querySelector('.mw-rc-jobres');
+        var html = '';
+        if (penny) html += '<button type="button" data-pick-job="' + esc(penny.id) + '" data-label="' + esc(penny.label) + '">⭐ Penny\'s pick: ' + esc(penny.label) + '</button>';
+        rows.forEach(function (j) {
+            var label = (j.title || j.service_type || 'Job') + ' — ' + (j.address || '') + (j.plan_number ? ' (' + j.plan_number + ')' : '');
+            html += '<button type="button" data-pick-job="' + esc(j.id) + '" data-label="' + esc(label) + '">' + esc(label) +
+                (j.contact_name ? '<small>' + esc(j.contact_name) + (j.status && j.status !== 'active' ? ' · ' + esc(j.status) : '') + '</small>' : '') + '</button>';
+        });
+        res.innerHTML = html || '<div class="mw-rc-jobnone">No jobs match</div>';
+        res.hidden = false;
+    }
+
+    function searchJobs(input) {
+        var box = input.closest('.mw-rc-job');
+        var it = queue[idx];
+        var sug = it && it.suggestion && it.suggestion.job ? it.suggestion.job.value : null;
+        var penny = sug ? { id: sug, label: jobLabels[sug] || ('Job #' + sug) } : null;
+        var q = input.value.trim();
+        clearTimeout(jobTimer);
+        if (q.length < 2) { jobResults(box, [], penny); return; }
+        jobTimer = setTimeout(function () {
+            fetch('/crm/api/expenses.php?action=search_jobs&q=' + encodeURIComponent(q), { cache: 'no-store' })
+                .then(function (r) { return r.json(); })
+                .then(function (d) { if (document.activeElement === input) jobResults(box, (d && d.jobs) || [], null); })
+                .catch(function () {});
+        }, 250);
+    }
+
+    function setJob(box, id, label) {
+        var hidden = box.querySelector('[data-f="job"]');
+        hidden.value = id || '';
+        box.querySelector('[data-jobsearch]').value = id ? label : '';
+        if (id) jobLabels[id] = label;
+        var res = box.querySelector('.mw-rc-jobres');
+        res.hidden = true;
+        hidden.dispatchEvent(new Event('input', { bubbles: true }));   // updates "edited by you"
+    }
+
     function formValues() {
         var out = {};
         root.querySelectorAll('[data-f]').forEach(function (el) { out[el.getAttribute('data-f')] = el.value; });
@@ -214,6 +262,9 @@
 
     root.addEventListener('click', function (e) {
         if (e.target.getAttribute('data-zoom')) { setZoom(true); render(); return; }
+        var pick = e.target.closest && e.target.closest('[data-pick-job]');
+        if (pick) { setJob(pick.closest('.mw-rc-job'), pick.getAttribute('data-pick-job'), pick.getAttribute('data-label')); return; }
+        if (e.target.getAttribute('data-act') === 'jobclear') { setJob(e.target.closest('.mw-rc-job'), '', ''); return; }
         var act = e.target.getAttribute('data-act');
         if (!act) return;
         if (act === 'close') { setZoom(false); render(); }
@@ -224,7 +275,22 @@
         else if (act === 'prev') { idx = (idx - 1 + queue.length) % Math.max(1, queue.length); render(); }
     });
 
+    root.addEventListener('focusin', function (e) {
+        if (e.target.hasAttribute && e.target.hasAttribute('data-jobsearch')) { e.target.select(); searchJobs(e.target); }
+    });
+    root.addEventListener('focusout', function (e) {
+        if (!(e.target.hasAttribute && e.target.hasAttribute('data-jobsearch'))) return;
+        var box = e.target.closest('.mw-rc-job');
+        setTimeout(function () {                   // let a click on a result land first
+            if (box.contains(document.activeElement)) return;
+            box.querySelector('.mw-rc-jobres').hidden = true;
+            var id = box.querySelector('[data-f="job"]').value;
+            e.target.value = id ? (jobLabels[id] || ('Job #' + id)) : '';   // typed text without a pick doesn't count
+        }, 200);
+    });
+
     root.addEventListener('input', function (e) {
+        if (e.target.hasAttribute && e.target.hasAttribute('data-jobsearch')) { searchJobs(e.target); return; }
         var f = e.target.getAttribute && e.target.getAttribute('data-f');
         if (!f || !queue.length) return;
         var s = queue[idx].suggestion || {};
