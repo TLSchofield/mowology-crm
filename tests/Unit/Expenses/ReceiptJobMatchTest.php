@@ -104,4 +104,43 @@ class ReceiptJobMatchTest extends TestCase
         $m = scoreStopForReceipt($stop, '2026-10-04', 7, null, null, strtotime('2026-10-04 09:30'), true, true);
         $this->assertContains('Bought during this visit', $m['reasons']);
     }
+
+    // ── Learned store locations (B2) ──────────────────────────────────
+
+    public function test_meters_between_two_nearby_points(): void
+    {
+        // ~111 m per 0.001° of latitude
+        $this->assertEqualsWithDelta(111, metersBetween(49.2600, -123.1200, 49.2610, -123.1200), 2);
+    }
+
+    public function test_three_vendors_at_one_spot_marks_it_as_not_a_store(): void
+    {
+        $home = [49.2600, -123.1200];
+        $rows = [
+            ['vendor' => '12', 'lat' => 49.26001, 'lng' => -123.12002],
+            ['vendor' => '12', 'lat' => 49.26003, 'lng' => -123.11999],
+            ['vendor' => '40', 'lat' => 49.25998, 'lng' => -123.12001],
+            ['vendor' => 'shell', 'lat' => 49.26002, 'lng' => -123.12000],
+            ['vendor' => '77', 'lat' => 49.27000, 'lng' => -123.12000],   // ~1.1 km away
+        ];
+        $this->assertSame(3, distinctVendorsNear($rows, $home[0], $home[1], STORE_MATCH_METERS));
+        $this->assertGreaterThanOrEqual(NON_STORE_VENDOR_COUNT, distinctVendorsNear($rows, $home[0], $home[1], STORE_MATCH_METERS));
+    }
+
+    public function test_one_vendor_seen_repeatedly_is_a_store(): void
+    {
+        $rows = [
+            ['vendor' => '12', 'lat' => 49.2600, 'lng' => -123.1200],
+            ['vendor' => '12', 'lat' => 49.2601, 'lng' => -123.1201],
+        ];
+        $this->assertSame(1, distinctVendorsNear($rows, 49.2600, -123.1200, STORE_MATCH_METERS));
+    }
+
+    public function test_centroid_moves_proportionally(): void
+    {
+        [$lat, $lng] = movedCentroid(49.2600, -123.1200, 3, 49.2604, -123.1204);
+        $this->assertEqualsWithDelta(49.2601, $lat, 0.00001);
+        $this->assertEqualsWithDelta(-123.1201, $lng, 0.00001);
+    }
 }
+

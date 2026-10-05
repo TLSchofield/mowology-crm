@@ -420,6 +420,12 @@ function learnFromConfirmedExpense(PDO $db, int $expenseId, ?array $fallbackBase
         if ($vendorId && !empty($row['ocr_parsed_json']) && is_array($baseline['line_items'] ?? null)) {
             recordLineItemLessonsAtConfirmation($db, $expenseId, $vendorId, $vendorName, $baseline['line_items']);
         }
+        // Where the receipt was photographed teaches where this vendor's store is.
+        if ($vendorId && is_numeric($row['receipt_lat'] ?? null) && is_numeric($row['receipt_lng'] ?? null)
+            && (float)$row['receipt_lat'] != 0.0) {
+            require_once __DIR__ . '/ReceiptSmartMatch.php';
+            learnStoreLocation($db, $vendorId, (float)$row['receipt_lat'], (float)$row['receipt_lng']);
+        }
         return true;
     } catch (Throwable $e) {
         error_log('Receipt learning error (confirm #' . $expenseId . '): ' . $e->getMessage());

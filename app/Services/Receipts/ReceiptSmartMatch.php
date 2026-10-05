@@ -156,6 +156,27 @@ function suggestReceiptMeta(?string $ocrText, ?float $lat, ?float $lng, ?int $jo
         }
     }
 
+    // ── Step 1b: Learned store location names the vendor the text couldn't ──
+    if (!$result['vendor_id'] && $lat !== null && $lng !== null) {
+        $store = nearestKnownStore($db, $lat, $lng);
+        if ($store) {
+            $result['vendor_id']         = (int)$store['vendor_id'];
+            $result['vendor_name']       = $store['vendor_name'];
+            $result['vendor_confidence'] = 55;
+            $result['vendor_gst_exempt'] = !empty($store['gst_exempt']);
+            $result['match_details'][]   = sprintf('Store location: %d m away%s', $store['meters'],
+                $store['receipts_seen'] > 0 ? ", bought here {$store['receipts_seen']}×" : '');
+            if (!empty($store['default_accounting_category'])) {
+                $result['accounting_category'] = $store['default_accounting_category'];
+                $result['category_confidence'] = 50;
+            }
+            if (!empty($store['default_gbp_category'])) {
+                $result['gbp_category']  = $store['default_gbp_category'];
+                $result['gbp_confidence'] = 50;
+            }
+        }
+    }
+
     // ── Step 2: GPS proximity boost ─────────────────────────────────
     if ($lat !== null && $lng !== null && $result['vendor_id']) {
         $gpsBoost = checkVendorProximity($result['vendor_id'], $lat, $lng, $db);
@@ -621,6 +642,162 @@ function nextStopAfterPurchase(array $rows, int $purchaseTs): ?int
         if ($best !== null) return $best;
     }
     return null;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════
+// Learned store locations (migration 1124)
+// ═══════════════════════════════════════════════════════════════════════
+
+/** Learned spots within this distance are the same store. */
+const STORE_MATCH_METERS = 150;
+/** A receipt this close to a known store is assumed to be from it. */
+const STORE_SUGGEST_METERS = 300;
+/** A spot shared by this many different vendors is home/office/truck, not a store. */
+const NON_STORE_VENDOR_COUNT = 3;
+
+function vendorLocationsLearnedReady(PDO $db): bool
+{
+    static $ready = null;
+    if ($ready === null) {
+        try {
+            $ready = $db->query("SHOW COLUMNS FROM vendor_locations LIKE 'receipts_seen'")->rowCount() > 0;
+        } catch (Throwable $e) {
+            $ready = false;
+        }
+    }
+    return $ready;
+}
+
+/** Metres between two points. */
+function metersBetween(float $lat1, float $lng1, float $lat2, float $lng2): float
+{
+    return haversineDistance($lat1, $lng1, $lat2, $lng2) * 1000;
+}
+
+/**
+ * Distinct vendors among located receipts within $meters of a point. Pure.
+ * @param array $rows each ['vendor' => id|string, 'lat' => float, 'lng' => float]
+ */
+function distinctVendorsNear(array $rows, float $lat, float $lng, float $meters): int
+{
+    $seen = [];
+    foreach ($rows as $r) {
+        if (metersBetween($lat, $lng, (float)$r['lat'], (float)$r['lng']) <= $meters) {
+            $seen[(string)$r['vendor']] = true;
+        }
+    }
+    return count($seen);
+}
+
+/**
+ * Is this where the crew photographs receipts rather than where they buy — home,
+ * the office, the truck's usual spot? On live data a quarter of located receipts
+ * shared one spot, and three spots each carried 4+ different vendors.
+ */
+function isNonStoreSpot(PDO $db, float $lat, float $lng): bool
+{
+    $dLat = 0.0015;                                   // ~165 m
+    $dLng = 0.0015 / max(0.2, cos(deg2rad($lat)));
+    $stmt = $db->prepare("
+        SELECT COALESCE(CAST(vendor_id AS CHAR), LOWER(vendor_name_raw)) AS vendor, receipt_lat AS lat, receipt_lng AS lng
+        FROM expenses
+        WHERE receipt_lat BETWEEN ? AND ? AND receipt_lng BETWEEN ? AND ?
+    ");
+    $stmt->execute([$lat - $dLat, $lat + $dLat, $lng - $dLng, $lng + $dLng]);
+    $rows = array_filter($stmt->fetchAll(PDO::FETCH_ASSOC), fn($r) => $r['vendor'] !== null && $r['vendor'] !== '');
+    return distinctVendorsNear($rows, $lat, $lng, STORE_MATCH_METERS) >= NON_STORE_VENDOR_COUNT;
+}
+
+/**
+ * Nearest store this receipt could be from: a hand-entered location, or a learned
+ * one confirmed by 2+ receipts. Never at a non-store spot.
+ *
+ * @return array|null vendor row fields + location + 'meters'
+ */
+function nearestKnownStore(PDO $db, float $lat, float $lng, float $maxMeters = STORE_SUGGEST_METERS): ?array
+{
+    try {
+        $learned = vendorLocationsLearnedReady($db);
+        $dLat = 0.004;                                   // ~450 m box, refined below
+        $dLng = 0.004 / max(0.2, cos(deg2rad($lat)));
+        $stmt = $db->prepare("
+            SELECT vl.vendor_id, vl.lat, vl.lng, " . ($learned ? "vl.source, vl.receipts_seen" : "NULL AS source, 0 AS receipts_seen") . ",
+                   v.name AS vendor_name, v.default_accounting_category, v.default_gbp_category, v.gst_exempt
+            FROM vendor_locations vl
+            JOIN vendors v ON v.id = vl.vendor_id AND v.is_active = 1
+            WHERE vl.lat BETWEEN ? AND ? AND vl.lng BETWEEN ? AND ?
+        ");
+        $stmt->execute([$lat - $dLat, $lat + $dLat, $lng - $dLng, $lng + $dLng]);
+
+        $best = null;
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            if ($row['source'] === 'learned' && (int)$row['receipts_seen'] < 2) continue;
+            $m = metersBetween($lat, $lng, (float)$row['lat'], (float)$row['lng']);
+            if ($m <= $maxMeters && ($best === null || $m < $best['meters'])) {
+                $best = $row + ['meters' => (int)round($m)];
+            }
+        }
+        if ($best && isNonStoreSpot($db, $lat, $lng)) {
+            return null;
+        }
+        if ($best) {
+            $best['receipts_seen'] = (int)$best['receipts_seen'];
+        }
+        return $best;
+    } catch (Throwable $e) {
+        error_log('nearestKnownStore: ' . $e->getMessage());
+        return null;
+    }
+}
+
+/** Running centroid after adding one point to a spot seen $n times. Pure. */
+function movedCentroid(float $lat, float $lng, int $n, float $newLat, float $newLng): array
+{
+    $n = max(1, $n);
+    return [round(($lat * $n + $newLat) / ($n + 1), 7), round(($lng * $n + $newLng) / ($n + 1), 7)];
+}
+
+/**
+ * Attach an approved receipt's capture location to its vendor's store spots.
+ * Returns what happened: 'skipped' | 'non_store' | 'confirmed' | 'new'.
+ */
+function learnStoreLocation(PDO $db, int $vendorId, float $lat, float $lng): string
+{
+    if (!vendorLocationsLearnedReady($db)) {
+        return 'skipped';
+    }
+    if (isNonStoreSpot($db, $lat, $lng)) {
+        return 'non_store';
+    }
+    $stmt = $db->prepare("SELECT id, lat, lng, source, receipts_seen FROM vendor_locations WHERE vendor_id = ? AND lat IS NOT NULL AND lng IS NOT NULL");
+    $stmt->execute([$vendorId]);
+    $nearest = null;
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $loc) {
+        $m = metersBetween($lat, $lng, (float)$loc['lat'], (float)$loc['lng']);
+        if ($m <= STORE_MATCH_METERS && ($nearest === null || $m < $nearest['m'])) {
+            $nearest = $loc + ['m' => $m];
+        }
+    }
+
+    if ($nearest) {
+        if ($nearest['source'] === 'learned') {
+            [$cLat, $cLng] = movedCentroid((float)$nearest['lat'], (float)$nearest['lng'], (int)$nearest['receipts_seen'], $lat, $lng);
+            $db->prepare("UPDATE vendor_locations SET lat = ?, lng = ?, receipts_seen = receipts_seen + 1, last_seen_at = NOW() WHERE id = ?")
+               ->execute([$cLat, $cLng, $nearest['id']]);
+        } else {
+            // Hand-entered coordinates stay put; just count the confirmation.
+            $db->prepare("UPDATE vendor_locations SET receipts_seen = receipts_seen + 1, last_seen_at = NOW() WHERE id = ?")
+               ->execute([$nearest['id']]);
+        }
+        return 'confirmed';
+    }
+
+    $db->prepare("
+        INSERT INTO vendor_locations (vendor_id, label, lat, lng, source, receipts_seen, last_seen_at)
+        VALUES (?, 'Learned from receipts', ?, ?, 'learned', 1, NOW())
+    ")->execute([$vendorId, round($lat, 7), round($lng, 7)]);
+    return 'new';
 }
 
 
