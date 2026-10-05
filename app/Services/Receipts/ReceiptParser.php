@@ -37,6 +37,7 @@ function parseReceiptText(string $ocrText, ?array $rawResponse = null, ?array $v
         'pst'            => null,
         'subtotal'       => null,
         'date'           => null,
+        'time'           => null,
         'vendor_hint'    => null,
         'card_last4'     => null,
         'payment_method' => null,
@@ -50,6 +51,9 @@ function parseReceiptText(string $ocrText, ?array $rawResponse = null, ?array $v
 
     // Vendor hint: typically first non-empty line or first line with letters
     $result['vendor_hint'] = extractVendorHint($lines);
+
+    // Purchase time of day — matches the receipt to the visit it was bought for
+    $result['time'] = extractPurchaseTime($lines);
 
     // Total
     $result['total'] = extractTotal($ocrText, $lines);
@@ -791,6 +795,50 @@ function findBareItemNameBackward(array $lines, int $priceLineIdx): ?string
     return null;
 }
 
+
+/**
+ * Time of day the purchase was rung up, as 24-hour "HH:MM", or null.
+ *
+ * Receipts print it next to the date ("10/04/26 14:32", "OCT 04 2026 2:32 PM") or on
+ * its own line. Store-hours lines ("HOURS 7:00-21:00", "OPEN 8AM - 9PM") are skipped:
+ * a time inside a range is never the purchase time. A time on a line that also
+ * carries a date wins over a lone time.
+ */
+function extractPurchaseTime(array $lines): ?string
+{
+    $timeRe = '/(?<![\d:])([01]?\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?\s*([AaPp]\.?\s?[Mm]\.?)?(?![\d:])/';
+    $dateRe = '/\b(\d{1,4}[\/\-.]\d{1,2}[\/\-.]\d{1,4}|(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*\.?\s+\d{1,2})/i';
+    $lone = null;
+
+    foreach ($lines as $line) {
+        $line = (string)$line;
+        if (preg_match('/\bHOURS?\b|\bOPEN\b|\bCLOSE[DS]?\b/i', $line)) continue;
+        if (!preg_match_all($timeRe, $line, $m, PREG_SET_ORDER | PREG_OFFSET_CAPTURE)) continue;
+
+        foreach ($m as $hit) {
+            $start = $hit[0][1];
+            $end   = $start + strlen($hit[0][0]);
+            // Part of a range ("7:00-21:00", "8:00 to 5:00")? Not a purchase time.
+            $before = substr($line, max(0, $start - 4), min(4, $start));
+            $after  = substr($line, $end, 5);
+            if (preg_match('/[\-–~]\s*$|\bto\s*$/i', $before) || preg_match('/^\s*([\-–~]|to\b)/i', $after)) continue;
+
+            $h = (int)$hit[1][0];
+            $min = $hit[2][0];
+            $ampm = isset($hit[3]) && $hit[3][1] >= 0 ? strtoupper($hit[3][0][0]) : '';
+            if ($ampm !== '' && ($h < 1 || $h > 12)) continue;
+            if ($ampm === 'P' && $h < 12) $h += 12;
+            if ($ampm === 'A' && $h === 12) $h = 0;
+            $hhmm = sprintf('%02d:%s', $h, $min);
+
+            if (preg_match($dateRe, $line)) {
+                return $hhmm;
+            }
+            $lone = $lone ?? $hhmm;
+        }
+    }
+    return $lone;
+}
 
 /**
  * Phone numbers printed on a receipt, as 10-digit NANP strings (leading 1 dropped).

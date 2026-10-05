@@ -441,7 +441,7 @@ function processOcrJob(int $mediaId, int $userId, string $webPath, string $mimeT
     // GPS-matched job suggestions
     $jobSuggestions = [];
     try {
-        $jobSuggestions = suggestJobFromSchedule($userId, $lat, $lng);
+        $jobSuggestions = suggestJobFromSchedule($userId, $lat, $lng, $parsed['date'] ?? null, $parsed['time'] ?? null);
     } catch (Throwable $e) {
         error_log('process_ocr_queue job suggestion failed: ' . $e->getMessage());
     }

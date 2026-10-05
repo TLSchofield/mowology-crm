@@ -416,73 +416,44 @@ function matchGbpByKeywords(string $ocrLower): ?array
  * @param float|null $lng     GPS longitude at receipt upload
  * @return array Array of job suggestions, each with score and match_reasons
  */
-function suggestJobFromSchedule(int $userId, ?float $lat, ?float $lng): array
+function suggestJobFromSchedule(int $userId, ?float $lat, ?float $lng, ?string $purchaseDate = null, ?string $purchaseTime = null): array
 {
     try {
         // Load plan functions for getCalendarStops()
         require_once APP_ROOT . '/Modules/Jobs/Services/PlanFunctions.php';
 
-        $today = date('Y-m-d');
-        $tomorrow = date('Y-m-d', strtotime('+1 day'));
-        $now = time();
+        // With the receipt's own date, match that day's schedule; with its printed time
+        // too, match against the visits around the moment of purchase. Without either,
+        // fall back to today/tomorrow against the upload time (the original behaviour).
+        $purchaseDate = receiptMatchDate($purchaseDate);
+        $anchorIsPurchase = false;
+        if ($purchaseDate !== null) {
+            $from = $to = $purchaseDate;
+            $anchor = ($purchaseTime !== null && preg_match('/^\d{2}:\d{2}$/', $purchaseTime))
+                ? strtotime($purchaseDate . ' ' . $purchaseTime) : null;
+            $anchorIsPurchase = $anchor !== null && $anchor !== false;
+            if (!$anchorIsPurchase) $anchor = null;
+        } else {
+            $from = date('Y-m-d');
+            $to = date('Y-m-d', strtotime('+1 day'));
+            $anchor = time();
+        }
 
-        // Get all stops for today + tomorrow (no crew filter — we score crew ourselves)
-        $calendarData = getCalendarStops($today, $tomorrow);
+        // All crews' stops (no crew filter — we score crew ourselves)
+        $calendarData = getCalendarStops($from, $to);
 
         $db = getDB();
         $scored = [];
 
         foreach ($calendarData as $date => $stops) {
             foreach ($stops as $stopId => $stop) {
-                $score = 0;
-                $reasons = [];
+                $m = scoreStopForReceipt($stop, (string)$date, $userId, $lat, $lng, $anchor, $anchorIsPurchase, $purchaseDate !== null);
+                $score = $m['score'];
+                $reasons = $m['reasons'];
 
-                // GPS proximity scoring
-                if ($lat !== null && $lng !== null &&
-                    !empty($stop['latitude']) && !empty($stop['longitude'])) {
-                    $distance = haversineDistance($lat, $lng, (float)$stop['latitude'], (float)$stop['longitude']);
-                    if ($distance <= 0.2) {
-                        $score += 50;
-                        $reasons[] = 'GPS within 200m';
-                    } elseif ($distance <= 1.0) {
-                        $score += 30;
-                        $reasons[] = 'GPS within 1km';
-                    } elseif ($distance <= 5.0) {
-                        $score += 10;
-                        $reasons[] = 'GPS within 5km';
-                    }
-                }
-
-                // Crew match: check if current user is assigned to this stop
-                $crewIds = $stop['crew_ids'] ?? [];
-                if (in_array($userId, $crewIds) || ($stop['crew_id'] ?? 0) == $userId) {
-                    $score += 20;
-                    $reasons[] = 'Crew assigned';
-                }
-
-                // Time proximity: compare receipt upload time to stop's estimated arrival
-                if (!empty($stop['estimated_arrival']) && $date === $today) {
-                    $arrivalTime = strtotime($date . ' ' . $stop['estimated_arrival']);
-                    if ($arrivalTime) {
-                        $timeDiff = abs($now - $arrivalTime);
-                        if ($timeDiff <= 3600) {
-                            $score += 20;
-                            $reasons[] = 'Within 1hr of arrival';
-                        } elseif ($timeDiff <= 10800) {
-                            $score += 10;
-                            $reasons[] = 'Within 3hr of arrival';
-                        }
-                    }
-                }
-
-                // Status boost: in_progress stop is likely where user currently is
-                if (($stop['status'] ?? '') === 'in_progress') {
-                    $score += 15;
-                    $reasons[] = 'Stop in progress';
-                }
-
-                // Only include if some signal exists
-                if ($score > 0) {
+                // Date-only matches need a second signal — "same day" alone would list
+                // every stop that day.
+                if ($score > ($purchaseDate !== null ? 10 : 0)) {
                     // Look up contact_id from property
                     $contactId = null;
                     if (!empty($stop['property_id'])) {
@@ -513,10 +484,26 @@ function suggestJobFromSchedule(int $userId, ?float $lat, ?float $lng): array
                         'stop_date'         => $date,
                         'score'             => $score,
                         'match_reasons'     => $reasons,
+                        '_start'            => $m['start'],
+                        '_crew'             => $m['crew'],
                     ];
                 }
             }
         }
+
+        // Supplies are usually bought on the way to the job: the purchaser's first stop
+        // starting within 3h after the purchase gets the strongest time signal.
+        if ($anchorIsPurchase) {
+            $next = nextStopAfterPurchase($scored, (int)$anchor);
+            if ($next !== null) {
+                $scored[$next]['score'] += 20;
+                $scored[$next]['match_reasons'][] = 'Next stop after purchase';
+            }
+        }
+        foreach ($scored as &$row) {
+            unset($row['_start'], $row['_crew']);
+        }
+        unset($row);
 
         // Sort by score descending, return top 3
         usort($scored, function ($a, $b) { return $b['score'] - $a['score']; });
@@ -526,6 +513,114 @@ function suggestJobFromSchedule(int $userId, ?float $lat, ?float $lng): array
         error_log('suggestJobFromSchedule error: ' . $e->getMessage());
         return [];
     }
+}
+
+
+/**
+ * The receipt's printed date, if it's usable for a schedule lookup: a real
+ * Y-m-d no later than tomorrow (time zones) and no older than a year.
+ */
+function receiptMatchDate(?string $date): ?string
+{
+    if ($date === null || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+        return null;
+    }
+    $ts = strtotime($date);
+    if ($ts === false || $ts > strtotime('+1 day') || $ts < strtotime('-365 days')) {
+        return null;
+    }
+    return $date;
+}
+
+/**
+ * Score one scheduled stop against a receipt. Pure apart from haversineDistance().
+ *
+ * Purchase-anchored (the receipt printed a time): bought during the visit window
+ * +30, the visit starts later that day within 3h +10 (the next one also gets +20 in
+ * nextStopAfterPurchase), visit ended within the hour before +5. Date-only: +10 for
+ * the same day. Upload-anchored (no receipt date): the original ±1h/±3h of arrival
+ * on today's stops, plus the in-progress boost.
+ *
+ * @return array{score: int, reasons: string[], start: ?int, crew: bool}
+ */
+function scoreStopForReceipt(array $stop, string $stopDate, int $userId, ?float $lat, ?float $lng, ?int $anchor, bool $anchorIsPurchase, bool $dateKnown): array
+{
+    $score = 0;
+    $reasons = [];
+
+    if ($lat !== null && $lng !== null && !empty($stop['latitude']) && !empty($stop['longitude'])) {
+        $distance = haversineDistance($lat, $lng, (float)$stop['latitude'], (float)$stop['longitude']);
+        if ($distance <= 0.2) {
+            $score += 50; $reasons[] = 'GPS within 200m';
+        } elseif ($distance <= 1.0) {
+            $score += 30; $reasons[] = 'GPS within 1km';
+        } elseif ($distance <= 5.0) {
+            $score += 10; $reasons[] = 'GPS within 5km';
+        }
+    }
+
+    $crewIds = $stop['crew_ids'] ?? [];
+    $crew = in_array($userId, $crewIds) || ($stop['crew_id'] ?? 0) == $userId;
+    if ($crew) {
+        $score += 20; $reasons[] = 'Crew assigned';
+    }
+
+    // Visit window: the stop's estimate, else the first visit's scheduled slot.
+    $first = $stop['visits'][0] ?? [];
+    $startStr = $stop['estimated_arrival'] ?: ($first['scheduled_time_start'] ?? null);
+    $endStr   = $stop['estimated_departure'] ?: ($first['scheduled_time_end'] ?? null);
+    $start = $startStr ? strtotime($stopDate . ' ' . $startStr) : false;
+    $start = $start === false ? null : $start;
+    $end = $endStr ? strtotime($stopDate . ' ' . $endStr) : false;
+    if (($end === false || $end === null) && $start !== null) {
+        $end = $start + 60 * (int)($first['estimated_duration'] ?? 60 ?: 60);
+    }
+
+    if ($anchorIsPurchase && $anchor !== null) {
+        $score += 10; $reasons[] = 'Same day as receipt';
+        if ($start !== null) {
+            if ($anchor >= $start - 900 && $anchor <= $end) {
+                $score += 30; $reasons[] = 'Bought during this visit';
+            } elseif ($start > $anchor && $start - $anchor <= 3 * 3600) {
+                $score += 10; $reasons[] = 'Visit within 3h after purchase';
+            } elseif ($anchor > $end && $anchor - $end <= 3600) {
+                $score += 5; $reasons[] = 'Bought just after this visit';
+            }
+        }
+    } elseif ($dateKnown) {
+        $score += 10; $reasons[] = 'Same day as receipt';
+    } elseif ($anchor !== null && $start !== null && $stopDate === date('Y-m-d')) {
+        $timeDiff = abs($anchor - $start);
+        if ($timeDiff <= 3600) {
+            $score += 20; $reasons[] = 'Within 1hr of arrival';
+        } elseif ($timeDiff <= 10800) {
+            $score += 10; $reasons[] = 'Within 3hr of arrival';
+        }
+        if (($stop['status'] ?? $stop['stop_status'] ?? '') === 'in_progress') {
+            $score += 15; $reasons[] = 'Stop in progress';
+        }
+    }
+
+    return ['score' => $score, 'reasons' => $reasons, 'start' => $start, 'crew' => $crew];
+}
+
+/**
+ * Index of the first stop starting after the purchase (within 3h), preferring the
+ * purchaser's own crew. Rows carry '_start' / '_crew' from scoreStopForReceipt().
+ */
+function nextStopAfterPurchase(array $rows, int $purchaseTs): ?int
+{
+    $best = null;
+    foreach ([true, false] as $ownCrewOnly) {
+        foreach ($rows as $i => $r) {
+            if ($ownCrewOnly && empty($r['_crew'])) continue;
+            $start = $r['_start'] ?? null;
+            if ($start === null || $start <= $purchaseTs || $start - $purchaseTs > 3 * 3600) continue;
+            if ($best === null || $start < $rows[$best]['_start']) $best = $i;
+        }
+        if ($best !== null) return $best;
+    }
+    return null;
 }
 
 

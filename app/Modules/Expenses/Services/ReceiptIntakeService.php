@@ -453,10 +453,11 @@ class ReceiptIntakeService
             }
         }
 
-        // Suggest matching job from today's/tomorrow's schedule (GPS + crew + time)
+        // Suggest the job: the receipt's own date + printed time against that day's
+        // schedule (falls back to today/tomorrow vs upload time when the date is unread).
         $jobSuggestions = [];
         try {
-            $jobSuggestions = suggestJobFromSchedule($userId, $lat, $lng);
+            $jobSuggestions = suggestJobFromSchedule($userId, $lat, $lng, $parsed['date'] ?? null, $parsed['time'] ?? null);
         } catch (Throwable $e) {
             error_log('Job suggestion error: ' . $e->getMessage());
         }
