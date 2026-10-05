@@ -446,7 +446,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
 
             $emailBody = EmailWrapper::wrap(
                 $billSummary . $tpl['body_html'] . EmailWrapper::paymentInstructionsHtml(),
-                'View &amp; Pay Invoice Online',
+                'Pay the invoice',
                 $invoiceViewUrl ?: null,
                 $companyInfo
             );
@@ -683,7 +683,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                 $receiptUrl  = 'https://mowology.ca/customer/invoice.php?token=' . urlencode($invoice['access_token']);
                 $receiptBody = EmailWrapper::wrap(
                     $receiptTpl['body_html'],
-                    'View Your Receipt',
+                    'Get the receipt',
                     $receiptUrl,
                     $receiptCompany
                 );

@@ -65,7 +65,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
              ORDER BY id ASC"
         )->fetchAll(PDO::FETCH_ASSOC);
 
-        // Merge with defaults so we always return all 4 keys even if DB is empty
+        // Merge with defaults so we always return every key even if DB is empty
         $defaults  = getDefaultTemplates();
         $byKey     = [];
         foreach ($rows as $row) {
@@ -214,17 +214,13 @@ function servePreview(PDO $db, string $key): void
     $renderedBody    = str_replace(array_keys($sampleVars), array_values($sampleVars), $bodyText);
     $bodyHtml        = EmailWrapper::textToHtml($renderedBody);
 
-    $ctaLabels = [
-        'quote_sent'   => 'View & Accept Quote',
-        'invoice_sent' => 'View & Pay Invoice',
-        'receipt_sent' => 'View Receipt',
-        'job_complete' => 'View Service Report',
-    ];
+    $ctaLabels = array_map(fn($d) => $d['cta'], $defaults);
     $ctaUrls = [
-        'quote_sent'   => 'https://mowology.ca/customer/quote.php?token=PREVIEW',
-        'invoice_sent' => 'https://mowology.ca/customer/invoice.php?token=PREVIEW',
-        'receipt_sent' => 'https://mowology.ca/customer/invoice.php?token=PREVIEW',
-        'job_complete' => 'https://mowology.ca/customer/pow.php?token=PREVIEW',
+        'quote_sent'     => 'https://mowology.ca/customer/quote.php?token=PREVIEW',
+        'quote_followup' => 'https://mowology.ca/customer/quote.php?token=PREVIEW',
+        'invoice_sent'   => 'https://mowology.ca/customer/invoice.php?token=PREVIEW',
+        'receipt_sent'   => 'https://mowology.ca/customer/invoice.php?token=PREVIEW',
+        'job_complete'   => 'https://mowology.ca/customer/pow.php?token=PREVIEW',
     ];
 
     // Prepend preview banner inside body
@@ -242,35 +238,11 @@ function servePreview(PDO $db, string $key): void
 }
 
 /**
- * Canonical default templates.
+ * Canonical default templates — one copy, shared with loadEmailTemplate() and the seed.
  * Used for: seeding, "Reset to Default", API GET fallback, validation.
  */
 function getDefaultTemplates(): array
 {
-    return [
-        'quote_sent' => [
-            'name'    => 'Quote Sent',
-            'subject' => 'Your quote {{quote_number}} from Mowology is ready',
-            'body'    => "Hi {{customer_first_name}},\n\nThank you for reaching out to us! We've put together a custom quote based on your property and service needs.\n\nQuote {{quote_number}} for {{quote_amount}} is valid until {{quote_valid_until}}.\n\nPlease click the button below to review the details, ask any questions, or accept your quote online — it only takes a moment.\n\nWe look forward to working with you!\n\n{{company_name}}\n{{company_phone}}",
-            'vars'    => ['{{customer_first_name}}', '{{customer_name}}', '{{quote_number}}', '{{quote_amount}}', '{{quote_valid_until}}', '{{company_name}}', '{{company_phone}}'],
-        ],
-        'invoice_sent' => [
-            'name'    => 'Invoice Sent',
-            'subject' => 'Invoice {{invoice_number}} from Mowology — {{amount_due}} due',
-            'body'    => "Hi {{customer_first_name}},\n\nThank you for choosing Mowology! Your invoice for recent services is now ready.\n\nInvoice {{invoice_number}} for {{amount_due}} is due on {{due_date}}.\n\nYou can view your invoice and pay securely online using the button below. We accept all major credit cards.\n\nIf you have any questions about this invoice, please don't hesitate to reach out.\n\nThank you for your business!\n\n{{company_name}}\n{{company_phone}}",
-            'vars'    => ['{{customer_first_name}}', '{{customer_name}}', '{{invoice_number}}', '{{amount_due}}', '{{due_date}}', '{{company_name}}', '{{company_phone}}'],
-        ],
-        'receipt_sent' => [
-            'name'    => 'Payment Receipt',
-            'subject' => 'Payment received — Thank you, {{customer_first_name}}!',
-            'body'    => "Hi {{customer_first_name}},\n\nGreat news — we've received your payment of {{amount_paid}} on {{payment_date}} for invoice {{invoice_number}}.\n\nYour receipt is available online via the link below. Thank you so much for your business — we appreciate your trust in Mowology and look forward to continuing to serve you.\n\n{{company_name}}\n{{company_phone}}",
-            'vars'    => ['{{customer_first_name}}', '{{customer_name}}', '{{invoice_number}}', '{{amount_paid}}', '{{payment_date}}', '{{company_name}}', '{{company_phone}}'],
-        ],
-        'job_complete' => [
-            'name'    => 'Service Complete',
-            'subject' => 'Your {{service_type}} service is complete — {{job_date}}',
-            'body'    => "Hi {{customer_first_name}},\n\nYour {{service_type}} service at {{property_address}} has been completed.\n\nClick the button below to view your service report, including photos and notes from our crew.\n\nAs always, if you have any feedback or questions about today's service, please don't hesitate to reach out.\n\nThank you for choosing Mowology!\n\n{{company_name}}\n{{company_phone}}",
-            'vars'    => ['{{customer_first_name}}', '{{customer_name}}', '{{service_type}}', '{{job_date}}', '{{property_address}}', '{{company_name}}', '{{company_phone}}'],
-        ],
-    ];
+    require_once APP_ROOT . '/Services/Messaging/EmailTemplateDefaults.php';
+    return emailTemplateDefaults();
 }

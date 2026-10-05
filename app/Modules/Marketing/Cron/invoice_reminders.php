@@ -132,31 +132,29 @@ try {
             require_once APP_ROOT . '/Services/Messaging/EmailWrapper.php';
             $companyInfo = EmailWrapper::getCompanyInfo();
 
+            $dueLabel = date('F j, Y', strtotime($dueDate));
+            $num      = htmlspecialchars($inv['invoice_number'], ENT_QUOTES, 'UTF-8');
             if ($reminderType === 'approaching') {
-                $subject  = "Reminder: Invoice {$inv['invoice_number']} due soon";
-                $bodyText = "Hi {$firstName},<br><br>"
-                          . "This is a friendly reminder that invoice <strong>{$inv['invoice_number']}</strong> "
-                          . "for <strong>{$amount} CAD</strong> is due on <strong>" . date('F j, Y', strtotime($dueDate)) . "</strong>.<br><br>"
-                          . "You can view and pay your invoice online anytime.";
+                $subject  = "Invoice {$inv['invoice_number']}: {$amount} due {$dueLabel}";
+                $bodyText = "<p>Hi {$firstName},</p>"
+                          . "<p>A reminder that invoice <strong>{$num}</strong> for <strong>{$amount}</strong> is due on <strong>{$dueLabel}</strong>. You can pay it from the button below.</p>"
+                          . "<p>If you've already sent it, thank you, and ignore this.</p>";
             } elseif ($reminderType === 'due_today') {
                 $subject  = "Invoice {$inv['invoice_number']} is due today";
-                $bodyText = "Hi {$firstName},<br><br>"
-                          . "Just a heads-up that invoice <strong>{$inv['invoice_number']}</strong> "
-                          . "for <strong>{$amount} CAD</strong> is due today.<br><br>"
-                          . "You can view and pay your invoice online.";
+                $bodyText = "<p>Hi {$firstName},</p>"
+                          . "<p>Invoice <strong>{$num}</strong> for <strong>{$amount}</strong> is due today. The button below takes you to it.</p>"
+                          . "<p>If it's already on its way, thank you, and ignore this.</p>";
             } else {
                 $daysPast = (int)((strtotime($today) - strtotime($dueDate)) / 86400);
-                $subject  = "Payment reminder: Invoice {$inv['invoice_number']} is overdue";
-                $bodyText = "Hi {$firstName},<br><br>"
-                          . "Invoice <strong>{$inv['invoice_number']}</strong> for <strong>{$amount} CAD</strong> "
-                          . "was due on " . date('F j, Y', strtotime($dueDate)) . " ({$daysPast} days ago).<br><br>"
-                          . "Please take a moment to review and pay your invoice online. "
-                          . "If you've already sent payment, please disregard this reminder.";
+                $subject  = "Invoice {$inv['invoice_number']} is {$daysPast} days past due";
+                $bodyText = "<p>Hi {$firstName},</p>"
+                          . "<p>Invoice <strong>{$num}</strong> for <strong>{$amount}</strong> was due on {$dueLabel}, {$daysPast} days ago.</p>"
+                          . "<p>If it slipped through, the button below takes you straight to it. If you've paid another way, reply and tell us how, so we can match it up. Sorry for the chase if so.</p>";
             }
 
             $emailBody = EmailWrapper::wrap(
                 $bodyText,
-                'View &amp; Pay Invoice',
+                'Pay the invoice',
                 $viewUrl ?: null,
                 $companyInfo
             );

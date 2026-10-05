@@ -337,7 +337,7 @@ foreach ($contracts as $ctr) {
 
         $emailBody = EmailWrapper::wrap(
             $billSummary . $tpl['body_html'],
-            'View &amp; Pay Invoice Online',
+            'Pay the invoice',
             $invoiceViewUrl,
             $companyInfo
         );

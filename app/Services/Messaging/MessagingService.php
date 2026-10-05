@@ -622,7 +622,7 @@ function sendFertilizerCompletionNotification(int $visitId): bool
 
     // ── Compose body content (materials, photos, GPS, progress) ──
     $greeting = '<p style="margin:0 0 8px;color:#555;font-family:\'Helvetica Neue\',Arial,sans-serif;">Hi ' . htmlspecialchars($visit['contact_first']) . ',</p>'
-              . '<p style="margin:0 0 20px;color:#555;font-family:\'Helvetica Neue\',Arial,sans-serif;">Your lawn application has been completed. Here\'s a summary of what was done today.</p>';
+              . '<p style="margin:0 0 20px;color:#555;font-family:\'Helvetica Neue\',Arial,sans-serif;">Our crew finished today\'s application. Here\'s what went down, and the photos they took before they left.</p>';
 
     $detailTable = '<table width="100%" cellpadding="0" cellspacing="0" style="border-top:1px solid #eee;">'
         . $materialsHtml
@@ -635,13 +635,13 @@ function sendFertilizerCompletionNotification(int $visitId): bool
 
     // ── Wrap in EmailWrapper (consistent branded shell) ───────────
     $htmlBody = class_exists('EmailWrapper')
-        ? EmailWrapper::wrap($customBody, 'View Full Report', $portalUrl ?: 'https://mowology.ca', $companyInfo)
+        ? EmailWrapper::wrap($customBody, 'See the photos', $portalUrl ?: 'https://mowology.ca', $companyInfo)
         : $customBody; // fallback: bare content (should never happen in production)
 
     // ── Send email ────────────────────────────────────────────────
     $emailResult = sendEmail(
         $visit['contact_email'],
-        'Your ' . $visitLabel . ' is Complete!',
+        'Your ' . $visitLabel . ' is done',
         $htmlBody
     );
 
@@ -746,7 +746,7 @@ if (!function_exists('sendJobCompleteNotification')) {
             : $siteUrl;
 
         $emailBody = class_exists('EmailWrapper')
-            ? EmailWrapper::wrap($tpl['body_html'], 'View Service Report', $portalUrl, $companyInfo)
+            ? EmailWrapper::wrap($tpl['body_html'], 'See the photos', $portalUrl, $companyInfo)
             : $tpl['body_html'];
 
         $result = sendEmail($visit['contact_email'], $tpl['subject'], $emailBody);
@@ -846,32 +846,13 @@ if (!function_exists('loadEmailTemplate')) {
             }
         }
 
-        // Hardcoded fallbacks (used if DB is unreachable or table doesn't exist yet)
-        $fallbacks = [
-            'quote_sent' => [
-                'subject'  => 'Your quote {{quote_number}} from Mowology is ready',
-                'body'     => "Hi {{customer_first_name}},\n\nThank you for reaching out! Your quote {{quote_number}} for {{quote_amount}} is ready to review.\n\nPlease click the button below to view and accept your quote.\n\nWe look forward to working with you!\n\n{{company_name}}\n{{company_phone}}",
-            ],
-            'quote_followup' => [
-                'subject'  => 'Following up on your Mowology quote ({{quote_number}})',
-                'body'     => "Hi {{customer_first_name}},\n\nJust following up on quote {{quote_number}} for {{quote_amount}} we sent over. We want to make sure it reached you — sometimes these land in junk mail!\n\nYour quote is valid until {{quote_valid_until}}. Click the button below to review and accept it — it only takes a moment.\n\nIf you have any questions or want to adjust anything, don't hesitate to reach out. We'd love to earn your business!\n\n{{company_name}}\n{{company_phone}}",
-            ],
-            'invoice_sent' => [
-                'subject'  => 'Invoice {{invoice_number}} from Mowology — {{amount_due}} due',
-                'body'     => "Hi {{customer_first_name}},\n\nYour invoice {{invoice_number}} for {{amount_due}} is due on {{due_date}}.\n\nPlease click the button below to view and pay your invoice online.\n\nThank you for your business!\n\n{{company_name}}\n{{company_phone}}",
-            ],
-            'receipt_sent' => [
-                'subject'  => 'Payment received — Thank you, {{customer_first_name}}!',
-                'body'     => "Hi {{customer_first_name}},\n\nGreat news — we've received your payment of {{amount_paid}} on {{payment_date}} for invoice {{invoice_number}}.\n\nYour receipt is available online via the link below. Thank you for your business!\n\n{{company_name}}\n{{company_phone}}",
-            ],
-            'job_complete' => [
-                'subject'  => 'Your {{service_type}} service is complete — {{job_date}}',
-                'body'     => "Hi {{customer_first_name}},\n\nYour {{service_type}} service at {{property_address}} has been completed.\n\nClick the button below to view your service report.\n\nThank you for choosing Mowology!\n\n{{company_name}}\n{{company_phone}}",
-            ],
-        ];
+        // Default text (used if DB is unreachable or the row doesn't exist yet).
+        // One copy for the fallback, the Settings UI and the seed: EmailTemplateDefaults.php.
+        require_once __DIR__ . '/EmailTemplateDefaults.php';
+        $fallbacks = emailTemplateDefaults();
 
         $subject  = $fallbacks[$key]['subject'] ?? 'Message from Mowology';
-        $bodyText = $fallbacks[$key]['body']    ?? 'Thank you for choosing Mowology.';
+        $bodyText = $fallbacks[$key]['body']    ?? 'A message from Mowology.';
 
         // Attempt DB lookup
         try {

@@ -139,39 +139,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $emailSubject = $tpl['subject'];
                 $emailBody    = EmailWrapper::wrap(
                     $tpl['body_html'],
-                    'View & Accept Quote',
+                    'Read the quote',
                     $quoteUrl,
                     $companyInfo
                 );
+
+                // Generate the PDF BEFORE sending so it goes out as an attachment
+                // (owner decision 2026-09-30: quotes and invoices always carry the PDF).
+                try {
+                    require_once dirname(__DIR__) . '/includes/pdf_bootstrap.php';
+                    require_once dirname(__DIR__) . '/includes/PdfGenerator.php';
+                    $pdfGen       = new PdfGenerator();
+                    $existingPath = $pdfGen->getPdfPath('quote', $quoteId);
+                    if ($existingPath) {
+                        $attachPath = $existingPath;
+                    } else {
+                        $pdfResult = $pdfGen->generateQuotePdf($quoteId);
+                        if ($pdfResult['success']) {
+                            $attachPath = $pdfResult['path'];
+                        }
+                    }
+                } catch (Exception $pdfEx) {
+                    error_log("Quote PDF generation error (sending without attachment): " . $pdfEx->getMessage());
+                }
 
                 // Inject email open tracking pixel (1x1 transparent PNG)
                 $pixelUrl = "https://" . $_SERVER['HTTP_HOST'] . "/crm/api/track-quote-open.php?t=" . urlencode($quote['access_token']);
                 $emailBody = str_replace('</body>', '<img src="' . htmlspecialchars($pixelUrl) . '" width="1" height="1" alt="" style="display:none;border:none;" /></body>', $emailBody);
 
-                $emailResult = sendEmail($customerEmail, $emailSubject, $emailBody);
+                $emailResult = sendEmail($customerEmail, $emailSubject, $emailBody, $attachPath);
 
                 if ($emailResult['success']) {
                     $emailSent = true;
                     $sentVia[] = 'email';
-
-                    // Generate PDF for future resends (non-critical)
-                    try {
-                        require_once dirname(__DIR__) . '/includes/pdf_bootstrap.php';
-                        require_once dirname(__DIR__) . '/includes/PdfGenerator.php';
-
-                        $pdfGen = new PdfGenerator();
-                        $existingPath = $pdfGen->getPdfPath('quote', $quoteId);
-                        if ($existingPath) {
-                            $attachPath = $existingPath;
-                        } else {
-                            $pdfResult = $pdfGen->generateQuotePdf($quoteId);
-                            if ($pdfResult['success']) {
-                                $attachPath = $pdfResult['path'];
-                            }
-                        }
-                    } catch (Exception $pdfEx) {
-                        error_log("PDF generation error (non-critical): " . $pdfEx->getMessage());
-                    }
                 } else {
                     error_log("Email failed for quote {$quoteId}: " . ($emailResult['error'] ?? 'unknown'));
                 }
@@ -280,7 +280,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $tpl     = loadEmailTemplate('quote_followup', $tplVars);
             $subject = $tpl['subject'] ?? 'Following up on your Mowology quote (' . $quote['quote_number'] . ')';
-            $body    = EmailWrapper::wrap($tpl['body_html'] ?? '', 'View Your Quote', $quoteUrl, $companyInfo);
+            $body    = EmailWrapper::wrap($tpl['body_html'] ?? '', 'Open the quote', $quoteUrl, $companyInfo);
 
             $pixelUrl = "https://" . $_SERVER['HTTP_HOST'] . "/crm/api/track-quote-open.php?t=" . urlencode($quote['access_token']);
             $body = str_replace('</body>', '<img src="' . htmlspecialchars($pixelUrl) . '" width="1" height="1" alt="" style="display:none;border:none;" /></body>', $body);

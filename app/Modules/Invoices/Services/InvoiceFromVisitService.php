@@ -490,7 +490,7 @@ class InvoiceFromVisitService
             // (loadEmailTemplate returns 'body_html', not 'body'.)
             $body = EmailWrapper::wrap(
                 $billSummary . ($tpl['body_html'] ?? '') . EmailWrapper::paymentInstructionsHtml(),
-                'View &amp; Pay Invoice Online',
+                'Pay the invoice',
                 $invoiceViewUrl ?: null,
                 $companyInfo
             );

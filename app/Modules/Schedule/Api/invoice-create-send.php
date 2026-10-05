@@ -320,6 +320,23 @@ try {
     $smsSent = false;
     $portalUrl = 'https://mowology.ca/customer/invoice.php?token=' . urlencode($accessToken);
 
+    // Generate the invoice PDF so the mobile send carries the same attachment as
+    // the other four send paths (see Known-Failure-Patterns → invoice-send paths).
+    $attachPath = null;
+    try {
+        require_once CRM_INCLUDES . '/pdf_bootstrap.php';
+        require_once CRM_INCLUDES . '/PdfGenerator.php';
+        $pdfGen    = new PdfGenerator();
+        $pdfResult = $pdfGen->generateInvoicePdf($invoiceId);
+        if (!empty($pdfResult['success']) && !empty($pdfResult['path']) && file_exists($pdfResult['path'])) {
+            $attachPath = $pdfResult['path'];
+        } else {
+            error_log('[invoice-create-send] PDF generation failed for ' . $invoiceNumber . ': ' . ($pdfResult['error'] ?? 'unknown'));
+        }
+    } catch (Throwable $pdfEx) {
+        error_log('[invoice-create-send] PDF generation exception for ' . $invoiceNumber . ': ' . $pdfEx->getMessage());
+    }
+
     if ($sendNow && !empty($validEmailRecipients)) {
         $companyInfo = EmailWrapper::getCompanyInfo();
 
@@ -349,13 +366,13 @@ try {
             $billSummary .= '</table>';
 
             $emailBody = EmailWrapper::wrap(
-                $billSummary . $tpl['body_html'],
-                'View &amp; Pay Invoice Online',
+                $billSummary . $tpl['body_html'] . EmailWrapper::paymentInstructionsHtml(),
+                'Pay the invoice',
                 $portalUrl,
                 $companyInfo
             );
 
-            $emailResult = sendCrmEmail($r['email'], $tpl['subject'], $emailBody);
+            $emailResult = sendCrmEmail($r['email'], $tpl['subject'], $emailBody, $attachPath);
             if ($emailResult) {
                 $sentTo[] = $r['email'];
             } else {

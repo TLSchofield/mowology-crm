@@ -180,7 +180,7 @@ function _bulkResendOne(PDO $db, array $user, int $invoiceId): array {
 
             $emailBody = EmailWrapper::wrap(
                 $billSummary . $tpl['body_html'] . EmailWrapper::paymentInstructionsHtml(),
-                'View &amp; Pay Invoice Online',
+                'Pay the invoice',
                 $invoiceViewUrl,
                 $companyInfo
             );

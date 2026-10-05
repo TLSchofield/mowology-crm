@@ -68,77 +68,12 @@ if (!$hasTable) {
 }
 
 
-// ── 2. Default templates ─────────────────────────────────────────────────────
-$defaults = [
-    [
-        'key'     => 'quote_sent',
-        'name'    => 'Quote Sent',
-        'subject' => 'Your quote {{quote_number}} from Mowology is ready',
-        'body'    => "Hi {{customer_first_name}},
-
-Thank you for reaching out to us! We've put together a custom quote based on your property and service needs.
-
-Quote {{quote_number}} for {{quote_amount}} is valid until {{quote_valid_until}}.
-
-Please click the button below to review the details, ask any questions, or accept your quote online — it only takes a moment.
-
-We look forward to working with you!
-
-{{company_name}}
-{{company_phone}}",
-    ],
-    [
-        'key'     => 'invoice_sent',
-        'name'    => 'Invoice Sent',
-        'subject' => 'Invoice {{invoice_number}} from Mowology — {{amount_due}} due',
-        'body'    => "Hi {{customer_first_name}},
-
-Thank you for choosing Mowology! Your invoice for recent services is now ready.
-
-Invoice {{invoice_number}} for {{amount_due}} is due on {{due_date}}.
-
-You can view your invoice and pay securely online using the button below. We accept all major credit cards.
-
-If you have any questions about this invoice, please don't hesitate to reach out.
-
-Thank you for your business!
-
-{{company_name}}
-{{company_phone}}",
-    ],
-    [
-        'key'     => 'receipt_sent',
-        'name'    => 'Payment Receipt',
-        'subject' => 'Payment received — Thank you, {{customer_first_name}}!',
-        'body'    => "Hi {{customer_first_name}},
-
-Great news — we've received your payment of {{amount_paid}} for invoice {{invoice_number}}.
-
-Your receipt is attached to this email for your records.
-
-Thank you so much for your business. We appreciate your trust in Mowology and look forward to continuing to serve you.
-
-{{company_name}}
-{{company_phone}}",
-    ],
-    [
-        'key'     => 'job_complete',
-        'name'    => 'Service Complete',
-        'subject' => 'Your {{service_type}} service is complete — {{job_date}}',
-        'body'    => "Hi {{customer_first_name}},
-
-Your {{service_type}} service at {{property_address}} has been completed.
-
-Click the button below to view your service report, including photos and notes from our crew.
-
-As always, if you have any feedback or questions about today's service, please don't hesitate to reach out.
-
-Thank you for choosing Mowology!
-
-{{company_name}}
-{{company_phone}}",
-    ],
-];
+// ── 2. Default templates (one copy: app/Services/Messaging/EmailTemplateDefaults.php) ──
+require_once APP_ROOT . '/Services/Messaging/EmailTemplateDefaults.php';
+$defaults = [];
+foreach (emailTemplateDefaults() as $key => $def) {
+    $defaults[] = ['key' => $key, 'name' => $def['name'], 'subject' => $def['subject'], 'body' => $def['body']];
+}
 
 $stmt = $db->prepare("
     INSERT INTO email_templates (template_key, name, subject, body_text)

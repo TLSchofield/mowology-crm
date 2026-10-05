@@ -513,21 +513,20 @@ function executeQueuedAction(PDO $db, string $type, array $data, int $contactId)
                 if (!empty($data['use_template'])) {
                     try {
                         require_once PUBLIC_ROOT . '/app/Services/Messaging/EmailWrapper.php';
+                        $companyInfo = EmailWrapper::getCompanyInfo();
                         $tplVars = [
                             '{{customer_first_name}}' => $contact['first_name'],
                             '{{customer_name}}'       => trim($contact['first_name'] . ' ' . $contact['last_name']),
                             '{{quote_number}}'        => $quoteNumber,
                             '{{quote_amount}}'        => $quoteAmount,
                             '{{quote_valid_until}}'   => $quoteValidUntil,
-                            '{{company_name}}'        => 'Mowology Landscaping',
-                            '{{company_phone}}'       => '(778) 846-9273',
+                            '{{company_name}}'        => $companyInfo['company_name'],
+                            '{{company_phone}}'       => $companyInfo['company_phone'],
                         ];
                         $tpl = loadEmailTemplate($data['use_template'], $tplVars);
                         if ($tpl && !empty($tpl['subject'])) {
                             $emailSubject = $tpl['subject'];
-                            $emailBody = $quoteUrl
-                                ? EmailWrapper::wrap($tpl['body_html'], 'View Your Quote', $quoteUrl, EmailWrapper::getCompanyInfo())
-                                : $tpl['body_html'];
+                            $emailBody = EmailWrapper::wrap($tpl['body_html'], $quoteUrl ? 'Open the quote' : null, $quoteUrl ?: null, $companyInfo);
                         }
                     } catch (Throwable $tplEx) {
                         error_log("automation send_email template load failed: " . $tplEx->getMessage());
@@ -538,6 +537,12 @@ function executeQueuedAction(PDO $db, string $type, array $data, int $contactId)
                 if (empty($emailBody)) {
                     $emailSubject = renderTemplate($data['subject'] ?? 'Message from Mowology', $vars);
                     $emailBody    = renderTemplate($data['body'] ?? '', $vars);
+                    // Inline rule text is plain text; the sender is HTML-only, so wrap it
+                    // or it arrives as one run-on paragraph with no clickable link.
+                    if ($emailBody !== '' && stripos($emailBody, '<p') === false && stripos($emailBody, '<table') === false) {
+                        require_once PUBLIC_ROOT . '/app/Services/Messaging/EmailWrapper.php';
+                        $emailBody = EmailWrapper::wrap(EmailWrapper::textToHtml($emailBody), $quoteUrl ? 'Open the quote' : null, $quoteUrl ?: null, EmailWrapper::getCompanyInfo());
+                    }
                 }
 
                 if ($emailSubject && $emailBody) {

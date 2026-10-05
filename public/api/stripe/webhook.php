@@ -400,7 +400,7 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): bool
             $ctaUrl = !empty($invoice['access_token'])
                 ? 'https://mowology.ca/customer/invoice.php?token=' . urlencode($invoice['access_token'])
                 : ($receiptUrl ?: null);
-            $ctaLabel  = $ctaUrl ? 'View Your Invoice & Receipt' : null;
+            $ctaLabel  = $ctaUrl ? 'Get the receipt' : null;
             $emailHtml = EmailWrapper::wrap($tpl['body_html'], $ctaLabel, $ctaUrl, $companyInfo);
 
             $sent = sendEmail($invoice['contact_email'], $tpl['subject'], $emailHtml);
