@@ -1,0 +1,395 @@
+<?php
+/**
+ * BookkeeperDeskService — Penny's desk on the dashboard.
+ *
+ * The bookkeeper card's numbers (is she working, is she getting smarter, is she
+ * saving money), the receipt carousel's queue, the owner's approve / edit decisions,
+ * and preparing the next receipts in the background.
+ *
+ * A decision writes the approved values to the expense, records per field whether the
+ * owner accepted Penny's value (her scorecard, and the worked examples for her next
+ * receipt), then approves through ExpenseApprovalService — which also teaches the
+ * receipt reader (learnFromConfirmedExpense). Line items are shown, not changed, in
+ * this version.
+ *
+ * Preparation is text-only by default — the backtest (2026-10-05, 57 receipts) had
+ * text-only ahead on category (91% vs 84%) and line items (84% vs 71%) at 3.5¢ vs 5¢ —
+ * and adds the photo only when the text's amounts don't add up.
+ *
+ * No namespace / no autoloader in production: require_once and `new`.
+ */
+
+require_once __DIR__ . '/ReceiptBookkeeperService.php';
+require_once __DIR__ . '/ExpenseApprovalService.php';
+
+class BookkeeperDeskService
+{
+    /** Minutes of owner time a prepared receipt saves (typing, checking tax, looking up the job). */
+    public const MINUTES_SAVED_PER_RECEIPT = 2.0;
+    /** Claude Opus 5.5 list prices, $ per million tokens. */
+    public const PRICE_IN  = 4.0;
+    public const PRICE_OUT = 20.0;
+    /** Default ceiling on receipts prepared per day (ops_settings bookkeeper_daily_cap). */
+    public const DEFAULT_DAILY_CAP = 40;
+
+    private PDO $db;
+    private ?ReceiptBookkeeperService $bookkeeper;
+
+    public function __construct(PDO $db, ?ReceiptBookkeeperService $bookkeeper = null)
+    {
+        $this->db = $db;
+        $this->bookkeeper = $bookkeeper;
+    }
+
+    private function bookkeeper(): ReceiptBookkeeperService
+    {
+        return $this->bookkeeper ??= new ReceiptBookkeeperService($this->db);
+    }
+
+    public function ready(): bool
+    {
+        try {
+            return $this->db->query("SHOW TABLES LIKE 'expense_suggestions'")->rowCount() > 0;
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Card numbers
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function stats(?float $ownerRate = null): array
+    {
+        $one = function (string $sql, array $p = []) {
+            $s = $this->db->prepare($sql);
+            $s->execute($p);
+            return $s->fetchColumn();
+        };
+        $monthStart = date('Y-m-01');
+
+        $waiting = (int)$one("SELECT COUNT(*) FROM expenses WHERE status = 'pending_approval'");
+        $drafts  = (int)$one("SELECT COUNT(*) FROM expenses WHERE status = 'draft'");
+        $ready   = (int)$one("
+            SELECT COUNT(DISTINCT s.expense_id) FROM expense_suggestions s
+            JOIN expenses e ON e.id = s.expense_id
+            WHERE s.source = 'live' AND s.status = 'pending' AND e.status IN ('draft', 'pending_approval')
+        ");
+
+        $accepted = (int)$one("SELECT COUNT(*) FROM expense_suggestions WHERE source = 'live' AND status = 'accepted' AND decided_at >= ?", [$monthStart]);
+        $edited   = (int)$one("SELECT COUNT(*) FROM expense_suggestions WHERE source = 'live' AND status = 'edited' AND decided_at >= ?", [$monthStart]);
+        $codeOnly = (int)$one("SELECT COUNT(*) FROM expense_suggestions WHERE source = 'live' AND model = 'code' AND created_at >= ?", [$monthStart]);
+        $made     = (int)$one("SELECT COUNT(*) FROM expense_suggestions WHERE source = 'live' AND created_at >= ?", [$monthStart]);
+
+        $tokens = $this->db->prepare("SELECT COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0) FROM expense_suggestions WHERE created_at >= ?");
+        $tokens->execute([$monthStart]);
+        [$tin, $tout] = array_map('intval', $tokens->fetch(PDO::FETCH_NUM) ?: [0, 0]);
+        $aiCost = round($tin / 1e6 * self::PRICE_IN + $tout / 1e6 * self::PRICE_OUT, 2);
+
+        $decided = $accepted + $edited;
+        $rightFirstTime = self::pct($accepted, $decided);
+        $rightSource = 'your decisions';
+        if ($decided < 5) {
+            $rightFirstTime = $this->backtestCategoryPct();
+            $rightSource = 'past receipts';
+        }
+
+        $hoursSaved = round($decided * self::MINUTES_SAVED_PER_RECEIPT / 60, 1);
+        $netSaving = ($decided > 0 && $ownerRate) ? round($hoursSaved * $ownerRate - $aiCost, 2) : null;
+
+        // GST: the last 60 days — confirmed (claimable now) vs stuck in unapproved receipts.
+        $since = date('Y-m-d', strtotime('-60 days'));
+        $gst = $this->db->prepare("
+            SELECT COALESCE(SUM(CASE WHEN status IN ('approved','forwarded') THEN gst_amount END),0),
+                   COALESCE(SUM(CASE WHEN status IN ('draft','pending_approval') THEN gst_amount END),0)
+            FROM expenses WHERE expense_date >= ?
+        ");
+        $gst->execute([$since]);
+        [$gstConfirmed, $gstStuck] = array_map('floatval', $gst->fetch(PDO::FETCH_NUM) ?: [0, 0]);
+
+        $jobs = $this->db->prepare("SELECT COUNT(*), SUM(job_id IS NOT NULL) FROM expenses WHERE expense_date >= ? AND status <> 'rejected'");
+        $jobs->execute([date('Y-m-d', strtotime('-90 days'))]);
+        [$jobAll, $jobWith] = array_map('intval', $jobs->fetch(PDO::FETCH_NUM) ?: [0, 0]);
+
+        return [
+            'waiting'           => $waiting,
+            'drafts'            => $drafts,
+            'ready'             => $ready,
+            'decided_month'     => $decided,
+            'right_first_time'  => $rightFirstTime,
+            'right_source'      => $rightSource,
+            'code_alone_pct'    => self::pct($codeOnly, $made) ?? 0,
+            'ai_cost_month'     => $aiCost,
+            'hours_saved_month' => $hoursSaved,
+            'net_saving_month'  => $netSaving,
+            'gst_confirmed'     => round($gstConfirmed, 2),
+            'gst_stuck'         => round($gstStuck, 2),
+            'job_costing_pct'   => self::pct($jobWith, $jobAll) ?? 0,
+        ];
+    }
+
+    private function backtestCategoryPct(): ?int
+    {
+        $rows = $this->db->query("
+            SELECT s.suggestion_json, e.accounting_category
+            FROM expense_suggestions s JOIN expenses e ON e.id = s.expense_id
+            WHERE s.source = 'backtest' AND s.status = 'scored' AND s.used_image = 0
+        ")->fetchAll(PDO::FETCH_ASSOC);
+        $right = 0;
+        $of = 0;
+        foreach ($rows as $r) {
+            if (empty($r['accounting_category'])) continue;
+            $s = json_decode((string)$r['suggestion_json'], true) ?: [];
+            $of++;
+            if (($s['accounting_category']['value'] ?? null) === $r['accounting_category']) $right++;
+        }
+        return self::pct($right, $of);
+    }
+
+    public static function pct(int $part, int $of): ?int
+    {
+        return $of > 0 ? (int)round($part / $of * 100) : null;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Carousel
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /** Prepared receipts, waiting-for-approval first, then the oldest drafts. */
+    public function queue(int $limit = 10): array
+    {
+        $limit = max(1, min(25, $limit));
+        $rows = $this->db->query("
+            SELECT s.id AS suggestion_id, s.suggestion_json, s.checks_json, s.current_json, s.used_image,
+                   e.id AS expense_id, e.status, e.expense_date, e.total, e.receipt_media_id,
+                   COALESCE(v.name, e.vendor_name_raw) AS vendor, u.full_name AS submitted_by
+            FROM expense_suggestions s
+            JOIN expenses e ON e.id = s.expense_id
+            LEFT JOIN vendors v ON v.id = e.vendor_id
+            LEFT JOIN users u ON u.id = e.created_by
+            WHERE s.source = 'live' AND s.status = 'pending' AND e.status IN ('draft', 'pending_approval')
+            ORDER BY (e.status = 'pending_approval') DESC, e.expense_date ASC, e.id ASC
+            LIMIT {$limit}
+        ")->fetchAll(PDO::FETCH_ASSOC);
+
+        $jobTitles = $this->jobTitles($rows);
+        $out = [];
+        foreach ($rows as $r) {
+            $s = json_decode((string)$r['suggestion_json'], true) ?: [];
+            $jobId = $s['job']['value'] ?? null;
+            $out[] = [
+                'suggestion_id' => (int)$r['suggestion_id'],
+                'expense_id'    => (int)$r['expense_id'],
+                'status'        => $r['status'],
+                'vendor'        => $r['vendor'],
+                'date'          => $r['expense_date'],
+                'submitted_by'  => $r['submitted_by'],
+                'image_url'     => $r['receipt_media_id'] ? self::imageUrl((int)$r['receipt_media_id']) : null,
+                'suggestion'    => $s,
+                'job_title'     => $jobId ? ($jobTitles[(int)$jobId] ?? null) : null,
+                'checks'        => json_decode((string)$r['checks_json'], true) ?: [],
+                'current'       => json_decode((string)$r['current_json'], true) ?: [],
+            ];
+        }
+        return $out;
+    }
+
+    private function jobTitles(array $rows): array
+    {
+        $ids = [];
+        foreach ($rows as $r) {
+            $s = json_decode((string)$r['suggestion_json'], true) ?: [];
+            if (!empty($s['job']['value'])) $ids[] = (int)$s['job']['value'];
+        }
+        if (!$ids) return [];
+        $in = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $this->db->prepare("
+            SELECT jp.id, CONCAT(COALESCE(jp.title, ''), ' — ', COALESCE(p.address, '')) AS t
+            FROM job_plans jp LEFT JOIN properties p ON p.id = jp.property_id
+            WHERE jp.id IN ({$in})
+        ");
+        $stmt->execute($ids);
+        return array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 't', 'id');
+    }
+
+    private static function imageUrl(int $mediaId): string
+    {
+        if (!function_exists('signReceiptUrl')) {
+            require_once APP_ROOT . '/Services/Receipts/ReceiptUrlSigner.php';
+        }
+        return signReceiptUrl($mediaId, 3600);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Decisions
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Final values: Penny's suggestion, with the owner's edits laid over it. Pure.
+     * @return array{final: array, outcome: array<string, array{suggested: mixed, final: mixed, accepted: bool}>}
+     */
+    public static function resolveFinal(array $suggestion, array $overrides): array
+    {
+        $fields = ['accounting_category', 'asset_tag', 'job', 'subtotal', 'gst', 'pst', 'total'];
+        $final = [];
+        $outcome = [];
+        foreach ($fields as $f) {
+            $suggested = $suggestion[$f]['value'] ?? null;
+            $value = array_key_exists($f, $overrides) ? $overrides[$f] : $suggested;
+            if (in_array($f, ['subtotal', 'gst', 'pst', 'total'], true)) {
+                $value = $value === null || $value === '' ? null : round((float)$value, 2);
+                $same = $suggested !== null && $value !== null && abs((float)$suggested - $value) < 0.005;
+            } elseif ($f === 'job') {
+                $value = $value === null || $value === '' || (int)$value === 0 ? null : (int)$value;
+                $same = (int)($suggested ?? 0) === (int)($value ?? 0);
+            } else {
+                $value = $value === null || $value === '' ? null : (string)$value;
+                $same = (string)($suggested ?? '') === (string)($value ?? '');
+            }
+            $final[$f] = $value;
+            $outcome[$f] = ['suggested' => $suggested, 'final' => $value, 'accepted' => $same];
+        }
+        if (($final['asset_tag'] ?? null) === 'none') {
+            $final['asset_tag'] = null;
+        }
+        return ['final' => $final, 'outcome' => $outcome];
+    }
+
+    /**
+     * Approve a prepared receipt, optionally with the owner's edits.
+     * @return array{ok: bool, message: string, approved?: bool}
+     */
+    public function decide(int $suggestionId, array $overrides, array $user): array
+    {
+        $stmt = $this->db->prepare("
+            SELECT s.*, e.status AS expense_status, e.forwarded_to_accounting
+            FROM expense_suggestions s JOIN expenses e ON e.id = s.expense_id
+            WHERE s.id = ? AND s.source = 'live'
+        ");
+        $stmt->execute([$suggestionId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            return ['ok' => false, 'message' => 'Suggestion not found'];
+        }
+        if ($row['status'] !== 'pending') {
+            return ['ok' => false, 'message' => 'Already decided'];
+        }
+        if (!in_array($row['expense_status'], ['draft', 'pending_approval'], true) || (int)$row['forwarded_to_accounting'] === 1) {
+            return ['ok' => false, 'message' => 'This receipt has already been handled'];
+        }
+
+        $resolved = self::resolveFinal(json_decode((string)$row['suggestion_json'], true) ?: [], $overrides);
+        $f = $resolved['final'];
+        if ($f['accounting_category'] !== null && !in_array($f['accounting_category'], EXPENSE_ACCOUNTING_CATEGORIES, true)) {
+            return ['ok' => false, 'message' => 'Unknown category'];
+        }
+        if ($f['asset_tag'] !== null && !in_array($f['asset_tag'], ReceiptBookkeeperRules::TAGS, true)) {
+            return ['ok' => false, 'message' => 'Unknown tag'];
+        }
+
+        $propertyId = null;
+        if ($f['job']) {
+            $p = $this->db->prepare("SELECT property_id FROM job_plans WHERE id = ?");
+            $p->execute([$f['job']]);
+            $propertyId = $p->fetchColumn() ?: null;
+        }
+
+        $allAccepted = !in_array(false, array_column($resolved['outcome'], 'accepted'), true);
+        $this->db->beginTransaction();
+        try {
+            $this->db->prepare("
+                UPDATE expenses SET
+                    accounting_category = COALESCE(?, accounting_category),
+                    asset_tag = ?,
+                    job_id = ?,
+                    property_id = COALESCE(?, property_id),
+                    amount = COALESCE(?, amount),
+                    gst_amount = COALESCE(?, gst_amount),
+                    pst_amount = COALESCE(?, pst_amount),
+                    total = COALESCE(?, total),
+                    updated_at = NOW()
+                WHERE id = ?
+            ")->execute([
+                $f['accounting_category'], $f['asset_tag'], $f['job'], $propertyId,
+                $f['subtotal'], $f['gst'], $f['pst'], $f['total'], (int)$row['expense_id'],
+            ]);
+            $this->db->prepare("
+                UPDATE expense_suggestions
+                SET status = ?, outcome_json = ?, decided_by = ?, decided_at = NOW()
+                WHERE id = ?
+            ")->execute([$allAccepted ? 'accepted' : 'edited', json_encode($resolved['outcome']), (int)$user['id'], $suggestionId]);
+            $this->db->commit();
+        } catch (Throwable $e) {
+            $this->db->rollBack();
+            throw $e;
+        }
+
+        // Approval is separate: the self-approval rule still applies, and approval is
+        // what teaches the receipt reader.
+        try {
+            (new ExpenseApprovalService($this->db))->approve((int)$row['expense_id'], $user);
+            return ['ok' => true, 'approved' => true, 'message' => $allAccepted ? 'Approved' : 'Approved with your changes'];
+        } catch (Throwable $e) {
+            return ['ok' => true, 'approved' => false, 'message' => 'Saved — not approved: ' . $e->getMessage()];
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Background preparation
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Prepare up to $max more receipts (waiting-for-approval first, then the oldest
+     * drafts), within the daily cap. Text first; the photo only when the text's
+     * amounts don't add up.
+     */
+    public function prepare(int $max = 2): array
+    {
+        $max = max(1, min(5, $max));
+        $cap = self::DEFAULT_DAILY_CAP;
+        try {
+            $c = $this->db->query("SELECT setting_value FROM ops_settings WHERE setting_key = 'bookkeeper_daily_cap'")->fetchColumn();
+            if ($c !== false && $c !== '') $cap = (int)$c;
+        } catch (Throwable $e) { /* default */ }
+        $today = (int)$this->db->query("SELECT COUNT(*) FROM expense_suggestions WHERE source = 'live' AND created_at >= CURDATE()")->fetchColumn();
+        $room = max(0, $cap - $today);
+        if ($room === 0) {
+            return ['prepared' => [], 'capped' => true];
+        }
+
+        $ids = $this->db->query("
+            SELECT e.id FROM expenses e
+            WHERE e.status IN ('pending_approval', 'draft')
+              AND e.raw_ocr_json IS NOT NULL AND e.raw_ocr_json <> ''
+              AND NOT EXISTS (SELECT 1 FROM expense_suggestions s
+                              WHERE s.expense_id = e.id AND s.source = 'live' AND s.status IN ('pending', 'error'))
+            ORDER BY (e.status = 'pending_approval') DESC, e.expense_date ASC, e.id ASC
+            LIMIT " . min($max, $room)
+        )->fetchAll(PDO::FETCH_COLUMN);
+
+        $done = [];
+        foreach ($ids as $id) {
+            $r = $this->bookkeeper()->suggest((int)$id, 'live', false);
+            if (empty($r['error']) && self::needsPhoto($r['checks'] ?? [])) {
+                $retry = $this->bookkeeper()->suggest((int)$id, 'live', true);
+                if (empty($retry['error'])) {
+                    $this->db->prepare("UPDATE expense_suggestions SET status = 'superseded' WHERE id = ?")->execute([$r['id']]);
+                    $r = $retry;
+                } else {
+                    $this->db->prepare("UPDATE expense_suggestions SET status = 'superseded' WHERE id = ?")->execute([$retry['id'] ?? 0]);
+                }
+            }
+            $done[] = ['expense_id' => (int)$id, 'error' => $r['error'] ?? null];
+        }
+        return ['prepared' => $done, 'capped' => false];
+    }
+
+    /** The text read didn't add up — worth a second look with the photo. Pure. */
+    public static function needsPhoto(array $checks): bool
+    {
+        foreach ($checks as $c) {
+            if (($c['check'] ?? '') === 'sum' && empty($c['ok'])) return true;
+        }
+        return !in_array('sum', array_column($checks, 'check'), true);   // amounts missing entirely
+    }
+}

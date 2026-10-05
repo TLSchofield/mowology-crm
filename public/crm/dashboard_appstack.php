@@ -193,6 +193,8 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
             </div>
           </div>
 
+          <?php include __DIR__ . '/includes/dept-heads-deck.php'; // Penny + the department heads ?>
+
           <?php
           // Pending e-Transfers awaiting recording (billing users only — links to
           // the record/dismiss panel on Invoices, which is the single place to act).

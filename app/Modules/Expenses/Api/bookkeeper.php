@@ -8,6 +8,11 @@
  * POST {mode: 'backtest', limit, image, csrf_token}
  *                      Run the bookkeeper over approved receipts not yet backtested,
  *                      with their final values hidden, and store the scored suggestions.
+ * Dashboard card (BookkeeperDeskService):
+ * GET  ?mode=stats     The card's numbers.
+ * GET  ?mode=queue     Prepared receipts for the carousel.
+ * POST {mode: 'decide', suggestion_id, overrides?: {field: value}, csrf_token}
+ * POST {mode: 'prepare', max?, csrf_token}   Prepare the next receipts (daily-capped).
  *
  * ?mode=, not ?action= (see the /api/ router note in the vault). Owner/admin only:
  * every backtest call spends API credit.
@@ -32,6 +37,7 @@ try {
     require_once CRM_INCLUDES . '/functions.php';
     requireLogin();
     requirePermission('expenses.approve');
+    $user = getCurrentUser();
 
     $method = $_SERVER['REQUEST_METHOD'];
     $input  = $method === 'POST' ? (json_decode(file_get_contents('php://input'), true) ?? []) : [];
@@ -156,6 +162,38 @@ try {
             }
             unset($agg);
             echo json_encode(['ok' => true, 'variants' => $variants]);
+            break;
+        }
+
+        case 'stats':
+        case 'queue':
+        case 'decide':
+        case 'prepare': {
+            require_once APP_ROOT . '/Modules/Expenses/Services/BookkeeperDeskService.php';
+            $desk = new BookkeeperDeskService($db, $svc);
+            if (!$desk->ready()) {
+                throw new RuntimeException('Bookkeeper not set up (migration 1125)');
+            }
+            if ($mode === 'stats') {
+                $rate = null;
+                try {
+                    require_once APP_ROOT . '/Modules/Accounting/Services/OwnerFreedomService.php';
+                    $rate = (float)((new OwnerFreedomService($db))->settings()['owner_rate'] ?? 0) ?: null;
+                } catch (Throwable $e) { /* no rate → no net saving */ }
+                echo json_encode(['ok' => true, 'stats' => $desk->stats($rate)]);
+            } elseif ($mode === 'queue') {
+                echo json_encode(['ok' => true, 'queue' => $desk->queue((int)($_GET['limit'] ?? 10))]);
+            } elseif ($mode === 'decide') {
+                if ($method !== 'POST') throw new RuntimeException('POST required');
+                $overrides = is_array($input['overrides'] ?? null) ? $input['overrides'] : [];
+                $res = $desk->decide((int)($input['suggestion_id'] ?? 0), $overrides, $user);
+                echo json_encode($res);
+            } else {
+                if ($method !== 'POST') throw new RuntimeException('POST required');
+                if (!$svc->ready()) throw new RuntimeException('Not ready — check ?mode=status');
+                set_time_limit(240);
+                echo json_encode(['ok' => true] + $desk->prepare((int)($input['max'] ?? 2)));
+            }
             break;
         }
 
