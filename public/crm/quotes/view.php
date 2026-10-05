@@ -137,9 +137,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 $tpl          = loadEmailTemplate('quote_sent', $tplVars);
                 $emailSubject = $tpl['subject'];
+                $isContract   = !empty($quote['is_contract']);
                 $emailBody    = EmailWrapper::wrap(
-                    $tpl['body_html'],
-                    'Read the quote',
+                    $tpl['body_html'] . ($isContract
+                        ? QuoteService::contractSigningHtml((string)($quote['terms'] ?? ''), $quoteUrl, $companyInfo['company_email'] ?? 'office@mowology.ca')
+                        : ''),
+                    $isContract ? 'Sign the contract online' : 'Read the quote',
                     $quoteUrl,
                     $companyInfo
                 );

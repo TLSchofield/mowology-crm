@@ -206,6 +206,108 @@ class ContractService
     }
 
     /**
+     * Carry the client's online quote signature onto the contract made from it.
+     *
+     * A contract quote is accepted with a drawn signature and a ticked "I agree"
+     * against the terms printed on it — the same act the contract signing page
+     * asks for. Asking a second time produced a step that was never taken, so
+     * the contract inherits the first one instead.
+     *
+     * The version is sealed with the wording the client actually saw: the
+     * quote's own terms text. The template revision is kept only when that text
+     * matches it; otherwise it is cleared so the record never claims a revision
+     * the client did not see.
+     *
+     * Returns false (and changes nothing) when there is no online signature to
+     * carry — a verbal approval, an unaccepted quote, a contract already signed.
+     */
+    public function adoptQuoteSignature(int $contractId, int $quoteId, int $userId): bool
+    {
+        $stmt = $this->db->prepare("SELECT * FROM quotes WHERE id = ?");
+        $stmt->execute([$quoteId]);
+        $quote = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        $signature = trim((string)($quote['signature_data'] ?? ''));
+        if (!$quote || ($quote['status'] ?? '') !== 'accepted'
+            || $signature === '' || $signature === 'data:,'
+            || trim((string)($quote['accepted_by_name'] ?? '')) === '') {
+            return false;
+        }
+
+        $contract = $this->getContract($contractId);
+        if (!$contract || ($contract['signature_status'] ?? '') === 'signed') {
+            return false;
+        }
+
+        $signedAt = $quote['signature_timestamp'] ?: ($quote['accepted_at'] ?: date('Y-m-d H:i:s'));
+        $signer   = trim((string)$quote['accepted_by_name']);
+
+        $this->db->beginTransaction();
+        try {
+            if ($this->getVersionCount($contractId) === 0) {
+                $this->snapshotVersion($contractId, $userId, 'Signed online on quote ' . ($quote['quote_number'] ?? $quoteId));
+            }
+            $version = (int)($this->getContract($contractId)['current_version'] ?? 1);
+
+            $quoteTerms = trim((string)($quote['terms'] ?? ''));
+            $sealed     = null;
+            try {
+                $sealed = $this->terms()->termsForVersion($contractId, $version);
+                if ($quoteTerms !== '') {
+                    $matches = $sealed && ContractTermsService::hashBody($sealed['body']) === ContractTermsService::hashBody($quoteTerms);
+                    if (!$matches) {
+                        $this->db->prepare("
+                            UPDATE contract_versions
+                               SET terms_body = ?, terms_template_version = NULL
+                             WHERE contract_id = ? AND version_number = ?
+                        ")->execute([$quoteTerms, $contractId, $version]);
+                    }
+                    $sealed = ['body' => $quoteTerms];
+                }
+            } catch (\Throwable $e) {
+                // Migration 1119 not applied — the signature is still the record.
+                error_log('[ContractService] quote terms not sealed onto contract: ' . $e->getMessage());
+            }
+
+            $this->db->prepare("
+                INSERT INTO contract_signatures
+                    (contract_id, contract_version, signature_token, token_expires_at,
+                     signer_name, signer_email, status, signature_data, signed_at, signed_ip, sent_by)
+                VALUES (?, ?, ?, ?, ?, ?, 'signed', ?, ?, ?, ?)
+            ")->execute([
+                $contractId, $version, $this->generateToken(), $signedAt,
+                $signer, (string)($quote['accepted_by_email'] ?? ''),
+                $signature, $signedAt, (string)($quote['accepted_ip_address'] ?? ''), $userId,
+            ]);
+            $sigId = (int)$this->db->lastInsertId();
+
+            try {
+                // The quote page refuses acceptance until "I agree" is ticked.
+                $this->db->prepare("
+                    UPDATE contract_signatures SET terms_acknowledged = 1, terms_body_hash = ? WHERE id = ?
+                ")->execute([$sealed ? ContractTermsService::hashBody($sealed['body']) : null, $sigId]);
+            } catch (\Throwable $e) {
+                error_log('[ContractService] terms acknowledgement not stored: ' . $e->getMessage());
+            }
+
+            $this->db->prepare("
+                UPDATE contracts SET signature_status = 'signed', updated_at = NOW() WHERE id = ?
+            ")->execute([$contractId]);
+            $this->db->prepare("
+                UPDATE contract_versions
+                   SET signature_status = 'signed', signed_at = ?, signed_by_name = ?
+                 WHERE contract_id = ? AND version_number = ?
+            ")->execute([$signedAt, $signer, $contractId, $version]);
+
+            $this->db->commit();
+            return true;
+        } catch (\Throwable $e) {
+            $this->db->rollBack();
+            throw $e;
+        }
+    }
+
+    /**
      * File a countersigned paper copy against a contract.
      *
      * The electronic path proves what was on screen, when, and from where. A

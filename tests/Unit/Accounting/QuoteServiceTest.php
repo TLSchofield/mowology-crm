@@ -235,6 +235,40 @@ class QuoteServiceTest extends TestCase
         $this->assertSame('asker@example.com', $result['email']);
     }
 
+    // ── contractSigningHtml() ────────────────────────────────────────────────
+
+    /** @test */
+    public function contract_email_states_both_signatures_are_required(): void
+    {
+        $html = QuoteService::contractSigningHtml("TERM\n\nNo slip and fall liability.", 'https://x.test/q?t=1', 'office@example.com');
+
+        $this->assertStringContainsString('must be signed twice', $html);
+        $this->assertStringContainsString('<strong>Online</strong>', $html);
+        $this->assertStringContainsString('print the attached PDF', $html);
+        $this->assertStringContainsString('mailto:office@example.com', $html);
+        $this->assertStringContainsString('href="https://x.test/q?t=1"', $html);
+    }
+
+    /** @test */
+    public function contract_email_prints_every_terms_paragraph_escaped(): void
+    {
+        $html = QuoteService::contractSigningHtml("TERM\n\nLine one\nLine two\n\n<script>x</script> & co", 'u', 'e@x.test');
+
+        $this->assertStringContainsString('Terms &amp; Conditions', $html);
+        $this->assertStringContainsString('>TERM</p>', $html);
+        $this->assertStringContainsString('Line one<br />', $html);
+        $this->assertStringContainsString('&lt;script&gt;x&lt;/script&gt; &amp; co', $html);
+        $this->assertStringNotContainsString('<script>', $html);
+    }
+
+    /** @test */
+    public function contract_email_without_terms_still_carries_the_requirement(): void
+    {
+        $html = QuoteService::contractSigningHtml('   ', 'u', 'e@x.test');
+        $this->assertStringContainsString('must be signed twice', $html);
+        $this->assertStringNotContainsString('Terms &amp; Conditions', $html);
+    }
+
     // ── resolveDisplayName() ──────────────────────────────────────────────────
 
     /** @test */

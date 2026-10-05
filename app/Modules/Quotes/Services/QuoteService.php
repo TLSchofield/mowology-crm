@@ -460,6 +460,46 @@ class QuoteService
     }
 
     /**
+     * The block a contract quote's email carries below the template text.
+     *
+     * A contract quote is the seasonal agreement itself, and a property manager
+     * usually has to file a signed paper copy as well. So the email says both
+     * are required, points at the attached PDF to print, and prints the full
+     * terms in the body so they can be read without opening anything.
+     *
+     * Fixed in code rather than in the editable Settings template, so editing the
+     * general "Quote Sent" wording can never drop the signing requirement.
+     */
+    public static function contractSigningHtml(string $terms, string $signUrl, string $returnEmail): string
+    {
+        $p   = "margin:0 0 16px;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.75;color:#0D3B2E;";
+        $esc = static fn(string $s): string => htmlspecialchars($s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+
+        $html = '<div style="border:2px solid #2D8659;border-radius:6px;padding:16px 18px;margin:8px 0 20px;background:#E8F3F0;">'
+              . '<p style="' . $p . 'margin-bottom:10px;"><strong>This quote is a seasonal service contract. It must be signed twice:</strong></p>'
+              . '<p style="' . $p . 'margin-bottom:6px;">1. <strong>Online</strong>: <a href="' . $esc($signUrl) . '" style="color:#1A5F4A;">open the quote</a>, tick that you agree to the terms, and sign.</p>'
+              . '<p style="' . $p . 'margin-bottom:0;">2. <strong>On paper</strong>: print the attached PDF, sign and date it, and email the signed copy to '
+              . '<a href="mailto:' . $esc($returnEmail) . '" style="color:#1A5F4A;">' . $esc($returnEmail) . '</a>.</p>'
+              . '</div>';
+
+        $terms = trim(str_replace(["\r\n", "\r"], "\n", $terms));
+        if ($terms !== '') {
+            $html .= '<p style="' . $p . 'margin-bottom:8px;"><strong>Terms &amp; Conditions</strong></p>'
+                   . '<div style="border-top:1px solid #e5ede9;padding-top:12px;font-size:13px;">';
+            foreach (preg_split('/\n{2,}/', $terms) as $para) {
+                $para = trim($para);
+                if ($para === '') {
+                    continue;
+                }
+                $html .= '<p style="' . str_replace('font-size:15px', 'font-size:13px', $p) . '">' . nl2br($esc($para)) . '</p>';
+            }
+            $html .= '</div>';
+        }
+
+        return $html;
+    }
+
+    /**
      * Resolve the display name shown on the quote ("who is this for").
      *
      * Precedence:

@@ -121,6 +121,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
     if ($result['success']) {
         $contractId = $result['contract_id'];
         if (!empty($data['quote_id'])) {
+            // A contract quote signed online already carries the client's signature
+            // and "I agree" — the contract inherits it rather than asking again.
+            try {
+                require_once APP_ROOT . '/Modules/Contracts/Services/ContractService.php';
+                (new ContractService($db))->adoptQuoteSignature((int)$contractId, (int)$data['quote_id'], (int)$user['id']);
+            } catch (\Throwable $e) {
+                error_log("[contracts/create] quote signature not carried to contract {$contractId}: " . $e->getMessage());
+            }
+            header("Location: ../jobs/create-from-quote.php?quote_id={$data['quote_id']}&contract_id={$contractId}");
             header("Location: ../jobs/create-from-quote.php?quote_id={$data['quote_id']}&contract_id={$contractId}");
         } else {
             header("Location: view.php?id={$contractId}&created=1");
