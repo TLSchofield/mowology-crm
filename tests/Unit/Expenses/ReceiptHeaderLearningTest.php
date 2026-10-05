@@ -139,5 +139,44 @@ class ReceiptHeaderLearningTest extends TestCase
         $d = headerCorrections(['vendor_hint' => 'HOME DEPOT #7012'], [], 'Home Depot');
         $this->assertFalse($d['fields']['vendor']['corrected']);
     }
+
+    // ── lineItemCorrections (confirmation-time line items) ────────────
+
+    public function test_untouched_items_teach_nothing_but_count_as_parsed(): void
+    {
+        $d = lineItemCorrections(
+            [['name' => '2X4X8 SPF'], ['name' => 'DECK SCREWS']],
+            [['name' => '2X4X8 SPF', 'ocr_name' => '2X4X8 SPF'], ['name' => 'Deck screws', 'ocr_name' => 'DECK SCREWS']]
+        );
+        $this->assertSame(2, $d['parsed']);
+        $this->assertSame([], $d['lessons'], 'case-only differences are not renames');
+    }
+
+    public function test_rename_removal_and_manual_add(): void
+    {
+        $d = lineItemCorrections(
+            [['name' => 'EGO 56V BLWR'], ['name' => 'ENVIRO FEE'], ['name' => 'MULCH']],
+            [
+                ['name' => 'EGO 56V leaf blower', 'ocr_name' => 'EGO 56V BLWR'],
+                ['name' => 'MULCH', 'ocr_name' => 'MULCH'],
+                ['name' => 'Battery 4Ah', 'ocr_name' => null],
+            ]
+        );
+        $this->assertSame(3, $d['parsed']);
+        $this->assertContains(['line_item_name', 'EGO 56V BLWR', 'EGO 56V leaf blower'], $d['lessons']);
+        $this->assertContains(['line_item_missed', null, 'Battery 4Ah'], $d['lessons']);
+        $this->assertContains(['line_item_noise', 'ENVIRO FEE', null], $d['lessons']);
+        $this->assertCount(3, $d['lessons']);
+    }
+
+    public function test_duplicate_captured_lines_are_matched_one_to_one(): void
+    {
+        // Two identical bags captured, one kept → the other was removed.
+        $d = lineItemCorrections(
+            [['name' => 'SOIL 25L'], ['name' => 'SOIL 25L']],
+            [['name' => 'SOIL 25L', 'ocr_name' => 'SOIL 25L']]
+        );
+        $this->assertSame([['line_item_noise', 'SOIL 25L', null]], $d['lessons']);
+    }
 }
 

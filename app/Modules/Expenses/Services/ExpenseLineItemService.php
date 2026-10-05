@@ -114,7 +114,8 @@ class ExpenseLineItemService
 
         // Learning: a rename teaches the parser what this OCR line really says.
         $lesson = self::lessonForRename($existing['ocr_name'] ?? null, (string)$existing['name'], $name);
-        if ($lesson && !empty($existing['vendor_id'])) {
+        // Receipts with a capture baseline learn their items once, at confirmation.
+        if ($lesson && !empty($existing['vendor_id']) && !expenseHasCaptureBaseline($this->db, (int)$existing['expense_id'])) {
             recordLineItemLesson($this->db, (int)$existing['vendor_id'], $existing['vendor_name'] ?? null, $lesson['type'], $lesson['ocr_value'], $lesson['corrected_value']);
             updateLineItemProfileStats($this->db, (int)$existing['vendor_id'], 0, 1);
         }
@@ -159,8 +160,10 @@ class ExpenseLineItemService
 
         $vendor = $this->vendorForExpense($expenseId);
         if ($vendor['vendor_id']) {
-            recordLineItemLesson($this->db, $vendor['vendor_id'], $vendor['vendor_name'], 'line_item_missed', null, $name);
-            updateLineItemProfileStats($this->db, $vendor['vendor_id'], 0, 1);
+            if (!expenseHasCaptureBaseline($this->db, $expenseId)) {
+                recordLineItemLesson($this->db, $vendor['vendor_id'], $vendor['vendor_name'], 'line_item_missed', null, $name);
+                updateLineItemProfileStats($this->db, $vendor['vendor_id'], 0, 1);
+            }
             if ($productId) {
                 try { teachVendorProduct($this->db, $vendor['vendor_id'], $name, $productId); } catch (Throwable $e) {}
             }
@@ -195,7 +198,7 @@ class ExpenseLineItemService
         if ($ocrName === '' && empty($li['product_id'])) {
             $ocrName = trim((string)$li['name']);
         }
-        if ($ocrName !== '' && !empty($li['vendor_id'])) {
+        if ($ocrName !== '' && !empty($li['vendor_id']) && !expenseHasCaptureBaseline($this->db, (int)$li['expense_id'])) {
             recordLineItemLesson($this->db, (int)$li['vendor_id'], $li['vendor_name'] ?? null, 'line_item_noise', $ocrName, null);
             updateLineItemProfileStats($this->db, (int)$li['vendor_id'], 0, 1);
         }

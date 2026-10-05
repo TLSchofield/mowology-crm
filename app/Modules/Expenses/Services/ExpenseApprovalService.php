@@ -42,6 +42,12 @@ class ExpenseApprovalService
             throw new Exception('Expense not found');
         }
 
+        // A receipt already sent to accounting is part of the books — re-approving it
+        // (e.g. a mobile bulk approve that includes it) would knock it back to 'approved'.
+        if (($expense['status'] ?? '') === 'forwarded') {
+            throw new Exception('Already sent to accounting');
+        }
+
         // Prevent self-approval (the creator cannot approve their own expense),
         // unless this specific user has been given the exemption in Team
         // management (users.can_approve_own_expenses) — e.g. an owner who does

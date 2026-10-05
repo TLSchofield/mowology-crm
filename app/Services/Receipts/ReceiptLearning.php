@@ -51,7 +51,7 @@ function recordCorrections(?int $vendorId, ?string $vendorName, array $ocrParsed
  *
  * @return bool Whether any line-item correction was recorded
  */
-function recordLineItemLessons(PDO $db, ?int $vendorId, ?string $vendorName, array $userSaved): bool
+function recordLineItemLessons(PDO $db, ?int $vendorId, ?string $vendorName, array $userSaved, ?int $expenseId = null): bool
 {
     // A vendor's earliest corrections are often recorded before it has a vendor_id (the
     // receipt wasn't matched yet), landing in the vendor_id-IS-NULL bucket keyed by name.
@@ -70,7 +70,14 @@ function recordLineItemLessons(PDO $db, ?int $vendorId, ?string $vendorName, arr
     if (is_string($userItems)) {
         $userItems = json_decode($userItems, true) ?: [];
     }
-    return is_array($userItems) && recordLineItemCorrectionsFromPayload($db, $vendorId, $vendorName, $userItems) > 0;
+    if (!is_array($userItems)) {
+        return false;
+    }
+    // A receipt with a capture baseline learns its line items once, at confirmation
+    // (learnFromConfirmedExpense) — here only the SKU memory is updated, so re-saves
+    // don't re-count the same rename.
+    $lessons = !($expenseId && expenseHasCaptureBaseline($db, $expenseId));
+    return recordLineItemCorrectionsFromPayload($db, $vendorId, $vendorName, $userItems, $lessons) > 0;
 }
 
 /**
@@ -285,6 +292,87 @@ function baselineFromExpenseRow(array $row): array
     ];
 }
 
+/** Was this receipt captured with a stored baseline (migration 1123)? */
+function expenseHasCaptureBaseline(PDO $db, int $expenseId): bool
+{
+    if (!receiptLearningBaselineReady($db)) {
+        return false;
+    }
+    try {
+        $stmt = $db->prepare("SELECT ocr_parsed_json IS NOT NULL FROM expenses WHERE id = ?");
+        $stmt->execute([$expenseId]);
+        return (bool)$stmt->fetchColumn();
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+
+/**
+ * Line-item corrections between the items captured and the items kept.
+ * Pure — the decision half of the confirmation-time line-item learning, unit tested.
+ *
+ * Kept items carry the parser's original name in `ocr_name` (empty = typed by hand).
+ * A captured item with no kept row was removed as "not an item".
+ *
+ * @param array $baselineItems Captured items (each with 'name')
+ * @param array $keptItems     Stored rows (each with 'name', 'ocr_name')
+ * @return array{parsed: int, lessons: list<array{0: string, 1: ?string, 2: ?string}>}
+ */
+function lineItemCorrections(array $baselineItems, array $keptItems): array
+{
+    $unclaimed = [];   // captured names not yet matched to a kept row (multiset)
+    $parsed = 0;
+    foreach ($baselineItems as $it) {
+        $n = is_array($it) ? strtoupper(trim((string)($it['name'] ?? ''))) : '';
+        if ($n === '') continue;
+        $parsed++;
+        $unclaimed[$n] = ($unclaimed[$n] ?? 0) + 1;
+    }
+
+    $lessons = [];
+    foreach ($keptItems as $row) {
+        $name = trim((string)($row['name'] ?? ''));
+        $ocr  = trim((string)($row['ocr_name'] ?? ''));
+        if ($ocr === '') {
+            if ($name !== '') $lessons[] = ['line_item_missed', null, $name];
+            continue;
+        }
+        $key = strtoupper($ocr);
+        if (!empty($unclaimed[$key])) $unclaimed[$key]--;
+        if ($name !== '' && strtoupper($name) !== $key) {
+            $lessons[] = ['line_item_name', $ocr, $name];
+        }
+    }
+    foreach ($unclaimed as $n => $left) {
+        for ($i = 0; $i < $left; $i++) {
+            $lessons[] = ['line_item_noise', (string)$n, null];
+        }
+    }
+    return ['parsed' => $parsed, 'lessons' => $lessons];
+}
+
+/** Confirmation-time line-item lessons: captured items vs the rows the user kept. */
+function recordLineItemLessonsAtConfirmation(PDO $db, int $expenseId, int $vendorId, ?string $vendorName, array $baselineItems): void
+{
+    if (!function_exists('expenseLineItemsHasColumn')) {
+        require_once __DIR__ . '/ExpenseLineItems.php';
+    }
+    // Without ocr_name (migration 1115) every kept row would look hand-typed and every
+    // captured item "removed" — skip rather than teach nonsense.
+    if (!expenseLineItemsHasColumn($db, 'ocr_name')) {
+        return;
+    }
+    $stmt = $db->prepare("SELECT name, ocr_name FROM expense_line_items WHERE expense_id = ? ORDER BY sort_order, id");
+    $stmt->execute([$expenseId]);
+    $diff = lineItemCorrections($baselineItems, $stmt->fetchAll(PDO::FETCH_ASSOC));
+    foreach ($diff['lessons'] as [$type, $ocr, $corrected]) {
+        recordLineItemLesson($db, $vendorId, $vendorName, $type, $ocr, $corrected);
+    }
+    if ($diff['parsed'] > 0 || $diff['lessons']) {
+        updateLineItemProfileStats($db, $vendorId, $diff['parsed'], count($diff['lessons']));
+    }
+}
+
 /**
  * Record header lessons for a receipt that has just been confirmed (approved, or
  * sent to accounting). Once per receipt: original-vs-confirmed, never re-counted on
@@ -329,6 +417,9 @@ function learnFromConfirmedExpense(PDO $db, int $expenseId, ?array $fallbackBase
         $vendorId   = $row['vendor_id'] !== null ? (int)$row['vendor_id'] : null;
         $vendorName = $row['vendor_name_raw'] ?: ($row['vendor_name'] ?? null);
         recordHeaderLessons($db, $vendorId, $vendorName, $baseline, $row, ocrTextFromStored($row['raw_ocr_json'] ?? null));
+        if ($vendorId && !empty($row['ocr_parsed_json']) && is_array($baseline['line_items'] ?? null)) {
+            recordLineItemLessonsAtConfirmation($db, $expenseId, $vendorId, $vendorName, $baseline['line_items']);
+        }
         return true;
     } catch (Throwable $e) {
         error_log('Receipt learning error (confirm #' . $expenseId . '): ' . $e->getMessage());
@@ -989,7 +1080,7 @@ function recordLineItemLesson(PDO $db, int $vendorId, ?string $vendorName, strin
  *
  * @return int Number of corrections recorded.
  */
-function recordLineItemCorrectionsFromPayload(PDO $db, int $vendorId, ?string $vendorName, array $items): int
+function recordLineItemCorrectionsFromPayload(PDO $db, int $vendorId, ?string $vendorName, array $items, bool $lessons = true): int
 {
     $parsedCount = 0;
     $corrections = 0;
@@ -1005,7 +1096,9 @@ function recordLineItemCorrectionsFromPayload(PDO $db, int $vendorId, ?string $v
             $parsedCount++;
         }
 
-        if ($removed && $ocrName !== '') {
+        if (!$lessons) {
+            // SKU memory only (below).
+        } elseif ($removed && $ocrName !== '') {
             recordLineItemLesson($db, $vendorId, $vendorName, 'line_item_noise', $ocrName, null);
             $corrections++;
         } elseif ($manual && $name !== '' && $ocrName === '') {
@@ -1023,7 +1116,7 @@ function recordLineItemCorrectionsFromPayload(PDO $db, int $vendorId, ?string $v
         }
     }
 
-    if ($parsedCount > 0 || $corrections > 0) {
+    if ($lessons && ($parsedCount > 0 || $corrections > 0)) {
         updateLineItemProfileStats($db, $vendorId, $parsedCount, $corrections);
     }
 

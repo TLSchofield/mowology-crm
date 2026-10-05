@@ -43,6 +43,14 @@ class ExpenseApprovalServiceTest extends TestCase
         $svc->approve(42, ['id' => 5]);
     }
 
+    public function test_approve_refuses_an_expense_already_sent_to_accounting(): void
+    {
+        $db = $this->createMock(PDO::class);
+        $db->method('prepare')->willReturn($this->makeStmt(['id' => 42, 'status' => 'forwarded', 'created_by' => 9]));
+        $this->expectExceptionMessage('Already sent to accounting');
+        (new ExpenseApprovalService($db))->approve(42, ['id' => 5]);
+    }
+
     public function test_approve_blocks_self_approval(): void
     {
         $db = $this->createMock(PDO::class);

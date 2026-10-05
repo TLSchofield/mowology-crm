@@ -140,7 +140,8 @@ try {
                 $db,
                 !empty($input['vendor_id']) ? (int)$input['vendor_id'] : null,
                 $input['vendor_name_raw'] ?? null,
-                $input
+                $input,
+                (int)$expenseId
             );
         } catch (Throwable $e) {
             error_log('OCR learning error: ' . $e->getMessage());

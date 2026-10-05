@@ -575,7 +575,8 @@ function handleCreate(PDO $db, ?array $input, array $user): void
                 $db,
                 !empty($input['vendor_id']) ? (int)$input['vendor_id'] : null,
                 $input['vendor_name_raw'] ?? null,
-                $input
+                $input,
+                $expenseId
             );
         } catch (Throwable $e) {
             // Learning is non-critical — log and continue
@@ -772,7 +773,8 @@ function handleUpdate(PDO $db, ?array $input, array $user): void
                 $db,
                 !empty($input['vendor_id']) ? (int)$input['vendor_id'] : null,
                 $input['vendor_name_raw'] ?? null,
-                $input
+                $input,
+                $id
             );
         } catch (Throwable $e) {
             error_log('Receipt learning error (update): ' . $e->getMessage());

@@ -107,7 +107,7 @@ class ExpenseService
         if (!empty($expense['raw_ocr_json'])) {
             try {
                 require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
-                recordLineItemLessons($this->db, $vendorId, $vendorRaw, $input);
+                recordLineItemLessons($this->db, $vendorId, $vendorRaw, $input, $expenseId);
             } catch (Throwable $e) {
                 error_log('Receipt learning error (mobile update): ' . $e->getMessage());
             }
