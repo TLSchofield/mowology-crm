@@ -145,7 +145,16 @@ by `learnFromConfirmedExpense()` in `ReceiptLearning.php`.
   re-count. Receipts with no baseline (pre-1123, never OCR'd) are skipped, not diffed
   against a re-parse (the old behaviour, which wasn't what the user saw).
 - Category is a lesson only when something was suggested and the user changed it.
-- Save paths record only the identity-keyed line-item lessons below.
+- **Line items too, for receipts with a baseline:** at confirmation the captured
+  items (`ocr_parsed_json.line_items`) are diffed against the kept rows
+  (`lineItemCorrections()`): renamed → `line_item_name`, dropped → `line_item_noise`,
+  hand-added → `line_item_missed`, one stats update. Save-time paths and
+  `ExpenseLineItemService` edits then update SKU memory only, so re-saves don't
+  re-count. Receipts without a baseline keep the per-save lessons below.
+- `approve()` refuses a `forwarded` expense (a bulk approve used to un-send it).
+- Store details: `extractVendorLocationFromOcr()` / `extractPhoneNumbers()`
+  (ReceiptParser) back-fill vendor phone/website/location at intake; the vendor
+  phone match compares normalised 10-digit numbers.
 - Before 1123 runs, header lessons pause; nothing errors.
 
 ## Line-item learning (migration 1115)
