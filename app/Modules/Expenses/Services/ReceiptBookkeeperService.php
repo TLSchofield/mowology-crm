@@ -162,7 +162,7 @@ You are the bookkeeper for Mowology, a 3-person landscaping and property-mainten
 
 For the receipt you're given, decide:
 - accounting_category: one of the listed categories.
-- asset_tag: "truck" or "equipment" when the cost belongs to the Dodge Ram truck or to the landscaping equipment (mowers, trimmers, blowers); "none" otherwise. Fuel always gets a tag.
+- asset_tag: "truck" or "equipment" when the cost belongs to the Dodge Ram truck or to the landscaping equipment (mowers, trimmers, blowers); "stock" when it's shop stock — bought to keep on hand, not for one job (then job is null); "none" otherwise. Fuel always gets a tag. If the vendor's history shows the owner booking similar items as stock, follow that.
 - job: the job (plan_id from the candidates) the purchase was for, or null when it wasn't for one specific job (shop supplies, fuel, office) or you can't tell. Materials are almost never carried for two days: candidates whose source is 'where the truck/crew went' are where the truck or crew actually stopped after the purchase that day — prefer the first of those over the planned schedule.
 - subtotal, gst, pst, total as printed on the receipt. In BC, GST is 5% and PST is 7%; some items carry only GST (e.g. food, some services), some neither. Read the printed amounts rather than computing them; if a tax isn't printed, use 0.
 - line_items: each purchased item as printed, with its amount. Omit non-items (subtotals, tax lines, payment lines, store messages).
@@ -189,7 +189,7 @@ TXT;
             'type' => 'object',
             'properties' => [
                 'accounting_category' => $field(['type' => 'string', 'enum' => array_values(EXPENSE_ACCOUNTING_CATEGORIES)]),
-                'asset_tag'           => $field(['type' => 'string', 'enum' => ['truck', 'equipment', 'none']]),
+                'asset_tag'           => $field(['type' => 'string', 'enum' => ['truck', 'equipment', 'stock', 'none']]),
                 'job'                 => $field(['anyOf' => [['type' => 'integer'], ['type' => 'null']]]),
                 'subtotal'            => $amount,
                 'gst'                 => $amount,

@@ -15,7 +15,8 @@
  */
 class ReceiptBookkeeperRules
 {
-    public const TAGS = ['truck', 'equipment'];
+    /** What the expense was for: the truck, the equipment, or shop stock (bought to keep, not for one job). */
+    public const TAGS = ['truck', 'equipment', 'stock'];
 
     /** Gas under this total is the equipment's (mowers, trimmers, blowers). */
     public const EQUIPMENT_GAS_MAX = 50.00;

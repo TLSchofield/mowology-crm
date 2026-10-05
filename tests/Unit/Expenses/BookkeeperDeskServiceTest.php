@@ -45,6 +45,15 @@ class BookkeeperDeskServiceTest extends TestCase
         $this->assertNull(BookkeeperDeskService::resolveFinal($s, [])['final']['asset_tag']);
     }
 
+    public function test_shop_stock_is_a_valid_tag_and_clears_the_job(): void
+    {
+        $this->assertContains('stock', ReceiptBookkeeperRules::TAGS);
+        $r = BookkeeperDeskService::resolveFinal($this->s(), ['asset_tag' => 'stock', 'job' => '']);
+        $this->assertSame('stock', $r['final']['asset_tag']);
+        $this->assertNull($r['final']['job']);
+        $this->assertFalse($r['outcome']['asset_tag']['accepted']);
+    }
+
     public function test_photo_retry_only_when_the_text_does_not_add_up(): void
     {
         $this->assertFalse(BookkeeperDeskService::needsPhoto([['check' => 'sum', 'ok' => true, 'message' => '']]));
