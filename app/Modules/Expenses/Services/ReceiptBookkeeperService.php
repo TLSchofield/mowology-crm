@@ -161,6 +161,7 @@ class ReceiptBookkeeperService
 You are the bookkeeper for Mowology, a 3-person landscaping and property-maintenance business in Vancouver, BC. Crew photograph receipts on their phones; you prepare each one for the owner to approve.
 
 For the receipt you're given, decide:
+- vendor: the business that issued it, as printed on the receipt (correct the reader when it named the wrong business).
 - accounting_category: one of the listed categories.
 - asset_tag: "truck" or "equipment" when the cost belongs to the Dodge Ram truck or to the landscaping equipment (mowers, trimmers, blowers); "stock" when it's shop stock — bought to keep on hand, not for one job (then job is null); "none" otherwise. Fuel always gets a tag. If the vendor's history shows the owner booking similar items as stock, follow that.
 - job: the job (plan_id from the candidates) the purchase was for, or null when it wasn't for one specific job (shop supplies, fuel, office) or you can't tell. Materials are almost never carried for two days: candidates whose source is 'where the truck/crew went' are where the truck or crew actually stopped after the purchase that day — prefer the first of those over the planned schedule.
@@ -188,6 +189,7 @@ TXT;
         return [
             'type' => 'object',
             'properties' => [
+                'vendor'              => $field(['type' => 'string']),
                 'accounting_category' => $field(['type' => 'string', 'enum' => array_values(EXPENSE_ACCOUNTING_CATEGORIES)]),
                 'asset_tag'           => $field(['type' => 'string', 'enum' => ['truck', 'equipment', 'stock', 'none']]),
                 'job'                 => $field(['anyOf' => [['type' => 'integer'], ['type' => 'null']]]),
@@ -209,7 +211,7 @@ TXT;
                 ],
                 'notes' => ['type' => 'string'],
             ],
-            'required' => ['accounting_category', 'asset_tag', 'job', 'subtotal', 'gst', 'pst', 'total', 'line_items', 'notes'],
+            'required' => ['vendor', 'accounting_category', 'asset_tag', 'job', 'subtotal', 'gst', 'pst', 'total', 'line_items', 'notes'],
             'additionalProperties' => false,
         ];
     }

@@ -26,6 +26,7 @@
     var zoomBig = false;    // receipt at 2× inside the full-screen view
     var jobLabels = {};     // job id → label, for jobs picked from search
     var jobTimer = null;
+    var venTimer = null;
 
     function esc(s) {
         return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -108,8 +109,17 @@
         var mine = function (f) {      // differs from Penny's suggestion → your edit
             var a = cur(f), b = val(s, f);
             if (f === 'asset_tag') { a = a || 'none'; b = b || 'none'; }
+            if (f === 'vendor') { a = venNow; b = venSug; }
             return String(a == null ? '' : a) !== String(b == null ? '' : b);
         };
+        var venSug = val(s, 'vendor') || it.vendor || '';
+        var venNow = d && d.vendor != null ? d.vendor : venSug;
+        var venIdNow = d && d.vendor_id ? d.vendor_id : (venNow === it.vendor ? (it.vendor_id || '') : '');
+        var venCtl = '<div class="mw-rc-job mw-rc-ven">' +
+              '<input class="mw-rc-in" data-f="vendor" data-vensearch type="search" autocomplete="off" placeholder="Who sold it? Search or type a new one…" value="' + esc(venNow) + '" aria-label="Vendor">' +
+              '<input type="hidden" data-f="vendor_id" value="' + esc(venIdNow) + '">' +
+              '<div class="mw-rc-jobres" hidden></div>' +
+            '</div>';
         var tagNow = cur('asset_tag') || 'none';
         var catOpts = CATEGORIES.map(function (c) {
             return '<option' + (c === cur('accounting_category') ? ' selected' : '') + '>' + esc(c) + '</option>';
@@ -136,6 +146,7 @@
                 '<div class="mw-v">' + control + '</div>' + why(s, conff || f) + '</div>';
         };
         var fields =
+            tagFld('vendor', 'Vendor', venCtl) +
             tagFld('accounting_category', 'Category', '<select class="mw-rc-in' + (changed(it, 'accounting_category') ? ' mw-rc-changed' : '') + '" data-f="accounting_category">' + catOpts + '</select>') +
             tagFld('asset_tag', 'For', '<select class="mw-rc-in" data-f="asset_tag">' + tagOpts + '</select>') +
             tagFld('total', 'Total · GST · PST', '<div class="mw-rc-amts">' + amt('total', 'Total') + amt('gst', 'GST') + amt('pst', 'PST') + '</div>') +
@@ -151,7 +162,8 @@
             '</div>';
         };
         var detail = function (fullNotes) {
-            return '<div class="mw-rc-meta"><b>' + esc(it.vendor || 'Unknown vendor') + '</b> · ' + esc(it.date || '') +
+            return '<div class="mw-rc-meta">' + esc(it.date || '') +
+                  (val(s, 'vendor') && it.vendor && val(s, 'vendor') !== it.vendor ? ' · recorded as <s>' + esc(it.vendor) + '</s>' : '') +
                   (it.submitted_by ? ' · from ' + esc(it.submitted_by) : '') + '</div>' +
                 '<div class="mw-rc-fields">' + fields + '</div>' +
                 (checks ? '<div class="mw-rc-checks">' + checks + '</div>' : '') +
@@ -228,6 +240,48 @@
         hidden.dispatchEvent(new Event('input', { bubbles: true }));   // updates "edited by you"
     }
 
+    // ── Vendor search (name or alias); free typing keeps a new vendor's name ──
+    function vendorResults(box, rows, typed) {
+        var it = queue[idx];
+        var s = (it && it.suggestion) || {};
+        var res = box.querySelector('.mw-rc-jobres');
+        var html = '';
+        var pennyV = val(s, 'vendor');
+        if (pennyV && pennyV.toLowerCase() !== typed.toLowerCase()) html += '<button type="button" data-pick-ven="" data-label="' + esc(pennyV) + '">⭐ Penny read: ' + esc(pennyV) + '</button>';
+        if (it && it.vendor && it.vendor !== pennyV && it.vendor.toLowerCase() !== typed.toLowerCase()) html += '<button type="button" data-pick-ven="' + esc(it.vendor_id || '') + '" data-label="' + esc(it.vendor) + '">Keep: ' + esc(it.vendor) + '</button>';
+        var exact = false;
+        rows.forEach(function (v) {
+            if (v.name.toLowerCase() === typed.toLowerCase()) exact = true;
+            html += '<button type="button" data-pick-ven="' + esc(v.id) + '" data-label="' + esc(v.name) + '">' + esc(v.name) +
+                (v.default_accounting_category ? '<small>' + esc(v.default_accounting_category) + '</small>' : '') + '</button>';
+        });
+        if (typed.length >= 3 && !exact) html += '<div class="mw-rc-jobnone">Not on your list? Keep typing — approving adds “' + esc(typed) + '” as a new vendor.</div>';
+        res.innerHTML = html;
+        res.hidden = html === '';
+    }
+
+    function searchVendors(input) {
+        var box = input.closest('.mw-rc-ven');
+        var q = input.value.trim();
+        clearTimeout(venTimer);
+        if (q.length < 2) { vendorResults(box, [], q); return; }
+        venTimer = setTimeout(function () {
+            fetch('/crm/api/vendors.php?action=search&q=' + encodeURIComponent(q), { cache: 'no-store' })
+                .then(function (r) { return r.json(); })
+                .then(function (d) { if (document.activeElement === input) vendorResults(box, (d && d.vendors) || [], q); })
+                .catch(function () {});
+        }, 250);
+    }
+
+    function setVendor(box, id, name) {
+        var input = box.querySelector('[data-vensearch]');
+        input.value = name;
+        box.querySelector('[data-f="vendor_id"]').value = id || '';
+        box.querySelector('.mw-rc-jobres').hidden = true;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        box.querySelector('[data-f="vendor_id"]').value = id || '';   // the input handler clears it for typing
+    }
+
     function formValues() {
         var out = {};
         root.querySelectorAll('[data-f]').forEach(function (el) { out[el.getAttribute('data-f')] = el.value; });
@@ -270,6 +324,8 @@
             if (tagSel) { tagSel.value = 'stock'; tagSel.dispatchEvent(new Event('input', { bubbles: true })); }
             return;
         }
+        var ven = e.target.closest && e.target.closest('[data-pick-ven]');
+        if (ven) { setVendor(ven.closest('.mw-rc-ven'), ven.getAttribute('data-pick-ven'), ven.getAttribute('data-label')); return; }
         var pick = e.target.closest && e.target.closest('[data-pick-job]');
         if (pick) { setJob(pick.closest('.mw-rc-job'), pick.getAttribute('data-pick-job'), pick.getAttribute('data-label')); return; }
         if (e.target.getAttribute('data-act') === 'jobclear') { setJob(e.target.closest('.mw-rc-job'), '', ''); return; }
@@ -285,6 +341,12 @@
 
     root.addEventListener('focusin', function (e) {
         if (e.target.hasAttribute && e.target.hasAttribute('data-jobsearch')) { e.target.select(); searchJobs(e.target); }
+        if (e.target.hasAttribute && e.target.hasAttribute('data-vensearch')) { e.target.select(); searchVendors(e.target); }
+    });
+    root.addEventListener('focusout', function (e) {
+        if (!(e.target.hasAttribute && e.target.hasAttribute('data-vensearch'))) return;
+        var box = e.target.closest('.mw-rc-ven');
+        setTimeout(function () { if (!box.contains(document.activeElement)) box.querySelector('.mw-rc-jobres').hidden = true; }, 200);
     });
     root.addEventListener('focusout', function (e) {
         if (!(e.target.hasAttribute && e.target.hasAttribute('data-jobsearch'))) return;
@@ -299,6 +361,15 @@
 
     root.addEventListener('input', function (e) {
         if (e.target.hasAttribute && e.target.hasAttribute('data-jobsearch')) { searchJobs(e.target); return; }
+        if (e.target.hasAttribute && e.target.hasAttribute('data-vensearch')) {
+            var vbox = e.target.closest('.mw-rc-ven');
+            vbox.querySelector('[data-f="vendor_id"]').value = '';   // typed, not picked
+            if (e.isTrusted) searchVendors(e.target);
+            var vit = queue[idx];
+            var vsug = val(vit.suggestion || {}, 'vendor') || vit.vendor || '';
+            e.target.closest('.mw-rc-fld').classList.toggle('is-yours', e.target.value.trim().toLowerCase() !== vsug.toLowerCase());
+            return;
+        }
         var f = e.target.getAttribute && e.target.getAttribute('data-f');
         if (!f || !queue.length) return;
         var s = queue[idx].suggestion || {};

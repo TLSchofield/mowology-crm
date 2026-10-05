@@ -54,6 +54,30 @@ class BookkeeperDeskServiceTest extends TestCase
         $this->assertFalse($r['outcome']['asset_tag']['accepted']);
     }
 
+    public function test_vendor_store_number_is_not_an_edit_but_a_different_business_is(): void
+    {
+        $s = $this->s();
+        $s['vendor'] = ['value' => 'HOME DEPOT #7054', 'reason' => 'r', 'confidence' => 'high'];
+        $this->assertTrue(BookkeeperDeskService::resolveFinal($s, ['vendor' => 'Home Depot'])['outcome']['vendor']['accepted']);
+        $r = BookkeeperDeskService::resolveFinal($s, ['vendor' => ' Vital Auto Repair ']);
+        $this->assertSame('Vital Auto Repair', $r['final']['vendor']);
+        $this->assertFalse($r['outcome']['vendor']['accepted']);
+        $this->assertNull(BookkeeperDeskService::resolveFinal($this->s(), ['vendor' => ''])['final']['vendor']);
+    }
+
+    public function test_pick_vendor_matches_name_then_alias_never_a_stranger(): void
+    {
+        $vendors = [
+            ['id' => 1, 'name' => 'Home Depot', 'aliases' => 'THD, The Home Depot'],
+            ['id' => 2, 'name' => 'Vital Auto Repair', 'aliases' => ''],
+            ['id' => 3, 'name' => 'Rona', 'aliases' => null],
+        ];
+        $this->assertSame(2, BookkeeperDeskService::pickVendor($vendors, 'vital auto repair'));
+        $this->assertSame(1, BookkeeperDeskService::pickVendor($vendors, 'HOME DEPOT #7054'));
+        $this->assertSame(1, BookkeeperDeskService::pickVendor($vendors, 'THD'));
+        $this->assertNull(BookkeeperDeskService::pickVendor($vendors, 'Lawnboy Supply'));
+    }
+
     public function test_photo_retry_only_when_the_text_does_not_add_up(): void
     {
         $this->assertFalse(BookkeeperDeskService::needsPhoto([['check' => 'sum', 'ok' => true, 'message' => '']]));

@@ -21,6 +21,9 @@
 
 require_once __DIR__ . '/ReceiptBookkeeperService.php';
 require_once __DIR__ . '/ExpenseApprovalService.php';
+if (!function_exists('sameVendorName')) {
+    require_once (defined('APP_ROOT') ? APP_ROOT : dirname(__DIR__, 3)) . '/Services/Receipts/ReceiptLearning.php';
+}
 
 class BookkeeperDeskService
 {
@@ -162,7 +165,7 @@ class BookkeeperDeskService
         $rows = $this->db->query("
             SELECT s.id AS suggestion_id, s.suggestion_json, s.checks_json, s.current_json, s.used_image, s.outcome_json,
                    e.id AS expense_id, e.status, e.expense_date, e.total, e.receipt_media_id,
-                   COALESCE(v.name, e.vendor_name_raw) AS vendor, u.full_name AS submitted_by
+                   COALESCE(v.name, e.vendor_name_raw) AS vendor, e.vendor_id, u.full_name AS submitted_by
             FROM expense_suggestions s
             JOIN expenses e ON e.id = s.expense_id
             LEFT JOIN vendors v ON v.id = e.vendor_id
@@ -177,11 +180,17 @@ class BookkeeperDeskService
         foreach ($rows as $r) {
             $s = json_decode((string)$r['suggestion_json'], true) ?: [];
             $jobId = $s['job']['value'] ?? null;
+            // Penny read "HOME DEPOT #7054" and the receipt is already Home Depot: show the
+            // vendor's own name, so the field only looks different when she disagrees.
+            if (isset($s['vendor']['value']) && $r['vendor'] !== null && sameVendorName((string)$s['vendor']['value'], (string)$r['vendor'])) {
+                $s['vendor']['value'] = $r['vendor'];
+            }
             $out[] = [
                 'suggestion_id' => (int)$r['suggestion_id'],
                 'expense_id'    => (int)$r['expense_id'],
                 'status'        => $r['status'],
                 'vendor'        => $r['vendor'],
+                'vendor_id'     => $r['vendor_id'] !== null ? (int)$r['vendor_id'] : null,
                 'date'          => $r['expense_date'],
                 'submitted_by'  => $r['submitted_by'],
                 'image_url'     => $r['receipt_media_id'] ? self::imageUrl((int)$r['receipt_media_id']) : null,
@@ -232,7 +241,7 @@ class BookkeeperDeskService
      */
     public static function resolveFinal(array $suggestion, array $overrides): array
     {
-        $fields = ['accounting_category', 'asset_tag', 'job', 'subtotal', 'gst', 'pst', 'total'];
+        $fields = ['vendor', 'accounting_category', 'asset_tag', 'job', 'subtotal', 'gst', 'pst', 'total'];
         $final = [];
         $outcome = [];
         foreach ($fields as $f) {
@@ -244,6 +253,10 @@ class BookkeeperDeskService
             } elseif ($f === 'job') {
                 $value = $value === null || $value === '' || (int)$value === 0 ? null : (int)$value;
                 $same = (int)($suggested ?? 0) === (int)($value ?? 0);
+            } elseif ($f === 'vendor') {
+                $value = $value === null ? null : trim((string)$value);
+                $value = $value === '' ? null : $value;
+                $same = sameVendorName((string)($suggested ?? ''), (string)($value ?? ''));
             } else {
                 $value = $value === null || $value === '' ? null : (string)$value;
                 $same = (string)($suggested ?? '') === (string)($value ?? '');
@@ -268,8 +281,10 @@ class BookkeeperDeskService
     public function decide(int $suggestionId, array $overrides, array $user, bool $approve = true): array
     {
         $stmt = $this->db->prepare("
-            SELECT s.*, e.status AS expense_status, e.forwarded_to_accounting
+            SELECT s.*, e.status AS expense_status, e.forwarded_to_accounting, e.vendor_id,
+                   COALESCE(v.name, e.vendor_name_raw) AS current_vendor
             FROM expense_suggestions s JOIN expenses e ON e.id = s.expense_id
+            LEFT JOIN vendors v ON v.id = e.vendor_id
             WHERE s.id = ? AND s.source = 'live'
         ");
         $stmt->execute([$suggestionId]);
@@ -300,9 +315,25 @@ class BookkeeperDeskService
             $propertyId = $p->fetchColumn() ?: null;
         }
 
+        // Only when the vendor really changed: "HOME DEPOT #7054" read off a Home Depot
+        // receipt must not move it to a new vendor.
+        $pickedVendor = isset($overrides['vendor_id']) && (int)$overrides['vendor_id'] > 0 ? (int)$overrides['vendor_id'] : null;
+        $vendorChanged = $f['vendor'] !== null && ($pickedVendor
+            ? $pickedVendor !== (int)($row['vendor_id'] ?? 0)
+            : !sameVendorName($f['vendor'], (string)($row['current_vendor'] ?? '')));
+        // A suggestion made before Penny read the vendor has nothing to score: an
+        // unchanged vendor is not an edit of hers.
+        if (!array_key_exists('vendor', json_decode((string)$row['suggestion_json'], true) ?: []) && !$vendorChanged) {
+            unset($resolved['outcome']['vendor']);
+        }
         $allAccepted = !in_array(false, array_column($resolved['outcome'], 'accepted'), true);
         $this->db->beginTransaction();
         try {
+            if ($vendorChanged) {
+                $vendorId = $this->vendorFor($f['vendor'], $pickedVendor, $approve);
+                $this->db->prepare("UPDATE expenses SET vendor_id = ?, vendor_name_raw = ? WHERE id = ?")
+                   ->execute([$vendorId, $f['vendor'], (int)$row['expense_id']]);
+            }
             $this->db->prepare("
                 UPDATE expenses SET
                     accounting_category = COALESCE(?, accounting_category),
@@ -347,6 +378,40 @@ class BookkeeperDeskService
         } catch (Throwable $e) {
             return ['ok' => true, 'approved' => false, 'message' => 'Saved — not approved: ' . $e->getMessage()];
         }
+    }
+
+    /**
+     * The vendor the owner chose: the picked id, else a known vendor whose name or alias
+     * is the same business ("HOME DEPOT #7054" is Home Depot), else — on approval — a new
+     * vendor, so the next receipt from them is recognised. A saved draft never creates one.
+     */
+    private function vendorFor(string $name, ?int $pickedId, bool $create): ?int
+    {
+        $vendors = $this->db->query("SELECT id, name, aliases FROM vendors WHERE is_active = 1")->fetchAll(PDO::FETCH_ASSOC);
+        if ($pickedId && in_array($pickedId, array_map('intval', array_column($vendors, 'id')), true)) {
+            return $pickedId;
+        }
+        $id = self::pickVendor($vendors, $name);
+        if ($id || !$create || mb_strlen($name) < 3) {
+            return $id;
+        }
+        $this->db->prepare("INSERT INTO vendors (name) VALUES (?)")->execute([$name]);
+        return (int)$this->db->lastInsertId();
+    }
+
+    /** A known vendor that is the same business as $name: exact name first, then name or alias. */
+    public static function pickVendor(array $vendors, string $name): ?int
+    {
+        foreach ($vendors as $v) {
+            if (strcasecmp(trim((string)$v['name']), trim($name)) === 0) return (int)$v['id'];
+        }
+        foreach ($vendors as $v) {
+            $names = array_merge([(string)$v['name']], array_map('trim', explode(',', (string)($v['aliases'] ?? ''))));
+            foreach ($names as $n) {
+                if ($n !== '' && sameVendorName($name, $n)) return (int)$v['id'];
+            }
+        }
+        return null;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
