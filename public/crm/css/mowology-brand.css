@@ -37625,6 +37625,12 @@ span.mw-icon-box--missing {
 .mw-head-pill i { width: 7px; height: 7px; border-radius: 50%; background: var(--mw-lime); }
 .mw-head-pill.is-planned { background: var(--mw-ink-100); color: var(--mw-ink-500); }
 .mw-head-pill.is-planned i { background: var(--mw-ink-300); }
+.mw-head-badges { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; max-width: 180px; }
+.mw-head-badge { position: relative; overflow: hidden; display: inline-flex; align-items: center; gap: 4px; font-size: .68rem; font-weight: 700; line-height: 1.2;
+    padding: 4px 8px; border-radius: var(--mw-radius-pill); background: var(--mw-forest); color: var(--mw-lime); cursor: help; }
+.mw-head-badge.is-next { background: var(--mw-ink-100); color: var(--mw-ink-500); border: 1px dashed var(--mw-ink-300); }
+.mw-head-badge.is-next small { font-weight: 600; }
+.mw-head-badge.is-next i { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--mw-green); }
 .mw-head-say { background: var(--mw-light); border-radius: 10px; padding: 10px 12px; font-size: .85rem; line-height: 1.45; color: var(--mw-forest); margin-bottom: 12px; }
 .mw-head-say b { color: var(--mw-dark); }
 

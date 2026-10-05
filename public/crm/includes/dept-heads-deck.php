@@ -24,6 +24,11 @@ try {
         $__rate = (float)((new OwnerFreedomService(getDB()))->settings()['owner_rate'] ?? 0) ?: null;
     } catch (Throwable $__e) { /* no rate → no net saving */ }
     $ps = $__desk->stats($__rate);
+    $__badges = ['earned' => [], 'next' => null];
+    try {
+        require_once APP_ROOT . '/Modules/Expenses/Services/PennyBadgeService.php';
+        $__badges = (new PennyBadgeService(getDB()))->badges();
+    } catch (Throwable $__e) { /* badges are a bonus — never block the card */ }
 } catch (Throwable $__e) {
     error_log('Dept heads deck unavailable: ' . $__e->getMessage());
     return;
@@ -47,6 +52,17 @@ $__team = [
         <div class="mw-head-name">Penny</div>
         <div class="mw-head-role">Bookkeeper · receipts &amp; expenses</div>
         <span class="mw-head-pill"><i></i>Working</span>
+        <div class="mw-head-badges" aria-label="Penny's badges">
+          <?php foreach ($__badges['earned'] as $__b): ?>
+            <span class="mw-head-badge" title="<?= h($__b['title']) ?>"><?= h($__b['icon']) ?> <?= h($__b['label']) ?></span>
+          <?php endforeach; ?>
+          <?php if ($__badges['next']): $__n = $__badges['next']; ?>
+            <span class="mw-head-badge is-next" title="Next badge — <?= h($__n['title']) ?>">
+              <?= h($__n['icon']) ?> <?= h($__n['label']) ?> <small><?= (int)$__n['have'] ?>/<?= (int)$__n['need'] ?></small>
+              <i style="width: <?= (int)round($__n['have'] / max(1, $__n['need']) * 100) ?>%"></i>
+            </span>
+          <?php endif; ?>
+        </div>
       </div>
     </div>
 

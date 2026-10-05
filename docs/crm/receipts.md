@@ -212,6 +212,16 @@ styles in `mowology-brand.css` "DEPARTMENT HEADS DECK"; headshots `/crm/img/head
 - **Numbers:** right-first-time from real decisions (backtest until 5 exist); net
   saving only from real decisions × the Owner Freedom rate − AI cost.
 
+### Penny's badges
+
+`PennyBadgeService` (chips under her photo, from `dept-heads-deck.php`). Earned only
+from real decisions (`expense_suggestions` live, accepted/edited), and lost again
+when she slips, since the streaks count her most recent decisions: vendor trust (last
+5 from one vendor unchanged, max 3 shown), Fuel pro (last 10 fuel calls kept), Job
+finder (5 kept job picks), Tax ace (last 20 with total/GST/PST kept), 10 in a row,
+and $ found to bill (`penny_questions` answered `invoice`). The closest unearned
+badge shows dimmed with its progress.
+
 ## Where the truck went (job from the trail) and Penny's questions (migration 1126)
 
 - **Trail:** `ReceiptTrailService::candidates($purchaseAt, $userId)` — materials are used

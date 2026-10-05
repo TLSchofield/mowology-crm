@@ -40,6 +40,7 @@ require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptBookkeeperServi
 require_once __DIR__ . '/../app/Modules/Expenses/Services/BookkeeperDeskService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptTrailService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/PennyQuestionService.php';
+require_once __DIR__ . '/../app/Modules/Expenses/Services/PennyBadgeService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseApprovalService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseLookupService.php';
