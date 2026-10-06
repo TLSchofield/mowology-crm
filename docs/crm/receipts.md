@@ -212,6 +212,26 @@ styles in `mowology-brand.css` "DEPARTMENT HEADS DECK"; headshots `/crm/img/head
 - **Numbers:** right-first-time from real decisions (backtest until 5 exist); net
   saving only from real decisions × the Owner Freedom rate − AI cost.
 
+### Penny's card — what's on it (2026-10-05)
+
+- **Duplicates first:** `DuplicateReceiptService` reuses `ExpenseLookupService::findDuplicates`
+  (same total to the cent, ±3 days, same vendor — the receipts page's rule) over the next
+  60 waiting receipts, groups linked pairs, and holds every waiting member out of the
+  approval queue and out of Penny's AI read. Removing a copy calls `expenses.php
+  action=merge` (approved/sent keepers are merged with `fields: {receipt: 'keep'}` so
+  they don't change). "Not duplicates" → `expense_duplicate_dismissals` (migration 1127).
+- **Fields:** vendor (search + new), receipt date (MwDatePicker), category, tag, totals,
+  job; line items edited in place via `expenses.php` `add/update/delete_line_item`
+  (saved immediately; same learning as the receipts page), "Use Penny's items".
+- **Re-check:** `?mode=recheck` — Penny re-reads one receipt with the photo; old
+  suggestion becomes `superseded`. Different from the receipts page Rescan (OCR).
+- **Rotate:** view only, like the receipts page lightbox (↻, R key).
+- **Self-approval:** checked before anything is written; blocked → edits kept as a
+  draft and the reason shown. Owner exemption: Team → Approvals.
+- **Vendor strength:** `PennyBadgeService::vendorStrength` — per vendor run toward
+  trusted (5 unchanged in a row), % unchanged, receipts seen; shown as "Vendors I know"
+  and under each receipt's Vendor field.
+
 ### Penny's badges
 
 `PennyBadgeService` (chips under her photo, from `dept-heads-deck.php`). Earned only
