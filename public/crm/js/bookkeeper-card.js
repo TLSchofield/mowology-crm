@@ -164,12 +164,6 @@
         }).concat((it.anomalies || []).filter(function (a) { return a.code !== 'DUPLICATE_DAY'; }).map(function (a) {
             return '<span class="is-bad" title="Receipts system anomaly rule ' + esc(a.code) + '">⚠ ' + esc(a.detail) + '</span>';
         })).concat(it.bank ? ['<span title="' + esc(it.bank.description || '') + '">🏦 Matched to the bank: ' + esc(it.bank.date || '') + ' · ' + money(Math.abs(it.bank.amount)) + '</span>'] : [])
-          .concat(it.bank_candidate ? (function (b) {
-              var tot = parseFloat(val(s, 'total'));
-              var off = !isNaN(tot) && Math.abs(Math.abs(b.amount) - tot) > 0.009;
-              return ['<span class="' + (off ? 'is-bad' : '') + '" title="' + esc(b.description || '') + '">🏦 Bank charged ' + money(Math.abs(b.amount)) + ' on ' + esc(b.date) +
-                  (off ? ' — not ' + money(tot) + '. The bank is right if the photo is unclear.' : ' — matches') + '</span>'];
-          })(it.bank_candidate) : [])
           .join(' &nbsp; ');
 
         // Always editable: the value shown is Penny's (or your saved draft); type over it.
@@ -216,6 +210,20 @@
         var amt = function (f, label) {
             return '<label class="mw-rc-amt"><span>' + label + '</span><input class="mw-rc-in" data-f="' + f + '" type="number" step="0.01" inputmode="decimal" value="' + esc(cur(f)) + '" aria-label="' + label + '"></label>';
         };
+        // What the bank actually charged, beside the total it should equal.
+        var bankChip = function () {
+            var b = it.bank_candidate;
+            if (!b) return '';
+            var tot = parseFloat(cur('total'));
+            var paid = Math.abs(Number(b.amount));
+            var off = !isNaN(tot) && Math.abs(paid - tot) > 0.009;
+            var when = new Date(b.date + 'T12:00:00').toLocaleDateString('en-CA', { month: 'short', day: 'numeric' });
+            return '<div class="mw-rc-bankchip' + (off ? ' is-off' : '') + '" title="' + esc(b.description || '') + '">' +
+                '<span class="mw-rc-bankchip-k">🏦 Bank charged</span> <b>' + money(paid) + '</b> <span class="mw-rc-bankchip-d">on ' + esc(when) + '</span>' +
+                (off ? '<span class="mw-rc-bankchip-n">not ' + money(tot) + '</span><button type="button" class="mw-rc-bankchip-use" data-act="usebank" data-amt="' + paid.toFixed(2) + '">Use ' + money(paid) + '</button>'
+                     : '<span class="mw-rc-bankchip-n">✓ matches</span>') +
+            '</div>';
+        };
         var tagFld = function (f, label, control, conff) {
             return '<div class="mw-rc-fld' + (mine(f) ? ' is-yours' : '') + '" data-fld="' + f + '"><div class="mw-k">' + esc(label) +
                 ' ' + conf(s, conff || f) + '<span class="mw-rc-yours">edited by you</span></div>' +
@@ -226,7 +234,7 @@
             tagFld('expense_date', 'Receipt date', dateCtl) +
             tagFld('accounting_category', 'Category', '<select class="mw-rc-in' + (changed(it, 'accounting_category') ? ' mw-rc-changed' : '') + '" data-f="accounting_category">' + catOpts + '</select>') +
             tagFld('asset_tag', 'For', '<select class="mw-rc-in" data-f="asset_tag">' + tagOpts + '</select>') +
-            tagFld('total', 'Total · GST · PST', '<div class="mw-rc-amts">' + amt('total', 'Total') + amt('gst', 'GST') + amt('pst', 'PST') + '</div>') +
+            tagFld('total', 'Total · GST · PST', '<div class="mw-rc-amts">' + amt('total', 'Total') + amt('gst', 'GST') + amt('pst', 'PST') + '</div>' + bankChip()) +
             tagFld('job', 'Job', jobCtl);
 
         var top = function (closeBtn) {
@@ -678,6 +686,12 @@
         if (act === 'close') { setZoom(false); render(); }
         else if (act === 'bigger') { zoomBig = !zoomBig; render(); }
         else if (act === 'rotate') { e.stopPropagation(); rotate(); }
+        else if (act === 'usebank') {
+            var tin = root.querySelector('[data-f="total"]');
+            if (tin) { tin.value = e.target.getAttribute('data-amt'); tin.dispatchEvent(new Event('input', { bubbles: true })); }
+            var chip = e.target.closest('.mw-rc-bankchip');
+            if (chip) { chip.classList.remove('is-off'); chip.querySelector('.mw-rc-bankchip-n').textContent = '✓ matches'; e.target.remove(); }
+        }
         else if (act === 'approve') approve();
         else if (act === 'draft') submit(true);
         else if (act === 'recheck') recheck();
