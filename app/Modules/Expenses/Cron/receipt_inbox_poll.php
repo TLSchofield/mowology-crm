@@ -256,6 +256,7 @@ foreach ($mailboxes as $mb) {
                 rpWalk($struct, '', $parts);
             }
             if (empty($parts)) {
+                if ($mb['filter']) rpLog("office@ skip (no PDF/photo attached): {$from} — {$subject}");
                 // No PDF/image attachment — nothing to ingest. Body-only receipts
                 // (Stripe/Amazon/Uber HTML) are phase 2. Cheap to re-scan headers.
                 continue;
@@ -263,6 +264,7 @@ foreach ($mailboxes as $mb) {
 
             // office@ is a shared inbox: only receipt-looking mail (ReceiptInboxService::isOfficeReceipt).
             if ($mb['filter'] && !ReceiptInboxService::isOfficeReceipt($from, $subject, (string)($parts[0]['filename'] ?? ''), $ownerEmails, $clientEmails)) {
+                rpLog("office@ skip (doesn't look like a receipt): {$from} — {$subject} — " . ($parts[0]['filename'] ?? ''));
                 continue;
             }
 
