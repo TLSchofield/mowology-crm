@@ -1420,6 +1420,8 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
             function openAddProductModal() {
               document.getElementById('modalTitle').textContent = 'Add New Product/Service';
               document.getElementById('productForm').reset();
+              // reset() keeps a hidden input's value: without this, "Add" after "Edit" saves over the edited product
+              document.querySelector('#productForm [name="id"]').value = '';
               clearProductImage();
               document.getElementById('imageSuggestions').style.display = 'none';
               resetIconSetPicker();
