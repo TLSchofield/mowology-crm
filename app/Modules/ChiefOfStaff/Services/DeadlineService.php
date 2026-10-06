@@ -49,10 +49,20 @@ class DeadlineService
             if ((int)$openQ->fetchColumn() > 0) continue;
             $lastQ->execute([(int)$d['id']]);
             $last = $lastQ->fetchColumn();
-            $from = $last ? date('Y-m-d', strtotime($last . ' +1 day')) : $this->today();
-            $next = DeadlineRules::nextDue((string)$d['rule'], $from, $d['anchor_date'] ?: null);
+            $next = self::nextOccurrence((string)$d['rule'], $last ?: null, $this->today(), $d['anchor_date'] ?: null);
             if ($next) $ins->execute([(int)$d['id'], $next]);
         }
+    }
+
+    /**
+     * Pure: the next occurrence to open. First time (nothing dealt with yet): the next due
+     * date on or after today, so nothing is overdue on day one. After that: the next date
+     * after the last one dealt with — a later miss stays a miss.
+     */
+    public static function nextOccurrence(string $rule, ?string $lastDue, string $today, ?string $anchor = null): ?string
+    {
+        $from = $lastDue ? date('Y-m-d', strtotime($lastDue . ' +1 day')) : $today;
+        return DeadlineRules::nextDue($rule, $from, $anchor);
     }
 
     /** Every deadline with its current occurrence, for the calendar page (sorted by due date). */

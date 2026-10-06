@@ -93,6 +93,14 @@ class DeadlineRulesTest extends TestCase
         $this->assertMatchesRegularExpression("/'corp_instalments'[^;]*, 0\\),/s", $sql, 'instalments start switched off');
     }
 
+    public function test_seeded_on_oct_6_the_first_occurrence_is_never_in_the_past(): void
+    {
+        $this->assertSame('2026-10-15', DeadlineService::nextOccurrence('monthly:15', null, '2026-10-06'), 'monthly-15th: Oct 15, not Sep 15');
+        $this->assertSame('2027-01-31', DeadlineService::nextOccurrence('annual:01-31', null, '2026-10-06'));
+        $this->assertSame('2026-11-15', DeadlineService::nextOccurrence('monthly:15', '2026-10-15', '2026-10-06'), 'after one is done: the next');
+        $this->assertSame('2026-10-15', DeadlineService::nextOccurrence('monthly:15', '2026-09-15', '2026-11-20'), 'a real miss stays a miss');
+    }
+
     public function test_a_deadline_becomes_a_brief_item_with_a_stable_key(): void
     {
         $it = DeadlineService::item(['slug' => 'van_licence', 'due_date' => '2026-12-31', 'category' => 'licence', 'title' => 'City of Vancouver business licence renewal',
