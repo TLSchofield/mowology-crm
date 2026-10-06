@@ -45,6 +45,13 @@ class StatementCloseService
     public function status(): array
     {
         $bal = $this->hasBalances() ? 's.balance_opening, s.balance_closing' : 'NULL AS balance_opening, NULL AS balance_closing';
+        // A line matched at import to a receipt points at that receipt's ledger row; the
+        // receipt sync re-creates the row under a new id, so the line is still in the
+        // books when its receipt's row exists (2026-10-05: all 26 "missing" were this).
+        $receiptStillThere = $this->hasRowExpenseMatch()
+            ? "AND NOT (r.matched_expense_id IS NOT NULL AND EXISTS (SELECT 1 FROM accounting_transactions t2
+                        WHERE t2.reference_type = 'expense' AND t2.reference_id = r.matched_expense_id))"
+            : '';
         $sessions = $this->db->query("
             SELECT s.id, s.filename, s.bank_name, s.account_name, s.bank_account_id, s.date_from, s.date_to,
                    {$bal},
@@ -53,7 +60,8 @@ class StatementCloseService
                    (SELECT COUNT(*) FROM bank_import_rows r WHERE r.session_id = s.id) AS line_count,
                    (SELECT COUNT(*) FROM bank_import_rows r
                      WHERE r.session_id = s.id AND r.is_duplicate = 0 AND r.transaction_id IS NOT NULL
-                       AND NOT EXISTS (SELECT 1 FROM accounting_transactions t WHERE t.id = r.transaction_id)) AS missing
+                       AND NOT EXISTS (SELECT 1 FROM accounting_transactions t WHERE t.id = r.transaction_id)
+                       {$receiptStillThere}) AS missing
             FROM bank_import_sessions s
             LEFT JOIN chart_of_accounts c ON c.id = s.bank_account_id
             WHERE s.status = 'imported' AND s.date_from IS NOT NULL
@@ -88,6 +96,8 @@ class StatementCloseService
             FROM bank_import_rows r
             WHERE r.session_id = ? AND r.is_duplicate = 0 AND r.transaction_id IS NOT NULL
               AND NOT EXISTS (SELECT 1 FROM accounting_transactions t WHERE t.id = r.transaction_id)
+              " . ($this->hasRowExpenseMatch() ? "AND NOT (r.matched_expense_id IS NOT NULL AND EXISTS (SELECT 1 FROM accounting_transactions t2
+                        WHERE t2.reference_type = 'expense' AND t2.reference_id = r.matched_expense_id))" : '') . "
             ORDER BY r.transaction_date, r.id
         ");
         $s->execute([$sessionId]);
@@ -107,6 +117,15 @@ class StatementCloseService
             ];
         }
         return $out;
+    }
+
+    private function hasRowExpenseMatch(): bool
+    {
+        try {
+            return $this->db->query("SHOW COLUMNS FROM bank_import_rows LIKE 'matched_expense_id'")->rowCount() > 0;
+        } catch (Throwable $e) {
+            return false;
+        }
     }
 
     /** Locked months (YYYY-MM). */
