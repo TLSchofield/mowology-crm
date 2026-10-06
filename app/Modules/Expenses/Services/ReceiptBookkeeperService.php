@@ -126,6 +126,18 @@ class ReceiptBookkeeperService
         ];
     }
 
+    /** What the bank actually charged for this receipt, when a bank line matches it. */
+    private function bankCharge(int $expenseId): ?array
+    {
+        try {
+            require_once APP_ROOT . '/Modules/Accounting/Services/BankImportService.php';
+            $c = (new BankImportService($this->db))->candidateTransactionsForExpense($expenseId, 1)[0] ?? null;
+            return $c && $c['confidence'] >= 60 ? ['date' => $c['date'], 'amount' => abs((float)$c['amount'])] : null;
+        } catch (Throwable $e) {
+            return null;
+        }
+    }
+
     private function hasPromptVersion(): bool
     {
         static $has = null;
@@ -179,7 +191,7 @@ For the receipt you're given, decide:
 - accounting_category: one of the listed categories.
 - asset_tag: "truck" or "equipment" when the cost belongs to the Dodge Ram truck or to the landscaping equipment (mowers, trimmers, blowers); "stock" when it's shop stock — bought to keep on hand, not for one job (then job is null); "none" otherwise. Fuel always gets a tag. If the vendor's history shows the owner booking similar items as stock, follow that.
 - job: the job (plan_id from the candidates) the purchase was for, or null when it wasn't for one specific job (shop supplies, fuel, office) or you can't tell. Materials are almost never carried for two days: candidates whose source is 'where the truck/crew went' are where the truck or crew actually stopped after the purchase that day — prefer the first of those over the planned schedule.
-- subtotal, gst, pst, total as printed on the receipt. In BC, GST is 5% and PST is 7%; some items carry only GST (e.g. food, some services), some neither. Read the printed amounts — never compute, round or adjust an amount yourself. If a figure isn't printed, use 0 for a tax, or the nearest printed figure for the total, and say in your reason what was missing; if the reader's value differs from the print, give the printed value. Code checks every amount against the receipt text.
+- subtotal, gst, pst, total as printed on the receipt. In BC, GST is 5% and PST is 7%; some items carry only GST (e.g. food, some services), some neither. Read the printed amounts — never compute, round or adjust an amount yourself. If a figure isn't printed, use 0 for a tax, or the nearest printed figure for the total, and say in your reason what was missing; if the reader's value differs from the print, give the printed value. Code checks every amount against the receipt text. When bank_charge is given, that is what the bank actually charged: if the receipt's total is unclear, cut off or missing, use bank_charge.amount as the total and say so; if it disagrees with a clearly printed total, keep the printed one and point out the difference.
 - line_items: each purchased item as printed, with its amount. Omit non-items (subtotals, tax lines, payment lines, store messages).
 
 The owner's rules are given as rule_hits. A "firm" rule is how the owner books it — follow it. A "soft" rule is a strong hint you may overrule when the receipt clearly says otherwise; say why.
@@ -337,6 +349,7 @@ TXT;
             'vendor_history'      => $vendorId ? $this->vendorHistory($vendorId, $expenseId, $hideFinal ? $date : null) : [],
             'job_candidates'      => $this->jobCandidates($e, $date, $time),
             'categories'          => array_values(EXPENSE_ACCOUNTING_CATEGORIES),
+            'bank_charge'         => $hideFinal ? null : $this->bankCharge($expenseId),
         ];
         if (!$hideFinal && ($e['notes'] ?? '') !== '') {
             $prompt['crew_notes'] = mb_substr((string)$e['notes'], 0, 500);

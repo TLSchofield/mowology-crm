@@ -164,6 +164,12 @@
         }).concat((it.anomalies || []).filter(function (a) { return a.code !== 'DUPLICATE_DAY'; }).map(function (a) {
             return '<span class="is-bad" title="Receipts system anomaly rule ' + esc(a.code) + '">⚠ ' + esc(a.detail) + '</span>';
         })).concat(it.bank ? ['<span title="' + esc(it.bank.description || '') + '">🏦 Matched to the bank: ' + esc(it.bank.date || '') + ' · ' + money(Math.abs(it.bank.amount)) + '</span>'] : [])
+          .concat(it.bank_candidate ? (function (b) {
+              var tot = parseFloat(val(s, 'total'));
+              var off = !isNaN(tot) && Math.abs(Math.abs(b.amount) - tot) > 0.009;
+              return ['<span class="' + (off ? 'is-bad' : '') + '" title="' + esc(b.description || '') + '">🏦 Bank charged ' + money(Math.abs(b.amount)) + ' on ' + esc(b.date) +
+                  (off ? ' — not ' + money(tot) + '. The bank is right if the photo is unclear.' : ' — matches') + '</span>'];
+          })(it.bank_candidate) : [])
           .join(' &nbsp; ');
 
         // Always editable: the value shown is Penny's (or your saved draft); type over it.

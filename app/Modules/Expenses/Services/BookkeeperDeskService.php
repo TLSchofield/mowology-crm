@@ -216,6 +216,9 @@ class BookkeeperDeskService
                 // The receipts system's own warnings: anomaly rules, and the bank line it matched.
                 'anomalies'     => $this->anomalies((int)$r['expense_id']),
                 'bank'          => $bank[(int)$r['expense_id']] ?? null,
+                // Not linked yet: the bank charge that looks like this receipt — the truth
+                // when the photo is cut off or unclear (amount within 2%, ±14 days, vendor).
+                'bank_candidate' => isset($bank[(int)$r['expense_id']]) ? null : $this->bankCandidate((int)$r['expense_id']),
                 'subtotal'      => $r['amount'] !== null ? (float)$r['amount'] : null,
                 'current'       => json_decode((string)$r['current_json'], true) ?: [],
                 // The owner's saved-but-not-approved edits, if any — the form reopens with them.
@@ -245,6 +248,17 @@ class BookkeeperDeskService
     }
 
     /** expense id => the bank line it was matched to (bank import reconciliation). */
+    private function bankCandidate(int $expenseId): ?array
+    {
+        try {
+            require_once APP_ROOT . '/Modules/Accounting/Services/BankImportService.php';
+            $c = (new BankImportService($this->db))->candidateTransactionsForExpense($expenseId, 1)[0] ?? null;
+            return $c && $c['confidence'] >= 60 ? ['date' => $c['date'], 'amount' => $c['amount'], 'description' => $c['description']] : null;
+        } catch (Throwable $e) {
+            return null;
+        }
+    }
+
     private function bankMatches(array $expenseIds): array
     {
         if (!$expenseIds) return [];
