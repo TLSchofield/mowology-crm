@@ -193,7 +193,7 @@
         });
     }
 
-    function open(btn, units, bright, parts) {
+    function open(btn, units, bright, parts, since) {
         var pop = document.createElement('div');
         pop.className = 'mw-brain-pop';
         pop.setAttribute('role', 'dialog');
@@ -209,7 +209,8 @@
             (parts.length ? '<ul>' + parts.map(function (p) { return '<li>▲ ' + esc(p.label) + '</li>'; }).join('') + '</ul>'
                           : '<p>Nothing learned yet. Every receipt you approve or correct teaches her something.</p>') +
             '<p class="mw-brain-note">Each thing she learns lights a triangle and moves her on to the next, more complex shape. ' +
-            'She glows brighter the more often she\'s right first time (' + Math.round(bright * 100) + '%).</p>';
+            'She glows brighter the more often she\'s right first time (' + Math.round(bright * 100) + '%).' +
+            (since ? ' Counting since ' + esc(since) + '.' : '') + '</p>';
         function close() { view.stop(); pop.remove(); document.removeEventListener('keydown', onKey); btn.focus(); }
         function onKey(e) { if (e.key === 'Escape') close(); }
         pop.addEventListener('click', function (e) { if (e.target === pop || e.target.classList.contains('mw-brain-close')) close(); });
@@ -227,7 +228,8 @@
             try { parts = JSON.parse(btn.getAttribute('data-parts') || '[]'); } catch (e) {}
             var view = draw(btn.querySelector('canvas'), units, bright);
             btn.title = "Penny's brain: " + units + ' thing' + (units === 1 ? '' : 's') + ' learned · shape ' + view.shape.k + ' of ' + SHAPES + ' (click for more)';
-            btn.addEventListener('click', function () { open(btn, units, bright, parts); });
+            var since = btn.getAttribute('data-since') || '';
+            btn.addEventListener('click', function () { open(btn, units, bright, parts, since); });
         });
     }
     window.PennyBrain = { shape: shape, SHAPES: SHAPES };

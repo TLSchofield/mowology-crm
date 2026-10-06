@@ -21,4 +21,10 @@ class PennyBrainServiceTest extends TestCase
         $this->assertSame(24, PennyBrainService::shapeNumber(23));
         $this->assertSame(500, PennyBrainService::shapeNumber(9999));
     }
+
+    public function test_only_what_she_learned_since_her_start_line_counts(): void
+    {
+        $now = PennyBrainService::sinceBaseline(['lessons' => 370, 'badges' => 1, 'trusted' => 1], ['lessons' => 365, 'badges' => 2]);
+        $this->assertSame(['lessons' => 5, 'badges' => 0, 'trusted' => 1], $now);
+    }
 }

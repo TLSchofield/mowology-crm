@@ -61,7 +61,8 @@ $__team = [
           <button type="button" class="mw-brain" aria-label="Penny's brain: <?= (int)$__brain['units'] ?> things learned"
                   data-units="<?= (int)$__brain['units'] ?>"
                   data-bright="<?= h((string)(($ps['right_first_time'] ?? 50) / 100)) ?>"
-                  data-parts="<?= h(json_encode($__brain['parts'])) ?>"><canvas></canvas></button>
+                  data-parts="<?= h(json_encode($__brain['parts'])) ?>"
+                  data-since="<?= h(!empty($__brain['since']) ? date('M j, Y', strtotime($__brain['since'])) : '') ?>"><canvas></canvas></button>
         <?php endif; ?>
       </div>
       <div>
