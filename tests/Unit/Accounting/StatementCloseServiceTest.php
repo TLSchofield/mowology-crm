@@ -38,4 +38,11 @@ class StatementCloseServiceTest extends TestCase
         $this->assertStringContainsString('opens at 1,150.00 but the last statement closed at 1,200.00', $p[2]);
         $this->assertSame(['2026-07'], $r['gaps']);
     }
+
+    public function test_no_saved_balance_is_unproven_not_broken(): void
+    {
+        $r = StatementCloseService::check([$this->st(1, '2025-12-01', '2025-12-31', null, null, -50)]);
+        $this->assertSame(0, $r['open']);
+        $this->assertSame(1, $r['unproven']);
+    }
 }

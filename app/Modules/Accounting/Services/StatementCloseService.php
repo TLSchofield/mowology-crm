@@ -26,7 +26,13 @@ class StatementCloseService
         $this->db = $db;
     }
 
+    /** Statements are always checkable; balances need migration 1068 (run-migration-1068.php). */
     public function ready(): bool
+    {
+        return true;
+    }
+
+    public function hasBalances(): bool
     {
         try {
             return $this->db->query("SHOW COLUMNS FROM bank_import_sessions LIKE 'balance_opening'")->rowCount() > 0;
@@ -38,10 +44,10 @@ class StatementCloseService
     /** @return array<int, array{account: string, statements: array, gaps: array, closed: int, open: int}> */
     public function status(): array
     {
-        if (!$this->ready()) return [];
+        $bal = $this->hasBalances() ? 's.balance_opening, s.balance_closing' : 'NULL AS balance_opening, NULL AS balance_closing';
         $sessions = $this->db->query("
             SELECT s.id, s.filename, s.bank_name, s.account_name, s.bank_account_id, s.date_from, s.date_to,
-                   s.balance_opening, s.balance_closing,
+                   {$bal},
                    c.code AS acct_code, c.name AS acct_name,
                    (SELECT COALESCE(SUM(r.raw_amount), 0) FROM bank_import_rows r WHERE r.session_id = s.id) AS net,
                    (SELECT COUNT(*) FROM bank_import_rows r WHERE r.session_id = s.id) AS line_count,
@@ -87,19 +93,22 @@ class StatementCloseService
             $chains = ($open !== null && $prevClosing !== null) ? abs(round($open - $prevClosing, 2)) < self::CENTS : null;
             $problems = [];
             if ($addsUp === false) $problems[] = sprintf('lines add up to %s, not the closing %s', number_format($open + (float)$r['net'], 2), number_format($close, 2));
-            if ($addsUp === null) $problems[] = 'no opening/closing balance on the statement';
+            $unproven = $addsUp === null;
             if ((int)$r['missing'] > 0) $problems[] = (int)$r['missing'] . ' line' . ((int)$r['missing'] === 1 ? '' : 's') . ' no longer in the books';
             if ($chains === false) $problems[] = sprintf('opens at %s but the last statement closed at %s', number_format($open, 2), number_format($prevClosing, 2));
             $statements[] = [
                 'id' => (int)$r['id'], 'from' => $r['date_from'], 'to' => $r['date_to'], 'file' => $r['filename'] ?? '',
                 'opening' => $open, 'closing' => $close, 'adds_up' => $addsUp, 'chains' => $chains,
                 'missing' => (int)$r['missing'], 'ok' => $addsUp === true && (int)$r['missing'] === 0 && $chains !== false,
+                'unproven' => $unproven && !$problems,   // no balance saved, nothing wrong found
                 'problems' => $problems,
             ];
             if ($close !== null) $prevClosing = $close;
         }
         $closed = count(array_filter($statements, fn($s) => $s['ok']));
-        return ['statements' => $statements, 'gaps' => self::gaps($rows), 'closed' => $closed, 'open' => count($statements) - $closed];
+        $unproven = count(array_filter($statements, fn($s) => $s['unproven']));
+        return ['statements' => $statements, 'gaps' => self::gaps($rows), 'closed' => $closed, 'unproven' => $unproven,
+                'open' => count($statements) - $closed - $unproven];
     }
 
     /** Months (YYYY-MM) between the first and last statement that no statement covers. */

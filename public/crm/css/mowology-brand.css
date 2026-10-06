@@ -37736,6 +37736,7 @@ span.mw-icon-box--missing {
 .mw-sc-acct ul { margin: 6px 0 4px 18px; padding: 0; font-size: .78rem; }
 .mw-sc-ok { color: var(--mw-green); font-weight: 600; }
 .mw-sc-bad { color: var(--mw-orange); font-weight: 600; }
+.mw-sc-un { color: var(--mw-ink-500); font-weight: 600; }
 .mw-bl { margin-top: 14px; border: 1px solid var(--mw-ink-200); border-radius: var(--mw-radius-md); padding: 12px 14px; background: var(--mw-ink-0); }
 .mw-bl-head { display: flex; justify-content: space-between; align-items: center; font-size: .82rem; color: var(--mw-forest); margin-bottom: 8px; }
 .mw-bl-line { background: var(--mw-light); border-radius: 10px; padding: 10px 12px; }
