@@ -166,7 +166,7 @@ class SalesDeskService
                    q.sent_at, q.viewed_at, q.last_viewed_at, q.email_opened_at, q.view_count, q.valid_until,
                    q.follow_up_sent_at, COALESCE(q.follow_up_count, 0) AS follow_up_count,
                    c.id AS contact_id, c.first_name, c.last_name, c.email, COALESCE(NULLIF(c.mobile, ''), c.phone) AS phone,
-                   co.name AS company_name, p.address
+                   co.company_name AS company_name, p.address
             FROM quotes q
             LEFT JOIN properties p ON p.id = q.property_id
             LEFT JOIN contacts c ON c.id = COALESCE(q.contact_id, p.site_contact_id)

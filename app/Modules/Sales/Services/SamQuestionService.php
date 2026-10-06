@@ -60,7 +60,7 @@ class SamQuestionService
         $amt = SalesDeskService::AMOUNT_SQL;
         $rows = $this->db->query("
             SELECT sq.id, sq.quote_id, q.quote_number, q.valid_until, {$amt} AS amount, q.status,
-                   c.first_name, c.last_name, co.name AS company_name, p.address
+                   c.first_name, c.last_name, co.company_name AS company_name, p.address
             FROM sam_questions sq
             JOIN quotes q ON q.id = sq.quote_id
             LEFT JOIN contacts c ON c.id = q.contact_id
