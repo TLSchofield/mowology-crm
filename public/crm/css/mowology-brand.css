@@ -37728,6 +37728,12 @@ span.mw-icon-box--missing {
 .mw-rc-isave { font-size: .72rem; color: var(--mw-green); }
 .mw-rc-isave.is-bad { color: var(--mw-orange); }
 /* Penny's bank lines (penny-bank.js) */
+.mw-et { margin-top: 14px; border: 1px solid var(--mw-ink-200); border-radius: var(--mw-radius-md); padding: 12px 14px; background: var(--mw-ink-0); }
+.mw-et-claim { margin-top: 6px; font-size: .78rem; color: var(--mw-orange); font-weight: 600; }
+.mw-et-lines { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 2px; }
+.mw-et-l { display: grid; grid-template-columns: minmax(0, 220px) 110px 26px; gap: 6px; align-items: center; }
+.mw-et-l .mw-rc-in { width: 100%; min-width: 0; }
+.mw-et-add { align-self: flex-start; background: var(--mw-ink-0); color: var(--mw-forest); border: 1px solid var(--mw-ink-200); border-radius: 8px; padding: 4px 10px; font-size: .75rem; font-weight: 600; }
 .mw-sc { margin-top: 14px; border: 1px solid var(--mw-ink-200); border-radius: var(--mw-radius-md); padding: 12px 14px; background: var(--mw-ink-0); }
 .mw-sc .mw-bl-head { flex-wrap: wrap; gap: 4px 10px; }
 .mw-sc .mw-bl-head span { font-size: .75rem; color: var(--mw-ink-500); }

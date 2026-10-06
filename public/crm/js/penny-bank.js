@@ -117,6 +117,93 @@
 
     load();
 
+    // ── Pending e-Transfers: same reading as the Invoices panel; the owner presses Record ──
+    var et = document.getElementById('mw-et');
+    var etItems = [], etIdx = 0, etWaiting = 0;
+    function loadEt(msg) {
+        if (!et) return;
+        fetch(API + '?mode=etransfers&limit=12', { cache: 'no-store' })
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                etItems = (d && d.ok && d.items) || [];
+                etWaiting = (d && d.waiting) || 0;
+                etIdx = 0;
+                renderEt(msg);
+            })
+            .catch(function () { et.hidden = true; });
+    }
+    function etLine(l) {
+        return '<div class="mw-et-l"><input class="mw-rc-in" data-et-inv placeholder="INV-2026-…" value="' + esc(l.invoice) + '" aria-label="Invoice number">' +
+            '<input class="mw-rc-in" data-et-amt type="number" step="0.01" inputmode="decimal" value="' + esc(Number(l.amount).toFixed(2)) + '" aria-label="Amount">' +
+            '<button type="button" class="mw-rc-idel" data-et-del aria-label="Remove line">✕</button></div>';
+    }
+    function renderEt(msg) {
+        if (!et) return;
+        if (!etItems.length) { et.hidden = !msg; et.innerHTML = msg ? '<div class="mw-bl-head"><b>💸 e-Transfers</b></div><div class="mw-rc-empty">' + esc(msg) + '</div>' : ''; return; }
+        et.hidden = false;
+        if (etIdx >= etItems.length) etIdx = 0;
+        var t = etItems[etIdx];
+        var lines = t.lines.length ? t.lines : [{ invoice: '', amount: t.active }];
+        et.innerHTML =
+            '<div class="mw-bl-head"><span><b>💸 e-Transfers</b> · ' + etWaiting + ' waiting</span>' +
+              '<span><button type="button" class="mw-rc-arrow" data-et="prev" aria-label="Previous">‹</button> ' +
+              '<button type="button" class="mw-rc-arrow" data-et="next" aria-label="Next">›</button></span></div>' +
+            '<div class="mw-bl-line"><div class="mw-bl-top"><span>' + esc(t.date ? String(t.date).slice(0, 10) : '') + '</span><b class="is-in">+$' + Number(t.amount).toFixed(2) + '</b></div>' +
+              '<div class="mw-bl-desc">' + esc(t.sender) + (t.memo ? ' — “' + esc(t.memo) + '”' : '') + '</div>' +
+              '<div class="mw-bl-now">' + (t.confirmed === 3 ? '✓ Bank deposit, invoice and email all match' : t.confirmed + '/3 confirmed — missing ' + esc(t.missing.join(' & '))) + '</div>' +
+              (t.claim ? '<div class="mw-et-claim">⚠ Claim it in your online banking first — it isn\'t deposited until you do.</div>' : '') +
+            '</div>' +
+            '<div class="mw-bl-say">' + (GREETING ? esc(GREETING) + ', ' : '') + esc(t.say) + '</div>' +
+            (t.kind === 'duplicate' ? '' : '<div class="mw-et-lines">' + lines.map(etLine).join('') +
+              '<button type="button" class="mw-rc-ed mw-et-add" data-et="split">+ split across another invoice</button></div>') +
+            '<div class="mw-rc-actions">' +
+              (t.kind === 'duplicate'
+                ? '<button type="button" class="mw-rc-ok" data-et="dismiss">Already recorded — dismiss</button><button type="button" class="mw-rc-ed" data-et="record-anyway">Record anyway</button>'
+                : '<button type="button" class="mw-rc-ok" data-et="record">✓ Record payment</button><button type="button" class="mw-rc-ed" data-et="dismiss">Dismiss</button>') +
+              '<a class="mw-rc-sk" href="/crm/invoices/index.php#etransfers">Invoices page →</a>' +
+              '<button type="button" class="mw-rc-sk" data-et="next">Skip →</button>' +
+            '</div><div class="mw-rc-msg">' + (msg ? esc(msg) : '') + '</div>';
+    }
+    function etPost(fields) {
+        var fd = new FormData();
+        fd.append('csrf_token', window.MW_CSRF_TOKEN || '');
+        Object.keys(fields).forEach(function (k) {
+            var v = fields[k];
+            if (Array.isArray(v)) v.forEach(function (x) { fd.append(k + '[]', x); }); else fd.append(k, v);
+        });
+        return fetch('/crm/api/etransfer-confirm.php', { method: 'POST', body: fd }).then(function (r) { return r.json(); });
+    }
+    if (et) {
+        et.addEventListener('click', function (e) {
+            var a = e.target.getAttribute && e.target.getAttribute('data-et');
+            if (e.target.hasAttribute && e.target.hasAttribute('data-et-del')) { var row = e.target.closest('.mw-et-l'); if (row && et.querySelectorAll('.mw-et-l').length > 1) row.remove(); return; }
+            if (!a) return;
+            var t = etItems[etIdx];
+            if (a === 'next') { etIdx = (etIdx + 1) % Math.max(1, etItems.length); renderEt(); return; }
+            if (a === 'prev') { etIdx = (etIdx - 1 + etItems.length) % Math.max(1, etItems.length); renderEt(); return; }
+            if (a === 'split') { e.target.insertAdjacentHTML('beforebegin', etLine({ invoice: '', amount: 0 })); return; }
+            if (a === 'record-anyway') { t.kind = 'hint'; renderEt('Check the invoice and amount, then record.'); return; }
+            var req;
+            if (a === 'dismiss') {
+                req = etPost({ action: 'dismiss', notification_id: t.id });
+            } else {
+                var invs = [], amts = [];
+                et.querySelectorAll('.mw-et-l').forEach(function (r) {
+                    var i = r.querySelector('[data-et-inv]').value.trim(), m = r.querySelector('[data-et-amt]').value;
+                    if (i) { invs.push(i); amts.push(m); }
+                });
+                if (!invs.length) { renderEt('Type the invoice number first.'); return; }
+                req = etPost({ action: 'record', notification_id: t.id, invoice_numbers: invs, amounts: amts });
+            }
+            e.target.disabled = true;
+            req.then(function (d) {
+                if (d && d.ok) { loadEt(d.message || (a === 'dismiss' ? 'Dismissed.' : 'Recorded.')); }
+                else { e.target.disabled = false; renderEt((d && d.message) || 'Could not save'); }
+            }).catch(function () { e.target.disabled = false; renderEt('Network error — try again'); });
+        });
+        loadEt();
+    }
+
     // ── Month-close proof: does every statement add up, stay in the books and chain? ──
     var sc = document.getElementById('mw-sc');
     function loadClose() {

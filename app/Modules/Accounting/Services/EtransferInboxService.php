@@ -260,7 +260,7 @@ class EtransferInboxService
 
         $matching = array_values(array_filter(
             $this->payableInvoicesWithPayer(),
-            fn($inv) => self::namesMatch($senderName, (string) $inv['payer_name'])
+            fn($inv) => $this->paysFor($senderName, (string) $inv['payer_name'])
         ));
 
         return self::allocateFifo($matching, $amount);
@@ -345,6 +345,7 @@ class EtransferInboxService
                 'invoice_number' => (string) $inv['invoice_number'],
                 'balance_due'    => (float) $inv['balance_due'],
                 'apply_amount'   => $apply,
+                'payer_name'     => (string) ($inv['payer_name'] ?? ''),
             ];
             $remaining = round($remaining - $apply, 2);
         }
@@ -400,7 +401,7 @@ class EtransferInboxService
 
         $byDay = [];
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $inv) {
-            if (!self::namesMatch($senderName, (string) $inv['payer_name'])) {
+            if (!$this->paysFor($senderName, (string) $inv['payer_name'])) {
                 continue;
             }
             $dayTs = strtotime((string) $inv['pay_day']);
@@ -448,6 +449,66 @@ class EtransferInboxService
      * full legal "John Ellen Hughes"). Requires at least two words on both
      * sides so a single-word name can't loosely match anything containing it.
      */
+    /** sender key => [payer key => times] — who pays for whom, learned from recorded transfers. */
+    private ?array $learnedPayers = null;
+
+    /**
+     * Does this sender pay this payer's invoices? Their names match, or the owner has
+     * recorded this sender's transfers against this payer before (etransfer_sender_payers,
+     * migration 1132) — a strata plan paying an owner's bill, a spouse, a company account.
+     */
+    public function paysFor(?string $sender, string $payer): bool
+    {
+        if (!$sender) return false;
+        if (self::namesMatch($sender, $payer)) return true;
+        if ($this->learnedPayers === null) {
+            $this->learnedPayers = [];
+            try {
+                foreach ($this->db->query("SELECT sender_key, payer_key, times FROM etransfer_sender_payers")->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                    $this->learnedPayers[$r['sender_key']][$r['payer_key']] = (int)$r['times'];
+                }
+            } catch (Throwable $e) { /* before migration 1132 */ }
+        }
+        return isset($this->learnedPayers[self::normalizeName($sender)][self::normalizeName($payer)]);
+    }
+
+    /** How many times the owner has recorded this sender paying for this payer (0 = never). */
+    public function timesPaidFor(?string $sender, string $payer): int
+    {
+        $this->paysFor($sender, $payer);
+        return (int)($this->learnedPayers[self::normalizeName((string)$sender)][self::normalizeName($payer)] ?? 0);
+    }
+
+    /**
+     * Teach the matcher: the owner recorded this sender's transfer against these
+     * invoices, so this sender pays for those payers. Names that already match teach
+     * nothing new. Never blocks the recording.
+     * @param int[] $invoiceIds
+     */
+    public function learnSender(?string $sender, array $invoiceIds): void
+    {
+        $sKey = self::normalizeName((string)$sender);
+        $invoiceIds = array_values(array_filter(array_map('intval', $invoiceIds)));
+        if ($sKey === '' || !$invoiceIds) return;
+        try {
+            $in = implode(',', array_fill(0, count($invoiceIds), '?'));
+            $stmt = $this->db->prepare("SELECT DISTINCT " . self::PAYER_NAME_SQL . " AS payer_name FROM invoices i " . self::PAYER_NAME_JOINS . " WHERE i.id IN ($in)");
+            $stmt->execute($invoiceIds);
+            foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $payer) {
+                $payer = trim((string)$payer);
+                if ($payer === '' || self::namesMatch((string)$sender, $payer)) continue;
+                $this->db->prepare("
+                    INSERT INTO etransfer_sender_payers (sender_key, payer_key, sender_name, payer_name, times, last_seen)
+                    VALUES (?, ?, ?, ?, 1, NOW())
+                    ON DUPLICATE KEY UPDATE times = times + 1, last_seen = NOW()
+                ")->execute([$sKey, self::normalizeName($payer), mb_substr((string)$sender, 0, 255), mb_substr($payer, 0, 255)]);
+            }
+            $this->learnedPayers = null;
+        } catch (Throwable $e) {
+            error_log('[etransfer] learnSender failed: ' . $e->getMessage());
+        }
+    }
+
     private static function namesMatch(string $a, string $b): bool
     {
         $na = self::normalizeName($a);

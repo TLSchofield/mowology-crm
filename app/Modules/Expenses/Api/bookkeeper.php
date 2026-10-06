@@ -220,6 +220,12 @@ try {
             break;
         }
 
+        case 'etransfers': {
+            require_once APP_ROOT . '/Modules/Accounting/Services/EtransferDeskService.php';
+            echo json_encode(['ok' => true] + (new EtransferDeskService($db))->queue((int)($_GET['limit'] ?? 10)));
+            break;
+        }
+
         case 'close_status': {
             require_once APP_ROOT . '/Modules/Accounting/Services/StatementCloseService.php';
             $close = new StatementCloseService($db);

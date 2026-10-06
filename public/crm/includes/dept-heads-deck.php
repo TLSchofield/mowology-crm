@@ -162,6 +162,7 @@ $__team = [
         <div class="mw-rc-empty">Loading receipts…</div>
       </div>
 
+      <div class="mw-et" id="mw-et" hidden aria-live="polite"></div>
       <div class="mw-bl" id="mw-bl" hidden aria-live="polite" data-name="<?= h($__hi) ?>"></div>
       <div class="mw-sc" id="mw-sc" hidden></div>
 
