@@ -118,8 +118,9 @@ class PennyQuestionService
 
     public static function serviceWording(string $serviceType, int $invoices, float $amount, string $name = ''): string
     {
-        return sprintf('%s %d invoice%s ($%s) are for "%s" jobs and still land on Other Services. Which income account should "%s" go to? I\'ll use your answer from now on, and for the books re-post.',
-            $name !== '' ? "Hey {$name} —" : 'Hey —', $invoices, $invoices === 1 ? '' : 's', number_format($amount, 0), $serviceType, $serviceType);
+        return sprintf('%s %d invoice%s ($%s) %s for "%s" jobs and still land%s on Other Services. Which income account should "%s" go to? I\'ll use your answer from now on, and for the books re-post.',
+            $name !== '' ? "Hey {$name} —" : 'Hey —', $invoices, $invoices === 1 ? '' : 's', number_format($amount, 0),
+            $invoices === 1 ? 'is' : 'are', $serviceType, $invoices === 1 ? 's' : '', $serviceType);
     }
 
     /** The owner already said this job/contract + vendor is covered or not billable. */
@@ -251,6 +252,8 @@ class PennyQuestionService
                 $accts = $this->db->query("SELECT id, code, name FROM chart_of_accounts WHERE type = 'revenue' AND is_active = 1 ORDER BY code")->fetchAll(PDO::FETCH_ASSOC);
                 foreach ($service as &$q) {
                     $q['question'] = $name !== '' ? preg_replace('/^Hey —/', "Hey {$name} —", $q['question']) : $q['question'];
+                    // Questions saved before the singular fix.
+                    $q['question'] = preg_replace('/\b1 invoice (\(\$[\d,]+\)) are (.*?) still land on/', '1 invoice $1 is $2 still lands on', $q['question']);
                     $q['choices'] = $accts;
                 }
                 unset($q);
