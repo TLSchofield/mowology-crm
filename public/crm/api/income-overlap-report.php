@@ -81,4 +81,29 @@ foreach ($byYear as $y => &$k) {
 }
 unset($k);
 
+// ?detail=1: when CRM invoicing started, how invoices were numbered, and every unmatched deposit.
+if (!empty($_GET['detail'])) {
+    $one = fn($sql) => $db->query($sql)->fetch(PDO::FETCH_ASSOC);
+    $detail = [
+        'first_invoice'      => $one("SELECT MIN(issue_date) AS first_issue, MIN(created_at) AS first_created, COUNT(*) AS n FROM invoices"),
+        'first_paid'         => $one("SELECT MIN(COALESCE(paid_at, updated_at)) AS first_paid FROM invoices WHERE status IN ('paid','partial')"),
+        'first_stripe'       => $one("SELECT MIN(created_at) AS first_charge, COUNT(*) AS n FROM stripe_payments WHERE status = 'succeeded'"),
+        'numbering'          => $db->query("SELECT LEFT(invoice_number, 4) AS prefix, COUNT(*) AS n, MIN(issue_date) AS first, MAX(issue_date) AS last FROM invoices GROUP BY prefix ORDER BY n DESC LIMIT 12")->fetchAll(PDO::FETCH_ASSOC),
+        'created_vs_issued'  => $one("SELECT SUM(DATE(created_at) > DATE_ADD(issue_date, INTERVAL 30 DAY)) AS backdated, COUNT(*) AS n FROM invoices"),
+        'unmatched'          => $db->query("
+            SELECT t.id, t.transaction_date, t.amount, t.description, a.code
+            FROM accounting_transactions t LEFT JOIN chart_of_accounts a ON a.id = t.account_id
+            WHERE t.reference_type = 'bank_import' AND t.type = 'income' AND t.matched_invoice_id IS NULL
+              AND t.status IN ('cleared', 'reconciled') AND t.transaction_date >= '2026-01-01'
+              AND t.description NOT LIKE '%STRIPE%'
+              AND NOT EXISTS (SELECT 1 FROM accounting_transactions v
+                              WHERE v.reference_type = 'invoice' AND v.type = 'income' AND ABS(v.amount - t.amount) < 0.01
+                                AND v.transaction_date BETWEEN DATE_SUB(t.transaction_date, INTERVAL 14 DAY) AND DATE_ADD(t.transaction_date, INTERVAL 14 DAY))
+            ORDER BY t.transaction_date
+        ")->fetchAll(PDO::FETCH_ASSOC),
+    ];
+    echo json_encode(['read_only' => true] + $detail, JSON_PRETTY_PRINT);
+    exit;
+}
+
 echo json_encode(['read_only' => true, 'by_year' => $byYear, 'by_month' => $rows, 'locked_months' => array_keys($locked)], JSON_PRETTY_PRINT);
