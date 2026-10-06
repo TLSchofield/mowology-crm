@@ -12,6 +12,7 @@
  *                          last email — Tim's click only, capped per day.
  * POST {mode: 'answer', question_id, answer: lost|keep|won, csrf_token}
  * POST {mode: 'lead_dismiss', lead_id, csrf_token}    "Not a lead" (spam, out of area…)
+ * GET  ?mode=thread&contact_id=N  The emails/texts Sam holds for one contact (read-only).
  *
  * The card is always re-read on the server (card_key → SalesDeskService::queue()), so the
  * customer's address and quotes come from the CRM, never from the browser.
@@ -117,6 +118,20 @@ try {
 
         case 'answer': {
             echo json_encode($sq->answer((int)($input['question_id'] ?? 0), (string)($input['answer'] ?? ''), (int)$user['id'], $name));
+            break;
+        }
+
+        case 'thread': {
+            // Read-only: the conversation Sam holds for one contact (office@ email + texts).
+            $cid = (int)($_GET['contact_id'] ?? 0);
+            if ($cid <= 0) { echo json_encode(['ok' => false, 'error' => 'contact_id required']); break; }
+            $s = $db->prepare("
+                SELECT direction, channel, subject, snippet, sent_at
+                FROM sales_messages WHERE contact_id = ?
+                ORDER BY sent_at DESC, id DESC LIMIT 30
+            ");
+            $s->execute([$cid]);
+            echo json_encode(['ok' => true, 'messages' => $s->fetchAll(PDO::FETCH_ASSOC)]);
             break;
         }
 
