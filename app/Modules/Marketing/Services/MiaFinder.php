@@ -8,6 +8,8 @@
  *               in the last 90 days than in the same 90 days a year ago
  *   referral  — a customer of two or more seasons, or one who left a review, with work done
  *               recently, not asked in the last 12 months (only when the referral program is on)
+ *   consent_ask — implied consent (from a job or paid invoice) runs out within 6 months and
+ *               there's no express consent: ask for it while goodwill is high
  *
  * Who Mia leaves alone:
  *   - anyone with an open quote or new quote request — Sam owns them (SAM_OPEN rule below,
@@ -15,7 +17,8 @@
  *   - anyone with an active plan, a future visit or an active contract (except for referral
  *     asks — happy current customers are exactly who to ask)
  *   - anyone muted or snoozed (mia_mutes), or suggested in the last 60 days
- *   - anyone the CRM may not market to: unsubscribed, or no consent (canSendMarketing rules)
+ *   - anyone the consent ledger says may not get marketing email (unsubscribed, withdrawn,
+ *     no express consent and no job or paid invoice in the last 2 years) — ConsentLedgerService
  *   - test records named ZZTEST
  *
  * Property-managed properties go to the PM bucket, never to the homeowner reconnect list.
@@ -271,26 +274,25 @@ class MiaFinder
         return $keys;
     }
 
-    /** Lower-cased unsubscribed emails. */
-    public function unsubscribed(): array
+    /** Customers whose implied consent runs out soon: ask them for express consent. */
+    public function consentAsk(array $expiring): array
     {
-        $set = [];
-        try {
-            foreach ($this->db->query("SELECT LOWER(TRIM(email)) FROM marketing_unsubscribes")->fetchAll(PDO::FETCH_COLUMN) as $e) $set[$e] = true;
-        } catch (Throwable $e) { /* no table → nobody unsubscribed */ }
-        return $set;
-    }
-
-    /** Contacts who paid an invoice in the last 2 years (for the implied-consent gap). */
-    public function paidRecently(DateTimeImmutable $today): array
-    {
-        $ids = [];
-        try {
-            $s = $this->db->prepare("SELECT DISTINCT contact_id FROM invoices WHERE status = 'paid' AND COALESCE(paid_at, issue_date) >= ? AND contact_id IS NOT NULL");
-            $s->execute([$today->modify('-2 years')->format('Y-m-d')]);
-            foreach ($s->fetchAll(PDO::FETCH_COLUMN) as $id) $ids[(int)$id] = true;
-        } catch (Throwable $e) {}
-        return $ids;
+        if (!$expiring) return [];
+        $ids = array_keys($expiring);
+        $in = implode(',', array_fill(0, count($ids), '?'));
+        $s = $this->db->prepare("
+            SELECT " . self::CONTACT_COLS . ", MAX(p.id) AS property_id, MAX(p.address) AS address, MAX(p.property_manager_id) AS pm_id
+            FROM contacts c LEFT JOIN properties p ON p.site_contact_id = c.id
+            WHERE c.id IN ($in) AND c.is_active = 1
+            GROUP BY c.id
+        ");
+        $s->execute($ids);
+        $out = [];
+        foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $st = $expiring[(int)$r['contact_id']];
+            $out[] = self::row('consent_ask', $r, ['consent_until' => substr((string)$st['expires_at'], 0, 10), 'consent_source' => $st['source']], 2, 0);
+        }
+        return $out;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -336,25 +338,6 @@ class MiaFinder
         return $prior >= self::PM_MIN_PRIOR && $recent <= $prior * self::PM_RATIO;
     }
 
-    /**
-     * Mirror of canSendMarketing() for filtering many contacts at once (the real function
-     * is called again, authoritatively, at send time).
-     */
-    public static function consent(array $c, array $unsub, string $channel, DateTimeImmutable $today): bool
-    {
-        $email = strtolower(trim((string)($c['email'] ?? '')));
-        if ($email === '' || isset($unsub[$email])) return false;
-        if ($channel === 'sms') {
-            return !empty($c['receive_sms']) && !empty($c['consent_sms_express_at']);
-        }
-        if (!empty($c['receive_marketing']) && !empty($c['consent_email_express_at'])) return true;
-        if (!empty($c['consent_email_implied_at'])) {
-            $exp = strtotime($c['consent_email_implied_at'] . ' +2 years');
-            return $exp && $today->getTimestamp() < $exp;
-        }
-        return false;
-    }
-
     public static function isTest(array $c): bool
     {
         return stripos(trim(($c['first_name'] ?? '') . ' ' . ($c['last_name'] ?? '') . ' ' . ($c['company_name'] ?? '')), 'ZZTEST') !== false;
@@ -362,9 +345,12 @@ class MiaFinder
 
     /**
      * Apply every "leave alone" rule; one suggestion per person (most timely first), best first.
+     * $consent: contact id → ConsentLedgerService::evaluate() result for email.
+     * Marketing texts are off in v1 (a text can't carry an unsubscribe link and replies
+     * don't reach us), so nothing is offered by SMS.
      * @return array{keep: array, no_consent: array<int, true>}
      */
-    public static function filter(array $candidates, array $samOwns, array $current, array $leaveAlone, array $unsub, DateTimeImmutable $today): array
+    public static function filter(array $candidates, array $samOwns, array $current, array $leaveAlone, array $consent): array
     {
         usort($candidates, fn($a, $b) => [$a['priority'], -$a['value']] <=> [$b['priority'], -$b['value']]);
         $keep = [];
@@ -377,16 +363,17 @@ class MiaFinder
             if ($cid && isset($leaveAlone['mia:contact:' . $cid])) continue;
             if (self::isTest($c['contact'] + ['company_name' => $c['company_name'] ?? ''])) continue;
             if ($cid && isset($samOwns[$cid])) continue;
-            if ($c['kind'] !== 'referral' && $c['kind'] !== 'pm_quiet' && $cid && isset($current[$cid])) continue;
+            if (!in_array($c['kind'], ['referral', 'pm_quiet', 'consent_ask'], true) && $cid && isset($current[$cid])) continue;
             if (!$cid) { // a quiet PM with nobody to write to → a question, not a suggestion
                 if ($c['kind'] === 'pm_quiet') { $c['needs_contact'] = true; $keep[] = $c; $seen[$key] = true; }
                 continue;
             }
-            if (!self::consent($c['contact'], $unsub, 'email', $today)) {
+            if (empty($consent[$cid]['ok']) || empty($c['contact']['email'])) {
                 $noConsent[$cid] = true;
                 continue;
             }
-            $c['sms_ok'] = self::consent($c['contact'], $unsub, 'sms', $today) && (($c['contact']['mobile'] ?? '') !== '' || ($c['contact']['phone'] ?? '') !== '');
+            $c['consent'] = $consent[$cid]['reason'];
+            $c['sms_ok'] = false;
             $seen[$key] = true;
             $keep[] = $c;
         }

@@ -13,15 +13,18 @@
  *   stats()    the card's numbers, including how the automatic review requests are doing.
  *   brief()    read-only summary for Charlie (Chief of Staff).
  *
- * Email goes through sendEmail() in the CRM's branded wrapper (postal address, phone and an
- * unsubscribe link); a text, if Tim ticks it, through sendSms() — plain, ≤160 characters, no
- * links, pointing them to the email. Both are logged in communication_log.
+ * Consent is a gate in the send path itself: ConsentLedgerService::allows() is asked right
+ * before every send, and a message only goes in the CRM's branded wrapper that names the
+ * sender and carries a working unsubscribe link (MiaWording::compose() refuses otherwise).
+ * Email only: marketing texts are off in v1 — a text can't carry an unsubscribe link (the
+ * carrier gateways drop links) and replies don't reach us. Logged in communication_log.
  *
  * No namespace / no autoloader in production: require_once and `new`.
  */
 require_once __DIR__ . '/MiaFinder.php';
 require_once __DIR__ . '/MiaWording.php';
 require_once __DIR__ . '/MiaQuestionService.php';
+require_once dirname(__DIR__, 2) . '/Consent/Services/ConsentLedgerService.php';
 
 class MiaDeskService
 {
@@ -32,17 +35,21 @@ class MiaDeskService
 
     private PDO $db;
     private MiaFinder $finder;
+    private ConsentLedgerService $ledger;
 
     public function __construct(PDO $db)
     {
         $this->db = $db;
         $this->finder = new MiaFinder($db);
+        $this->ledger = new ConsentLedgerService($db);
     }
 
+    /** Both migrations: 1160 (Mia) and 1161 (the consent ledger she can't work without). */
     public function ready(): bool
     {
         try {
-            return $this->db->query("SHOW TABLES LIKE 'mia_suggestions'")->fetchColumn() !== false;
+            return $this->db->query("SHOW TABLES LIKE 'mia_suggestions'")->fetchColumn() !== false
+                && $this->ledger->ready();
         } catch (Throwable $e) {
             return false;
         }
@@ -65,6 +72,7 @@ class MiaDeskService
         $this->db->prepare("UPDATE mia_suggestions SET status = 'expired' WHERE status = 'open' AND created_at < ?")
             ->execute([$today->modify('-' . self::EXPIRE_DAYS . ' days')->format('Y-m-d')]);
         $settled = $this->settleOutcomes(new DateTimeImmutable());
+        $this->ledger->refresh(); // backfill consent from the latest jobs, invoices and opt-ins
 
         $recent = $this->db->query("SELECT status, skip_reason FROM mia_suggestions WHERE kind = 'reconnect' AND status IN ('sent', 'skipped') ORDER BY decided_at DESC LIMIT 10")->fetchAll(PDO::FETCH_ASSOC);
         $months = MiaFinder::tunedLapse($this->finder->setting('mia_lapsed_months', 12), $recent);
@@ -77,6 +85,7 @@ class MiaDeskService
             fn() => $this->finder->pmQuiet($today),
             fn() => $this->finder->reconnect($months, $today),
             fn() => $this->finder->referral($today),
+            fn() => $this->finder->consentAsk($this->ledger->expiringSoon($today, 6)),
         ] as $find) {
             try {
                 $candidates = array_merge($candidates, $find());
@@ -89,8 +98,7 @@ class MiaDeskService
             $this->finder->samOwns($today),
             $this->finder->current($today),
             $this->finder->leaveAlone($today),
-            $this->finder->unsubscribed(),
-            $today
+            $this->ledger->bulk(array_column($candidates, 'contact_id'), 'email', $today)
         );
 
         $pmNoContact = [];
@@ -115,8 +123,7 @@ class MiaDeskService
             $room--;
         }
 
-        $noConsent = count(array_intersect_key($f['no_consent'], $this->finder->paidRecently($today)));
-        $questions = (new MiaQuestionService($this->db))->scan($today, $noConsent, $pmNoContact);
+        $questions = (new MiaQuestionService($this->db))->scan($today, $pmNoContact);
         return ['created' => $created, 'questions' => $questions, 'settled' => $settled, 'skipped_run' => false];
     }
 
@@ -135,6 +142,7 @@ class MiaDeskService
             'season_line'   => MiaWording::seasonLine((int)$today->format('n')),
             'prior_visits'  => (string)($c['reason']['prior_visits'] ?? ''),
             'recent_visits' => (string)($c['reason']['recent_visits'] ?? ''),
+            'consent_until' => !empty($c['reason']['consent_until']) ? date('F Y', strtotime($c['reason']['consent_until'])) : '',
         ];
         if ($c['kind'] === 'referral' && !empty($c['contact_id'])) {
             [$v['referral_link'], $v['reward_line']] = $this->referralBits((int)$c['contact_id']);
@@ -151,6 +159,7 @@ class MiaDeskService
             'seasonal' => strtolower($vars['service']) . ' this year',
             'pm_quiet' => 'your properties',
             'referral' => 'a small favour',
+            'consent_ask' => 'keeping in touch',
         ][$c['kind']] ?? 'your yard';
         return [
             'subject' => MiaWording::render($t['subject'], $vars),
@@ -235,6 +244,10 @@ class MiaDeskService
             case 'pm_quiet':
                 return sprintf('%s: %d visits this time last year, %d in the last 3 months.',
                     $company ?: 'This company', (int)($r['prior_visits'] ?? 0), (int)($r['recent_visits'] ?? 0));
+            case 'consent_ask':
+                return sprintf('Implied consent (from a %s) runs out %s, and there is no express consent. Ask while they are happy.',
+                    ($r['consent_source'] ?? '') === 'paid_invoice' ? 'paid invoice' : 'completed job',
+                    !empty($r['consent_until']) ? date('M j, Y', strtotime($r['consent_until'])) : 'soon');
             case 'referral':
                 return !empty($r['reviewed'])
                     ? 'Left you a review and had work done recently. Not asked for a referral yet.'
@@ -283,6 +296,10 @@ class MiaDeskService
         $body = trim(str_replace("\r\n", "\n", (string)($in['body'] ?? '')));
         if ($subject === '' || $body === '') return ['ok' => false, 'error' => 'The message needs a subject and some words.'];
         if (preg_match('/\{[a-z_]+\}/', $subject . $body)) return ['ok' => false, 'error' => 'There is still a {placeholder} in the message.'];
+        if (!empty($in['sms'])) return ['ok' => false, 'error' => 'Marketing texts are off: a text cannot carry an unsubscribe link. Email only.'];
+        if ($sg['kind'] === 'consent_ask' && strpos($body, MiaWording::CONFIRM_MARK) === false) {
+            return ['ok' => false, 'error' => 'Keep ' . MiaWording::CONFIRM_MARK . ' in the message — it becomes their own opt-in link.'];
+        }
 
         $c = $this->db->prepare("SELECT * FROM contacts WHERE id = ?");
         $c->execute([(int)$sg['contact_id']]);
@@ -291,37 +308,28 @@ class MiaDeskService
 
         require_once APP_ROOT . '/Services/Messaging/MessagingService.php';
         require_once APP_ROOT . '/Services/Messaging/TemplateRenderer.php';
-        if (!canSendMarketing($contact, 'email')) {
-            return ['ok' => false, 'error' => "They can't be sent marketing email (unsubscribed or no consent on file)."];
+        // The gate: no consent record, no send — checked now, not when the draft was made.
+        $consent = $this->ledger->allows((int)$contact['id'], 'email');
+        if (empty($consent['ok'])) {
+            return ['ok' => false, 'error' => "Not sent: no marketing consent on record ({$consent['reason']})."];
         }
         if (isset($this->finder->samOwns(new DateTimeImmutable('today'))[(int)$contact['id']])) {
             return ['ok' => false, 'error' => 'They have an open quote now — Sam has this one.'];
         }
 
-        $smsText = null;
-        if (!empty($in['sms'])) {
-            $smsText = trim((string)($in['sms_text'] ?? $sg['draft_sms']));
-            $phone = $contact['mobile'] ?: ($contact['phone'] ?? '');
-            if (!$phone || !canSendMarketing($contact, 'sms')) return ['ok' => false, 'error' => 'They have not agreed to texts — untick the text.'];
-            if ($p = MiaWording::smsProblems($smsText)) return ['ok' => false, 'error' => 'The text would be dropped: ' . implode(', ', $p) . '.'];
+        $sentBody = $body;
+        if ($sg['kind'] === 'consent_ask') {
+            require_once __DIR__ . '/OptinResendService.php';
+            $optin = new OptinResendService($this->db);
+            $sentBody = str_replace(MiaWording::CONFIRM_MARK, $optin->confirmUrl($optin->issueFreshToken((int)$contact['id'], (string)$contact['email'])), $body);
         }
-
-        $html = wrapInBrandedEmail(MiaWording::toHtml($body), generateUnsubscribeUrl((string)$contact['email']));
+        $html = MiaWording::compose($sentBody, generateUnsubscribeUrl((string)$contact['email']), emailCompanyDetails());
+        if ($html === null) return ['ok' => false, 'error' => 'Not sent: the email must name Mowology and carry an unsubscribe link, and one was missing.'];
         $r = sendEmail((string)$contact['email'], $subject, $html, null, 'Tim at Mowology');
         if (empty($r['success'])) return ['ok' => false, 'error' => 'The email did not go: ' . ($r['error'] ?? 'unknown error')];
         $channels = 'email';
-        $this->log($sg, $contact, 'email', $subject, $body, $uid);
-
         $smsNote = null;
-        if ($smsText !== null) {
-            $sr = sendSms((string)($contact['mobile'] ?: $contact['phone']), $smsText);
-            if (!empty($sr['success'])) {
-                $channels .= ',sms';
-                $this->log($sg, $contact, 'text', null, $smsText, $uid);
-            } else {
-                $smsNote = 'The email went; the text did not.';
-            }
-        }
+        $this->log($sg, $contact, 'email', $subject, $sentBody . "\n\n[Consent: {$consent['reason']} — {$consent['source']}]", $uid);
 
         $edited = (int)($subject !== trim((string)$sg['draft_subject']) || $body !== trim((string)$sg['draft_body']));
         $this->db->prepare("
@@ -450,7 +458,7 @@ class MiaDeskService
         $one = function (string $sql, array $p = []) {
             try { $s = $this->db->prepare($sql); $s->execute($p); return $s->fetchColumn(); } catch (Throwable $e) { return 0; }
         };
-        $byKind = ['reconnect' => 0, 'seasonal' => 0, 'pm_quiet' => 0, 'referral' => 0];
+        $byKind = ['reconnect' => 0, 'seasonal' => 0, 'pm_quiet' => 0, 'referral' => 0, 'consent_ask' => 0];
         foreach ($this->db->query("SELECT kind, COUNT(*) n FROM mia_suggestions WHERE status = 'open' GROUP BY kind")->fetchAll(PDO::FETCH_ASSOC) as $r) {
             $byKind[$r['kind']] = (int)$r['n'];
         }
@@ -469,6 +477,8 @@ class MiaDeskService
             'referrals_in'   => (int)$one("SELECT COUNT(*) FROM referrals WHERE status IN ('converted', 'rewarded')"),
             'referrals_open' => (int)$one("SELECT COUNT(*) FROM referrals WHERE status = 'pending'"),
             'questions'      => (int)$one("SELECT COUNT(*) FROM mia_questions WHERE status = 'open'"),
+            'consent_ok'     => (int)$one("SELECT COUNT(DISTINCT contact_id) FROM consent_ledger WHERE channel = 'email' AND consent_type IN ('express', 'implied') AND (expires_at IS NULL OR expires_at > ?)", [$today->format('Y-m-d')]),
+            'consent_express'=> (int)$one("SELECT COUNT(DISTINCT contact_id) FROM consent_ledger WHERE channel = 'email' AND consent_type = 'express'"),
         ];
     }
 
@@ -482,6 +492,7 @@ class MiaDeskService
         if ($k['pm_quiet']) $bits[] = sprintf('%d property manager%s %s gone quiet', $k['pm_quiet'], $k['pm_quiet'] === 1 ? '' : 's', $k['pm_quiet'] === 1 ? 'has' : 'have');
         if ($k['reconnect']) $bits[] = sprintf('%d past customer%s %s worth a hello', $k['reconnect'], $k['reconnect'] === 1 ? '' : 's', $k['reconnect'] === 1 ? 'is' : 'are');
         if ($k['referral']) $bits[] = sprintf('%d happy customer%s could send you a referral', $k['referral'], $k['referral'] === 1 ? '' : 's');
+        if (!empty($k['consent_ask'])) $bits[] = sprintf('%d customer%s should be asked to keep hearing from you before their consent runs out', $k['consent_ask'], $k['consent_ask'] === 1 ? '' : 's');
         if (!$bits) {
             return $hi . ($st['questions'] ? "nobody needs a message today. I've got a question for you below." : "nobody needs a message from you today. I'll keep watching.");
         }

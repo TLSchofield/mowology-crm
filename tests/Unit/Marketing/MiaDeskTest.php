@@ -44,6 +44,7 @@ class MiaDeskTest extends TestCase
         $this->db->exec("CREATE TABLE contacts (id INTEGER PRIMARY KEY, first_name TEXT, last_name TEXT, email TEXT, mobile TEXT, phone TEXT, has_reviewed INT DEFAULT 0)");
         $this->db->exec("CREATE TABLE companies (id INTEGER PRIMARY KEY, company_name TEXT)");
         $this->db->exec("CREATE TABLE properties (id INTEGER PRIMARY KEY, address TEXT)");
+        $this->db->exec("CREATE TABLE consent_ledger (contact_id INT, channel TEXT, consent_type TEXT, source TEXT, proof_key TEXT, proof_text TEXT, granted_at TEXT, expires_at TEXT)");
         $this->db->exec("INSERT INTO contacts (id, first_name, last_name, email) VALUES (12, 'Jane', 'Smith', 'jane@example.com')");
         $this->db->exec("INSERT INTO properties (id, address) VALUES (5, '1234 Oak Street')");
         $this->db->exec("INSERT INTO companies (id, company_name) VALUES (9, 'Pacific Quorum')");
@@ -97,6 +98,13 @@ class MiaDeskTest extends TestCase
         $this->assertFalse($desk->decide(1, 'skip', ['reason' => 'bored'], ['id' => 3])['ok']);
     }
 
+    public function test_marketing_texts_are_refused(): void
+    {
+        $r = (new MiaDeskService($this->db))->decide(1, 'send', ['subject' => 'Hi', 'body' => 'Hi Jane', 'sms' => true], ['id' => 3]);
+        $this->assertFalse($r['ok']);
+        $this->assertStringContainsString('unsubscribe', $r['error']);
+    }
+
     public function test_a_send_with_a_leftover_placeholder_is_refused_before_anything_goes(): void
     {
         $r = (new MiaDeskService($this->db))->decide(1, 'send', ['subject' => 'Hi', 'body' => 'Hi {first_name}'], ['id' => 3]);
@@ -126,12 +134,12 @@ class MiaDeskTest extends TestCase
 
     public function test_headline_reads_like_a_person(): void
     {
-        $st = ['by_kind' => ['reconnect' => 2, 'seasonal' => 1, 'pm_quiet' => 1, 'referral' => 0], 'questions' => 0];
+        $st = ['by_kind' => ['reconnect' => 2, 'seasonal' => 1, 'pm_quiet' => 1, 'referral' => 0, 'consent_ask' => 0], 'questions' => 0];
         $this->assertSame(
             "Hey Tim — 1 customer from this time last year hasn't booked again, 1 property manager has gone quiet and 2 past customers are worth a hello. I've drafted a message for each — you send.",
             MiaDeskService::headline($st, 'Tim')
         );
-        $none = ['by_kind' => ['reconnect' => 0, 'seasonal' => 0, 'pm_quiet' => 0, 'referral' => 0], 'questions' => 1];
+        $none = ['by_kind' => ['reconnect' => 0, 'seasonal' => 0, 'pm_quiet' => 0, 'referral' => 0, 'consent_ask' => 0], 'questions' => 1];
         $this->assertStringContainsString('question for you', MiaDeskService::headline($none, ''));
         $this->assertStringStartsWith('Hey — ', MiaDeskService::headline($none, ''));
     }

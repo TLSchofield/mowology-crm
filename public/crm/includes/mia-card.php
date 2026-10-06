@@ -82,6 +82,11 @@ $__js = function (string $p): string { return function_exists('_av') ? _av($p) :
       <div class="mw-n"><?= (int)$__ms['reviews_asked_90'] ?> asked automatically (90 days)</div>
     </div>
     <div class="mw-mia-stat">
+      <div class="mw-k">May email</div>
+      <div class="mw-v"><?= (int)$__ms['consent_ok'] ?></div>
+      <div class="mw-n"><?= (int)$__ms['consent_express'] ?> said yes · the rest from a job or paid invoice (2 years)</div>
+    </div>
+    <div class="mw-mia-stat">
       <div class="mw-k">Referrals</div>
       <div class="mw-v"><?= (int)$__ms['referrals_in'] ?></div>
       <div class="mw-n"><?= (int)$__ms['referrals_open'] ?> waiting on a first visit</div>

@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
 
+require_once dirname(__DIR__, 3) . '/app/Services/Messaging/TemplateRenderer.php';
+
 /**
  * Mia's drafts: Tim's voice, honest tokens, carrier-safe texts, and learning his wording.
  */
@@ -20,7 +22,8 @@ class MiaWordingTest extends TestCase
     public function test_every_default_template_follows_the_house_rules(): void
     {
         $vars = $this->vars() + ['company' => 'Pacific Quorum', 'prior_visits' => '14', 'recent_visits' => '2',
-            'referral_link' => 'https://mowology.ca/quote?referral_code=ABCD2345', 'reward_line' => "we'll book you in for a free aeration, on us."];
+            'referral_link' => 'https://mowology.ca/quote?referral_code=ABCD2345', 'reward_line' => "we'll book you in for a free aeration, on us.",
+            'consent_until' => 'March 2027'];
         foreach (MiaWording::KINDS as $kind) {
             $t = MiaWording::defaults($kind);
             $body = MiaWording::render($t['body'], $vars);
@@ -102,6 +105,28 @@ class MiaWordingTest extends TestCase
     {
         $vars = ['first_name' => 'Ann'];
         $this->assertSame('Hi {first_name}, your Annual visit.', MiaWording::tokenise('Hi Ann, your Annual visit.', $vars));
+    }
+
+    public function test_the_consent_ask_keeps_its_confirm_link_marker(): void
+    {
+        $t = MiaWording::defaults('consent_ask');
+        $this->assertStringContainsString(MiaWording::CONFIRM_MARK, $t['body']);
+        $sent = MiaWording::render($t['body'], ['first_name' => 'Jane', 'place' => '1234 Oak Street', 'consent_until' => 'March 2027']);
+        $this->assertNotNull(MiaWording::learnTemplate('consent_ask', $sent, $this->vars() + ['consent_until' => 'March 2027']));
+        $this->assertNull(MiaWording::learnTemplate('consent_ask', str_replace(MiaWording::CONFIRM_MARK, '', $sent), $this->vars()));
+    }
+
+    public function test_a_marketing_email_refuses_to_render_without_sender_or_unsubscribe(): void
+    {
+        $co = ['name' => 'Mowology Landscaping', 'address' => '2845 West 15th Ave, Vancouver, BC'];
+        $unsub = 'https://mowology.ca/unsubscribe.php?email=a%40x.com&token=abc&sid=0';
+        $html = MiaWording::compose("Hi Jane,\n\nThanks,\nTim", $unsub, $co);
+        $this->assertNotNull($html);
+        $this->assertStringContainsString('Unsubscribe', $html);
+        $this->assertStringContainsString('2845 West 15th Ave', $html);
+        $this->assertNull(MiaWording::compose('Hi', '', $co), 'no unsubscribe link');
+        $this->assertNull(MiaWording::compose('Hi', 'https://mowology.ca/', $co), 'not an unsubscribe link');
+        $this->assertNull(MiaWording::compose('Hi', $unsub, ['name' => 'Mowology', 'address' => '']), 'no postal address');
     }
 
     public function test_email_html_escapes_and_links(): void

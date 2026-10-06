@@ -7,9 +7,6 @@
  *                  manual box on the client page), which stops further requests.
  *   pm_contact   — a property manager's work has fallen off but there is nobody on file to
  *                  write to.
- *   consent_gap  — customers who paid in the last 2 years but have no consent recorded (card,
- *                  autopay and e-Transfer payments don't record implied consent), so Mia
- *                  leaves them out. Asked once; Tim decides later whether to fix it.
  * Answers are kept (mia_questions) and the same question is never asked twice.
  *
  * No namespace / no autoloader in production: require_once and `new`.
@@ -19,7 +16,6 @@ class MiaQuestionService
     public const ANSWERS = [
         'review_check' => ['yes', 'no'],
         'pm_contact'   => ['done', 'skip'],
-        'consent_gap'  => ['later', 'fine'],
     ];
     public const MAX_REVIEW_OPEN = 3;
 
@@ -31,7 +27,7 @@ class MiaQuestionService
     }
 
     /** Ask what's worth asking. Returns how many new questions were added. */
-    public function scan(DateTimeImmutable $today, int $noConsent = 0, array $pmNoContact = []): int
+    public function scan(DateTimeImmutable $today, array $pmNoContact = []): int
     {
         $added = 0;
         $open = (int)$this->db->query("SELECT COUNT(*) FROM mia_questions WHERE status = 'open' AND kind = 'review_check'")->fetchColumn();
@@ -60,12 +56,6 @@ class MiaQuestionService
                 $pm['company_name'], (int)$pm['prior_visits'], (int)$pm['recent_visits']
             ));
         }
-        if ($noConsent > 0) {
-            $added += $this->ask('consent_gap', 'all', sprintf(
-                "%d past customer%s paid you in the last 2 years, but the CRM has no email consent recorded for them, so I'm leaving them out. Paying by card, autopay or e-Transfer doesn't record it. Look at fixing that later?",
-                $noConsent, $noConsent === 1 ? '' : 's'
-            ));
-        }
         return $added;
     }
 
@@ -85,7 +75,7 @@ class MiaQuestionService
 
     public function open(int $limit = 5): array
     {
-        $s = $this->db->prepare("SELECT id, kind, subject_key, question FROM mia_questions WHERE status = 'open' ORDER BY FIELD(kind, 'pm_contact', 'review_check', 'consent_gap'), id LIMIT " . max(1, $limit));
+        $s = $this->db->prepare("SELECT id, kind, subject_key, question FROM mia_questions WHERE status = 'open' ORDER BY FIELD(kind, 'pm_contact', 'review_check'), id LIMIT " . max(1, $limit));
         $s->execute();
         $out = [];
         foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $q) {

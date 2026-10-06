@@ -57,20 +57,12 @@ class MiaFinderTest extends TestCase
         $this->assertFalse(MiaFinder::isQuiet(2, 0), 'too little last year to call it a drop');
     }
 
-    // ── Consent ──────────────────────────────────────────────────────────
-
-    public function test_consent_mirrors_can_send_marketing(): void
+    /** Everyone consented, as the ledger would say, unless named. */
+    private function consent(array $ids, array $without = []): array
     {
-        $today = new DateTimeImmutable('2026-10-05');
-        $c = ['email' => 'A@x.com', 'receive_marketing' => 1, 'consent_email_express_at' => '2026-01-01'];
-        $this->assertTrue(MiaFinder::consent($c, [], 'email', $today));
-        $this->assertFalse(MiaFinder::consent($c, ['a@x.com' => true], 'email', $today), 'unsubscribes always block');
-        $this->assertFalse(MiaFinder::consent(['email' => 'a@x.com', 'receive_marketing' => 1], [], 'email', $today), 'express needs its timestamp');
-        $this->assertTrue(MiaFinder::consent(['email' => 'a@x.com', 'consent_email_implied_at' => '2025-01-01'], [], 'email', $today));
-        $this->assertFalse(MiaFinder::consent(['email' => 'a@x.com', 'consent_email_implied_at' => '2024-01-01'], [], 'email', $today), 'implied lasts 2 years');
-        $this->assertFalse(MiaFinder::consent(['email' => 'a@x.com', 'consent_email_implied_at' => '2026-01-01'], [], 'sms', $today), 'texts need express consent');
-        $this->assertTrue(MiaFinder::consent(['email' => 'a@x.com', 'receive_sms' => 1, 'consent_sms_express_at' => '2026-01-01'], [], 'sms', $today));
-        $this->assertFalse(MiaFinder::consent(['email' => ''], [], 'email', $today));
+        $out = [];
+        foreach ($ids as $id) $out[$id] = in_array($id, $without, true) ? ['ok' => false, 'reason' => 'no consent on record'] : ['ok' => true, 'reason' => 'implied consent until 2027-01-01'];
+        return $out;
     }
 
     // ── Leave alone ──────────────────────────────────────────────────────
@@ -85,9 +77,9 @@ class MiaFinderTest extends TestCase
             $this->cand('referral', 3, [], 3),                            // …but a referral ask is fine
             $this->cand('reconnect', 4),                                  // muted
             $this->cand('reconnect', 5, ['first_name' => 'ZZTEST']),       // test record
-            $this->cand('reconnect', 6, ['receive_marketing' => 0, 'consent_email_express_at' => null]), // no consent
+            $this->cand('reconnect', 6),                                  // no consent in the ledger
         ];
-        $f = MiaFinder::filter($cands, [2 => true], [3 => true], ['mia:contact:4' => true], [], $today);
+        $f = MiaFinder::filter($cands, [2 => true], [3 => true], ['mia:contact:4' => true], $this->consent([1, 2, 3, 4, 5, 6], [6]));
         $kept = array_map(fn($c) => [$c['kind'], $c['contact_id']], $f['keep']);
         $this->assertSame([['reconnect', 1], ['referral', 3]], $kept);
         $this->assertSame([6 => true], $f['no_consent']);
@@ -100,7 +92,7 @@ class MiaFinderTest extends TestCase
             $this->cand('reconnect', 7, [], 2, 900),
             $this->cand('seasonal', 7, [], 1, 50),
             $this->cand('reconnect', 8, [], 2, 2000),
-        ], [], [], [], [], $today);
+        ], [], [], [], $this->consent([7, 8]));
         $this->assertSame([['seasonal', 7], ['reconnect', 8]], array_map(fn($c) => [$c['kind'], $c['contact_id']], $f['keep']));
     }
 
@@ -110,19 +102,23 @@ class MiaFinderTest extends TestCase
         $row['subject_key'] = 'mia:company:9';
         $row['company_id'] = 9;
         $row['company_name'] = 'Pacific Quorum';
-        $f = MiaFinder::filter([$row], [], [], [], [], new DateTimeImmutable('2026-10-05'));
+        $f = MiaFinder::filter([$row], [], [], [], []);
         $this->assertTrue($f['keep'][0]['needs_contact']);
     }
 
-    public function test_texts_are_offered_only_with_sms_consent_and_a_number(): void
+    public function test_marketing_texts_are_off_even_with_sms_consent(): void
     {
-        $today = new DateTimeImmutable('2026-10-05');
         $f = MiaFinder::filter([
             $this->cand('reconnect', 1, ['receive_sms' => 1, 'consent_sms_express_at' => '2026-01-01']),
-            $this->cand('reconnect', 2),
-        ], [], [], [], [], $today);
-        $this->assertTrue($f['keep'][0]['sms_ok']);
-        $this->assertFalse($f['keep'][1]['sms_ok']);
+        ], [], [], [], $this->consent([1]));
+        $this->assertFalse($f['keep'][0]['sms_ok'], 'a text cannot carry an unsubscribe link');
+        $this->assertSame('implied consent until 2027-01-01', $f['keep'][0]['consent']);
+    }
+
+    public function test_asking_for_consent_is_fine_for_current_customers(): void
+    {
+        $f = MiaFinder::filter([$this->cand('consent_ask', 3)], [], [3 => true], [], $this->consent([3]));
+        $this->assertCount(1, $f['keep']);
     }
 
     // ── What came of it ──────────────────────────────────────────────────

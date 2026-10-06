@@ -1,8 +1,10 @@
 /**
  * Mia's card (dashboard → department heads deck): who to get back in touch with, and the
- * message she drafted for each. One suggestion at a time; the subject, the email and the
- * optional text are all editable in place. Send asks once more ("Send to jane@…?") before
- * anything goes — Mia never sends on her own. Skip asks why, and she remembers.
+ * message she drafted for each. One suggestion at a time; the subject and the email are
+ * editable in place. Send asks once more ("Send to jane@…?") before anything goes — Mia
+ * never sends on her own, and the server checks the consent ledger again at that moment.
+ * Email only: marketing texts are off (a text can't carry an unsubscribe link).
+ * Skip asks why, and she remembers.
  * Her questions sit above the carousel.
  * API: /crm/api/mia.php (?mode=queue / questions; POST prepare / decide / answer).
  */
@@ -12,9 +14,8 @@
     if (!root) return;
     var qBox = document.getElementById('mw-mia-q');
     var API = '/crm/api/mia.php';
-    var KIND = { reconnect: 'Reconnect', seasonal: 'This time last year', pm_quiet: 'Quiet property manager', referral: 'Referral ask' };
+    var KIND = { reconnect: 'Reconnect', seasonal: 'This time last year', pm_quiet: 'Quiet property manager', referral: 'Referral ask', consent_ask: 'Keep in touch (consent)' };
     var SKIPS = [['not_now', 'Not now'], ['talked', 'Already talked'], ['not_fit', 'Not a fit'], ['never', 'Never']];
-    var PHONE = '(778) 846-9273';
     var queue = [], idx = 0, busy = false, prepared = false, armed = null;
 
     function esc(s) {
@@ -29,17 +30,6 @@
         body.csrf_token = window.MW_CSRF_TOKEN || '';
         return fetch(API, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
             .then(function (r) { return r.json(); });
-    }
-
-    // Same checks as MiaWording::smsProblems() — the server checks again before sending.
-    function smsProblems(t) {
-        var p = [];
-        if (t.length > 160) p.push(t.length + '/160 characters');
-        if (/https?:|www\.|\b[a-z0-9-]+\.(ca|com|net|org|io|co|info|biz|ly)\b/i.test(t)) p.push('no links or web addresses');
-        if (/[^\x20-\x7E]/.test(t)) p.push('no special characters');
-        if (t.indexOf(PHONE) < 0) p.push('needs ' + PHONE);
-        if (!/email/i.test(t)) p.push('tell them to check their email');
-        return p;
     }
 
     function load() {
@@ -104,11 +94,7 @@
               '<div class="mw-mia-to">To ' + esc(s.email || '—') + (s.address ? ' · ' + esc(s.address) : '') + '</div></div>' +
             '<label class="mw-mia-lbl">Subject<input class="mw-mia-in" data-f="subject" value="' + esc(s.subject) + '"></label>' +
             '<label class="mw-mia-lbl">Email<textarea class="mw-mia-in mw-mia-body" data-f="body" rows="9">' + esc(s.body) + '</textarea></label>' +
-            (s.sms_ok
-                ? '<label class="mw-mia-sms-on"><input type="checkbox" data-f="sms"> Also text them</label>' +
-                  '<div class="mw-mia-sms" hidden><textarea class="mw-mia-in" data-f="sms_text" rows="2" maxlength="200">' + esc(s.sms) + '</textarea>' +
-                  '<div class="mw-mia-sms-note"></div></div>'
-                : '<div class="mw-mia-nosms">No text: they haven\'t agreed to texts.</div>') +
+            '<div class="mw-mia-nosms">Email only. Sent with Mowology\'s address and an unsubscribe link; consent is checked again when you send.</div>' +
             '<div class="mw-mia-actions">' +
               '<button type="button" class="mw-mia-send" data-do="send">Send email</button>' +
               '<button type="button" class="mw-mia-skip" data-do="skip">Skip…</button>' +
@@ -118,34 +104,19 @@
             '</div>' +
             '<div class="mw-mia-msg">' + (msg ? esc(msg) : '') + '</div>';
         grow(root.querySelector('.mw-mia-body'));
-        smsNote();
     }
 
     function grow(t) { if (t) { t.style.height = 'auto'; t.style.height = Math.min(420, t.scrollHeight + 4) + 'px'; } }
     function field(f) { return root.querySelector('[data-f="' + f + '"]'); }
-    function smsNote() {
-        var t = field('sms_text'), n = root.querySelector('.mw-mia-sms-note');
-        if (!t || !n) return;
-        var p = smsProblems(t.value);
-        n.textContent = p.length ? 'Carriers would drop this: ' + p.join(', ') + '.' : t.value.length + '/160 · plain text, no links';
-        n.classList.toggle('is-bad', p.length > 0);
-    }
     function say(m) { var el = root.querySelector('.mw-mia-msg'); if (el) el.textContent = m || ''; }
 
     root.addEventListener('input', function (e) {
         var f = e.target.getAttribute('data-f');
         if (!f) return;
         var s = queue[idx];
-        if (f === 'subject' || f === 'body' || f === 'sms_text') s[f === 'sms_text' ? 'sms' : f] = e.target.value;
+        if (f === 'subject' || f === 'body') s[f] = e.target.value;
         if (f === 'body') grow(e.target);
-        if (f === 'sms_text') smsNote();
         disarm();
-    });
-    root.addEventListener('change', function (e) {
-        if (e.target.getAttribute('data-f') === 'sms') {
-            root.querySelector('.mw-mia-sms').hidden = !e.target.checked;
-            disarm();
-        }
     });
 
     function disarm() {
@@ -174,15 +145,7 @@
                 return;
             }
             clearTimeout(armed); armed = null;
-            var smsOn = field('sms') && field('sms').checked;
-            if (smsOn) {
-                var p = smsProblems(field('sms_text').value);
-                if (p.length) { say('Fix the text first: ' + p.join(', ') + '.'); return; }
-            }
-            decide({
-                action: 'send', subject: field('subject').value, body: field('body').value,
-                sms: !!smsOn, sms_text: smsOn ? field('sms_text').value : ''
-            }, null);
+            decide({ action: 'send', subject: field('subject').value, body: field('body').value }, null);
         }
     });
 
@@ -203,7 +166,7 @@
             }
             var m = okMsg;
             if (r.status === 'sent') {
-                m = 'Sent to ' + (s.name || s.email) + (r.channels === 'email,sms' ? ' (email and text)' : '') + '.' +
+                m = 'Sent to ' + (s.name || s.email) + '.' +
                     (r.learned ? ' I\'ve learned your wording for next time.' : '') + (r.note ? ' ' + r.note : '');
             }
             queue.splice(idx, 1);

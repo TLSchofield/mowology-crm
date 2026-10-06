@@ -18,7 +18,9 @@
 class MiaWording
 {
     public const PHONE = '(778) 846-9273';
-    public const KINDS = ['reconnect', 'seasonal', 'pm_quiet', 'referral'];
+    public const KINDS = ['reconnect', 'seasonal', 'pm_quiet', 'referral', 'consent_ask'];
+    /** Stands in for the customer's own opt-in link until Tim sends (a fresh token per send). */
+    public const CONFIRM_MARK = '[confirm link]';
 
     /** @return array{subject: string, body: string} the built-in template for a kind */
     public static function defaults(string $kind): array
@@ -51,6 +53,16 @@ class MiaWording
                         . "{referral_link}\n\n"
                         . "When someone books through it and their first visit is done, {reward_line}\n\n"
                         . "No pressure either way. Thank you for trusting us with the property.\n\n"
+                        . "Thanks,\nTim",
+                ];
+            case 'consent_ask':
+                return [
+                    'subject' => 'Can I keep sending you the odd reminder?',
+                    'body' => "Hi {first_name},\n\n"
+                        . "Thanks for having our crew at {place}. Because you're a customer, Canada's anti-spam law lets me send you the odd seasonal reminder until {consent_until}. After that I need your yes.\n\n"
+                        . "If you'd like to keep hearing from us about the right time for cleanups, aeration and the like, confirm here:\n\n"
+                        . self::CONFIRM_MARK . "\n\n"
+                        . "If not, there's nothing to do. Your quotes, invoices and visit photos keep coming as usual.\n\n"
                         . "Thanks,\nTim",
                 ];
             case 'reconnect':
@@ -116,6 +128,7 @@ class MiaWording
         $out = self::tokenise($sent, $vars);
         if (strpos($out, '{first_name}') === false) return null;
         if ($kind === 'referral' && strpos($out, '{referral_link}') === false) return null;
+        if ($kind === 'consent_ask' && strpos($out, self::CONFIRM_MARK) === false) return null;
         return $out;
     }
 
@@ -124,7 +137,7 @@ class MiaWording
     {
         $pairs = [];
         foreach (['first_name', 'place', 'company', 'service', 'service_lower', 'last_when',
-                  'season_line', 'referral_link', 'reward_line'] as $t) {
+                  'season_line', 'referral_link', 'reward_line', 'consent_until'] as $t) {
             $v = trim((string)($vars[$t] ?? ''));
             if (mb_strlen($v) >= 3 && $v !== 'there' && $v !== 'your property') $pairs[] = [$v, '{' . $t . '}'];
         }
@@ -170,6 +183,23 @@ class MiaWording
     {
         $s = strtr($s, ['’' => "'", '‘' => "'", '“' => '"', '”' => '"', '–' => '-', '—' => '-']);
         return trim(preg_replace('/[^\x20-\x7E]/', '', $s));
+    }
+
+    // ── Sender and unsubscribe (CASL) ─────────────────────────────────────
+
+    /**
+     * The finished marketing email: Tim's words in the CRM's branded wrapper, which names
+     * the sender (company, postal address, phone) and carries a working unsubscribe link.
+     * Refuses — returns null — when either is missing, rather than send without them.
+     */
+    public static function compose(string $body, string $unsubscribeUrl, array $company): ?string
+    {
+        if (!preg_match('~^https://\S+unsubscribe\S*token=~', $unsubscribeUrl)) return null;
+        if (trim((string)($company['name'] ?? '')) === '' || trim((string)($company['address'] ?? '')) === '') return null;
+        if (!function_exists('wrapInBrandedEmail')) return null;
+        $html = wrapInBrandedEmail(self::toHtml($body), $unsubscribeUrl);
+        if (strpos($html, htmlspecialchars($unsubscribeUrl, ENT_QUOTES, 'UTF-8')) === false) return null;
+        return $html;
     }
 
     // ── Plain-text body → email HTML ─────────────────────────────────────
