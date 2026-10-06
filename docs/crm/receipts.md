@@ -232,6 +232,18 @@ styles in `mowology-brand.css` "DEPARTMENT HEADS DECK"; headshots `/crm/img/head
   trusted (5 unchanged in a row), % unchanged, receipts seen; shown as "Vendors I know"
   and under each receipt's Vendor field.
 
+### Penny's brain
+
+`PennyBrainService::learned()` counts trusted vendors, earned badges, learned store
+locations (`vendor_locations.source='learned'`), learned vendor categories
+(`vendor_parse_profiles`) and `receipt_parse_lessons`. `public/crm/js/penny-brain.js`
+draws shape N = units + 1 of 500 (deterministic: tetrahedron, double / twisted double
+pyramids up to 90, then folded geodesic spheres of the tetra/octa/icosahedron, each
+with its own seeded folds and orientation; shape N has ≥ N + 3 triangles), lights one
+triangle per unit, pulses the newest and glows with right-first-time. Canvas 2D, no
+library, reduced-motion aware. Also on the card: Reject with a reason, anomaly rules +
+bank match in the checks, product search on item names (`link_product`).
+
 ### Penny's badges
 
 `PennyBadgeService` (chips under her photo, from `dept-heads-deck.php`). Earned only
