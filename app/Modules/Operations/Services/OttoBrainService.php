@@ -29,6 +29,10 @@ class OttoBrainService
         'road'      => ['truck road factor learned', 'truck road factors learned'],
         'packs'     => ['battery run logged', 'battery runs logged'],
         'intervals' => ['service interval set', 'service intervals set'],
+        'mapped'    => ['service mapped to its training', 'services mapped to their training'],
+        'shadow'    => ['shadowing pair learned', 'shadowing pairs learned'],
+        'topics'    => ['crew-meeting topic taken up', 'crew-meeting topics taken up'],
+        'coached'   => ['crew member certified after a flag', 'crew members certified after a flag'],
     ];
 
     private PDO $db;
@@ -77,6 +81,11 @@ class OttoBrainService
             $eq = new EquipmentService($this->db);
             if ($eq->ready()) $out = $eq->learnedCounts() + $out;
         } catch (Throwable $e) { /* not migrated yet */ }
+        try {
+            require_once __DIR__ . '/TrainingService.php';
+            $tr = new TrainingService($this->db);
+            if ($tr->ready()) $out = $tr->learnedCounts() + $out;
+        } catch (Throwable $e) { /* no certification tables */ }
         return $out;
     }
 
@@ -86,7 +95,7 @@ class OttoBrainService
         $weather = count(array_filter($weatherLessons,
             fn($l) => count((array)($l['keep'] ?? [])) + count((array)($l['move'] ?? [])) >= OttoRules::LEAN_MIN));
         $out = ['weather' => $weather, 'crew' => $crew, 'durations' => $durations, 'answers' => $answers, 'badges' => $badges];
-        foreach (['rules', 'road', 'packs', 'intervals'] as $k) {
+        foreach (['rules', 'road', 'packs', 'intervals', 'mapped', 'shadow', 'topics', 'coached'] as $k) {
             if (array_key_exists($k, $dispatch)) $out[$k] = max(0, (int)$dispatch[$k]);
         }
         return $out;

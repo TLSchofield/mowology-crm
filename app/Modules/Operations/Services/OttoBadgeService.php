@@ -10,6 +10,8 @@
  *   gap closer     — 25 timesheet gaps closed from his suggestions
  *   in a row       — 10 suggestions in a row kept without a change
  *   bylaw keeper   — 10 bylaw / West End flags acted on (new time or a crew note)
+ *   coach          — 5 training gaps closed: the cert was earned after Otto flagged it
+ *   safety first   — 10 safety refreshers booked before the cert ran out
  * Streak badges are lost again when he slips; the closest unearned one shows dimmed.
  *
  * No namespace / no autoloader in production: require_once and `new`.
@@ -22,6 +24,8 @@ class OttoBadgeService
     public const GAPS = 25;
     public const STREAK = 10;
     public const BYLAW = 10;
+    public const COACHED = 5;
+    public const SAFETY = 10;
 
     private PDO $db;
 
@@ -48,7 +52,12 @@ class OttoBadgeService
             'status' => (string)$r['status'],
             'outcome' => json_decode((string)$r['outcome_json'], true) ?: [],
         ], $rows);
-        return self::compute($decisions);
+        $coached = 0;
+        try {
+            require_once __DIR__ . '/TrainingService.php';
+            $coached = (int)((new TrainingService($this->db))->learnedCounts()['coached'] ?? 0);
+        } catch (Throwable $e) { /* training tables not there */ }
+        return self::compute($decisions, $coached);
     }
 
     /**
@@ -56,7 +65,7 @@ class OttoBadgeService
      * @param array $decisions newest first: [kind, status, outcome]
      * @return array{earned: array, next: ?array}  badge: [key, icon, label, title, have, need]
      */
-    public static function compute(array $decisions): array
+    public static function compute(array $decisions, int $coached = 0): array
     {
         $run = static function (array $list, callable $ok): int {
             $n = 0;
@@ -100,6 +109,15 @@ class OttoBadgeService
             'title' => self::STREAK . ' suggestions in a row kept without a change',
             'have' => min(self::STREAK, $run($judged, fn($d) => $d['status'] === 'accepted'
                 && ($d['kind'] !== 'weather' || !empty($d['outcome']['followed'])))), 'need' => self::STREAK];
+
+        $badges[] = ['key' => 'coach', 'icon' => '🎓', 'label' => 'Coach',
+            'title' => self::COACHED . ' crew certified after he flagged the gap',
+            'have' => min(self::COACHED, max(0, $coached)), 'need' => self::COACHED];
+
+        $ahead = count(array_filter($decisions, fn($d) => $d['kind'] === 'safety_refresher' && $d['status'] === 'accepted' && !empty($d['outcome']['before_expiry'])));
+        $badges[] = ['key' => 'safety', 'icon' => '🦺', 'label' => 'Safety first',
+            'title' => self::SAFETY . ' safety refreshers booked before the cert ran out',
+            'have' => min(self::SAFETY, $ahead), 'need' => self::SAFETY];
 
         $earned = array_values(array_filter($badges, fn($b) => $b['have'] >= $b['need']));
         $open = array_values(array_filter($badges, fn($b) => $b['have'] < $b['need']));

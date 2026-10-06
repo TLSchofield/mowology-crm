@@ -79,6 +79,20 @@
                 return '<div class="mw-otto-btns">' +
                     '<button type="button" class="is-main" data-do="retire">Retire the pack</button>' +
                     '<button type="button" data-do="dismiss">Keep using it</button></div>';
+            case 'training_gap':
+                return '<div class="mw-otto-btns">' +
+                    '<button type="button" class="is-main" data-do="task">Make me a task</button>' +
+                    (p.shadowed ? '<button type="button" data-do="shadow">Fine, they\'re shadowing</button>' : '') +
+                    '<button type="button" data-do="dismiss">Not now</button></div>';
+            case 'training_quality':
+            case 'safety_refresher':
+                return '<div class="mw-otto-btns">' +
+                    '<button type="button" class="is-main" data-do="task">Make me a task</button>' +
+                    '<button type="button" data-do="dismiss">Not now</button></div>';
+            case 'training_topic':
+                return '<div class="mw-otto-btns">' +
+                    '<button type="button" class="is-main" data-do="task">Add to the crew meeting</button>' +
+                    '<button type="button" data-do="dismiss">Not now</button></div>';
             case 'silent':
                 return '<div class="mw-otto-btns">' +
                     '<button type="button" class="is-main" data-do="real">It\'s a problem — I\'ll call</button>' +

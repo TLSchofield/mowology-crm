@@ -66,6 +66,11 @@ class OttoActionService
                 require_once __DIR__ . '/EquipmentService.php';
                 (new EquipmentService($this->db))->retire((int)$sug['subject_id']);
                 return $this->close($sug, 'accepted', ['choice' => 'retire'], $actorId, 'Retired in the register.');
+            case 'training_gap':
+            case 'training_quality':
+            case 'training_topic':
+            case 'safety_refresher':
+                return $this->training($sug, $propose, $choice, $actorId);
         }
         return ['ok' => false, 'message' => 'Unknown suggestion.'];
     }
@@ -241,6 +246,50 @@ class OttoActionService
             return $this->close($sug, 'accepted', ['choice' => 'done'], $actorId, 'Logged as done today.');
         }
         return ['ok' => false, 'message' => 'Make a task, mark it done, or leave it?'];
+    }
+
+    /** Crew training: every "Do it" is a task for the person who clicked (Tim). Nothing reaches the crew. */
+    private function training(array $sug, array $propose, string $choice, int $actorId): array
+    {
+        require_once __DIR__ . '/TrainingService.php';
+        $tr = new TrainingService($this->db);
+        $kind = (string)$sug['kind'];
+        if ($kind === 'training_gap' && $choice === 'shadow') {
+            $this->updateLesson('training', 'shadow:' . (int)$sug['user_id'] . ':' . ($propose['service'] ?? ''),
+                fn(array $v) => ['since' => date('Y-m-d')] + $v);
+            return $this->close($sug, 'accepted', ['choice' => 'shadow'], $actorId,
+                "Got it. I won't flag " . ($propose['who'] ?? 'them') . ' on stops shared with someone certified.');
+        }
+        if ($choice !== 'task') return ['ok' => false, 'message' => 'Make the task, or leave it?'];
+        $who = (string)($propose['who'] ?? 'Someone');
+        switch ($kind) {
+            case 'training_gap':
+                $need = $propose['course'] ?? ('Tier ' . ($propose['tier'] ?? ''));
+                $title = "Training: {$who} needs {$need} before " . date('D M j', strtotime((string)($propose['first'] ?? 'today')));
+                $body = "{$who} is scheduled on " . strtolower((string)($propose['service_label'] ?? 'this service')) . " work without {$need}.\nBook the module on the Certification page, or pair them with someone certified.";
+                $due = (string)($propose['first'] ?? date('Y-m-d'));
+                break;
+            case 'training_quality':
+                $title = "Training: go over " . strtolower((string)($propose['service_label'] ?? 'the work')) . " with {$who}";
+                $body = 'Repeat problems: ' . ($propose['evidence'] ?? '') . '.' . (!empty($propose['course']) ? "\nThe {$propose['course']} module covers it." : '');
+                $due = date('Y-m-d', strtotime('+7 days'));
+                break;
+            case 'training_topic':
+                $title = 'Crew meeting: ' . ($propose['category'] ?? 'quiz topic');
+                $body = "Questions most of the crew got wrong:\n• " . implode("\n• ", (array)($propose['questions'] ?? []));
+                $due = date('Y-m-d', strtotime('next monday'));
+                break;
+            default: // safety_refresher
+                $title = "Safety: {$who} — " . ($propose['course'] ?? 'safety') . ' ' . (($propose['state'] ?? '') === 'due' ? 'refresher' : 'certification');
+                $body = ($propose['state'] ?? '') === 'missing' ? "{$who} runs power equipment without this cert."
+                      : "{$who}'s cert " . (($propose['state'] ?? '') === 'expired' ? 'lapsed' : 'runs out') . ' on ' . ($propose['expires'] ?? '?') . '.';
+                $exp = (string)($propose['expires'] ?? '');
+                $due = ($propose['state'] ?? '') === 'due' && $exp !== '' ? $exp : date('Y-m-d', strtotime('+7 days'));
+        }
+        $taskId = $tr->taskForOwner($title, $body, $due, $actorId);
+        $outcome = ['choice' => 'task', 'task_id' => $taskId];
+        if ($kind === 'safety_refresher') $outcome['before_expiry'] = ($propose['state'] ?? '') === 'due';
+        return $this->close($sug, 'accepted', $outcome, $actorId, 'Task made for you, due ' . date('M j', strtotime($due)) . '.');
     }
 
     private function visitNote(int $visitId, string $text, int $actorId): void

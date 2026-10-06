@@ -38,6 +38,21 @@ if ($ready) {
         error_log('Bylaw rules page: ' . $e->getMessage());
     }
 }
+$training = null;
+$courses = [];
+$reqs = [];
+try {
+    require_once APP_ROOT . '/Modules/Operations/Services/TrainingService.php';
+    $training = new TrainingService(getDB());
+    if ($training->ready()) {
+        $courses = $training->courses();
+        $reqs = $training->requirements();
+    } else {
+        $training = null;
+    }
+} catch (Throwable $e) {
+    $training = null;
+}
 $year = (int)date('Y');
 $holidays = DispatchRules::bcHolidays($year);
 $covered = array_unique(array_map(fn($r) => DispatchRules::normalizeCity($r['municipality']), $rules));
@@ -169,6 +184,33 @@ $ruleRow = function (array $r) use ($sel, $statusLabels, $dayLabels, $classLabel
           </tbody>
         </table>
       </div></div>
+
+      <?php if ($training): ?>
+      <div class="card"><div class="card-body">
+        <h2 class="h5">Training each service needs</h2>
+        <p class="mw-ops-hint">I flag anyone scheduled on a service without this. A lapsed cert counts as missing. Saves to the certification requirements.</p>
+        <table class="table table-sm mw-ops-table">
+          <thead><tr><th>Service type</th><th>Course</th><th>Min tier</th><th></th></tr></thead>
+          <tbody>
+          <?php foreach ($types as $t):
+              $r = $reqs[TrainingRules::serviceKey($t['service_type'])] ?? null;
+              $cur = $r['reqs'][0] ?? null; ?>
+            <tr data-row data-service_type="<?= h($t['service_type']) ?>">
+              <td><?= h($t['service_type']) ?><?= !$r ? ' <span class="mw-ops-flag">not in service types</span>' : '' ?></td>
+              <td><select name="course_id" class="form-control form-control-sm"<?= !$r ? ' disabled' : '' ?>>
+                    <option value="">— none —</option>
+                    <?php foreach ($courses as $c): ?><option value="<?= (int)$c['id'] ?>"<?= $cur && (int)$cur['course_id'] === (int)$c['id'] ? ' selected' : '' ?>><?= h($c['name']) ?></option><?php endforeach; ?>
+                  </select></td>
+              <td><select name="min_tier" class="form-control form-control-sm"<?= !$r ? ' disabled' : '' ?>>
+                    <?php foreach ([0 => 'None', 1 => 'Tier 1', 2 => 'Tier 2', 3 => 'Tier 3'] as $k => $l): ?><option value="<?= $k ?>"<?= (int)($cur['min_tier_level'] ?? 0) === $k ? ' selected' : '' ?>><?= h($l) ?></option><?php endforeach; ?>
+                  </select></td>
+              <td><?php if ($r): ?><button class="btn btn-sm btn-success" data-save="save_training_map">Save</button><?php endif; ?></td>
+            </tr>
+          <?php endforeach; ?>
+          </tbody>
+        </table>
+      </div></div>
+      <?php endif; ?>
 
       <div class="card mw-ops-question"><div class="card-body" data-row>
         <h2 class="h5">Open question: where does green waste go?</h2>

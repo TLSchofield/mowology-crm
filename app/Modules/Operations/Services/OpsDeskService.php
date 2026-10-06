@@ -24,9 +24,11 @@ require_once __DIR__ . '/OttoRules.php';
 
 class OpsDeskService
 {
-    public const KINDS = ['weather', 'clock_out', 'job_timer', 'no_time', 'silent', 'bylaw', 'west_end', 'truck_range', 'maintenance', 'pack_fading'];
+    public const KINDS = ['weather', 'clock_out', 'job_timer', 'no_time', 'silent', 'bylaw', 'west_end', 'truck_range', 'maintenance', 'pack_fading', 'training_gap', 'training_quality', 'training_topic', 'safety_refresher'];
     /** Dispatcher kinds (phase 2): rule tables + equipment register. */
     public const DISPATCH_KINDS = ['bylaw', 'west_end', 'truck_range', 'maintenance', 'pack_fading'];
+    /** Crew training kinds (quiz + certification watched by Otto). */
+    public const TRAINING_KINDS = ['training_gap', 'training_quality', 'training_topic', 'safety_refresher'];
     private const LIMIT = 20;
 
     private PDO $db;
@@ -150,6 +152,7 @@ class OpsDeskService
             'weather' => $by['weather'],
             'gaps'    => $by['clock_out'] + $by['job_timer'] + $by['no_time'],
             'dispatch' => array_sum(array_intersect_key($by, array_flip(self::DISPATCH_KINDS))),
+            'training' => array_sum(array_intersect_key($by, array_flip(self::TRAINING_KINDS))),
             'silent'  => $silent,
             'right_first_time' => $this->rightFirstTime(),
             'outlook' => $this->outlookLine(),
@@ -169,7 +172,7 @@ class OpsDeskService
         $s = $this->stats($items);
         $headline = OttoRules::headline([
             'stops' => $s['today']['stops'], 'done' => $s['today']['done'], 'crews' => count($s['today']['crews']),
-            'silent' => $s['silent'], 'weather' => $s['weather'], 'gaps' => $s['gaps'], 'dispatch' => $s['dispatch'] ?? 0,
+            'silent' => $s['silent'], 'weather' => $s['weather'], 'gaps' => $s['gaps'], 'dispatch' => $s['dispatch'] ?? 0, 'training' => $s['training'] ?? 0,
         ], $ownerFirstName);
         $out = [];
         foreach ($items as $it) {
@@ -441,6 +444,12 @@ class OpsDeskService
             $out = array_merge($out, $trucks, $maint, $packs);
         } catch (Throwable $e) {
             error_log('Otto equipment: ' . $e->getMessage());
+        }
+        try {
+            require_once __DIR__ . '/TrainingService.php';
+            $out = array_merge($out, (new TrainingService($this->db, $this->today))->items());
+        } catch (Throwable $e) {
+            error_log('Otto training: ' . $e->getMessage());
         }
         return $out;
     }

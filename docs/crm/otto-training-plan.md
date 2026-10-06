@@ -101,3 +101,11 @@ Each suggestion goes on his card and into his brief. Actions in v1 create a **ta
 3. Should a lapsed cert (past `expires_at`) count as missing? Recommended yes, which means equipment-safety lapses after 12 months.
 4. Also schedule `expireOverdueCerts()` as a nightly cron so the Certification page shows the truth? This changes cert status data, so it is your call.
 5. Which services need courses that don't exist yet (aeration?), and who writes them.
+
+## Built (2026-10-06) — Tim's decisions applied
+
+- Every "Do it" makes a **task for Tim** (assigned to whoever clicked); nothing reaches the crew. "Fine, they're shadowing" records a lesson instead.
+- Nightly cron `expire_certs` (2:15 AM) runs `CertificationService::expireOverdueCerts()`; Otto also treats any cert past `expires_at` as missing.
+- Training mapping: "Training each service needs" table on `/crm/ops/municipal-rules.php` writes `cert_service_type_requirements` (`?mode=save_training_map`).
+- Office role `admin` is never flagged. Brain "services mapped" counts only mappings made from 2026-10-06 (not the migration-990 seeds).
+- No migration needed (1159 still spare). Renders: `otto-training-card.png`, `otto-training-rules-page.png`.

@@ -8,6 +8,7 @@
  *   delete_rule {id}
  *   save_area {name, municipality, fsa_prefixes, status, note}
  *   save_service_map {service_type, classes: []}
+ *   save_training_map {service_type, course_id, min_tier}  → cert_service_type_requirements
  *   save_green_waste {text}
  *   save_equipment {id?, name, equipment_class, ...}
  *   save_interval {equipment_class | equipment_id, task, every_hours, every_days}
@@ -69,6 +70,10 @@ try {
         case 'delete_rule':      $r = $rules->deleteRule((int)($in['id'] ?? 0)); break;
         case 'save_area':        $r = $rules->saveArea($in); break;
         case 'save_service_map': $r = $rules->saveServiceMap((string)($in['service_type'] ?? ''), (array)($in['classes'] ?? [])); break;
+        case 'save_training_map':
+            require_once APP_ROOT . '/Modules/Operations/Services/TrainingService.php';
+            $r = (new TrainingService($db))->saveMapping((string)($in['service_type'] ?? ''), !empty($in['course_id']) ? (int)$in['course_id'] : null, (int)($in['min_tier'] ?? 0));
+            break;
         case 'save_green_waste':
             $db->prepare("INSERT INTO ops_settings (setting_key, setting_value, description, updated_by) VALUES ('otto_green_waste', ?, 'Where green waste goes: place, hours, fees (Otto the Dispatcher)', ?)
                 ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), updated_by = VALUES(updated_by)")
