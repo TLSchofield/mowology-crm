@@ -61,8 +61,10 @@ class EtransferDeskService
         }
         // Learned from your past recordings: this sender pays someone else's invoices.
         $learnedPayer = null;
-        if ($spread && !self::sameName((string)($et['sender_name'] ?? ''), (string)($spread[0]['payer_name'] ?? ''))) {
-            $learnedPayer = $spread[0]['payer_name'] ?? null;
+        $payer = (string)($spread[0]['payer_name'] ?? '');
+        if ($spread && $payer !== '' && !EtransferInboxService::samePayer((string)($et['sender_name'] ?? ''), $payer)
+            && $this->inbox->timesPaidFor($et['sender_name'] ?? null, $payer) > 0) {
+            $learnedPayer = $payer;
         }
         $kind = $duplicate ? 'duplicate' : ($conf === 'high' ? 'match' : ($conf === 'medium' ? 'likely'
               : ($value ? 'value' : (count($lines) > 1 ? 'spread' : ($partial && !$lines ? 'leftover' : ($lines ? 'hint' : 'none'))))));
@@ -88,12 +90,6 @@ class EtransferDeskService
     // ─────────────────────────────────────────────────────────────────────────
     // Pure (unit tested)
     // ─────────────────────────────────────────────────────────────────────────
-
-    private static function sameName(string $a, string $b): bool
-    {
-        $n = fn($s) => preg_replace('/[^a-z0-9]/', '', strtolower($s));
-        return $n($a) !== '' && $n($a) === $n($b);
-    }
 
     public static function say(string $kind, string $sender, float $active, float $allocated, array $lines, ?string $payer, ?array $dup, string $matchedNo): string
     {

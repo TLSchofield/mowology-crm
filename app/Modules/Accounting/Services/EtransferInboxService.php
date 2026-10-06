@@ -472,6 +472,12 @@ class EtransferInboxService
         return isset($this->learnedPayers[self::normalizeName($sender)][self::normalizeName($payer)]);
     }
 
+    /** Same person by the matcher's own rule (exact, or same first and last name). */
+    public static function samePayer(string $a, string $b): bool
+    {
+        return self::namesMatch($a, $b);
+    }
+
     /** How many times the owner has recorded this sender paying for this payer (0 = never). */
     public function timesPaidFor(?string $sender, string $payer): int
     {
