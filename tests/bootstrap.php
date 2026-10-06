@@ -29,6 +29,14 @@ require_once __DIR__ . '/../app/Modules/Quotes/Services/QuoteService.php';
 // Department heads — shared brain
 require_once __DIR__ . '/../app/Services/HeadBrain.php';
 
+// Otto — operations head
+require_once __DIR__ . '/../app/Modules/Operations/Services/OttoRules.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/OpsDeskService.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/OttoActionService.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/OttoQuestionService.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/OttoBadgeService.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/OttoBrainService.php';
+
 require_once __DIR__ . '/../app/Modules/Invoices/Services/StatementService.php';
 
 // Products
