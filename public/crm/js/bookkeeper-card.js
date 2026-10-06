@@ -29,6 +29,7 @@
     var jobLabels = {};     // job id → label, for jobs picked from search
     var jobTimer = null;
     var venTimer = null;
+    var rotation = {};      // expense id → degrees; view only, like the receipts page lightbox
     var datePopups = [];    // date-picker popups made for the current render (removed on the next)
     var rechecking = false;
 
@@ -163,7 +164,8 @@
         var it = queue[idx];
         var s = it.suggestion || {};
         var photo = it.image_url
-            ? '<img class="mw-rc-photo" src="' + esc(it.image_url) + '" alt="Receipt photo" data-zoom="' + esc(it.image_url) + '">'
+            ? '<div class="mw-rc-photowrap"><img class="mw-rc-photo" data-rot src="' + esc(it.image_url) + '" alt="Receipt photo" data-zoom="' + esc(it.image_url) + '">' +
+              '<button type="button" class="mw-rc-rot" data-act="rotate" title="Rotate (R)" aria-label="Rotate receipt">↻</button></div>'
             : '<div class="mw-rc-nophoto">No photo</div>';
         var checks = (it.checks || []).map(function (c) {
             return '<span class="' + (c.ok ? '' : 'is-bad') + '">' + (c.ok ? '✓ ' : '⚠ ') + esc(c.message) + '</span>';
@@ -219,7 +221,7 @@
                 '<div class="mw-v">' + control + '</div>' + why(s, conff || f) + '</div>';
         };
         var fields =
-            tagFld('vendor', 'Vendor', venCtl) +
+            tagFld('vendor', 'Vendor', venCtl + vendorStrengthLine(it)) +
             tagFld('expense_date', 'Receipt date', dateCtl) +
             tagFld('accounting_category', 'Category', '<select class="mw-rc-in' + (changed(it, 'accounting_category') ? ' mw-rc-changed' : '') + '" data-f="accounting_category">' + catOpts + '</select>') +
             tagFld('asset_tag', 'For', '<select class="mw-rc-in" data-f="asset_tag">' + tagOpts + '</select>') +
@@ -240,6 +242,7 @@
                   (val(s, 'vendor') && it.vendor && val(s, 'vendor') !== it.vendor ? 'Recorded as <s>' + esc(it.vendor) + '</s>' : '') +
                   (it.submitted_by ? ' · from ' + esc(it.submitted_by) : '') + '</div>' +
                 '<div class="mw-rc-fields">' + fields + '</div>' +
+                itemsHtml(it) +
                 (checks ? '<div class="mw-rc-checks">' + checks + '</div>' : '') +
                 (s.notes ? '<div class="mw-rc-checks' + (fullNotes ? '' : ' mw-rc-note') + '" title="' + esc(s.notes) + '">📝 ' + esc(s.notes) + '</div>' : '') +
                 '<div class="mw-rc-actions">' +
@@ -255,20 +258,160 @@
         if (zoomed) {
             html += '<div class="mw-rc-zoom" role="dialog" aria-modal="true" aria-label="Receipt and Penny\'s read">' +
                 '<div class="mw-rc-zoom-img' + (zoomBig ? ' is-big' : '') + '">' +
-                  (it.image_url ? '<img src="' + esc(it.image_url) + '" alt="Receipt photo" data-act="bigger" title="Click to zoom">' : '<div class="mw-rc-nophoto">No photo</div>') +
+                  (it.image_url ? '<img src="' + esc(it.image_url) + '" data-rot alt="Receipt photo" data-act="bigger" title="Click to zoom">' : '<div class="mw-rc-nophoto">No photo</div>') +
                 '</div>' +
+                (it.image_url ? '<button type="button" class="mw-rc-rot mw-rc-rot-zoom" data-act="rotate" title="Rotate (R)" aria-label="Rotate receipt">↻</button>' : '') +
                 '<div class="mw-rc-zoom-side">' + top(true) + detail(true) +
-                  '<div class="mw-rc-zoom-hint">Click the receipt to zoom · type straight into any field · A approve · S save draft · → skip · Esc close</div>' +
+                  '<div class="mw-rc-zoom-hint">Click the receipt to zoom · R rotate · type straight into any field · A approve · S save draft · → skip · Esc close</div>' +
                 '</div>' +
               '</div>';
         }
         datePopups.forEach(function (p) { if (p.parentNode) p.parentNode.removeChild(p); });
         root.innerHTML = html;
+        applyRotation();
+        var isum = root.querySelector('.mw-rc-isum');
+        if (isum && queue[idx]) isum.textContent = itemsCheck(queue[idx]);
         if (window.mwInitDatePickers) {
             var before = document.querySelectorAll('.mw-datepicker-popup').length;
             window.mwInitDatePickers(root);
             datePopups = Array.prototype.slice.call(document.querySelectorAll('.mw-datepicker-popup'), before);
         }
+    }
+
+    /** "I know Chevron: 3 in a row right" — from your past approvals of this vendor. */
+    function vendorStrengthLine(it) {
+        var v = it.vendor_strength;
+        if (!v) return '<div class="mw-rc-vstrength">New to me — no approved receipts from this vendor yet</div>';
+        var dots = '';
+        for (var i = 0; i < v.need; i++) dots += '<em class="' + (i < v.run ? 'on' : '') + '"></em>';
+        return '<div class="mw-rc-vstrength"><i class="mw-hv-dots">' + dots + '</i> ' +
+            (v.trusted ? 'Trusted — ' : 'I know them: ') + v.run + ' in a row right · ' + v.right + ' of ' + v.seen + ' unchanged</div>';
+    }
+
+    // ── Line items: edited in place, saved straight away (same API as the receipts page) ──
+    function itemsSum(items) {
+        return items.reduce(function (a, i) { return a + (parseFloat(i.line_total) || 0); }, 0);
+    }
+    function pennyItems(it) {
+        var li = it.suggestion && it.suggestion.line_items;
+        var v = li && li.value !== undefined ? li.value : li;
+        return Array.isArray(v) ? v.filter(function (x) { return x && x.name; }) : [];
+    }
+    function itemsHtml(it) {
+        var items = it.items || [];
+        var locked = it.status === 'forwarded';
+        var rows = items.map(function (i) {
+            return '<div class="mw-rc-item" data-item="' + esc(i.id) + '">' +
+                '<input class="mw-rc-in" data-iname value="' + esc(i.name) + '" aria-label="Item name"' + (locked ? ' disabled' : '') + '>' +
+                '<input class="mw-rc-in" data-iqty type="number" step="any" inputmode="decimal" value="' + esc(i.quantity) + '" aria-label="Quantity"' + (locked ? ' disabled' : '') + '>' +
+                '<input class="mw-rc-in" data-itotal type="number" step="0.01" inputmode="decimal" value="' + esc(Number(i.line_total).toFixed(2)) + '" aria-label="Line total"' + (locked ? ' disabled' : '') + '>' +
+                (locked ? '' : '<button type="button" class="mw-rc-idel" data-idel aria-label="Remove item">✕</button>') +
+              '</div>';
+        }).join('');
+        var pi = pennyItems(it);
+        var piSum = itemsSum(pi.map(function (x) { return { line_total: x.amount }; }));
+        var differs = pi.length && (pi.length !== items.length || Math.abs(piSum - itemsSum(items)) > 0.01);
+        return '<div class="mw-rc-items"><div class="mw-k">Items <span class="mw-rc-isum"></span></div>' +
+            (items.length ? '<div class="mw-rc-item mw-rc-ihead"><span>Item</span><span>Qty</span><span>Total</span><span></span></div>' + rows
+                          : '<div class="mw-rc-inone">No items read from this receipt yet.</div>') +
+            (locked ? '' : '<div class="mw-rc-iactions"><button type="button" class="mw-rc-ed" data-iadd>+ Add item</button>' +
+                (differs ? '<button type="button" class="mw-rc-ed" data-ipenny title="Replace these with the ' + pi.length + ' items Penny read">⭐ Use Penny\'s items (' + pi.length + ' · ' + money(piSum) + ')</button>' : '') +
+                '<span class="mw-rc-isave"></span></div>') +
+          '</div>';
+    }
+    /** Items vs the receipt's subtotal (total − GST − PST as typed in the fields). */
+    function itemsCheck(it) {
+        var items = it.items || [];
+        if (!items.length) return '';
+        var t = parseFloat((root.querySelector('[data-f="total"]') || {}).value);
+        var g = parseFloat((root.querySelector('[data-f="gst"]') || {}).value) || 0;
+        var p = parseFloat((root.querySelector('[data-f="pst"]') || {}).value) || 0;
+        if (isNaN(t)) t = parseFloat(val(it.suggestion || {}, 'total'));
+        if (isNaN(t)) return money(itemsSum(items));
+        var sub = t - g - p, sum = itemsSum(items), ok = Math.abs(sub - sum) <= 0.05;
+        return (ok ? '✓ ' : '⚠ ') + money(sum) + (ok ? ' — matches the subtotal' : ' vs subtotal ' + money(sub));
+    }
+    function lineApi(body) {
+        body.csrf_token = window.MW_CSRF_TOKEN || '';
+        return fetch('/crm/api/expenses.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+            .then(function (r) { return r.json(); })
+            .then(function (d) { if (!d || !d.success) throw new Error((d && d.error) || 'Could not save'); return d; });
+    }
+    function itemSaved(text, bad) {
+        var el = root.querySelector('.mw-rc-isave');
+        if (el) { el.textContent = text; el.classList.toggle('is-bad', !!bad); }
+        var sum = root.querySelector('.mw-rc-isum');
+        if (sum && queue[idx]) sum.textContent = itemsCheck(queue[idx]);
+    }
+    function saveItemRow(row) {
+        var it = queue[idx];
+        var id = parseInt(row.getAttribute('data-item'), 10);
+        var item = (it.items || []).filter(function (i) { return i.id === id; })[0];
+        if (!item) return;
+        var name = row.querySelector('[data-iname]').value.trim();
+        var qty = parseFloat(row.querySelector('[data-iqty]').value);
+        var tot = parseFloat(row.querySelector('[data-itotal]').value);
+        if (!name) { itemSaved('An item needs a name', true); return; }
+        var body = { action: 'update_line_item', line_item_id: id, name: name };
+        if (!isNaN(qty) && qty !== item.quantity) body.quantity = qty;
+        if (!isNaN(tot) && Math.abs(tot - item.line_total) > 0.004) body.line_total = tot;
+        else if (body.quantity !== undefined && item.unit_price == null) body.line_total = item.line_total;
+        itemSaved('Saving…');
+        lineApi(body).then(function (d) {
+            var li = d.line_item || {};
+            item.name = li.name || name;
+            item.quantity = li.quantity != null ? parseFloat(li.quantity) : qty;
+            item.line_total = li.line_total != null ? parseFloat(li.line_total) : tot;
+            item.unit_price = li.unit_price != null ? parseFloat(li.unit_price) : item.unit_price;
+            row.querySelector('[data-itotal]').value = Number(item.line_total).toFixed(2);
+            itemSaved('Saved ✓');
+        }).catch(function (e) { itemSaved(e.message, true); });
+    }
+    function addItem(name, qty, total) {
+        var it = queue[idx];
+        return lineApi({ action: 'add_line_item', expense_id: it.expense_id, name: name, quantity: qty, line_total: total })
+            .then(function (d) {
+                var li = d.line_item || {};
+                (it.items = it.items || []).push({ id: parseInt(li.id, 10), name: li.name || name, quantity: parseFloat(li.quantity || qty),
+                    unit_price: li.unit_price != null ? parseFloat(li.unit_price) : null, line_total: parseFloat(li.line_total != null ? li.line_total : total) });
+            });
+    }
+    function usePennyItems() {
+        var it = queue[idx];
+        var pi = pennyItems(it);
+        itemSaved('Swapping in Penny\'s items…');
+        var chain = Promise.resolve();
+        (it.items || []).slice().forEach(function (i) {
+            chain = chain.then(function () { return lineApi({ action: 'delete_line_item', line_item_id: i.id }); })
+                         .then(function () { it.items = it.items.filter(function (x) { return x.id !== i.id; }); });
+        });
+        pi.forEach(function (x) { chain = chain.then(function () { return addItem(x.name, 1, Number(x.amount) || 0); }); });
+        chain.then(function () { render('Using Penny\'s items — check them before you approve'); })
+             .catch(function (e) { render('Items: ' + e.message); });
+    }
+
+    /** Turn the receipt photo(s) for this receipt; sideways turns shrink to fit their box. */
+    function applyRotation() {
+        var it = queue[idx];
+        if (!it) return;
+        var deg = rotation[it.expense_id] || 0;
+        root.querySelectorAll('img[data-rot]').forEach(function (img) {
+            var fit = function () {
+                var box = img.parentElement;
+                var s = 1;
+                if (deg % 180 !== 0 && img.offsetWidth && img.offsetHeight) {
+                    s = Math.min(1, (box.clientWidth - 8) / img.offsetHeight, (box.clientHeight - 8) / img.offsetWidth);
+                }
+                img.style.transform = deg ? 'rotate(' + deg + 'deg) scale(' + s.toFixed(3) + ')' : '';
+            };
+            if (img.complete) fit(); else img.addEventListener('load', fit, { once: true });
+        });
+    }
+    function rotate() {
+        var it = queue[idx];
+        if (!it) return;
+        rotation[it.expense_id] = ((rotation[it.expense_id] || 0) + 90) % 360;
+        applyRotation();
     }
 
     function setZoom(on) {
@@ -421,6 +564,25 @@
     }
 
     root.addEventListener('click', function (e) {
+        if (e.target.hasAttribute && e.target.hasAttribute('data-iadd')) {
+            addItem('New item', 1, 0).then(function () {
+                render();
+                var names = root.querySelectorAll('[data-iname]');
+                if (names.length) { names[names.length - 1].focus(); names[names.length - 1].select(); }
+            }).catch(function (err) { itemSaved(err.message, true); });
+            return;
+        }
+        if (e.target.hasAttribute && e.target.hasAttribute('data-idel')) {
+            var row = e.target.closest('.mw-rc-item');
+            var delId = parseInt(row.getAttribute('data-item'), 10);
+            lineApi({ action: 'delete_line_item', line_item_id: delId }).then(function () {
+                queue[idx].items = (queue[idx].items || []).filter(function (x) { return x.id !== delId; });
+                row.parentNode.removeChild(row);
+                itemSaved('Removed ✓');
+            }).catch(function (err) { itemSaved(err.message, true); });
+            return;
+        }
+        if (e.target.hasAttribute && e.target.hasAttribute('data-ipenny')) { usePennyItems(); return; }
         var dr = e.target.getAttribute && e.target.getAttribute('data-dup-remove');
         if (dr) { settleDupe(dr, false); return; }
         if (e.target.getAttribute && e.target.getAttribute('data-dup-not')) { settleDupe(null, true); return; }
@@ -444,11 +606,17 @@
         if (!act) return;
         if (act === 'close') { setZoom(false); render(); }
         else if (act === 'bigger') { zoomBig = !zoomBig; render(); }
+        else if (act === 'rotate') { e.stopPropagation(); rotate(); }
         else if (act === 'approve') approve();
         else if (act === 'draft') submit(true);
         else if (act === 'recheck') recheck();
         else if (act === 'next') { idx = (idx + 1) % Math.max(1, queue.length); render(); }
         else if (act === 'prev') { idx = (idx - 1 + queue.length) % Math.max(1, queue.length); render(); }
+    });
+
+    root.addEventListener('change', function (e) {
+        var row = e.target.closest && e.target.closest('.mw-rc-item[data-item]');
+        if (row && queue.length) saveItemRow(row);
     });
 
     root.addEventListener('focusin', function (e) {
@@ -483,6 +651,10 @@
             return;
         }
         var f = e.target.getAttribute && e.target.getAttribute('data-f');
+        if ((f === 'total' || f === 'gst' || f === 'pst') && queue.length) {
+            var isum = root.querySelector('.mw-rc-isum');
+            if (isum) isum.textContent = itemsCheck(queue[idx]);
+        }
         if (!f || !queue.length) return;
         var s = queue[idx].suggestion || {};
         var key = (f === 'gst' || f === 'pst') ? 'total' : f;
@@ -503,6 +675,7 @@
         var t = e.target.tagName;
         if (t === 'INPUT' || t === 'SELECT' || t === 'TEXTAREA' || e.metaKey || e.ctrlKey || e.altKey) return;
         if (zoomed && e.key === 'Escape') { e.preventDefault(); setZoom(false); render(); return; }
+        if ((e.key === 'r' || e.key === 'R') && queue.length && !dupes.length && root.offsetParent) { e.preventDefault(); rotate(); return; }
         if (!root.offsetParent || !queue.length) return;
         if (e.key === 'a' || e.key === 'A') { e.preventDefault(); approve(); }
         else if (e.key === 's' || e.key === 'S') { e.preventDefault(); submit(true); }

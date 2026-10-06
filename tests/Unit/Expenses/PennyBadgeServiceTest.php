@@ -69,4 +69,15 @@ class PennyBadgeServiceTest extends TestCase
         $r = PennyBadgeService::compute([], 86.4);
         $this->assertSame('$86 found to bill', $r['earned'][0]['label']);
     }
+
+    public function test_vendor_strength_counts_her_current_run_and_her_record(): void
+    {
+        $list = [$this->d(true, 'Chevron'), $this->d(true, 'CHEVRON'), $this->d(false, 'Chevron'), $this->d(true, 'Chevron'), $this->d(true, 'Rona')];
+        $v = PennyBadgeService::vendorStrength($list);
+        $this->assertSame('Chevron', $v[0]['vendor']);
+        $this->assertSame(4, $v[0]['seen']);
+        $this->assertSame(2, $v[0]['run'], 'run stops at the slip');
+        $this->assertSame(75, $v[0]['pct']);
+        $this->assertFalse($v[0]['trusted']);
+    }
 }

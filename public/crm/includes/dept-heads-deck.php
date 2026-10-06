@@ -27,9 +27,12 @@ try {
     require_once APP_ROOT . '/Modules/Expenses/Services/PennyQuestionService.php';
     $__hi = PennyQuestionService::firstName((array)($user ?? getCurrentUser() ?? []));
     $__badges = ['earned' => [], 'next' => null];
+    $__vendors = [];
     try {
         require_once APP_ROOT . '/Modules/Expenses/Services/PennyBadgeService.php';
-        $__badges = (new PennyBadgeService(getDB()))->badges();
+        $__pb = new PennyBadgeService(getDB());
+        $__badges = $__pb->badges();
+        $__vendors = $__pb->vendors(6);
     } catch (Throwable $__e) { /* badges are a bonus — never block the card */ }
 } catch (Throwable $__e) {
     error_log('Dept heads deck unavailable: ' . $__e->getMessage());
@@ -123,6 +126,21 @@ $__team = [
           <div class="mw-n">Last 90 days — I match the rest by time &amp; place</div>
         </div>
       </div>
+
+      <?php if ($__vendors): ?>
+      <div class="mw-head-vendors">
+        <div class="mw-k">Vendors I know <small>— 5 in a row approved unchanged and I'm trusted with them</small></div>
+        <div class="mw-hv-list">
+          <?php foreach ($__vendors as $__v): ?>
+            <span class="mw-hv<?= $__v['trusted'] ? ' is-trusted' : '' ?>" title="<?= h($__v['vendor']) ?>: <?= (int)$__v['seen'] ?> receipt<?= $__v['seen'] === 1 ? '' : 's' ?>, <?= (int)$__v['right'] ?> approved unchanged (<?= (int)$__v['pct'] ?>%). Current run: <?= (int)$__v['run'] ?> of <?= (int)$__v['need'] ?>.">
+              <b><?= h(PennyQuestionService::tidy($__v['vendor'])) ?></b>
+              <i class="mw-hv-dots" aria-hidden="true"><?php for ($__i = 0; $__i < $__v['need']; $__i++): ?><em class="<?= $__i < $__v['run'] ? 'on' : '' ?>"></em><?php endfor; ?></i>
+              <small><?= $__v['trusted'] ? '✓ trusted' : (int)$__v['pct'] . '% · ' . (int)$__v['seen'] . ' seen' ?></small>
+            </span>
+          <?php endforeach; ?>
+        </div>
+      </div>
+      <?php endif; ?>
 
       <div class="mw-pq" id="mw-pq" hidden></div>
 

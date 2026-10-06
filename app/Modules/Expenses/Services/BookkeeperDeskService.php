@@ -169,7 +169,7 @@ class BookkeeperDeskService
         $holdSql = $hold ? ' AND e.id NOT IN (' . implode(',', array_map('intval', $hold)) . ')' : '';
         $rows = $this->db->query("
             SELECT s.id AS suggestion_id, s.suggestion_json, s.checks_json, s.current_json, s.used_image, s.outcome_json,
-                   e.id AS expense_id, e.status, e.expense_date, e.total, e.receipt_media_id,
+                   e.id AS expense_id, e.status, e.expense_date, e.total, e.amount, e.receipt_media_id,
                    COALESCE(v.name, e.vendor_name_raw) AS vendor, e.vendor_id, u.full_name AS submitted_by
             FROM expense_suggestions s
             JOIN expenses e ON e.id = s.expense_id
@@ -181,6 +181,12 @@ class BookkeeperDeskService
         ")->fetchAll(PDO::FETCH_ASSOC);
 
         $jobTitles = $this->jobTitles($rows);
+        $items = $this->lineItems(array_map(fn($r) => (int)$r['expense_id'], $rows));
+        $strength = [];
+        try {
+            require_once __DIR__ . '/PennyBadgeService.php';
+            foreach ((new PennyBadgeService($this->db))->vendors(500) as $v) $strength[strtolower($v['vendor'])] = $v;
+        } catch (Throwable $e) { /* strength is a bonus */ }
         $out = [];
         foreach ($rows as $r) {
             $s = json_decode((string)$r['suggestion_json'], true) ?: [];
@@ -202,10 +208,31 @@ class BookkeeperDeskService
                 'suggestion'    => $s,
                 'job_title'     => $jobId ? ($jobTitles[(int)$jobId] ?? null) : null,
                 'checks'        => json_decode((string)$r['checks_json'], true) ?: [],
+                // The receipt's own items (editable on the card via expenses.php *_line_item).
+                'items'         => $items[(int)$r['expense_id']] ?? [],
+                // How well she knows this vendor, from your past approvals.
+                'vendor_strength' => $strength[strtolower(trim((string)$r['vendor']))] ?? null,
+                'subtotal'      => $r['amount'] !== null ? (float)$r['amount'] : null,
                 'current'       => json_decode((string)$r['current_json'], true) ?: [],
                 // The owner's saved-but-not-approved edits, if any — the form reopens with them.
                 'saved_draft'   => (json_decode((string)($r['outcome_json'] ?? ''), true) ?: [])['draft'] ?? null,
             ];
+        }
+        return $out;
+    }
+
+    /** expense id => [{id, name, quantity, unit_price, line_total}] */
+    private function lineItems(array $expenseIds): array
+    {
+        if (!$expenseIds) return [];
+        $in = implode(',', array_fill(0, count($expenseIds), '?'));
+        $s = $this->db->prepare("SELECT id, expense_id, name, quantity, unit_price, line_total FROM expense_line_items
+                                 WHERE expense_id IN ({$in}) ORDER BY sort_order, id");
+        $s->execute($expenseIds);
+        $out = [];
+        foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $out[(int)$r['expense_id']][] = ['id' => (int)$r['id'], 'name' => $r['name'], 'quantity' => (float)$r['quantity'],
+                'unit_price' => $r['unit_price'] !== null ? (float)$r['unit_price'] : null, 'line_total' => (float)$r['line_total']];
         }
         return $out;
     }
