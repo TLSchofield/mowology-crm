@@ -149,7 +149,16 @@ try {
                 'account_id'         => $accountId,
                 'is_auto_categorized' => 0,  // manually set — override any auto-cat
             ]);
-            echo json_encode(['ok' => true, 'message' => 'Transaction recategorized']);
+            // Teach the import: this description belongs on this account (BankRuleLearning).
+            $learned = null;
+            try {
+                require_once APP_ROOT . '/Modules/Accounting/Services/BankImportService.php';
+                require_once APP_ROOT . '/Modules/Accounting/Services/BankRuleLearning.php';
+                $learned = (new BankRuleLearning($db))->learnFromCorrection($id, $accountId, (int)$user['id']);
+            } catch (Throwable $e) {
+                error_log('Bank rule learning failed for transaction ' . $id . ': ' . $e->getMessage());
+            }
+            echo json_encode(['ok' => true, 'message' => 'Transaction recategorized', 'learned' => $learned]);
             break;
 
         // ── Flag / unflag for review ──────────────────────────────────────────

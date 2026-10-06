@@ -3569,65 +3569,16 @@ class BankImportService
      */
     private function learnFromCommit(array $rows, int $userId): void
     {
-        // Preload all learned rules for fast duplicate detection (key → id mapping)
-        $existing = $this->db->query("
-            SELECT id, condition_value, account_id
-            FROM transaction_rules
-            WHERE source = 'learned' AND condition_field = 'description'
-        ")->fetchAll(PDO::FETCH_ASSOC);
-
-        $learnedMap = [];
-        foreach ($existing as $r) {
-            $learnedMap[$r['condition_value'] . '|' . $r['account_id']] = (int)$r['id'];
-        }
-
-        // Highest priority among learned rules (so new ones append after existing)
-        $maxPriority = (int)$this->db->query("
-            SELECT COALESCE(MAX(priority), 8999) FROM transaction_rules WHERE source = 'learned'
-        ")->fetchColumn();
-
+        // One learner for imports and corrections (BankRuleLearning): default accounts
+        // never teach, and a rule switches on only after 2 confirmations.
+        require_once __DIR__ . '/BankRuleLearning.php';
+        $learner = new BankRuleLearning($this->db);
         foreach ($rows as $row) {
-            // Skip duplicates and rows without a confirmed account
-            if (!empty($row['is_duplicate']))   continue;
-            if (empty($row['account_id']))       continue;
-            if (!empty($row['rule_id']))         continue; // existing rule already covers this
-
-            $desc      = trim($row['description'] ?? '');
-            $accountId = (int)$row['account_id'];
-            $type      = $row['type'] === 'income' ? 'income' : 'expense';
-
-            $key = $this->normalizeDescriptionKey($desc);
-            if (strlen($key) < 4) continue;
-
-            $mapKey = $key . '|' . $accountId;
-
-            if (isset($learnedMap[$mapKey])) {
-                // Already have a rule for this key+account — increment training count
-                $this->db->prepare("
-                    UPDATE transaction_rules
-                    SET learned_count = learned_count + 1, last_learned_at = NOW()
-                    WHERE id = ?
-                ")->execute([$learnedMap[$mapKey]]);
-            } else {
-                // New pattern — create a low-priority learned rule
-                $maxPriority++;
-                $this->db->prepare("
-                    INSERT INTO transaction_rules
-                        (name, priority, applies_to, condition_field, condition_operator,
-                         condition_value, account_id, transaction_type,
-                         is_active, source, learned_count, last_learned_at, created_by, created_at)
-                    VALUES (?, ?, ?, 'description', 'contains', ?, ?, ?, 1, 'learned', 1, NOW(), ?, NOW())
-                ")->execute([
-                    'Learned: ' . mb_substr($desc, 0, 80),
-                    $maxPriority,
-                    $type,
-                    $key,
-                    $accountId,
-                    $type,
-                    $userId,
-                ]);
-                $learnedMap[$mapKey] = (int)$this->db->lastInsertId();
-            }
+            if (!empty($row['is_duplicate'])) continue;
+            if (empty($row['account_id']))    continue;
+            if (!empty($row['rule_id']))      continue; // an existing rule already covers this
+            $learner->learn((string)($row['description'] ?? ''), (int)$row['account_id'],
+                            ($row['type'] ?? '') === 'income' ? 'income' : 'expense', $userId, 'confirmed');
         }
     }
 
@@ -3649,6 +3600,12 @@ class BankImportService
      *  "MONTHLY MAINTENANCE FEE"                      → "monthly maintenance fee"
      */
     private function normalizeDescriptionKey(string $desc): string
+    {
+        return self::descriptionKey($desc);
+    }
+
+    /** The bank-agnostic rule key for a description (shared with BankRuleLearning). */
+    public static function descriptionKey(string $desc): string
     {
         $s = strtoupper(trim($desc));
 
