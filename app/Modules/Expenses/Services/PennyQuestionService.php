@@ -47,8 +47,7 @@ class PennyQuestionService
         $stmt = $this->db->prepare("
             SELECT e.id, e.job_id, e.property_id, e.vendor_id, e.expense_date, e.amount, e.total, e.accounting_category,
                    COALESCE(v.name, e.vendor_name_raw) AS vendor_name,
-                   jp.property_id AS plan_property_id, jp.contract_id,
-                   CONCAT(COALESCE(jp.title, jp.service_type, 'the job'), ' — ', COALESCE(p.address, '')) AS job
+                   jp.property_id AS plan_property_id, jp.contract_id
             FROM expenses e
             JOIN job_plans jp ON jp.id = e.job_id
             LEFT JOIN properties p ON p.id = jp.property_id
@@ -82,7 +81,7 @@ class PennyQuestionService
             ")->execute([
                 (int)$e['id'], (int)$e['job_id'], $propertyId ?: null, $e['contract_id'] ?: null,
                 $e['vendor_id'] ?: null, $e['vendor_name'], $e['accounting_category'], (float)($e['amount'] ?: $e['total']),
-                self::wording((float)($e['amount'] ?: $e['total']), $items, (string)$e['vendor_name'], (string)$e['job'], (string)$e['expense_date'], (bool)$e['contract_id']),
+                '',   // worded when shown (open()), so it always reads from today's data
             ]);
             $made++;
         }
@@ -107,7 +106,7 @@ class PennyQuestionService
     {
         $s = $this->db->prepare("SELECT name FROM expense_line_items WHERE expense_id = ? ORDER BY sort_order, id");
         $s->execute([$expenseId]);
-        return array_values(array_filter(array_map('trim', $s->fetchAll(PDO::FETCH_COLUMN))));
+        return self::realItems($s->fetchAll(PDO::FETCH_COLUMN));
     }
 
     /** An invoice for this job or property, near the purchase date, has a line that mentions it. */
@@ -160,29 +159,75 @@ class PennyQuestionService
         return false;
     }
 
-    public static function wording(float $amount, array $items, string $vendor, string $job, string $date, bool $hasContract): string
+    /** Line-item names that are things bought — not totals, taxes or payment lines the reader kept. */
+    public static function realItems(array $names): array
     {
-        $what = $items ? implode(', ', array_slice($items, 0, 2)) . (count($items) > 2 ? ' and more' : '') : 'materials';
-        $vendor = $vendor !== '' ? $vendor : 'a supplier';
-        return sprintf('You bought $%s of %s from %s for %s on %s. I can\'t find it on an invoice. Did you forget to invoice it%s?',
-            number_format($amount, 2), $what, $vendor, $job, date('M j', strtotime($date)),
-            $hasContract ? ', or is it included in their contract' : ', or isn\'t it billable');
+        $out = [];
+        foreach ($names as $n) {
+            $n = trim((string)$n);
+            if ($n === '' || preg_match('/^(sub\s*-?\s*total|total|gst|pst|hst|tax(es)?|change|cash|visa|mastercard|debit|amex|balance( due)?|amount( due)?|tendered|rounding|discount|savings?)\b/i', $n)) continue;
+            if (!in_array($n, $out, true)) $out[] = $n;
+        }
+        return $out;
+    }
+
+    /** "HUNTERS GARDEN CENTRE" → "Hunters Garden Centre"; mixed case is left as typed. */
+    public static function tidy(string $s): string
+    {
+        $s = trim(preg_replace('/\s+/', ' ', $s));
+        return $s !== '' && strtoupper($s) === $s ? ucwords(strtolower($s)) : $s;
+    }
+
+    /** The name Penny calls the owner: first name, else the first word of the full name. */
+    public static function firstName(array $user): string
+    {
+        $n = trim((string)($user['first_name'] ?? '')) ?: strtok(trim((string)($user['full_name'] ?? '')), ' ');
+        return $n ? self::tidy((string)$n) : '';
+    }
+
+    /**
+     * Penny's voice: friendly, first-name, plain. A job title shorter than 4 letters
+     * ("chk") is a placeholder, so she just says "the job at <address>".
+     */
+    public static function wording(float $amount, array $items, string $vendor, string $jobTitle, string $address, string $date, bool $hasContract, string $name = ''): string
+    {
+        $vendor = $vendor !== '' ? self::tidy($vendor) : 'a supplier';
+        $what = $items
+            ? 'picked up ' . implode(', ', array_map([self::class, 'tidy'], array_slice($items, 0, 2))) . (count($items) > 2 ? ' and a few more things' : '') . ' ($' . number_format($amount, 2) . ')'
+            : 'spent $' . number_format($amount, 2);
+        $jobTitle = strlen(trim($jobTitle)) >= 4 ? self::tidy($jobTitle) : '';
+        $for = $jobTitle !== '' ? $jobTitle . ($address !== '' ? ' at ' . $address : '') : 'the job' . ($address !== '' ? ' at ' . $address : '');
+        return sprintf('%s you %s at %s on %s for %s, and I can\'t find it on any invoice. Did it slip through, or %s?',
+            $name !== '' ? "Hey {$name} —" : 'Hey —', $what, $vendor, date('M j', strtotime($date)), $for,
+            $hasContract ? 'is it covered by their contract' : 'isn\'t it billable');
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Card
     // ─────────────────────────────────────────────────────────────────────────
 
-    public function open(int $limit = 5): array
+    public function open(int $limit = 5, string $name = ''): array
     {
         if (!$this->ready()) return [];
-        $s = $this->db->query("SELECT id, expense_id, plan_id, contract_id, amount, question FROM penny_questions
-                               WHERE status = 'open' ORDER BY amount DESC, id LIMIT " . max(1, min(20, $limit)));
-        return $s->fetchAll(PDO::FETCH_ASSOC);
+        $rows = $this->db->query("
+            SELECT q.id, q.expense_id, q.plan_id, q.contract_id, q.amount, q.vendor_name, e.expense_date,
+                   COALESCE(jp.title, jp.service_type, '') AS job_title, COALESCE(p.address, '') AS address
+            FROM penny_questions q
+            JOIN expenses e ON e.id = q.expense_id
+            LEFT JOIN job_plans jp ON jp.id = q.plan_id
+            LEFT JOIN properties p ON p.id = jp.property_id
+            WHERE q.status = 'open' ORDER BY q.amount DESC, q.id LIMIT " . max(1, min(20, $limit))
+        )->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($rows as &$r) {
+            $r['question'] = self::wording((float)$r['amount'], $this->itemNames((int)$r['expense_id']), (string)$r['vendor_name'],
+                (string)$r['job_title'], (string)$r['address'], (string)$r['expense_date'], (bool)$r['contract_id'], $name);
+            unset($r['vendor_name'], $r['expense_date'], $r['job_title'], $r['address']);
+        }
+        return $rows;
     }
 
     /** @return array{ok: bool, message: string, invoice_url?: string} */
-    public function answer(int $id, string $answer, int $userId): array
+    public function answer(int $id, string $answer, int $userId, string $name = ''): array
     {
         if (!in_array($answer, self::ANSWERS, true)) {
             return ['ok' => false, 'message' => 'Unknown answer'];
@@ -195,7 +240,10 @@ class PennyQuestionService
         }
         $this->db->prepare("UPDATE penny_questions SET status = 'answered', answer = ?, answered_by = ?, answered_at = NOW() WHERE id = ?")
            ->execute([$answer, $userId, $id]);
-        $msg = ['invoice' => 'Noted — opening a new invoice for that job', 'contract' => "Got it — I won't ask about this supplier on this job again", 'not_billable' => "Got it — not billable; I won't ask about this supplier on this job again"][$answer];
+        $hi = $name !== '' ? ", {$name}" : '';
+        $msg = ['invoice'      => "Thanks{$hi} — I'll open a fresh invoice for that job.",
+                'contract'     => "Got it{$hi} — covered by the contract. I won't ask about this supplier on this job again.",
+                'not_billable' => "Got it{$hi} — not billable. I won't ask about this supplier on this job again."][$answer];
         $out = ['ok' => true, 'message' => $msg];
         if ($answer === 'invoice' && $q['plan_id']) {
             $out['invoice_url'] = '/crm/invoices/create.php?plan_id=' . (int)$q['plan_id'];

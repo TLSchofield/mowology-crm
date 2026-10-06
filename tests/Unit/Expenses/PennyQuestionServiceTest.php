@@ -33,10 +33,23 @@ class PennyQuestionServiceTest extends TestCase
         $this->assertSame(['mulch'], $kw);
     }
 
-    public function test_question_wording_with_and_without_a_contract(): void
+    public function test_question_wording_is_friendly_and_plain(): void
     {
-        $q = PennyQuestionService::wording(86.40, ['LAWNBOY FERTILIZER'], 'Lawnboy', 'Lawn care — 2492 W 8th Ave', '2026-10-02', true);
-        $this->assertSame("You bought \$86.40 of LAWNBOY FERTILIZER from Lawnboy for Lawn care — 2492 W 8th Ave on Oct 2. I can't find it on an invoice. Did you forget to invoice it, or is it included in their contract?", $q);
-        $this->assertStringEndsWith("or isn't it billable?", PennyQuestionService::wording(10, [], '', 'X', '2026-10-02', false));
+        $q = PennyQuestionService::wording(86.40, ['LAWNBOY FERTILIZER'], 'Lawnboy', 'Lawn care', '2492 W 8th Ave', '2026-10-02', true, 'Tim');
+        $this->assertSame("Hey Tim — you picked up Lawnboy Fertilizer (\$86.40) at Lawnboy on Oct 2 for Lawn care at 2492 W 8th Ave, and I can't find it on any invoice. Did it slip through, or is it covered by their contract?", $q);
+        $q = PennyQuestionService::wording(11.32, [], 'HUNTERS GARDEN CENTRE', 'chk', '2845 W 15th Avenue', '2026-09-05', false, 'Tim');
+        $this->assertSame("Hey Tim — you spent \$11.32 at Hunters Garden Centre on Sep 5 for the job at 2845 W 15th Avenue, and I can't find it on any invoice. Did it slip through, or isn't it billable?", $q);
+    }
+
+    public function test_totals_and_tax_lines_are_not_items(): void
+    {
+        $this->assertSame(['MULCH BLACK 2CF'], PennyQuestionService::realItems(['Sub Total', 'Sub Total', 'MULCH BLACK 2CF', 'GST', 'VISA', 'Total']));
+    }
+
+    public function test_first_name_from_profile_or_full_name(): void
+    {
+        $this->assertSame('Tim', PennyQuestionService::firstName(['first_name' => '', 'full_name' => 'TIM SCHOFIELD']));
+        $this->assertSame('Nigel', PennyQuestionService::firstName(['first_name' => 'Nigel']));
+        $this->assertSame('', PennyQuestionService::firstName([]));
     }
 }

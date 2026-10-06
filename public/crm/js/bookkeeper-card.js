@@ -452,7 +452,8 @@
                 var found = d && d.found_to_bill_month ? Number(d.found_to_bill_month) : 0;
                 if (!qs.length && !found) { pqBox.hidden = true; return; }
                 pqBox.hidden = false;
-                pqBox.innerHTML = '<div class="mw-pq-head"><b>Questions for you</b>' +
+                var head = qs.length === 1 ? 'A quick question for you' : qs.length ? qs.length + ' quick questions for you' : 'Nothing to ask you right now';
+                pqBox.innerHTML = '<div class="mw-pq-head"><b>' + head + '</b>' +
                     (found ? '<span>Found to bill this month: <b>$' + found.toFixed(2) + '</b></span>' : '') + '</div>' +
                     qs.map(function (q) {
                         return '<div class="mw-pq-item" data-q="' + esc(q.id) + '"><p>' + esc(q.question) + '</p>' +

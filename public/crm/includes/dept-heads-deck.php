@@ -24,6 +24,8 @@ try {
         $__rate = (float)((new OwnerFreedomService(getDB()))->settings()['owner_rate'] ?? 0) ?: null;
     } catch (Throwable $__e) { /* no rate → no net saving */ }
     $ps = $__desk->stats($__rate);
+    require_once APP_ROOT . '/Modules/Expenses/Services/PennyQuestionService.php';
+    $__hi = PennyQuestionService::firstName((array)($user ?? getCurrentUser() ?? []));
     $__badges = ['earned' => [], 'next' => null];
     try {
         require_once APP_ROOT . '/Modules/Expenses/Services/PennyBadgeService.php';
@@ -68,12 +70,13 @@ $__team = [
 
     <div>
       <div class="mw-head-say">
+        Hey<?= $__hi !== '' ? ' ' . h($__hi) : '' ?> —
         <?php if ($ps['ready'] > 0): ?>
           I've prepared <b><?= (int)$ps['ready'] ?> receipt<?= $ps['ready'] === 1 ? '' : 's' ?></b> for you to approve.
         <?php else: ?>
           I'm preparing your receipts now.
         <?php endif; ?>
-        <?php if ($ps['drafts'] > 0): ?> I'm working through the <b><?= (int)$ps['drafts'] ?> drafts</b>.<?php endif; ?>
+        <?php if ($ps['drafts'] > 0): ?> I'm working through the <b><?= (int)$ps['drafts'] ?> draft<?= $ps['drafts'] === 1 ? '' : 's' ?></b>.<?php endif; ?>
         <?php if ($ps['gst_stuck'] >= 1): ?>
           There's <b><?= h($__money($ps['gst_stuck'])) ?> of GST</b> you can claim back sitting in receipts nobody has approved yet.
         <?php endif; ?>
@@ -84,7 +87,7 @@ $__team = [
           <div class="mw-k">Waiting for you</div>
           <div class="mw-v"><?= (int)$ps['ready'] ?> <small>ready</small></div>
           <div class="mw-head-bar"><span style="width: <?= $__readyPct ?>%"></span></div>
-          <div class="mw-n"><?= (int)$ps['waiting'] ?> submitted · <b><?= (int)$ps['drafts'] ?> drafts</b> in the backlog</div>
+          <div class="mw-n"><?= (int)$ps['waiting'] ?> submitted · <b><?= (int)$ps['drafts'] ?> draft<?= $ps['drafts'] === 1 ? '' : 's' ?></b> in the backlog</div>
         </div>
         <div class="mw-head-stat">
           <div class="mw-k">Handled by code alone</div>
