@@ -268,13 +268,15 @@ class BookkeeperDeskService
     {
         if (!$expenseIds) return [];
         $in = implode(',', array_fill(0, count($expenseIds), '?'));
-        $s = $this->db->prepare("SELECT id, expense_id, name, quantity, unit_price, line_total FROM expense_line_items
-                                 WHERE expense_id IN ({$in}) ORDER BY sort_order, id");
+        $s = $this->db->prepare("SELECT li.id, li.expense_id, li.name, li.quantity, li.unit_price, li.line_total, li.product_id, p.name AS product_name
+                                 FROM expense_line_items li LEFT JOIN products p ON p.id = li.product_id
+                                 WHERE li.expense_id IN ({$in}) ORDER BY li.sort_order, li.id");
         $s->execute($expenseIds);
         $out = [];
         foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
             $out[(int)$r['expense_id']][] = ['id' => (int)$r['id'], 'name' => $r['name'], 'quantity' => (float)$r['quantity'],
-                'unit_price' => $r['unit_price'] !== null ? (float)$r['unit_price'] : null, 'line_total' => (float)$r['line_total']];
+                'unit_price' => $r['unit_price'] !== null ? (float)$r['unit_price'] : null, 'line_total' => (float)$r['line_total'],
+                'product_id' => $r['product_id'] !== null ? (int)$r['product_id'] : null, 'product_name' => $r['product_name']];
         }
         return $out;
     }

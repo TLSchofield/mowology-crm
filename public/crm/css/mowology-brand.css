@@ -37699,6 +37699,10 @@ span.mw-icon-box--missing {
 .mw-rc-isum { text-transform: none; letter-spacing: 0; font-weight: 600; margin-left: 6px; color: var(--mw-dark); }
 .mw-rc-item { display: grid; grid-template-columns: minmax(0, 1fr) 58px 84px 26px; gap: 6px; align-items: center; margin-bottom: 4px; }
 .mw-rc-item .mw-rc-in { width: 100%; min-width: 0; }
+.mw-rc-iname { position: relative; min-width: 0; }
+.mw-rc-iname .mw-rc-in { width: 100%; padding-right: 22px; }
+.mw-rc-iprod-tag { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); font-size: .8rem; cursor: help; }
+.mw-rc-iprod { left: 0; right: auto; min-width: 260px; }
 .mw-rc-ihead { font-size: .68rem; color: var(--mw-ink-500); margin-bottom: 2px; }
 .mw-rc-idel { border: 0; background: none; color: var(--mw-ink-500); font-size: .9rem; padding: 2px; }
 .mw-rc-idel:hover { color: var(--mw-orange); }

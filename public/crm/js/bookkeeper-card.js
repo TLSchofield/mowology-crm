@@ -310,7 +310,9 @@
         var locked = it.status === 'forwarded';
         var rows = items.map(function (i) {
             return '<div class="mw-rc-item" data-item="' + esc(i.id) + '">' +
-                '<input class="mw-rc-in" data-iname value="' + esc(i.name) + '" aria-label="Item name"' + (locked ? ' disabled' : '') + '>' +
+                '<div class="mw-rc-iname"><input class="mw-rc-in" data-iname autocomplete="off" value="' + esc(i.name) + '" aria-label="Item name — type to search your products"' + (locked ? ' disabled' : '') + '>' +
+                  (i.product_id ? '<span class="mw-rc-iprod-tag" title="Linked to your product: ' + esc(i.product_name || '') + '">📦</span>' : '') +
+                  '<div class="mw-rc-jobres mw-rc-iprod" hidden></div></div>' +
                 '<input class="mw-rc-in" data-iqty type="number" step="any" inputmode="decimal" value="' + esc(i.quantity) + '" aria-label="Quantity"' + (locked ? ' disabled' : '') + '>' +
                 '<input class="mw-rc-in" data-itotal type="number" step="0.01" inputmode="decimal" value="' + esc(Number(i.line_total).toFixed(2)) + '" aria-label="Line total"' + (locked ? ' disabled' : '') + '>' +
                 (locked ? '' : '<button type="button" class="mw-rc-idel" data-idel aria-label="Remove item">✕</button>') +
@@ -339,6 +341,49 @@
         var sub = t - g - p, sum = itemsSum(items), ok = Math.abs(sub - sum) <= 0.05;
         return (ok ? '✓ ' : '⚠ ') + money(sum) + (ok ? ' — matches the subtotal' : ' vs subtotal ' + money(sub));
     }
+    // ── Product search on an item's name (your products list, same search as the receipts page) ──
+    var prodTimer = null;
+    function searchProducts(input) {
+        var res = input.parentNode.querySelector('.mw-rc-iprod');
+        var q = input.value.trim();
+        clearTimeout(prodTimer);
+        if (q.length < 2) { res.hidden = true; return; }
+        prodTimer = setTimeout(function () {
+            fetch('/crm/products/api-products.php?action=list-products&search=' + encodeURIComponent(q), { cache: 'no-store' })
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    if (document.activeElement !== input) return;
+                    var rows = (d && d.success && d.products) ? d.products.slice(0, 8) : [];
+                    res.innerHTML = rows.length
+                        ? rows.map(function (p) {
+                            return '<button type="button" data-pick-prod="' + esc(p.id) + '" data-label="' + esc(p.name) + '">📦 ' + esc(p.name) +
+                                (p.sku ? '<small>' + esc(p.sku) + '</small>' : '') + '</button>';
+                          }).join('') + '<div class="mw-rc-jobnone">Or keep typing — it saves as written</div>'
+                        : '<div class="mw-rc-jobnone">No product matches — it saves as written</div>';
+                    res.hidden = false;
+                }).catch(function () {});
+        }, 250);
+    }
+    var picking = false;    // a product result is being picked: don't save the half-typed name on blur
+    function pickProduct(btn) {
+        var row = btn.closest('.mw-rc-item[data-item]');
+        var id = parseInt(row.getAttribute('data-item'), 10);
+        var pid = parseInt(btn.getAttribute('data-pick-prod'), 10);
+        var name = btn.getAttribute('data-label');
+        row.querySelector('[data-iname]').value = name;
+        btn.parentNode.hidden = true;
+        itemSaved('Linking ' + name + '…');
+        lineApi({ action: 'update_line_item', line_item_id: id, name: name })
+            .then(function () { return lineApi({ action: 'link_product', line_item_id: id, product_id: pid }); })
+            .then(function () {
+                var item = (queue[idx].items || []).filter(function (x) { return x.id === id; })[0];
+                if (item) { item.name = name; item.product_id = pid; item.product_name = name; }
+                picking = false;
+                render('Linked to your product: ' + name);
+            })
+            .catch(function (e) { picking = false; itemSaved(e.message, true); });
+    }
+
     function lineApi(body) {
         body.csrf_token = window.MW_CSRF_TOKEN || '';
         return fetch('/crm/api/expenses.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
@@ -653,9 +698,13 @@
         }
     });
 
+    root.addEventListener('mousedown', function (e) {
+        var b = e.target.closest && e.target.closest('[data-pick-prod]');
+        if (b) { picking = true; e.preventDefault(); pickProduct(b); }
+    });
     root.addEventListener('change', function (e) {
         var row = e.target.closest && e.target.closest('.mw-rc-item[data-item]');
-        if (row && queue.length) saveItemRow(row);
+        if (row && queue.length && !picking) saveItemRow(row);
     });
 
     root.addEventListener('focusin', function (e) {
@@ -663,6 +712,11 @@
         if (e.target.hasAttribute && e.target.hasAttribute('data-vensearch')) { e.target.select(); searchVendors(e.target); }
     });
     root.addEventListener('focusout', function (e) {
+        if (e.target.hasAttribute && e.target.hasAttribute('data-iname')) {
+            var pr = e.target.parentNode.querySelector('.mw-rc-iprod');
+            setTimeout(function () { if (pr) pr.hidden = true; }, 200);
+            return;
+        }
         if (!(e.target.hasAttribute && e.target.hasAttribute('data-vensearch'))) return;
         var box = e.target.closest('.mw-rc-ven');
         setTimeout(function () { if (!box.contains(document.activeElement)) box.querySelector('.mw-rc-jobres').hidden = true; }, 200);
@@ -680,6 +734,7 @@
 
     root.addEventListener('input', function (e) {
         if (e.target.hasAttribute && e.target.hasAttribute('data-jobsearch')) { searchJobs(e.target); return; }
+        if (e.target.hasAttribute && e.target.hasAttribute('data-iname')) { searchProducts(e.target); return; }
         if (e.target.hasAttribute && e.target.hasAttribute('data-vensearch')) {
             var vbox = e.target.closest('.mw-rc-ven');
             vbox.querySelector('[data-f="vendor_id"]').value = '';   // typed, not picked
