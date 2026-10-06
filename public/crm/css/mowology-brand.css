@@ -37768,3 +37768,81 @@ body.mw-rc-zoom-open { overflow: hidden; }
     .mw-head-foot { flex-direction: column; align-items: flex-start; }
     .mw-rc-photo, .mw-rc-nophoto { width: 100%; height: 220px; }
 }
+
+/* ===================================================================
+   MIA — MARKETING HEAD (dashboard deck) — who to get back in touch with
+   Card: includes/mia-card.php · JS: js/mia-card.js · brain: js/head-brain.js
+   =================================================================== */
+.mw-heads-side > .mw-mia { grid-column: 1 / -1; }
+.mw-mia { display: flex; flex-direction: column; gap: 10px; border-color: var(--mw-light); }
+.mw-mia-top { display: flex; gap: 14px; align-items: flex-start; }
+.mw-mia-face { position: relative; flex: 0 0 auto; }
+.mw-mia-face img { width: 88px; height: 88px; border-radius: var(--mw-radius-lg); object-fit: cover; display: block; box-shadow: 0 0 0 3px var(--mw-lime), var(--mw-shadow-md); }
+.mw-mia-id { min-width: 0; }
+.mw-mia-id .mw-head-pill { margin-top: 6px; }
+.mw-mia-id .mw-head-badges { max-width: none; margin-top: 6px; }
+.mw-mia .mw-head-brain { position: absolute; right: -14px; bottom: -14px; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 12px; cursor: pointer;
+    background: radial-gradient(circle at 50% 42%, var(--mw-dark) 0%, var(--mw-forest) 72%); box-shadow: var(--mw-shadow-md); }
+.mw-mia .mw-head-brain canvas { width: 100%; height: 100%; display: block; }
+.mw-mia .mw-head-brain:hover, .mw-mia .mw-head-brain:focus-visible { box-shadow: 0 0 0 3px var(--mw-lime), var(--mw-shadow-md); outline: none; }
+.mw-mia-say { margin-bottom: 0; }
+.mw-mia-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.mw-mia-stat { border: 1px solid var(--mw-ink-200); border-radius: 10px; padding: 8px; display: flex; flex-direction: column; min-width: 0; }
+.mw-mia-stat .mw-k { font-size: .62rem; color: var(--mw-ink-500); font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
+.mw-mia-stat .mw-v { font-size: 1.3rem; font-weight: 800; color: var(--mw-forest); line-height: 1.15; margin: 2px 0; }
+.mw-mia-stat .mw-n { font-size: .66rem; color: var(--mw-ink-500); line-height: 1.3; margin-top: auto; }
+.mw-mia-stat.is-money .mw-v { color: var(--mw-green); }
+/* Questions */
+.mw-mia-q { border: 1px solid var(--mw-color-warning-bg); background: var(--mw-color-warning-bg); border-radius: 12px; padding: 8px 10px; }
+.mw-mia-q-head { font-size: .78rem; color: var(--mw-forest); margin-bottom: 4px; }
+.mw-mia-q-item { background: var(--mw-ink-0); border-radius: 8px; padding: 8px 10px; margin-top: 6px; }
+.mw-mia-q-item p { margin: 0 0 6px; font-size: .8rem; line-height: 1.4; color: var(--mw-ink-900); }
+.mw-mia-q-item a { color: var(--mw-green); font-weight: 600; }
+.mw-mia-q-btns { display: flex; flex-wrap: wrap; gap: 6px; }
+.mw-mia-q-btns button { border: 1px solid var(--mw-ink-200); background: var(--mw-ink-0); border-radius: 8px; padding: 4px 10px; font-size: .74rem; font-weight: 600; color: var(--mw-forest); }
+.mw-mia-q-btns button:hover { background: var(--mw-light); border-color: var(--mw-green); }
+.mw-mia-q-item p.mw-mia-q-done { color: var(--mw-dark); font-weight: 600; margin: 0; }
+/* Suggestion carousel */
+.mw-mia-rc { border: 1px solid var(--mw-ink-200); border-radius: 12px; padding: 10px 12px; background: var(--mw-ink-50); }
+.mw-mia-rc-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: .74rem; color: var(--mw-ink-500); margin-bottom: 8px; }
+.mw-mia-rc-top b { color: var(--mw-forest); }
+.mw-mia-arrow { width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--mw-ink-200); background: var(--mw-ink-0); color: var(--mw-forest); font-weight: 700; }
+.mw-mia-arrow:disabled { opacity: .35; }
+.mw-mia-who { font-size: .9rem; color: var(--mw-forest); margin-bottom: 8px; }
+.mw-mia-who a { font-size: .74rem; color: var(--mw-green); font-weight: 600; margin-left: 4px; }
+.mw-mia-why { font-size: .78rem; color: var(--mw-ink-700); margin-top: 2px; }
+.mw-mia-to { font-size: .7rem; color: var(--mw-ink-500); margin-top: 2px; overflow-wrap: anywhere; }
+.mw-mia-lbl { display: block; font-size: .64rem; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: var(--mw-ink-500); margin: 6px 0 0; }
+.mw-mia-in { display: block; width: 100%; margin-top: 3px; font: inherit; font-size: .84rem; font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--mw-ink-900);
+    background: var(--mw-ink-0); border: 1px solid var(--mw-ink-200); border-radius: 8px; padding: 6px 8px; }
+.mw-mia-in:focus { outline: none; border-color: var(--mw-green); box-shadow: 0 0 0 3px var(--mw-light); }
+.mw-mia-body { line-height: 1.45; resize: vertical; min-height: 140px; }
+.mw-mia-sms-on { display: flex; align-items: center; gap: 6px; font-size: .78rem; color: var(--mw-forest); margin: 8px 0 0; }
+.mw-mia-sms-note { font-size: .7rem; color: var(--mw-ink-500); margin-top: 3px; }
+.mw-mia-sms-note.is-bad { color: var(--mw-orange); }
+.mw-mia-nosms { font-size: .7rem; color: var(--mw-ink-500); margin-top: 6px; }
+.mw-mia-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+.mw-mia-send { background: var(--mw-green); color: var(--mw-ink-0); border: 0; border-radius: 9px; padding: 8px 16px; font-weight: 700; }
+.mw-mia-send:hover { background: var(--mw-dark); }
+.mw-mia-send.is-armed { background: var(--mw-orange); }
+.mw-mia-actions button:disabled { opacity: .6; cursor: wait; }
+.mw-mia-skip { margin-left: auto; color: var(--mw-ink-500); background: none; border: 0; font-size: .8rem; }
+.mw-mia-skips { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; justify-content: flex-end; }
+.mw-mia-skips button { border: 1px solid var(--mw-ink-200); background: var(--mw-ink-0); border-radius: var(--mw-radius-pill); padding: 4px 10px; font-size: .74rem; color: var(--mw-forest); }
+.mw-mia-skips button:hover { border-color: var(--mw-orange); color: var(--mw-orange); }
+.mw-mia-msg { font-size: .76rem; color: var(--mw-dark); min-height: 1em; margin-top: 6px; }
+.mw-mia-empty { text-align: center; padding: 18px 8px; color: var(--mw-ink-500); font-size: .84rem; }
+/* The brain's pop-up (head-brain.js) — shared markup; same look as Penny's */
+.mw-brain-pop { position: fixed; inset: 0; z-index: 1090; background: color-mix(in srgb, var(--mw-forest) 55%, transparent); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.mw-brain-card { position: relative; display: flex; flex-wrap: wrap; gap: 20px; align-items: center; max-width: 760px; width: 100%;
+    background: var(--mw-ink-0); border-radius: var(--mw-radius-lg); padding: 20px; box-shadow: var(--mw-shadow-lg); }
+.mw-brain-big { width: 340px; height: 340px; max-width: 100%; border-radius: 24px; background: radial-gradient(circle at 50% 42%, var(--mw-dark) 0%, var(--mw-forest) 72%); }
+.mw-brain-facts { flex: 1; min-width: 220px; font-size: .85rem; color: var(--mw-forest); }
+.mw-brain-facts h4 { margin: 0 0 4px; font-size: 1rem; font-weight: 800; }
+.mw-brain-facts ul { list-style: none; padding: 0; margin: 8px 0; }
+.mw-brain-note { color: var(--mw-ink-500); font-size: .78rem; }
+.mw-brain-close { position: absolute; top: 10px; right: 12px; border: 0; background: none; font-size: 1.1rem; color: var(--mw-ink-500); }
+@media (max-width: 575px) {
+    .mw-mia-stats { grid-template-columns: repeat(2, 1fr); }
+    .mw-mia .mw-head-brain { width: 36px; height: 36px; right: -10px; bottom: -10px; }
+}
