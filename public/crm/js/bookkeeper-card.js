@@ -16,7 +16,9 @@
     var CATEGORIES = [];
     try { CATEGORIES = JSON.parse(root.getAttribute('data-categories') || '[]'); } catch (e) {}
     var BACKLOG = parseInt(root.getAttribute('data-backlog') || '0', 10);
+    var GREETING = root.getAttribute('data-name') || '';
     var queue = [];
+    var dupes = [];          // possible duplicate pairs — sorted before anything is approved
     var idx = 0;
     var busy = false;
     var rounds = 0;          // background preparation rounds this page view (max 3 × 2 receipts)
@@ -60,6 +62,7 @@
             .then(function (r) { return r.json(); })
             .then(function (d) {
                 queue = (d && d.ok && d.queue) ? d.queue : [];
+                dupes = (d && d.ok && d.dupes) ? d.dupes : [];
                 idx = 0;
                 topUp();
                 render();
@@ -85,7 +88,55 @@
         }).catch(function () { preparing = false; render(); });
     }
 
+    // ── Possible duplicates: settled first, never offered for approval ──────
+    var WAITING = ['draft', 'pending_approval'];
+    function dupSide(r, other, side) {
+        var name = r.vendor_name || r.vendor_name_raw || 'Unknown vendor';
+        var canKeep = WAITING.indexOf(other.status) !== -1;     // the other one is the one removed
+        var photo = r.receipt_path
+            ? '<img class="mw-rc-dup-photo" src="' + esc(r.receipt_path) + '" alt="Receipt #' + esc(r.id) + '" data-zoomsrc="' + esc(r.receipt_path) + '">'
+            : '<div class="mw-rc-nophoto">No photo</div>';
+        return '<div class="mw-rc-dup-side">' + photo +
+            '<div class="mw-rc-dup-facts"><b>' + esc(name) + '</b><span>' + esc(r.expense_date || '') + ' · ' + money(r.total) + '</span>' +
+            '<small>#' + esc(r.id) + ' · ' + esc(String(r.status || '').replace('_', ' ')) + (r.submitted_by ? ' · from ' + esc(r.submitted_by) : '') + '</small></div>' +
+            (canKeep
+                ? '<button type="button" class="mw-rc-ok" data-dup-keep="' + side + '">Keep this one</button>'
+                : '<div class="mw-rc-dup-note">Already approved — keep this one by removing the other</div>') +
+          '</div>';
+    }
+    function renderDupe(msg) {
+        var p = dupes[0];
+        root.innerHTML = '<div class="mw-rc-top"><span><b>Possible duplicate</b>' + (dupes.length > 1 ? ' · 1 of ' + dupes.length : '') +
+                ' · sorted before anything is approved</span></div>' +
+            '<div class="mw-rc-dup-say">' + (GREETING ? 'Hey ' + esc(GREETING) + ' — t' : 'T') +
+                'hese two look like the same purchase: same total, within 3 days. Which one should I keep? The other is removed (its photo is kept if the one you keep has none).</div>' +
+            '<div class="mw-rc-dup">' + dupSide(p.a, p.b, 'a') + dupSide(p.b, p.a, 'b') + '</div>' +
+            '<div class="mw-rc-actions">' +
+              '<button type="button" class="mw-rc-ed" data-dup-not="1">Not duplicates — approve both</button>' +
+              '<a class="mw-rc-sk" href="/crm/expenses_appstack.php">Compare every field on the receipts page →</a>' +
+            '</div>' +
+            '<div class="mw-rc-msg">' + (msg ? esc(msg) : '') + '</div>';
+    }
+    function settleDupe(keepSide, notDupe) {
+        if (busy || !dupes.length) return;
+        var p = dupes[0];
+        busy = true;
+        var req = notDupe
+            ? post({ mode: 'not_dupe', a: p.a.id, b: p.b.id })
+            : fetch('/crm/api/expenses.php', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'merge', csrf_token: window.MW_CSRF_TOKEN || '',
+                    keep_id: keepSide === 'a' ? p.a.id : p.b.id, discard_id: keepSide === 'a' ? p.b.id : p.a.id }) })
+                .then(function (r) { return r.json(); })
+                .then(function (d) { return { ok: !!(d && d.success), message: d && (d.message || d.error) }; });
+        req.then(function (d) {
+            busy = false;
+            if (!(d && d.ok)) { renderDupe((d && d.message) || 'Could not save'); return; }
+            load().then(function () { if (!dupes.length) render(notDupe ? 'Got it — both go on for approval.' : 'Done — duplicate removed.'); });
+        }).catch(function () { busy = false; renderDupe('Network error — try again'); });
+    }
+
     function render(msg) {
+        if (dupes.length) { setZoom(false); renderDupe(msg); return; }
         if (!queue.length) {
             setZoom(false);
             var text = preparing ? 'I\'m preparing your receipts — they\'ll appear here in a moment…'
@@ -357,6 +408,11 @@
     }
 
     root.addEventListener('click', function (e) {
+        var dk = e.target.getAttribute && e.target.getAttribute('data-dup-keep');
+        if (dk) { settleDupe(dk, false); return; }
+        if (e.target.getAttribute && e.target.getAttribute('data-dup-not')) { settleDupe(null, true); return; }
+        var zsrc = e.target.getAttribute && e.target.getAttribute('data-zoomsrc');
+        if (zsrc) { window.open(zsrc, '_blank', 'noopener'); return; }
         if (e.target.getAttribute('data-zoom')) { setZoom(true); render(); return; }
         var stockBtn = e.target.closest && e.target.closest('[data-pick-stock]');
         if (stockBtn) {

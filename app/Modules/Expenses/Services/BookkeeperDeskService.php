@@ -162,9 +162,11 @@ class BookkeeperDeskService
     // ─────────────────────────────────────────────────────────────────────────
 
     /** Prepared receipts, waiting-for-approval first, then the oldest drafts. */
-    public function queue(int $limit = 10): array
+    /** @param int[] $hold expense ids held back (possible duplicates, sorted first) */
+    public function queue(int $limit = 10, array $hold = []): array
     {
         $limit = max(1, min(25, $limit));
+        $holdSql = $hold ? ' AND e.id NOT IN (' . implode(',', array_map('intval', $hold)) . ')' : '';
         $rows = $this->db->query("
             SELECT s.id AS suggestion_id, s.suggestion_json, s.checks_json, s.current_json, s.used_image, s.outcome_json,
                    e.id AS expense_id, e.status, e.expense_date, e.total, e.receipt_media_id,
@@ -173,7 +175,7 @@ class BookkeeperDeskService
             JOIN expenses e ON e.id = s.expense_id
             LEFT JOIN vendors v ON v.id = e.vendor_id
             LEFT JOIN users u ON u.id = e.created_by
-            WHERE s.source = 'live' AND s.status = 'pending' AND e.status IN ('draft', 'pending_approval')
+            WHERE s.source = 'live' AND s.status = 'pending' AND e.status IN ('draft', 'pending_approval'){$holdSql}
             ORDER BY (s.outcome_json IS NOT NULL) ASC, (e.status = 'pending_approval') DESC, e.expense_date ASC, e.id ASC
             LIMIT {$limit}
         ")->fetchAll(PDO::FETCH_ASSOC);
@@ -450,7 +452,8 @@ class BookkeeperDeskService
      * drafts), within the daily cap. Text first; the photo only when the text's
      * amounts don't add up.
      */
-    public function prepare(int $max = 2): array
+    /** @param int[] $hold expense ids not to read yet (possible duplicates) */
+    public function prepare(int $max = 2, array $hold = []): array
     {
         $max = max(1, min(5, $max));
         $cap = self::DEFAULT_DAILY_CAP;
@@ -470,6 +473,7 @@ class BookkeeperDeskService
               AND e.raw_ocr_json IS NOT NULL AND e.raw_ocr_json <> ''
               AND NOT EXISTS (SELECT 1 FROM expense_suggestions s
                               WHERE s.expense_id = e.id AND s.source = 'live' AND s.status IN ('pending', 'error'))
+              " . ($hold ? 'AND e.id NOT IN (' . implode(',', array_map('intval', $hold)) . ')' : '') . "
             ORDER BY (e.status = 'pending_approval') DESC, e.expense_date ASC, e.id ASC
             LIMIT " . min($max, $room)
         )->fetchAll(PDO::FETCH_COLUMN);

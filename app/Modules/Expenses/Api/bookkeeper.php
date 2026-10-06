@@ -14,6 +14,7 @@
  * POST {mode: 'decide', suggestion_id, overrides?: {field: value}, save_draft?: bool, csrf_token}
  * POST {mode: 'prepare', max?, csrf_token}   Prepare the next receipts (daily-capped).
  * POST {mode: 'recheck', suggestion_id, csrf_token}  Penny reads one receipt again, with the photo.
+ * POST {mode: 'not_dupe', a, b, csrf_token}  "Not a duplicate" — remembered (migration 1127).
  * GET  ?mode=questions  Penny's open questions (scans for unbilled materials first).
  * POST {mode: 'answer', question_id, answer: invoice|contract|not_billable, csrf_token}
  *
@@ -175,6 +176,8 @@ try {
         case 'prepare': {
             require_once APP_ROOT . '/Modules/Expenses/Services/BookkeeperDeskService.php';
             $desk = new BookkeeperDeskService($db, $svc);
+            require_once APP_ROOT . '/Modules/Expenses/Services/DuplicateReceiptService.php';
+            $dupSvc = new DuplicateReceiptService($db);
             if (!$desk->ready()) {
                 throw new RuntimeException('Bookkeeper not set up (migration 1125)');
             }
@@ -186,7 +189,10 @@ try {
                 } catch (Throwable $e) { /* no rate → no net saving */ }
                 echo json_encode(['ok' => true, 'stats' => $desk->stats($rate)]);
             } elseif ($mode === 'queue') {
-                echo json_encode(['ok' => true, 'queue' => $desk->queue((int)($_GET['limit'] ?? 10))]);
+                // Possible duplicates are sorted first and never offered for approval.
+                $dupes = $dupSvc->pairsInLine(60);
+                echo json_encode(['ok' => true, 'dupes' => $dupes,
+                                  'queue' => $desk->queue((int)($_GET['limit'] ?? 10), DuplicateReceiptService::heldIds($dupes))]);
             } elseif ($mode === 'decide') {
                 if ($method !== 'POST') throw new RuntimeException('POST required');
                 $overrides = is_array($input['overrides'] ?? null) ? $input['overrides'] : [];
@@ -201,8 +207,15 @@ try {
                 if ($method !== 'POST') throw new RuntimeException('POST required');
                 if (!$svc->ready()) throw new RuntimeException('Not ready — check ?mode=status');
                 set_time_limit(240);
-                echo json_encode(['ok' => true] + $desk->prepare((int)($input['max'] ?? 2)));
+                echo json_encode(['ok' => true] + $desk->prepare((int)($input['max'] ?? 2), DuplicateReceiptService::heldIds($dupSvc->pairsInLine(60))));
             }
+            break;
+        }
+
+        case 'not_dupe': {
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            require_once APP_ROOT . '/Modules/Expenses/Services/DuplicateReceiptService.php';
+            echo json_encode((new DuplicateReceiptService($db))->dismiss((int)($input['a'] ?? 0), (int)($input['b'] ?? 0), $user));
             break;
         }
 
