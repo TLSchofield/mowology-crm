@@ -117,3 +117,14 @@ New suggestion kinds on his card, in the brief and in his learning:
 8. **Green waste (open question):** where does it go (transfer station, compost facility, client bins), and what are the hours and fees? This feeds the route and the end-of-day km later.
 
 Sources: [vancouver.ca power equipment](https://vancouver.ca/home-property-development/power-equipment.aspx), [By-law 6555 PDF](https://bylaws.vancouver.ca/6555c.PDF), [Richmond noise regulations](https://www.richmond.ca/city-hall/bylaws/property/noise.htm), [Richmond BL 8856](https://www.richmond.ca/__shared/assets/BL_8856_07242369236.pdf), [Burnaby noise](https://www.burnaby.ca/node/206), [Vancouver gas equipment motion (Turf & Rec)](https://www.turfandrec.com/vancouver-moves-closer-to-banning-gas-powered-landscaping-equipment/), [Metro Vancouver small gas engines](https://coastreporter.net/bc-news/metro-vancouver-inches-closer-to-phasing-out-small-gas-engines-8721913).
+
+## Built (2026-10-05) — Tim's defaults applied
+
+- Otto **suggests** maintenance tasks ("Make a task" / "Already done"); never creates one alone.
+- Seeded rules are all `unverified` (Vancouver, Richmond; Burnaby rows empty) → priority-3 suggestions that end "(Rule not yet confirmed.)". Setting a row to Verified records who confirmed it.
+- BC statutory holidays computed in `DispatchRules::bcHolidays()` (rules only, not company days off). West End by postal prefix V6E,V6G (unverified).
+- Might-E: 20% reserve default; range learned only from odometer logs (`vehicle_trip_reports`); no post-trip battery % (iOS untouched).
+- Packs: runs logged by hand on `/crm/ops/equipment.php`; fading below 70% of new over the last 3 full runs.
+- CCA class recorded only. Green waste is an open question on both pages (`ops_settings.otto_green_waste`).
+- Deviation from the plan: no `equipment_usage_daily` table — hours are computed live from job timers (one small query per item). Migration 1158 adds only `tasks.equipment_id` (task_type ENUM untouched).
+- Renders (stub data): `otto-dispatcher-card.png`, `otto-rules-page.png`, `otto-equipment-page.png`.

@@ -37784,7 +37784,7 @@ body.mw-rc-zoom-open { overflow: hidden; }
 .mw-otto .mw-head-brain:hover { border-color: var(--mw-green); }
 .mw-otto-badges { max-width: none; margin-top: 0; }
 .mw-otto-say { background: var(--mw-light); border-radius: 10px; padding: 10px 12px; font-size: .85rem; line-height: 1.45; color: var(--mw-forest); }
-.mw-otto-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; }
+.mw-otto-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(84px, 1fr)); gap: 8px; }
 .mw-otto-stat { border: 1px solid var(--mw-ink-200); border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; min-width: 0; }
 .mw-otto-stat .mw-k { font-size: .66rem; color: var(--mw-ink-500); font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
 .mw-otto-stat .mw-v { font-size: 1.35rem; font-weight: 800; margin: 2px 0; color: var(--mw-forest); line-height: 1.1; }
@@ -37842,3 +37842,37 @@ body.mw-rc-zoom-open { overflow: hidden; }
     .mw-head-brain-pop .mw-brain-card { grid-template-columns: 1fr; }
     .mw-head-brain-pop .mw-brain-big { width: 200px; height: 200px; margin: 0 auto; }
 }
+
+/* Otto the Dispatcher — Bylaw rules and Equipment pages (/crm/ops/municipal-rules.php, /crm/ops/equipment.php) */
+.mw-ops-page .card { margin-bottom: 16px; }
+.mw-ops-head { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+.mw-ops-head img { width: 56px; height: 56px; border-radius: 50%; object-fit: cover; flex: none; box-shadow: 0 0 0 3px var(--mw-lime); }
+.mw-ops-hint { font-size: .78rem; color: var(--mw-ink-500); margin: 6px 0 0; }
+.mw-ops-table { font-size: .8rem; }
+.mw-ops-table td { vertical-align: middle; }
+.mw-ops-table .form-control-sm { min-width: 110px; }
+.mw-ops-table td.mw-ops-note { min-width: 240px; }
+.mw-ops-time .form-control-sm { min-width: 96px; }
+.mw-ops-table tr.mw-ops-status-unverified td:first-child { box-shadow: inset 3px 0 0 var(--mw-orange); }
+.mw-ops-table tr.mw-ops-status-verified td:first-child { box-shadow: inset 3px 0 0 var(--mw-green); }
+.mw-ops-table tr.mw-ops-status-confirm_current_bylaw td:first-child { box-shadow: inset 3px 0 0 var(--mw-ink-300); }
+.mw-ops-table tr.mw-ops-over td { color: var(--mw-orange); font-weight: 600; }
+.mw-ops-table tr.mw-ops-retired td { color: var(--mw-ink-500); }
+.mw-ops-table tr.mw-ops-edit td { border-top: 0; padding-top: 0; }
+.mw-ops-src { font-size: .72rem; color: var(--mw-green); }
+.mw-ops-flag { display: inline-block; font-size: .7rem; font-weight: 700; color: var(--mw-orange); }
+.mw-ops-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.mw-ops-chip { font-size: .76rem; padding: 4px 10px; border-radius: var(--mw-radius-pill); background: var(--mw-ink-100); color: var(--mw-ink-700); }
+.mw-ops-chip.is-covered { background: var(--mw-light); color: var(--mw-dark); }
+.mw-ops-chip b { margin-left: 4px; }
+.mw-ops-list { list-style: none; padding: 0; margin: 6px 0 0; font-size: .8rem; color: var(--mw-ink-700); }
+.mw-ops-list li { padding: 3px 0; border-bottom: 1px dashed var(--mw-ink-200); }
+.mw-ops-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px 12px; padding: 10px 0; }
+.mw-ops-form label { font-size: .72rem; color: var(--mw-ink-500); font-weight: 600; margin: 0; }
+.mw-ops-form .mw-ops-wide { grid-column: 1 / -1; }
+.mw-ops-check { display: flex; align-items: center; gap: 6px; }
+.mw-ops-add { margin-top: 10px; }
+.mw-ops-add > summary { list-style: none; cursor: pointer; }
+.mw-ops-question { border-color: var(--mw-color-warning-bg); background: var(--mw-color-warning-bg); }
+.mw-ops-msg { display: inline-block; margin-left: 8px; font-size: .75rem; color: var(--mw-dark); }
+.mw-ops-msg.is-bad { color: var(--mw-orange); }

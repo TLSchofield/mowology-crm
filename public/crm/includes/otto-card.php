@@ -23,7 +23,7 @@ try {
     $__oName = trim((string)($__ou['first_name'] ?? '')) ?: (string)strtok(trim((string)($__ou['full_name'] ?? '')), ' ');
     $__oSay = OttoRules::headline([
         'stops' => $__os['today']['stops'], 'done' => $__os['today']['done'], 'crews' => count($__os['today']['crews']),
-        'silent' => $__os['silent'], 'weather' => $__os['weather'], 'gaps' => $__os['gaps'],
+        'silent' => $__os['silent'], 'weather' => $__os['weather'], 'gaps' => $__os['gaps'], 'dispatch' => $__os['dispatch'] ?? 0,
     ], $__oName);
     $__oBadges = ['earned' => [], 'next' => null];
     try {
@@ -45,10 +45,10 @@ $__oCrewLine = implode(' · ', array_map(fn($c) => $c['name'] . ' ' . $c['done']
 ?>
 <section class="mw-head-card mw-otto" id="mw-otto">
   <div class="mw-otto-top">
-    <img class="mw-otto-face" src="/crm/img/heads/otto.jpg" alt="Otto, operations" width="72" height="72">
+    <img class="mw-otto-face" src="/crm/img/heads/otto.jpg" alt="Otto, dispatcher" width="72" height="72">
     <div class="mw-otto-who">
       <div class="mw-head-nm">Otto</div>
-      <div class="mw-head-role">Operations · crews, weather &amp; time</div>
+      <div class="mw-head-role">Dispatcher · crews, weather, bylaws &amp; equipment</div>
       <span class="mw-head-pill"><i></i>Working</span>
     </div>
     <?php if ($__oBrain !== null): ?>
@@ -101,6 +101,11 @@ $__oCrewLine = implode(' · ', array_map(fn($c) => $c['name'] . ' ' . $c['done']
       <div class="mw-v"><?= (int)$__os['gaps'] ?></div>
       <div class="mw-n">Last <?= OttoRules::GAP_DAYS ?> days</div>
     </div>
+    <div class="mw-otto-stat<?= ($__os['dispatch'] ?? 0) > 0 ? ' is-alert' : '' ?>">
+      <div class="mw-k">Bylaws &amp; kit</div>
+      <div class="mw-v"><?= (int)($__os['dispatch'] ?? 0) ?></div>
+      <div class="mw-n"><a href="/crm/ops/municipal-rules.php">Rules</a> · <a href="/crm/ops/equipment.php">Equipment</a></div>
+    </div>
     <div class="mw-otto-stat">
       <div class="mw-k">Right first time</div>
       <div class="mw-v"><?= $__os['right_first_time'] === null ? '—' : (int)$__os['right_first_time'] . '%' ?></div>
@@ -118,7 +123,7 @@ $__oCrewLine = implode(' · ', array_map(fn($c) => $c['name'] . ' ' . $c['done']
   </div>
 
   <div class="mw-head-foot mw-otto-foot">
-    <span>Learning from every call you make: rain by service · visit lengths · whose phone goes quiet</span>
+    <span>Learning from every call you make: rain by service · visit lengths · whose phone goes quiet · real truck km</span>
     <a class="btn btn-sm btn-success" href="/crm/jobs/schedule.php">Schedule →</a>
   </div>
 </section>

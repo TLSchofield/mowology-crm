@@ -55,6 +55,30 @@
                     '<label class="mw-otto-field"><input type="number" name="minutes" min="1" max="720" step="5" value="' + esc(p.minutes || '') + '"> min</label>' +
                     '<button type="button" class="is-main" data-do="apply">' + (it.kind === 'job_timer' ? 'Fix the timer' : 'Save the time') + '</button>' +
                     '<button type="button" data-do="dismiss">Leave it</button></div>';
+            case 'bylaw':
+                return '<div class="mw-otto-btns">' +
+                    (p.problem === 'ban' ? '' :
+                        '<label class="mw-otto-field">Start <input type="time" name="time" value="' + esc(p.allowed_start || '') + '"></label>' +
+                        '<button type="button" class="is-main" data-do="retime">Use this time</button>') +
+                    (p.blower ? '<button type="button"' + (p.problem === 'ban' ? ' class="is-main"' : '') + ' data-do="note">Rake/vac instead — tell the crew</button>' : '') +
+                    '<button type="button" data-do="dismiss">Leave it</button></div>';
+            case 'west_end':
+                return '<div class="mw-otto-btns">' +
+                    '<button type="button" class="is-main" data-do="note">Add a crew note</button>' +
+                    '<button type="button" data-do="dismiss">Leave it</button></div>';
+            case 'truck_range':
+                return '<div class="mw-otto-btns">' +
+                    '<button type="button" class="is-main" data-do="ack">I\'ll rework the day</button>' +
+                    '<button type="button" data-do="dismiss">It\'s fine</button></div>';
+            case 'maintenance':
+                return '<div class="mw-otto-btns">' +
+                    '<button type="button" class="is-main" data-do="task">Make a task</button>' +
+                    '<button type="button" data-do="done">Already done</button>' +
+                    '<button type="button" data-do="dismiss">Leave it</button></div>';
+            case 'pack_fading':
+                return '<div class="mw-otto-btns">' +
+                    '<button type="button" class="is-main" data-do="retire">Retire the pack</button>' +
+                    '<button type="button" data-do="dismiss">Keep using it</button></div>';
             case 'silent':
                 return '<div class="mw-otto-btns">' +
                     '<button type="button" class="is-main" data-do="real">It\'s a problem — I\'ll call</button>' +
@@ -113,6 +137,11 @@
             var t = el.querySelector('input[name="time"]').value;
             if (!d) return say(el, 'Pick a date first.', true);
             return decide(el, { choice: 'move', date: d, time: t }, btn);
+        }
+        if (what === 'retime') {
+            var tm = el.querySelector('input[name="time"]');
+            if (!tm || !tm.value) return say(el, 'Pick a start time first.', true);
+            return decide(el, { choice: 'retime', time: tm.value }, btn);
         }
         if (what === 'cancel') { el.querySelector('.mw-otto-slot').hidden = true; return; }
         if (what === 'apply') {
