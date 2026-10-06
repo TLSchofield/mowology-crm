@@ -38,6 +38,13 @@ require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/HouseBriefAdapter.
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieBadgeService.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieDeskService.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieBriefEmail.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/DeadlineRules.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/DeadlineService.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/AccountantPackService.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/ConflictRules.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieInboxService.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieUrgentService.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieForemanService.php';
 
 require_once __DIR__ . '/../app/Modules/Invoices/Services/StatementService.php';
 

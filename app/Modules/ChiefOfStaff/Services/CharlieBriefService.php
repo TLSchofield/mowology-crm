@@ -20,6 +20,7 @@ class CharlieBriefService
 {
     /** Who's who, in the order the brief lists them. */
     public const HEADS = [
+        'charlie' => ['name' => 'Charlie', 'role' => 'Foreman · deadlines'],
         'penny' => ['name' => 'Penny', 'role' => 'Bookkeeper'],
         'sam'   => ['name' => 'Sam',   'role' => 'Sales'],
         'otto'  => ['name' => 'Otto',  'role' => 'Operations'],
@@ -45,6 +46,11 @@ class CharlieBriefService
     {
         $db = $this->db;
         $out = [];
+        // Charlie's own calendar (migration 1171): deadlines inside their reminder window.
+        require_once __DIR__ . '/DeadlineService.php';
+        if ((new DeadlineService($db))->ready()) {
+            $out['charlie'] = static fn(string $n) => (new DeadlineService($db))->brief($n);
+        }
         $out['penny'] = static function (string $n) use ($db) {
             require_once __DIR__ . '/PennyBriefAdapter.php';
             return (new PennyBriefAdapter($db))->brief($n);
@@ -76,6 +82,16 @@ class CharlieBriefService
      *   heads: head => [name, role, headline, count, items (normalized, the head's order)]
      */
     public function collect(string $ownerFirstName): array
+    {
+        // Asked once per request: the card, the inbox and the cron all reuse the answer.
+        if (isset($this->memo[$ownerFirstName])) return $this->memo[$ownerFirstName];
+        return $this->memo[$ownerFirstName] = $this->ask($ownerFirstName);
+    }
+
+    /** @var array<string, array> */
+    private array $memo = [];
+
+    private function ask(string $ownerFirstName): array
     {
         $heads = [];
         $items = [];

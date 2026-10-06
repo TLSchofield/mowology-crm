@@ -17,6 +17,7 @@ class CharlieBriefEmail
     private const FOREST = '#0D3B2E';
     private const LIGHT = '#E8F3F0';
     private const MUTED = '#4a6b5d';
+    private const ALERT = '#b54708';
     private const FONT = "font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;";
 
     /**
@@ -39,6 +40,13 @@ class CharlieBriefEmail
         $p = 'style="margin:0 0 14px;font-size:15px;line-height:1.5;color:' . self::FOREST . ';' . self::FONT . '"';
 
         $html = '<p ' . $p . '>' . $e(CharlieVoice::hey($name)) . ' here\'s your morning.</p>';
+        $bad = array_values(array_filter((array)($payload['bad'] ?? []), 'is_string'));
+        if ($bad) {
+            $html .= '<p ' . $p . '><strong>' . $e(CharlieVoice::badLead($bad)) . '</strong></p>'
+                . '<ul style="margin:0 0 18px;padding-left:18px;font-size:15px;line-height:1.5;color:' . self::ALERT . ';' . self::FONT . '">';
+            foreach ($bad as $b) $html .= '<li>' . $e($b) . '</li>';
+            $html .= '</ul>';
+        }
         if ($one) {
             $html .= '<p ' . $p . '>The one thing that needs you today:</p>'
                 . '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 22px;"><tr>'

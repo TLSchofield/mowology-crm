@@ -108,7 +108,7 @@ class CharlieDeskService
      * Ask every head, remember what they said, rank it, keep the morning brief.
      * @return array{one: ?array, rest: array, heads: array, total: int, failed: array, connected: string[], say: array}
      */
-    public function today(string $name): array
+    public function today(string $name, array $extraBad = []): array
     {
         $c = $this->briefs->collect($name);
         $this->sync($c);
@@ -134,10 +134,34 @@ class CharlieDeskService
             'failed'    => $c['failed'],
             'connected' => $c['ok'],
             'say'       => CharlieVoice::say($name, $one, max(0, count($ranked) - 1), $withItems),
+            'bad'       => self::badNews($c['failed'], $ranked, $extraBad),
         ];
         $this->snapshot($view);
         $this->maybeAskWhichFirst($ranked);
         return $view;
+    }
+
+    /**
+     * Pure: bad news, said first — urgent alerts, overdue deadlines, held conflicts (from
+     * $extra, in the order given), then heads Charlie couldn't reach. An honest brief leads
+     * with what went wrong.
+     * @param array $failed head => error; $ranked: today's items; $extra: [text] from urgent/inbox
+     * @return string[]
+     */
+    public static function badNews(array $failed, array $ranked, array $extra = []): array
+    {
+        $out = [];
+        foreach ($extra as $t) if (is_string($t) && trim($t) !== '') $out[] = trim($t);
+        foreach ($ranked as $it) {
+            if (strpos($it['key'], 'charlie:deadline:') === 0 && preg_match('/— (overdue since|was due yesterday)/', $it['text'])) {
+                $out[] = 'Overdue: ' . $it['text'];
+            }
+        }
+        $names = CharlieBriefService::HEADS;
+        foreach (array_keys($failed) as $h) {
+            $out[] = "I couldn't reach " . ($names[$h]['name'] ?? ucfirst((string)$h)) . ' — their part of this brief is missing.';
+        }
+        return array_values(array_unique($out));
     }
 
     /** Remember what every head said; close what vanished; learn from what was dealt with. */
@@ -248,7 +272,7 @@ class CharlieDeskService
             $heads[$head] = ['name' => $h['name'], 'role' => $h['role'], 'headline' => $h['headline'],
                              'waiting' => $h['waiting'] ?? count($h['items']), 'items' => array_map($slim, $h['items'])];
         }
-        return ['one' => $view['one']['key'] ?? null, 'items' => $items, 'heads' => $heads];
+        return ['one' => $view['one']['key'] ?? null, 'items' => $items, 'heads' => $heads, 'bad' => array_values((array)($view['bad'] ?? []))];
     }
 
     /**
@@ -415,6 +439,9 @@ class CharlieDeskService
             if ($q['kind'] === 'which_first') {
                 $out[] = ['id' => (int)$q['id'], 'kind' => 'which_first', 'question' => CharlieVoice::whichFirst($name),
                           'options' => [['answer' => 'a', 'label' => (string)$q['text_a']], ['answer' => 'b', 'label' => (string)$q['text_b']]]];
+            } elseif ($q['kind'] === 'rule_rewrite') {
+                $out[] = ['id' => (int)$q['id'], 'kind' => 'rule_rewrite', 'question' => CharlieVoice::ruleRewrite($name, (string)$q['text_a']),
+                          'options' => [['answer' => 'change', 'label' => 'Yes, change the rule'], ['answer' => 'keep', 'label' => 'No, keep it as it is']]];
             } else {
                 $out[] = ['id' => (int)$q['id'], 'kind' => 'mute', 'question' => CharlieVoice::mute($name, (string)$q['text_a'], (int)$q['text_b']),
                           'options' => [['answer' => 'mute', 'label' => 'Yes, leave them out'], ['answer' => 'keep', 'label' => 'No, keep showing them']]];
@@ -429,7 +456,7 @@ class CharlieDeskService
         $s->execute([$id]);
         $q = $s->fetch(PDO::FETCH_ASSOC);
         if (!$q || $q['status'] !== 'open') return ['ok' => false, 'message' => 'Already answered'];
-        $valid = $q['kind'] === 'which_first' ? ['a', 'b'] : ['mute', 'keep'];
+        $valid = ['which_first' => ['a', 'b'], 'rule_rewrite' => ['change', 'keep']][$q['kind']] ?? ['mute', 'keep'];
         if (!in_array($answer, $valid, true)) return ['ok' => false, 'message' => 'Unknown answer'];
         $this->db->prepare("UPDATE charlie_questions SET status = 'answered', answer = ?, answered_at = ? WHERE id = ?")
             ->execute([$answer, $this->now(), $id]);
@@ -437,6 +464,12 @@ class CharlieDeskService
             [$w, $l] = $answer === 'a' ? [$q['kind_a'], $q['kind_b']] : [$q['kind_b'], $q['kind_a']];
             $this->pair((string)$w, (string)$l, CharlieRankService::K_ANSWER);
             return ['ok' => true, 'message' => "Thanks — I'll put that kind first from now on."];
+        }
+        if ($q['kind'] === 'rule_rewrite') {
+            if ($answer === 'keep') return ['ok' => true, 'message' => 'Okay — the rule stays as it is.'];
+            $this->db->prepare("UPDATE charlie_rules SET params = ?, text = ? WHERE slug = ?")
+                ->execute([json_encode(json_decode((string)$q['text_b'], true) ?: []), mb_substr((string)$q['text_a'], 0, 500), (string)$q['kind_a']]);
+            return ['ok' => true, 'message' => 'Done — the rule now reads: ' . $q['text_a']];
         }
         if ($answer === 'mute') {
             $this->db->prepare("INSERT INTO charlie_prefs (kind, muted) VALUES (?, 1) ON DUPLICATE KEY UPDATE muted = 1")->execute([$q['kind_a']]);

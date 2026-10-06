@@ -57,6 +57,19 @@ class CharlieVoice
         return self::hey($name) . " these two are neck and neck and I don't know your order yet. When both are waiting, which comes first?";
     }
 
+    public static function ruleRewrite(string $name, string $newSentence): string
+    {
+        return self::hey($name) . " you've overridden this rule twice lately. Should it read: \"" . $newSentence . '"?';
+    }
+
+    /** Bad news first: one plain line leading the card when something went wrong. */
+    public static function badLead(array $bad): string
+    {
+        $n = count($bad);
+        if ($n === 0) return '';
+        return $n === 1 ? 'First, the bad news:' : "First, the bad news — {$n} things:";
+    }
+
     public static function mute(string $name, string $text, int $times): string
     {
         return self::hey($name) . ' you\'ve waved away things like "' . self::short($text, 80) . '" ' . $times
