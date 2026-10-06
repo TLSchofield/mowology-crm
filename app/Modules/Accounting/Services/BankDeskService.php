@@ -31,6 +31,11 @@ class BankDeskService
     public const FACTS = [
         'fuel'  => ['/\b(SHELL|CHEVRON|ESSO|PETRO[\s-]?CAN(ADA)?|HUSKY|MOBIL|PIONEER|CO-?OP GAS|COSTCO GAS|SUPER SAVE GAS|7-?ELEVEN FUEL)\b/i', 'is a gas station'],
         '6800'  => ['/\b(SERVICE CHARGE|MONTHLY (ACCOUNT )?FEE|ACCOUNT FEE|NSF|OVERDRAFT|INTERAC FEE|E-?TRANSFER FEE|ANNUAL FEE)\b/i', 'is a bank fee'],
+        '6700'  => ['/\b(TELUS|SHAW|ROGERS|BELL CANADA|FIDO|KOODO|FREEDOM MOBILE)\b/i', 'is your phone / internet bill'],
+        '6110'  => ['/\b(ICBC|INSURANCE ?CORPORATION)/i', 'is vehicle insurance (ICBC)'],
+        '6300'  => ['/\b(FIRST ?INSURANCE|IFS ?PREMIUM|PREMIUM ?FIN)/i', 'is your business insurance (Westland, paid by monthly financing)'],
+        '5100'  => ['/\b(WAVE ?PYRL|PAYROLL|PYRL)\b/i', 'is payroll'],
+        '2600'  => ['/\b(TD ?ON-?LINE ?LOANS|LOAN ?PAYMENT)/i', 'is the RAM loan — the principal isn\'t a cost; your accountant splits out the interest'],
         'meals' => ['/\b(RESTAURANT|SUSHI|DELI|DONUTS?|STEAKHOUSE|SANDWICH(ES)?|PIZZA|CAFE|COFFEE|STARBUCKS|TIM HORTONS|MCDONALD\'?S|SUBWAY|A&W|WENDY\'?S|BAKERY|BISTRO|GRILL|PUB|TACO|BURGER|NOODLE|RAMEN|PHO)\b/i', 'is a place to eat'],
         '2400'  => ['/\b(PAYMENT - THANK YOU|PAYMENT RECEIVED|PAYMENT THANK YOU|MASTERCARD PAYMENT|VISA PAYMENT)\b|PAYMENT\s+\w+\s+VISA\b|PAYMENT\s*VISA/i', 'is paying off the credit card, not spending'],
     ];
@@ -88,9 +93,12 @@ class BankDeskService
         $codes = "'" . implode("','", self::DEFAULT_CODES) . "'";
         return "FROM accounting_transactions t
                 LEFT JOIN chart_of_accounts a ON a.id = t.account_id
-                WHERE t.reference_type = 'bank_import' AND t.type IN ('expense', 'income')
+                WHERE t.reference_type = 'bank_import'
                   AND COALESCE(t.status, '') NOT IN ('void', 'deleted')
-                  AND (t.account_id IS NULL OR a.code IN ({$codes}))
+                  AND ((t.type IN ('expense', 'income') AND (t.account_id IS NULL OR a.code IN ({$codes})))
+                       -- bills the import wrongly booked as card payoffs (fixed 2026-10-05)
+                       OR (t.type = 'transfer' AND a.code = '2400' AND t.matched_expense_id IS NULL
+                           AND t.description NOT REGEXP 'VISA|MASTERCARD|MASTER CARD|AMEX|AMERICAN EXPRESS|CREDIT ?CARD|THANK ?YOU'))
                   AND NOT EXISTS (SELECT 1 FROM bank_line_reviews r WHERE r.transaction_id = t.id)
                   AND NOT EXISTS (SELECT 1 FROM accounting_periods p WHERE p.status = 'locked'
                                   AND p.year = YEAR(t.transaction_date) AND p.month = MONTH(t.transaction_date))";
@@ -242,7 +250,7 @@ class BankDeskService
     public function decide(int $transactionId, string $action, ?int $accountId, ?int $suggestedId, array $user, ?int $expenseId = null): array
     {
         if (!$this->ready()) return ['ok' => false, 'message' => 'Needs migration 1129'];
-        $s = $this->db->prepare("SELECT id, account_id, transaction_date FROM accounting_transactions WHERE id = ? AND reference_type = 'bank_import'");
+        $s = $this->db->prepare("SELECT id, account_id, transaction_date, type FROM accounting_transactions WHERE id = ? AND reference_type = 'bank_import'");
         $s->execute([$transactionId]);
         $tx = $s->fetch(PDO::FETCH_ASSOC);
         if (!$tx) return ['ok' => false, 'message' => 'Bank line not found'];
@@ -258,8 +266,15 @@ class BankDeskService
             $a = $this->db->prepare("SELECT id FROM chart_of_accounts WHERE id = ? AND is_active = 1");
             $a->execute([$accountId]);
             if (!$a->fetchColumn()) return ['ok' => false, 'message' => 'Unknown account'];
-            $this->db->prepare("UPDATE accounting_transactions SET account_id = ?, is_auto_categorized = 0 WHERE id = ?")
-               ->execute([$accountId, $transactionId]);
+            // Moving a line onto a cost account makes it a cost (it counts in profit and loss);
+            // a bill the import had booked as a card payoff was type 'transfer'.
+            $at = $this->db->prepare("SELECT type FROM chart_of_accounts WHERE id = ?");
+            $at->execute([$accountId]);
+            $acctType = (string)$at->fetchColumn();
+            $this->db->prepare("UPDATE accounting_transactions SET account_id = ?, is_auto_categorized = 0,
+                                       type = CASE WHEN type = 'transfer' AND ? = 'expense' THEN 'expense' ELSE type END
+                                WHERE id = ?")
+               ->execute([$accountId, $acctType, $transactionId]);
             $learned = (new BankRuleLearning($this->db))->learnFromCorrection($transactionId, $accountId, (int)$user['id']);
             if ($expenseId) {
                 $linked = $this->linkReceipt($transactionId, $expenseId, (int)$user['id']);

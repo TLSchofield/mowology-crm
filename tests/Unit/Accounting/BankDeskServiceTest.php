@@ -14,7 +14,8 @@ class BankDeskServiceTest extends TestCase
         $fuel = $acct(31, '6100', 'Fuel');
         $mat = $acct(22, '5200', 'Materials & Supplies');
         return [
-            'byCode'  => ['6120' => $acct(61, '6120', 'Vehicle Maintenance'), '6200' => $acct(62, '6200', 'Equipment Maintenance'), '6100' => $fuel, '5200' => $mat, '6800' => $acct(68, '6800', 'Bank Charges & Fees'), '2400' => $acct(24, '2400', 'Credit Card Payable'), '6900' => $acct(69, '6900', 'Miscellaneous Expenses')],
+            'byCode'  => ['6700' => $acct(67, '6700', 'Utilities & Phone'), '6110' => $acct(611, '6110', 'Vehicle Insurance'), '6300' => $acct(63, '6300', 'Business Insurance'),
+                          '5100' => $acct(26, '5100', 'Labour — Crew Wages'), '2600' => $acct(260, '2600', 'Loan Payable'), '6120' => $acct(61, '6120', 'Vehicle Maintenance'), '6200' => $acct(62, '6200', 'Equipment Maintenance'), '6100' => $fuel, '5200' => $mat, '6800' => $acct(68, '6800', 'Bank Charges & Fees'), '2400' => $acct(24, '2400', 'Credit Card Payable'), '6900' => $acct(69, '6900', 'Miscellaneous Expenses')],
             'byAlias' => ['repairs/maintenance' => $acct(62, '6200', 'Equipment Maintenance'), 'vehicle' => $acct(61, '6120', 'Vehicle Maintenance'), 'fuel' => $fuel, 'materials' => $mat, 'meals' => $acct(85, '6850', 'Meals & Entertainment')],
             'vendors' => [['name' => 'Lawnboy', 'aliases' => 'SPAS LAWNBOY', 'default_accounting_category' => 'Materials']],
             'expenses' => [500 => ['accounting_category' => 'Fuel', 'vendor' => 'Chevron']],
@@ -100,5 +101,15 @@ class BankDeskServiceTest extends TestCase
     public function test_price_fragments_are_not_item_names(): void
     {
         $this->assertSame(['Mount and balance tire'], BankDeskService::itemNames(['$ 172.30 2.00', 'Amount', 'Mount and balance tire']));
+    }
+
+    public function test_bills_the_import_booked_as_card_payoffs_get_their_real_accounts(): void
+    {
+        $line = fn($d) => $this->line($d, ['type' => 'transfer', 'account_id' => 24]);
+        $this->assertSame('6700', BankDeskService::advise($line('Preauthorized payment Telus Mobility'), $this->ctx())['code']);
+        $this->assertSame('6110', BankDeskService::advise($line('Preauthorized payment Insurance Corporation of BC'), $this->ctx())['code']);
+        $this->assertSame('6300', BankDeskService::advise($line('Preauthorized payment FIRST INSURANCE'), $this->ctx())['code']);
+        $this->assertSame('5100', BankDeskService::advise($line('Preauthorized payment Wave PYRL Wave PYRL'), $this->ctx())['code']);
+        $this->assertSame('2600', BankDeskService::advise($line('Preauthorized payment TD ON-LINE LOANS SYSTEM'), $this->ctx())['code']);
     }
 }
