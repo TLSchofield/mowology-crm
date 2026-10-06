@@ -36,6 +36,9 @@ require_once __DIR__ . '/../app/Modules/Sales/Services/SamQuestionService.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/SamBadgeService.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/SamBrainService.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/SalesInboxService.php';
+// Reviews
+require_once __DIR__ . '/../app/Modules/Reviews/Services/ReviewRequestService.php';
+
 // Mia — marketing & relationships head
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaWording.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaFinder.php';
