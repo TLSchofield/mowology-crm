@@ -74,7 +74,8 @@
               '<div class="mw-bl-now">Booked now: <s>' + esc(now) + '</s></div>' +
             '</div>' +
             '<div class="mw-bl-say">' + (GREETING ? esc(GREETING) + ', ' : '') +
-              (l.note ? esc(l.note) : s ? 'I think this is <b>' + esc(s.name) + '</b>: ' + esc(s.reason) + '.'
+              (l.note ? esc(l.note) : s && s.source === 'found_receipt' ? '🧾 ' + esc(s.reason) + '.' + (s.name ? ' So: <b>' + esc(s.name) + '</b>.' : '')
+                 : s ? 'I think this is <b>' + esc(s.name) + '</b>: ' + esc(s.reason) + '.'
                  : 'I don\'t know this one yet. What is it? Your answer teaches the import.') + '</div>' +
             '<div class="mw-bl-pick"><select class="mw-rc-in" data-bl-acct aria-label="Account">' + options(l, s ? s.account_id : '') + '</select></div>' +
             '<div class="mw-rc-actions">' +
@@ -93,7 +94,8 @@
         if (action === 'approve' && !acct) { render('Pick an account first'); return; }
         busy = true;
         post({ mode: 'bank_decide', transaction_id: l.id, action: action, account_id: acct,
-               suggested_id: l.suggestion ? l.suggestion.account_id : null })
+               suggested_id: l.suggestion ? l.suggestion.account_id : null,
+               expense_id: l.suggestion && l.suggestion.expense_id ? l.suggestion.expense_id : null })
             .then(function (d) {
                 busy = false;
                 if (!(d && d.ok)) { render((d && (d.message || d.error)) || 'Could not save'); return; }

@@ -232,7 +232,8 @@ try {
                 if (!userHasPermission('expenses.edit')) throw new RuntimeException('Permission denied: expenses.edit required');
                 echo json_encode($bank->decide((int)($input['transaction_id'] ?? 0), (string)($input['action'] ?? ''),
                     isset($input['account_id']) ? (int)$input['account_id'] : null,
-                    isset($input['suggested_id']) ? (int)$input['suggested_id'] : null, $user));
+                    isset($input['suggested_id']) ? (int)$input['suggested_id'] : null, $user,
+                    !empty($input['expense_id']) ? (int)$input['expense_id'] : null));
             }
             break;
         }

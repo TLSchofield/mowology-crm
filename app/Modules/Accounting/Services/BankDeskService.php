@@ -51,6 +51,8 @@ class BankDeskService
         'meals'               => '6850',   // Meals & Entertainment
         'safety'              => '6000',
     ];
+    /** A found receipt is offered when the match is at least this strong (exact amount + close date). */
+    public const RECEIPT_CONFIDENCE = 60;
     /** Income from a contract invoice (contracts bill without line items). */
     public const CONTRACT_INCOME_CODE = '4050';
 
@@ -167,6 +169,27 @@ class BankDeskService
             $s->execute(array_values($expenseIds));
             foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $e) $expenses[(int)$e['id']] = $e;
         }
+        // The receipt behind each unlinked spending line — found the way the receipts
+        // page's "Find Expense Match" finds it (amount, date window, vendor name).
+        $found = [];
+        try {
+            $bis = new BankImportService($this->db);
+            foreach ($rows as $r) {
+                if ($r['type'] !== 'expense' || !empty($r['matched_expense_id'])) continue;
+                $c = $bis->candidateExpensesForTransaction((int)$r['id'], 1)[0] ?? null;
+                if ($c && $c['confidence'] >= self::RECEIPT_CONFIDENCE) $found[(int)$r['id']] = $c;
+            }
+            if ($found) {
+                $ids = array_map(fn($c) => (int)$c['expense_id'], $found);
+                $in = implode(',', array_fill(0, count($ids), '?'));
+                $s = $this->db->prepare("SELECT expense_id, name FROM expense_line_items WHERE expense_id IN ({$in}) ORDER BY sort_order, id");
+                $s->execute(array_values($ids));
+                $items = [];
+                foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $li) $items[(int)$li['expense_id']][] = $li['name'];
+                foreach ($found as &$c) $c['items'] = array_slice($items[(int)$c['expense_id']] ?? [], 0, 3);
+                unset($c);
+            }
+        } catch (Throwable $e) { /* finding receipts is one source of several */ }
         $contractInvoices = [];
         $invoiceIds = array_filter(array_map(fn($r) => (int)($r['matched_invoice_id'] ?? 0), $rows));
         if ($invoiceIds) {
@@ -187,14 +210,14 @@ class BankDeskService
             }
         } catch (Throwable $e) { /* rules are one source of four */ }
         return ['byCode' => $byCode, 'byAlias' => $byAlias, 'vendors' => $vendors, 'expenses' => $expenses, 'rules' => $rules,
-                'contractInvoices' => $contractInvoices];
+                'contractInvoices' => $contractInvoices, 'found' => $found];
     }
 
     /**
      * Approve a line on an account (her suggestion or the owner's pick), or keep it.
      * @param string $action 'approve' | 'keep'
      */
-    public function decide(int $transactionId, string $action, ?int $accountId, ?int $suggestedId, array $user): array
+    public function decide(int $transactionId, string $action, ?int $accountId, ?int $suggestedId, array $user, ?int $expenseId = null): array
     {
         if (!$this->ready()) return ['ok' => false, 'message' => 'Needs migration 1129'];
         $s = $this->db->prepare("SELECT id, account_id FROM accounting_transactions WHERE id = ? AND reference_type = 'bank_import'");
@@ -212,6 +235,9 @@ class BankDeskService
             $this->db->prepare("UPDATE accounting_transactions SET account_id = ?, is_auto_categorized = 0 WHERE id = ?")
                ->execute([$accountId, $transactionId]);
             $learned = (new BankRuleLearning($this->db))->learnFromCorrection($transactionId, $accountId, (int)$user['id']);
+            if ($expenseId) {
+                $linked = $this->linkReceipt($transactionId, $expenseId, (int)$user['id']);
+            }
             $outcome = $suggestedId && $suggestedId === $accountId ? 'accepted' : 'edited';
         }
         $this->db->prepare("
@@ -221,12 +247,32 @@ class BankDeskService
                                     outcome = VALUES(outcome), decided_by = VALUES(decided_by), decided_at = NOW()
         ")->execute([$transactionId, $suggestedId ?: null, $action === 'approve' ? $accountId : ($tx['account_id'] ?: null), $outcome, (int)$user['id']]);
 
+        if (!empty($linked)) {
+            return ['ok' => true, 'message' => "Linked to the receipt — it's counted once in your books now."];
+        }
         $msg = $action === 'approve'
             ? ($learned && ($learned['action'] ?? '') !== 'skipped'
                 ? ($learned['active'] ? 'Done — and the import will now do this one by itself.' : 'Done — once more and the import does this one by itself.')
                 : 'Done.')
             : 'Kept as it is.';
         return ['ok' => true, 'message' => $msg];
+    }
+
+    /**
+     * Link a bank line to its receipt (the receipts page's own attachExpenseMatch) and
+     * remove the bank line's separate entry in the books: the receipt's entry already
+     * carries that cost, so keeping both counted it twice.
+     */
+    private function linkReceipt(int $transactionId, int $expenseId, int $userId): bool
+    {
+        try {
+            (new BankImportService($this->db))->attachExpenseMatch($transactionId, $expenseId, $userId);
+            $this->db->prepare("DELETE FROM journal_entries WHERE source_type = 'bank_import' AND source_id = ?")->execute([$transactionId]);
+            return true;
+        } catch (Throwable $e) {
+            error_log('Penny receipt link failed (tx ' . $transactionId . ', expense ' . $expenseId . '): ' . $e->getMessage());
+            return false;
+        }
     }
 
     /** Accounts to choose from, grouped for the picker. */
@@ -253,6 +299,18 @@ class BankDeskService
         };
         $desc = (string)($line['description'] ?? '');
 
+        // 0. A receipt that matches but isn't linked yet: use what it says it was for.
+        $f = $ctx['found'][(int)($line['id'] ?? 0)] ?? null;
+        if ($f) {
+            $a = $ctx['byAlias'][strtolower((string)$f['category'])] ?? null;
+            $what = $f['category'] ?: 'no category yet';
+            if (!empty($f['items'])) $what .= ' (' . implode(', ', $f['items']) . ')';
+            $reason = 'It matches your ' . $f['vendor'] . ' receipt #' . $f['expense_id'] . ' from ' . $f['date'] . ', $' . number_format($f['amount'], 2) .
+                      ', booked as ' . $what . '. I\'ll link them so it\'s counted once';
+            $acct = $a && (int)$a['id'] !== (int)($line['account_id'] ?? 0) && !in_array($a['code'], self::DEFAULT_CODES, true) ? $a : null;
+            return ['account_id' => $acct ? (int)$acct['id'] : null, 'code' => $acct['code'] ?? null, 'name' => $acct['name'] ?? null,
+                    'reason' => $reason, 'source' => 'found_receipt', 'expense_id' => (int)$f['expense_id']];
+        }
         // 1. The receipt it's matched to.
         $e = $ctx['expenses'][(int)($line['matched_expense_id'] ?? 0)] ?? null;
         if ($e && ($a = $ctx['byAlias'][strtolower((string)$e['accounting_category'])] ?? null)) {

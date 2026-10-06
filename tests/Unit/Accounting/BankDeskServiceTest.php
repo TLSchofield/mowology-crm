@@ -15,7 +15,7 @@ class BankDeskServiceTest extends TestCase
         $mat = $acct(22, '5200', 'Materials & Supplies');
         return [
             'byCode'  => ['6100' => $fuel, '5200' => $mat, '6800' => $acct(68, '6800', 'Bank Charges & Fees'), '2400' => $acct(24, '2400', 'Credit Card Payable'), '6900' => $acct(69, '6900', 'Miscellaneous Expenses')],
-            'byAlias' => ['fuel' => $fuel, 'materials' => $mat, 'meals' => $acct(85, '6850', 'Meals & Entertainment')],
+            'byAlias' => ['vehicle' => $acct(61, '6120', 'Vehicle Maintenance'), 'fuel' => $fuel, 'materials' => $mat, 'meals' => $acct(85, '6850', 'Meals & Entertainment')],
             'vendors' => [['name' => 'Lawnboy', 'aliases' => 'SPAS LAWNBOY', 'default_accounting_category' => 'Materials']],
             'expenses' => [500 => ['accounting_category' => 'Fuel', 'vendor' => 'Chevron']],
             'rules'   => [],
@@ -73,5 +73,17 @@ class BankDeskServiceTest extends TestCase
     {
         $this->assertSame('6850', BankDeskService::advise($this->line('Point of sale AH LONG SUSHI'), $this->ctx())['code']);
         $this->assertSame('6850', BankDeskService::advise($this->line("Point of sale DUFFIN'S DONUTS"), $this->ctx())['code']);
+    }
+
+    public function test_a_found_receipt_says_what_it_was_for_and_links(): void
+    {
+        $c = $this->ctx();
+        $c['found'] = [1 => ['expense_id' => 384, 'vendor' => 'Vital Auto Repair', 'date' => '2026-09-15', 'amount' => 1711.70,
+                             'category' => 'Vehicle', 'items' => ['Brake pads', 'Rotors']]];
+        $s = BankDeskService::advise($this->line('Point of sale VITAL AUTO REPAIR DET'), $c);
+        $this->assertSame('found_receipt', $s['source']);
+        $this->assertSame(384, $s['expense_id']);
+        $this->assertSame('6120', $s['code']);
+        $this->assertStringContainsString('Vehicle (Brake pads, Rotors)', $s['reason']);
     }
 }
