@@ -622,7 +622,9 @@ class BookkeeperDeskService
               AND NOT EXISTS (SELECT 1 FROM expense_suggestions s
                               WHERE s.expense_id = e.id AND s.source = 'live' AND s.status IN ('pending', 'error'))
               " . ($hold ? 'AND e.id NOT IN (' . implode(',', array_map('intval', $hold)) . ')' : '') . "
-            ORDER BY (e.status = 'pending_approval') DESC, e.expense_date ASC, e.id ASC
+            ORDER BY (e.status = 'pending_approval') DESC,
+                     (e.created_at >= DATE_SUB(NOW(), INTERVAL 3 DAY)) DESC,   -- just arrived (emailed) before the old backlog
+                     e.expense_date ASC, e.id ASC
             LIMIT " . min($max, $room)
         )->fetchAll(PDO::FETCH_COLUMN);
 
