@@ -912,8 +912,10 @@ function handleMergeExpenses(PDO $db, ?array $input): void
     if ($keepId === $discardId) throw new Exception('Cannot merge an expense with itself');
 
     // Fetch both expenses (full rows for per-field merge)
-    $stmt = $db->prepare("SELECT * FROM expenses WHERE id IN (?, ?)");
-    $stmt->execute([$keepId, $discardId]);
+    // Ids are ints, so plain (unprepared) queries are safe here — and they avoid MySQL
+    // 1615 "Prepared statement needs to be re-prepared", which this host raises when a
+    // statement touches many tables (the DELETE cascades) and the table cache is short.
+    $stmt = $db->query("SELECT * FROM expenses WHERE id IN (" . $keepId . ", " . $discardId . ")");
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     $keep    = null;
@@ -959,19 +961,23 @@ function handleMergeExpenses(PDO $db, ?array $input): void
 
         if (!empty($updates)) {
             $params[] = $keepId;
-            $db->prepare("UPDATE expenses SET " . implode(', ', $updates) . " WHERE id = ?")
-               ->execute($params);
+            $upd = "UPDATE expenses SET " . implode(', ', $updates) . " WHERE id = ?";
+            try {
+                $db->prepare($upd)->execute($params);
+            } catch (PDOException $e) {
+                if (strpos($e->getMessage(), '1615') === false) throw $e;
+                $db->prepare($upd)->execute($params);      // re-prepare once
+            }
         }
     } else {
         // Legacy behavior: transfer receipt if kept has none and discarded has one
         if (empty($keep['receipt_media_id']) && !empty($discard['receipt_media_id'])) {
-            $db->prepare("UPDATE expenses SET receipt_media_id = ? WHERE id = ?")
-               ->execute([$discard['receipt_media_id'], $keepId]);
+            $db->exec("UPDATE expenses SET receipt_media_id = " . (int)$discard['receipt_media_id'] . " WHERE id = " . $keepId);
         }
     }
 
     // Delete the duplicate
-    $db->prepare("DELETE FROM expenses WHERE id = ?")->execute([$discardId]);
+    $db->exec("DELETE FROM expenses WHERE id = " . $discardId);
 
     echo json_encode(['success' => true, 'message' => 'Merged: expense #' . $discardId . ' deleted, #' . $keepId . ' kept.']);
 }
