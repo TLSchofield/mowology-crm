@@ -72,6 +72,34 @@ try {
                           'net_sum' => round(array_sum(array_column($lines, 'net')), 2),
                           'fees' => round(array_sum(array_column($lines, 'fee')), 2)];
     }
+    // ?sample=N: for the last N payouts — are their invoices already counted as income,
+    // and is the payout's bank line booked as income too (the double count)?
+    if (!empty($_GET['sample'])) {
+        $n = max(1, min(40, (int)$_GET['sample']));
+        $invRow = $db->prepare("SELECT i.invoice_number, i.status, EXISTS(SELECT 1 FROM accounting_transactions t WHERE t.reference_type = 'invoice' AND t.reference_id = i.id AND t.type = 'income') AS income_row
+                                FROM stripe_payments sp JOIN invoices i ON i.id = sp.invoice_id WHERE sp.stripe_charge_id = ? LIMIT 1");
+        $bank = $db->prepare("SELECT t.id, t.type, a.code FROM accounting_transactions t LEFT JOIN chart_of_accounts a ON a.id = t.account_id
+                              WHERE t.reference_type = 'bank_import' AND t.description LIKE '%STRIPE%' AND ABS(t.amount - ?) < 0.01
+                                AND t.transaction_date BETWEEN DATE_SUB(?, INTERVAL 4 DAY) AND DATE_ADD(?, INTERVAL 4 DAY) LIMIT 1");
+        $rows = [];
+        foreach ($stripe->payouts->all(['limit' => $n, 'status' => 'paid'])->data as $p) {
+            $amt = $p->amount / 100; $day = date('Y-m-d', (int)$p->arrival_date);
+            $charges = 0; $known = 0; $counted = 0; $fees = 0.0; $other = [];
+            foreach ($stripe->balanceTransactions->all(['payout' => $p->id, 'limit' => 100])->autoPagingIterator() as $bt) {
+                if ($bt->type === 'payout') continue;
+                $fees += $bt->fee / 100;
+                if ($bt->type !== 'charge' && $bt->type !== 'payment') { $other[] = $bt->type . ' ' . ($bt->net / 100); continue; }
+                $charges++;
+                $src = is_string($bt->source) ? $bt->source : ($bt->source->id ?? null);
+                $invRow->execute([$src]); $r = $invRow->fetch(PDO::FETCH_ASSOC);
+                if ($r) { $known++; if ((int)$r['income_row']) $counted++; }
+            }
+            $bank->execute([$amt, $day, $day]); $b = $bank->fetch(PDO::FETCH_ASSOC) ?: null;
+            $rows[] = ['payout' => $amt, 'date' => $day, 'charges' => $charges, 'invoice_known' => $known, 'invoice_has_income' => $counted,
+                       'fees' => round($fees, 2), 'other' => $other, 'bank' => $b ? $b['type'] . ' ' . $b['code'] : 'not imported'];
+        }
+        $out['sample'] = $rows;
+    }
     $out['can_read_payouts'] = true;
 } catch (Throwable $e) {
     $out['can_read_payouts'] = false;
