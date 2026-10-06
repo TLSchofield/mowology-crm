@@ -32,7 +32,7 @@ class BankDeskService
         'fuel'  => ['/\b(SHELL|CHEVRON|ESSO|PETRO[\s-]?CAN(ADA)?|HUSKY|MOBIL|PIONEER|CO-?OP GAS|COSTCO GAS|SUPER SAVE GAS|7-?ELEVEN FUEL)\b/i', 'is a gas station'],
         '6800'  => ['/\b(SERVICE CHARGE|MONTHLY (ACCOUNT )?FEE|ACCOUNT FEE|NSF|OVERDRAFT|INTERAC FEE|E-?TRANSFER FEE|ANNUAL FEE)\b/i', 'is a bank fee'],
         'meals' => ['/\b(RESTAURANT|SUSHI|DELI|DONUTS?|STEAKHOUSE|SANDWICH(ES)?|PIZZA|CAFE|COFFEE|STARBUCKS|TIM HORTONS|MCDONALD\'?S|SUBWAY|A&W|WENDY\'?S|BAKERY|BISTRO|GRILL|PUB|TACO|BURGER|NOODLE|RAMEN|PHO)\b/i', 'is a place to eat'],
-        '2400'  => ['/\b(PAYMENT - THANK YOU|PAYMENT RECEIVED|PAYMENT THANK YOU|MASTERCARD PAYMENT|VISA PAYMENT)\b/i', 'is a credit-card payment, not spending'],
+        '2400'  => ['/\b(PAYMENT - THANK YOU|PAYMENT RECEIVED|PAYMENT THANK YOU|MASTERCARD PAYMENT|VISA PAYMENT)\b|PAYMENT\s+\w+\s+VISA\b|PAYMENT\s*VISA/i', 'is paying off the credit card, not spending'],
     ];
 
     /**
@@ -438,6 +438,9 @@ class BankDeskService
     public static function note(array $line): ?string
     {
         $d = (string)($line['description'] ?? '');
+        if (($line['type'] ?? '') === 'expense' && preg_match('/FUNDS ?TRANSFER|TRANSFER TO|\bTFR\b/i', $d) && !preg_match('/E-?TRANSFER|INTERAC/i', $d)) {
+            return 'This is money moved to another of your accounts, not spending. If that account is yours personally, it\'s an Owner\'s Draw (3300); if it\'s another business account, pick that account. Your answer teaches the import.';
+        }
         if (($line['type'] ?? '') === 'income' && preg_match('/\bSTRIPE\b/i', $d)) {
             return 'This is a Stripe payout — card payments from your customers, already counted on their invoices. I\'ll match payouts to invoices in my next bank step; skip it for now.';
         }

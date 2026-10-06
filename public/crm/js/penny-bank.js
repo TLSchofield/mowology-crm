@@ -204,6 +204,30 @@
         loadEt();
     }
 
+    // ── Recurring bills: what's due, late, or changed amount ──────────────
+    var rb = document.getElementById('mw-rb');
+    if (rb) {
+        fetch(API + '?mode=recurring', { cache: 'no-store' })
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                var bills = (d && d.ok && d.bills) || [];
+                if (!bills.length) { rb.hidden = true; return; }
+                var flag = { due: '📅 due soon', late: '⚠ late — not seen yet', not_imported: '⏳ due, statement not imported yet', changed: '↕ amount changed' };
+                var attention = bills.filter(function (b) { return b.status.length; });
+                rb.hidden = false;
+                rb.innerHTML = '<div class="mw-bl-head"><b>🔁 Recurring bills</b><span>' + bills.length + ' I watch' +
+                    (attention.length ? ' · ' + attention.length + ' to look at' : ' · all as expected') + '</span></div>' +
+                    '<ul class="mw-rb-list">' + bills.map(function (b) {
+                        var notes = b.status.map(function (s) {
+                            return '<span class="' + (s === 'due' || s === 'not_imported' ? 'mw-sc-un' : 'mw-sc-bad') + '">' + flag[s] +
+                                (s === 'changed' ? ': $' + b.usual.toFixed(2) + ' → $' + b.latest.toFixed(2) : '') + '</span>';
+                        }).join(' ');
+                        return '<li><b>' + esc(b.payee) + '</b> ~$' + b.usual.toFixed(2) + ' · next ' + esc(b.next) + ' ' + notes + '</li>';
+                    }).join('') + '</ul>';
+            })
+            .catch(function () { rb.hidden = true; });
+    }
+
     // ── Month-close proof: does every statement add up, stay in the books and chain? ──
     var sc = document.getElementById('mw-sc');
     function loadClose() {

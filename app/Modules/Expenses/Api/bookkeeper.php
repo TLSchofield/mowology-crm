@@ -226,6 +226,12 @@ try {
             break;
         }
 
+        case 'recurring': {
+            require_once APP_ROOT . '/Modules/Accounting/Services/RecurringBillService.php';
+            echo json_encode(['ok' => true, 'bills' => (new RecurringBillService($db))->bills()]);
+            break;
+        }
+
         case 'close_status': {
             require_once APP_ROOT . '/Modules/Accounting/Services/StatementCloseService.php';
             $close = new StatementCloseService($db);

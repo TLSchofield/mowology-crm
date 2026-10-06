@@ -177,6 +177,7 @@ $__team = [
 
       <div class="mw-et" id="mw-et" hidden aria-live="polite"></div>
       <div class="mw-bl" id="mw-bl" hidden aria-live="polite" data-name="<?= h($__hi) ?>"></div>
+      <div class="mw-sc" id="mw-rb" hidden></div>
       <div class="mw-sc" id="mw-sc" hidden></div>
 
       <div class="mw-head-foot">
