@@ -15,7 +15,7 @@ class BankDeskServiceTest extends TestCase
         $mat = $acct(22, '5200', 'Materials & Supplies');
         return [
             'byCode'  => ['6100' => $fuel, '5200' => $mat, '6800' => $acct(68, '6800', 'Bank Charges & Fees'), '2400' => $acct(24, '2400', 'Credit Card Payable'), '6900' => $acct(69, '6900', 'Miscellaneous Expenses')],
-            'byAlias' => ['fuel' => $fuel, 'materials' => $mat],
+            'byAlias' => ['fuel' => $fuel, 'materials' => $mat, 'meals' => $acct(85, '6850', 'Meals & Entertainment')],
             'vendors' => [['name' => 'Lawnboy', 'aliases' => 'SPAS LAWNBOY', 'default_accounting_category' => 'Materials']],
             'expenses' => [500 => ['accounting_category' => 'Fuel', 'vendor' => 'Chevron']],
             'rules'   => [],
@@ -67,5 +67,11 @@ class BankDeskServiceTest extends TestCase
     {
         $this->assertStringContainsString('Stripe payout', BankDeskService::note(['type' => 'income', 'description' => 'Preauthorized credit STRIPE STRIPE']));
         $this->assertNull(BankDeskService::note(['type' => 'expense', 'description' => 'POINT SALE SHELL']));
+    }
+
+    public function test_places_to_eat_are_meals(): void
+    {
+        $this->assertSame('6850', BankDeskService::advise($this->line('Point of sale AH LONG SUSHI'), $this->ctx())['code']);
+        $this->assertSame('6850', BankDeskService::advise($this->line("Point of sale DUFFIN'S DONUTS"), $this->ctx())['code']);
     }
 }

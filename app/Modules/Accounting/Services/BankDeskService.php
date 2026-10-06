@@ -27,6 +27,7 @@ class BankDeskService
     public const FACTS = [
         'fuel'  => ['/\b(SHELL|CHEVRON|ESSO|PETRO[\s-]?CAN(ADA)?|HUSKY|MOBIL|PIONEER|CO-?OP GAS|COSTCO GAS|SUPER SAVE GAS|7-?ELEVEN FUEL)\b/i', 'is a gas station'],
         '6800'  => ['/\b(SERVICE CHARGE|MONTHLY (ACCOUNT )?FEE|ACCOUNT FEE|NSF|OVERDRAFT|INTERAC FEE|E-?TRANSFER FEE|ANNUAL FEE)\b/i', 'is a bank fee'],
+        'meals' => ['/\b(RESTAURANT|SUSHI|DELI|DONUTS?|STEAKHOUSE|SANDWICH(ES)?|PIZZA|CAFE|COFFEE|STARBUCKS|TIM HORTONS|MCDONALD\'?S|SUBWAY|A&W|WENDY\'?S|BAKERY|BISTRO|GRILL|PUB|TACO|BURGER|NOODLE|RAMEN|PHO)\b/i', 'is a place to eat'],
         '2400'  => ['/\b(PAYMENT - THANK YOU|PAYMENT RECEIVED|PAYMENT THANK YOU|MASTERCARD PAYMENT|VISA PAYMENT)\b/i', 'is a credit-card payment, not spending'],
     ];
 
@@ -145,8 +146,16 @@ class BankDeskService
         foreach ($accounts as $a) {
             if (!empty($a['expense_category_alias'])) $byAlias[strtolower($a['expense_category_alias'])] = $a;
         }
-        $vendors = $this->db->query("SELECT name, aliases, default_accounting_category FROM vendors
-                                     WHERE is_active = 1 AND default_accounting_category IS NOT NULL AND default_accounting_category <> ''")->fetchAll(PDO::FETCH_ASSOC);
+        // A vendor's usual category: its default, else what its approved receipts are booked as most (2+).
+        $vendors = $this->db->query("
+            SELECT v.name, v.aliases,
+                   COALESCE(NULLIF(v.default_accounting_category, ''),
+                            (SELECT e.accounting_category FROM expenses e
+                              WHERE e.vendor_id = v.id AND e.status IN ('approved', 'forwarded') AND e.accounting_category IS NOT NULL AND e.accounting_category <> ''
+                              GROUP BY e.accounting_category HAVING COUNT(*) >= 2 ORDER BY COUNT(*) DESC LIMIT 1)) AS default_accounting_category
+            FROM vendors v WHERE v.is_active = 1
+        ")->fetchAll(PDO::FETCH_ASSOC);
+        $vendors = array_values(array_filter($vendors, fn($v) => !empty($v['default_accounting_category'])));
         $expenseIds = array_filter(array_map(fn($r) => (int)$r['matched_expense_id'], $rows));
         $expenses = [];
         if ($expenseIds) {
@@ -271,7 +280,7 @@ class BankDeskService
         // 4. Plain facts.
         foreach (self::FACTS as $key => [$re, $why]) {
             if (!preg_match($re, $desc, $hit)) continue;
-            $a = $key === 'fuel' ? ($ctx['byAlias']['fuel'] ?? null) : ($ctx['byCode'][$key] ?? null);
+            $a = in_array($key, ['fuel', 'meals'], true) ? ($ctx['byAlias'][$key] ?? null) : ($ctx['byCode'][$key] ?? null);
             if ($r = $pick($a, ucfirst(strtolower(trim($hit[0]))) . ' ' . $why, 'fact')) return $r;
         }
         return null;
