@@ -49,15 +49,21 @@ class MiaCampaignService
                 'to'    => "$year-10-31",
                 'why'   => 'The lawn watering restrictions lift on October 15. With the fall rain coming, the second half of October is the window for aeration, overseeding and top-dressing.',
                 'photo' => '/aerat|overseed|top.?dress|lawn|turf|grass/i',
-                'subject' => 'Your lawn after the dry summer',
+                // Tim's own words, approved 2026-10-06 (copy-edited with the copywriting skills):
+                // the leaf warning shows knowledge and steers treed lawns to aerate now / seed in
+                // spring; real prices from his pricing rules; the P.S. is the spring pre-book.
+                'subject' => 'Your lawn after the watering ban',
                 'body'  => "Hi {{first_name}},\n\n"
-                    . "This summer's watering restrictions were hard on lawns across Metro Vancouver. They lift on October 15, and with the fall rain on its way, the second half of October is the right time to bring a tired lawn back.\n\n"
+                    . "A lot of lawns came through this summer brown and thin. The watering restrictions lift on October 15, and with the fall rain on its way, the second half of October is the right time to bring yours back. A lawn that goes into winter thin usually comes out of it full of moss and weeds.\n\n"
                     . "Three things do most of the work:\n"
                     . "- Aeration opens up compacted soil so rain and air reach the roots.\n"
                     . "- Overseeding fills the thin and bare patches before winter.\n"
-                    . "- Top-dressing adds a thin layer of compost that holds moisture and feeds the new seed.\n\n"
-                    . "If you'd like us to look at your lawn, reply to this email and I'll book a time after the 15th.\n\n"
-                    . "Thanks,\nTim",
+                    . "- Top-dressing goes on with the seed: a thin layer of compost that holds moisture and feeds it.\n\n"
+                    . "One thing to know first: new seed needs light. If your lawn sits under trees, falling leaves will smother the seed before it takes. For those lawns we aerate now, and overseed and top-dress in spring once the leaves are done.\n\n"
+                    . "What it costs: aeration starts at $95 and overseeding at $90. Both go by the size of your lawn, so I'll measure yours, tell you what it actually needs, and send a fixed price before any work starts. Top-dressing depends on how much compost it takes, and goes in the same quote. You don't need to be home, and you'll get photos of the finished work.\n\n"
+                    . "If you'd like us to look at your lawn, reply to this email and I'll get back to you within a day.\n\n"
+                    . "Thanks,\nTim\n\n"
+                    . "P.S. Spring is our busiest season, so we only take spring work that's booked ahead. If you'd rather do it all in spring, reply \"spring\" and I'll hold a timeslot open for you whilst we work out the details together.",
             ],
         ];
     }

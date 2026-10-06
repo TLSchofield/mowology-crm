@@ -56,7 +56,7 @@
         if (!qBox) return;
         if (!qs.length) { qBox.hidden = true; qBox.innerHTML = ''; return; }
         qBox.hidden = false;
-        var labels = { yes: 'Yes', no: 'No', done: "Done — I've added them", skip: 'Leave it', later: 'Later', fine: "That's fine" };
+        var labels = { yes: 'Yes', no: 'No', done: "Done — I've added them", skip: 'Leave it', later: 'Later', fine: "That's fine", booked: 'Booked for spring', not_prebook: 'Not a pre-book' };
         qBox.innerHTML = '<div class="mw-mia-q-head"><b>Mia has ' + qs.length + ' question' + (qs.length === 1 ? '' : 's') + '</b></div>' +
             qs.map(function (q) {
                 return '<div class="mw-mia-q-item" data-q="' + q.id + '"><p>' + esc(q.question) +

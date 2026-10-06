@@ -7,6 +7,11 @@
  *                  manual box on the client page), which stops further requests.
  *   pm_contact   — a property manager's work has fallen off but there is nobody on file to
  *                  write to.
+ *   spring_prebook — a customer wrote back "spring" after one of Mia's campaigns reached them
+ *                  (Tim's campaign P.S.: spring work is pre-booked only). Read from Sam's office@
+ *                  log (sales_messages — the customer's own words, quoted history stripped).
+ *                  "Booked for spring" puts a "Spring pre-booking" line on the client's activity
+ *                  log; nothing is sent to the customer.
  * Answers are kept (mia_questions) and the same question is never asked twice.
  *
  * No namespace / no autoloader in production: require_once and `new`.
@@ -16,7 +21,10 @@ class MiaQuestionService
     public const ANSWERS = [
         'review_check' => ['yes', 'no'],
         'pm_contact'   => ['done', 'skip'],
+        'spring_prebook' => ['booked', 'not_prebook'],
     ];
+    /** Look back this far for "spring" replies to a campaign. */
+    public const SPRING_LOOKBACK_DAYS = 120;
     public const MAX_REVIEW_OPEN = 3;
 
     private PDO $db;
@@ -50,6 +58,7 @@ class MiaQuestionService
                 }
             } catch (Throwable $e) { /* review columns missing here — nothing to ask */ }
         }
+        $added += $this->scanSpringReplies($today);
         foreach ($pmNoContact as $pm) {
             $added += $this->ask('pm_contact', 'mia:company:' . (int)$pm['company_id'], sprintf(
                 "Work at %s is down from %d visits this time last year to %d in the last three months, but I've got nobody there to write to. Can you add their property manager on the company page?",
@@ -57,6 +66,47 @@ class MiaQuestionService
             ));
         }
         return $added;
+    }
+
+    /** Customers who answered a Mia campaign with "spring" — one question per reply. */
+    private function scanSpringReplies(DateTimeImmutable $today): int
+    {
+        $added = 0;
+        try {
+            $s = $this->db->prepare("
+                SELECT sm.id, sm.contact_id, sm.snippet, sm.sent_at, c.first_name, c.last_name, mc.name AS campaign
+                FROM sales_messages sm
+                JOIN campaign_sends cs ON cs.contact_id = sm.contact_id AND cs.status = 'sent' AND cs.sent_at IS NOT NULL AND sm.sent_at >= cs.sent_at
+                JOIN mia_campaigns mc ON mc.marketing_campaign_id = cs.campaign_id AND mc.status = 'approved'
+                JOIN contacts c ON c.id = sm.contact_id
+                WHERE sm.direction = 'inbound' AND sm.sent_at >= ?
+                ORDER BY sm.sent_at, sm.id
+                LIMIT 200
+            ");
+            $s->execute([$today->modify('-' . self::SPRING_LOOKBACK_DAYS . ' days')->format('Y-m-d')]);
+            $seen = [];
+            foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                if (isset($seen[$r['id']]) || !self::saysSpring((string)$r['snippet'])) continue;
+                $seen[$r['id']] = true;
+                $added += $this->ask('spring_prebook', 'mia:spring:' . (int)$r['id'] . ':' . (int)$r['contact_id'], self::springWording($r));
+            }
+        } catch (Throwable $e) { /* no office@ log or no campaign yet — nothing to ask */ }
+        return $added;
+    }
+
+    /** The customer's own words mention spring (the campaign's P.S. asked them to reply "spring"). */
+    public static function saysSpring(string $text): bool
+    {
+        return (bool)preg_match('/\bspring\b/i', $text);
+    }
+
+    public static function springWording(array $r): string
+    {
+        $name = trim($r['first_name'] . ' ' . $r['last_name']) ?: 'A customer';
+        $said = trim(preg_replace('/\s+/', ' ', (string)$r['snippet']));
+        if (mb_strlen($said) > 140) $said = rtrim(mb_substr($said, 0, 139)) . '…';
+        return sprintf('%s replied to your "%s" email on %s: "%s". Hold them a spring spot?',
+            $name, $r['campaign'], date('M j', strtotime((string)$r['sent_at'])), $said);
     }
 
     public static function reviewWording(array $c): string
@@ -75,7 +125,7 @@ class MiaQuestionService
 
     public function open(int $limit = 5): array
     {
-        $s = $this->db->prepare("SELECT id, kind, subject_key, question FROM mia_questions WHERE status = 'open' ORDER BY FIELD(kind, 'pm_contact', 'review_check'), id LIMIT " . max(1, $limit));
+        $s = $this->db->prepare("SELECT id, kind, subject_key, question FROM mia_questions WHERE status = 'open' ORDER BY FIELD(kind, 'spring_prebook', 'pm_contact', 'review_check'), id LIMIT " . max(1, $limit));
         $s->execute();
         $out = [];
         foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $q) {
@@ -90,6 +140,7 @@ class MiaQuestionService
     {
         if (preg_match('/^mia:contact:(\d+)$/', $key, $m)) return '/crm/clients_appstack.php?action=view_contact&id=' . $m[1];
         if (preg_match('/^mia:company:(\d+)$/', $key, $m)) return '/crm/companies/view.php?id=' . $m[1];
+        if (preg_match('/^mia:spring:\d+:(\d+)$/', $key, $m)) return '/crm/clients_appstack.php?action=view_contact&id=' . $m[1];
         return null;
     }
 
@@ -107,6 +158,10 @@ class MiaQuestionService
                 ->execute([$answer, $userId, $id]);
             if ($q['kind'] === 'review_check' && $answer === 'yes' && preg_match('/^mia:contact:(\d+)$/', $q['subject_key'], $m)) {
                 $this->db->prepare("UPDATE contacts SET has_reviewed = 1 WHERE id = ?")->execute([(int)$m[1]]);
+            }
+            if ($q['kind'] === 'spring_prebook' && $answer === 'booked' && preg_match('/^mia:spring:\d+:(\d+)$/', $q['subject_key'], $m)) {
+                $this->db->prepare("INSERT INTO activity_log (user_id, contact_id, action, details) VALUES (?, ?, 'Spring pre-booking', ?)")
+                    ->execute([$userId ?: null, (int)$m[1], 'Held a spring spot after they replied "spring" to a Mia campaign (confirmed by Tim on Mia\'s card)']);
             }
             $this->db->commit();
         } catch (Throwable $e) {

@@ -105,7 +105,8 @@ class MiaCampaignTest extends TestCase
         foreach (MiaCampaignService::catalogue(2026) as $c) {
             $this->assertSame([], MiaCampaignService::problems($c['subject'], $c['body']));
             $this->assertStringContainsString('October 15', $c['body']);
-            $this->assertStringEndsWith("Thanks,\nTim", $c['body']);
+            $this->assertStringContainsString("Thanks,\nTim", $c['body']);
+            $this->assertStringContainsString('P.S. Spring is our busiest season', $c['body'], "Tim's spring pre-book P.S.");
         }
         $this->assertNotEmpty(MiaCampaignService::problems('Hi', 'Water your lawn now so it recovers.'));
         $this->assertNotEmpty(MiaCampaignService::problems('Hi', 'Turn the sprinklers on this week.'));
