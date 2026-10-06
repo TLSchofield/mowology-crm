@@ -37855,6 +37855,9 @@ body.mw-rc-zoom-open { overflow: hidden; }
     .mw-sam-stats { grid-template-columns: 1fr 1fr; }
     .mw-head-brain { width: 52px; height: 52px; right: -16px; bottom: -16px; border-radius: 12px; }
     .mw-sam-lead { flex-direction: column; align-items: flex-start; }
+}
+
+/* ===================================================================
    MIA — MARKETING HEAD (dashboard deck) — who to get back in touch with
    Card: includes/mia-card.php · JS: js/mia-card.js · brain: js/head-brain.js
    =================================================================== */
@@ -37863,6 +37866,7 @@ body.mw-rc-zoom-open { overflow: hidden; }
 .mw-mia-face { position: relative; flex: 0 0 auto; }
 .mw-mia-face img { width: 88px; height: 88px; border-radius: var(--mw-radius-lg); object-fit: cover; display: block; box-shadow: 0 0 0 3px var(--mw-lime), var(--mw-shadow-md); }
 .mw-mia-id { min-width: 0; }
+.mw-mia-id .mw-head-nm { font-size: 1.15rem; font-weight: 800; color: var(--mw-forest); }
 .mw-mia-id .mw-head-pill { margin-top: 6px; }
 .mw-mia-id .mw-head-badges { max-width: none; margin-top: 6px; }
 .mw-mia .mw-head-brain { position: absolute; right: -14px; bottom: -14px; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 12px; cursor: pointer;
