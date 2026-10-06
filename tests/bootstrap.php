@@ -49,6 +49,7 @@ require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaBadgeService.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaQuestionService.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaBrainService.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaDeskService.php';
+require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaCampaignService.php';
 
 require_once __DIR__ . '/../app/Modules/Invoices/Services/StatementService.php';
 

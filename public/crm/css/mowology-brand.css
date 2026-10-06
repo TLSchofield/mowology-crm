@@ -37886,6 +37886,15 @@ body.mw-rc-zoom-open { overflow: hidden; }
 .mw-mia-q-btns button { border: 1px solid var(--mw-ink-200); background: var(--mw-ink-0); border-radius: 8px; padding: 4px 10px; font-size: .74rem; font-weight: 600; color: var(--mw-forest); }
 .mw-mia-q-btns button:hover { background: var(--mw-light); border-color: var(--mw-green); }
 .mw-mia-q-item p.mw-mia-q-done { color: var(--mw-dark); font-weight: 600; margin: 0; }
+/* Campaign proposal */
+.mw-mia-camp { border: 1px solid var(--mw-light); background: var(--mw-ink-0); border-radius: 12px; padding: 10px 12px; box-shadow: 0 0 0 2px var(--mw-light); }
+.mw-mia-camp-head { font-size: .86rem; color: var(--mw-forest); }
+.mw-mia-camp-why { font-size: .78rem; color: var(--mw-ink-700); margin: 4px 0 8px; }
+.mw-mia-camp-nums { display: flex; flex-wrap: wrap; gap: 6px; }
+.mw-mia-camp-nums span { font-size: .72rem; color: var(--mw-ink-700); background: var(--mw-ink-50); border: 1px solid var(--mw-ink-200); border-radius: var(--mw-radius-pill); padding: 3px 9px; }
+.mw-mia-camp-nums b { color: var(--mw-forest); }
+.mw-mia-camp-photo { display: flex; gap: 6px; margin-top: 8px; }
+.mw-mia-camp-photo img { width: 50%; max-width: 180px; height: 110px; object-fit: cover; border-radius: 8px; }
 /* Suggestion carousel */
 .mw-mia-rc { border: 1px solid var(--mw-ink-200); border-radius: 12px; padding: 10px 12px; background: var(--mw-ink-50); }
 .mw-mia-rc-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: .74rem; color: var(--mw-ink-500); margin-bottom: 8px; }

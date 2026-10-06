@@ -124,6 +124,12 @@ class MiaDeskService
         }
 
         $questions = (new MiaQuestionService($this->db))->scan($today, $pmNoContact);
+        try {
+            require_once __DIR__ . '/MiaCampaignService.php';
+            (new MiaCampaignService($this->db))->propose($today); // a proposal only — Tim approves
+        } catch (Throwable $e) {
+            error_log('Mia campaign proposal: ' . $e->getMessage());
+        }
         return ['created' => $created, 'questions' => $questions, 'settled' => $settled, 'skipped_run' => false];
     }
 
@@ -521,6 +527,14 @@ class MiaDeskService
                 'value'    => $c['value'],
             ];
         }
+        try {
+            $camp = $this->db->query("SELECT campaign_key, name, audience_json FROM mia_campaigns WHERE status = 'proposed' ORDER BY id DESC LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+            if ($camp) {
+                $n = (int)((json_decode((string)$camp['audience_json'], true) ?: [])['consented'] ?? 0);
+                array_unshift($items, ['key' => 'mia:campaign:' . $camp['campaign_key'], 'text' => "Campaign ready for your OK: {$camp['name']} — {$n} people with consent.",
+                    'url' => '/crm/dashboard_appstack.php#mw-mia', 'priority' => 1, 'kind' => 'campaign', 'value' => $n]);
+            }
+        } catch (Throwable $e) { /* no campaigns table yet */ }
         foreach ((new MiaQuestionService($this->db))->open(2) as $q) {
             $items[] = ['key' => 'mia:question:' . $q['id'], 'text' => $q['question'], 'url' => $q['url'] ?? '/crm/dashboard_appstack.php#mw-mia', 'priority' => 3, 'kind' => 'question'];
         }

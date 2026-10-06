@@ -12,6 +12,9 @@
  *      Tim sends — consent and Sam's open quotes are checked again first.
  * POST {mode: 'decide', id, action: 'skip', reason: not_fit|talked|not_now|never, csrf_token}
  * POST {mode: 'answer', question_id, answer, csrf_token}
+ * GET  ?mode=campaign    The campaign Mia proposes (list size, consent count, words, photo).
+ * POST {mode: 'campaign_decide', id, action: 'approve'|'dismiss', subject?, body?, csrf_token}
+ *      Approve = Tim's one tap: the campaign is created for everyone who passes consent now.
  *
  * ?mode=, not ?action= (the /api/ router rewrite appends its own `action`).
  */
@@ -96,6 +99,21 @@ try {
         case 'answer':
             require_once APP_ROOT . '/Modules/Marketing/Services/MiaQuestionService.php';
             $r = (new MiaQuestionService($db))->answer((int)($input['question_id'] ?? 0), (string)($input['answer'] ?? ''), (int)$user['id']);
+            if (empty($r['ok'])) http_response_code(422);
+            echo json_encode($r);
+            break;
+
+        case 'campaign':
+            require_once APP_ROOT . '/Modules/Marketing/Services/MiaCampaignService.php';
+            echo json_encode(['ok' => true, 'campaign' => (new MiaCampaignService($db))->current(new DateTimeImmutable('today'))]);
+            break;
+
+        case 'campaign_decide':
+            require_once APP_ROOT . '/Modules/Marketing/Services/MiaCampaignService.php';
+            $camp = new MiaCampaignService($db);
+            $r = ($input['action'] ?? '') === 'approve'
+                ? $camp->approve((int)($input['id'] ?? 0), (array)$user, $input['subject'] ?? null, $input['body'] ?? null)
+                : $camp->dismiss((int)($input['id'] ?? 0), (array)$user);
             if (empty($r['ok'])) http_response_code(422);
             echo json_encode($r);
             break;

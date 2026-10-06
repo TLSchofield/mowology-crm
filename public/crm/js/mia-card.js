@@ -13,6 +13,8 @@
     var root = document.getElementById('mw-mia-rc');
     if (!root) return;
     var qBox = document.getElementById('mw-mia-q');
+    var cBox = document.getElementById('mw-mia-camp');
+    var camp = null;
     var API = '/crm/api/mia.php';
     var KIND = { reconnect: 'Reconnect', seasonal: 'This time last year', pm_quiet: 'Quiet property manager', referral: 'Referral ask', consent_ask: 'Keep in touch (consent)' };
     var SKIPS = [['not_now', 'Not now'], ['talked', 'Already talked'], ['not_fit', 'Not a fit'], ['never', 'Never']];
@@ -33,10 +35,11 @@
     }
 
     function load() {
-        Promise.all([get('queue'), get('questions')]).then(function (r) {
+        Promise.all([get('queue'), get('questions'), get('campaign')]).then(function (r) {
             queue = (r[0] && r[0].items) || [];
             idx = Math.min(idx, Math.max(0, queue.length - 1));
             renderQuestions((r[1] && r[1].questions) || []);
+            renderCampaign((r[2] && r[2].campaign) || null);
             render();
             if (!prepared && queue.length < 3 && document.visibilityState === 'visible') {
                 prepared = true;
@@ -73,6 +76,70 @@
             setTimeout(function () { item.remove(); if (!qBox.querySelector('[data-q]')) qBox.hidden = true; }, 1500);
         });
     });
+
+    // ── The campaign Mia proposes: nothing goes until Tim approves ──────────
+    function renderCampaign(c, msg) {
+        camp = c;
+        if (!cBox) return;
+        if (!c) { cBox.hidden = true; cBox.innerHTML = ''; return; }
+        cBox.hidden = false;
+        var n = c.counts || {};
+        if (c.status === 'approved') {
+            var p = c.progress || {};
+            cBox.innerHTML = '<div class="mw-mia-camp-head"><b>' + esc(c.name) + '</b> · approved</div>' +
+                '<p class="mw-mia-camp-why">' + (p.sent || 0) + ' of ' + (c.recipients || 0) + ' sent' +
+                (p.pending ? ' · ' + p.pending + ' waiting for the campaign sender' : '') +
+                (p.skipped ? ' · ' + p.skipped + ' skipped (no consent at send time)' : '') + '.</p>' +
+                (msg ? '<div class="mw-mia-msg">' + esc(msg) + '</div>' : '');
+            return;
+        }
+        cBox.innerHTML =
+            '<div class="mw-mia-camp-head"><b>Campaign for your OK: ' + esc(c.name) + '</b></div>' +
+            '<p class="mw-mia-camp-why">' + esc(c.why) + '</p>' +
+            '<div class="mw-mia-camp-nums">' +
+              '<span><b>' + (n.clients || 0) + '</b> current clients</span>' +
+              '<span><b>' + (n.neighbours || 0) + '</b> neighbours of clients</span>' +
+              '<span><b>' + (n.consented || 0) + '</b> of ' + (n.considered || 0) + ' pass the consent check</span>' +
+              '<span>' + (c.photo ? 'With your before/after photo' : 'No lawn before/after in the portfolio yet') + '</span>' +
+            '</div>' +
+            (c.photo ? '<div class="mw-mia-camp-photo"><img src="' + esc(c.photo.before) + '" alt="' + esc(c.photo.alt_before || 'Before') + '">' +
+                       '<img src="' + esc(c.photo.after) + '" alt="' + esc(c.photo.alt_after || 'After') + '"></div>' : '') +
+            '<label class="mw-mia-lbl">Subject<input class="mw-mia-in" data-c="subject" value="' + esc(c.subject) + '"></label>' +
+            '<label class="mw-mia-lbl">Email ({{first_name}} becomes each person\'s name)<textarea class="mw-mia-in mw-mia-body" data-c="body" rows="10">' + esc(c.body) + '</textarea></label>' +
+            '<div class="mw-mia-actions">' +
+              '<button type="button" class="mw-mia-send" data-camp="approve">Approve: send to ' + (n.consented || 0) + ' people</button>' +
+              '<button type="button" class="mw-mia-skip" data-camp="dismiss">Not this time</button>' +
+            '</div>' +
+            '<div class="mw-mia-msg">' + (msg ? esc(msg) : 'Goes out through the campaign sender, with your address and an unsubscribe link in every email.') + '</div>';
+        grow(cBox.querySelector('[data-c="body"]'));
+    }
+
+    if (cBox) cBox.addEventListener('click', function (e) {
+        var b = e.target.closest('[data-camp]');
+        if (!b || !camp || busy) return;
+        var act = b.getAttribute('data-camp');
+        if (act === 'approve' && !b.classList.contains('is-armed')) {
+            b.classList.add('is-armed');
+            b.textContent = 'Tap again to send to ' + ((camp.counts || {}).consented || 0) + ' people';
+            setTimeout(function () { if (b.isConnected) { b.classList.remove('is-armed'); b.textContent = 'Approve: send to ' + ((camp.counts || {}).consented || 0) + ' people'; } }, 6000);
+            return;
+        }
+        busy = true;
+        cBox.querySelectorAll('button').forEach(function (x) { x.disabled = true; });
+        post({ mode: 'campaign_decide', id: camp.id, action: act,
+               subject: (cBox.querySelector('[data-c="subject"]') || {}).value, body: (cBox.querySelector('[data-c="body"]') || {}).value })
+            .then(function (r) {
+                busy = false;
+                if (!r || !r.ok) {
+                    cBox.querySelectorAll('button').forEach(function (x) { x.disabled = false; });
+                    var m = cBox.querySelector('.mw-mia-msg'); if (m) m.textContent = (r && r.error) || 'That didn\'t work — nothing was sent.';
+                    return;
+                }
+                if (act === 'dismiss') { renderCampaign(null); return; }
+                get('campaign').then(function (g) { renderCampaign(g.campaign, 'Approved. ' + r.recipients + ' emails are queued for the campaign sender.'); });
+            });
+    });
+    if (cBox) cBox.addEventListener('input', function (e) { if (e.target.getAttribute('data-c') === 'body') grow(e.target); });
 
     function render(msg) {
         armed = null;

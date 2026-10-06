@@ -66,3 +66,26 @@ INSERT IGNORE INTO ops_settings (setting_key, setting_value, description) VALUES
   ('mia_lapsed_months', '12', 'Mia: months with no completed work before a past customer is worth reconnecting with'),
   ('mia_seasonal_before_days', '21', 'Mia: seasonal window — days before this date last year'),
   ('mia_seasonal_after_days', '30', 'Mia: seasonal window — days after this date last year');
+
+-- Campaigns Mia proposes (e.g. post-drought lawn recovery after the watering restrictions
+-- lift). Always a proposal: Tim approves with one tap, and only then is a
+-- marketing_campaigns row created (status 'sending') with campaign_sends for the people
+-- who passed the consent ledger. The campaign sender cron does the sending.
+CREATE TABLE IF NOT EXISTS mia_campaigns (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  campaign_key VARCHAR(60) NOT NULL COMMENT 'e.g. post_drought_2026 — one proposal per key',
+  name VARCHAR(200) NOT NULL,
+  why TEXT NULL,
+  subject VARCHAR(200) NOT NULL,
+  body_text TEXT NOT NULL COMMENT 'plain text; {{first_name}} is filled per person by the campaign sender',
+  photo_json TEXT NULL COMMENT 'Tim''s own published before/after pair, if one fits',
+  audience_json TEXT NULL COMMENT 'counts when proposed: clients, neighbours, consented',
+  status VARCHAR(12) NOT NULL DEFAULT 'proposed' COMMENT 'proposed | approved | dismissed | expired',
+  marketing_campaign_id INT NULL,
+  recipients INT NULL,
+  decided_by INT NULL,
+  decided_at DATETIME NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_mia_campaign_key (campaign_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+  COMMENT='Campaigns Mia proposes; nothing is sent until Tim approves';

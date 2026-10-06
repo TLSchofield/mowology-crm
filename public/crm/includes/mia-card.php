@@ -95,6 +95,8 @@ $__js = function (string $p): string { return function_exists('_av') ? _av($p) :
 
   <div class="mw-mia-q" id="mw-mia-q" hidden></div>
 
+  <div class="mw-mia-camp" id="mw-mia-camp" hidden></div>
+
   <div class="mw-mia-rc" id="mw-mia-rc" aria-live="polite" data-name="<?= h($__miaName) ?>">
     <div class="mw-mia-empty">Loading Mia's suggestions…</div>
   </div>
