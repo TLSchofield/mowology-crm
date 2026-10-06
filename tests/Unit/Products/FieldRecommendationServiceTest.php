@@ -199,4 +199,55 @@ class FieldRecommendationServiceTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         $svc->create(7, ['visit_id' => 42, 'product_id' => 0]);
     }
+
+    // ── Ask first / Send quote (migration 1180) ──────────────────────────────
+
+    public function test_old_app_builds_without_an_intent_get_a_quote(): void
+    {
+        $this->assertSame('quote', FieldRecommendationService::normaliseIntent(null));
+        $this->assertSame('quote', FieldRecommendationService::normaliseIntent(''));
+        $this->assertSame('quote', FieldRecommendationService::normaliseIntent('nonsense'));
+        $this->assertSame('ask', FieldRecommendationService::normaliseIntent(' Ask '));
+    }
+
+    public function test_open_asks_block_a_second_ask_for_the_same_service(): void
+    {
+        foreach (['ask_draft', 'asked', 'ask_yes'] as $s) {
+            $this->assertContains($s, FieldRecommendationService::OPEN_STATUSES);
+        }
+    }
+
+    public function test_price_label_never_shows_zero_dollars(): void
+    {
+        $this->assertSame('Price TBC', FieldRecommendationService::priceLabel(['base_price' => 0], null));
+        $this->assertSame('Price TBC', FieldRecommendationService::priceLabel(['base_price' => '0.00'], 'flat'));
+        $this->assertSame('$175.00', FieldRecommendationService::priceLabel(['base_price' => 175], 'flat'));
+        $this->assertSame('Priced by size', FieldRecommendationService::priceLabel(['base_price' => 0], 'per_sqft'));
+    }
+
+    public function test_has_price_for_flat_and_measured_services(): void
+    {
+        $this->assertFalse(FieldRecommendationService::hasPrice(['base_price' => 0], null), 'Fall Clean Up with no price');
+        $this->assertTrue(FieldRecommendationService::hasPrice(['base_price' => 95], 'flat'));
+        $this->assertTrue(FieldRecommendationService::hasPrice(['base_price' => 0], 'per_sqft'), 'Aeration prices by size');
+    }
+
+    public function test_a_zero_dollar_quote_is_never_sendable(): void
+    {
+        $this->assertFalse(FieldRecommendationService::sendableAmount(['amount' => 0, 'total_amount' => 0]));
+        $this->assertFalse(FieldRecommendationService::sendableAmount([]));
+        $this->assertTrue(FieldRecommendationService::sendableAmount(['amount' => 0, 'total_amount' => 99.75]));
+        $this->assertTrue(FieldRecommendationService::sendableAmount(['amount' => '95.00']));
+    }
+
+    public function test_an_ask_never_auto_sends(): void
+    {
+        $src = file_get_contents(__DIR__ . '/../../../app/Modules/Products/Services/FieldRecommendationService.php');
+        $this->assertStringContainsString('$autoSend = $intent === self::INTENT_QUOTE', $src);
+        $ask  = strpos($src, "\$result['status']  = 'ask_draft';");
+        $auto = strpos($src, 'if (!$autoSend) {');
+        $this->assertNotFalse($ask);
+        $this->assertNotFalse($auto);
+        $this->assertLessThan($auto, $ask, 'an ask returns before the auto-send block');
+    }
 }

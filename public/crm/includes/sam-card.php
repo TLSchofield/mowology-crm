@@ -112,6 +112,8 @@ $__sm = fn(float $v) => SalesDeskService::money($v);
       <div class="mw-rc-empty">Loading follow-ups…</div>
     </div>
 
+    <div class="mw-sam-leads mw-sam-asks" id="mw-sam-asks" hidden></div>
+
     <div class="mw-sam-leads" id="mw-sam-leads" hidden></div>
 
     <div class="mw-head-foot">

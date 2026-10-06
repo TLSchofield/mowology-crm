@@ -18,10 +18,27 @@ declare(strict_types=1);
  *          { "product_id": 12, "label": "Half Day Cleanup", "price": 450.00,
  *            "auto_send": true, "fixed_price": true, "description": "..." } ] }
  *
+ * GET  /api/schedule/recommendation?mode=recipients&visit_id=42
+ *      Who each button goes to (Ask first → on-site contact, Send quote → site/billing
+ *      contact), whether this user may send an ask, and whether they may be emailed (CASL).
+ *      Response 200: { "success": true, "can_send": true, "ask_ready": true,
+ *          "ask":   { "contact_id": 9, "name": "Gaby Stoian", "first_name": "Gaby",
+ *                     "email": "…", "role": "onsite", "consent_ok": true, "consent": "…" },
+ *          "quote": { "contact_id": 4, "name": "Darren Brattston", "email": "…", "role": "site" } }
+ *
+ * GET  /api/schedule/recommendation?mode=ask_draft&observation_id=9
+ *      The Ask-first email as it would go (subject, body, recipient, consent, photos).
+ *
  * POST /api/schedule/recommendation
  *      Body: { "action": "create", "visit_id": 42, "product_id": 12,
+ *              "intent": "ask" | "quote" (default quote — old app builds send none),
  *              "note": "Back garden is knee deep in leaves",
  *              "media_ids": [881, 882], "csrf_token": "<session clients only>" }
+ *      intent=ask → status "ask_draft"; the response carries "draft" when this user
+ *      may send it (admin/manager), so the phone can show the editable email.
+ *
+ * POST { "action": "ask_send", "observation_id": 9, "subject": "…", "body": "…" }
+ *      Admin/manager only (billing.edit). Server re-reads recipient + consent.
  *      Response 200: { "success": true, "observation_id": 9, "status": "email_sent",
  *                      "duplicate": false, "quote_id": 431, "auto_sent": true,
  *                      "message": "Quote sent to the client" }
@@ -50,6 +67,7 @@ header('X-Content-Type-Options: nosniff');
 require_once APP_ROOT . '/Core/config.php';
 require_once APP_ROOT . '/Core/Auth/auth.php';
 require_once APP_ROOT . '/Modules/Products/Services/FieldRecommendationService.php';
+require_once APP_ROOT . '/Modules/Products/Services/FieldAskService.php';
 
 try {
     $authHeader = $_SERVER['HTTP_AUTHORIZATION']
@@ -64,6 +82,27 @@ try {
 
     $db  = getDB();
     $svc = new FieldRecommendationService($db);
+    $ask = new FieldAskService($db);
+
+    /** Crew may only act on visits assigned to them; admin/manager any. Exits on failure. */
+    $checkVisit = function (int $visitId) use ($db, $isAdmin, $userId): void {
+        if ($visitId <= 0) {
+            return;
+        }
+        $vs = $db->prepare('SELECT id, assigned_crew_id FROM job_visits WHERE id = ? LIMIT 1');
+        $vs->execute([$visitId]);
+        $visit = $vs->fetch(PDO::FETCH_ASSOC);
+        if (!$visit) {
+            http_response_code(404);
+            echo json_encode(['success' => false, 'error' => 'Visit not found']);
+            exit;
+        }
+        if (!$isAdmin && (int)($visit['assigned_crew_id'] ?? 0) !== $userId) {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'error' => 'Not your visit']);
+            exit;
+        }
+    };
 
     // ── Route ────────────────────────────────────────────────────────────────
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {
@@ -86,6 +125,46 @@ try {
             ]);
             break;
 
+        // ── Who each button goes to ──────────────────────────────────────────
+        case 'recipients':
+            $visitId = (int)($_GET['visit_id'] ?? 0);
+            $checkVisit($visitId);
+            $propertyId = $svc->resolvePropertyId($visitId, ['property_id' => (int)($_GET['property_id'] ?? 0)]);
+            $r = $ask->recipients($propertyId);
+            $askOut = null;
+            if ($r['ask']) {
+                $c = $ask->consent((int)$r['ask']['contact_id'], $propertyId);
+                $askOut = $r['ask'] + ['consent_ok' => $c['ok'], 'consent' => $c['reason']];
+            }
+            echo json_encode([
+                'success'   => true,
+                'can_send'  => FieldAskService::canSend($db, $user),
+                'ask_ready' => $ask->ready(),
+                'property'  => $r['property'],
+                'ask'       => $askOut,
+                'quote'     => $r['quote'],
+                'same'      => $r['same'],
+            ]);
+            break;
+
+        // ── The Ask-first email as it would go ───────────────────────────────
+        case 'ask_draft':
+            $obsId = (int)($_GET['observation_id'] ?? 0);
+            $obs = $svc->getObservation($obsId);
+            if (!$obs) {
+                http_response_code(404);
+                echo json_encode(['success' => false, 'error' => 'Not found']);
+                exit;
+            }
+            if (!$isAdmin && (int)($obs['created_by'] ?? 0) !== $userId) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'error' => 'Not yours']);
+                exit;
+            }
+            $d = $ask->draft($obsId, $user);
+            echo json_encode(['success' => $d['ok']] + $d);
+            break;
+
         // ── Log a recommendation ─────────────────────────────────────────────
         case 'create':
             if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -101,30 +180,43 @@ try {
                 exit;
             }
 
-            $visitId = isset($body['visit_id']) ? (int)$body['visit_id'] : 0;
-
-            if ($visitId > 0) {
-                $vs = $db->prepare(
-                    'SELECT id, assigned_crew_id, status FROM job_visits WHERE id = ? LIMIT 1'
-                );
-                $vs->execute([$visitId]);
-                $visit = $vs->fetch(PDO::FETCH_ASSOC);
-
-                if (!$visit) {
-                    http_response_code(404);
-                    echo json_encode(['success' => false, 'error' => 'Visit not found']);
-                    exit;
-                }
-
-                if (!$isAdmin && (int)($visit['assigned_crew_id'] ?? 0) !== $userId) {
-                    http_response_code(403);
-                    echo json_encode(['success' => false, 'error' => 'Not your visit']);
-                    exit;
-                }
-            }
+            $checkVisit(isset($body['visit_id']) ? (int)$body['visit_id'] : 0);
 
             $result = $svc->create($userId, $body);
+
+            // A manager/admin standing on site reads and sends the ask straight away.
+            if (($result['intent'] ?? '') === FieldRecommendationService::INTENT_ASK
+                && ($result['status'] ?? '') === 'ask_draft'
+                && FieldAskService::canSend($db, $user)) {
+                $d = $ask->draft((int)$result['observation_id'], $user);
+                if ($d['ok']) {
+                    $result['draft']   = $d;
+                    $result['message'] = 'Read it, then send';
+                }
+            }
             echo json_encode(array_merge(['success' => true], $result));
+            break;
+
+        // ── Send an Ask-first email (admin/manager) ──────────────────────────
+        case 'ask_send':
+            if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+                http_response_code(405);
+                echo json_encode(['success' => false, 'error' => 'POST required']);
+                exit;
+            }
+            if (!$isJwt && !verifyCSRFToken((string)($body['csrf_token'] ?? ''))) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+                exit;
+            }
+            if (!FieldAskService::canSend($db, $user)) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'error' => 'Only a manager or admin can send this — it is saved for them']);
+                exit;
+            }
+            $r = $ask->send((int)($body['observation_id'] ?? 0), $user,
+                            (string)($body['subject'] ?? ''), (string)($body['body'] ?? ''));
+            echo json_encode(['success' => $r['ok'], 'message' => $r['message']] + ($r['ok'] ? [] : ['error' => $r['message']]));
             break;
 
         default:

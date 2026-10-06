@@ -1,6 +1,13 @@
 # Field recommendations: "Ask first" or "Send quote" (plan)
 
-Status: **plan only, nothing built.** Written 2026-10-06 for Tim's approval.
+Status: **approved and built 2026-10-06** on this branch (not deployed). Written 2026-10-06 for Tim's approval.
+
+Tim's answers to section 9: (1) admin **or manager** sends asks and quotes (permission
+`billing.edit`); crew only draft. (2) Plain letter with Mowology's name, address and an
+unsubscribe line in a plain footer. (3) CASL as proposed. (4) Other defaults as planned:
+4 photos at 1024px attached, Tim reads replies himself, "no reply yet" after 7 days, 30-day
+duplicate window, Aeration wording for his approval. Built notes: the iOS sheet lives in
+`RecommendationSection.swift` (no new Xcode file); see `docs/crm/schedule.md` for the as-built summary.
 Branch `feature/field-ask-first` (cut from `origin/feature/language`).
 
 ## 1. What Tim asked for

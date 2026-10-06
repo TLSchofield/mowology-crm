@@ -3998,7 +3998,7 @@ function mwTogglePurchaseItem(checkbox) {
 <script src="../js/route-engine.js?v=20260219a" defer></script>
 <script src="../js/schedule-route-map.js?v=20260716a" defer></script>
 <script src="../js/batch-camera.js?v=20260421a" defer></script>
-<script src="../js/schedule-pill-workflow.js?v=20260827b" defer></script>
+<script src="../js/schedule-pill-workflow.js?v=20261006a" defer></script>
 <script src="<?= _av('/crm/js/schedule-drag-drop.js') ?>" defer></script>
 <script src="<?= _av('/crm/js/schedule-move-stop.js') ?>" defer></script>
 <script src="<?= _av('/crm/js/schedule-photo-history.js') ?>" defer></script>

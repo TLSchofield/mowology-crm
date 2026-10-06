@@ -2727,11 +2727,42 @@
     }
 
     // ── Crew service recommendations ─────────────────────────────────────────
-    // Crew photograph work that needs doing and tap a service. Fixed-price
-    // packages quote the client immediately; anything else queues for the office.
+    // Crew photograph work that needs doing and pick a service, then choose:
+    //   Ask first  — a short note with the photos and NO price to the person who decides
+    //                the work (on-site contact, else site contact). A manager/admin reads
+    //                and sends it here; crew save it for them.
+    //   Send quote — the priced quote to the billing contact (1114 behaviour; fixed-price
+    //                packages flagged auto-send go straight out, the rest queue for review).
     // Backed by /api/schedule/recommendation (session auth here, JWT on iOS).
 
     var recommendOptions = null;   // cached catalogue chips
+
+    /**
+     * POST JSON with the page CSRF token. A stale token (403 CSRF) is refreshed from
+     * /crm/api/get-csrf.php and the request retried once — this page is AppStack, but the
+     * same JS also runs on long-lived PWA sessions whose token goes stale.
+     */
+    function postRecoJson(body, isRetry) {
+        body.csrf_token = state.csrf;
+        return fetch('/api/schedule/recommendation', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        }).then(function(r) {
+            return r.json().catch(function() { return { success: false, error: 'Server error (' + r.status + ')' }; })
+                .then(function(data) {
+                    if (r.status === 403 && !isRetry && data && /CSRF/i.test(data.error || '')) {
+                        return fetch('/crm/api/get-csrf.php', { method: 'GET' })
+                            .then(function(t) { return t.json(); })
+                            .then(function(d) {
+                                if (d && d.token) state.csrf = d.token;
+                                return postRecoJson(body, true);
+                            });
+                    }
+                    return data;
+                });
+        });
+    }
 
     function openRecommendModal(visitId) {
         var existing = document.getElementById('mw-reco-modal');
@@ -2746,7 +2777,7 @@
             '    <h3>Recommend a Service</h3>' +
             '    <button class="mw-obs-modal-close" data-action="close">&times;</button>' +
             '  </div>' +
-            '  <div class="mw-obs-modal-body">' +
+            '  <div class="mw-obs-modal-body" id="mw-reco-pick">' +
             '    <div class="mw-obs-field">' +
             '      <label>Service *</label>' +
             '      <div id="mw-reco-chips" class="mw-reco-chips">Loading services...</div>' +
@@ -2754,17 +2785,19 @@
             '    <div class="mw-obs-field">' +
             '      <label>Photos</label>' +
             '      <input type="file" id="mw-reco-photos" accept="image/*" capture="environment" multiple>' +
-            '      <small>Show the client what you spotted.</small>' +
+            '      <small>Show them what you spotted. Up to 4 go with the email.</small>' +
             '    </div>' +
             '    <div class="mw-obs-field">' +
-            '      <label>Note to the client</label>' +
-            '      <textarea id="mw-reco-note" rows="2" placeholder="e.g. Back garden is knee deep in leaves"></textarea>' +
+            '      <label>What you saw (optional)</label>' +
+            '      <textarea id="mw-reco-note" rows="2" placeholder="e.g. Beds along the front are overgrown"></textarea>' +
             '    </div>' +
-            '    <div class="mw-obs-error" id="mw-reco-error"></div>' +
+            '    <div class="mw-reco-paths" id="mw-reco-paths"></div>' +
+            '    <div class="mw-obs-error" id="mw-reco-error" style="display:none;"></div>' +
             '  </div>' +
-            '  <div class="mw-obs-modal-footer">' +
-            '    <button class="mw-obs-btn-cancel" data-action="close">Cancel</button>' +
-            '    <button class="mw-obs-btn-save" id="mw-reco-submit" disabled>Send Recommendation</button>' +
+            '  <div class="mw-obs-modal-body" id="mw-reco-draft" hidden></div>' +
+            '  <div class="mw-obs-modal-footer mw-reco-footer" id="mw-reco-footer">' +
+            '    <button class="mw-obs-btn mw-reco-btn-ask" id="mw-reco-ask" disabled>Ask first</button>' +
+            '    <button class="mw-obs-btn mw-obs-btn-submit" id="mw-reco-submit" disabled>Send quote</button>' +
             '  </div>' +
             '</div>';
 
@@ -2774,9 +2807,40 @@
             btn.addEventListener('click', closeRecommendModal);
         });
 
-        var selectedProductId = null;
+        var selected = null;
+        var people = null;           // mode=recipients response
         var chipBox = modal.querySelector('#mw-reco-chips');
         var submitBtn = modal.querySelector('#mw-reco-submit');
+        var askBtn = modal.querySelector('#mw-reco-ask');
+        var pathsBox = modal.querySelector('#mw-reco-paths');
+        var errBox = modal.querySelector('#mw-reco-error');
+
+        function askBlockedReason() {
+            if (!people) return 'Checking who to ask…';
+            if (!people.ask_ready) return 'Ask first is not switched on yet';
+            if (!people.ask) return 'Nobody at this property has an email address';
+            if (!people.ask.consent_ok) return people.ask.consent || 'No email consent on file';
+            return '';
+        }
+
+        function renderPaths() {
+            submitBtn.textContent = selected && !selected.has_price ? 'Send to office for pricing' : 'Send quote';
+            submitBtn.disabled = !selected;
+            var blocked = askBlockedReason();
+            askBtn.disabled = !selected || blocked !== '';
+            if (!people) { pathsBox.innerHTML = ''; return; }
+            var ask = people.ask, quote = people.quote;
+            var askLine = blocked
+                ? '<span class="mw-reco-path-off">' + escHtml(blocked) + '</span>'
+                : '<b>' + escHtml(ask.name) + '</b> ' + (ask.role === 'onsite' ? '(on-site contact)' : '(site contact)') +
+                  ' · photos, no price · ' + (people.can_send ? 'you read it before it goes' : 'a manager reads it before it goes');
+            var quoteLine = quote
+                ? '<b>' + escHtml(quote.name) + '</b> (billing) · ' + (selected && !selected.has_price ? 'the office prices it first' : (selected && selected.auto_send ? 'goes straight out' : 'the office checks it first'))
+                : '<span class="mw-reco-path-off">No site contact on file</span>';
+            pathsBox.innerHTML =
+                '<div class="mw-reco-path"><span class="mw-reco-path-k">Ask first</span><span>' + askLine + '</span></div>' +
+                '<div class="mw-reco-path"><span class="mw-reco-path-k">Send quote</span><span>' + quoteLine + '</span></div>';
+        }
 
         function renderChips(options) {
             if (!options.length) {
@@ -2790,15 +2854,17 @@
                 chip.type = 'button';
                 chip.className = 'mw-reco-chip';
                 chip.setAttribute('data-product-id', opt.product_id);
+                var priceText = opt.price_label || (Number(opt.price) > 0 ? '$' + Number(opt.price).toFixed(2) : 'Price TBC');
                 chip.innerHTML = '<span class="mw-reco-chip-label">' + escHtml(opt.label) + '</span>' +
-                                 '<span class="mw-reco-chip-price">$' + Number(opt.price).toFixed(2) + '</span>';
+                                 '<span class="mw-reco-chip-price">' + escHtml(priceText) + '</span>';
                 chip.addEventListener('click', function() {
-                    selectedProductId = opt.product_id;
+                    selected = opt;
+                    if (selected.has_price === undefined) selected.has_price = Number(opt.price) > 0;
                     chipBox.querySelectorAll('.mw-reco-chip').forEach(function(c) {
                         c.classList.remove('is-selected');
                     });
                     chip.classList.add('is-selected');
-                    submitBtn.disabled = false;
+                    renderPaths();
                 });
                 chipBox.appendChild(chip);
             });
@@ -2818,29 +2884,124 @@
                 });
         }
 
-        submitBtn.addEventListener('click', function() {
-            var errBox = modal.querySelector('#mw-reco-error');
-            errBox.style.display = 'none';
+        fetch('/api/schedule/recommendation?mode=recipients&visit_id=' + encodeURIComponent(visitId))
+            .then(function(r) { return r.json(); })
+            .then(function(d) { people = d && d.success ? d : { ask_ready: false }; renderPaths(); })
+            .catch(function() { people = { ask_ready: false }; renderPaths(); });
 
-            if (!selectedProductId) {
+        function go(intent, btn) {
+            errBox.style.display = 'none';
+            if (!selected) {
                 errBox.textContent = 'Pick a service first.';
                 errBox.style.display = 'block';
                 return;
             }
-
+            var label = btn.textContent;
+            askBtn.disabled = true;
             submitBtn.disabled = true;
-            submitBtn.textContent = 'Sending...';
+            btn.textContent = 'Sending...';
 
             var files = Array.prototype.slice.call(modal.querySelector('#mw-reco-photos').files || []);
             var note = modal.querySelector('#mw-reco-note').value.trim();
 
-            uploadRecommendPhotos(files, visitId, function(mediaIds) {
-                sendRecommendation(visitId, selectedProductId, note, mediaIds, submitBtn, errBox);
-            }, function(msg) {
-                submitBtn.disabled = false;
-                submitBtn.textContent = 'Send Recommendation';
+            function fail(msg) {
+                btn.textContent = label;
+                renderPaths();
                 errBox.textContent = msg;
                 errBox.style.display = 'block';
+            }
+
+            uploadRecommendPhotos(files, visitId, function(mediaIds) {
+                postRecoJson({
+                    action: 'create',
+                    intent: intent,
+                    visit_id: visitId,
+                    product_id: selected.product_id,
+                    note: note || null,
+                    media_ids: mediaIds
+                }).then(function(data) {
+                    if (!data || !data.success) {
+                        fail((data && data.error) || 'Could not save the recommendation');
+                        return;
+                    }
+                    if (data.draft && data.draft.ok) {
+                        showAskDraft(modal, data.draft);
+                        return;
+                    }
+                    closeRecommendModal();
+                    showToast(data.message || 'Recommendation saved');
+                }).catch(function() {
+                    fail('Network error — try again when you have signal');
+                });
+            }, fail);
+        }
+
+        askBtn.addEventListener('click', function() { go('ask', askBtn); });
+        submitBtn.addEventListener('click', function() { go('quote', submitBtn); });
+    }
+
+    /**
+     * The Ask-first email, editable, for a manager/admin on site. Nothing is sent until
+     * they press Send; "Save for later" leaves it in the office's Ask first tab.
+     */
+    function showAskDraft(modal, d) {
+        var pick = modal.querySelector('#mw-reco-pick');
+        var box = modal.querySelector('#mw-reco-draft');
+        var footer = modal.querySelector('#mw-reco-footer');
+        modal.querySelector('.mw-obs-modal-header h3').textContent = 'Ask first';
+        pick.hidden = true;
+        box.hidden = false;
+        var to = d.to || {};
+        var consent = d.consent || {};
+        var photos = (d.photos || []).map(function(p) {
+            return '<img src="' + escHtml(p.url) + '" alt="Site photo" class="mw-reco-ask-photo">';
+        }).join('');
+        box.innerHTML =
+            '<div class="mw-reco-ask-to"><span class="mw-reco-path-k">To</span> <b>' + escHtml(to.name || '') + '</b> &lt;' + escHtml(to.email || '') + '&gt;' +
+            ' <small>' + (to.role === 'onsite' ? 'on-site contact' : 'site contact') + '</small></div>' +
+            '<div class="mw-reco-ask-consent' + (consent.ok ? '' : ' is-bad') + '">' + escHtml(consent.reason || '') + '</div>' +
+            (photos ? '<div class="mw-reco-ask-photos">' + photos + '<small>Attached at 1024px</small></div>' : '<div class="mw-reco-ask-consent">No photos — it will go as a note.</div>') +
+            '<div class="mw-obs-field"><label>Subject</label><input type="text" id="mw-ask-subject" class="mw-reco-ask-in"></div>' +
+            '<div class="mw-obs-field"><label>Email' + (d.drafted_by === 'learned' ? ' <small class="mw-reco-learned">written your way</small>' : '') + '</label>' +
+            '<textarea id="mw-ask-body" rows="12" class="mw-reco-ask-in"></textarea>' +
+            '<small>No price goes in this email. Our name, address and an unsubscribe line are added underneath.</small></div>' +
+            '<div class="mw-obs-error" id="mw-ask-error" style="display:none;"></div>';
+        box.querySelector('#mw-ask-subject').value = d.subject || '';
+        box.querySelector('#mw-ask-body').value = d.body || '';
+
+        footer.innerHTML =
+            '<button class="mw-obs-btn mw-obs-btn-cancel" id="mw-ask-later">Save for later</button>' +
+            '<button class="mw-obs-btn mw-obs-btn-submit" id="mw-ask-send"' + (consent.ok ? '' : ' disabled') + '>Send to ' + escHtml((to.first_name || 'them')) + '</button>';
+        footer.querySelector('#mw-ask-later').addEventListener('click', function() {
+            closeRecommendModal();
+            showToast('Saved — it is in the Ask first tab under Recommendations');
+        });
+        var sendBtn = footer.querySelector('#mw-ask-send');
+        var err = box.querySelector('#mw-ask-error');
+        sendBtn.addEventListener('click', function() {
+            err.style.display = 'none';
+            sendBtn.disabled = true;
+            sendBtn.textContent = 'Sending...';
+            postRecoJson({
+                action: 'ask_send',
+                observation_id: d.observation_id,
+                subject: box.querySelector('#mw-ask-subject').value,
+                body: box.querySelector('#mw-ask-body').value
+            }).then(function(r) {
+                if (r && r.success) {
+                    closeRecommendModal();
+                    showToast(r.message || 'Sent');
+                } else {
+                    sendBtn.disabled = false;
+                    sendBtn.textContent = 'Send to ' + (to.first_name || 'them');
+                    err.textContent = (r && (r.error || r.message)) || 'It did not send — it is still saved';
+                    err.style.display = 'block';
+                }
+            }).catch(function() {
+                sendBtn.disabled = false;
+                sendBtn.textContent = 'Send to ' + (to.first_name || 'them');
+                err.textContent = 'Network error — it is still saved; try again or send it from the office';
+                err.style.display = 'block';
             });
         });
     }
@@ -2878,39 +3039,6 @@
         }
 
         next();
-    }
-
-    function sendRecommendation(visitId, productId, note, mediaIds, submitBtn, errBox) {
-        fetch('/api/schedule/recommendation', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                action: 'create',
-                visit_id: visitId,
-                product_id: productId,
-                note: note || null,
-                media_ids: mediaIds,
-                csrf_token: state.csrf
-            })
-        })
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-            if (data.success) {
-                closeRecommendModal();
-                showToast(data.message || 'Recommendation sent');
-            } else {
-                submitBtn.disabled = false;
-                submitBtn.textContent = 'Send Recommendation';
-                errBox.textContent = data.error || 'Could not send the recommendation';
-                errBox.style.display = 'block';
-            }
-        })
-        .catch(function() {
-            submitBtn.disabled = false;
-            submitBtn.textContent = 'Send Recommendation';
-            errBox.textContent = 'Network error — try again when you have signal';
-            errBox.style.display = 'block';
-        });
     }
 
     /**

@@ -6,6 +6,11 @@
  * Not now. Nothing goes out without Tim's click; edits teach Sam to write it Tim's way.
  * When the customer wrote back, "Draft a reply" asks Claude for one (Tim's click only).
  * API: /crm/api/sales-head.php (?mode=desk; POST send / park / draft_reply / answer / lead_dismiss).
+ *
+ * Ask first (field recommendations, migration 1180): a customer who replied to an Ask-first
+ * note gets a card with "Build the quote" — the quote is built on that observation (photos
+ * included) and then sent to the billing contact on a second click. Asks with no reply
+ * after a week show as one quiet line. POST ask_build / ask_send_quote / ask_close.
  */
 (function () {
     'use strict';
@@ -13,6 +18,9 @@
     if (!root) return;
     var qbox = document.getElementById('mw-sq');
     var lbox = document.getElementById('mw-sam-leads');
+    var abox = document.getElementById('mw-sam-asks');
+    var asks = { replied: [], silent: [], drafts: 0 };
+    var built = {};          // observation id → ask_build result
     var API = '/crm/api/sales-head.php';
     var NAME = root.getAttribute('data-name') || '';
     var SMS_MAX = 160;
@@ -65,8 +73,9 @@
             .then(function (d) {
                 if (!d || !d.ok) { root.innerHTML = '<div class="mw-rc-empty">Sam isn\'t set up yet.</div>'; return; }
                 queue = d.queue || []; leads = d.leads || []; questions = d.questions || []; texts = d.texts || null;
+                asks = d.asks || { replied: [], silent: [], drafts: 0 };
                 if (idx >= queue.length) idx = 0;
-                render(); renderLeads(); renderQuestions();
+                render(); renderLeads(); renderQuestions(); renderAsks();
             })
             .catch(function () { root.innerHTML = '<div class="mw-rc-empty">Couldn\'t load Sam\'s list — refresh to try again.</div>'; });
     }
@@ -96,6 +105,68 @@
             if (d && d.url) window.location.href = d.url;
             if (d && d.ok && b.getAttribute('data-a') === 'keep') load();
         }).catch(function () { busy = false; renderQuestions('Network error — try again.'); });
+    });
+
+    // ── Ask first ────────────────────────────────────────────────────────
+    function renderAsks(msg) {
+        if (!abox) return;
+        var rep = asks.replied || [], sil = asks.silent || [], drafts = asks.drafts || 0;
+        if (!rep.length && !sil.length && !drafts && !msg) { abox.hidden = true; return; }
+        abox.hidden = false;
+        var html = '<div class="mw-sam-leads-head"><b>Asked first</b> <small>photo notes from the field, no price — the quote comes after a yes</small></div>';
+        if (msg) html += '<div class="mw-rc-msg">' + esc(msg) + '</div>';
+        if (drafts) {
+            html += '<div class="mw-sam-ask-drafts">' + drafts + ' note' + (drafts === 1 ? '' : 's') + ' from the crew waiting for you to read and send · ' +
+                '<a href="/crm/products/recommendations.php?tab=ask">Open them →</a></div>';
+        }
+        html += rep.map(function (a) {
+            var b = built[a.observation_id], r = a.reply || {};
+            var who = r.from_billing ? (a.billing_name || 'The billing contact') : a.asked_first;
+            var act;
+            if (b && b.ok) {
+                act = '<div class="mw-sam-ask-done">' + esc(b.message) + '</div><div class="mw-sam-ask-act">' +
+                    (b.sendable && b.to_email ? '<button type="button" class="mw-rc-ok" data-ask="send">Send quote to ' + esc((b.to_name || '').split(' ')[0] || 'them') + '</button>' : '') +
+                    '<a class="mw-rc-ed" href="' + esc(b.url) + '">Open quote ' + esc(b.number || '') + '</a></div>';
+            } else {
+                act = '<div class="mw-sam-ask-act">' +
+                    '<label class="mw-sam-ask-price">$<input type="number" min="0" step="1" inputmode="decimal" data-price placeholder="Price" aria-label="Price (optional)"></label>' +
+                    '<button type="button" class="mw-rc-ok" data-ask="build">Build the quote</button>' +
+                    '<button type="button" class="mw-rc-sk" data-ask="close">Not now</button></div>';
+            }
+            return '<div class="mw-sam-ask is-replied" data-o="' + a.observation_id + '">' +
+                '<div class="mw-sam-ask-main"><div><b>' + esc(who) + ' replied</b> about ' + esc(a.service) + ' at ' + esc(a.place) +
+                ' <small>· ' + esc(ago(r.at)) + (a.photos ? ' · ' + a.photos + ' photo' + (a.photos === 1 ? '' : 's') + ' sent' : '') + '</small></div>' +
+                '<div class="mw-sam-msg is-in"><small>' + esc(who) + (r.channel === 'sms' ? ' · text' : (r.subject ? ' · ' + esc(r.subject) : '')) + '</small><div>' +
+                esc(r.snippet || '(no text)') + '</div></div>' +
+                '<small class="mw-sam-meta">Quote goes to ' + esc(a.billing_name || 'the billing contact') + ' for sign-off.</small></div>' + act + '</div>';
+        }).join('');
+        html += sil.slice(0, 5).map(function (a) {
+            return '<div class="mw-sam-ask is-silent" data-o="' + a.observation_id + '"><div class="mw-sam-ask-main"><div>No reply yet: ' + esc(a.service) + ' at ' + esc(a.place) +
+                ' <small>· asked ' + esc(a.asked_first) + ' ' + esc(ago(a.asked_at)) + '</small></div></div>' +
+                '<div class="mw-sam-ask-act"><button type="button" class="mw-rc-sk" data-ask="close">Not now</button></div></div>';
+        }).join('');
+        abox.innerHTML = html;
+    }
+    if (abox) abox.addEventListener('click', function (e) {
+        var b = e.target.closest('[data-ask]'); if (!b || busy) return;
+        var row = b.closest('[data-o]'), id = +row.getAttribute('data-o'), act = b.getAttribute('data-ask');
+        var body = { observation_id: id };
+        if (act === 'build') {
+            var p = row.querySelector('[data-price]');
+            if (p && p.value !== '') body.price = p.value;
+        }
+        busy = true;
+        row.querySelectorAll('button').forEach(function (x) { x.disabled = true; });
+        post(Object.assign({ mode: act === 'build' ? 'ask_build' : act === 'send' ? 'ask_send_quote' : 'ask_close' }, body)).then(function (d) {
+            busy = false;
+            if (act === 'build' && d && d.ok) { built[id] = d; renderAsks(); return; }
+            if (d && d.ok) {
+                asks.replied = asks.replied.filter(function (a) { return a.observation_id !== id; });
+                asks.silent = asks.silent.filter(function (a) { return a.observation_id !== id; });
+                delete built[id];
+            }
+            renderAsks(d && (d.message || d.error) ? (d.message || d.error) : 'That didn\'t work — try again.');
+        }).catch(function () { busy = false; renderAsks('Network error — nothing was sent. Try again.'); });
     });
 
     // ── Leads ────────────────────────────────────────────────────────────

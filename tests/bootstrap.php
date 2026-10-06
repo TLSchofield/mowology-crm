@@ -56,6 +56,7 @@ require_once __DIR__ . '/../app/Modules/Invoices/Services/StatementService.php';
 
 // Products
 require_once __DIR__ . '/../app/Modules/Products/Services/FieldRecommendationService.php';
+require_once __DIR__ . '/../app/Modules/Products/Services/FieldAskService.php';
 
 // Expenses
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptInboxService.php';

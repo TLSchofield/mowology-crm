@@ -13,6 +13,12 @@
  * POST {mode: 'answer', question_id, answer: lost|keep|won, csrf_token}
  * POST {mode: 'lead_dismiss', lead_id, csrf_token}    "Not a lead" (spam, out of area…)
  * GET  ?mode=thread&contact_id=N  The emails/texts Sam holds for one contact (read-only).
+ * POST {mode: 'ask_build', observation_id, price?, csrf_token}   They said yes to an
+ *                          Ask-first note → build the quote on that observation (not sent).
+ * POST {mode: 'ask_send_quote', observation_id, csrf_token}      Send that quote to the
+ *                          billing contact (refuses $0).
+ * POST {mode: 'ask_close', observation_id, csrf_token}           "Not now".
+ *                          The desk response carries `asks` (FieldAskService::forSam()).
  *
  * The card is always re-read on the server (card_key → SalesDeskService::queue()), so the
  * customer's address and quotes come from the CRM, never from the browser.
@@ -63,6 +69,8 @@ try {
         echo json_encode(['ok' => false, 'error' => 'Migration 1140 has not run yet']);
         exit;
     }
+    require_once APP_ROOT . '/Modules/Products/Services/FieldAskService.php';
+    $asks = new FieldAskService($db);
     $fu = new SamFollowupService($db);
     $sq = new SamQuestionService($db);
     $name = SalesDeskService::ownerName((array)$user);
@@ -90,7 +98,24 @@ try {
                 'questions' => $sq->open($name),
                 'inbox'     => $desk->hasTable('sales_messages'),
                 'texts'     => (new TextBridgeService($db))->status(),   // messages bridge heartbeat, null = not set up
+                'asks'      => $asks->forSam(),                          // Ask-first notes: replied / no reply yet / crew drafts
             ]);
+            break;
+        }
+
+        case 'ask_build': {
+            $price = isset($input['price']) && $input['price'] !== '' ? (float)$input['price'] : null;
+            echo json_encode($asks->buildQuote((int)($input['observation_id'] ?? 0), (array)$user, $price));
+            break;
+        }
+
+        case 'ask_send_quote': {
+            echo json_encode($asks->sendQuote((int)($input['observation_id'] ?? 0), (array)$user));
+            break;
+        }
+
+        case 'ask_close': {
+            echo json_encode($asks->close((int)($input['observation_id'] ?? 0), (array)$user, 'Ask first: not now (Sam)'));
             break;
         }
 

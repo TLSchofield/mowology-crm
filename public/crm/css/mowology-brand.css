@@ -16317,6 +16317,53 @@ a.mw-clock-timer-nav:hover {
   color:var(--mw-forest,#0D3B2E);
 }
 
+/* Recommend modal: who each choice goes to, and the two buttons (migration 1180) */
+.mw-reco-paths { display: flex; flex-direction: column; gap: 6px; margin: .25rem 0 .5rem; }
+.mw-reco-path { display: flex; gap: 10px; align-items: baseline; font-size: .82rem; color: var(--mw-ink-700); line-height: 1.35; }
+.mw-reco-path-k { flex: 0 0 84px; font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--mw-ink-500); }
+.mw-reco-path b { color: var(--mw-forest); }
+.mw-reco-path-off { color: var(--mw-ink-500); font-style: italic; }
+.mw-reco-btn-ask {
+  border: 2px solid var(--mw-green);
+  background: var(--mw-ink-0);
+  color: var(--mw-green);
+}
+.mw-reco-btn-ask:active { background: var(--mw-light); }
+.mw-reco-ask-to { font-size: .85rem; color: var(--mw-ink-900); margin-bottom: 4px; word-break: break-word; }
+.mw-reco-ask-to small { color: var(--mw-ink-500); }
+.mw-reco-ask-consent { font-size: .75rem; color: var(--mw-dark); margin-bottom: 8px; }
+.mw-reco-ask-consent.is-bad { color: var(--mw-orange); font-weight: 600; }
+.mw-reco-ask-photos { display: flex; gap: 6px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 10px; }
+.mw-reco-ask-photos small { color: var(--mw-ink-500); font-size: .7rem; }
+.mw-reco-ask-photo { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; }
+.mw-reco-ask-in { width: 100%; font: inherit; font-size: .9rem; border: 1px solid var(--mw-ink-200); border-radius: 8px; padding: 8px 10px; }
+textarea.mw-reco-ask-in { resize: vertical; line-height: 1.45; }
+.mw-reco-learned { color: var(--mw-dark); background: var(--mw-light); border-radius: var(--mw-radius-pill); padding: 0 7px; font-weight: 700; }
+
+/* Field Recommendations page: Ask first drafts + wording per service */
+.mw-ask-office { border: 1px solid var(--mw-ink-200); border-radius: var(--mw-radius-md); background: var(--mw-ink-0); padding: 14px 16px; margin-bottom: 1rem; }
+.mw-ask-office-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 8px; }
+.mw-ask-row { border-top: 1px dashed var(--mw-ink-200); padding: 10px 0; display: flex; flex-wrap: wrap; gap: 8px 12px; justify-content: space-between; }
+.mw-ask-row-main { min-width: 0; flex: 1 1 320px; font-size: .88rem; color: var(--mw-ink-900); }
+.mw-ask-row-main small { color: var(--mw-ink-500); }
+.mw-ask-row-note { font-size: .8rem; color: var(--mw-ink-700); margin-top: 2px; }
+.mw-ask-row-act { display: flex; gap: 6px; align-items: center; }
+.mw-ask-editor { flex: 1 1 100%; display: flex; flex-direction: column; gap: 8px; background: var(--mw-ink-50); border-radius: var(--mw-radius-md); padding: 12px; }
+.mw-ask-to { font-size: .85rem; word-break: break-word; }
+.mw-ask-to small { color: var(--mw-ink-500); }
+.mw-ask-consent { font-size: .75rem; color: var(--mw-dark); }
+.mw-ask-consent.is-bad, .mw-ask-msg.is-bad { color: var(--mw-orange); font-weight: 600; }
+.mw-ask-photos { display: flex; gap: 6px; flex-wrap: wrap; align-items: flex-end; }
+.mw-ask-photos img { width: 72px; height: 72px; object-fit: cover; border-radius: 8px; }
+.mw-ask-photos small { font-size: .7rem; color: var(--mw-ink-500); }
+.mw-ask-lbl { display: flex; flex-direction: column; gap: 3px; margin: 0; font-size: .7rem; font-weight: 600; color: var(--mw-ink-500); text-transform: uppercase; letter-spacing: .03em; }
+.mw-ask-lbl textarea, .mw-ask-lbl input { text-transform: none; letter-spacing: 0; font-weight: 400; }
+.mw-ask-learned { text-transform: none; color: var(--mw-dark); background: var(--mw-light); border-radius: var(--mw-radius-pill); padding: 0 7px; }
+.mw-ask-act { display: flex; gap: 8px; }
+.mw-ask-msg { font-size: .82rem; color: var(--mw-dark); padding: 4px 0; }
+.mw-ask-empty { font-size: .82rem; color: var(--mw-ink-500); padding: 8px 0; }
+.mw-ask-pitch { border-top: 1px dashed var(--mw-ink-200); padding: 8px 0; }
+
 /* Crew recommendation photos — the office prices from these */
 .mw-obs-card-photos {
   display:flex;
@@ -37840,6 +37887,29 @@ body.mw-rc-zoom-open { overflow: hidden; }
 .mw-sam-lead-act .mw-rc-ok:hover { background: var(--mw-dark); }
 .mw-sam-lead-act .mw-rc-ed { background: var(--mw-ink-0); color: var(--mw-forest); border: 1px solid var(--mw-ink-200); border-radius: 9px; padding: 5px 10px; font-weight: 600; text-decoration: none; }
 .mw-sam-lead-act .mw-rc-sk { color: var(--mw-ink-500); background: none; border: 0; font-size: .75rem; }
+
+/* Ask first — notes that got a reply ("Build the quote"), and ones with none yet */
+.mw-sam-ask-drafts { font-size: .8rem; color: var(--mw-ink-700); padding: 6px 0; border-top: 1px dashed var(--mw-ink-200); }
+.mw-sam-ask-drafts a { font-weight: 700; color: var(--mw-green); }
+.mw-sam-ask { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 8px 0; border-top: 1px dashed var(--mw-ink-200); font-size: .82rem; color: var(--mw-ink-900); }
+.mw-sam-ask.is-silent { align-items: center; color: var(--mw-ink-700); }
+.mw-sam-ask-main { min-width: 0; flex: 1 1 auto; display: flex; flex-direction: column; gap: 5px; }
+.mw-sam-ask-main > small { color: var(--mw-ink-500); }
+.mw-sam-ask .mw-sam-msg { margin-right: 0; }
+.mw-sam-ask-act { display: flex; gap: 6px; align-items: center; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
+.mw-sam-ask-act .mw-rc-ok { background: var(--mw-green); color: var(--mw-ink-0); border: 0; border-radius: 9px; padding: 6px 12px; font-weight: 700; text-decoration: none; }
+.mw-sam-ask-act .mw-rc-ok:hover { background: var(--mw-dark); }
+.mw-sam-ask-act .mw-rc-ok:disabled { opacity: .5; }
+.mw-sam-ask-act .mw-rc-ed { background: var(--mw-ink-0); color: var(--mw-forest); border: 1px solid var(--mw-ink-200); border-radius: 9px; padding: 5px 10px; font-weight: 600; text-decoration: none; }
+.mw-sam-ask-act .mw-rc-sk { color: var(--mw-ink-500); background: none; border: 0; font-size: .75rem; }
+.mw-sam-ask-price { display: inline-flex; align-items: center; gap: 2px; margin: 0; font-size: .8rem; color: var(--mw-ink-500); }
+.mw-sam-ask-price input { width: 110px; font: inherit; font-size: .8rem; border: 1px solid var(--mw-ink-200); border-radius: 8px; padding: 4px 6px; }
+.mw-sam-ask-done { font-size: .78rem; color: var(--mw-dark); font-weight: 600; max-width: 220px; text-align: right; }
+@media (max-width: 767.98px) {
+    .mw-sam-ask { flex-direction: column; }
+    .mw-sam-ask-act { justify-content: flex-start; }
+    .mw-sam-ask-done { text-align: left; max-width: none; }
+}
 
 /* Database page cron badge */
 .mw-tick-sales, .mw-badge-sales { background: var(--mw-green); color: var(--mw-ink-0); }
