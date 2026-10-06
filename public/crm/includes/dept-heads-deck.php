@@ -161,6 +161,7 @@ $__team = [
       </div>
 
       <div class="mw-bl" id="mw-bl" hidden aria-live="polite" data-name="<?= h($__hi) ?>"></div>
+      <div class="mw-sc" id="mw-sc" hidden></div>
 
       <div class="mw-head-foot">
         <span>Learning from every approval: store locations · item names · your fuel &amp; EGO rules</span>

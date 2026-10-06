@@ -116,4 +116,32 @@
     });
 
     load();
+
+    // ── Month-close proof: does every statement add up, stay in the books and chain? ──
+    var sc = document.getElementById('mw-sc');
+    function loadClose() {
+        if (!sc) return;
+        fetch(API + '?mode=close_status', { cache: 'no-store' })
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                if (!d || !d.ok || !d.ready || !(d.accounts || []).length) { sc.hidden = true; return; }
+                sc.hidden = false;
+                sc.innerHTML = '<div class="mw-bl-head"><b>📒 Statements</b><span>' + (GREETING ? esc(GREETING) + ', ' : '') +
+                    'each month is closed when its statement adds up, every line is in the books and it follows on from the last one.</span></div>' +
+                    d.accounts.map(function (a) {
+                        var bad = a.statements.filter(function (s) { return !s.ok; });
+                        return '<details class="mw-sc-acct"' + (bad.length ? '' : '') + '><summary><b>' + esc(a.account) + '</b> ' +
+                            '<span class="mw-sc-ok">✅ ' + a.closed + ' closed</span>' +
+                            (a.open ? ' <span class="mw-sc-bad">❌ ' + a.open + ' to fix</span>' : '') +
+                            (a.gaps.length ? ' <span class="mw-sc-bad">⚠ no statement for ' + esc(a.gaps.join(', ')) + '</span>' : '') +
+                            '</summary>' +
+                            (bad.length ? '<ul>' + bad.map(function (s) {
+                                return '<li>' + esc(s.from) + ' → ' + esc(s.to) + ': ' + esc(s.problems.join('; ')) + '</li>';
+                            }).join('') + '</ul>' : '<p>All statements on this account check out.</p>') +
+                            '</details>';
+                    }).join('');
+            })
+            .catch(function () { sc.hidden = true; });
+    }
+    loadClose();
 })();

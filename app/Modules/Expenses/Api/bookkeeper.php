@@ -220,6 +220,13 @@ try {
             break;
         }
 
+        case 'close_status': {
+            require_once APP_ROOT . '/Modules/Accounting/Services/StatementCloseService.php';
+            $close = new StatementCloseService($db);
+            echo json_encode(['ok' => true, 'ready' => $close->ready(), 'accounts' => $close->status()]);
+            break;
+        }
+
         case 'bank_queue':
         case 'bank_decide': {
             require_once APP_ROOT . '/Modules/Accounting/Services/BankDeskService.php';
