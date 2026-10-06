@@ -27,6 +27,8 @@
     var jobLabels = {};     // job id → label, for jobs picked from search
     var jobTimer = null;
     var venTimer = null;
+    var datePopups = [];    // date-picker popups made for the current render (removed on the next)
+    var rechecking = false;
 
     function esc(s) {
         return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -110,6 +112,7 @@
             var a = cur(f), b = val(s, f);
             if (f === 'asset_tag') { a = a || 'none'; b = b || 'none'; }
             if (f === 'vendor') { a = venNow; b = venSug; }
+            if (f === 'expense_date') { a = dateNow; b = it.date || ''; }
             return String(a == null ? '' : a) !== String(b == null ? '' : b);
         };
         var venSug = val(s, 'vendor') || it.vendor || '';
@@ -120,6 +123,12 @@
               '<input type="hidden" data-f="vendor_id" value="' + esc(venIdNow) + '">' +
               '<div class="mw-rc-jobres" hidden></div>' +
             '</div>';
+        var dateNow = d && d.expense_date ? d.expense_date : (it.date || '');
+        var dateCtl = '<button type="button" class="mw-datepicker-trigger mw-rc-date" data-mw-dp-commit="input" data-mw-dp-target="#mw-rc-date" aria-haspopup="true" aria-expanded="false" aria-label="Receipt date">' +
+              '<svg class="mw-datepicker-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>' +
+              '<span class="mw-datepicker-date" data-mw-dp-label></span>' +
+              '<svg class="mw-datepicker-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>' +
+            '</button><input type="date" id="mw-rc-date" data-f="expense_date" hidden value="' + esc(dateNow) + '">';
         var tagNow = cur('asset_tag') || 'none';
         var catOpts = CATEGORIES.map(function (c) {
             return '<option' + (c === cur('accounting_category') ? ' selected' : '') + '>' + esc(c) + '</option>';
@@ -147,6 +156,7 @@
         };
         var fields =
             tagFld('vendor', 'Vendor', venCtl) +
+            tagFld('expense_date', 'Receipt date', dateCtl) +
             tagFld('accounting_category', 'Category', '<select class="mw-rc-in' + (changed(it, 'accounting_category') ? ' mw-rc-changed' : '') + '" data-f="accounting_category">' + catOpts + '</select>') +
             tagFld('asset_tag', 'For', '<select class="mw-rc-in" data-f="asset_tag">' + tagOpts + '</select>') +
             tagFld('total', 'Total · GST · PST', '<div class="mw-rc-amts">' + amt('total', 'Total') + amt('gst', 'GST') + amt('pst', 'PST') + '</div>') +
@@ -162,8 +172,8 @@
             '</div>';
         };
         var detail = function (fullNotes) {
-            return '<div class="mw-rc-meta">' + esc(it.date || '') +
-                  (val(s, 'vendor') && it.vendor && val(s, 'vendor') !== it.vendor ? ' · recorded as <s>' + esc(it.vendor) + '</s>' : '') +
+            return '<div class="mw-rc-meta">' +
+                  (val(s, 'vendor') && it.vendor && val(s, 'vendor') !== it.vendor ? 'Recorded as <s>' + esc(it.vendor) + '</s>' : '') +
                   (it.submitted_by ? ' · from ' + esc(it.submitted_by) : '') + '</div>' +
                 '<div class="mw-rc-fields">' + fields + '</div>' +
                 (checks ? '<div class="mw-rc-checks">' + checks + '</div>' : '') +
@@ -171,6 +181,7 @@
                 '<div class="mw-rc-actions">' +
                   '<button type="button" class="mw-rc-ok" data-act="approve">✓ Approve</button>' +
                   '<button type="button" class="mw-rc-ed" data-act="draft">💾 Save draft</button>' +
+                  '<button type="button" class="mw-rc-ed" data-act="recheck" title="Penny reads this receipt again, with the photo (about 5¢)"' + (rechecking ? ' disabled' : '') + '>' + (rechecking ? '⏳ Re-reading…' : '🔄 Re-check') + '</button>' +
                   '<button type="button" class="mw-rc-sk" data-act="next">Skip →</button>' +
                 '</div>' +
                 '<div class="mw-rc-msg">' + (msg ? esc(msg) : '') + '</div>';
@@ -187,7 +198,13 @@
                 '</div>' +
               '</div>';
         }
+        datePopups.forEach(function (p) { if (p.parentNode) p.parentNode.removeChild(p); });
         root.innerHTML = html;
+        if (window.mwInitDatePickers) {
+            var before = document.querySelectorAll('.mw-datepicker-popup').length;
+            window.mwInitDatePickers(root);
+            datePopups = Array.prototype.slice.call(document.querySelectorAll('.mw-datepicker-popup'), before);
+        }
     }
 
     function setZoom(on) {
@@ -317,6 +334,28 @@
     }
     function approve() { submit(false); }
 
+    /** Penny reads this receipt again, with the photo; her new read replaces the old one. */
+    function recheck() {
+        if (busy || rechecking || !queue.length) return;
+        var it = queue[idx];
+        rechecking = true;
+        render('Penny is taking another look, with the photo — about 20 seconds…');
+        post({ mode: 'recheck', suggestion_id: it.suggestion_id })
+            .then(function (d) {
+                rechecking = false;
+                if (!(d && d.ok)) { render((d && (d.message || d.error)) || 'Re-check failed'); return; }
+                return fetch(API + '?mode=queue&limit=15', { cache: 'no-store' })
+                    .then(function (r) { return r.json(); })
+                    .then(function (q) {
+                        queue = (q && q.ok && q.queue) ? q.queue : queue;
+                        var at = queue.findIndex(function (x) { return x.expense_id === it.expense_id; });
+                        idx = at >= 0 ? at : 0;
+                        render(d.message || 'Penny took another look');
+                    });
+            })
+            .catch(function () { rechecking = false; render('Network error — try again'); });
+    }
+
     root.addEventListener('click', function (e) {
         if (e.target.getAttribute('data-zoom')) { setZoom(true); render(); return; }
         var stockBtn = e.target.closest && e.target.closest('[data-pick-stock]');
@@ -338,6 +377,7 @@
         else if (act === 'bigger') { zoomBig = !zoomBig; render(); }
         else if (act === 'approve') approve();
         else if (act === 'draft') submit(true);
+        else if (act === 'recheck') recheck();
         else if (act === 'next') { idx = (idx + 1) % Math.max(1, queue.length); render(); }
         else if (act === 'prev') { idx = (idx - 1 + queue.length) % Math.max(1, queue.length); render(); }
     });
@@ -383,6 +423,7 @@
             var name = el.getAttribute('data-f');
             var sv = s[name] ? s[name].value : null;
             if (name === 'asset_tag') sv = sv || 'none';
+            if (name === 'expense_date') sv = queue[idx].date || '';
             if (el.type === 'number') return el.value !== '' && Math.abs(parseFloat(el.value) - parseFloat(sv)) > 0.004;
             return String(el.value) !== String(sv == null ? '' : sv);
         });

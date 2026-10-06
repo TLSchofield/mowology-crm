@@ -319,6 +319,11 @@ class BookkeeperDeskService
         if ($f['asset_tag'] !== null && !in_array($f['asset_tag'], ReceiptBookkeeperRules::TAGS, true)) {
             return ['ok' => false, 'message' => 'Unknown tag'];
         }
+        // The receipt date: the owner's correction only (Penny doesn't suggest one).
+        $date = self::validDate($overrides['expense_date'] ?? null);
+        if (($overrides['expense_date'] ?? '') !== '' && $date === null) {
+            return ['ok' => false, 'message' => 'That date isn\'t valid'];
+        }
 
         $propertyId = null;
         if ($f['job']) {
@@ -341,6 +346,9 @@ class BookkeeperDeskService
         $allAccepted = !in_array(false, array_column($resolved['outcome'], 'accepted'), true);
         $this->db->beginTransaction();
         try {
+            if ($date !== null) {
+                $this->db->prepare("UPDATE expenses SET expense_date = ? WHERE id = ?")->execute([$date, (int)$row['expense_id']]);
+            }
             if ($vendorChanged) {
                 $vendorId = $this->vendorFor($f['vendor'], $pickedVendor, $approve);
                 $this->db->prepare("UPDATE expenses SET vendor_id = ?, vendor_name_raw = ? WHERE id = ?")
@@ -481,6 +489,44 @@ class BookkeeperDeskService
             $done[] = ['expense_id' => (int)$id, 'error' => $r['error'] ?? null];
         }
         return ['prepared' => $done, 'capped' => false];
+    }
+
+    /** YYYY-MM-DD that is a real date, not in the future and not absurdly old; else null. Pure. */
+    public static function validDate($v): ?string
+    {
+        $v = trim((string)$v);
+        $d = DateTime::createFromFormat('!Y-m-d', $v);
+        if (!$d || $d->format('Y-m-d') !== $v) return null;
+        if ($v > date('Y-m-d', strtotime('+1 day')) || $v < date('Y-m-d', strtotime('-7 years'))) return null;
+        return $v;
+    }
+
+    /**
+     * Re-check: Penny reads one receipt again, with the photo (~5¢), and her new read
+     * replaces the old one on the desk. The old one is kept as 'superseded'. Owner-asked,
+     * so the daily cap doesn't apply.
+     * @return array{ok: bool, message: string}
+     */
+    public function recheck(int $suggestionId): array
+    {
+        $s = $this->db->prepare("
+            SELECT s.expense_id FROM expense_suggestions s JOIN expenses e ON e.id = s.expense_id
+            WHERE s.id = ? AND s.source = 'live' AND s.status = 'pending' AND e.status IN ('draft', 'pending_approval')
+        ");
+        $s->execute([$suggestionId]);
+        $expenseId = (int)$s->fetchColumn();
+        if (!$expenseId) {
+            return ['ok' => false, 'message' => 'This receipt has already been handled'];
+        }
+        $r = $this->bookkeeper()->suggest($expenseId, 'live', true);
+        if (!empty($r['error'])) {
+            if (!empty($r['id'])) {
+                $this->db->prepare("UPDATE expense_suggestions SET status = 'superseded' WHERE id = ?")->execute([$r['id']]);
+            }
+            return ['ok' => false, 'message' => 'Penny couldn\'t re-read it: ' . $r['error']];
+        }
+        $this->db->prepare("UPDATE expense_suggestions SET status = 'superseded' WHERE id = ?")->execute([$suggestionId]);
+        return ['ok' => true, 'message' => 'Penny took another look', 'expense_id' => $expenseId];
     }
 
     /** The text read didn't add up — worth a second look with the photo. Pure. */

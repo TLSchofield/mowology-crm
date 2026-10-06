@@ -37668,7 +37668,9 @@ span.mw-icon-box--missing {
 .mw-rc-conf.is-low { background: var(--mw-color-warning-bg); color: var(--mw-orange); }
 .mw-rc-checks { font-size: .72rem; color: var(--mw-dark); margin-top: 8px; }
 .mw-rc-checks .is-bad { color: var(--mw-orange); }
-.mw-rc-actions { display: flex; gap: 8px; margin-top: 12px; align-items: center; }
+.mw-rc-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; align-items: center; }
+.mw-rc-actions button { white-space: nowrap; }
+.mw-rc-actions button:disabled { opacity: .6; cursor: wait; }
 .mw-rc-actions .mw-rc-ok { background: var(--mw-green); color: var(--mw-ink-0); border: 0; border-radius: 9px; padding: 9px 18px; font-weight: 700; }
 .mw-rc-actions .mw-rc-ok:hover { background: var(--mw-dark); }
 .mw-rc-actions .mw-rc-ed { background: var(--mw-ink-0); color: var(--mw-forest); border: 1px solid var(--mw-ink-200); border-radius: 9px; padding: 9px 14px; font-weight: 600; }

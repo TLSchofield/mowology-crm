@@ -78,6 +78,15 @@ class BookkeeperDeskServiceTest extends TestCase
         $this->assertNull(BookkeeperDeskService::pickVendor($vendors, 'Lawnboy Supply'));
     }
 
+    public function test_receipt_date_must_be_a_real_recent_date(): void
+    {
+        $this->assertSame('2026-09-28', BookkeeperDeskService::validDate('2026-09-28'));
+        $this->assertNull(BookkeeperDeskService::validDate('2026-02-30'));
+        $this->assertNull(BookkeeperDeskService::validDate('28/09/2026'));
+        $this->assertNull(BookkeeperDeskService::validDate(date('Y-m-d', strtotime('+10 days'))), 'not in the future');
+        $this->assertNull(BookkeeperDeskService::validDate(''));
+    }
+
     public function test_photo_retry_only_when_the_text_does_not_add_up(): void
     {
         $this->assertFalse(BookkeeperDeskService::needsPhoto([['check' => 'sum', 'ok' => true, 'message' => '']]));

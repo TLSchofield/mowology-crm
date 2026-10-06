@@ -13,6 +13,7 @@
  * GET  ?mode=queue     Prepared receipts for the carousel.
  * POST {mode: 'decide', suggestion_id, overrides?: {field: value}, save_draft?: bool, csrf_token}
  * POST {mode: 'prepare', max?, csrf_token}   Prepare the next receipts (daily-capped).
+ * POST {mode: 'recheck', suggestion_id, csrf_token}  Penny reads one receipt again, with the photo.
  * GET  ?mode=questions  Penny's open questions (scans for unbilled materials first).
  * POST {mode: 'answer', question_id, answer: invoice|contract|not_billable, csrf_token}
  *
@@ -170,6 +171,7 @@ try {
         case 'stats':
         case 'queue':
         case 'decide':
+        case 'recheck':
         case 'prepare': {
             require_once APP_ROOT . '/Modules/Expenses/Services/BookkeeperDeskService.php';
             $desk = new BookkeeperDeskService($db, $svc);
@@ -190,6 +192,11 @@ try {
                 $overrides = is_array($input['overrides'] ?? null) ? $input['overrides'] : [];
                 $res = $desk->decide((int)($input['suggestion_id'] ?? 0), $overrides, $user, empty($input['save_draft']));
                 echo json_encode($res);
+            } elseif ($mode === 'recheck') {
+                if ($method !== 'POST') throw new RuntimeException('POST required');
+                if (!$svc->ready()) throw new RuntimeException('Not ready — check ?mode=status');
+                set_time_limit(180);
+                echo json_encode($desk->recheck((int)($input['suggestion_id'] ?? 0)));
             } else {
                 if ($method !== 'POST') throw new RuntimeException('POST required');
                 if (!$svc->ready()) throw new RuntimeException('Not ready — check ?mode=status');
