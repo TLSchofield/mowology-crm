@@ -139,3 +139,32 @@ Charlie reads every head, picks **the one thing that needs Tim today**, and buil
     - heads connected
   - JS: `public/crm/js/head-brain.js` reads a `.mw-head-brain` button with `data-head="charlie"`, `data-units`, `data-bright`, `data-parts`, `data-since`, `data-empty` and `data-teach`. `data-bright` = Charlie's "Called it" hit rate over the last 7 days, or 0.5 with no history.
 - Build waits for Tim's approval.
+
+## Built (phase 2, 2026-10-05) — deploy notes
+
+**Deploy files:**
+- `database/migrations/1170_charlie_chief_of_staff.sql`, run through the Database Manager.
+- `app/Modules/ChiefOfStaff/**`
+- `public/crm/api/charlie.php`
+- `public/crm/cron/charlie_morning_brief.php`
+- `public/crm/includes/charlie-card.php`
+- `public/crm/js/charlie-card.js`
+- `public/crm/js/head-brain.js` and `app/Services/HeadBrain.php`, from Sam's branch.
+- `public/crm/css/mowology-brand.css`: cmp against prod first.
+- `public/crm/database_appstack.php`: cmp against prod first.
+- The deck change from the lead.
+
+**Human steps:**
+1. Run migration 1170.
+2. Check `ops_settings.charlie_owner_user_id` is Tim's user id. It is seeded with the first active admin.
+3. Check that user's `users.email`.
+4. Add the cPanel cron: `2 * * * * /usr/local/bin/php /home/mowology/public_html/app/Modules/ChiefOfStaff/Cron/charlie_morning_brief.php`
+5. Reset OPcache.
+
+**The brain popup** uses the shared `.mw-brain-pop` styles, which live on Penny's `fix/receipt-learning-baseline` branch.
+
+**Behaviour notes:**
+- Opened and "Not today" items leave today's list and come back tomorrow if they're still open.
+- "Later" brings an item back tomorrow.
+- Items that drop off a head which sent only its top few are closed without learning.
+- A head that fails resolves nothing.
