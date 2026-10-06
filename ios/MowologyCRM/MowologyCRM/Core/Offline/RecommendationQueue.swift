@@ -32,6 +32,10 @@ final class RecommendationQueue: ObservableObject {
         /// Filenames in the temp directory — uploaded on drain to obtain media_ids.
         let imageFilenames: [String]
         let queuedAt: Date
+        /// "ask" or "quote". Optional so items queued by older builds (no key) still
+        /// decode — they replay as "quote", which is what they were. An ask replays as a
+        /// draft only: the server never sends one without a manager reading it.
+        var intent: String? = nil
     }
 
     // MARK: - Persistence
@@ -56,7 +60,7 @@ final class RecommendationQueue: ObservableObject {
     /// Persist a recommendation that could not be sent. Unlike JobPhotoQueue
     /// these are additive — a crew member may legitimately recommend two
     /// different services on the same visit.
-    func enqueue(visitId: Int, productId: Int, note: String, images: [Data]) {
+    func enqueue(visitId: Int, productId: Int, note: String, images: [Data], intent: String = "quote") {
         var filenames: [String] = []
 
         for data in images {
@@ -73,7 +77,8 @@ final class RecommendationQueue: ObservableObject {
             productId: productId,
             note: note,
             imageFilenames: filenames,
-            queuedAt: Date()
+            queuedAt: Date(),
+            intent: intent
         ))
         items = current
     }
@@ -113,6 +118,7 @@ final class RecommendationQueue: ObservableObject {
                     .recommendationCreate,
                     body: [
                         "action":     "create",
+                        "intent":     item.intent ?? "quote",
                         "visit_id":   item.visitId,
                         "product_id": item.productId,
                         "note":       item.note,

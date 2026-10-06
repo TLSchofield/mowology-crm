@@ -86,7 +86,16 @@ enum APIEndpoint {
     case recommendationOptions
 
     /// POST /api/schedule/recommendation — log a crew service recommendation.
+    /// Body carries `intent`: "ask" (Ask first, no price) or "quote" (default).
     case recommendationCreate
+
+    /// GET /api/schedule/recommendation?mode=recipients&visit_id= — who Ask first and
+    /// Send quote go to, whether this user may send an ask, and email consent.
+    case recommendationRecipients(visitId: Int)
+
+    /// POST /api/schedule/recommendation {action: ask_send} — send an Ask-first email
+    /// (admin/manager only; the server re-checks recipient and consent).
+    case recommendationAskSend
 
     /// POST /crm/api/pow-actions.php — PoW visit lifecycle (start/end/notes).
     case powActions
@@ -259,8 +268,14 @@ enum APIEndpoint {
             components?.queryItems = [URLQueryItem(name: "mode", value: "options")]
             return components?.url
 
-        case .recommendationCreate:
+        case .recommendationCreate, .recommendationAskSend:
             return URL(string: "\(baseURLString)/schedule/recommendation")
+
+        case .recommendationRecipients(let visitId):
+            var components = URLComponents(string: "\(baseURLString)/schedule/recommendation")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "recipients"),
+                                      URLQueryItem(name: "visit_id", value: "\(visitId)")]
+            return components?.url
 
         case .powActions:
             return URL(string: "https://mowology.ca/crm/api/pow-actions.php")
@@ -426,6 +441,8 @@ enum APIEndpoint {
              .visitFlag,
              .recommendationOptions,
              .recommendationCreate,
+             .recommendationRecipients,
+             .recommendationAskSend,
              .powActions,
              .powGpsSync,
              .scheduleJobs,
@@ -499,6 +516,7 @@ enum APIEndpoint {
              .scheduleInvoices,
              .scheduleQuotes,
              .recommendationOptions,
+             .recommendationRecipients,
              .scheduleVisitPhotos,
              .scheduleVisitPhotoHistory,
              .scheduleTimerActive,
@@ -510,6 +528,7 @@ enum APIEndpoint {
 
         case .quizAction,
              .recommendationCreate,
+             .recommendationAskSend,
              .scheduleJobPhoto,
              .fieldJobAction,
              .scheduleInvoice: return "POST"
