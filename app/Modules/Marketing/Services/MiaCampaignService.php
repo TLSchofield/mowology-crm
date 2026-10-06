@@ -114,8 +114,99 @@ class MiaCampaignService
                 $out['progress'] = array_map('intval', array_column($p->fetchAll(PDO::FETCH_ASSOC), 'n', 'status'));
             } catch (Throwable $e) {}
             $out['recipients'] = (int)$r['recipients'];
+            $out['results'] = $this->results((int)$r['marketing_campaign_id']);
         }
         return $out;
+    }
+
+    /** Within this many days of each person's email, what they did counts for the campaign. */
+    public const RESULT_DAYS = 30;
+
+    /**
+     * What the campaign earned — bookings first (Tim's rule: judge campaigns by bookings, not
+     * opens). Same definitions as Mia's one-to-one outcomes: booked = a quote accepted or a plan
+     * started; quoted = a quote created; replied = an email in (Sam's office@ log). Spring holds
+     * are "Booked for spring" answers. Opens are counted but are rough (Apple Mail opens mail itself).
+     */
+    public function results(int $campaignId): array
+    {
+        try {
+            $s = $this->db->prepare("SELECT contact_id, status, sent_at, opened_at FROM campaign_sends WHERE campaign_id = ?");
+            $s->execute([$campaignId]);
+            $recipients = $s->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            return [];
+        }
+        $sent = array_filter($recipients, fn($r) => $r['status'] === 'sent' && $r['sent_at']);
+        if (!$sent) return self::tally($recipients, [], [], [], []);
+        $ids = implode(',', array_map(fn($r) => (int)$r['contact_id'], $sent));   // ints only
+        $from = min(array_column($sent, 'sent_at'));
+        $quotes = $plans = $replies = $spring = [];
+        try {
+            $q = $this->db->prepare("
+                SELECT q.id, q.status, q.created_at, COALESCE(NULLIF(q.total_amount, 0), q.amount, 0) AS amount,
+                       COALESCE(q.contact_id, p.site_contact_id) AS contact_id
+                FROM quotes q LEFT JOIN properties p ON p.id = q.property_id
+                WHERE q.created_at >= ? AND (q.contact_id IN ($ids) OR p.site_contact_id IN ($ids))");
+            $q->execute([$from]);
+            $quotes = $q->fetchAll(PDO::FETCH_ASSOC);
+            $p = $this->db->prepare("
+                SELECT jp.id, jp.created_at, p.site_contact_id AS contact_id
+                FROM job_plans jp JOIN properties p ON p.id = jp.property_id
+                WHERE jp.created_at >= ? AND p.site_contact_id IN ($ids)");
+            $p->execute([$from]);
+            $plans = $p->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) { error_log('Mia campaign results: ' . $e->getMessage()); }
+        try {
+            $m = $this->db->prepare("SELECT contact_id, sent_at FROM sales_messages WHERE direction = 'inbound' AND sent_at >= ? AND contact_id IN ($ids)");
+            $m->execute([$from]);
+            $replies = $m->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) { /* no office@ log yet */ }
+        try {
+            foreach ($this->db->query("SELECT subject_key FROM mia_questions WHERE kind = 'spring_prebook' AND answer = 'booked'")->fetchAll(PDO::FETCH_COLUMN) as $k) {
+                if (preg_match('/^mia:spring:\d+:(\d+)$/', (string)$k, $mm)) $spring[] = (int)$mm[1];
+            }
+        } catch (Throwable $e) { /* none yet */ }
+        return self::tally($recipients, $quotes, $plans, $replies, $spring);
+    }
+
+    /** Pure: one line per person, counted once each in their best outcome's column. */
+    public static function tally(array $recipients, array $quotes, array $plans, array $replies, array $springContacts, int $days = self::RESULT_DAYS): array
+    {
+        $win = [];
+        foreach ($recipients as $r) {
+            if ($r['status'] !== 'sent' || !$r['sent_at']) continue;
+            $t = strtotime((string)$r['sent_at']);
+            $win[(int)$r['contact_id']] = [$t, $t + $days * 86400];
+        }
+        $in = function (int $cid, string $at) use ($win): bool {
+            if (!isset($win[$cid])) return false;
+            $t = strtotime($at);
+            return $t !== false && $t >= $win[$cid][0] && $t <= $win[$cid][1];
+        };
+        $booked = $quoted = $replied = [];
+        $amount = 0.0;
+        foreach ($quotes as $q) {
+            $cid = (int)$q['contact_id'];
+            if (!$in($cid, (string)$q['created_at'])) continue;
+            if (in_array($q['status'], ['accepted', 'approved_verbal'], true)) { $booked[$cid] = true; $amount += (float)$q['amount']; }
+            else $quoted[$cid] = true;
+        }
+        foreach ($plans as $p) if ($in((int)$p['contact_id'], (string)$p['created_at'])) $booked[(int)$p['contact_id']] = true;
+        foreach ($replies as $m) if ($in((int)$m['contact_id'], (string)$m['sent_at'])) $replied[(int)$m['contact_id']] = true;
+        $quoted = array_diff_key($quoted, $booked);
+        $spring = array_intersect(array_unique(array_map('intval', $springContacts)), array_keys($win));
+        $opened = count(array_filter($recipients, fn($r) => $r['status'] === 'sent' && !empty($r['opened_at'])));
+        return [
+            'sent'          => count($win),
+            'booked'        => count($booked),
+            'booked_amount' => round($amount, 2),
+            'quoted'        => count($quoted),
+            'spring_holds'  => count($spring),
+            'replied'       => count($replied),
+            'opened'        => $opened,
+            'days'          => $days,
+        ];
     }
 
     /**

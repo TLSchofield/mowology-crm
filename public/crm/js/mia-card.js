@@ -66,6 +66,19 @@
             }).join('');
     }
 
+    /** Bookings first; opens last and marked rough (Apple Mail opens mail by itself). */
+    function results(r) {
+        if (!r || !r.sent) return '';
+        var money = r.booked_amount ? ' ($' + Math.round(r.booked_amount).toLocaleString() + ' in quotes accepted)' : '';
+        return '<div class="mw-mia-camp-nums mw-mia-results">' +
+            '<span><b>' + r.booked + '</b> booked' + esc(money) + '</span>' +
+            '<span><b>' + r.spring_holds + '</b> spring holds</span>' +
+            '<span><b>' + r.quoted + '</b> quoted</span>' +
+            '<span><b>' + r.replied + '</b> replied</span>' +
+            '<span class="is-soft"><b>' + r.opened + '</b> opened <small>(rough)</small></span>' +
+            '</div><p class="mw-mia-camp-why">Counted within ' + r.days + ' days of each email. Spring replies show up as questions above.</p>';
+    }
+
     if (qBox) qBox.addEventListener('click', function (e) {
         var b = e.target.closest('button[data-a]');
         if (!b) return;
@@ -90,6 +103,7 @@
                 '<p class="mw-mia-camp-why">' + (p.sent || 0) + ' of ' + (c.recipients || 0) + ' sent' +
                 (p.pending ? ' · ' + p.pending + ' waiting for the campaign sender' : '') +
                 (p.skipped ? ' · ' + p.skipped + ' skipped (no consent at send time)' : '') + '.</p>' +
+                results(c.results) +
                 (msg ? '<div class="mw-mia-msg">' + esc(msg) + '</div>' : '');
             return;
         }
