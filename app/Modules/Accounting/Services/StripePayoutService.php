@@ -82,6 +82,13 @@ class StripePayoutService
         $cents = (int)round((float)$line['amount'] * 100);
         $payout = $this->findPayout($cents, (string)$line['transaction_date']);
         if (!$payout) return self::result(false, 'No Stripe payout of ' . self::money($cents / 100) . ' arrived within 5 days of this line.');
+        // The same payout imported twice (overlapping statements) must not be booked twice.
+        $used = $this->db->prepare("SELECT id, transaction_date FROM accounting_transactions
+                                    WHERE reference_type = 'bank_import' AND type = 'transfer' AND payment_reference = ? AND id <> ? LIMIT 1");
+        $used->execute([$payout, (int)($line['id'] ?? 0)]);
+        if ($u = $used->fetch(PDO::FETCH_ASSOC)) {
+            return self::result(false, 'That payout is already booked on bank line #' . $u['id'] . ' — this line is probably a duplicate import (run duplicate bank lines first).');
+        }
         $tx = [];
         foreach ($this->stripe()->balanceTransactions->all(['payout' => $payout, 'limit' => 100])->autoPagingIterator() as $bt) {
             $src = is_string($bt->source) ? $bt->source : ($bt->source->id ?? null);
