@@ -388,7 +388,7 @@ TXT;
                 foreach ((new ReceiptTrailService($this->db))->candidates($at, (int)($e['created_by'] ?? 0) ?: null) as $t) {
                     $out[$t['plan_id']] = [
                         'plan_id'      => $t['plan_id'],
-                        'job'          => $t['job'],
+                        'job'          => self::withoutHouseNumber($t['job']),
                         'service_type' => null,
                         'why'          => [$t['why']],
                         'source'       => 'where the truck/crew went',
@@ -410,7 +410,7 @@ TXT;
                 }
                 $out[$id] = [
                     'plan_id'      => $id,
-                    'job'          => trim(($s['plan_title'] ?? '') . ' — ' . ($s['address'] ?? '')),
+                    'job'          => self::withoutHouseNumber(trim(($s['plan_title'] ?? '') . ' — ' . ($s['address'] ?? ''))),
                     'service_type' => $s['service_type'] ?? null,
                     'why'          => $s['match_reasons'] ?? [],
                     'source'       => 'schedule',
@@ -420,6 +420,20 @@ TXT;
             error_log('Bookkeeper schedule candidates: ' . $ex->getMessage());
         }
         return array_values($out);
+    }
+
+    /**
+     * Send the AI the least it needs (bookkeeping-agent guardrail: data stays in Canada,
+     * only minimum fields to the model): a job label keeps the street but not the house
+     * or unit number — "Lawn care — 2492 W 8th Ave" → "Lawn care — W 8th Ave". Pure.
+     */
+    public static function withoutHouseNumber(string $job): string
+    {
+        $parts = explode(' — ', $job, 2);
+        if (count($parts) < 2) return $job;
+        $addr = preg_replace('/^\s*(#?\s*\d+[A-Za-z]?\s*[-–]\s*)?\d+[A-Za-z]?\b\s*,?\s*/', '', $parts[1]);
+        $addr = preg_replace('/\b(unit|suite|apt)\.?\s*#?\s*\w+\s*,?\s*/i', '', $addr);
+        return $parts[0] . ' — ' . trim($addr);
     }
 
     private function hasColumn(string $table, string $column): bool

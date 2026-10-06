@@ -159,4 +159,12 @@ class ReceiptBookkeeperServiceTest extends TestCase
         $c = ReceiptBookkeeperService::check(['total' => ['value' => 15.00]], ['prompt' => ['receipt_text' => $text]]);
         $this->assertContains('printed', array_column(array_filter($c['checks'], fn($x) => !$x['ok']), 'check'));
     }
+
+    public function test_the_ai_gets_the_street_not_the_house_number(): void
+    {
+        $this->assertSame('Lawn care — W 8th Ave', ReceiptBookkeeperService::withoutHouseNumber('Lawn care — 2492 W 8th Ave'));
+        $this->assertSame('Hedges — W 6th Ave', ReceiptBookkeeperService::withoutHouseNumber('Hedges — 204-1550 W 6th Ave'));
+        $this->assertSame('14 Day Lawn Cut Service — Tisdall Street', ReceiptBookkeeperService::withoutHouseNumber('14 Day Lawn Cut Service — 6015 Tisdall Street'));
+        $this->assertSame('Shop supplies', ReceiptBookkeeperService::withoutHouseNumber('Shop supplies'));
+    }
 }
