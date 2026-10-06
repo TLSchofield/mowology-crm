@@ -7,7 +7,7 @@ Mia's job: keep existing/past customers and property managers warm. Sam owns ope
 
 | Area | Where | What it means for Mia |
 |---|---|---|
-| Placeholder card | `public/crm/includes/dept-heads-deck.php:45` | Swap this row for `include mia-card.php`. Change nothing else. |
+| Placeholder card | `public/crm/includes/dept-heads-deck.php:45` | **Do not edit the deck in this branch.** The lead changes it once, on `feature/sam-sales-head`, so that any existing `<slug>-card.php` replaces that head's placeholder. Mia just ships `mia-card.php`. |
 | Consent | `app/Services/Messaging/MessagingService.php:257` `canSendMarketing()`, `:218` `hasSmConsent()`, `:64` `sendEmail()`, `:123` `sendSms()` | Checks the `marketing_unsubscribes` hard block → express consent → implied consent (`consent_email_implied_at` less than 2 years old). It runs one query per contact, so Mia loads the unsubscribes in bulk. |
 | Implied consent gap | Only `public/crm/invoices/record-payment.php:194` sets `consent_email_implied_at` | Customers who paid by Stripe, autopay or e-Transfer may have no implied consent recorded, even though they paid. |
 | Reviews | `app/Modules/Reviews/Services/ReviewRequestService.php:60` `maybeSend()`, called from `public/crm/api/pow-actions.php:759` on every `end_visit` | **Already sends automatically** (email, plus SMS if consented) for each visit the crew flagged (`job_visits.is_flagged`). Limits: 30-day cooldown and 3 requests per lifetime (`:160`). `contacts.has_reviewed` is a manual checkbox (`clients_appstack.php:760`). Nothing imports Google reviews: `GoogleBusinessService` only makes posts. |
@@ -16,18 +16,22 @@ Mia's job: keep existing/past customers and property managers warm. Sam owns ope
 | Past work | `job_visits` (`status='completed'`, `completed_at`) → `job_plans` (`service_type`, `status`, `property_id`) → `properties.site_contact_id` → `contacts`. `contacts.last_service_date` and `total_lifetime_value` are refreshed by the cron `public/crm/cron/refresh_purchase_history.php` | Lapsed and seasonal customers are found from visits and plans, not from that cron's fields, because it may not be scheduled. |
 | Property managers | `properties.property_manager_id` → `companies` (`primary_contact_id`, `billing_contact_id`); see `InvoiceRouting.php:121` | A company counts as a PM because it manages properties, not because of `company_type`. That field is advisory: Tech-Debt-Map:207 lists the Pacific Quorum duplicate and firms typed BUSINESS. |
 | Contact history | `communication_log` (`030_create_missing_core_tables.sql:227`), written by `campaign_sender.php:214` | Mia writes one outbound row for each send. Replies will come from Sam's `sales_messages` table once it exists; Mia does not build an inbox reader. |
-| Shared brain | `app/Services/HeadBrain.php` and `public/crm/js/head-brain.js` (lead worktree, not yet committed) | Mia uses `new HeadBrain($db, 'mia')`, with its start line stored in `mia_brain_baseline`. |
+| Shared brain | `app/Services/HeadBrain.php` and `public/crm/js/head-brain.js` (lead worktree, not yet committed) | Mia calls `(new HeadBrain($db, 'mia'))->learned($raw, $labels /* kind => [one, many] */)`, with its start line stored in `mia_brain_baseline`. The card renders a `.mw-head-brain` element with these data attributes: head, units, bright, parts, since, empty, teach. |
 
 ## 2. Unknowns, settled cheapest first
 
-1. Which `automation_rules` are enabled on prod, and which auto-sends actually fired in the last 90 days (`automation_logs`). → Tim's Chrome, `/crm/database_appstack.php`.
+1. (The lead already disabled the 9 automatic quote follow-up rules, ids 2, 6, 10, 14, 18, 22, 26, 30, 34. No other rules were touched.) Which `automation_rules` are enabled on prod, and which auto-sends actually fired in the last 90 days (`automation_logs`). → Tim's Chrome, `/crm/database_appstack.php`.
 2. Review volume: flagged visits, `review_request_sent_count > 0`, `has_reviewed = 1`, and the `google_review_url` value. → Chrome.
 3. `referral_program_enabled`, plus row counts for `referrals` and `referral_links`. → Chrome.
 4. Consent coverage: contacts with a paid invoice in the last 2 years compared with contacts that have `consent_email_implied_at` set, and the size of `marketing_unsubscribes`. → Chrome.
 5. Pool sizes: lapsed customers at 9, 12 and 18 months; seasonal matches for October and November last year; quiet PMs by quarterly visits per manager company. → Chrome (read-only SELECTs).
-6. The quote status values that mean "open". → Chrome `SELECT DISTINCT status FROM quotes`, then agree the list with Sam.
+6. ~~Which quote statuses mean "open"~~ **Settled by the lead.** Sam's "open" means either of these, and anything named ZZTEST is excluded:
+   - quotes with `status IN ('sent','viewed')` AND (`valid_until IS NULL OR valid_until >= CURDATE()`)
+   - `quote_requests` with `status IN ('new','reviewing')`, `quote_id IS NULL`, created in the last 60 days
+
+   Mia uses exactly this rule, kept in one constant or method.
 7. Whether the purchase-history and seasonal-trigger crons are scheduled, and whether any campaign is `sending`. → cPanel cron list and Chrome.
-8. When `sales_messages` will land. → The lead session. Until then Mia guards it with `SHOW TABLES` and falls back to "booked work" as the only outcome.
+8. ~~When `sales_messages` will land~~ **Settled.** It comes in Sam's migration 1140, with these columns: mailbox, message_key, direction (inbound/outbound), channel, contact_id, from_addr, to_addr, subject, snippet, sent_at. Mia counts an inbound row for the same contact within 30 days of her send as a reply. The `SHOW TABLES` guard stays.
 9. Live collation of `contacts` and `companies`, so the new foreign keys match. → Chrome `SHOW CREATE TABLE`.
 
 ## 3. Files to create
@@ -42,7 +46,7 @@ Mia's job: keep existing/past customers and property managers warm. Sam owns ope
   - `MiaDeskService`: `ready`, `stats`, `queue`, `prepare` (lazy and capped), `decide`, `brief`.
   - `MiaOutcomeService`, `MiaBadgeService`, `MiaBrainService` (on top of HeadBrain), `MiaQuestionService`.
 - **API** `app/Modules/Marketing/Api/mia.php` with `?mode=` values stats, queue, decide, questions, answer, brain; CSRF; `expenses.approve`-level permission. Shim at `public/crm/api/mia.php`.
-- **UI**: `public/crm/includes/mia-card.php`, `public/crm/js/mia-card.js`, and a CSS subsection "MIA — MARKETING HEAD".
+- **UI** (the deck file is not touched): `public/crm/includes/mia-card.php`, `public/crm/js/mia-card.js`, and a CSS subsection "MIA — MARKETING HEAD".
 - **Tests**: unit tests registered in `tests/bootstrap.php`.
 
 ## 4. What Mia does
@@ -82,7 +86,7 @@ The kinds:
 - "Was the Smith job a one-off?"
 - "No email or SMS consent — call instead?"
 
-**`brief('Tim')`:** returns the top 3 items with their priority.
+**`brief('Tim')`:** read-only and cheap. It runs no `prepare` and sends nothing. It returns `['head'=>'mia','headline','items'=>[['key'=>'mia:contact:123','text','url','priority'=>1|2|3,'kind'?,'value'?,'since'?]],'count']`. Each `key` is stable (`mia:contact:<id>` or `mia:company:<id>`), so Charlie can tell items apart from day to day.
 
 ## 5. Tests and verification
 
@@ -95,7 +99,7 @@ The kinds:
 - Wording fill.
 - Badge `compute`.
 - Outcome attribution window.
-- The shape of `brief()`.
+- The shape of `brief()`: stable keys, and no writes.
 - The whole `vendor/bin/phpunit` suite must stay green.
 
 **Rendering:** render the card locally with a stubbed DB (the method in memory `feedback_render_crm_page_without_local_db`) and show Tim before anything ships. Count candidate pools against prod with read-only queries in Chrome. No deploy and no push.
