@@ -78,6 +78,11 @@ class QuoteService
                 pc.email        AS prop_contact_email,
                 pc.phone        AS prop_contact_phone,
                 pc.employer_company_id AS prop_contact_employer_id,
+                q.contact_id    AS quote_contact_id,
+                rc.first_name   AS rc_first_name,
+                rc.last_name    AS rc_last_name,
+                rc.email        AS rc_email,
+                rc.phone        AS rc_phone,
                 u.full_name     AS created_by_name
             FROM quotes q
             LEFT JOIN properties p           ON q.property_id = p.id
@@ -87,12 +92,49 @@ class QuoteService
             LEFT JOIN quote_requests qr      ON qr.quote_id = q.id
             LEFT JOIN contacts qrc           ON qr.contact_id = qrc.id
             LEFT JOIN contacts pc            ON p.site_contact_id = pc.id
+            LEFT JOIN contacts rc            ON q.contact_id = rc.id
             LEFT JOIN users u               ON q.created_by = u.id
             WHERE q.id = ?
         ");
         $stmt->execute([$quoteId]);
         $quote = $stmt->fetch(PDO::FETCH_ASSOC);
-        return $quote ? self::preferManagingContact($quote) : null;
+        return $quote ? self::applyChosenRecipient(self::preferManagingContact($quote)) : null;
+    }
+
+    /**
+     * A recipient chosen for this quote (the "Send to" picker, or the property/company
+     * "Quotes go to" setting at creation — migration 1186) beats every other source,
+     * including the online-request contact. It becomes the contact_* fields, so send,
+     * follow-up, the customer box and the PDF all follow it.
+     *
+     * Chosen = quotes.recipient_chosen = 1. Before 1186 runs (no such column), a
+     * quotes.contact_id that differs from the billing (site) contact counts as chosen.
+     * Legacy quotes whose contact_id is just the billing contact keep the old ladder.
+     */
+    public static function applyChosenRecipient(array $quote): array
+    {
+        $qc = (int)($quote['quote_contact_id'] ?? 0);
+        $contactExists = ($quote['rc_first_name'] ?? null) !== null || ($quote['rc_email'] ?? null) !== null;
+        if ($qc <= 0 || !$contactExists) {
+            return $quote;
+        }
+        $chosen = array_key_exists('recipient_chosen', $quote)
+            ? (int)$quote['recipient_chosen'] === 1
+            : $qc !== (int)($quote['site_contact_id'] ?? 0);
+        if (!$chosen) {
+            return $quote;
+        }
+
+        $quote['contact_id']    = $qc;
+        $quote['contact_first'] = $quote['rc_first_name'];
+        $quote['contact_last']  = $quote['rc_last_name'];
+        $quote['contact_email'] = $quote['rc_email'];
+        $quote['contact_phone'] = $quote['rc_phone'];
+        foreach (['qr_contact_id', 'qr_first_name', 'qr_last_name', 'qr_email', 'qr_phone'] as $k) {
+            $quote[$k] = null;
+        }
+        $quote['recipient_is_chosen'] = true;
+        return $quote;
     }
 
     /**
@@ -210,6 +252,13 @@ class QuoteService
 
         [$companyId, $siteContactId] = $this->lookupPropertyRelations($propertyId);
 
+        // Quotes go to the building's / company's quote contact, not the billing contact
+        // (migration 1186). Falls back to the site contact exactly as before.
+        require_once __DIR__ . '/QuoteRecipientService.php';
+        $recipients = new QuoteRecipientService($this->db);
+        $resolved   = $recipients->forProperty($propertyId);
+        $quoteContactId = $resolved['contact_id'] ?? $siteContactId;
+
         $quoteNumber = $this->generateQuoteNumber();
         $accessToken = $this->generateAccessToken();
 
@@ -229,7 +278,7 @@ class QuoteService
                 )
             ");
             $stmt->execute([
-                $quoteNumber, $propertyId, $companyId, $siteContactId,
+                $quoteNumber, $propertyId, $companyId, $quoteContactId,
                 $data['title'], $data['service_type'] ?? 'landscaping',
                 $totals['total'], $totals['subtotal'], $totals['tax_rate'], $totals['tax_amount'],
                 $data['valid_until'] ?: null, $data['terms'] ?? '',
@@ -240,6 +289,10 @@ class QuoteService
             $quoteId = (int)$this->db->lastInsertId();
 
             $this->insertLineItems($quoteId, $lineItems);
+
+            if (in_array($resolved['source'], ['property', 'company'], true)) {
+                $recipients->markChosen($quoteId);
+            }
 
             if ($quoteRequestId) {
                 $this->db->prepare(

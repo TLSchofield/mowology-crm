@@ -25,6 +25,7 @@ require_once __DIR__ . '/../app/Services/Messaging/EmailWrapper.php';
 
 // Quotes
 require_once __DIR__ . '/../app/Modules/Quotes/Services/QuoteService.php';
+require_once __DIR__ . '/../app/Modules/Quotes/Services/QuoteRecipientService.php';
 
 // Department heads — shared brain
 require_once __DIR__ . '/../app/Services/HeadBrain.php';

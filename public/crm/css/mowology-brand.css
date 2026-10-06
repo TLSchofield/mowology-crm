@@ -8602,6 +8602,42 @@ a.mw-clock-timer-nav:hover {
   font-style:italic;
 }
 /* ════════════════════════════════════════════════════════════════════════
+   Quote view — "Send to" recipient picker + property-manager CC (migration 1186)
+   ════════════════════════════════════════════════════════════════════════ */
+.mw-quote-recipient {
+  margin-top:12px;
+  padding:12px;
+  border:1px solid var(--mw-light);
+  border-left:3px solid var(--mw-green);
+  border-radius:6px;
+  background:var(--mw-light);
+}
+.mw-quote-recipient-row {
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:8px;
+  margin:0;
+}
+.mw-quote-recipient-row .mw-detail-label { min-width:60px; margin:0; }
+.mw-quote-recipient-select { flex:1 1 240px; min-width:0; }
+.mw-quote-recipient-cc {
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:8px;
+  margin-top:10px;
+}
+.mw-quote-recipient-cc .mw-detail-label { min-width:60px; }
+.mw-quote-recipient-cc-label {
+  display:flex;
+  align-items:center;
+  gap:6px;
+  margin:0;
+  font-weight:400;
+  cursor:pointer;
+}
+/* ════════════════════════════════════════════════════════════════════════
    Quote → Plan Allocation (coverage card on the quote view)
    ════════════════════════════════════════════════════════════════════════ */
 .mw-alloc-card .mw-alloc-pct {

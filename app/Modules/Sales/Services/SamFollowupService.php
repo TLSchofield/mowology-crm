@@ -218,7 +218,10 @@ class SamFollowupService
             if ($to === '' || !filter_var($to, FILTER_VALIDATE_EMAIL)) return ['ok' => false, 'message' => 'No email address on file for ' . $card['name'] . '.'];
             if ($subject === '') $subject = 'Following up on your quote';
             $html = $this->emailHtml($card, $body);
-            $r = sendEmail($to, $subject, $html);
+            // Copy each quote's building property manager, if known (QuoteRecipientService).
+            require_once __DIR__ . '/../../Quotes/Services/QuoteRecipientService.php';
+            $cc = (new QuoteRecipientService($this->db))->ccEmailsForQuotes($quoteIds, $contactId ?: null, $to);
+            $r = $cc ? sendEmail($to, $subject, $html, null, 'Mowology', [], $cc) : sendEmail($to, $subject, $html);
             $ok = !empty($r['success']);
         }
         if (!$ok) {

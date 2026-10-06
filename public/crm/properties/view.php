@@ -57,6 +57,12 @@ require_once APP_ROOT . '/Modules/Contacts/Services/OnsiteContactService.php';
 $onsiteSvc       = new OnsiteContactService($db);
 $onsiteAvailable = $onsiteSvc->isAvailable();
 
+// "Quotes go to" override (migration 1186) — quotes are NOT sent to the billing contact
+// when the building or its company names someone else. See QuoteRecipientService.
+require_once APP_ROOT . '/Modules/Quotes/Services/QuoteRecipientService.php';
+$quoteRecipientSvc   = new QuoteRecipientService($db);
+$quoteRecipientReady = $quoteRecipientSvc->hasColumn('properties', 'quote_contact_id');
+
 // ── POST handler ─────────────────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!$canEdit) {
@@ -149,6 +155,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $params[] = $propertyId;
                 $sql = "UPDATE properties SET " . implode(', ', $set) . " WHERE id = ?";
                 $db->prepare($sql)->execute($params);
+
+                if ($quoteRecipientReady) {
+                    $quoteRecipientSvc->setPropertyQuoteContact($propertyId, (int)($_POST['quote_contact_id'] ?? 0) ?: null);
+                }
 
                 // On-site contact: a typed name wins over the picker; empty picker clears.
                 if ($onsiteAvailable) {
@@ -247,6 +257,18 @@ if (!empty($property['site_contact_id'])) {
     } catch (Throwable $e) { $inferredCompany = null; }
 }
 
+// Who quotes for this building currently go to (override → company → billing contact)
+$quoteRecipientNow = $quoteRecipientSvc->forProperty($propertyId);
+$quoteRecipientNowName = '';
+if (!empty($quoteRecipientNow['contact_id'])) {
+    foreach ($contactsList as $c) {
+        if ((int)$c['id'] === (int)$quoteRecipientNow['contact_id']) {
+            $quoteRecipientNowName = trim(($c['first_name'] ?? '') . ' ' . ($c['last_name'] ?? ''));
+            break;
+        }
+    }
+}
+
 $csrfToken  = generateCSRFToken();
 $justSaved  = isset($_GET['updated']);
 
@@ -288,7 +310,7 @@ if ($apiKey) {
             <p class="text-muted mb-4">
                 <?= htmlspecialchars($property['address']) ?>
                 <?php if (!empty($property['city'])): ?> &bull; <?= htmlspecialchars($property['city']) ?><?php endif; ?>
-                <?php if ($siteContactName): ?> &bull; Property manager: <?= htmlspecialchars($siteContactName) ?><?php endif; ?>
+                <?php if ($siteContactName): ?> &bull; Billing contact: <?= htmlspecialchars($siteContactName) ?><?php endif; ?>
                 <?php if ($inferredCompany): ?>
                     &bull; Managed by <a href="/crm/companies/view.php?id=<?= (int)$inferredCompany['id'] ?>"><?= htmlspecialchars($inferredCompany['company_name']) ?></a>
                 <?php endif; ?>
@@ -346,7 +368,7 @@ if ($apiKey) {
                                 </select>
                             </div>
                             <div class="form-group col-md-4">
-                                <label class="form-label">Client contact <span class="text-muted" style="font-weight:400;">(owner / billing person)</span></label>
+                                <label class="form-label">Billing contact <span class="text-muted" style="font-weight:400;">(gets invoices)</span></label>
                                 <select name="site_contact_id" id="siteContactPicker" class="form-control mw-searchable" data-placeholder="Search contacts…" data-none-label="No contact" <?= $canEdit ? '' : 'disabled' ?>>
                                     <option value="">— none —</option>
                                     <?php foreach ($contactsList as $c):
@@ -444,6 +466,40 @@ if ($apiKey) {
                         <div class="form-group">
                             <label class="form-label">Notes</label>
                             <textarea name="notes" class="form-control" rows="4" <?= $canEdit ? '' : 'readonly' ?>><?= htmlspecialchars($property['notes'] ?? '') ?></textarea>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">Quotes go to</h5>
+                        <small class="text-muted">Who receives quotes for this building. Leave blank to use the company's quote contact, else the billing contact.</small>
+                    </div>
+                    <div class="card-body">
+                        <p class="mb-3">
+                            Right now:
+                            <?php if ($quoteRecipientNowName !== ''): ?>
+                                <strong><?= htmlspecialchars($quoteRecipientNowName) ?></strong>
+                                <span class="text-muted">(<?= htmlspecialchars(['property' => 'set for this building', 'company' => "the company's quote contact", 'site_contact' => 'the billing contact'][$quoteRecipientNow['source']] ?? '') ?>)</span>
+                            <?php else: ?>
+                                <span class="text-muted">nobody — set a billing contact or a quote contact.</span>
+                            <?php endif; ?>
+                        </p>
+                        <div class="form-group mb-0">
+                            <label class="form-label">This building only</label>
+                            <select name="quote_contact_id" class="form-control mw-searchable" data-placeholder="Search contacts…" data-none-label="Use the company / billing contact" <?= ($canEdit && $quoteRecipientReady) ? '' : 'disabled' ?>>
+                                <option value="">— use the company's quote contact / billing contact —</option>
+                                <?php foreach ($contactsList as $c):
+                                    $label = trim(($c['first_name'] ?? '') . ' ' . ($c['last_name'] ?? ''));
+                                    if (!empty($c['email'])) $label .= ' · ' . $c['email'];
+                                    $sel = (int)($property['quote_contact_id'] ?? 0) === (int)$c['id'] ? ' selected' : '';
+                                ?>
+                                <option value="<?= (int)$c['id'] ?>"<?= $sel ?>><?= htmlspecialchars($label) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <?php if (!$quoteRecipientReady): ?>
+                                <small class="text-muted"><strong>Not available — run migration 1186 first.</strong></small>
+                            <?php endif; ?>
                         </div>
                     </div>
                 </div>

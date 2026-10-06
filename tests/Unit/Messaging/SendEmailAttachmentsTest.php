@@ -34,7 +34,7 @@ class SendEmailAttachmentsTest extends TestCase
     public function test_send_email_keeps_its_old_signature_and_gains_an_optional_list(): void
     {
         $params = (new ReflectionFunction('sendEmail'))->getParameters();
-        $this->assertSame(['to', 'subject', 'htmlBody', 'attachmentPath', 'fromName', 'attachments'], array_map(fn($p) => $p->getName(), $params));
+        $this->assertSame(['to', 'subject', 'htmlBody', 'attachmentPath', 'fromName', 'attachments', 'cc'], array_map(fn($p) => $p->getName(), $params));
         $this->assertTrue($params[5]->isOptional());
         $this->assertSame([], $params[5]->getDefaultValue());
     }

@@ -63,6 +63,9 @@ const CANADIAN_SMS_GATEWAYS = [
  *                                    [path => filename-the-customer-sees]. When given,
  *                                    all of them (plus $attachmentPath) go on one email.
  *                                    Callers that pass nothing use the original path below.
+ * @param array       $cc             Optional Cc addresses (email only — never SMS). Invalid
+ *                                    addresses and the To address are dropped. Callers that
+ *                                    pass nothing use the original path below, unchanged.
  * @return array      ['success' => bool, 'method' => string, 'error' => string|null]
  */
 function sendEmail(
@@ -71,16 +74,19 @@ function sendEmail(
     string $htmlBody,
     ?string $attachmentPath = null,
     string $fromName = 'Mowology',
-    array $attachments = []
+    array $attachments = [],
+    array $cc = []
 ): array {
     // Validate email
     if (empty($to) || !filter_var($to, FILTER_VALIDATE_EMAIL)) {
         return ['success' => false, 'method' => 'none', 'error' => "Invalid recipient email: {$to}"];
     }
 
-    if ($attachments) {
+    $cc = _normaliseCcList($cc, $to);
+
+    if ($attachments || $cc) {
         return _sendEmailMultiAttach($to, trim($subject), trim($htmlBody),
-            _normaliseAttachmentList($attachmentPath, $attachments), $fromName);
+            _normaliseAttachmentList($attachmentPath, $attachments), $fromName, $cc);
     }
 
     // Validate attachment exists
@@ -145,16 +151,42 @@ function _normaliseAttachmentList(?string $attachmentPath, array $attachments): 
 }
 
 /**
- * Several attachments on one email: PHPMailer SMTP first, native mail() multipart as the
- * fallback — the same order and the same From/Reply-To as the single-attachment path.
+ * Valid, de-duplicated Cc addresses, without the To address. Header-injection safe:
+ * anything that is not a plain valid email is dropped.
+ *
+ * @return string[]
  */
-function _sendEmailMultiAttach(string $to, string $subject, string $htmlBody, array $files, string $fromName): array
+function _normaliseCcList(array $cc, string $to): array
+{
+    $out = [];
+    $toKey = strtolower(trim($to));
+    foreach ($cc as $addr) {
+        $addr = trim((string)$addr);
+        if ($addr === '' || preg_match('/[\r\n,;<>]/', $addr) || !filter_var($addr, FILTER_VALIDATE_EMAIL)) {
+            continue;
+        }
+        $key = strtolower($addr);
+        if ($key === $toKey || isset($out[$key])) continue;
+        $out[$key] = $addr;
+    }
+    return array_values($out);
+}
+
+/**
+ * Several attachments (and/or Cc addresses) on one email: PHPMailer SMTP first, native
+ * mail() multipart as the fallback — the same order and the same From/Reply-To as the
+ * single-attachment path.
+ */
+function _sendEmailMultiAttach(string $to, string $subject, string $htmlBody, array $files, string $fromName, array $cc = []): array
 {
     $mail = _createMailer();
     if ($mail) {
         try {
             $mail->setFrom('no-reply@mowology.ca', $fromName);
             $mail->addAddress($to);
+            foreach ($cc as $ccAddr) {
+                $mail->addCC($ccAddr);
+            }
             $mail->Subject = $subject;
             $mail->isHTML(true);
             $mail->Body = $htmlBody;
@@ -173,7 +205,7 @@ function _sendEmailMultiAttach(string $to, string $subject, string $htmlBody, ar
         }
     }
 
-    $ok = _sendEmailWithAttachments($to, $subject, $htmlBody, $files, $fromName);
+    $ok = _sendEmailWithAttachments($to, $subject, $htmlBody, $files, $fromName, $cc);
     return ['success' => $ok, 'method' => 'native mail()', 'error' => $ok ? null : 'mail() returned false'];
 }
 
@@ -1228,7 +1260,7 @@ function _sendSimpleHtmlEmail(
  *
  * @param array<string, string> $files path => filename the customer sees
  */
-function _sendEmailWithAttachments(string $to, string $subject, string $htmlBody, array $files, string $fromName = 'Mowology'): bool
+function _sendEmailWithAttachments(string $to, string $subject, string $htmlBody, array $files, string $fromName = 'Mowology', array $cc = []): bool
 {
     try {
         $fromName = _stripHeaderInjection($fromName);
@@ -1260,6 +1292,7 @@ function _sendEmailWithAttachments(string $to, string $subject, string $htmlBody
         $headers .= "MIME-Version: 1.0\r\n";
         $headers .= "Content-Type: multipart/mixed; boundary=\"{$boundary}\"\r\n";
         $headers .= "X-Mailer: Mowology CRM\r\n";
+        $headers .= _ccHeaderLine($cc);
 
         $ok = mail($to, trim($subject), $body, $headers);
         if (!$ok) {
@@ -1270,6 +1303,14 @@ function _sendEmailWithAttachments(string $to, string $subject, string $htmlBody
         error_log('_sendEmailWithAttachments error: ' . $e->getMessage());
         return false;
     }
+}
+
+/** "Cc: a, b\r\n" for the native mail() fallback, or '' when there is nobody to copy. */
+function _ccHeaderLine(array $cc): string
+{
+    $cc = array_map('_stripHeaderInjection', $cc);
+    $cc = array_values(array_filter($cc, static fn($a) => filter_var($a, FILTER_VALIDATE_EMAIL)));
+    return $cc ? 'Cc: ' . implode(', ', $cc) . "\r\n" : '';
 }
 
 /**

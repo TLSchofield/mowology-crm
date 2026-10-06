@@ -223,6 +223,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $companyId = $propertyData['company_id'] ?? null;
                     $quoteContactId = $propertyData['site_contact_id'] ?? null;
 
+                    // Quotes go to the building's / company's quote contact, not the billing
+                    // contact (migration 1186; falls back to the site contact as before).
+                    require_once APP_ROOT . '/Modules/Quotes/Services/QuoteRecipientService.php';
+                    $quoteRecipients = new QuoteRecipientService($db);
+                    $resolvedRecipient = $quoteRecipients->forProperty((int)$propertyId);
+                    $quoteContactId = $resolvedRecipient['contact_id'] ?? $quoteContactId;
+
                     $stmt = $db->prepare("
                         INSERT INTO quotes (
                             quote_number, property_id, company_id, contact_id, title, service_type, amount,
@@ -238,6 +245,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $description, $accessToken, $user['id'], $isContract
                     ]);
                     $quoteId = $db->lastInsertId();
+                    if (in_array($resolvedRecipient['source'], ['property', 'company'], true)) {
+                        $quoteRecipients->markChosen((int)$quoteId);
+                    }
 
                     // If created from a quote request, link them together
                     if ($quoteRequestId) {
