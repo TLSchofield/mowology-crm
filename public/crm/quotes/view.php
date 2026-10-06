@@ -1063,6 +1063,9 @@ $activePage = 'quotes';
                       </div>
                   </div>
 
+                  <!-- Sam the Closer: his price beside this quote's (display only; renders nothing until migration 1141) -->
+                  <?php if (is_file(dirname(__DIR__) . '/includes/closer-panel.php')) include dirname(__DIR__) . '/includes/closer-panel.php'; ?>
+
                   <!-- Follow-Up Status Card (shown for sent/declined quotes) -->
                   <?php if (in_array($quote['status'], ['sent', 'declined', 'expired'])): ?>
                   <?php

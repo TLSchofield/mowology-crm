@@ -1,6 +1,19 @@
 # Sam, the Closer: rate card and pricing function (plan, step 1)
 
-Status: **PLAN, waiting for Tim's approval.** No feature code has been written.
+Status: **Approved by Tim 2026-10-05, step 1 BUILT** on this branch (not deployed). The
+as-built reference is "Sam the Closer" in `docs/crm/sales-head.md`.
+
+Tim's answers:
+- Hourly cost comes from `cost_factors`. No row is a fully loaded cost, so it goes into a
+  seeded setting that is flagged on the card.
+- The target margin is `profit_margin` (35%). The floor is target − 10, as a setting.
+- The minimum visit is `max(setting seeded from the lowest mowing min_price, the product's
+  min_price)`.
+- Tiers are `product_bundles` good/better/best.
+- The depot is the geocoded business address unless a yard is set.
+- The threshold is 15. Below it, Tim's per-service minutes are used, seeded from the current
+  price rule.
+- Display only.
 Branch: `feature/sam-closer-pricing` (from `feature/sam-sales-head`). Never deployed, never
 pushed to `feature/language`.
 

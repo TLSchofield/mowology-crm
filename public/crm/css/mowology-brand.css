@@ -37856,3 +37856,40 @@ body.mw-rc-zoom-open { overflow: hidden; }
     .mw-head-brain { width: 52px; height: 52px; right: -16px; bottom: -16px; border-radius: 12px; }
     .mw-sam-lead { flex-direction: column; align-items: flex-start; }
 }
+
+/* ===================================================================
+   SAM — CLOSER'S PRICE (quote view, right column) · display only
+   =================================================================== */
+.mw-closer { border-color: var(--mw-light); }
+.mw-closer-who { font-size: .72rem; font-weight: 700; color: var(--mw-green); text-transform: uppercase; letter-spacing: .04em; }
+.mw-closer-loading { margin: 0; font-size: .85rem; color: var(--mw-ink-500); }
+.mw-closer-alert { background: var(--mw-color-danger-bg); color: var(--mw-color-danger); border-radius: 8px; padding: 8px 10px; font-size: .82rem; font-weight: 600; margin-bottom: 10px; }
+.mw-closer-table { width: 100%; font-size: .82rem; border-collapse: collapse; }
+.mw-closer-table th { font-size: .7rem; text-transform: uppercase; letter-spacing: .03em; color: var(--mw-ink-500); font-weight: 600; padding: 0 0 6px; border-bottom: 1px solid var(--mw-ink-200); }
+.mw-closer-table td { padding: 7px 0; border-bottom: 1px dashed var(--mw-ink-200); vertical-align: top; }
+.mw-closer-table td + td, .mw-closer-table th + th { padding-left: 8px; }
+.mw-closer-table tr.is-below td { background: var(--mw-color-danger-bg); }
+.mw-closer-margin { font-weight: 700; color: var(--mw-green); }
+.mw-closer-margin.is-below { color: var(--mw-color-danger); }
+.mw-closer-margin.is-thin { color: var(--mw-color-warning); }
+.mw-closer-basis { font-size: .72rem; color: var(--mw-ink-500); line-height: 1.3; }
+.mw-closer-drive { font-size: .8rem; color: var(--mw-ink-700); margin: 10px 0 8px; }
+.mw-closer-tiers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
+.mw-closer-tier { background: var(--mw-light); border-radius: 8px; padding: 8px; display: flex; flex-direction: column; align-items: center; text-align: center; }
+.mw-closer-tier-name { font-size: .72rem; font-weight: 700; color: var(--mw-forest); }
+.mw-closer-tier-price { font-size: 1.05rem; font-weight: 800; color: var(--mw-dark); }
+.mw-closer-flags { margin: 0 0 8px; padding-left: 18px; font-size: .75rem; color: var(--mw-ink-700); }
+.mw-closer-flags li { background: var(--mw-color-warning-bg); margin-bottom: 3px; padding: 2px 6px; border-radius: 4px; }
+.mw-closer-card { font-size: .75rem; color: var(--mw-ink-600); margin: 0 0 4px; }
+.mw-closer-note { font-size: .75rem; font-style: italic; color: var(--mw-ink-500); margin: 0 0 8px; }
+.mw-closer-form:empty { display: none; }
+.mw-closer-rc { display: grid; gap: 6px; margin-top: 10px; font-size: .8rem; }
+.mw-closer-rc label { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 0; }
+.mw-closer-rc input { width: 100px; padding: 3px 6px; border: 1px solid var(--mw-ink-300); border-radius: 6px; }
+.mw-closer-rc-head { font-weight: 700; margin: 8px 0 0; color: var(--mw-forest); }
+.mw-closer-rc-row { display: grid; grid-template-columns: 1fr 70px 70px; gap: 6px; align-items: center; }
+.mw-closer-rc-row input { width: 100%; }
+.mw-closer-rc-row .mw-closer-basis { grid-column: 1 / -1; }
+@media (max-width: 575px) {
+    .mw-closer-tiers { grid-template-columns: 1fr; }
+}
