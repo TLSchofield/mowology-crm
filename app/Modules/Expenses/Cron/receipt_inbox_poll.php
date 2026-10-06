@@ -196,11 +196,18 @@ if ($mbox === false) {
     rpFail("ERROR: could not log into {$user}: " . implode('; ', imap_errors() ?: ['unknown']));
 }
 
+// imap_search() returns false for "no matches" too — only an IMAP error on the stack is a
+// real failure (the Sep 22 version reported every empty window as a failed search).
+imap_errors();   // clear notices left over from the login
 $rawHits = @imap_search($mbox, 'SINCE "' . $since . '"');
-$searchFailed = ($rawHits === false);
+$searchErrors = $rawHits === false ? (imap_errors() ?: []) : [];
+$searchFailed = (bool)$searchErrors;
 $searchError  = null;
+if ($rawHits === false && !$searchFailed) {
+    $rawHits = [];   // nothing new in the window
+}
 if ($searchFailed) {
-    $searchError = implode('; ', imap_errors() ?: ['unknown IMAP error']);
+    $searchError = implode('; ', $searchErrors);
     rpLog("WARNING: imap_search failed ({$searchError}) — treating as 0 results this run, not a confirmed empty mailbox.");
     $hits = [];
 } else {
