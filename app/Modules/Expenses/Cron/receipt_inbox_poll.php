@@ -215,6 +215,13 @@ $mailboxes = [['user' => $user, 'pass' => RECEIPTS_IMAP_PASS, 'filter' => false,
 if (defined('SMTP_USER') && defined('SMTP_PASS') && SMTP_PASS !== '' && strtolower((string)SMTP_USER) !== $user) {
     $mailboxes[] = ['user' => SMTP_USER, 'pass' => SMTP_PASS, 'filter' => true, 'floor' => strtotime('2026-10-06 00:00:00')];
 }
+// Tim's personal iCloud inbox (2026-10-06, his call): same receipt-only filter, read-only,
+// from the day it was added — but a mail from himself is NOT automatically a receipt there.
+// Needs an Apple app-specific password: ICLOUD_IMAP_USER / ICLOUD_IMAP_PASS in secrets.php.
+if (defined('ICLOUD_IMAP_USER') && defined('ICLOUD_IMAP_PASS') && ICLOUD_IMAP_PASS !== '') {
+    $mailboxes[] = ['user' => ICLOUD_IMAP_USER, 'pass' => ICLOUD_IMAP_PASS, 'filter' => true, 'personal' => true,
+                    'host' => 'imap.mail.me.com', 'floor' => strtotime('2026-10-06 00:00:00')];
+}
 $lower = fn($rows) => array_values(array_filter(array_map(fn($e) => strtolower(trim((string)$e)), $rows)));
 $ownerEmails = ['mowology@icloud.com'];
 $clientEmails = [];
@@ -229,10 +236,11 @@ $searchError  = null;
 
 foreach ($mailboxes as $mb) {
     $user = $mb['user'];
-    $ref  = "{{$host}:{$port}/imap/ssl}INBOX";
+    $mbHost = $mb['host'] ?? $host;
+    $ref  = "{{$mbHost}:{$port}/imap/ssl}INBOX";
     $mbox = @imap_open($ref, $user, $mb['pass'], $mb['filter'] ? OP_READONLY : 0, 1);
     if ($mbox === false) {
-        $mbox = @imap_open("{{$host}:{$port}/imap/ssl/novalidate-cert}INBOX", $user, $mb['pass'], $mb['filter'] ? OP_READONLY : 0, 1);
+        $mbox = @imap_open("{{$mbHost}:{$port}/imap/ssl/novalidate-cert}INBOX", $user, $mb['pass'], $mb['filter'] ? OP_READONLY : 0, 1);
     }
     if ($mbox === false) {
         if (!$mb['filter']) rpFail("ERROR: could not log into {$user}: " . implode('; ', imap_errors() ?: ['unknown']));
@@ -277,7 +285,7 @@ foreach ($mailboxes as $mb) {
             if (!empty($struct->parts)) {
                 rpWalk($struct, '', $parts);
             }
-            if (empty($parts) && ReceiptInboxService::isBodyReceipt($from, $subject, $ownerEmails, $clientEmails)) {
+            if (empty($parts) && ReceiptInboxService::isBodyReceipt($from, $subject, empty($mb['personal']) ? $ownerEmails : [], $clientEmails)) {
                 // The receipt IS the email (RONA, Amazon…): read its text (2026-10-06).
                 $bp = rpBodyPart($struct);
                 if ($bp) {
@@ -296,15 +304,15 @@ foreach ($mailboxes as $mb) {
                 continue;
             }
             if (empty($parts)) {
-                if ($mb['filter']) rpLog("office@ skip (no PDF/photo attached): {$from} — {$subject}");
+                if ($mb['filter'] && empty($mb['personal'])) rpLog("office@ skip (no PDF/photo attached): {$from} — {$subject}");
                 // No PDF/image attachment — nothing to ingest. Body-only receipts
                 // (Stripe/Amazon/Uber HTML) are phase 2. Cheap to re-scan headers.
                 continue;
             }
 
             // office@ is a shared inbox: only receipt-looking mail (ReceiptInboxService::isOfficeReceipt).
-            if ($mb['filter'] && !ReceiptInboxService::isOfficeReceipt($from, $subject, (string)($parts[0]['filename'] ?? ''), $ownerEmails, $clientEmails)) {
-                rpLog("office@ skip (doesn't look like a receipt): {$from} — {$subject} — " . ($parts[0]['filename'] ?? ''));
+            if ($mb['filter'] && !ReceiptInboxService::isOfficeReceipt($from, $subject, (string)($parts[0]['filename'] ?? ''), empty($mb['personal']) ? $ownerEmails : [], $clientEmails)) {
+                if (empty($mb['personal'])) rpLog("office@ skip (doesn't look like a receipt): {$from} — {$subject} — " . ($parts[0]['filename'] ?? ''));
                 continue;
             }
 
