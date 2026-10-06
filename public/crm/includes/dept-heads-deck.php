@@ -28,11 +28,14 @@ try {
     $__hi = PennyQuestionService::firstName((array)($user ?? getCurrentUser() ?? []));
     $__badges = ['earned' => [], 'next' => null];
     $__vendors = [];
+    $__brain = null;
     try {
         require_once APP_ROOT . '/Modules/Expenses/Services/PennyBadgeService.php';
         $__pb = new PennyBadgeService(getDB());
         $__badges = $__pb->badges();
         $__vendors = $__pb->vendors(6);
+        require_once APP_ROOT . '/Modules/Expenses/Services/PennyBrainService.php';
+        $__brain = (new PennyBrainService(getDB()))->learned();
     } catch (Throwable $__e) { /* badges are a bonus — never block the card */ }
 } catch (Throwable $__e) {
     error_log('Dept heads deck unavailable: ' . $__e->getMessage());
@@ -52,7 +55,15 @@ $__team = [
 <div class="mw-heads-deck" id="mw-heads-deck">
   <section class="mw-head-card mw-head-feature" id="mw-penny">
     <div class="mw-head-portrait">
-      <img src="/crm/img/heads/penny.jpg" alt="Penny, bookkeeper" width="168" height="168">
+      <div class="mw-head-photo">
+        <img src="/crm/img/heads/penny.jpg" alt="Penny, bookkeeper" width="168" height="168">
+        <?php if ($__brain !== null): ?>
+          <button type="button" class="mw-brain" aria-label="Penny's brain: <?= (int)$__brain['units'] ?> things learned"
+                  data-units="<?= (int)$__brain['units'] ?>"
+                  data-bright="<?= h((string)(($ps['right_first_time'] ?? 50) / 100)) ?>"
+                  data-parts="<?= h(json_encode($__brain['parts'])) ?>"><canvas></canvas></button>
+        <?php endif; ?>
+      </div>
       <div>
         <div class="mw-head-name">Penny</div>
         <div class="mw-head-role">Bookkeeper · receipts &amp; expenses</div>
@@ -168,3 +179,4 @@ $__team = [
   </div>
 </div>
 <script src="<?= function_exists('_av') ? _av('/crm/js/bookkeeper-card.js') : '/crm/js/bookkeeper-card.js' ?>" defer></script>
+<script src="<?= function_exists('_av') ? _av('/crm/js/penny-brain.js') : '/crm/js/penny-brain.js' ?>" defer></script>
