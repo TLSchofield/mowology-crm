@@ -127,4 +127,20 @@ class ReceiptInboxServiceTest extends TestCase
         $b = ReceiptInboxService::deriveDedupKey('<m1@x>', 'hashB', 'receipt.jpg');
         $this->assertNotSame($a, $b);
     }
+
+    public function test_office_inbox_takes_only_receipt_like_mail(): void
+    {
+        $own = ['mowology@icloud.com', 'tim@mowology.ca'];
+        $clients = ['strata@example.com'];
+        $ok = fn($from, $subj, $file = 'a.pdf') => ReceiptInboxService::isOfficeReceipt($from, $subj, $file, $own, $clients);
+        $this->assertTrue($ok('mowology@icloud.com', 'Fwd: lunch'), 'owner forwards are always receipts');
+        $this->assertTrue($ok('billing@telus.com', 'Your Telus bill is ready'));
+        $this->assertTrue($ok('orders@homedepot.ca', 'Order confirmation #123', 'HD.pdf'));
+        $this->assertTrue($ok('ap@supplier.ca', 'Statement', 'INV-4471.pdf'));
+        $this->assertFalse($ok('strata@example.com', 'Invoice question'), 'a client is never a receipt');
+        $this->assertFalse($ok('noreply@mowology.ca', 'Invoice INV-2026-0433'), 'our own sent copies');
+        $this->assertFalse($ok('eft@yardi.com', 'EFT remittance advice', 'remit.pdf'));
+        $this->assertFalse($ok('someone@gmail.com', 'Photos of the back yard', 'IMG_1.jpg'));
+        $this->assertFalse($ok(null, 'Receipt'));
+    }
 }

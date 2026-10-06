@@ -41,6 +41,28 @@ class ReceiptInboxService
      * seen twice, collapses to one key; two different attachments on one email get
      * two keys (both ingested). Pure + static so it's trivially testable.
      */
+    /**
+     * office@ is a shared business inbox (clients, quotes, payment notices), not a
+     * receipts drop — so only take an attachment from it when it looks like a receipt
+     * (2026-10-06: "she should watch all emails"). receipts@ takes everything.
+     *   yes — sent or forwarded by one of us (staff / owner addresses)
+     *   no  — our own domain otherwise (sent copies), a client, payment / remittance notices
+     *   yes — the subject or file name says receipt / invoice / bill / order / statement
+     *   no  — anything else (client photos, documents)
+     * @param string[] $ownerEmails  staff + owner addresses (lower case)
+     * @param string[] $clientEmails client contact addresses (lower case)
+     */
+    public static function isOfficeReceipt(?string $from, string $subject, string $filename, array $ownerEmails, array $clientEmails): bool
+    {
+        $from = strtolower(trim((string)$from));
+        if ($from !== '' && in_array($from, $ownerEmails, true)) return true;
+        if ($from === '' || str_ends_with($from, '@mowology.ca')) return false;
+        if (in_array($from, $clientEmails, true)) return false;
+        $text = $subject . ' ' . $filename;
+        if (preg_match('/yardi|\beft\b|remittance|e-?transfer|interac|payment (advice|notification|received)|quote request/i', $text)) return false;
+        return (bool)preg_match('/receipt|invoice|\bbill\b|your order|order (confirmation|#)|purchase|statement|\binv[\s#-]*\d/i', $text);
+    }
+
     public static function deriveDedupKey(?string $messageId, string $sha256, string $attachmentName): string
     {
         $mid = $messageId !== null ? trim($messageId) : '';
