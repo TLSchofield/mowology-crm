@@ -2286,7 +2286,7 @@ document.addEventListener('keydown', (e) => {
                 items.forEach(function(item) {
                     var qty = parseFloat(item.quantity) || 1;
                     var price = parseFloat(item.unit_price) || 0;
-                    html += '<tr><td>' + escHtml(item.service_name || '') + '</td><td class="text-center">' + qty + '</td><td class="text-right">$' + price.toFixed(2) + '</td><td class="text-right">$' + (qty * price).toFixed(2) + '</td></tr>';
+                    html += '<tr><td>' + escHtml(item.service_type || item.service_name || '') + (item.description ? '<div class="text-muted small">' + escHtml(item.description) + '</div>' : '') + '</td><td class="text-center">' + qty + '</td><td class="text-right">$' + price.toFixed(2) + '</td><td class="text-right">$' + (qty * price).toFixed(2) + '</td></tr>';
                 });
                 html += '</tbody></table></div>';
             } else {
