@@ -36,6 +36,9 @@ require_once __DIR__ . '/../app/Modules/Sales/Services/SamQuestionService.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/SamBadgeService.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/SamBrainService.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/SalesInboxService.php';
+// Consent ledger
+require_once __DIR__ . '/../app/Modules/Consent/Services/ConsentLedgerService.php';
+
 // Reviews
 require_once __DIR__ . '/../app/Modules/Reviews/Services/ReviewRequestService.php';
 
