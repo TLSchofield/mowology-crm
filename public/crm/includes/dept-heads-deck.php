@@ -15,6 +15,7 @@ if (!function_exists('userHasPermission') || !userHasPermission('expenses.approv
     return;
 }
 try {
+    require_once APP_ROOT . '/Modules/Expenses/ExpenseConstants.php';   // categories for the card, loaded here, not via another file
     require_once APP_ROOT . '/Modules/Expenses/Services/BookkeeperDeskService.php';
     $__desk = new BookkeeperDeskService(getDB());
     if (!$__desk->ready()) {
