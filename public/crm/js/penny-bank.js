@@ -11,6 +11,7 @@
     var API = '/crm/api/bookkeeper.php';
     var GREETING = box.getAttribute('data-name') || '';
     var lines = [], accounts = [], waiting = 0, idx = 0, busy = false;
+    var stripeRead = {};   // bank line id → what Stripe says the payout holds (read only)
 
     function esc(s) {
         return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -63,6 +64,7 @@
         if (idx >= lines.length) idx = 0;
         var l = lines[idx], s = l.suggestion;
         var now = l.current ? l.current.name : 'No account';
+        if (l.stripe) { renderStripe(l, msg); return; }
         box.innerHTML =
             '<div class="mw-bl-head"><span><b>🏦 Bank lines</b> · ' + waiting + ' to check</span>' +
               '<span><button type="button" class="mw-rc-arrow" data-bl="prev" aria-label="Previous">‹</button> ' +
@@ -84,6 +86,53 @@
               '<button type="button" class="mw-rc-sk" data-bl="next">Skip →</button>' +
             '</div>' +
             '<div class="mw-rc-msg">' + (msg ? esc(msg) : '') + '</div>';
+    }
+
+    // A Stripe payout: ask Stripe (read only) which invoices it paid, then Book it.
+    function renderStripe(l, msg) {
+        var r = stripeRead[l.id];
+        if (!r) {
+            stripeRead[l.id] = { pending: true };
+            fetch(API + '?mode=stripe_read&transaction_id=' + encodeURIComponent(l.id), { cache: 'no-store' })
+                .then(function (x) { return x.json(); })
+                .then(function (d) { stripeRead[l.id] = d || { ok: false, reason: 'No answer from Stripe' }; if (lines[idx] === l) render(msg); })
+                .catch(function () { stripeRead[l.id] = { ok: false, reason: 'Could not reach Stripe — try again later' }; if (lines[idx] === l) render(msg); });
+            r = stripeRead[l.id];
+        }
+        var say = r.pending ? 'This is a Stripe payout. Checking with Stripe which invoices it paid…'
+            : r.ok ? 'This Stripe payout paid <b>' + r.invoices.map(function (i) { return esc(i.number) + ' (' + money(i.amount) + ')'; }).join(', ') +
+                     '</b>, less <b>' + money(r.fees) + '</b> Stripe fees. Those invoices already count as income, so I\'ll book this as money arriving for them and the fees as a cost.'
+            : 'This is a Stripe payout, but I can\'t split it: ' + esc(r.reason || r.error || 'unknown') + '';
+        box.innerHTML =
+            '<div class="mw-bl-head"><span><b>🏦 Bank lines</b> · ' + waiting + ' to check</span>' +
+              '<span><button type="button" class="mw-rc-arrow" data-bl="prev" aria-label="Previous">‹</button> ' +
+              '<button type="button" class="mw-rc-arrow" data-bl="next" aria-label="Next">›</button></span></div>' +
+            '<div class="mw-bl-line">' +
+              '<div class="mw-bl-top"><span>' + esc(l.date) + (l.bank ? ' · ' + esc(l.bank) : '') + '</span><b class="is-in">+' + money(l.amount) + '</b></div>' +
+              '<div class="mw-bl-desc">' + esc(l.description) + '</div>' +
+              '<div class="mw-bl-now">Booked now: <s>income — ' + esc(l.current ? l.current.name : 'No account') + '</s> (counted twice)</div>' +
+            '</div>' +
+            '<div class="mw-bl-say">' + (GREETING ? esc(GREETING) + ', ' : '') + say + '</div>' +
+            '<div class="mw-rc-actions">' +
+              (r.ok ? '<button type="button" class="mw-rc-ok" data-bl="stripe">✓ Book it</button>' : '') +
+              '<button type="button" class="mw-rc-sk" data-bl="next">Skip →</button>' +
+            '</div>' +
+            '<div class="mw-rc-msg">' + (msg ? esc(msg) : '') + '</div>';
+    }
+
+    function bookStripe() {
+        if (busy || !lines.length) return;
+        var l = lines[idx];
+        busy = true;
+        post({ mode: 'stripe_book', transaction_id: l.id })
+            .then(function (d) {
+                busy = false;
+                if (!(d && d.ok)) { render((d && (d.message || d.error)) || 'Could not book it'); return; }
+                lines.splice(idx, 1);
+                waiting = Math.max(0, waiting - 1);
+                if (lines.length < 3 && waiting > lines.length) load(d.message); else render(d.message);
+            })
+            .catch(function () { busy = false; render('Network error — try again'); });
     }
 
     function decide(action) {
@@ -111,6 +160,7 @@
         if (!a) return;
         if (a === 'approve') decide('approve');
         else if (a === 'keep') decide('keep');
+        else if (a === 'stripe') bookStripe();
         else if (a === 'next') { idx = (idx + 1) % Math.max(1, lines.length); render(); }
         else if (a === 'prev') { idx = (idx - 1 + lines.length) % Math.max(1, lines.length); render(); }
     });

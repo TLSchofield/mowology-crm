@@ -133,6 +133,7 @@ class BankDeskService
                 'current'     => $r['account_id'] ? ['id' => (int)$r['account_id'], 'code' => $r['account_code'], 'name' => $r['account_name']] : null,
                 'suggestion'  => $s,
                 'note'        => self::note($r),
+                'stripe'      => self::isStripePayout($r),
             ];
         }
         return $out;
@@ -456,10 +457,16 @@ class BankDeskService
         if (($line['type'] ?? '') === 'expense' && preg_match('/FUNDS ?TRANSFER|TRANSFER TO|\bTFR\b/i', $d) && !preg_match('/E-?TRANSFER|INTERAC/i', $d)) {
             return 'This is money moved to another of your accounts, not spending. If that account is yours personally, it\'s an Owner\'s Draw (3300); if it\'s another business account, pick that account. Your answer teaches the import.';
         }
-        if (($line['type'] ?? '') === 'income' && preg_match('/\bSTRIPE\b/i', $d)) {
-            return 'This is a Stripe payout — card payments from your customers, already counted on their invoices. I\'ll match payouts to invoices in my next bank step; skip it for now.';
+        if (self::isStripePayout($line)) {
+            return 'This is a Stripe payout — card payments already counted on their invoices, so as income it counts twice. I\'m checking with Stripe which invoices it paid…';
         }
         return null;
+    }
+
+    /** A Stripe payout deposit still booked as income (StripePayoutService splits it). */
+    public static function isStripePayout(array $line): bool
+    {
+        return ($line['type'] ?? '') === 'income' && (bool)preg_match('/\bSTRIPE\b/i', (string)($line['description'] ?? ''));
     }
 
     /** Upper-case letters and digits only, single-spaced — for name-in-description checks. */

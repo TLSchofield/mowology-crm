@@ -17,6 +17,8 @@
  * POST {mode: 'reject', suggestion_id, reason, csrf_token}  Reject a receipt from the card.
  * GET  ?mode=bank_queue  Imported bank lines on the default account, with Penny's suggestion.
  * POST {mode: 'bank_decide', transaction_id, action: approve|keep, account_id?, suggested_id?, csrf_token}
+ * GET  ?mode=stripe_read&transaction_id=N  Which invoices + fee a Stripe payout line holds (Stripe GETs only).
+ * POST {mode: 'stripe_book', transaction_id, csrf_token}  Book it: transfer + fee line (StripePayoutService).
  * GET  ?mode=dismissed_dupes  Pairs marked "not a duplicate" (the receipts page reads these).
  * POST {mode: 'not_dupe', pairs: [[a, b], ...], csrf_token}  "Not a duplicate" — remembered (migration 1127).
  * GET  ?mode=questions  Penny's open questions (scans for unbilled materials first).
@@ -270,6 +272,25 @@ try {
                     isset($input['account_id']) ? (int)$input['account_id'] : null,
                     isset($input['suggested_id']) ? (int)$input['suggested_id'] : null, $user,
                     !empty($input['expense_id']) ? (int)$input['expense_id'] : null));
+            }
+            break;
+        }
+
+        case 'stripe_read':
+        case 'stripe_book': {
+            // Stripe is READ ONLY (StripePayoutService only lists payouts / balance transactions).
+            require_once APP_ROOT . '/Modules/Accounting/Services/StripePayoutService.php';
+            $svc = new StripePayoutService($db);
+            $txId = (int)($mode === 'stripe_read' ? ($_GET['transaction_id'] ?? 0) : ($input['transaction_id'] ?? 0));
+            if ($mode === 'stripe_read') {
+                $s = $db->prepare("SELECT id, transaction_date, amount, description FROM accounting_transactions WHERE id = ? AND reference_type = 'bank_import'");
+                $s->execute([$txId]);
+                $line = $s->fetch(PDO::FETCH_ASSOC);
+                echo json_encode($line ? $svc->read($line) : ['ok' => false, 'reason' => 'Bank line not found']);
+            } else {
+                if ($method !== 'POST') throw new RuntimeException('POST required');
+                if (!userHasPermission('expenses.edit')) throw new RuntimeException('Permission denied: expenses.edit required');
+                echo json_encode($svc->apply($txId, (int)$user['id']));
             }
             break;
         }
