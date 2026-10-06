@@ -272,3 +272,40 @@ The channel is push if APNs is configured, otherwise one email. Each interrupt i
 4. Calendar page: a new page `/crm/foreman_calendar_appstack.php`, or a tab in Settings.
 5. Rule defaults: 14 days late; one message per client per week; "overridden twice in 60 days".
 6. Whether to add central logging inside `sendEmail()`. It makes the weekly-message rule complete, but it changes shared messaging code.
+
+## Built — 2026-10-06 (A + B1)
+
+**Tim's answers, applied:**
+- Mowology is a corporation with employees, so the corporate set is seeded and there are no T1 items:
+  - T2 return (Jun 30)
+  - Corporate tax balance (end of February; Mar 31 if it qualifies as a small CCPC)
+  - GST, annual (Mar 31); the quarterly version is off
+  - Payroll remittances (the 15th of each month)
+  - T4s (last day of February)
+  - WorkSafeBC payroll report and premiums (quarterly)
+  - WorkSafeBC director coverage review (Jan 15)
+  - Year-end package to the accountant (Jan 31)
+  - City of Vancouver licence (Dec 31; reminders start 45 days before)
+- Corporate instalments are seeded **off**.
+- Every tax and payroll item carries "confirm with your accountant".
+- Tim's open items are seeded with no date: other licences, liability insurance (with the strata certificate), truck insurance, equipment service, contract template review.
+- Urgent alerts go by email only. The payment threshold is $500 (`ops_settings charlie_urgent_payment_min`), editable on the page.
+- Rule defaults: 14 days late; one message per client per 7 days; 2 overrides in 60 days triggers a proposed rewrite.
+- No central logging inside `sendEmail()`. That stays a later decision.
+
+**Added while building (needs Tim's eye):**
+- **A reply to a customer who wrote in is never held by the weekly rule.** It isn't outreach, but it does count as that week's message. Collections-first still applies to it.
+
+**Migrations:**
+- 1171: deadlines and their occurrences, plus the seed
+- 1172: rules and rulings, plus the 5 seeded rules (3 of them off, for later)
+- 1173: inbox log, alerts and the threshold setting
+
+**Cron:**
+- `charlie_morning_brief` now checks urgent alerts on every run, syncs the heads hourly (in the first 15 minutes of the hour), and sends the 7 am brief as before.
+- Recommended crontab: `2,17,32,47 * * * *`. Hourly still works; alerts just wait up to an hour.
+
+**Still phased:**
+- B3: protected time; margin floor; client complaints on the urgent list
+- B4: route full / ads
+- Penny batching: needs Penny to publish `proposals()`; until then her rows are view-only
