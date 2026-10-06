@@ -572,6 +572,15 @@ class BankImportServiceTest extends TestCase
     }
 
     /** @test */
+    public function isCreditCardPayment_a_preauthorized_bill_is_not_a_card_payment(): void
+    {
+        $this->assertFalse($this->isCreditCardPayment('Preauthorized payment TELUS MOBILITY Telus Mobility'));
+        $this->assertFalse($this->isCreditCardPayment('Preauthorized payment TD ON-LINE LOANS SYSTEM'));
+        $this->assertFalse($this->isCreditCardPayment('Preauthorized payment Wave PYRL Wave Payroll'));
+        $this->assertTrue($this->isCreditCardPayment('Preauthorized payment VANCITY VISA AUTO PAYMENT'), 'names the card');
+    }
+
+    /** @test */
     public function isCreditCardPayment_ignores_normal_purchases(): void
     {
         $this->assertFalse($this->isCreditCardPayment('SHELL GAS STATION'));

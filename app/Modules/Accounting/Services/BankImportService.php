@@ -2738,7 +2738,11 @@ class BankImportService
 
         // The card's own "payment received" / autopay lines.
         if (preg_match('/\bPAYMENT\b.*\bTHANK\s*YOU\b/', $d)) return true;
-        if (preg_match('/\b(PRE-?AUTH(ORIZED)?|AUTOMATIC|AUTO)\s+PAYMENT\b/', $d)) return true;
+        // A card statement's own bare autopay line ("PRE-AUTHORIZED PAYMENT") — but NOT a bank
+        // statement's pre-authorized bill, which names its payee ("Preauthorized payment TELUS
+        // MOBILITY"): that's a bill. Catching those booked every PAD bill since June 2026 as a
+        // card payoff (Telus, ICBC, insurance, payroll, the RAM loan).
+        if (preg_match('/^\s*(PRE-?AUTH(ORIZED)?|AUTOMATIC|AUTO)\s+PAYMENT\s*(-?\s*THANK\s*YOU)?\s*$/', $d)) return true;
 
         // A payment from the bank TO a card, in either word order
         // ("VISA PAYMENT", "PAYMENT - VANCITY VISA", "MASTERCARD PMT", "PAY CREDIT CARD").
@@ -2778,6 +2782,19 @@ class BankImportService
         $row['duplicate_type']  = null;
         $row['duplicate_tx_id'] = null;
         $row['match_candidate'] = false;
+
+        // Card payoffs go through the duplicate check like every other line: skipping it let
+        // overlapping statement imports re-add the same payoff 2-4 times (2026-10-05).
+        try {
+            $dupe = !empty($row['date']) ? $this->checkTrueDuplicate((string)$row['date'], (float)$row['amount'], 'expense') : null;
+        } catch (Throwable $e) {
+            $dupe = null;   // never block an import on the check itself
+        }
+        if ($dupe) {
+            $row['is_duplicate']    = true;
+            $row['duplicate_type']  = 'true_duplicate';
+            $row['duplicate_tx_id'] = $dupe;
+        }
 
         if ($ccPayableId > 0) {
             $row['type']         = 'transfer';
