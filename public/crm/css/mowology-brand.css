@@ -37770,10 +37770,94 @@ body.mw-rc-zoom-open { overflow: hidden; }
 }
 
 /* ===================================================================
+   SAM — SALES HEAD (dashboard deck) · follow-ups, leads, questions
+   Built heads render full-width under Penny (.mw-heads-live).
+   =================================================================== */
+.mw-heads-live { grid-column: 1 / -1; display: grid; gap: var(--mw-space-4, 16px); }
+.mw-heads-live > * { min-width: 0; }
+.mw-sam { display: grid; grid-template-columns: 150px 1fr; gap: 18px; border-color: var(--mw-light); }
+.mw-sam-photo { position: relative; width: max-content; }
+.mw-sam-photo img { width: 120px; height: 120px; border-radius: var(--mw-radius-lg); object-fit: cover; display: block; box-shadow: 0 0 0 3px var(--mw-lime), var(--mw-shadow-md); }
+.mw-sam-body { min-width: 0; }
+.mw-sam-stats { grid-template-columns: repeat(4, 1fr); }
+
+/* Shared head brain (head-brain.js) — scoped to .mw-head-brain so it never meets Penny's */
+.mw-head-brain { position: absolute; right: -22px; bottom: -22px; width: 68px; height: 68px; padding: 0; border: 0; border-radius: 16px; cursor: pointer;
+    background: radial-gradient(circle at 50% 42%, var(--mw-dark) 0%, var(--mw-forest) 72%); box-shadow: var(--mw-shadow-md); }
+.mw-head-brain canvas { width: 100%; height: 100%; display: block; }
+.mw-head-brain:hover, .mw-head-brain:focus-visible { box-shadow: 0 0 0 3px var(--mw-lime), var(--mw-shadow-md); outline: none; }
+.mw-head-brain-pop { position: fixed; inset: 0; z-index: 1090; background: color-mix(in srgb, var(--mw-forest) 55%, transparent); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.mw-head-brain-pop .mw-brain-card { position: relative; display: flex; flex-wrap: wrap; gap: 20px; align-items: center; max-width: 760px; width: 100%;
+    background: var(--mw-ink-0); border-radius: var(--mw-radius-lg); padding: 20px; box-shadow: var(--mw-shadow-md); }
+.mw-head-brain-pop .mw-brain-big { width: 340px; height: 340px; max-width: 100%; border-radius: 24px; background: radial-gradient(circle at 50% 42%, var(--mw-dark) 0%, var(--mw-forest) 72%); }
+.mw-head-brain-pop .mw-brain-facts { flex: 1; min-width: 220px; font-size: .85rem; color: var(--mw-forest); }
+.mw-head-brain-pop .mw-brain-facts h4 { margin: 0 0 4px; font-size: 1rem; font-weight: 800; }
+.mw-head-brain-pop .mw-brain-facts ul { list-style: none; padding: 0; margin: 8px 0; }
+.mw-head-brain-pop .mw-brain-facts li { padding: 2px 0; }
+.mw-head-brain-pop .mw-brain-note { color: var(--mw-ink-500); font-size: .78rem; }
+.mw-head-brain-pop .mw-brain-close { position: absolute; top: 10px; right: 12px; border: 0; background: none; font-size: 1.1rem; color: var(--mw-ink-500); }
+
+/* Follow-up carousel */
+.mw-sam-slide { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 16px; align-items: start; }
+.mw-sam-why { font-size: .8rem; color: var(--mw-ink-700); margin-bottom: 8px; }
+.mw-sam-why.is-replied { background: var(--mw-color-warning-bg); border-radius: 8px; padding: 6px 8px; color: var(--mw-forest); }
+.mw-sam-quotes { list-style: none; margin: 0 0 10px; padding: 0; font-size: .8rem; }
+.mw-sam-quotes li { padding: 5px 0; border-bottom: 1px dashed var(--mw-ink-200); color: var(--mw-ink-700); }
+.mw-sam-quotes li a { font-weight: 700; color: var(--mw-green); }
+.mw-sam-quotes small { display: block; color: var(--mw-ink-500); }
+.mw-sam-thread { display: flex; flex-direction: column; gap: 6px; }
+.mw-sam-thread.is-empty small { color: var(--mw-ink-500); }
+.mw-sam-msg { border-radius: 10px; padding: 6px 9px; font-size: .78rem; line-height: 1.4; white-space: pre-line; max-height: 7.2em; overflow: hidden; }
+.mw-sam-msg small { display: block; font-size: .66rem; color: var(--mw-ink-500); white-space: normal; }
+.mw-sam-msg.is-in { background: var(--mw-ink-0); border: 1px solid var(--mw-ink-200); margin-right: 18px; }
+.mw-sam-msg.is-out { background: var(--mw-light); margin-left: 18px; }
+.mw-sam-draft { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.mw-sam-chan { display: inline-flex; border: 1px solid var(--mw-ink-200); border-radius: var(--mw-radius-pill); overflow: hidden; align-self: flex-start; }
+.mw-sam-chan button { border: 0; background: var(--mw-ink-0); color: var(--mw-ink-500); font-size: .75rem; font-weight: 600; padding: 4px 12px; }
+.mw-sam-chan button.is-on { background: var(--mw-green); color: var(--mw-ink-0); }
+.mw-sam-chan button:disabled { opacity: .45; cursor: not-allowed; }
+.mw-sam-lbl { display: flex; flex-direction: column; gap: 3px; margin: 0; font-size: .66rem; font-weight: 600; color: var(--mw-ink-500); text-transform: uppercase; letter-spacing: .03em; }
+.mw-sam-in { width: 100%; font: inherit; font-size: .85rem; text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--mw-ink-900);
+    border: 1px solid var(--mw-ink-200); border-radius: 8px; padding: 6px 8px; background: var(--mw-ink-0); resize: vertical; }
+.mw-sam-in:focus { outline: none; border-color: var(--mw-green); box-shadow: 0 0 0 3px var(--mw-light); }
+.mw-sam-learned { text-transform: none; letter-spacing: 0; font-weight: 700; color: var(--mw-dark); background: var(--mw-light); border-radius: var(--mw-radius-pill); padding: 0 7px; }
+.mw-sam-count { font-size: .72rem; color: var(--mw-ink-500); }
+.mw-sam-count.is-bad { color: var(--mw-orange); font-weight: 600; }
+.mw-sam-draft .mw-rc-actions { margin-top: 2px; }
+
+/* New leads */
+.mw-sam-leads { margin-top: 14px; border: 1px solid var(--mw-ink-200); border-radius: 12px; padding: 10px 12px; }
+.mw-sam-leads-head { font-size: .8rem; color: var(--mw-forest); margin-bottom: 4px; }
+.mw-sam-leads-head small { color: var(--mw-ink-500); }
+.mw-sam-lead { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px dashed var(--mw-ink-200); font-size: .82rem; color: var(--mw-ink-900); }
+.mw-sam-lead.is-hot .mw-sam-next { color: var(--mw-orange); }
+.mw-sam-lead-main { min-width: 0; }
+.mw-sam-lead-main small { color: var(--mw-ink-500); }
+.mw-sam-next { font-weight: 700; color: var(--mw-dark); margin: 2px 0; }
+.mw-sam-meta { display: block; }
+.mw-sam-lead-act { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+.mw-sam-lead-act .mw-rc-ok { background: var(--mw-green); color: var(--mw-ink-0); border-radius: 9px; padding: 6px 12px; font-weight: 700; text-decoration: none; }
+.mw-sam-lead-act .mw-rc-ok:hover { background: var(--mw-dark); }
+.mw-sam-lead-act .mw-rc-ed { background: var(--mw-ink-0); color: var(--mw-forest); border: 1px solid var(--mw-ink-200); border-radius: 9px; padding: 5px 10px; font-weight: 600; text-decoration: none; }
+.mw-sam-lead-act .mw-rc-sk { color: var(--mw-ink-500); background: none; border: 0; font-size: .75rem; }
+
+/* Database page cron badge */
+.mw-tick-sales, .mw-badge-sales { background: var(--mw-green); color: var(--mw-ink-0); }
+.mw-badge-sales { font-size: .68rem; padding: 2px 8px; border-radius: 12px; font-weight: 600; }
+
+@media (max-width: 1199.98px) {
+    .mw-sam-slide { grid-template-columns: 1fr; }
+}
+@media (max-width: 767.98px) {
+    .mw-sam { grid-template-columns: 1fr; }
+    .mw-sam-portrait { display: flex; gap: 14px; align-items: center; }
+    .mw-sam-photo img { width: 96px; height: 96px; }
+    .mw-sam-stats { grid-template-columns: 1fr 1fr; }
+    .mw-head-brain { width: 52px; height: 52px; right: -16px; bottom: -16px; border-radius: 12px; }
+    .mw-sam-lead { flex-direction: column; align-items: flex-start; }
    MIA — MARKETING HEAD (dashboard deck) — who to get back in touch with
    Card: includes/mia-card.php · JS: js/mia-card.js · brain: js/head-brain.js
    =================================================================== */
-.mw-heads-side > .mw-mia { grid-column: 1 / -1; }
 .mw-mia { display: flex; flex-direction: column; gap: 10px; border-color: var(--mw-light); }
 .mw-mia-top { display: flex; gap: 14px; align-items: flex-start; }
 .mw-mia-face { position: relative; flex: 0 0 auto; }
@@ -37832,16 +37916,6 @@ body.mw-rc-zoom-open { overflow: hidden; }
 .mw-mia-skips button:hover { border-color: var(--mw-orange); color: var(--mw-orange); }
 .mw-mia-msg { font-size: .76rem; color: var(--mw-dark); min-height: 1em; margin-top: 6px; }
 .mw-mia-empty { text-align: center; padding: 18px 8px; color: var(--mw-ink-500); font-size: .84rem; }
-/* The brain's pop-up (head-brain.js) — shared markup; same look as Penny's */
-.mw-brain-pop { position: fixed; inset: 0; z-index: 1090; background: color-mix(in srgb, var(--mw-forest) 55%, transparent); display: flex; align-items: center; justify-content: center; padding: 16px; }
-.mw-brain-card { position: relative; display: flex; flex-wrap: wrap; gap: 20px; align-items: center; max-width: 760px; width: 100%;
-    background: var(--mw-ink-0); border-radius: var(--mw-radius-lg); padding: 20px; box-shadow: var(--mw-shadow-lg); }
-.mw-brain-big { width: 340px; height: 340px; max-width: 100%; border-radius: 24px; background: radial-gradient(circle at 50% 42%, var(--mw-dark) 0%, var(--mw-forest) 72%); }
-.mw-brain-facts { flex: 1; min-width: 220px; font-size: .85rem; color: var(--mw-forest); }
-.mw-brain-facts h4 { margin: 0 0 4px; font-size: 1rem; font-weight: 800; }
-.mw-brain-facts ul { list-style: none; padding: 0; margin: 8px 0; }
-.mw-brain-note { color: var(--mw-ink-500); font-size: .78rem; }
-.mw-brain-close { position: absolute; top: 10px; right: 12px; border: 0; background: none; font-size: 1.1rem; color: var(--mw-ink-500); }
 @media (max-width: 575px) {
     .mw-mia-stats { grid-template-columns: repeat(2, 1fr); }
     .mw-mia .mw-head-brain { width: 36px; height: 36px; right: -10px; bottom: -10px; }
