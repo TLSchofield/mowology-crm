@@ -14,6 +14,8 @@
  * POST {mode: 'decide', suggestion_id, overrides?: {field: value}, save_draft?: bool, csrf_token}
  * POST {mode: 'prepare', max?, csrf_token}   Prepare the next receipts (daily-capped).
  * POST {mode: 'recheck', suggestion_id, csrf_token}  Penny reads one receipt again, with the photo.
+ * POST {mode: 'reject', suggestion_id, reason, csrf_token}  Reject a receipt from the card.
+ * GET  ?mode=dismissed_dupes  Pairs marked "not a duplicate" (the receipts page reads these).
  * POST {mode: 'not_dupe', pairs: [[a, b], ...], csrf_token}  "Not a duplicate" — remembered (migration 1127).
  * GET  ?mode=questions  Penny's open questions (scans for unbilled materials first).
  * POST {mode: 'answer', question_id, answer: invoice|contract|not_billable, csrf_token}
@@ -173,6 +175,7 @@ try {
         case 'queue':
         case 'decide':
         case 'recheck':
+        case 'reject':
         case 'prepare': {
             require_once APP_ROOT . '/Modules/Expenses/Services/BookkeeperDeskService.php';
             $desk = new BookkeeperDeskService($db, $svc);
@@ -198,6 +201,9 @@ try {
                 $overrides = is_array($input['overrides'] ?? null) ? $input['overrides'] : [];
                 $res = $desk->decide((int)($input['suggestion_id'] ?? 0), $overrides, $user, empty($input['save_draft']));
                 echo json_encode($res);
+            } elseif ($mode === 'reject') {
+                if ($method !== 'POST') throw new RuntimeException('POST required');
+                echo json_encode($desk->reject((int)($input['suggestion_id'] ?? 0), (string)($input['reason'] ?? ''), $user));
             } elseif ($mode === 'recheck') {
                 if ($method !== 'POST') throw new RuntimeException('POST required');
                 if (!$svc->ready()) throw new RuntimeException('Not ready — check ?mode=status');
@@ -209,6 +215,14 @@ try {
                 set_time_limit(240);
                 echo json_encode(['ok' => true] + $desk->prepare((int)($input['max'] ?? 2), DuplicateReceiptService::heldIds($dupSvc->pairsInLine(60))));
             }
+            break;
+        }
+
+        case 'dismissed_dupes': {
+            // For the receipts page: pairs marked "not a duplicate", so both places agree.
+            require_once APP_ROOT . '/Modules/Expenses/Services/DuplicateReceiptService.php';
+            $pairs = array_map(fn($k) => array_map('intval', explode('-', $k)), array_keys((new DuplicateReceiptService($db))->dismissed()));
+            echo json_encode(['ok' => true, 'pairs' => $pairs]);
             break;
         }
 

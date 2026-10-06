@@ -182,6 +182,7 @@ class BookkeeperDeskService
 
         $jobTitles = $this->jobTitles($rows);
         $items = $this->lineItems(array_map(fn($r) => (int)$r['expense_id'], $rows));
+        $bank = $this->bankMatches(array_map(fn($r) => (int)$r['expense_id'], $rows));
         $strength = [];
         try {
             require_once __DIR__ . '/PennyBadgeService.php';
@@ -212,6 +213,9 @@ class BookkeeperDeskService
                 'items'         => $items[(int)$r['expense_id']] ?? [],
                 // How well she knows this vendor, from your past approvals.
                 'vendor_strength' => $strength[strtolower(trim((string)$r['vendor']))] ?? null,
+                // The receipts system's own warnings: anomaly rules, and the bank line it matched.
+                'anomalies'     => $this->anomalies((int)$r['expense_id']),
+                'bank'          => $bank[(int)$r['expense_id']] ?? null,
                 'subtotal'      => $r['amount'] !== null ? (float)$r['amount'] : null,
                 'current'       => json_decode((string)$r['current_json'], true) ?: [],
                 // The owner's saved-but-not-approved edits, if any — the form reopens with them.
@@ -219,6 +223,44 @@ class BookkeeperDeskService
             ];
         }
         return $out;
+    }
+
+    /** Anomaly rules (AnomalyDetector) run on the receipt as it stands now: [{code, score, detail}]. */
+    private function anomalies(int $expenseId): array
+    {
+        try {
+            if (!function_exists('detectAnomalies')) {
+                require_once APP_ROOT . '/Services/Receipts/AnomalyDetector.php';
+            }
+            $s = $this->db->prepare("SELECT * FROM expenses WHERE id = ?");
+            $s->execute([$expenseId]);
+            $e = $s->fetch(PDO::FETCH_ASSOC);
+            if (!$e) return [];
+            $res = detectAnomalies($e, $this->db);
+            return array_map(fn($d) => ['code' => $d['code'], 'score' => (int)$d['score'], 'detail' => (string)($d['detail'] ?? $d['code'])],
+                             $res['details'] ?? []);
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+
+    /** expense id => the bank line it was matched to (bank import reconciliation). */
+    private function bankMatches(array $expenseIds): array
+    {
+        if (!$expenseIds) return [];
+        try {
+            $in = implode(',', array_fill(0, count($expenseIds), '?'));
+            $s = $this->db->prepare("SELECT matched_expense_id, transaction_date, description, amount FROM accounting_transactions
+                                     WHERE matched_expense_id IN ({$in})");
+            $s->execute($expenseIds);
+            $out = [];
+            foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                $out[(int)$r['matched_expense_id']] = ['date' => $r['transaction_date'], 'description' => $r['description'], 'amount' => (float)$r['amount']];
+            }
+            return $out;
+        } catch (Throwable $e) {
+            return [];
+        }
     }
 
     /** expense id => [{id, name, quantity, unit_price, line_total}] */
@@ -373,15 +415,23 @@ class BookkeeperDeskService
             unset($resolved['outcome']['vendor']);
         }
         $allAccepted = !in_array(false, array_column($resolved['outcome'], 'accepted'), true);
+        // Typed by the owner (differs from Penny's read) vs Penny's read accepted as is —
+        // only Penny's read goes through the fuzzy vendor gate the receipt reader uses.
+        $ownerTypedVendor = !isset($resolved['outcome']['vendor']) || empty($resolved['outcome']['vendor']['accepted']);
+        $before = $this->db->prepare("SELECT * FROM expenses WHERE id = ?");
+        $before->execute([(int)$row['expense_id']]);
+        $before = $before->fetch(PDO::FETCH_ASSOC) ?: [];
         $this->db->beginTransaction();
         try {
             if ($date !== null) {
                 $this->db->prepare("UPDATE expenses SET expense_date = ? WHERE id = ?")->execute([$date, (int)$row['expense_id']]);
             }
             if ($vendorChanged) {
-                $vendorId = $this->vendorFor($f['vendor'], $pickedVendor, $approve);
-                $this->db->prepare("UPDATE expenses SET vendor_id = ?, vendor_name_raw = ? WHERE id = ?")
-                   ->execute([$vendorId, $f['vendor'], (int)$row['expense_id']]);
+                $v = $this->vendorFor($f['vendor'], $pickedVendor, $approve, $ownerTypedVendor);
+                if (!$v['keep']) {
+                    $this->db->prepare("UPDATE expenses SET vendor_id = ?, vendor_name_raw = ? WHERE id = ?")
+                       ->execute([$v['id'], $f['vendor'], (int)$row['expense_id']]);
+                }
             }
             $this->db->prepare("
                 UPDATE expenses SET
@@ -417,7 +467,7 @@ class BookkeeperDeskService
 
         if ($blocked) {
             return ['ok' => true, 'approved' => false, 'saved_draft' => true, 'blocked' => true,
-                    'message' => "Not approved — you submitted this receipt, and the self-approval rule stops you approving your own. Your edits are saved. Turn on \"Allow approving own submitted expenses\" for yourself in Team, or have someone else approve it."];
+                    'message' => "Not approved — you submitted this receipt, and the self-approval rule stops you approving your own. Your edits are saved. Turn on \"Allow approving own submitted expenses\" for yourself in Team."];
         }
         if (!$approve) {
             return ['ok' => true, 'approved' => false, 'saved_draft' => true, 'message' => 'Saved as a draft — it stays here until you approve it'];
@@ -427,6 +477,7 @@ class BookkeeperDeskService
         // what teaches the receipt reader.
         try {
             (new ExpenseApprovalService($this->db))->approve((int)$row['expense_id'], $user);
+            $this->afterInboxApproval((int)$row['expense_id'], $before);
             return ['ok' => true, 'approved' => true, 'message' => $allAccepted ? 'Approved' : 'Approved with your changes'];
         } catch (Throwable $e) {
             // Not approved after all: put it back on the desk as a saved draft, undecided.
@@ -437,22 +488,76 @@ class BookkeeperDeskService
     }
 
     /**
-     * The vendor the owner chose: the picked id, else a known vendor whose name or alias
-     * is the same business ("HOME DEPOT #7054" is Home Depot), else — on approval — a new
-     * vendor, so the next receipt from them is recognised. A saved draft never creates one.
+     * Which vendor the receipt should carry. The picked id wins; then a known vendor that
+     * is the same business ("HOME DEPOT #7054" is Home Depot). After that:
+     *  - a name the owner typed becomes a new vendor on approval (he knows who he paid);
+     *  - Penny's read goes through the receipt reader's own gate (gateVendorAutoCreation):
+     *    ≥ 70% similar → that vendor; 50–70% → unsure, keep the receipt's current vendor;
+     *    otherwise a new vendor on approval.
+     * A saved draft never creates a vendor.
+     * @return array{id: ?int, keep: bool}  keep = leave the receipt's vendor as it is
      */
-    private function vendorFor(string $name, ?int $pickedId, bool $create): ?int
+    private function vendorFor(string $name, ?int $pickedId, bool $create, bool $ownerTyped = true): array
     {
         $vendors = $this->db->query("SELECT id, name, aliases FROM vendors WHERE is_active = 1")->fetchAll(PDO::FETCH_ASSOC);
         if ($pickedId && in_array($pickedId, array_map('intval', array_column($vendors, 'id')), true)) {
-            return $pickedId;
+            return ['id' => $pickedId, 'keep' => false];
         }
         $id = self::pickVendor($vendors, $name);
-        if ($id || !$create || mb_strlen($name) < 3) {
-            return $id;
+        if ($id) return ['id' => $id, 'keep' => false];
+        if (!$ownerTyped) {
+            if (!function_exists('gateVendorAutoCreation')) {
+                require_once APP_ROOT . '/Services/Receipts/ReceiptSmartMatch.php';
+            }
+            $gate = gateVendorAutoCreation($name, $this->db);
+            if ($gate['action'] === 'match' && !empty($gate['vendor']['id'])) return ['id' => (int)$gate['vendor']['id'], 'keep' => false];
+            if ($gate['action'] !== 'create') return ['id' => null, 'keep' => true];
         }
+        if (!$create || mb_strlen($name) < 3) return ['id' => null, 'keep' => false];
         $this->db->prepare("INSERT INTO vendors (name) VALUES (?)")->execute([$name]);
-        return (int)$this->db->lastInsertId();
+        return ['id' => (int)$this->db->lastInsertId(), 'keep' => false];
+    }
+
+    /**
+     * An emailed-in receipt approved here: close it in the inbox (as the inbox's own
+     * approve does) and learn from what the email reader wrote into the row, when the
+     * receipt has no capture baseline of its own. Never blocks the approval.
+     */
+    private function afterInboxApproval(int $expenseId, array $before): void
+    {
+        if (($before['source'] ?? '') !== 'email_inbox') return;
+        try {
+            $this->db->prepare("UPDATE receipt_inbox_messages SET outcome = 'auto_posted' WHERE expense_id = ? AND outcome = 'pending'")
+               ->execute([$expenseId]);
+            if (!function_exists('learnFromConfirmedExpense')) {
+                require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
+            }
+            learnFromConfirmedExpense($this->db, $expenseId, baselineFromExpenseRow($before));
+        } catch (Throwable $e) {
+            error_log('Penny inbox close-out failed for expense ' . $expenseId . ': ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Reject a receipt from the card, with a reason (the same reject as the receipts page).
+     * Her suggestion is closed as 'rejected' so it never comes back.
+     * @return array{ok: bool, message: string}
+     */
+    public function reject(int $suggestionId, string $reason, array $user): array
+    {
+        $reason = trim($reason);
+        if ($reason === '') return ['ok' => false, 'message' => 'Say why — a reason is needed to reject'];
+        $s = $this->db->prepare("
+            SELECT s.expense_id FROM expense_suggestions s JOIN expenses e ON e.id = s.expense_id
+            WHERE s.id = ? AND s.source = 'live' AND s.status = 'pending' AND e.status IN ('draft', 'pending_approval')
+        ");
+        $s->execute([$suggestionId]);
+        $expenseId = (int)$s->fetchColumn();
+        if (!$expenseId) return ['ok' => false, 'message' => 'This receipt has already been handled'];
+        (new ExpenseApprovalService($this->db))->reject($expenseId, $user, $reason);
+        $this->db->prepare("UPDATE expense_suggestions SET status = 'rejected', decided_by = ?, decided_at = NOW() WHERE id = ?")
+           ->execute([(int)$user['id'], $suggestionId]);
+        return ['ok' => true, 'message' => 'Rejected — ' . $reason];
     }
 
     /** A known vendor that is the same business as $name: exact name first, then name or alias. */

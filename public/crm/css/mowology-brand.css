@@ -37682,6 +37682,11 @@ span.mw-icon-box--missing {
 .mw-hv-dots em.on { background: var(--mw-green); }
 .mw-hv.is-trusted .mw-hv-dots em.on { background: var(--mw-lime); }
 .mw-rc-vstrength { font-size: .72rem; color: var(--mw-dark); margin-top: 2px; }
+.mw-rc-actions .mw-rc-rej, .mw-rc-rejbox .mw-rc-rej { color: var(--mw-orange); border-color: var(--mw-orange); }
+.mw-rc-rejbox { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+.mw-rc-rejbox .mw-rc-in { flex: 1; min-width: 0; }
+.mw-rc-rejbox .mw-rc-ed { background: var(--mw-ink-0); border: 1px solid var(--mw-orange); border-radius: 9px; padding: 7px 12px; font-weight: 600; }
+.mw-rc-rejbox .mw-rc-sk { background: none; border: 0; color: var(--mw-ink-500); font-size: .8rem; }
 .mw-rc-photowrap { position: relative; width: 160px; height: 210px; display: flex; align-items: center; justify-content: center; }
 .mw-rc-photowrap .mw-rc-photo { transition: transform .2s ease; }
 .mw-rc-rot { position: absolute; top: 6px; right: 6px; width: 30px; height: 30px; border-radius: 50%; border: 0; background: var(--mw-forest); color: var(--mw-ink-0);

@@ -32,6 +32,7 @@
     var rotation = {};      // expense id → degrees; view only, like the receipts page lightbox
     var datePopups = [];    // date-picker popups made for the current render (removed on the next)
     var rechecking = false;
+    var rejecting = false;   // the reason box is open
 
     function esc(s) {
         return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -58,7 +59,7 @@
             .then(function (r) { return r.json(); });
     }
 
-    function load() {
+    function load(msg) {
         return fetch(API + '?mode=queue&limit=15', { cache: 'no-store' })
             .then(function (r) { return r.json(); })
             .then(function (d) {
@@ -66,7 +67,7 @@
                 dupes = (d && d.ok && d.dupes) ? d.dupes : [];
                 idx = 0;
                 topUp();
-                render();
+                render(msg);
             })
             .catch(function () { root.innerHTML = '<div class="mw-rc-empty">Couldn\'t load receipts — refresh to try again.</div>'; });
     }
@@ -169,7 +170,10 @@
             : '<div class="mw-rc-nophoto">No photo</div>';
         var checks = (it.checks || []).map(function (c) {
             return '<span class="' + (c.ok ? '' : 'is-bad') + '">' + (c.ok ? '✓ ' : '⚠ ') + esc(c.message) + '</span>';
-        }).join(' &nbsp; ');
+        }).concat((it.anomalies || []).filter(function (a) { return a.code !== 'DUPLICATE_DAY'; }).map(function (a) {
+            return '<span class="is-bad" title="Receipts system anomaly rule ' + esc(a.code) + '">⚠ ' + esc(a.detail) + '</span>';
+        })).concat(it.bank ? ['<span title="' + esc(it.bank.description || '') + '">🏦 Matched to the bank: ' + esc(it.bank.date || '') + ' · ' + money(Math.abs(it.bank.amount)) + '</span>'] : [])
+          .join(' &nbsp; ');
 
         // Always editable: the value shown is Penny's (or your saved draft); type over it.
         var d = it.saved_draft || null;
@@ -249,8 +253,12 @@
                   '<button type="button" class="mw-rc-ok" data-act="approve">✓ Approve</button>' +
                   '<button type="button" class="mw-rc-ed" data-act="draft">💾 Save draft</button>' +
                   '<button type="button" class="mw-rc-ed" data-act="recheck" title="Penny reads this receipt again, with the photo (about 5¢)"' + (rechecking ? ' disabled' : '') + '>' + (rechecking ? '⏳ Re-reading…' : '🔄 Re-check') + '</button>' +
+                  '<button type="button" class="mw-rc-ed mw-rc-rej" data-act="reject" title="Reject this receipt, with a reason">✕ Reject</button>' +
                   '<button type="button" class="mw-rc-sk" data-act="next">Skip →</button>' +
                 '</div>' +
+                (rejecting ? '<div class="mw-rc-rejbox"><input class="mw-rc-in" data-rejreason placeholder="Why? e.g. personal purchase, not ours, duplicate…" aria-label="Reason for rejecting">' +
+                    '<button type="button" class="mw-rc-ed mw-rc-rej" data-act="reject-go">Reject it</button>' +
+                    '<button type="button" class="mw-rc-sk" data-act="reject-cancel">Cancel</button></div>' : '') +
                 '<div class="mw-rc-msg">' + (msg ? esc(msg) : '') + '</div>';
         };
 
@@ -532,7 +540,7 @@
                 } else if (d && d.ok) {
                     queue.splice(idx, 1);
                     render(d.message || 'Approved');
-                    if (queue.length < 3) { load(); }
+                    if (queue.length < 3) { load(d.message || 'Approved'); }
                 } else {
                     render((d && (d.message || d.error)) || 'Could not save');
                 }
@@ -540,6 +548,27 @@
             .catch(function () { busy = false; render('Network error — try again'); });
     }
     function approve() { submit(false); }
+
+    /** Reject with a reason — the same reject as the receipts page; it leaves the card. */
+    function rejectIt() {
+        if (busy || !queue.length) return;
+        var box = root.querySelector('[data-rejreason]');
+        var reason = box ? box.value.trim() : '';
+        if (!reason) { if (box) box.focus(); return; }
+        var it = queue[idx];
+        busy = true;
+        post({ mode: 'reject', suggestion_id: it.suggestion_id, reason: reason }).then(function (d) {
+            busy = false;
+            if (d && d.ok) {
+                rejecting = false;
+                queue.splice(idx, 1);
+                render(d.message || 'Rejected');
+                if (queue.length < 3) load(d.message || 'Rejected');
+            } else {
+                render((d && (d.message || d.error)) || 'Could not reject');
+            }
+        }).catch(function () { busy = false; render('Network error — try again'); });
+    }
 
     /** Penny reads this receipt again, with the photo; her new read replaces the old one. */
     function recheck() {
@@ -610,8 +639,18 @@
         else if (act === 'approve') approve();
         else if (act === 'draft') submit(true);
         else if (act === 'recheck') recheck();
-        else if (act === 'next') { idx = (idx + 1) % Math.max(1, queue.length); render(); }
-        else if (act === 'prev') { idx = (idx - 1 + queue.length) % Math.max(1, queue.length); render(); }
+        else if (act === 'reject') { rejecting = true; render(); var rb = root.querySelector('[data-rejreason]'); if (rb) rb.focus(); }
+        else if (act === 'reject-cancel') { rejecting = false; render(); }
+        else if (act === 'reject-go') rejectIt();
+        else if (act === 'next') { rejecting = false; idx = (idx + 1) % Math.max(1, queue.length); render(); }
+        else if (act === 'prev') { rejecting = false; idx = (idx - 1 + queue.length) % Math.max(1, queue.length); render(); }
+    });
+
+    root.addEventListener('keydown', function (e) {
+        if (e.target.hasAttribute && e.target.hasAttribute('data-rejreason')) {
+            if (e.key === 'Enter') { e.preventDefault(); rejectIt(); }
+            else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); rejecting = false; render(); }
+        }
     });
 
     root.addEventListener('change', function (e) {

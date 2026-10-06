@@ -313,12 +313,23 @@ function handleList(PDO $db): void
  */
 function handleReviewQueue(PDO $db): void
 {
+    // Not while Penny has the receipt on her desk (prepared, waiting for the owner): it
+    // would be sent before she's approved it, and she'd then show it as already handled.
+    $pennyHolds = '';
+    try {
+        if ($db->query("SHOW TABLES LIKE 'expense_suggestions'")->rowCount() > 0) {
+            $pennyHolds = "AND NOT EXISTS (SELECT 1 FROM expense_suggestions ps
+                                           WHERE ps.expense_id = e.id AND ps.source = 'live' AND ps.status = 'pending')";
+        }
+    } catch (Throwable $e) { /* no Penny → no hold */ }
+
     $countStmt = $db->prepare("
         SELECT COUNT(*), SUM(e.total)
         FROM expenses e
         WHERE e.status IN ('draft', 'approved')
           AND (e.forwarded_to_accounting IS NULL OR e.forwarded_to_accounting = 0)
           AND (e.anomaly_score <= 30 OR e.anomaly_score IS NULL)
+          {$pennyHolds}
     ");
     $countStmt->execute();
     $totals      = $countStmt->fetch(PDO::FETCH_NUM);
@@ -335,6 +346,7 @@ function handleReviewQueue(PDO $db): void
         WHERE e.status IN ('draft', 'approved')
           AND (e.forwarded_to_accounting IS NULL OR e.forwarded_to_accounting = 0)
           AND (e.anomaly_score <= 30 OR e.anomaly_score IS NULL)
+          {$pennyHolds}
         ORDER BY e.expense_date DESC, e.created_at DESC
         LIMIT 100
     ");
