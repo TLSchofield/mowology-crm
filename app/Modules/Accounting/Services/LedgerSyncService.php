@@ -223,6 +223,27 @@ class LedgerSyncService
         return ['bank_posted' => $posted, 'skipped' => $skipped, 'errors' => $errors];
     }
 
+    /** The entry a bank line should post now (null = it shouldn't post: revenue deposit, linked, zero). */
+    public function bankEntryArgsFor(int $transactionId): ?array
+    {
+        $s = $this->db->prepare("
+            SELECT at.id, at.transaction_date, at.type, at.account_id,
+                   coa.type AS account_type, coa.code AS account_code,
+                   at.bank_account_id, at.amount, at.gst_amount, at.pst_amount,
+                   at.description, at.job_id, at.contact_id, at.vendor_id
+            FROM accounting_transactions at
+            JOIN chart_of_accounts coa ON coa.id = at.account_id
+            WHERE at.id = ? AND at.reference_type = 'bank_import'
+              AND at.matched_invoice_id IS NULL AND at.matched_expense_id IS NULL
+        ");
+        $s->execute([$transactionId]);
+        $row = $s->fetch(PDO::FETCH_ASSOC);
+        if (!$row) return null;
+        return $this->bankRowToEntryArgs($row, $this->ledger->accountId(LedgerService::ACC_GST_ITC),
+            $this->ledger->accountId(LedgerService::ACC_GST_COLLECTED), $this->ledger->accountId(LedgerService::ACC_BANK),
+            $this->accountCodeToCostTypeMap());
+    }
+
     /** Chart code => cost_types.id, so bank cost rows carry the GGOB drill-down dimension. */
     private function accountCodeToCostTypeMap(): array
     {

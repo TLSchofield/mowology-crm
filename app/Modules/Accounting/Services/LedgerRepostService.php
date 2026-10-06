@@ -72,8 +72,29 @@ class LedgerRepostService
                                'category' => $e['accounting_category']];
             }
         }
-        return ['invoices' => $invoices, 'expenses' => $expenses,
-                'by_account' => self::byAccount(array_merge($invoices, $expenses), $this->names()),
+        // Bank lines whose category changed after they were posted (Penny's approvals, rules,
+        // the accounting page): the entry's category line vs the line's account now.
+        $bank = [];
+        $rows = $this->db->query("
+            SELECT je.id AS entry_id, je.source_id, c.code AS posted_code, jl.debit, jl.credit, cn.code AS now_code, cn.type AS now_type,
+                   t.type AS tx_type, t.matched_invoice_id, t.matched_expense_id
+            FROM journal_entries je
+            JOIN journal_lines jl ON jl.entry_id = je.id AND jl.description IS NOT NULL
+            JOIN chart_of_accounts c ON c.id = jl.account_id
+            JOIN accounting_transactions t ON t.id = je.source_id
+            JOIN chart_of_accounts cn ON cn.id = t.account_id
+            WHERE je.source_type = 'bank_import' AND je.status = 'posted' AND je.reversed_by_entry_id IS NULL
+        ")->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($rows as $r) {
+            $amt = round((float)$r['debit'] + (float)$r['credit'], 2);
+            $gone = $r['matched_invoice_id'] || $r['matched_expense_id'] || ($r['tx_type'] === 'income' && $r['now_type'] === 'revenue');
+            if ($r['posted_code'] !== $r['now_code'] || $gone) {
+                $bank[] = ['id' => (int)$r['source_id'], 'entry_id' => (int)$r['entry_id'],
+                           'from' => [$r['posted_code'] => $amt], 'to' => $gone ? [] : [$r['now_code'] => $amt]];
+            }
+        }
+        return ['invoices' => $invoices, 'expenses' => $expenses, 'bank' => $bank,
+                'by_account' => self::byAccount(array_merge($invoices, $expenses, $bank), $this->names()),
                 'unmapped' => $this->map->unmappedServiceTypes()];
     }
 
@@ -112,6 +133,16 @@ class LedgerRepostService
                 $done++;
             } catch (Throwable $e) {
                 $failed++; $errors[] = 'Receipt ' . $item['id'] . ': ' . $e->getMessage();
+            }
+        }
+        foreach ($p['bank'] as $item) {
+            try {
+                $this->ledger->reverseEntry((int)$item['entry_id'], $userId, 'bank line re-categorized');
+                $args = $this->sync->bankEntryArgsFor((int)$item['id']);
+                if ($args) { $args['created_by'] = $userId; $args['proposed_by'] = 'owner'; $this->ledger->postManual($args); }
+                $done++;
+            } catch (Throwable $e) {
+                $failed++; $errors[] = 'Bank line ' . $item['id'] . ': ' . $e->getMessage();
             }
         }
         return ['reposted' => $done, 'failed' => $failed, 'errors' => array_slice($errors, 0, 20)];

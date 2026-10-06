@@ -62,8 +62,8 @@ $money = fn($v) => '$' . number_format((float)$v, 2);
 <?php if ($result && $result['errors']): ?><ul><?php foreach ($result['errors'] as $e): ?><li><?= h($e) ?></li><?php endforeach; ?></ul><?php endif; ?>
 
 <?php if ($plan): ?>
-  <p><?= count($plan['invoices']) ?> invoices and <?= count($plan['expenses']) ?> receipts would move to a different account.
-     Payments, bank lines and manual entries are not touched.</p>
+  <p><?= count($plan['invoices']) ?> invoices, <?= count($plan['expenses']) ?> receipts and <?= count($plan['bank'] ?? []) ?> bank lines would move to a different account.
+     Payments and manual entries are not touched. Corrections are reversing entries — nothing is deleted.</p>
 
   <h3>Net change per account</h3>
   <table border="1" cellpadding="6" style="border-collapse: collapse;">
@@ -91,7 +91,7 @@ $money = fn($v) => '$' . number_format((float)$v, 2);
     <?php endforeach; ?>
   </ul>
 
-  <?php if ($plan['invoices'] || $plan['expenses']): ?>
+  <?php if ($plan['invoices'] || $plan['expenses'] || !empty($plan['bank'])): ?>
     <form method="post">
       <input type="hidden" name="csrf_token" value="<?= h($token) ?>">
       <label>Type <?= h(CONFIRM_PHRASE) ?> to re-post: <input name="confirm" autocomplete="off"></label>
