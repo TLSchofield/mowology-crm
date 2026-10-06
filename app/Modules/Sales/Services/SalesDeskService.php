@@ -53,9 +53,8 @@ class SalesDeskService
     public function hasTable(string $t): bool
     {
         try {
-            $s = $this->db->prepare("SHOW TABLES LIKE ?");
-            $s->execute([$t]);
-            return $s->rowCount() > 0;
+            // Literal, not a placeholder: MySQL won't take SHOW TABLES LIKE ? as a native prepared statement.
+            return $this->db->query("SHOW TABLES LIKE " . $this->db->quote(preg_replace('/[^a-z0-9_]/', '', $t)))->rowCount() > 0;
         } catch (Throwable $e) {
             return false;
         }
