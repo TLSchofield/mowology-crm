@@ -212,11 +212,16 @@ class LedgerService
             'account' => self::ACC_AR, 'debit' => $total, 'credit' => 0,
             'contact_id' => $inv['contact_id'] ?? null, 'job_id' => $inv['job_id'] ?? null,
         ];
-        $lines[] = [
-            'account' => $revenue, 'debit' => 0, 'credit' => $net,
-            'service_type' => $inv['service_type'] ?? null,
-            'contact_id' => $inv['contact_id'] ?? null, 'job_id' => $inv['job_id'] ?? null,
-        ];
+        // Revenue: one line, or split across accounts (LedgerAccountMap::invoiceSplits —
+        // contract income / per-service accounts). Splits must sum to $net.
+        $splits = $inv['revenue_splits'] ?? [[$revenue, $net]];
+        foreach ($splits as [$code, $amt]) {
+            $lines[] = [
+                'account' => $code, 'debit' => 0, 'credit' => round((float)$amt, 2),
+                'service_type' => $inv['service_type'] ?? null,
+                'contact_id' => $inv['contact_id'] ?? null, 'job_id' => $inv['job_id'] ?? null,
+            ];
+        }
         if ($gst > 0) {
             $lines[] = ['account' => self::ACC_GST_COLLECTED, 'debit' => 0, 'credit' => $gst, 'gst_amount' => $gst];
         }

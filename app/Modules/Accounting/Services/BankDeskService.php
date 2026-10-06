@@ -39,7 +39,7 @@ class BankDeskService
     public const CATEGORY_CODES = [
         'materials'           => '5200',   // Materials & Supplies
         'fuel'                => '6100',   // Fuel & Vehicle
-        'tools/equipment'     => '1500',   // Equipment & Tools
+        'tools/equipment'     => '1500',   // Equipment & Tools (owner's call)
         'repairs/maintenance' => '6200',   // Equipment Maintenance
         'vehicle'             => '6120',   // Vehicle Maintenance
         'disposal/dump'       => '5000',   // Cost of Services
@@ -140,7 +140,9 @@ class BankDeskService
         foreach ($accounts as $a) {
             $byCode[$a['code']] = $a;
         }
-        foreach (self::CATEGORY_CODES as $cat => $code) {
+        // The owner's category → account map (migration 1130) wins over the built-in list.
+        require_once __DIR__ . '/LedgerAccountMap.php';
+        foreach ((new LedgerAccountMap($this->db))->categoryCodes() + self::CATEGORY_CODES as $cat => $code) {
             if (isset($byCode[$code])) $byAlias[$cat] = $byCode[$code];
         }
         foreach ($accounts as $a) {

@@ -265,10 +265,12 @@ try {
             $pq = new PennyQuestionService($db);
             if ($mode === 'questions') {
                 $pq->scan(10);
+                $pq->scanServiceAccounts();
                 echo json_encode(['ok' => true, 'questions' => $pq->open(5, PennyQuestionService::firstName($user)), 'found_to_bill_month' => $pq->foundToBillMonth()]);
             } else {
                 if ($method !== 'POST') throw new RuntimeException('POST required');
-                echo json_encode($pq->answer((int)($input['question_id'] ?? 0), (string)($input['answer'] ?? ''), (int)$user['id'], PennyQuestionService::firstName($user)));
+                echo json_encode($pq->answer((int)($input['question_id'] ?? 0), (string)($input['answer'] ?? ''), (int)$user['id'],
+                    PennyQuestionService::firstName($user), isset($input['account_id']) ? (int)$input['account_id'] : null));
             }
             break;
         }

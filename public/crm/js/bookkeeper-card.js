@@ -792,6 +792,12 @@
                 pqBox.innerHTML = '<div class="mw-pq-head"><b>' + head + '</b>' +
                     (found ? '<span>Found to bill this month: <b>$' + found.toFixed(2) + '</b></span>' : '') + '</div>' +
                     qs.map(function (q) {
+                        if (q.kind === 'service_account') {
+                            return '<div class="mw-pq-item" data-q="' + esc(q.id) + '"><p>' + esc(q.question) + '</p>' +
+                                '<div class="mw-pq-btns"><select class="mw-rc-in" data-pq-acct aria-label="Income account"><option value="">— pick an income account —</option>' +
+                                (q.choices || []).map(function (a) { return '<option value="' + esc(a.id) + '">' + esc(a.code + ' ' + a.name) + '</option>'; }).join('') +
+                                '</select><button type="button" data-ans="account">✓ Save</button></div></div>';
+                        }
                         return '<div class="mw-pq-item" data-q="' + esc(q.id) + '"><p>' + esc(q.question) + '</p>' +
                             '<div class="mw-pq-btns">' +
                               '<button type="button" data-ans="invoice">🧾 Forgot — invoice it</button>' +
@@ -808,8 +814,10 @@
             if (!ans) return;
             var item = e.target.closest('.mw-pq-item');
             var id = item.getAttribute('data-q');
+            var acctSel = item.querySelector('[data-pq-acct]');
+            if (ans === 'account' && (!acctSel || !acctSel.value)) { if (acctSel) acctSel.focus(); return; }
             item.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
-            post({ mode: 'answer', question_id: id, answer: ans }).then(function (d) {
+            post({ mode: 'answer', question_id: id, answer: ans, account_id: acctSel ? acctSel.value : null }).then(function (d) {
                 if (d && d.ok && d.invoice_url) { window.open(d.invoice_url, '_blank', 'noopener'); }
                 item.innerHTML = '<p class="mw-pq-done">' + esc((d && d.message) || 'Saved') + '</p>';
                 setTimeout(loadQuestions, 1500);

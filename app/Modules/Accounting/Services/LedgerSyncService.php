@@ -240,17 +240,23 @@ class LedgerSyncService
 
     public function syncInvoices(): array
     {
+        require_once __DIR__ . '/LedgerAccountMap.php';
+        $map = new LedgerAccountMap($this->db);
         $posted = 0; $payments = 0; $skipped = 0;
         $rows = $this->db->query("
             SELECT id, subtotal, tax_amount, total, amount_paid, status,
-                   contact_id, plan_id, issue_date, paid_at, created_at
+                   contact_id, plan_id, contract_id, issue_date, paid_at, created_at
             FROM invoices
             WHERE COALESCE(total, 0) > 0
         ")->fetchAll(PDO::FETCH_ASSOC);
 
         foreach ($rows as $row) {
             try {
-                $this->ledger->postInvoice($this->mapInvoiceToInvoiceArgs($row));
+                $args = $this->mapInvoiceToInvoiceArgs($row);
+                if ($map->ready()) {
+                    $args['revenue_splits'] = $map->invoiceSplits($row, $args['net']);
+                }
+                $this->ledger->postInvoice($args);
                 $posted++;
                 $pay = $this->mapInvoiceToPaymentArgs($row);
                 if ($pay !== null) {
@@ -266,7 +272,9 @@ class LedgerSyncService
 
     public function syncExpenses(): array
     {
-        $categoryToCode = $this->categoryToCodeMap();
+        require_once __DIR__ . '/LedgerAccountMap.php';
+        // The owner's category → account map (migration 1130) wins over chart aliases.
+        $categoryToCode = (new LedgerAccountMap($this->db))->categoryCodes() + $this->categoryToCodeMap();
         $categoryToCost = $this->categoryToCostTypeMap();
         $posted = 0; $skipped = 0;
 
@@ -286,6 +294,17 @@ class LedgerSyncService
             }
         }
         return ['expenses_posted' => $posted, 'skipped' => $skipped];
+    }
+
+    /** Expense posting args with the same maps the nightly sync uses (repost shares this). */
+    public function expenseArgs(array $row): array
+    {
+        static $maps = null;
+        if ($maps === null) {
+            require_once __DIR__ . '/LedgerAccountMap.php';
+            $maps = [(new LedgerAccountMap($this->db))->categoryCodes() + $this->categoryToCodeMap(), $this->categoryToCostTypeMap()];
+        }
+        return $this->mapExpenseToExpenseArgs($row, $maps[0], $maps[1]);
     }
 
     /** accounting_category(lower) => chart_of_accounts.code (via expense_category_alias). */
