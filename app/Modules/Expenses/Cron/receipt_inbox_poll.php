@@ -33,6 +33,9 @@ for ($__i = 0; $__i < 5; $__i++) {
     }
 }
 unset($__dir, $__i);
+// Under cron (CLI) nothing else defines getDB()/Database — the web shim gets them from auth.php.
+// Missing since the start: every cPanel run fatalled at getDB() before it could log (2026-10-06).
+require_once APP_ROOT . '/Core/config.php';
 
 require_once CRM_INCLUDES . '/functions.php';
 require_once CRM_INCLUDES . '/messaging.php';
