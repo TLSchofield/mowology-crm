@@ -1,5 +1,5 @@
 /**
- * Charlie (Chief of Staff) — dashboard card.
+ * Charlie (Foreman) — dashboard card.
  *
  * Loads after the page: /crm/api/charlie.php?mode=today asks every head and returns
  * the one thing, the rest, each head's top items and Charlie's questions.
@@ -17,6 +17,8 @@
     var msg = document.getElementById('mw-charlie-msg');
     var qs = document.getElementById('mw-charlie-qs');
     var brief = document.getElementById('mw-charlie-brief');
+    var badBox = document.getElementById('mw-charlie-bad');
+    var inboxBox = document.getElementById('mw-charlie-inbox');
     var busy = false;
     var current = null;
 
@@ -39,14 +41,27 @@
         var html = '<span class="mw-charlie-lead">' + esc(s.lead) + '</span>';
         if (s.thing) html += '<b class="mw-charlie-thing">' + esc(s.thing) + '</b>';
         if (s.after) html += '<span class="mw-charlie-after">' + esc(s.after) + '</span>';
-        if (d.failed && d.failed.length) {
-            html += '<span class="mw-charlie-after">I couldn\'t reach ' + esc(d.failed.join(', ')) + ' just now.</span>';
-        }
         say.innerHTML = html;
         current = d.one;
         acts.hidden = !d.one;
+        var isDeadline = !!(d.one && /^charlie:deadline:/.test(d.one.key));
         var go = acts.querySelector('[data-what="open"]');
         if (go) go.hidden = !(d.one && safeUrl(d.one.url));
+        var dd = acts.querySelector('[data-what="deadline_done"]');
+        if (dd) dd.hidden = !isDeadline;
+        // Bad news first: failed payments, overdue deadlines, held messages, heads not reached.
+        var bad = d.bad || [];
+        badBox.hidden = !bad.length;
+        badBox.innerHTML = bad.length ? '<b>' + esc(d.bad_lead) + '</b><ul>' + bad.map(function (b) { return '<li>' + esc(b) + '</li>'; }).join('') + '</ul>' : '';
+    }
+
+    function renderInbox(inbox) {
+        if (!window.CharlieInbox || !inbox) { inboxBox.hidden = true; return; }
+        var n = window.CharlieInbox.render(inboxBox.querySelector('.mw-charlie-rows'), inboxBox.querySelector('.mw-charlie-held'),
+            inbox, function (m) { msg.textContent = m || ''; }, load, 5);
+        inboxBox.querySelector('summary').textContent = 'Decisions waiting · ' + (inbox.rows || []).length
+            + ((inbox.held || []).length ? ' · ' + inbox.held.length + ' held' : '');
+        inboxBox.hidden = !n;
     }
 
     function renderHeads(heads) {
@@ -94,6 +109,7 @@
                 renderSay(d);
                 renderHeads(d.heads);
                 renderQuestions(d.questions);
+                renderInbox(d.inbox);
             })
             .catch(function () {
                 say.innerHTML = '<span class="mw-charlie-lead">I can\'t reach the team right now — try a refresh.</span>';
@@ -107,7 +123,7 @@
         var what = b.getAttribute('data-what');
         var target = what === 'open' ? safeUrl(current.url) : null;
         busy = true;
-        post({ mode: 'act', key: current.key, what: what })
+        post(what === 'deadline_done' ? { mode: 'deadline_done', key: current.key } : { mode: 'act', key: current.key, what: what })
             .then(function (r) {
                 if (what === 'open' && target) { window.location.href = target; return; }
                 msg.textContent = (r && r.message) || '';

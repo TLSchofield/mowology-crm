@@ -1,6 +1,6 @@
 <?php
 /**
- * Charlie — Chief of Staff card on the department heads deck.
+ * Charlie — Foreman (chief of staff) card on the department heads deck.
  *
  * The deck includes this file in place of Charlie's placeholder when it exists.
  * Owner only (ops_settings charlie_owner_user_id); renders nothing until migration 1170
@@ -38,7 +38,7 @@ $__cAv = static fn(string $p) => function_exists('_av') ? _av($p) : $p;
 <section class="mw-head-card mw-charlie" id="mw-charlie" data-name="<?= h($__cName) ?>">
   <div class="mw-charlie-top">
     <div class="mw-charlie-photo">
-      <img class="mw-charlie-face" src="/crm/img/heads/charlie.jpg" alt="Charlie, Chief of Staff" width="72" height="72">
+      <img class="mw-charlie-face" src="/crm/img/heads/charlie.jpg" alt="Charlie, Foreman" width="72" height="72">
       <?php if ($__cBrain !== null): ?>
         <button type="button" class="mw-head-brain mw-charlie-brain" aria-label="Charlie's brain: <?= (int)$__cBrain['units'] ?> things learned"
                 data-head="Charlie"
@@ -52,7 +52,7 @@ $__cAv = static fn(string $p) => function_exists('_av') ? _av($p) : $p;
     </div>
     <div class="mw-charlie-id">
       <div class="mw-head-nm">Charlie</div>
-      <div class="mw-head-role">Chief of Staff</div>
+      <div class="mw-head-role">Foreman</div>
       <span class="mw-head-pill"><i></i>Working</span>
     </div>
   </div>
@@ -71,20 +71,29 @@ $__cAv = static fn(string $p) => function_exists('_av') ? _av($p) : $p;
   </div>
   <?php endif; ?>
 
+  <div class="mw-charlie-bad" id="mw-charlie-bad" hidden></div>
   <div class="mw-charlie-say" id="mw-charlie-say" aria-live="polite">
     <span class="mw-charlie-lead">Reading everyone's desks…</span>
   </div>
   <div class="mw-charlie-acts" id="mw-charlie-acts" hidden>
     <button type="button" class="mw-charlie-go" data-what="open">Open it →</button>
+    <button type="button" class="mw-charlie-go" data-what="deadline_done" hidden>Done ✓</button>
     <button type="button" class="mw-charlie-later" data-what="snooze" title="Bring it back tomorrow">Later</button>
     <button type="button" class="mw-charlie-skip" data-what="dismiss" title="Not important today — I'll learn from this">Not today</button>
   </div>
   <div class="mw-charlie-msg" id="mw-charlie-msg" aria-live="polite"></div>
   <div class="mw-charlie-qs" id="mw-charlie-qs" hidden></div>
+  <details class="mw-charlie-brief mw-charlie-inbox" id="mw-charlie-inbox" hidden>
+    <summary>Decisions waiting</summary>
+    <div class="mw-charlie-rows"></div>
+    <div class="mw-charlie-held" hidden></div>
+  </details>
   <details class="mw-charlie-brief" id="mw-charlie-brief" hidden>
     <summary>Your 7 am brief</summary>
     <div class="mw-charlie-heads"></div>
   </details>
+  <a class="mw-charlie-cal-link" href="/crm/foreman_calendar_appstack.php">Deadlines, rules &amp; decisions →</a>
 </section>
 <script src="<?= h($__cAv('/crm/js/head-brain.js')) ?>" defer></script>
+<script src="<?= h($__cAv('/crm/js/charlie-inbox.js')) ?>" defer></script>
 <script src="<?= h($__cAv('/crm/js/charlie-card.js')) ?>" defer></script>
