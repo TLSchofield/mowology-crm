@@ -636,7 +636,7 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
 
                                 <div class="mw-form-group">
                                     <label class="form-label">Terms &amp; Conditions</label>
-                                    <textarea name="terms" class="form-control" rows="4" placeholder="Payment terms, warranty info, etc."><?php echo htmlspecialchars($quote['terms'] ?? "Payment due within 30 days of service completion.\nAll prices include GST.\nWork to be completed weather permitting."); ?></textarea>
+                                    <textarea name="terms" class="form-control" rows="4" placeholder="Payment terms, warranty info, etc."><?php echo htmlspecialchars($quote['terms'] ?? "Payment due within 30 days of service completion.\nGST (5%) is added to all prices.\nWork to be completed weather permitting."); ?></textarea>
                                 </div>
 
                                 <div class="mw-form-group">
