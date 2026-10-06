@@ -5,6 +5,17 @@
  * Triggered after a job visit is marked complete. Sends a Google Review
  * request to the customer associated with the visit.
  *
+ * EVERY completed visit is eligible — the same request, whatever the crew
+ * thought of the job. Google's policy forbids selective solicitation (asking only
+ * the customers likely to be happy), so the crew's heart (job_visits.is_flagged)
+ * is NOT a gate here any more (changed 2026-10-05). The heart only decides whether
+ * the job's photos go to the public portfolio and whether Mia features it in posts.
+ * A private "tell us if something wasn't right" line sits alongside the review
+ * link, never instead of it. No incentive is ever offered for a review.
+ *
+ * Called from both completion paths: pow-actions.php end_visit (web crew) and
+ * VisitLifecycleService::updateVisitStatus() (timer clock-out / iOS / JWT).
+ *
  * Delivery:
  *   - Email (always, if contact has an email address)
  *   - SMS   (only if contact has SMS consent + a phone number)
@@ -13,6 +24,7 @@
  *   - 30-day cooldown per contact (review_request_sent_at)
  *   - Max 3 total requests per contact (review_request_sent_count)
  *   - Respect review_request_opted_out flag
+ *   - Never to an address on marketing_unsubscribes
  *
  * Contact lookup chain:
  *   job_visits.plan_id → job_plans.property_id → properties.site_contact_id → contacts
@@ -60,9 +72,9 @@ class ReviewRequestService
     public static function maybeSend(int $visitId, PDO $db): void
     {
         try {
-            // ── 1. Quality gate: crew must have endorsed this visit ───────────
-            if (!self::isVisitFlagged($visitId, $db)) {
-                return; // No crew endorsement — skip silently
+            // ── 1. Only completed visits — and every one of them (no quality gate) ─
+            if (!self::isVisitCompleted($visitId, $db)) {
+                return;
             }
 
             // ── 2. Resolve contact from visit ────────────────────────────────
@@ -73,6 +85,9 @@ class ReviewRequestService
 
             // ── 3. Eligibility checks ─────────────────────────────────────────
             if (!self::isEligible($contact)) {
+                return;
+            }
+            if (self::isUnsubscribed((string)$contact['email'], $db)) {
                 return;
             }
 
@@ -157,7 +172,7 @@ class ReviewRequestService
     /**
      * Check whether this contact should receive a review request.
      */
-    private static function isEligible(array $contact): bool
+    public static function isEligible(array $contact, ?DateTimeImmutable $now = null): bool
     {
         // Permanent stop: client has already left a Google review
         if (!empty($contact['has_reviewed'])) {
@@ -189,7 +204,7 @@ class ReviewRequestService
             $lastSent = new DateTimeImmutable($contact['review_request_sent_at']);
             $cooldown = new DateInterval('P' . self::COOLDOWN_DAYS . 'D');
             $nextEligible = $lastSent->add($cooldown);
-            if (new DateTimeImmutable() < $nextEligible) {
+            if (($now ?? new DateTimeImmutable()) < $nextEligible) {
                 return false;
             }
         }
@@ -248,7 +263,7 @@ class ReviewRequestService
               Thanks for having us at the property today.
             </p>
             <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 28px;">
-              If the work was what you expected, a short Google review would help the next
+              A short Google review, whatever you thought of the work, helps the next
               council or homeowner deciding whether to call us. It takes about a minute.
             </p>
 
@@ -269,8 +284,8 @@ class ReviewRequestService
             <hr style="border:none;border-top:1px solid #f0f0f0;margin:28px 0;">
 
             <p style="color:#6B7280;font-size:13px;line-height:1.5;margin:0;">
-              If something wasn&rsquo;t right, tell us first. Reply to this email or call
-              <strong>(778) 846-9273</strong> and we&rsquo;ll fix it before anything else.
+              If something wasn&rsquo;t right, you can also reply to this email or call
+              <strong>(778) 846-9273</strong> and we&rsquo;ll put it right.
             </p>
           </div>
 
@@ -302,29 +317,42 @@ class ReviewRequestService
     {
         $firstName = $contact['first_name'] ?? '';
 
-        // Keep well under 160 chars — NO URL
-        $greeting = $firstName ? "Hi {$firstName}," : "Hi,";
-        $body = "{$greeting} thanks for your recent Mowology service! "
-              . "We'd love your feedback — check your email for a review link. "
-              . "Questions? Call (778) 846-9273";
-
-        // Safety: truncate hard at 160
-        if (mb_strlen($body) > 160) {
-            $body = mb_substr($body, 0, 157) . '...';
-        }
-
-        return sendSms($phone, $body, 'Mowology');
+        return sendSms($phone, self::smsText($firstName), 'Mowology');
     }
 
-    /**
-     * Returns true if the crew endorsed this visit (is_flagged = 1).
-     * Hard gate: no flag = no review request.
-     */
-    private static function isVisitFlagged(int $visitId, PDO $db): bool
+    /** The review text: plain ASCII, no URL, no exclamation marks, ≤160 characters. */
+    public static function smsText(string $firstName): string
     {
-        $stmt = $db->prepare('SELECT is_flagged FROM job_visits WHERE id = ? LIMIT 1');
+        $firstName = trim(preg_replace('/[^\x20-\x7E]/', '', $firstName));
+        $greeting = $firstName ? "Hi {$firstName}," : "Hi,";
+        $body = "{$greeting} thanks for having Mowology out. "
+              . "Check your email for a link to leave a Google review. "
+              . "Questions? Call (778) 846-9273";
+
+        if (mb_strlen($body) > 160) { // a very long first name: drop it rather than cut the phone number
+            $body = "Hi, thanks for having Mowology out. Check your email for a link to leave a Google review. Questions? Call (778) 846-9273";
+        }
+        return $body;
+    }
+
+    /** Only completed visits get a request (both completion paths call this after the status write). */
+    private static function isVisitCompleted(int $visitId, PDO $db): bool
+    {
+        $stmt = $db->prepare('SELECT status FROM job_visits WHERE id = ? LIMIT 1');
         $stmt->execute([$visitId]);
-        return (bool)$stmt->fetchColumn();
+        return $stmt->fetchColumn() === 'completed';
+    }
+
+    /** Unsubscribes always block, even for a review request. */
+    private static function isUnsubscribed(string $email, PDO $db): bool
+    {
+        try {
+            $s = $db->prepare('SELECT 1 FROM marketing_unsubscribes WHERE email = ? LIMIT 1');
+            $s->execute([strtolower(trim($email))]);
+            return (bool)$s->fetchColumn();
+        } catch (Throwable $e) {
+            return false; // no table → nobody unsubscribed
+        }
     }
 
     /**

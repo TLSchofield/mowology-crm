@@ -112,6 +112,16 @@ class VisitLifecycleService
                 // An endorsed visit joins the portfolio approval queue once it has both
                 // photos — crew usually press the heart before the after photo exists.
                 self::queueForPortfolio($visitId, $userId);
+
+                // Google review request — every completed visit, same as pow-actions'
+                // end_visit (no crew-heart gate: Google forbids selective solicitation).
+                // The contact's 30-day cooldown stops a second request if both paths run.
+                try {
+                    require_once APP_ROOT . '/Modules/Reviews/Services/ReviewRequestService.php';
+                    ReviewRequestService::maybeSend($visitId, $db);
+                } catch (Throwable $e) {
+                    error_log("Review request failed for visit {$visitId}: " . $e->getMessage());
+                }
             }
 
             // Propagate terminal-state visits to calendar_stops so the Schedule
