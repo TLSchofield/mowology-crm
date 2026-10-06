@@ -74,6 +74,41 @@ class StatementCloseService
         return $out;
     }
 
+    /**
+     * The statement lines whose ledger row is gone, and whether the same money is
+     * recorded anywhere else now (same amount within 3 days) — read-only diagnosis.
+     * Lines matched at import to an invoice payment or a receipt point at THAT row, so
+     * detaching the payment or rejecting/merging the receipt deletes it and the bank
+     * money drops out of the books.
+     */
+    public function missingLines(int $sessionId): array
+    {
+        $s = $this->db->prepare("
+            SELECT r.id, r.transaction_date, r.description, r.raw_amount, r.type, r.amount, r.transaction_id, r.raw_row
+            FROM bank_import_rows r
+            WHERE r.session_id = ? AND r.is_duplicate = 0 AND r.transaction_id IS NOT NULL
+              AND NOT EXISTS (SELECT 1 FROM accounting_transactions t WHERE t.id = r.transaction_id)
+            ORDER BY r.transaction_date, r.id
+        ");
+        $s->execute([$sessionId]);
+        $twin = $this->db->prepare("
+            SELECT id, transaction_date, type, reference_type, description FROM accounting_transactions
+            WHERE ABS(amount - ?) < 0.01 AND transaction_date BETWEEN DATE_SUB(?, INTERVAL 3 DAY) AND DATE_ADD(?, INTERVAL 3 DAY)
+            LIMIT 3
+        ");
+        $out = [];
+        foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $twin->execute([(float)$r['amount'], $r['transaction_date'], $r['transaction_date']]);
+            $raw = json_decode((string)$r['raw_row'], true) ?: [];
+            $out[] = [
+                'date' => $r['transaction_date'], 'description' => $r['description'], 'amount' => (float)$r['raw_amount'],
+                'was' => $raw['matched_invoice_number'] ?? ($raw['matched_expense_id'] ?? null ? 'receipt #' . $raw['matched_expense_id'] : null),
+                'elsewhere' => $twin->fetchAll(PDO::FETCH_ASSOC),
+            ];
+        }
+        return $out;
+    }
+
     /** Locked months (YYYY-MM). */
     public function lockedMonths(): array
     {

@@ -236,6 +236,12 @@ try {
             break;
         }
 
+        case 'close_missing': {
+            require_once APP_ROOT . '/Modules/Accounting/Services/StatementCloseService.php';
+            echo json_encode(['ok' => true, 'lines' => (new StatementCloseService($db))->missingLines((int)($_GET['session'] ?? 0))]);
+            break;
+        }
+
         case 'lock_month': {
             if ($method !== 'POST') throw new RuntimeException('POST required');
             if (!isAdmin()) throw new RuntimeException('Only an admin can lock a month');
