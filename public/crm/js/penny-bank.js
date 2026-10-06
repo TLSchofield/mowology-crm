@@ -212,17 +212,19 @@
             .then(function (d) {
                 var bills = (d && d.ok && d.bills) || [];
                 if (!bills.length) { rb.hidden = true; return; }
-                var flag = { due: '📅 due soon', late: '⚠ late — not seen yet', not_imported: '⏳ due, statement not imported yet', changed: '↕ amount changed' };
+                var flag = { due: '📅 due soon', late: '⚠ late — not seen yet', not_imported: '⏳ due, statement not imported yet', changed: '↕ amount changed',
+                             stopped: '⏹ stopped — moved to another account or card?' };
                 var attention = bills.filter(function (b) { return b.status.length; });
                 rb.hidden = false;
                 rb.innerHTML = '<div class="mw-bl-head"><b>🔁 Recurring bills</b><span>' + bills.length + ' I watch' +
                     (attention.length ? ' · ' + attention.length + ' to look at' : ' · all as expected') + '</span></div>' +
                     '<ul class="mw-rb-list">' + bills.map(function (b) {
                         var notes = b.status.map(function (s) {
-                            return '<span class="' + (s === 'due' || s === 'not_imported' ? 'mw-sc-un' : 'mw-sc-bad') + '">' + flag[s] +
+                            return '<span class="' + (s === 'due' || s === 'not_imported' || s === 'stopped' ? 'mw-sc-un' : 'mw-sc-bad') + '">' + flag[s] +
                                 (s === 'changed' ? ': $' + b.usual.toFixed(2) + ' → $' + b.latest.toFixed(2) : '') + '</span>';
                         }).join(' ');
-                        return '<li><b>' + esc(b.payee) + '</b> ~$' + b.usual.toFixed(2) + ' · next ' + esc(b.next) + ' ' + notes + '</li>';
+                        var when = b.status.indexOf('stopped') !== -1 ? 'last ' + esc(b.latest_date) : 'next ' + esc(b.next);
+                        return '<li><b>' + esc(b.payee) + '</b> ~$' + b.usual.toFixed(2) + ' · ' + when + ' ' + notes + '</li>';
                     }).join('') + '</ul>';
             })
             .catch(function () { rb.hidden = true; });

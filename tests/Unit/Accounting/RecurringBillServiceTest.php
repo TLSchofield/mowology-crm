@@ -40,4 +40,12 @@ class RecurringBillServiceTest extends TestCase
         $this->assertSame(['late'], RecurringBillService::detect($rows, '2026-09-10', '2026-09-09')[0]['status']);
         $this->assertSame(['not_imported'], RecurringBillService::detect($rows, '2026-09-10', '2026-08-20')[0]['status']);
     }
+
+    public function test_two_missed_months_means_stopped_not_late(): void
+    {
+        $rows = [$this->l('2026-04-16', 399, 'PREAUTHORIZEDPAYMENT FIRSTINSURANCE'), $this->l('2026-05-16', 399, 'PAYMENT FIRST INSURANCE'), $this->l('2026-06-16', 399, 'PREAUTHORIZEDPAYMENT FIRSTINSURANCE')];
+        $b = RecurringBillService::detect($rows, '2026-10-05', '2026-10-01')[0];
+        $this->assertSame(['stopped'], $b['status']);
+        $this->assertSame('First Insurance', $b['payee'], 'the spelling with spaces is the readable one');
+    }
 }

@@ -65,7 +65,7 @@ class RecurringBillService
         $by = [];
         foreach ($rows as $r) {
             $k = self::payeeKey((string)$r['description']);
-            if (strlen($k) < 4 || self::isTransfer((string)$r['description'])) continue;
+            if (strlen($k) < 4 || self::isTransfer((string)$r['description']) || (float)$r['amount'] < 1) continue;
             $by[$k][] = $r;
         }
         $out = [];
@@ -94,10 +94,11 @@ class RecurringBillService
             $daysToNext = (int)round((strtotime($next) - strtotime($today)) / 86400);
             $status = [];
             if ($daysToNext >= 0 && $daysToNext <= 7) $status[] = 'due';
-            if ($daysToNext < -7) $status[] = ($lastImport && $lastImport < $next) ? 'not_imported' : 'late';
+            if ($daysToNext < -40) $status[] = 'stopped';                     // two or more months missed
+            elseif ($daysToNext < -7) $status[] = ($lastImport && $lastImport < $next) ? 'not_imported' : 'late';
             if (abs((float)$latest['amount'] - $usual) > max(1, $usual * 0.15)) $status[] = 'changed';
             $out[] = [
-                'payee' => self::label((string)$latest['description']), 'key' => $key,
+                'payee' => self::label(self::spacedDescription($series)), 'key' => $key,
                 'usual' => round($usual, 2), 'latest' => round((float)$latest['amount'], 2), 'latest_date' => $latest['transaction_date'],
                 'next' => $next, 'months' => count($series), 'status' => $status,
             ];
@@ -111,6 +112,16 @@ class RecurringBillService
     {
         return (bool)preg_match('/\b(VISA|MASTERCARD|AMEX)\b|FUNDS ?TRANSFER|TRANSFER (TO|FROM)|\bTFR\b/i', $description)
             && !preg_match('/E-?TRANSFER|INTERAC/i', $description);
+    }
+
+    /** The statement spelling with the most spaces (one statement format runs words together). */
+    private static function spacedDescription(array $series): string
+    {
+        $best = (string)end($series)['description'];
+        foreach ($series as $l) {
+            if (substr_count((string)$l['description'], ' ') > substr_count($best, ' ')) $best = (string)$l['description'];
+        }
+        return $best;
     }
 
     /** A readable payee name from a statement line. */
