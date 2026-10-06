@@ -29,6 +29,16 @@ require_once __DIR__ . '/../app/Modules/Quotes/Services/QuoteService.php';
 // Department heads — shared brain
 require_once __DIR__ . '/../app/Services/HeadBrain.php';
 
+// Charlie — Chief of Staff
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieRankService.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieVoice.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieBriefService.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/PennyBriefAdapter.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/HouseBriefAdapter.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieBadgeService.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieDeskService.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieBriefEmail.php';
+
 require_once __DIR__ . '/../app/Modules/Invoices/Services/StatementService.php';
 
 // Products
