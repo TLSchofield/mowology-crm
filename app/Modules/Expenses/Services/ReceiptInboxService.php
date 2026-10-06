@@ -118,7 +118,7 @@ class ReceiptInboxService
             $ocr = ['readable' => true, 'source' => 'email_body', 'ocr_text' => $text, 'parsed' => $parsed,
                     'suggestions' => suggestReceiptMeta($text, null, null, null, $parsed)];
             $msg['subject'] = trim(($msg['subject'] ?? '') . ' (saved: /uploads/receipts/' . $file . ')');
-            return $this->createExpenseFromRead($msg, $ocr, null, $dedup, false, 'no text extracted');
+            return $this->createExpenseFromRead($msg, $ocr, null, $dedup, false, 'no text extracted', $systemUserId);
         } catch (\Throwable $e) {
             $this->releaseClaim($dedup);
             throw $e;
@@ -273,14 +273,14 @@ class ReceiptInboxService
         // 2) OCR (rasterise PDFs first). Unreadable PDFs return readable=false.
         $ocr = $this->runOcr($diskPath, $isPdf);
 
-        return $this->createExpenseFromRead($msg, $ocr, $mediaId, $dedup, true, $isPdf ? 'pdf not OCR-able' : 'no text extracted');
+        return $this->createExpenseFromRead($msg, $ocr, $mediaId, $dedup, true, $isPdf ? 'pdf not OCR-able' : 'no text extracted', $systemUserId);
     }
 
     /**
      * Steps 3–7 for any read receipt (an OCR'd attachment or an email body): build the
      * expense, gate auto-posting, score anomalies, insert, finalize the claim.
      */
-    private function createExpenseFromRead(array $msg, array $ocr, ?int $mediaId, string $dedup, bool $mayAutoPost, string $unreadableNote): array
+    private function createExpenseFromRead(array $msg, array $ocr, ?int $mediaId, string $dedup, bool $mayAutoPost, string $unreadableNote, int $systemUserId): array
     {
         // 3) Build expense fields from parsed text + smart match.
         $parsed      = $ocr['parsed'];
