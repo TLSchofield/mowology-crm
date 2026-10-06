@@ -42,6 +42,7 @@ require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptTrailService.ph
 require_once __DIR__ . '/../app/Modules/Expenses/Services/PennyQuestionService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/PennyBadgeService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/PennyBrainService.php';
+require_once __DIR__ . '/../app/Modules/Expenses/Services/PennySelfAuditService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/BankRuleLearning.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/BankDeskService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/LedgerAccountMap.php';

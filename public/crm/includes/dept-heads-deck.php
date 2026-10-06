@@ -32,6 +32,7 @@ try {
     $__badges = ['earned' => [], 'next' => null];
     $__vendors = [];
     $__brain = null;
+    $__audit = null;
     try {
         require_once APP_ROOT . '/Modules/Expenses/Services/PennyBadgeService.php';
         $__pb = new PennyBadgeService(getDB());
@@ -39,6 +40,8 @@ try {
         $__vendors = $__pb->vendors(6);
         require_once APP_ROOT . '/Modules/Expenses/Services/PennyBrainService.php';
         $__brain = (new PennyBrainService(getDB()))->learned();
+        require_once APP_ROOT . '/Modules/Expenses/Services/PennySelfAuditService.php';
+        $__audit = (new PennySelfAuditService(getDB()))->dueThenLast();   // weekly; code only
     } catch (Throwable $__e) { /* badges are a bonus — never block the card */ }
 } catch (Throwable $__e) {
     error_log('Dept heads deck unavailable: ' . $__e->getMessage());
@@ -154,6 +157,15 @@ $__team = [
             </span>
           <?php endforeach; ?>
         </div>
+      </div>
+      <?php endif; ?>
+
+      <?php if ($__audit && (int)$__audit['checked'] > 0): ?>
+      <div class="mw-audit" title="<?= h(implode(' · ', array_map(fn($x) => $x['what'] . ': ' . implode(', ', $x['changed']), $__audit['examples'] ?? []))) ?>">
+        🔍 <b>My weekly self-check</b> (<?= h(date('M j', strtotime((string)$__audit['at']))) ?>):
+        I re-checked <?= (int)$__audit['checked'] ?> of my past calls you approved —
+        <?php if ((int)$__audit['wrong'] === 0): ?>none have been corrected since. ✓
+        <?php else: ?><b><?= (int)$__audit['wrong'] ?></b> were corrected later (<?= (int)$__audit['rate'] ?>% wrong). Hover to see which.<?php endif; ?>
       </div>
       <?php endif; ?>
 
