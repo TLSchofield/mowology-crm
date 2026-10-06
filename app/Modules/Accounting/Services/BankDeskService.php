@@ -274,7 +274,7 @@ class BankDeskService
      * remove the bank line's separate entry in the books: the receipt's entry already
      * carries that cost, so keeping both counted it twice.
      */
-    private function linkReceipt(int $transactionId, int $expenseId, int $userId): bool
+    public function linkReceipt(int $transactionId, int $expenseId, int $userId): bool
     {
         try {
             (new BankImportService($this->db))->attachExpenseMatch($transactionId, $expenseId, $userId);

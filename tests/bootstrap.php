@@ -46,6 +46,7 @@ require_once __DIR__ . '/../app/Modules/Accounting/Services/BankRuleLearning.php
 require_once __DIR__ . '/../app/Modules/Accounting/Services/BankDeskService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/LedgerAccountMap.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/LedgerRepostService.php';
+require_once __DIR__ . '/../app/Modules/Accounting/Services/BankReceiptSweep.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/DuplicateReceiptService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseApprovalService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseService.php';
