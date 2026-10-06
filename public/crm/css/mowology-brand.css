@@ -37946,3 +37946,129 @@ body.mw-rc-zoom-open { overflow: hidden; }
     .mw-head-brain { width: 52px; height: 52px; right: -16px; bottom: -16px; border-radius: 12px; }
     .mw-sam-lead { flex-direction: column; align-items: flex-start; }
 }
+
+/* ===================================================================
+   OTTO — OPERATIONS HEAD (dashboard deck card, public/crm/includes/otto-card.php)
+   =================================================================== */
+.mw-otto { display: flex; flex-direction: column; gap: 10px; }
+.mw-otto-top { display: flex; align-items: center; gap: 12px; }
+.mw-otto-face { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; flex: none; box-shadow: 0 0 0 3px var(--mw-lime), var(--mw-shadow-md); }
+.mw-otto-who { flex: 1; min-width: 0; }
+.mw-otto-who .mw-head-nm { font-weight: 800; font-size: 1.05rem; color: var(--mw-forest); }
+.mw-otto-who .mw-head-pill { margin-top: 6px; }
+.mw-otto-brain, .mw-otto .mw-head-brain { flex: none; width: 64px; height: 64px; padding: 0; border: 1px solid var(--mw-light); border-radius: 50%;
+    background: radial-gradient(circle at 50% 40%, var(--mw-ink-0), var(--mw-light)); cursor: pointer; }
+.mw-otto .mw-head-brain canvas { width: 100%; height: 100%; display: block; }
+.mw-otto .mw-head-brain:hover { border-color: var(--mw-green); }
+.mw-otto-badges { max-width: none; margin-top: 0; }
+.mw-otto-say { background: var(--mw-light); border-radius: 10px; padding: 10px 12px; font-size: .85rem; line-height: 1.45; color: var(--mw-forest); }
+.mw-otto-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; }
+.mw-otto-stat { border: 1px solid var(--mw-ink-200); border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; min-width: 0; }
+.mw-otto-stat .mw-k { font-size: .66rem; color: var(--mw-ink-500); font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
+.mw-otto-stat .mw-v { font-size: 1.35rem; font-weight: 800; margin: 2px 0; color: var(--mw-forest); line-height: 1.1; }
+.mw-otto-stat .mw-v small { font-size: .75rem; font-weight: 600; color: var(--mw-ink-500); }
+.mw-otto-stat .mw-n { font-size: .7rem; color: var(--mw-ink-500); line-height: 1.35; margin-top: auto; overflow-wrap: anywhere; }
+.mw-otto-stat .mw-n b { color: var(--mw-orange); }
+.mw-otto-stat.is-alert .mw-v { color: var(--mw-orange); }
+.mw-otto-outlook { font-size: .75rem; color: var(--mw-ink-700); background: var(--mw-ink-50); border-radius: 8px; padding: 6px 10px; }
+
+.mw-otto-list { display: flex; flex-direction: column; gap: 8px; }
+.mw-otto-empty { font-size: .8rem; color: var(--mw-ink-500); padding: 6px 2px; }
+.mw-otto-item { position: relative; border: 1px solid var(--mw-ink-200); border-left: 4px solid var(--mw-ink-300); border-radius: 10px; padding: 9px 12px; background: var(--mw-ink-0); }
+.mw-otto-item.is-p1 { border-left-color: var(--mw-orange); }
+.mw-otto-item.is-p2 { border-left-color: var(--mw-green); }
+.mw-otto-item p { margin: 0 52px 4px 0; font-size: .82rem; color: var(--mw-ink-900); line-height: 1.4; }
+.mw-otto-detail { display: block; font-size: .72rem; color: var(--mw-ink-500); margin-bottom: 6px; }
+.mw-otto-open { position: absolute; top: 9px; right: 12px; font-size: .72rem; font-weight: 600; color: var(--mw-green); }
+.mw-otto-btns { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.mw-otto-btns button { border: 1px solid var(--mw-ink-200); background: var(--mw-ink-0); border-radius: 8px; padding: 5px 10px; font-size: .76rem; font-weight: 600; color: var(--mw-forest); }
+.mw-otto-btns button:hover { background: var(--mw-light); border-color: var(--mw-green); }
+.mw-otto-btns button.is-main { background: var(--mw-green); border-color: var(--mw-green); color: var(--mw-ink-0); }
+.mw-otto-btns button.is-main:hover { background: var(--mw-dark); }
+.mw-otto-btns button:disabled { opacity: .55; cursor: wait; }
+.mw-otto-btns input { border: 1px solid var(--mw-ink-200); border-radius: 8px; padding: 4px 8px; font-size: .78rem; color: var(--mw-ink-900); max-width: 100%; }
+.mw-otto-btns input[type="number"] { width: 72px; }
+.mw-otto-field { display: inline-flex; align-items: center; gap: 6px; font-size: .74rem; color: var(--mw-ink-500); margin: 0; }
+.mw-otto-slot { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--mw-ink-200); }
+.mw-otto-slot small { display: block; font-size: .74rem; color: var(--mw-ink-700); margin-bottom: 6px; }
+.mw-otto-msg { margin-top: 6px; font-size: .74rem; color: var(--mw-dark); }
+.mw-otto-msg.is-bad { color: var(--mw-orange); }
+.mw-otto-done { color: var(--mw-dark); font-weight: 600; margin: 0 !important; }
+.mw-otto-item.is-done { border-left-color: var(--mw-lime); background: var(--mw-light); }
+
+.mw-otto-qs { border: 1px solid var(--mw-color-warning-bg); background: var(--mw-color-warning-bg); border-radius: 12px; padding: 10px 12px; }
+.mw-otto-qhead { font-size: .8rem; color: var(--mw-ink-700); margin-bottom: 4px; }
+.mw-otto-qhead b { color: var(--mw-forest); }
+.mw-otto-q { background: var(--mw-ink-0); border-radius: 8px; padding: 8px 10px; margin-top: 6px; }
+.mw-otto-q p { margin: 0 0 6px; font-size: .82rem; color: var(--mw-ink-900); line-height: 1.4; }
+.mw-otto-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: .72rem; color: var(--mw-ink-500); margin-top: 2px; }
+
+/* The shared brain's pop-out (head-brain.js) — scoped so it stands alone if no other head styles it */
+.mw-head-brain-pop { position: fixed; inset: 0; z-index: 1080; display: flex; align-items: center; justify-content: center; padding: 16px; background: color-mix(in srgb, var(--mw-forest) 55%, transparent); }
+.mw-head-brain-pop .mw-brain-card { position: relative; display: grid; grid-template-columns: 260px 1fr; gap: 16px; width: min(640px, 100%); max-height: 90vh; overflow: auto;
+    background: var(--mw-ink-0); border-radius: var(--mw-radius-lg); padding: 18px; box-shadow: var(--mw-shadow-md); }
+.mw-head-brain-pop .mw-brain-big { width: 260px; height: 260px; border-radius: 50%; background: radial-gradient(circle at 50% 40%, var(--mw-ink-0), var(--mw-light)); }
+.mw-head-brain-pop .mw-brain-close { position: absolute; top: 8px; right: 10px; border: 0; background: transparent; font-size: 1rem; color: var(--mw-ink-500); }
+.mw-head-brain-pop h4 { font-size: 1rem; font-weight: 800; color: var(--mw-forest); margin: 0 0 4px; }
+.mw-head-brain-pop p, .mw-head-brain-pop li { font-size: .8rem; color: var(--mw-ink-700); }
+.mw-head-brain-pop ul { padding-left: 0; list-style: none; margin: 8px 0; }
+.mw-head-brain-pop .mw-brain-note { font-size: .72rem; color: var(--mw-ink-500); }
+@media (max-width: 575.98px) {
+    .mw-otto-foot { flex-direction: column; align-items: flex-start; }
+    .mw-otto-item p { margin-right: 0; }
+    .mw-otto-open { position: static; display: inline-block; margin-top: 6px; }
+    .mw-head-brain-pop .mw-brain-card { grid-template-columns: 1fr; }
+    .mw-head-brain-pop .mw-brain-big { width: 200px; height: 200px; margin: 0 auto; }
+}
+
+/* ===================================================================
+   CHARLIE — CHIEF OF STAFF (dashboard deck: the one thing + 7 am brief)
+   charlie-card.php / charlie-card.js; brain popup styles are shared (.mw-brain-pop)
+   =================================================================== */
+.mw-charlie { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.mw-charlie-top { display: flex; align-items: center; gap: 14px; }
+.mw-charlie-photo { position: relative; flex: 0 0 auto; }
+.mw-charlie-face { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; display: block; box-shadow: 0 0 0 3px var(--mw-lime), var(--mw-shadow-md); }
+.mw-charlie-brain { position: absolute; right: -12px; bottom: -10px; width: 40px; height: 40px; padding: 0; border: 0; border-radius: 10px; cursor: pointer;
+    background: radial-gradient(circle at 50% 42%, var(--mw-dark) 0%, var(--mw-forest) 72%); box-shadow: 0 0 0 2px var(--mw-ink-0), var(--mw-shadow-md); }
+.mw-charlie-brain canvas { width: 100%; height: 100%; display: block; }
+.mw-charlie-brain:hover, .mw-charlie-brain:focus-visible { box-shadow: 0 0 0 3px var(--mw-lime), var(--mw-shadow-md); outline: none; }
+.mw-charlie-id { min-width: 0; }
+.mw-charlie-id .mw-head-pill { margin-top: 6px; }
+.mw-charlie .mw-charlie-badges { margin-top: 0; max-width: none; }
+
+.mw-charlie-say { background: var(--mw-light); border-radius: 10px; padding: 10px 12px; font-size: .85rem; line-height: 1.45; color: var(--mw-forest); }
+.mw-charlie-lead { display: block; }
+.mw-charlie-thing { display: block; margin: 6px 0; padding-left: 10px; border-left: 3px solid var(--mw-green); font-size: .92rem; font-weight: 700; color: var(--mw-dark); overflow-wrap: anywhere; }
+.mw-charlie-after { display: block; font-size: .76rem; color: var(--mw-ink-500); margin-top: 4px; }
+
+.mw-charlie-acts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.mw-charlie-acts[hidden] { display: none; }
+.mw-charlie-acts button { border-radius: 9px; padding: 6px 10px; font-size: .78rem; font-weight: 700; white-space: nowrap; }
+.mw-charlie-go { background: var(--mw-green); color: var(--mw-ink-0); border: 0; }
+.mw-charlie-go:hover { background: var(--mw-dark); }
+.mw-charlie-later { background: var(--mw-ink-0); color: var(--mw-forest); border: 1px solid var(--mw-ink-200); }
+.mw-charlie-later:hover { border-color: var(--mw-green); }
+.mw-charlie-acts .mw-charlie-skip { margin-left: auto; padding: 6px 4px; background: none; border: 0; color: var(--mw-ink-500); font-weight: 600; }
+.mw-charlie-skip:hover { color: var(--mw-orange); }
+.mw-charlie-msg { font-size: .75rem; color: var(--mw-dark); min-height: 1em; }
+.mw-charlie-msg:empty { display: none; }
+
+.mw-charlie-qs { border: 1px solid var(--mw-color-warning-bg); background: var(--mw-color-warning-bg); border-radius: 10px; padding: 8px 10px; }
+.mw-charlie-q p { margin: 0 0 6px; font-size: .8rem; line-height: 1.4; color: var(--mw-ink-900); }
+.mw-charlie-qbtns { display: flex; flex-direction: column; gap: 5px; }
+.mw-charlie-qbtns button { text-align: left; border: 1px solid var(--mw-ink-200); background: var(--mw-ink-0); border-radius: 8px; padding: 5px 9px; font-size: .75rem; font-weight: 600; color: var(--mw-forest); }
+.mw-charlie-qbtns button:hover { background: var(--mw-light); border-color: var(--mw-green); }
+
+.mw-charlie-brief { border-top: 1px solid var(--mw-ink-200); padding-top: 8px; }
+.mw-charlie-brief summary { cursor: pointer; font-size: .76rem; font-weight: 700; color: var(--mw-forest); }
+.mw-charlie-heads { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.mw-charlie-head { font-size: .76rem; color: var(--mw-ink-700); }
+.mw-charlie-hd b { color: var(--mw-forest); }
+.mw-charlie-hd small { color: var(--mw-ink-500); }
+.mw-charlie-hl { color: var(--mw-ink-500); }
+.mw-charlie-head ul { margin: 3px 0 0; padding-left: 16px; line-height: 1.45; }
+.mw-charlie-head li.is-p1 { font-weight: 700; }
+.mw-charlie-head a { color: var(--mw-forest); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.mw-charlie-head a:hover { color: var(--mw-green); }
+.mw-charlie-more { color: var(--mw-ink-500); font-size: .7rem; }
