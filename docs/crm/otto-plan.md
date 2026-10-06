@@ -123,3 +123,11 @@ All of the prod checks are read-only `SELECT`s that Tim (or I, with his OK) runs
 3. **The guard's existing auto-reschedule.** Keep it, show its moves with an undo, or turn it off?
 4. **Thresholds.** Silent tracker at 15 min (reuse), the no-time window at 14 days, and auto-closed shifts always flagged.
 5. **Fix the two findings** in separate commits (the guard log keys; CSRF and permission on `weather-actions.php`): yes or no?
+
+## Built (phase 2, 2026-10-05) — Tim's decisions applied
+
+- Weather guard auto-reschedule is to be OFF (`auto_reschedule_enabled = 0`, set at deploy); Otto suggests each move and Tim clicks.
+- One-click apply, jobs.edit, 15-min quiet threshold, 14-day gap window. Nothing texts a crew.
+- Card: `public/crm/includes/otto-card.php` (renders nothing without jobs.edit or migrations 1150–1152) + `public/crm/js/otto-card.js`; API `/crm/api/otto.php`; services in `app/Modules/Operations/Services/`. Render: `docs/crm/otto-render.png` (fake data).
+- Visits with no time are fixed on `job_visits.actual_duration_minutes`, not by inventing a job timer, so payroll totals are untouched.
+- Bugs fixed separately: weather guard Last-run line; `weather-actions.php` POSTs now need CSRF + jobs.edit.
