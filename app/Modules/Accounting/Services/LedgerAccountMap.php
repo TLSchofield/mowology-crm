@@ -66,9 +66,10 @@ class LedgerAccountMap
         return $this->svcCodes;
     }
 
-    public function expenseCode(?string $category): string
+    public function expenseCode(?string $category, ?string $assetTag = null, ?string $vendor = null): string
     {
-        return $this->categoryCodes()[strtolower(trim((string)$category))] ?? self::DEFAULT_EXPENSE;
+        $code = $this->categoryCodes()[strtolower(trim((string)$category))] ?? self::DEFAULT_EXPENSE;
+        return self::refineExpenseCode($code, $category, $assetTag, $vendor);
     }
 
     /**
@@ -147,6 +148,21 @@ class LedgerAccountMap
     // ─────────────────────────────────────────────────────────────────────────
     // Pure (unit tested)
     // ─────────────────────────────────────────────────────────────────────────
+
+    public const VEHICLE_MAINTENANCE = '6120';
+    /** Vendors that only ever fix vehicles. */
+    public const AUTO_SHOP = '/\b(AUTO|AUTOMOTIVE|TIRES?|LUBE|MECHANIC(AL)?|COLLISION|AUTO ?BODY|MUFFLER|TRANSMISSION|OIL CHANGE|JIFFY|MIDAS|KAL TIRE|OK TIRE|CARSTAR|DEALERSHIP|DODGE|RAM TRUCK)\b/i';
+
+    /**
+     * "Repairs/Maintenance" covers the truck and the equipment. It's the truck — 6120
+     * Vehicle Maintenance — when the receipt is tagged truck or the vendor is an auto shop.
+     */
+    public static function refineExpenseCode(string $code, ?string $category, ?string $assetTag, ?string $vendor): string
+    {
+        if (strtolower(trim((string)$category)) !== 'repairs/maintenance') return $code;
+        if ($assetTag === 'truck' || preg_match(self::AUTO_SHOP, (string)$vendor)) return self::VEHICLE_MAINTENANCE;
+        return $code;
+    }
 
     /** "Lawn Care", "lawn_care", " LAWN-CARE " → "lawn care" (slugs and labels meet). */
     public static function serviceKey(?string $s): string

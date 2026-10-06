@@ -14,6 +14,8 @@
  */
 declare(strict_types=1);
 
+require_once __DIR__ . '/LedgerAccountMap.php';
+
 class LedgerSyncService
 {
     private PDO $db;
@@ -80,7 +82,8 @@ class LedgerSyncService
             'net'             => round($total - $gst - $pst, 2),
             'gst'             => $gst,
             'pst'             => $pst,
-            'expense_account' => $categoryToCode[$cat] ?? '6900',
+            'expense_account' => LedgerAccountMap::refineExpenseCode($categoryToCode[$cat] ?? '6900', $cat,
+                                     $row['asset_tag'] ?? null, (string)($row['vendor_name'] ?? $row['vendor_name_raw'] ?? '')),
             'funding'         => $this->fundingAccountFor((string)($row['payment_method'] ?? '')),
             'cost_type_id'    => $categoryToCostType[$cat] ?? null,
             'service_type'    => $row['service_type'] ?? null,
@@ -280,7 +283,8 @@ class LedgerSyncService
 
         $rows = $this->db->query("
             SELECT id, expense_date, total, gst_amount, pst_amount, accounting_category,
-                   payment_method, vendor_id, job_id, contact_id
+                   payment_method, vendor_id, job_id, contact_id, asset_tag, vendor_name_raw,
+                   (SELECT v.name FROM vendors v WHERE v.id = expenses.vendor_id) AS vendor_name
             FROM expenses
             WHERE total > 0 AND status IN ('approved', 'forwarded')
         ")->fetchAll(PDO::FETCH_ASSOC);

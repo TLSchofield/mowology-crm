@@ -14,8 +14,8 @@ class BankDeskServiceTest extends TestCase
         $fuel = $acct(31, '6100', 'Fuel');
         $mat = $acct(22, '5200', 'Materials & Supplies');
         return [
-            'byCode'  => ['6100' => $fuel, '5200' => $mat, '6800' => $acct(68, '6800', 'Bank Charges & Fees'), '2400' => $acct(24, '2400', 'Credit Card Payable'), '6900' => $acct(69, '6900', 'Miscellaneous Expenses')],
-            'byAlias' => ['vehicle' => $acct(61, '6120', 'Vehicle Maintenance'), 'fuel' => $fuel, 'materials' => $mat, 'meals' => $acct(85, '6850', 'Meals & Entertainment')],
+            'byCode'  => ['6120' => $acct(61, '6120', 'Vehicle Maintenance'), '6200' => $acct(62, '6200', 'Equipment Maintenance'), '6100' => $fuel, '5200' => $mat, '6800' => $acct(68, '6800', 'Bank Charges & Fees'), '2400' => $acct(24, '2400', 'Credit Card Payable'), '6900' => $acct(69, '6900', 'Miscellaneous Expenses')],
+            'byAlias' => ['repairs/maintenance' => $acct(62, '6200', 'Equipment Maintenance'), 'vehicle' => $acct(61, '6120', 'Vehicle Maintenance'), 'fuel' => $fuel, 'materials' => $mat, 'meals' => $acct(85, '6850', 'Meals & Entertainment')],
             'vendors' => [['name' => 'Lawnboy', 'aliases' => 'SPAS LAWNBOY', 'default_accounting_category' => 'Materials']],
             'expenses' => [500 => ['accounting_category' => 'Fuel', 'vendor' => 'Chevron']],
             'rules'   => [],
@@ -85,5 +85,20 @@ class BankDeskServiceTest extends TestCase
         $this->assertSame(384, $s['expense_id']);
         $this->assertSame('6120', $s['code']);
         $this->assertStringContainsString('Vehicle (Brake pads, Rotors)', $s['reason']);
+    }
+
+    public function test_repairs_at_an_auto_shop_are_vehicle_maintenance(): void
+    {
+        $c = $this->ctx();
+        $c['found'] = [1 => ['expense_id' => 384, 'vendor' => 'Vital Auto Repair & Detail', 'date' => '2026-09-02', 'amount' => 1711.70,
+                             'category' => 'Repairs/Maintenance', 'items' => ['Mount and balance tire'], 'asset_tag' => null]];
+        $this->assertSame('6120', BankDeskService::advise($this->line('Point of sale VITAL AUTO REPAIR'), $c)['code']);
+        $this->assertSame('6200', LedgerAccountMap::refineExpenseCode('6200', 'Repairs/Maintenance', 'equipment', 'Rona'));
+        $this->assertSame('6120', LedgerAccountMap::refineExpenseCode('6200', 'Repairs/Maintenance', 'truck', 'Rona'));
+    }
+
+    public function test_price_fragments_are_not_item_names(): void
+    {
+        $this->assertSame(['Mount and balance tire'], BankDeskService::itemNames(['$ 172.30 2.00', 'Amount', 'Mount and balance tire']));
     }
 }

@@ -57,12 +57,14 @@ class LedgerRepostService
         }
         $expenses = [];
         $s = $this->db->query("SELECT id, expense_date, total, gst_amount, pst_amount, accounting_category, payment_method,
-                                      vendor_id, job_id, contact_id FROM expenses WHERE total > 0 AND status IN ('approved', 'forwarded')");
+                                      vendor_id, job_id, contact_id, asset_tag, vendor_name_raw,
+                                      (SELECT v.name FROM vendors v WHERE v.id = expenses.vendor_id) AS vendor_name
+                               FROM expenses WHERE total > 0 AND status IN ('approved', 'forwarded')");
         foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $e) {
             $have = $posted['expense'][(int)$e['id']] ?? null;
             if (!$have) continue;
             $amount = array_sum($have['lines']);
-            $want = [$this->map->expenseCode($e['accounting_category']) => round($amount, 2)];
+            $want = [$this->map->expenseCode($e['accounting_category'], $e['asset_tag'], $e['vendor_name'] ?: $e['vendor_name_raw']) => round($amount, 2)];
             if (!self::same($have['lines'], $want)) {
                 $expenses[] = ['id' => (int)$e['id'], 'entry_id' => $have['entry_id'], 'from' => $have['lines'], 'to' => $want,
                                'category' => $e['accounting_category']];
@@ -81,7 +83,9 @@ class LedgerRepostService
         $invRows = $this->rowsById("SELECT id, subtotal, tax_amount, total, amount_paid, status, contact_id, plan_id, contract_id,
                                            issue_date, paid_at, created_at FROM invoices", array_column($p['invoices'], 'id'));
         $expRows = $this->rowsById("SELECT id, expense_date, total, gst_amount, pst_amount, accounting_category, payment_method,
-                                           vendor_id, job_id, contact_id FROM expenses", array_column($p['expenses'], 'id'));
+                                           vendor_id, job_id, contact_id, asset_tag, vendor_name_raw,
+                                           (SELECT v.name FROM vendors v WHERE v.id = expenses.vendor_id) AS vendor_name
+                                    FROM expenses", array_column($p['expenses'], 'id'));
         foreach ($p['invoices'] as $item) {
             try {
                 $row = $invRows[$item['id']];

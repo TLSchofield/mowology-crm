@@ -19,6 +19,10 @@
  */
 require_once __DIR__ . '/BankRuleLearning.php';
 require_once __DIR__ . '/BankImportService.php';
+require_once __DIR__ . '/LedgerAccountMap.php';
+if (!defined('EXPENSE_ACCOUNTING_CATEGORIES') && defined('APP_ROOT')) {
+    require_once APP_ROOT . '/Modules/Expenses/ExpenseConstants.php';
+}
 
 class BankDeskService
 {
@@ -186,7 +190,13 @@ class BankDeskService
                 $s->execute(array_values($ids));
                 $items = [];
                 foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $li) $items[(int)$li['expense_id']][] = $li['name'];
-                foreach ($found as &$c) $c['items'] = array_slice($items[(int)$c['expense_id']] ?? [], 0, 3);
+                $t = $this->db->prepare("SELECT id, asset_tag FROM expenses WHERE id IN ({$in})");
+                $t->execute(array_values($ids));
+                $tags = array_column($t->fetchAll(PDO::FETCH_ASSOC), 'asset_tag', 'id');
+                foreach ($found as &$c) {
+                    $c['items'] = array_slice(self::itemNames($items[(int)$c['expense_id']] ?? []), 0, 3);
+                    $c['asset_tag'] = $tags[(int)$c['expense_id']] ?? null;
+                }
                 unset($c);
             }
         } catch (Throwable $e) { /* finding receipts is one source of several */ }
@@ -237,6 +247,7 @@ class BankDeskService
             $learned = (new BankRuleLearning($this->db))->learnFromCorrection($transactionId, $accountId, (int)$user['id']);
             if ($expenseId) {
                 $linked = $this->linkReceipt($transactionId, $expenseId, (int)$user['id']);
+                if ($linked) $this->alignReceiptCategory($expenseId, $accountId);
             }
             $outcome = $suggestedId && $suggestedId === $accountId ? 'accepted' : 'edited';
         }
@@ -275,6 +286,49 @@ class BankDeskService
         }
     }
 
+    /**
+     * The owner picked an account for a linked line: put the receipt in the matching
+     * category, so the receipt and the books agree (6120 → Vehicle). Only when exactly
+     * one category maps to that account, and never on a receipt sent to accounting.
+     */
+    private function alignReceiptCategory(int $expenseId, int $accountId): void
+    {
+        try {
+            $c = $this->db->prepare("SELECT code FROM chart_of_accounts WHERE id = ?");
+            $c->execute([$accountId]);
+            $code = (string)$c->fetchColumn();
+            $cats = array_keys(array_filter(self::categoryCodeMap($this->db), fn($cc) => (string)$cc === $code));
+            if (count($cats) !== 1) return;
+            $label = null;
+            foreach (EXPENSE_ACCOUNTING_CATEGORIES as $known) if (strtolower($known) === $cats[0]) $label = $known;
+            if (!$label) return;
+            $this->db->prepare("UPDATE expenses SET accounting_category = ? WHERE id = ? AND COALESCE(forwarded_to_accounting, 0) = 0 AND accounting_category <> ?")
+               ->execute([$label, $expenseId, $label]);
+        } catch (Throwable $e) {
+            error_log('Penny receipt category align failed for expense ' . $expenseId . ': ' . $e->getMessage());
+        }
+    }
+
+    /** category(lower) => code: the owner's map over the built-in list. */
+    private static function categoryCodeMap(PDO $db): array
+    {
+        require_once __DIR__ . '/LedgerAccountMap.php';
+        return (new LedgerAccountMap($db))->categoryCodes() + self::CATEGORY_CODES;
+    }
+
+    /** Item names worth showing: real words, not prices or column headings. */
+    public static function itemNames(array $names): array
+    {
+        $out = [];
+        foreach ($names as $n) {
+            $n = trim((string)$n);
+            if (!preg_match('/[a-z]{3}/i', $n)) continue;
+            if (preg_match('/^(amount|qty|quantity|price|total|sub ?total|description|item|gst|pst|tax)\b/i', $n)) continue;
+            $out[] = $n;
+        }
+        return array_values(array_unique($out));
+    }
+
     /** Accounts to choose from, grouped for the picker. */
     public function accounts(): array
     {
@@ -303,6 +357,10 @@ class BankDeskService
         $f = $ctx['found'][(int)($line['id'] ?? 0)] ?? null;
         if ($f) {
             $a = $ctx['byAlias'][strtolower((string)$f['category'])] ?? null;
+            if ($a) {
+                $code = LedgerAccountMap::refineExpenseCode($a['code'], $f['category'], $f['asset_tag'] ?? null, $f['vendor'] ?? '');
+                $a = $ctx['byCode'][$code] ?? $a;
+            }
             $what = $f['category'] ?: 'no category yet';
             if (!empty($f['items'])) $what .= ' (' . implode(', ', $f['items']) . ')';
             $reason = 'It matches your ' . $f['vendor'] . ' receipt #' . $f['expense_id'] . ' from ' . $f['date'] . ', $' . number_format($f['amount'], 2) .
