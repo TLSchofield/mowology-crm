@@ -114,3 +114,49 @@ The kinds:
 6. **Property managers.** Can 1:1 messages to PM contacts go out without `receive_marketing`? (Unsubscribes always block.)
 7. **Contract renewals.** Contracts with `auto_renew = 0` that end within 60 days: Mia's or Sam's?
 8. **Google reviews.** Import reviews later through the Google Business Profile API, or keep the manual `has_reviewed` checkbox?
+
+---
+
+## Phase 2: as built (2026-10-05)
+
+Tim approved the plan. His marketing-agent design ("Scout") then updated it. These are the changes from the plan above.
+
+- **Review requests are no longer gated by the crew heart.** `ReviewRequestService::maybeSend()` used to return early unless `job_visits.is_flagged` was set. It was also only called from `pow-actions.php` `end_visit`, so the timer, iOS and JWT completion path never asked for a review at all.
+  - Now every completed visit asks, from both completion paths. `VisitLifecycleService::updateVisitStatus()` calls it too.
+  - The same caps still apply: a 30-day cooldown, 3 requests per contact, opt-out and `has_reviewed`. SMS still needs SMS consent, and unsubscribes now always block.
+  - The copy asks everyone the same way, with no incentive. The private "if something wasn't right" line now sits alongside the review link, never instead of it.
+  - The heart now gates only the portfolio queue and what Mia features.
+  - No customer rating exists in the CRM, so there is no low-rating follow-up to wire up yet.
+- **Consent ledger** (migration 1161, `app/Modules/Consent/Services/ConsentLedgerService.php`).
+  - Each consent is recorded per contact and channel: express, implied or withdrawn, with source, date, proof and expiry.
+  - `refresh()` backfills it idempotently on Mia's prepare:
+    - implied consent from the latest completed job and the latest paid invoice, 2 years from that date;
+    - express consent from `consent_log`, confirmed double opt-ins and the contact's express fields;
+    - withdrawals from `consent_log`.
+  - Unsubscribes always win. Texts need express consent.
+  - `refresh()` also lifts `contacts.consent_email_implied_at` to match, so the campaign sender's `canSendMarketing()` agrees.
+  - It fills a missing `consent_email_express_at` from a confirmed opt-in. The opt-in confirm handler never set it, so confirmed people were being refused.
+- **Consent is a gate in the send path.** `MiaDeskService::send()` asks `ConsentLedgerService::allows()` at the moment Tim clicks Send. `MiaWording::compose()` refuses to build an email without a sender (company name and postal address) and a working unsubscribe link.
+- **Email only.** Marketing texts are off in v1, because a text can't carry an unsubscribe link and replies don't reach us.
+- **New suggestion `consent_ask`.** Implied consent runs out within 6 months and there is no express consent, so Mia asks for it while goodwill is high. The customer's own opt-in link is generated when Tim sends.
+- **First campaign: post-drought lawn recovery** (`MiaCampaignService`, `mia_campaigns` in 1160).
+  - Watering restrictions lift on October 15. Mia proposes aeration, overseeding and top-dressing to current clients plus neighbours of clients (within 400 m).
+  - The proposal shows the list size, the consent-passed count, and Tim's own published before/after pair if one fits.
+  - Nothing is sent until Tim approves with one tap. Approval creates a `marketing_campaigns` row (`custom_list`, `sending`) with `campaign_sends` for those who pass the ledger at that moment. The existing campaign sender cron then sends it.
+  - Campaign copy is refused if it contains a price or discount, an instruction to water, a reward for a review, or merge fields other than `{{first_name}}`.
+- **Autonomy.** Mia proposes; Tim sends or approves every message and campaign. Never:
+  - send without a consent record;
+  - write reviews or testimonials;
+  - offer rewards for reviews;
+  - show a client's address or face in marketing.
+
+### Later phases (not in v1)
+
+- Google Business Profile autopilot (posts and review replies).
+- Route-density targeting. This needs margin per property from the ledger.
+- Paid Local Services Ads.
+- Lead response. Sam owns new leads.
+- Referral auto-credit beyond what `ReferralRewardService` already does.
+- Marketing texts. These need a way to unsubscribe by text and to receive replies.
+- Featuring hearted jobs in Mia's posts.
+- A low-rating private follow-up, once a customer rating exists.
