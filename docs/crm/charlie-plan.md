@@ -24,7 +24,7 @@ Charlie reads every head, picks **the one thing that needs Tim today**, and buil
 
 ## 2. Unknowns, settled cheapest first
 
-1. **HeadBrain API.** It isn't on `feature/sam-sales-head` yet (no commits ahead, no file in that worktree). Settle by reading Sam's branch when it lands. Until then Charlie's brain service only produces counts.
+1. **HeadBrain API**: settled by the lead (see Update below).
 2. **Sam, Otto and Mia `brief()` shape and cost.** Settle from their branches. Each call is guarded and timed.
 3. **cPanel crontab timezone.** Registry `:335` shows autopay "9 AM" with expr `0 17`, which looks like UTC. Avoid the question entirely: run the cron hourly and have it send only when it is 07:xx in America/Vancouver and today's brief hasn't been sent. Tim confirms the crontab line in cPanel.
 4. **Prod, via Tim's logged-in Chrome (Database Manager, read-only):**
@@ -120,3 +120,22 @@ Charlie reads every head, picks **the one thing that needs Tim today**, and buil
 - `brief()` must be read-only and cheap: no AI calls, no `scan()`/`prepare()`, under 300 ms.
 - Allow `head` = `house` for unowned items.
 - **Deck merge risk.** Four branches editing the same `$__team` array will conflict. Proposal: the lead changes the deck once to skip any slug whose `<slug>-card.php` exists, and each head ships only its own include.
+
+## Update from the lead (accepted, 2026-10-05)
+
+- **Contract accepted.**
+  - Every item carries a required `key` (e.g. `sam:lead:12`) plus optional `kind`, `value` and `since`.
+  - `brief()` is read-only and cheap.
+  - `head` = `house` is allowed.
+  - Both of Charlie's adapters (Penny, house) emit keys in this form, e.g. `penny:question:<id>`, `penny:ready`, `house:overdue_invoices`.
+- **Deck.** The lead changes `dept-heads-deck.php` once, on `feature/sam-sales-head`, so that an existing `<slug>-card.php` replaces its placeholder. **This branch does not touch `dept-heads-deck.php`.** It ships only `public/crm/includes/charlie-card.php`.
+- **Brain.** Use the shared HeadBrain; drop the Charlie-specific baseline code.
+  - PHP: `(new HeadBrain($db, 'charlie'))->learned($raw, $labels)` returns `{units, parts, since}`. `$labels` maps each kind to `[one, many]`.
+  - `CharlieBrainService` only gathers `$raw` counts:
+    - kinds learned
+    - mute rules
+    - questions answered
+    - badges
+    - heads connected
+  - JS: `public/crm/js/head-brain.js` reads a `.mw-head-brain` button with `data-head="charlie"`, `data-units`, `data-bright`, `data-parts`, `data-since`, `data-empty` and `data-teach`. `data-bright` = Charlie's "Called it" hit rate over the last 7 days, or 0.5 with no history.
+- Build waits for Tim's approval.
