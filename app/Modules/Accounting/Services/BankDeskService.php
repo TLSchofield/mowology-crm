@@ -91,7 +91,9 @@ class BankDeskService
                 WHERE t.reference_type = 'bank_import' AND t.type IN ('expense', 'income')
                   AND COALESCE(t.status, '') NOT IN ('void', 'deleted')
                   AND (t.account_id IS NULL OR a.code IN ({$codes}))
-                  AND NOT EXISTS (SELECT 1 FROM bank_line_reviews r WHERE r.transaction_id = t.id)";
+                  AND NOT EXISTS (SELECT 1 FROM bank_line_reviews r WHERE r.transaction_id = t.id)
+                  AND NOT EXISTS (SELECT 1 FROM accounting_periods p WHERE p.status = 'locked'
+                                  AND p.year = YEAR(t.transaction_date) AND p.month = MONTH(t.transaction_date))";
     }
 
     /** The next lines for the card, newest first, each with her suggestion. */
@@ -219,7 +221,17 @@ class BankDeskService
                 if ($m) $rules[(int)$r['id']] = $m;
             }
         } catch (Throwable $e) { /* rules are one source of four */ }
-        return ['byCode' => $byCode, 'byAlias' => $byAlias, 'vendors' => $vendors, 'expenses' => $expenses, 'rules' => $rules,
+        // Rules you've confirmed 2+ times but that haven't earned 50 yet: Penny proposes them.
+        $learned = [];
+        try {
+            foreach ($this->db->query("SELECT r.condition_value, r.learned_count, c.id, c.code, c.name FROM transaction_rules r
+                                       JOIN chart_of_accounts c ON c.id = r.account_id
+                                       WHERE r.source = 'learned' AND r.condition_field = 'description' AND r.learned_count >= 2
+                                       ORDER BY r.learned_count DESC")->fetchAll(PDO::FETCH_ASSOC) as $lr) {
+                $learned[] = $lr;
+            }
+        } catch (Throwable $e) { /* one source of several */ }
+        return ['byCode' => $byCode, 'byAlias' => $byAlias, 'vendors' => $vendors, 'expenses' => $expenses, 'rules' => $rules, 'learned' => $learned,
                 'contractInvoices' => $contractInvoices, 'found' => $found];
     }
 
@@ -230,10 +242,14 @@ class BankDeskService
     public function decide(int $transactionId, string $action, ?int $accountId, ?int $suggestedId, array $user, ?int $expenseId = null): array
     {
         if (!$this->ready()) return ['ok' => false, 'message' => 'Needs migration 1129'];
-        $s = $this->db->prepare("SELECT id, account_id FROM accounting_transactions WHERE id = ? AND reference_type = 'bank_import'");
+        $s = $this->db->prepare("SELECT id, account_id, transaction_date FROM accounting_transactions WHERE id = ? AND reference_type = 'bank_import'");
         $s->execute([$transactionId]);
         $tx = $s->fetch(PDO::FETCH_ASSOC);
         if (!$tx) return ['ok' => false, 'message' => 'Bank line not found'];
+        require_once __DIR__ . '/LedgerService.php';
+        if ($action === 'approve' && (new LedgerService($this->db))->isLocked((string)$tx['transaction_date'])) {
+            return ['ok' => false, 'message' => substr((string)$tx['transaction_date'], 0, 7) . ' is locked — I can\'t change a line in a closed month.'];
+        }
 
         $outcome = 'kept';
         $learned = null;
@@ -263,7 +279,8 @@ class BankDeskService
         }
         $msg = $action === 'approve'
             ? ($learned && ($learned['action'] ?? '') !== 'skipped'
-                ? ($learned['active'] ? 'Done — and the import will now do this one by itself.' : 'Done — once more and the import does this one by itself.')
+                ? ($learned['active'] ? 'Done — that\'s ' . BankRuleLearning::CONFIRMATIONS . ' confirmations, so the import now does this one by itself.'
+                                      : 'Done — confirmed ' . (int)($learned['count'] ?? 1) . ' of ' . BankRuleLearning::CONFIRMATIONS . '; at ' . BankRuleLearning::CONFIRMATIONS . ' the import does this one by itself.')
                 : 'Done.')
             : 'Kept as it is.';
         return ['ok' => true, 'message' => $msg];
@@ -271,14 +288,20 @@ class BankDeskService
 
     /**
      * Link a bank line to its receipt (the receipts page's own attachExpenseMatch) and
-     * remove the bank line's separate entry in the books: the receipt's entry already
-     * carries that cost, so keeping both counted it twice.
+     * reverse the bank line's separate entry in the books: the receipt's entry already
+     * carries that cost, so keeping both counted it twice. Never deletes (append-only).
      */
     public function linkReceipt(int $transactionId, int $expenseId, int $userId): bool
     {
         try {
             (new BankImportService($this->db))->attachExpenseMatch($transactionId, $expenseId, $userId);
-            $this->db->prepare("DELETE FROM journal_entries WHERE source_type = 'bank_import' AND source_id = ?")->execute([$transactionId]);
+            // Append-only: the bank line's own entry is reversed, not deleted.
+            require_once __DIR__ . '/LedgerService.php';
+            $ledger = new LedgerService($this->db);
+            $entryId = $ledger->findEntryIdBySource('bank_import', $transactionId);
+            if ($entryId) {
+                $ledger->reverseEntry($entryId, $userId, 'linked to receipt #' . $expenseId . ' — the receipt carries this cost', 'penny');
+            }
             return true;
         } catch (Throwable $e) {
             error_log('Penny receipt link failed (tx ' . $transactionId . ', expense ' . $expenseId . '): ' . $e->getMessage());
@@ -389,6 +412,13 @@ class BankDeskService
                 $a = $ctx['byAlias'][strtolower((string)$v['default_accounting_category'])] ?? null;
                 if ($r = $pick($a, $v['name'] . ' is a vendor you book as ' . $v['default_accounting_category'], 'vendor')) return $r;
             }
+        }
+        // 2b. What you've taught her for this description (not yet trusted to act alone).
+        $key = BankImportService::descriptionKey($desc);
+        foreach ($ctx['learned'] ?? [] as $lr) {
+            if ($key === '' || strpos($key, (string)$lr['condition_value']) === false) continue;
+            $a = ['id' => (int)$lr['id'], 'code' => $lr['code'], 'name' => $lr['name']];
+            if ($r = $pick($a, 'You\'ve put this on ' . $lr['name'] . ' ' . (int)$lr['learned_count'] . ' times (the import does it alone at ' . BankRuleLearning::CONFIRMATIONS . ')', 'learned')) return $r;
         }
         // 3. A rule.
         $m = $ctx['rules'][(int)($line['id'] ?? 0)] ?? null;

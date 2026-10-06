@@ -897,7 +897,8 @@ function handleCheckDuplicates(PDO $db): void
 
 /**
  * POST {action:'merge', keep_id, discard_id, csrf_token}
- * Merge two duplicate expense records: keep one, delete the other.
+ * Merge two duplicate expense records: keep one; the other is rejected "Merged into
+ * receipt #N" and kept on record (never deleted — CRA six-year retention).
  * If the discarded expense has a receipt and the kept one doesn't,
  * the receipt is transferred before deletion.
  */
@@ -977,9 +978,20 @@ function handleMergeExpenses(PDO $db, ?array $input): void
     }
 
     // Delete the duplicate
-    $db->exec("DELETE FROM expenses WHERE id = " . $discardId);
+    // Never delete (six-year record): the merged-away receipt is rejected "Merged into
+    // receipt #N" and kept; if it had already posted to the books, that entry is reversed.
+    $db->prepare("UPDATE expenses SET status = 'rejected', rejection_reason = ? WHERE id = ?")
+       ->execute(['Merged into receipt #' . $keepId, $discardId]);
+    try {
+        require_once APP_ROOT . '/Modules/Accounting/Services/LedgerService.php';
+        $ledger = new LedgerService($db);
+        $entryId = $ledger->findEntryIdBySource('expense', $discardId);
+        if ($entryId) $ledger->reverseEntry($entryId, (int)(getCurrentUser()['id'] ?? 0), 'receipt merged into #' . $keepId);
+    } catch (Throwable $e) {
+        error_log('Merge: could not reverse the journal entry of expense ' . $discardId . ': ' . $e->getMessage());
+    }
 
-    echo json_encode(['success' => true, 'message' => 'Merged: expense #' . $discardId . ' deleted, #' . $keepId . ' kept.']);
+    echo json_encode(['success' => true, 'message' => 'Merged: expense #' . $discardId . ' set aside (kept on record), #' . $keepId . ' kept.']);
 }
 
 

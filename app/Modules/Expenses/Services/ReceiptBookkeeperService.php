@@ -102,19 +102,20 @@ class ReceiptBookkeeperService
         }
 
         $checked = is_array($parsed) ? self::check($parsed, $ctx) : ['suggestion' => [], 'checks' => []];
+        $pv = $this->hasPromptVersion();
         $this->db->prepare("
             INSERT INTO expense_suggestions
-                (expense_id, source, model, used_image, current_json, suggestion_json, checks_json,
+                (expense_id, source, model, " . ($pv ? 'prompt_version, ' : '') . "used_image, current_json, suggestion_json, checks_json,
                  status, input_tokens, output_tokens, error)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ")->execute([
-            $expenseId, $source, self::model(), $image ? 1 : 0,
+            VALUES (?, ?, ?, " . ($pv ? '?, ' : '') . "?, ?, ?, ?, ?, ?, ?, ?)
+        ")->execute(array_merge([$expenseId, $source, self::model()], $pv ? [self::promptVersion()] : [], [
+            $image ? 1 : 0,
             json_encode($ctx['current']), json_encode($checked['suggestion']), json_encode($checked['checks']),
             $error ? 'error' : ($source === 'backtest' ? 'scored' : 'pending'),
             isset($usage) ? (int)($usage['input_tokens'] ?? 0) + (int)($usage['cache_read_input_tokens'] ?? 0) + (int)($usage['cache_creation_input_tokens'] ?? 0) : null,
             isset($usage) ? (int)($usage['output_tokens'] ?? 0) : null,
             $error ? substr($error, 0, 255) : null,
-        ]);
+        ]));
 
         return [
             'id'         => (int)$this->db->lastInsertId(),
@@ -123,6 +124,19 @@ class ReceiptBookkeeperService
             'checks'     => $checked['checks'],
             'error'      => $error,
         ];
+    }
+
+    private function hasPromptVersion(): bool
+    {
+        static $has = null;
+        if ($has === null) {
+            try {
+                $has = $this->db->query("SHOW COLUMNS FROM expense_suggestions LIKE 'prompt_version'")->rowCount() > 0;
+            } catch (Throwable $e) {
+                $has = false;
+            }
+        }
+        return $has;
     }
 
     private function send(array $body): array
@@ -165,7 +179,7 @@ For the receipt you're given, decide:
 - accounting_category: one of the listed categories.
 - asset_tag: "truck" or "equipment" when the cost belongs to the Dodge Ram truck or to the landscaping equipment (mowers, trimmers, blowers); "stock" when it's shop stock — bought to keep on hand, not for one job (then job is null); "none" otherwise. Fuel always gets a tag. If the vendor's history shows the owner booking similar items as stock, follow that.
 - job: the job (plan_id from the candidates) the purchase was for, or null when it wasn't for one specific job (shop supplies, fuel, office) or you can't tell. Materials are almost never carried for two days: candidates whose source is 'where the truck/crew went' are where the truck or crew actually stopped after the purchase that day — prefer the first of those over the planned schedule.
-- subtotal, gst, pst, total as printed on the receipt. In BC, GST is 5% and PST is 7%; some items carry only GST (e.g. food, some services), some neither. Read the printed amounts rather than computing them; if a tax isn't printed, use 0.
+- subtotal, gst, pst, total as printed on the receipt. In BC, GST is 5% and PST is 7%; some items carry only GST (e.g. food, some services), some neither. Read the printed amounts — never compute, round or adjust an amount yourself. If a figure isn't printed, use 0 for a tax, or the nearest printed figure for the total, and say in your reason what was missing; if the reader's value differs from the print, give the printed value. Code checks every amount against the receipt text.
 - line_items: each purchased item as printed, with its amount. Omit non-items (subtotals, tax lines, payment lines, store messages).
 
 The owner's rules are given as rule_hits. A "firm" rule is how the owner books it — follow it. A "soft" rule is a strong hint you may overrule when the receipt clearly says otherwise; say why.
@@ -487,7 +501,38 @@ TXT;
             }
         }
 
+        // Amounts must be read, never worked out (guardrail: the AI does no arithmetic that
+        // lands in the books). A total / GST / PST / subtotal that doesn't appear on the
+        // receipt text is flagged for the owner to check.
+        $text = (string)($ctx['prompt']['receipt_text'] ?? '');
+        if ($text !== '') {
+            foreach (['total' => 'Total', 'subtotal' => 'Subtotal', 'gst' => 'GST', 'pst' => 'PST'] as $f => $label) {
+                $v = $num($f);
+                if ($v !== null && $v > 0 && !self::printed($v, $text)) {
+                    $add('printed', false, sprintf("%s %.2f isn't printed on the receipt — check it", $label, $v));
+                }
+            }
+        }
+
         return ['suggestion' => $s, 'checks' => $checks];
+    }
+
+    /** Is this amount printed on the receipt ("12.40", "12,40", "$12.4" all count)? Pure. */
+    public static function printed(float $amount, string $text): bool
+    {
+        $t = preg_replace('/(\d),(\d{2})(?!\d)/', '$1.$2', $text);           // 12,40 → 12.40
+        $full = number_format($amount, 2, '.', '');
+        $short = rtrim(rtrim($full, '0'), '.');
+        // The number must stand on its own: not part of a longer number, and a short
+        // form ("12.4", "12") may not be the start of a longer decimal ("12.40").
+        if (preg_match('/(?<![0-9.])' . preg_quote($full, '/') . '(?![0-9])/', $t)) return true;
+        return $short !== $full && preg_match('/(?<![0-9.])' . preg_quote($short, '/') . '(?![0-9]|\.[0-9])/', $t) === 1;
+    }
+
+    /** Which instructions produced a suggestion — recorded with every one (audit trail). */
+    public static function promptVersion(): string
+    {
+        return substr(sha1(self::SYSTEM_PROMPT . json_encode(self::schema())), 0, 10);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

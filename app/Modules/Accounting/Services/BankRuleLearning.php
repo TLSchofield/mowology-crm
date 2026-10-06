@@ -8,7 +8,7 @@
  * learned rules pointed at Miscellaneous, e.g. "point sale shell" → Miscellaneous ×53).
  * Now:
  *   - a line on a default account (4900, 6900) never teaches;
- *   - a learned rule switches on only after CONFIRMATIONS (2) confirmations: an import
+ *   - a learned rule switches on only after CONFIRMATIONS (50) confirmations: an import
  *     committed with the line unchanged counts as one, an owner's correction as one;
  *   - a correction overrides: learned rules sending the same description elsewhere are
  *     switched off (and their count reset), so a wrong rule can't keep winning.
@@ -20,7 +20,8 @@
 class BankRuleLearning
 {
     public const DEFAULT_ACCOUNT_CODES = ['4900', '6900'];   // Other Services, Miscellaneous
-    public const CONFIRMATIONS = 2;
+    /** Earned autonomy (bookkeeping-agent guardrails, 2026-10-05): 50 right in a row before a rule acts alone. */
+    public const CONFIRMATIONS = 50;
 
     private PDO $db;
     private ?array $defaultIds = null;
@@ -62,7 +63,7 @@ class BankRuleLearning
             $active = self::isTrusted($count);
             $this->db->prepare("UPDATE transaction_rules SET learned_count = ?, is_active = ?, last_learned_at = NOW() WHERE id = ?")
                ->execute([$count, $active ? 1 : 0, (int)$rule['id']]);
-            return ['action' => 'confirmed', 'rule_id' => (int)$rule['id'], 'active' => $active];
+            return ['action' => 'confirmed', 'rule_id' => (int)$rule['id'], 'active' => $active, 'count' => $count];
         }
 
         $priority = (int)$this->db->query("SELECT COALESCE(MAX(priority), 8999) FROM transaction_rules WHERE source = 'learned'")->fetchColumn() + 1;
@@ -73,7 +74,7 @@ class BankRuleLearning
             VALUES (?, ?, ?, 'description', 'contains', ?, ?, ?, ?, 'learned', 1, NOW(), ?, NOW())
         ")->execute(['Learned: ' . mb_substr(trim($description), 0, 80), $priority, $type, $key, $accountId, $type,
                      self::isTrusted(1) ? 1 : 0, $userId]);
-        return ['action' => 'created', 'rule_id' => (int)$this->db->lastInsertId(), 'active' => self::isTrusted(1)];
+        return ['action' => 'created', 'rule_id' => (int)$this->db->lastInsertId(), 'active' => self::isTrusted(1), 'count' => 1];
     }
 
     /** Learn from an owner's recategorization of a transaction already in the books. */

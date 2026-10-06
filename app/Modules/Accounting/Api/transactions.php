@@ -144,6 +144,13 @@ try {
             $id        = (int)($input['id']        ?? 0);
             $accountId = (int)($input['account_id'] ?? 0);
             if (!$id || !$accountId) throw new Exception('Missing id or account_id');
+            // A locked month can't be changed (period lock).
+            require_once APP_ROOT . '/Modules/Accounting/Services/LedgerService.php';
+            $dt = $db->prepare("SELECT transaction_date FROM accounting_transactions WHERE id = ?");
+            $dt->execute([$id]);
+            if (($d = $dt->fetchColumn()) && (new LedgerService($db))->isLocked((string)$d)) {
+                throw new Exception(substr((string)$d, 0, 7) . ' is locked — this transaction can\'t be changed.');
+            }
 
             $svc->updateTransaction($id, [
                 'account_id'         => $accountId,

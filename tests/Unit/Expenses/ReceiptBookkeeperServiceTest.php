@@ -148,4 +148,15 @@ class ReceiptBookkeeperServiceTest extends TestCase
         };
         $walk(ReceiptBookkeeperService::schema());
     }
+
+    public function test_an_amount_must_be_printed_on_the_receipt(): void
+    {
+        $text = "CITY OF VANCOUVER\nGREEN WASTE 100 KG @ 124/T\nAMOUNT 12.40\nGST 0.00";
+        $this->assertTrue(ReceiptBookkeeperService::printed(12.40, $text));
+        $this->assertTrue(ReceiptBookkeeperService::printed(12.4, "TOTAL $12.4"));
+        $this->assertFalse(ReceiptBookkeeperService::printed(12.00, $text), 'the reader\'s 12.00 is not on the ticket');
+        $this->assertFalse(ReceiptBookkeeperService::printed(2.40, "TOTAL 12.40"), 'part of a bigger number does not count');
+        $c = ReceiptBookkeeperService::check(['total' => ['value' => 15.00]], ['prompt' => ['receipt_text' => $text]]);
+        $this->assertContains('printed', array_column(array_filter($c['checks'], fn($x) => !$x['ok']), 'check'));
+    }
 }

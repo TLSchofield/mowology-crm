@@ -102,7 +102,7 @@
             '<div class="mw-rc-dup-facts"><b>' + esc(name) + '</b><span>' + esc(r.expense_date || '') + ' · ' + money(r.total) + '</span>' +
             '<small>#' + esc(r.id) + ' · ' + esc(String(r.status || '').replace('_', ' ')) + (r.submitted_by ? ' · from ' + esc(r.submitted_by) : '') + '</small></div>' +
             (waiting
-                ? '<button type="button" class="mw-rc-ed" data-dup-remove="' + esc(r.id) + '">✕ Remove — it\'s a copy</button>'
+                ? '<button type="button" class="mw-rc-ed" data-dup-remove="' + esc(r.id) + '">✕ It\'s a copy — set aside</button>'
                 : '<div class="mw-rc-dup-note">Already ' + (r.status === 'forwarded' ? 'sent to accounting' : 'approved') + ' — this one stays</div>') +
           '</div>';
     }
@@ -113,7 +113,7 @@
                 ' · sorted before anything is approved</span></div>' +
             '<div class="mw-rc-dup-say">' + (GREETING ? 'Hey ' + esc(GREETING) + ' — ' : '') +
                 (n === 2 ? 'these two look' : 'these ' + n + ' look') + ' like the same purchase: same total, within 3 days. ' +
-                'Remove the copies and keep one — a removed copy\'s photo moves to the one you keep if that has none.</div>' +
+                'Set the copies aside and keep one — they\'re kept on record, not deleted, and a copy\'s photo moves to the one you keep if that has none.</div>' +
             '<div class="mw-rc-dup">' + g.members.map(dupCard).join('') + '</div>' +
             '<div class="mw-rc-actions">' +
               '<button type="button" class="mw-rc-ed" data-dup-not="1">' + (n === 2 ? 'Not duplicates' : 'None of these are duplicates') + ' — approve ' + (n === 2 ? 'both' : 'them all') + '</button>' +
@@ -127,26 +127,17 @@
         var settled = others.filter(function (m) { return WAITING.indexOf(m.status) === -1; });
         return (settled[0] || others[0]).id;
     }
-    function keeperSettled(g, removeId) {
-        var k = keeperFor(g, removeId);
-        return g.members.some(function (m) { return String(m.id) === String(k) && WAITING.indexOf(m.status) === -1; });
-    }
     function settleDupe(removeId, notDupe) {
         if (busy || !dupes.length) return;
         var g = dupes[0];
         busy = true;
         var req = notDupe
             ? post({ mode: 'not_dupe', pairs: g.pairs })
-            : fetch('/crm/api/expenses.php', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                // An approved/sent receipt is locked: keep all its fields (no photo carried over).
-                body: JSON.stringify({ action: 'merge', csrf_token: window.MW_CSRF_TOKEN || '', keep_id: keeperFor(g, removeId), discard_id: removeId,
-                    fields: keeperSettled(g, removeId) ? { receipt: 'keep' } : undefined }) })
-                .then(function (r) { return r.json(); })
-                .then(function (d) { return { ok: !!(d && d.success), message: d && (d.message || d.error) }; });
+            : post({ mode: 'dupe_remove', copy_id: removeId, keep_id: keeperFor(g, removeId) });
         req.then(function (d) {
             busy = false;
             if (!(d && d.ok)) { renderDupe((d && d.message) || 'Could not save'); return; }
-            load().then(function () { if (!dupes.length) render(notDupe ? 'Got it — they go on for approval.' : 'Done — copy removed.'); else renderDupe(notDupe ? 'Got it — not duplicates.' : 'Copy removed.'); });
+            load().then(function () { if (!dupes.length) render(notDupe ? 'Got it — they go on for approval.' : (d.message || 'Copy set aside.')); else renderDupe(notDupe ? 'Got it — not duplicates.' : (d.message || 'Copy set aside.')); });
         }).catch(function () { busy = false; renderDupe('Network error — try again'); });
     }
 

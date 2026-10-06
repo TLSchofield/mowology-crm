@@ -140,9 +140,35 @@
                                 return '<li>' + esc(s.from) + ' → ' + esc(s.to) + ': ' + esc(s.problems.join('; ')) + '</li>';
                             }).join('') + '</ul>' : '<p>' + (a.unproven ? 'Nothing wrong found. Statements imported from now on are proven against their balances.' : 'All statements on this account check out.') + '</p>') +
                             '</details>';
-                    }).join('');
+                    }).join('') +
+                    '<div class="mw-sc-lock">' +
+                      ((d.lockable || []).length
+                        ? '<span>Ready to close:</span> ' + d.lockable.slice(-6).map(function (m) {
+                              return '<button type="button" class="mw-rc-ed" data-lock="' + esc(m) + '">🔒 Lock ' + esc(m) + '</button>';
+                          }).join(' ')
+                        : '<span>No month is ready to close yet.</span>') +
+                      ((d.locked || []).length ? ' <span class="mw-sc-un">Locked: ' + esc(d.locked.slice(-6).join(', ')) + '</span>' : '') +
+                      (d.balances ? '' : '<div class="mw-sc-un">Run migration 1068 so new statements are proven against their balances.</div>') +
+                    '</div><div class="mw-rc-msg" data-sc-msg></div>';
             })
             .catch(function () { sc.hidden = true; });
+    }
+    if (sc) {
+        sc.addEventListener('click', function (e) {
+            var m = e.target.getAttribute && e.target.getAttribute('data-lock');
+            if (!m) return;
+            if (!e.target.classList.contains('is-confirm')) {      // two clicks: locking can't be undone here
+                e.target.classList.add('is-confirm');
+                e.target.textContent = 'Lock ' + m + '? Nothing in it can change after';
+                return;
+            }
+            e.target.disabled = true;
+            post({ mode: 'lock_month', month: m }).then(function (d) {
+                var msg = (d && (d.message || d.error)) || 'Could not lock';
+                loadClose();
+                setTimeout(function () { var el = sc.querySelector('[data-sc-msg]'); if (el) el.textContent = msg; }, 600);
+            }).catch(function () { e.target.disabled = false; });
+        });
     }
     loadClose();
 })();

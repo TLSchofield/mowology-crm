@@ -9,6 +9,8 @@
  * delete the entry (its lines cascade) and post it again through the same recipe the
  * nightly sync uses. If a re-post fails after the delete, the nightly sync posts the
  * missing entry again — with the new accounts — so nothing is left out.
+ * Append-only (2026-10-05): the old entry is REVERSED (a mirror entry, linked), never
+ * deleted; needs migration 1131 so a reversed source can be posted again.
  * Payments, bank lines and manual / adjusting entries are never touched.
  *
  * Run from public/crm/api/run-repost-ledger.php (dry-run by default, typed confirm).
@@ -76,8 +78,11 @@ class LedgerRepostService
     }
 
     /** Re-post what plan() found. @return array{reposted: int, failed: int, errors: array} */
-    public function apply(): array
+    public function apply(?int $userId = null): array
     {
+        if (!$this->ledger->canRepostSource()) {
+            return ['reposted' => 0, 'failed' => 0, 'errors' => ['Run migration 1131 first — the books are corrected with reversing entries now, never deletes.']];
+        }
         $p = $this->plan();
         $done = 0; $failed = 0; $errors = [];
         $invRows = $this->rowsById("SELECT id, subtotal, tax_amount, total, amount_paid, status, contact_id, plan_id, contract_id,
@@ -91,7 +96,8 @@ class LedgerRepostService
                 $row = $invRows[$item['id']];
                 $args = $this->sync->mapInvoiceToInvoiceArgs($row);
                 $args['revenue_splits'] = $this->map->invoiceSplits($row, $args['net']);
-                $this->db->prepare("DELETE FROM journal_entries WHERE id = ? AND source_type = 'invoice'")->execute([$item['entry_id']]);
+                $this->ledger->reverseEntry((int)$item['entry_id'], $userId, 'invoice re-posted to the right income account');
+                $args['created_by'] = $userId; $args['proposed_by'] = 'owner';
                 $this->ledger->postInvoice($args);
                 $done++;
             } catch (Throwable $e) {
@@ -101,7 +107,7 @@ class LedgerRepostService
         foreach ($p['expenses'] as $item) {
             try {
                 $args = $this->sync->expenseArgs($expRows[$item['id']]);
-                $this->db->prepare("DELETE FROM journal_entries WHERE id = ? AND source_type = 'expense'")->execute([$item['entry_id']]);
+                $this->ledger->reverseEntry((int)$item['entry_id'], $userId, 'receipt re-posted to the right expense account');
                 $this->ledger->postExpense($args);
                 $done++;
             } catch (Throwable $e) {
@@ -120,6 +126,7 @@ class LedgerRepostService
             JOIN journal_lines jl ON jl.entry_id = je.id
             JOIN chart_of_accounts c ON c.id = jl.account_id
             WHERE je.source_type IN ('invoice', 'expense') AND je.status = 'posted' AND je.source_id IS NOT NULL
+              AND je.reversed_by_entry_id IS NULL
         ")->fetchAll(PDO::FETCH_ASSOC);
         $out = ['invoice' => [], 'expense' => []];
         foreach ($rows as $r) {

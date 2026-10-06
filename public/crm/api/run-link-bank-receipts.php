@@ -5,7 +5,7 @@
  * GET shows what would be linked and how much was being counted twice — changes nothing.
  * POST (admin, CSRF, typed confirm LINK-RECEIPTS) links them: each bank line is attached
  * to its receipt (the receipts page's own attach) and the bank line's separate entry in
- * the books is removed, since the receipt's entry already carries that cost. Weaker
+ * the books is reversed (never deleted), since the receipt's entry already carries that cost. Weaker
  * matches are left for Penny's review on the dashboard. Safe to run again.
  */
 declare(strict_types=1);
@@ -62,7 +62,7 @@ $doubles = count(array_filter($plan['links'], fn($x) => $x['double']));
    <b><?= count($plan['links']) ?></b> have a clear match (exact amount, within 3 days, vendor name on the statement, no close second).
    <?= (int)$plan['weak'] ?> have only a possible match — Penny will show you those one at a time.</p>
 <p><b><?= $doubles ?></b> of these were counted twice in your books (the bank line and the receipt each posted):
-   <b><?= h($money($plan['double_counted'])) ?></b> of cost that linking removes.</p>
+   <b><?= h($money($plan['double_counted'])) ?></b> of cost that linking reverses out (a reversing entry — nothing is deleted).</p>
 
 <?php if ($plan['links']): ?>
   <table border="1" cellpadding="5" style="border-collapse: collapse; font-size: 14px;">

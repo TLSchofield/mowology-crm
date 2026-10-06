@@ -10,7 +10,8 @@
  * Clear = the receipts page's own scoring (BankImportService::candidateExpensesForTransaction)
  * gives the best receipt at least STRONG, and no other receipt comes within GAP of it.
  * Best matches are taken first; a receipt is linked to one line only. Linking uses
- * BankDeskService::linkReceipt (attachExpenseMatch + remove the bank line's own entry).
+ * BankDeskService::linkReceipt (attachExpenseMatch + reverse the bank line's own entry —
+ * append-only, never deleted).
  * Weaker matches are left for Penny's review on the dashboard.
  *
  * Run from public/crm/api/run-link-bank-receipts.php (dry-run first, typed confirm).

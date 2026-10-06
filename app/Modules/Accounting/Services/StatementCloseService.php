@@ -74,6 +74,32 @@ class StatementCloseService
         return $out;
     }
 
+    /** Locked months (YYYY-MM). */
+    public function lockedMonths(): array
+    {
+        try {
+            return array_map(fn($r) => sprintf('%04d-%02d', $r['year'], $r['month']),
+                $this->db->query("SELECT year, month FROM accounting_periods WHERE status = 'locked' ORDER BY year, month")->fetchAll(PDO::FETCH_ASSOC));
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+
+    /** Lock a month — the owner's close. Nothing in it can be changed after this. */
+    public function lockMonth(string $ym, int $userId): array
+    {
+        if (!preg_match('/^(\d{4})-(\d{2})$/', $ym, $m)) return ['ok' => false, 'message' => 'Which month?'];
+        if (!in_array($ym, self::lockable($this->status(), $this->lockedMonths()), true)) {
+            return ['ok' => false, 'message' => "{$ym} isn't ready to lock — a statement covering it has a problem, or it's already locked."];
+        }
+        $this->db->prepare("
+            INSERT INTO accounting_periods (year, month, label, status, closed_at, closed_by)
+            VALUES (?, ?, ?, 'locked', NOW(), ?)
+            ON DUPLICATE KEY UPDATE status = 'locked', closed_at = NOW(), closed_by = VALUES(closed_by)
+        ")->execute([(int)$m[1], (int)$m[2], $ym, $userId]);
+        return ['ok' => true, 'message' => "{$ym} is locked. Anything that turns up late for it goes into the current month."];
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Pure (unit tested)
     // ─────────────────────────────────────────────────────────────────────────
@@ -109,6 +135,33 @@ class StatementCloseService
         $unproven = count(array_filter($statements, fn($s) => $s['unproven']));
         return ['statements' => $statements, 'gaps' => self::gaps($rows), 'closed' => $closed, 'unproven' => $unproven,
                 'open' => count($statements) - $closed - $unproven];
+    }
+
+    /**
+     * Months that can be locked: before the current month, covered by a statement on
+     * every account that has statements around it, none of those statements with a
+     * problem, and not already locked.
+     */
+    public static function lockable(array $accounts, array $locked, ?string $today = null): array
+    {
+        $current = substr($today ?? date('Y-m-d'), 0, 7);
+        $months = [];
+        foreach ($accounts as $a) {
+            foreach ($a['statements'] as $st) {
+                $from = substr((string)$st['from'], 0, 7);
+                $to = substr((string)($st['to'] ?: $st['from']), 0, 7);
+                for ($m = $from; $m <= $to; $m = date('Y-m', strtotime($m . '-01 +1 month'))) {
+                    $months[$m] = ($months[$m] ?? true) && empty($st['problems']);
+                }
+            }
+            foreach ($a['gaps'] as $g) $months[$g] = false;
+        }
+        $out = [];
+        foreach ($months as $m => $fine) {
+            if ($fine && $m < $current && !in_array($m, $locked, true)) $out[] = $m;
+        }
+        sort($out);
+        return $out;
     }
 
     /** Months (YYYY-MM) between the first and last statement that no statement covers. */

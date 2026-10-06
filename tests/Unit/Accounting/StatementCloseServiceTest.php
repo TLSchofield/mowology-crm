@@ -45,4 +45,16 @@ class StatementCloseServiceTest extends TestCase
         $this->assertSame(0, $r['open']);
         $this->assertSame(1, $r['unproven']);
     }
+
+    public function test_only_clean_past_months_can_be_locked(): void
+    {
+        $accounts = [StatementCloseService::check([
+            $this->st(1, '2026-07-01', '2026-07-31', 1000, 1200, 200),
+            $this->st(2, '2026-08-01', '2026-08-31', 1200, 900, -300, 3),
+            $this->st(3, '2026-09-01', '2026-09-30', null, null, 10),
+            $this->st(4, '2026-10-01', '2026-10-31', null, null, 10),
+        ])];
+        $this->assertSame(['2026-09'], StatementCloseService::lockable($accounts, ['2026-07'], '2026-10-05'),
+            'July already locked, August has missing lines, October is the current month');
+    }
 }

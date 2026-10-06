@@ -46,7 +46,7 @@ if (!$map->ready()) {
     if (($_POST['confirm'] ?? '') !== CONFIRM_PHRASE) {
         $message = 'Type ' . CONFIRM_PHRASE . ' to confirm. Nothing was changed.';
     } else {
-        $result = (new LedgerRepostService($db))->apply();
+        $result = (new LedgerRepostService($db))->apply((int)(getCurrentUser()['id'] ?? 0));
         $message = "Re-posted {$result['reposted']} entries" . ($result['failed'] ? ", {$result['failed']} failed (the nightly sync will post those again)" : '') . '.';
     }
 }

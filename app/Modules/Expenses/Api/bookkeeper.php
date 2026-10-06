@@ -223,7 +223,18 @@ try {
         case 'close_status': {
             require_once APP_ROOT . '/Modules/Accounting/Services/StatementCloseService.php';
             $close = new StatementCloseService($db);
-            echo json_encode(['ok' => true, 'ready' => $close->ready(), 'accounts' => $close->status()]);
+            $accts = $close->status();
+            $locked = $close->lockedMonths();
+            echo json_encode(['ok' => true, 'ready' => $close->ready(), 'accounts' => $accts, 'locked' => $locked,
+                              'lockable' => StatementCloseService::lockable($accts, $locked), 'balances' => $close->hasBalances()]);
+            break;
+        }
+
+        case 'lock_month': {
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            if (!isAdmin()) throw new RuntimeException('Only an admin can lock a month');
+            require_once APP_ROOT . '/Modules/Accounting/Services/StatementCloseService.php';
+            echo json_encode((new StatementCloseService($db))->lockMonth((string)($input['month'] ?? ''), (int)$user['id']));
             break;
         }
 
@@ -250,6 +261,13 @@ try {
             require_once APP_ROOT . '/Modules/Expenses/Services/DuplicateReceiptService.php';
             $pairs = array_map(fn($k) => array_map('intval', explode('-', $k)), array_keys((new DuplicateReceiptService($db))->dismissed()));
             echo json_encode(['ok' => true, 'pairs' => $pairs]);
+            break;
+        }
+
+        case 'dupe_remove': {
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            require_once APP_ROOT . '/Modules/Expenses/Services/DuplicateReceiptService.php';
+            echo json_encode((new DuplicateReceiptService($db))->removeCopy((int)($input['copy_id'] ?? 0), (int)($input['keep_id'] ?? 0), $user));
             break;
         }
 

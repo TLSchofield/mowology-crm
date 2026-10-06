@@ -15,10 +15,10 @@ class BankRuleLearningTest extends TestCase
         $this->assertTrue(BankRuleLearning::teaches('point sale shell', 31, [49, 69]));
     }
 
-    public function test_a_rule_switches_on_after_two_confirmations(): void
+    public function test_a_rule_acts_alone_only_after_fifty_confirmations(): void
     {
-        $this->assertFalse(BankRuleLearning::isTrusted(1));
-        $this->assertTrue(BankRuleLearning::isTrusted(2));
+        $this->assertFalse(BankRuleLearning::isTrusted(49));
+        $this->assertTrue(BankRuleLearning::isTrusted(50));
     }
 
     public function test_description_key_is_shared_with_the_import(): void
