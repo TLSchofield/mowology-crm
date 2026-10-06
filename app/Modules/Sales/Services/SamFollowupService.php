@@ -401,7 +401,7 @@ class SamFollowupService
     {
         $facts = array_map(fn($q) => $q['number'] . ': ' . ($q['service'] ?: 'service') . ($q['address'] !== '' ? ' at ' . $q['address'] : '')
             . ', ' . SalesDeskService::money((float)$q['amount']) . (!empty($q['valid_until']) ? ', valid until ' . $q['valid_until'] : ''), $card['quotes'] ?? []);
-        $thread = array_map(fn($m) => ($m['dir'] === 'inbound' ? 'CUSTOMER' : 'US') . ' (' . $m['at'] . '): ' . trim((string)$m['snippet']),
+        $thread = array_map(fn($m) => ($m['dir'] === 'inbound' ? 'CUSTOMER' : 'US') . (($m['channel'] ?? '') === 'sms' ? ' by text' : '') . ' (' . $m['at'] . '): ' . trim((string)$m['snippet']),
             array_reverse($card['thread'] ?? []));
         $rules = self::copyRules();
         $system = ($rules !== '' ? $rules . "\n\n---\n\n" : '') . "You draft short, friendly, plain emails for {$owner}, owner of Mowology, a landscaping and snow removal company in Vancouver. "

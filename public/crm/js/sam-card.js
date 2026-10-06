@@ -18,6 +18,7 @@
     var SMS_MAX = 160;
 
     var queue = [], leads = [], questions = [];
+    var texts = null;        // messages bridge heartbeat {at, silent, minutes}, null = not set up
     var idx = 0, busy = false;
     var edits = {};          // card key → {channel, subject, body, sms} while Tim types
 
@@ -63,7 +64,7 @@
             .then(function (r) { return r.json(); })
             .then(function (d) {
                 if (!d || !d.ok) { root.innerHTML = '<div class="mw-rc-empty">Sam isn\'t set up yet.</div>'; return; }
-                queue = d.queue || []; leads = d.leads || []; questions = d.questions || [];
+                queue = d.queue || []; leads = d.leads || []; questions = d.questions || []; texts = d.texts || null;
                 if (idx >= queue.length) idx = 0;
                 render(); renderLeads(); renderQuestions();
             })
@@ -159,10 +160,16 @@
 
         var thread = (c.thread || []).length
             ? '<div class="mw-sam-thread">' + c.thread.slice(0, 3).map(function (m) {
+                var isText = m.channel === 'sms';
                 return '<div class="mw-sam-msg ' + (m.dir === 'inbound' ? 'is-in' : 'is-out') + '"><small>' + (m.dir === 'inbound' ? esc(c.first_name || 'Them') : 'Us') +
-                    ' · ' + esc(ago(m.at)) + (m.subject ? ' · ' + esc(m.subject) : '') + '</small><div>' + esc(m.snippet || '(no text)') + '</div></div>';
+                    ' · ' + (isText ? 'text · ' : '') + esc(ago(m.at)) + (!isText && m.subject ? ' · ' + esc(m.subject) : '') + '</small><div>' + esc(m.snippet || '(no text)') + '</div></div>';
             }).join('') + '</div>'
-            : '<div class="mw-sam-thread is-empty"><small>No emails with ' + esc(c.first_name || c.name) + ' in office@ yet.</small></div>';
+            : '<div class="mw-sam-thread is-empty"><small>No emails' + (texts ? ' or texts' : '') + ' with ' + esc(c.first_name || c.name) + ' yet.</small></div>';
+        if (texts && texts.silent) {
+            thread += '<div class="mw-sam-thread is-empty"><small>The Mac hasn\'t sent texts for ' +
+                (texts.minutes < 2880 ? Math.round(texts.minutes / 60) + ' hours' : Math.round(texts.minutes / 1440) + ' days') +
+                ' — it may be asleep, or lost Full Disk Access.</small></div>';
+        }
 
         var isSms = st.channel === 'sms';
         var text = isSms ? st.sms : st.body;

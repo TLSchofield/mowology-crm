@@ -70,7 +70,39 @@ them were duplicates of the same rule, each had fired 132 times.
 `sales_inbox_poll`) reads office@ INBOX + Sent with `OP_READONLY` / `FT_PEEK` — it never
 marks, moves or deletes mail. Only mail from or to a known contact email is kept, and only
 the new text (quoted history stripped, ≤800 chars) in `sales_messages`. First run backfills
-90 days. Tim's personal mail is not read. Texts customers send to Tim's phone are not seen.
+90 days. Tim's personal mail is not read. Texts are covered by the bridge below.
+
+## Texts (iMessage bridge)
+
+Customers text Tim's phone. `tools/messages-bridge/bridge.py` runs on Tim's Mac (launchd,
+every 5 min, Python 3.9 stdlib) and opens the Messages database **read-only** (`?mode=ro`).
+
+- **One-to-one chats only** — any chat with more than one handle is skipped. Tapbacks
+  (`associated_message_type != 0`) and attachment-only messages are skipped.
+- **Matching never exposes a number.** `GET ?mode=numbers` returns a server salt
+  (`ops_settings` `text_bridge_salt`, made on first use) and `sha256(salt + last 10 digits)`
+  for every active, non-ZZTEST contact's `phone` / `mobile` — no ids, no numbers. The Mac
+  hashes each conversation's number the same way; **only matches are sent**. Texts with
+  anyone else are never sent, logged or printed.
+- `POST mode=ingest` (≤500 per call): `{hash, direction: in|out, sent_at (unix), guid, text}`
+  → `sales_messages` with `mailbox 'imessage'`, `channel 'sms'`, `message_key 'imsg-'+guid`
+  (re-sends are ignored), `from_addr`/`to_addr` = `'text'` (the number is not stored),
+  snippet ≤800 chars. Unknown hashes are rejected.
+- `POST mode=heartbeat` every run (counts only) → `ops_settings` `text_bridge_heartbeat`.
+  The desk response carries `texts` (`TextBridgeService::status()`); after 60 silent
+  minutes Sam's card says the Mac hasn't sent texts.
+- Sam's thread labels them "text"; a customer's text counts as "wrote back" exactly like
+  an email, and Tim's own texts from his phone count as our last touch. Mia's reply counts
+  read inbound `sales_messages` without a channel filter, so texts count there too.
+
+Endpoint: `/crm/api/text-bridge.php` (shim → `app/Modules/Sales/Api/text-bridge.php`), no
+session — bearer token compared with `hash_equals` against `SALES_TEXT_BRIDGE_TOKEN` in
+`secrets.php` (also accepted as `X-Bridge-Token` for hosts that strip `Authorization`).
+Undefined or shorter than 32 characters → 503 "not configured".
+
+Setup (Tim): see `tools/messages-bridge/README.md` — token (`openssl rand -hex 32`) in
+`secrets.php` and in `~/Library/Application Support/mowology-bridge/token` (chmod 600),
+Full Disk Access for Terminal and `/usr/bin/python3`, `--dry-run`, then `install.sh`.
 
 ## Setup
 
@@ -81,4 +113,6 @@ the new text (quoted history stripped, ≤800 chars) in `sales_messages`. First 
 
 ## Tests
 
-`tests/Unit/Sales/*` and `tests/Unit/Core/HeadBrainTest.php`.
+`tests/Unit/Sales/*` and `tests/Unit/Core/HeadBrainTest.php`. The bridge:
+`cd tools/messages-bridge && /usr/bin/python3 -m unittest discover -s tests` (synthetic
+chat.db only; the hash test vector is shared with `TextBridgeServiceTest`).

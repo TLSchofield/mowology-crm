@@ -56,6 +56,7 @@ try {
     require_once APP_ROOT . '/Modules/Sales/Services/SalesDeskService.php';
     require_once APP_ROOT . '/Modules/Sales/Services/SamFollowupService.php';
     require_once APP_ROOT . '/Modules/Sales/Services/SamQuestionService.php';
+    require_once APP_ROOT . '/Modules/Sales/Services/TextBridgeService.php';
     $desk = new SalesDeskService($db);
     if (!$desk->ready()) {
         echo json_encode(['ok' => false, 'error' => 'Migration 1140 has not run yet']);
@@ -87,6 +88,7 @@ try {
                 'leads'     => $desk->leads(8),
                 'questions' => $sq->open($name),
                 'inbox'     => $desk->hasTable('sales_messages'),
+                'texts'     => (new TextBridgeService($db))->status(),   // messages bridge heartbeat, null = not set up
             ]);
             break;
         }
