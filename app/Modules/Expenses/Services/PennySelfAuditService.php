@@ -88,6 +88,7 @@ class PennySelfAuditService
 
         $result = ['at' => date('c'), 'checked' => $checked, 'wrong' => count($wrong),
                    'rate' => $checked ? round(count($wrong) / $checked * 100) : null, 'examples' => array_slice($wrong, 0, 5)];
+        if ($checked === 0) return $result;   // nothing old enough yet — try again next load, don't lose a week
         $this->db->prepare("
             INSERT INTO ops_settings (setting_key, setting_value, description) VALUES (?, ?, 'Penny weekly self-audit (latest result)')
             ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)
