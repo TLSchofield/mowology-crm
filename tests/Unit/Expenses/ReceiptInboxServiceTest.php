@@ -143,4 +143,24 @@ class ReceiptInboxServiceTest extends TestCase
         $this->assertFalse($ok('someone@gmail.com', 'Photos of the back yard', 'IMG_1.jpg'));
         $this->assertFalse($ok(null, 'Receipt'));
     }
+
+    public function test_a_receipt_that_is_the_email_itself(): void
+    {
+        $own = ['mowology@icloud.com']; $clients = ['strata@example.com'];
+        $b = fn($from, $subj) => ReceiptInboxService::isBodyReceipt($from, $subj, $own, $clients);
+        $this->assertTrue($b('recu-receipt-noreply@eml.rona.ca', 'Your RONA Receipt'));
+        $this->assertTrue($b('mowology@icloud.com', 'Fwd: Your Amazon.ca order #702-1'));
+        $this->assertFalse($b('mowology@icloud.com', 'Re: Your lawn after the watering ban'));
+        $this->assertFalse($b('strata@example.com', 'Invoice received'));
+        $this->assertFalse($b('notify@payments.interac.ca', 'INTERAC e-Transfer: you received money'));
+        $this->assertFalse($b('office@mowology.ca', 'Your receipt'));
+    }
+
+    public function test_html_email_becomes_readable_receipt_lines(): void
+    {
+        $html = '<html><head><style>td{color:red}</style></head><body><table><tr><td>Bark Mulch</td><td>$12.98</td></tr>'
+              . '<tr><td>GST</td><td>$0.65</td></tr></table><p>Total&nbsp;$13.63</p><script>x()</script></body></html>';
+        $t = ReceiptInboxService::htmlToText($html);
+        $this->assertSame("Bark Mulch \$12.98\nGST \$0.65\nTotal \$13.63", $t);
+    }
 }

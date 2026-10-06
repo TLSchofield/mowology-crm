@@ -158,6 +158,28 @@ function rpParam($part, string $key): ?string {
 }
 
 /**
+ * The email's own text part — HTML preferred, else plain — for receipts that ARE the
+ * email. Returns ['pn','encoding','charset','html'] or null.
+ */
+function rpBodyPart($part, string $pn = ''): ?array {
+    if (!empty($part->parts)) {
+        $plain = null;
+        foreach ($part->parts as $i => $child) {
+            $hit = rpBodyPart($child, $pn === '' ? (string)($i + 1) : $pn . '.' . ($i + 1));
+            if ($hit && $hit['html']) return $hit;
+            if ($hit && !$plain) $plain = $hit;
+        }
+        return $plain;
+    }
+    if ((int)($part->type ?? 7) !== 0) return null;
+    $sub = strtolower((string)($part->subtype ?? ''));
+    if ($sub !== 'html' && $sub !== 'plain') return null;
+    if (strtolower((string)($part->disposition ?? '')) === 'attachment') return null;
+    return ['pn' => $pn ?: '1', 'encoding' => (int)($part->encoding ?? 0),
+            'charset' => strtoupper((string)(rpParam($part, 'charset') ?? 'UTF-8')), 'html' => $sub === 'html'];
+}
+
+/**
  * Recursively collect attachment parts (PDF + images). Accumulates
  * ['pn'=>section, 'filename'=>?, 'mime'=>str, 'encoding'=>int].
  */
@@ -254,6 +276,24 @@ foreach ($mailboxes as $mb) {
             $parts = [];
             if (!empty($struct->parts)) {
                 rpWalk($struct, '', $parts);
+            }
+            if (empty($parts) && ReceiptInboxService::isBodyReceipt($from, $subject, $ownerEmails, $clientEmails)) {
+                // The receipt IS the email (RONA, Amazon…): read its text (2026-10-06).
+                $bp = rpBodyPart($struct);
+                if ($bp) {
+                    $body = rpDecode((string)imap_fetchbody($mbox, $msgNo, $bp['pn'], FT_PEEK), $bp['encoding']);
+                    if ($bp['charset'] !== 'UTF-8' && $bp['charset'] !== 'US-ASCII') {
+                        $body = (string)@mb_convert_encoding($body, 'UTF-8', $bp['charset']);
+                    }
+                    if (!$bp['html']) $body = nl2br(htmlspecialchars($body));
+                    $seen++;
+                    $res = $service->ingestEmailBody(['message_id' => $msgId, 'sender_email' => $from, 'subject' => $subject, 'email_date' => $date], $body, $systemUserId);
+                    rpLog("BODY RECEIPT: {$from} — {$subject} → {$res['status']}" . ($res['expense_id'] ? " expense #{$res['expense_id']}" : ''));
+                    if ($res['status'] === 'pending') {
+                        $pending[] = ['who' => $from, 'subject' => $subject, 'file' => 'email', 'id' => $res['expense_id'], 'note' => 'read from the email itself'];
+                    }
+                }
+                continue;
             }
             if (empty($parts)) {
                 if ($mb['filter']) rpLog("office@ skip (no PDF/photo attached): {$from} — {$subject}");

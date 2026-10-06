@@ -63,6 +63,68 @@ class ReceiptInboxService
         return (bool)preg_match('/receipt|invoice|\bbill\b|your order|order (confirmation|#)|purchase|statement|\binv[\s#-]*\d/i', $text);
     }
 
+    /**
+     * A receipt that IS the email (RONA, Amazon, Uber… no attachment): only when the
+     * subject says so, and never a client, our own sent mail or a payment notice.
+     */
+    public static function isBodyReceipt(?string $from, string $subject, array $ownerEmails, array $clientEmails): bool
+    {
+        $from = strtolower(trim((string)$from));
+        if ($from === '') return false;
+        $ours = in_array($from, $ownerEmails, true);
+        if (!$ours && (str_ends_with($from, '@mowology.ca') || in_array($from, $clientEmails, true))) return false;
+        if (preg_match('/yardi|\beft\b|remittance|e-?transfer|interac|payment (advice|notification|received)|quote/i', $subject)) return false;
+        return (bool)preg_match('/receipt|re[çc]u|your order|order (confirmation|#|receipt)|purchase|invoice|\bbill\b/i', $subject);
+    }
+
+    /** An HTML (or plain) email body as readable receipt text, one row per line. */
+    public static function htmlToText(string $html): string
+    {
+        $t = preg_replace('#<(script|style|head)\b[^>]*>.*?</\1>#is', ' ', $html);
+        $t = preg_replace('#<br\s*/?>|</(p|div|tr|li|h[1-6]|table)>#i', "\n", (string)$t);
+        $t = preg_replace('#</t[dh]>#i', "  ", (string)$t);
+        $t = html_entity_decode(strip_tags((string)$t), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $t = str_replace("\xC2\xA0", ' ', $t);
+        $lines = array_filter(array_map(fn($l) => trim((string)preg_replace('/[ \t]+/', ' ', $l)), explode("\n", $t)), 'strlen');
+        return implode("\n", $lines);
+    }
+
+    /**
+     * Ingest a receipt that is the email body. The email is saved as a file (for the
+     * record), its text is read like OCR text, and it always becomes a draft for Penny —
+     * never auto-posted (no photo to check against).
+     */
+    public function ingestEmailBody(array $msg, string $html, int $systemUserId): array
+    {
+        $sha256 = hash('sha256', $html);
+        $dedup  = self::deriveDedupKey($msg['message_id'] ?? null, $sha256, 'email-body.html');
+        if (!$this->claim($msg, $dedup, 'email-body.html')) {
+            return ['status' => 'duplicate', 'expense_id' => null, 'note' => null];
+        }
+        try {
+            $text = self::htmlToText($html);
+            if (mb_strlen($text) < 20) {
+                $this->finalizeClaim($dedup, null, null, 'skipped', null, 'email body has no receipt text');
+                return ['status' => 'skipped', 'expense_id' => null, 'note' => 'no text'];
+            }
+            $dir = PUBLIC_ROOT . '/uploads/receipts/';
+            if (!is_dir($dir)) @mkdir($dir, 0755, true);
+            $file = 'receipt-email-' . date('Ymd-His') . '-' . bin2hex(random_bytes(4)) . '.html';
+            file_put_contents($dir . $file, $html);
+
+            require_once APP_ROOT . '/Services/Receipts/ReceiptParser.php';
+            require_once APP_ROOT . '/Services/Receipts/ReceiptSmartMatch.php';
+            $parsed = parseReceiptText($text, null);
+            $ocr = ['readable' => true, 'source' => 'email_body', 'ocr_text' => $text, 'parsed' => $parsed,
+                    'suggestions' => suggestReceiptMeta($text, null, null, null, $parsed)];
+            $msg['subject'] = trim(($msg['subject'] ?? '') . ' (saved: /uploads/receipts/' . $file . ')');
+            return $this->createExpenseFromRead($msg, $ocr, null, $dedup, false, 'no text extracted');
+        } catch (\Throwable $e) {
+            $this->releaseClaim($dedup);
+            throw $e;
+        }
+    }
+
     public static function deriveDedupKey(?string $messageId, string $sha256, string $attachmentName): string
     {
         $mid = $messageId !== null ? trim($messageId) : '';
@@ -211,6 +273,15 @@ class ReceiptInboxService
         // 2) OCR (rasterise PDFs first). Unreadable PDFs return readable=false.
         $ocr = $this->runOcr($diskPath, $isPdf);
 
+        return $this->createExpenseFromRead($msg, $ocr, $mediaId, $dedup, true, $isPdf ? 'pdf not OCR-able' : 'no text extracted');
+    }
+
+    /**
+     * Steps 3–7 for any read receipt (an OCR'd attachment or an email body): build the
+     * expense, gate auto-posting, score anomalies, insert, finalize the claim.
+     */
+    private function createExpenseFromRead(array $msg, array $ocr, ?int $mediaId, string $dedup, bool $mayAutoPost, string $unreadableNote): array
+    {
         // 3) Build expense fields from parsed text + smart match.
         $parsed      = $ocr['parsed'];
         $suggestions = $ocr['suggestions'];
@@ -226,7 +297,7 @@ class ReceiptInboxService
         $confidence = (int) ($suggestions['vendor_confidence'] ?? 0);
 
         // 4) Auto-post gate. A PDF we couldn't OCR can never be a clean match.
-        $clean = $ocr['readable'] && self::isCleanMatch([
+        $clean = $mayAutoPost && $ocr['readable'] && self::isCleanMatch([
             'vendor_id'               => $vendorId,
             'total'                   => $total,
             'expense_date'            => $parsed['date'] ?? null,   // gate on the *parsed* date, not the fallback
@@ -285,7 +356,7 @@ class ReceiptInboxService
 
         // 7) Finalize the claimed audit row with the outcome.
         $outcome = $clean ? 'auto_posted' : 'pending';
-        $logNote = $ocr['readable'] ? null : ($isPdf ? 'pdf not OCR-able' : 'no text extracted');
+        $logNote = $ocr['readable'] ? null : $unreadableNote;
         $this->finalizeClaim($dedup, $mediaId, $expenseId, $outcome, $confidence, $logNote);
 
         return ['status' => $outcome, 'expense_id' => $expenseId, 'note' => $logNote];
