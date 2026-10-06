@@ -90,48 +90,61 @@
 
     // ── Possible duplicates: settled first, never offered for approval ──────
     var WAITING = ['draft', 'pending_approval'];
-    function dupSide(r, other, side) {
+    function dupCard(r) {
         var name = r.vendor_name || r.vendor_name_raw || 'Unknown vendor';
-        var canKeep = WAITING.indexOf(other.status) !== -1;     // the other one is the one removed
+        var waiting = WAITING.indexOf(r.status) !== -1;
         var photo = r.receipt_path
             ? '<img class="mw-rc-dup-photo" src="' + esc(r.receipt_path) + '" alt="Receipt #' + esc(r.id) + '" data-zoomsrc="' + esc(r.receipt_path) + '">'
             : '<div class="mw-rc-nophoto">No photo</div>';
         return '<div class="mw-rc-dup-side">' + photo +
             '<div class="mw-rc-dup-facts"><b>' + esc(name) + '</b><span>' + esc(r.expense_date || '') + ' · ' + money(r.total) + '</span>' +
             '<small>#' + esc(r.id) + ' · ' + esc(String(r.status || '').replace('_', ' ')) + (r.submitted_by ? ' · from ' + esc(r.submitted_by) : '') + '</small></div>' +
-            (canKeep
-                ? '<button type="button" class="mw-rc-ok" data-dup-keep="' + side + '">Keep this one</button>'
-                : '<div class="mw-rc-dup-note">Already approved — keep this one by removing the other</div>') +
+            (waiting
+                ? '<button type="button" class="mw-rc-ed" data-dup-remove="' + esc(r.id) + '">✕ Remove — it\'s a copy</button>'
+                : '<div class="mw-rc-dup-note">Already ' + (r.status === 'forwarded' ? 'sent to accounting' : 'approved') + ' — this one stays</div>') +
           '</div>';
     }
     function renderDupe(msg) {
-        var p = dupes[0];
-        root.innerHTML = '<div class="mw-rc-top"><span><b>Possible duplicate</b>' + (dupes.length > 1 ? ' · 1 of ' + dupes.length : '') +
+        var g = dupes[0];
+        var n = g.members.length;
+        root.innerHTML = '<div class="mw-rc-top"><span><b>Possible duplicate' + (n > 2 ? 's' : '') + '</b>' + (dupes.length > 1 ? ' · group 1 of ' + dupes.length : '') +
                 ' · sorted before anything is approved</span></div>' +
-            '<div class="mw-rc-dup-say">' + (GREETING ? 'Hey ' + esc(GREETING) + ' — t' : 'T') +
-                'hese two look like the same purchase: same total, within 3 days. Which one should I keep? The other is removed (its photo is kept if the one you keep has none).</div>' +
-            '<div class="mw-rc-dup">' + dupSide(p.a, p.b, 'a') + dupSide(p.b, p.a, 'b') + '</div>' +
+            '<div class="mw-rc-dup-say">' + (GREETING ? 'Hey ' + esc(GREETING) + ' — ' : '') +
+                (n === 2 ? 'these two look' : 'these ' + n + ' look') + ' like the same purchase: same total, within 3 days. ' +
+                'Remove the copies and keep one — a removed copy\'s photo moves to the one you keep if that has none.</div>' +
+            '<div class="mw-rc-dup">' + g.members.map(dupCard).join('') + '</div>' +
             '<div class="mw-rc-actions">' +
-              '<button type="button" class="mw-rc-ed" data-dup-not="1">Not duplicates — approve both</button>' +
+              '<button type="button" class="mw-rc-ed" data-dup-not="1">' + (n === 2 ? 'Not duplicates' : 'None of these are duplicates') + ' — approve ' + (n === 2 ? 'both' : 'them all') + '</button>' +
               '<a class="mw-rc-sk" href="/crm/expenses_appstack.php">Compare every field on the receipts page →</a>' +
             '</div>' +
             '<div class="mw-rc-msg">' + (msg ? esc(msg) : '') + '</div>';
     }
-    function settleDupe(keepSide, notDupe) {
+    /** The copy goes into the one that stays: an approved/sent member, else the oldest other waiting one. */
+    function keeperFor(g, removeId) {
+        var others = g.members.filter(function (m) { return String(m.id) !== String(removeId); });
+        var settled = others.filter(function (m) { return WAITING.indexOf(m.status) === -1; });
+        return (settled[0] || others[0]).id;
+    }
+    function keeperSettled(g, removeId) {
+        var k = keeperFor(g, removeId);
+        return g.members.some(function (m) { return String(m.id) === String(k) && WAITING.indexOf(m.status) === -1; });
+    }
+    function settleDupe(removeId, notDupe) {
         if (busy || !dupes.length) return;
-        var p = dupes[0];
+        var g = dupes[0];
         busy = true;
         var req = notDupe
-            ? post({ mode: 'not_dupe', a: p.a.id, b: p.b.id })
+            ? post({ mode: 'not_dupe', pairs: g.pairs })
             : fetch('/crm/api/expenses.php', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'merge', csrf_token: window.MW_CSRF_TOKEN || '',
-                    keep_id: keepSide === 'a' ? p.a.id : p.b.id, discard_id: keepSide === 'a' ? p.b.id : p.a.id }) })
+                // An approved/sent receipt is locked: keep all its fields (no photo carried over).
+                body: JSON.stringify({ action: 'merge', csrf_token: window.MW_CSRF_TOKEN || '', keep_id: keeperFor(g, removeId), discard_id: removeId,
+                    fields: keeperSettled(g, removeId) ? { receipt: 'keep' } : undefined }) })
                 .then(function (r) { return r.json(); })
                 .then(function (d) { return { ok: !!(d && d.success), message: d && (d.message || d.error) }; });
         req.then(function (d) {
             busy = false;
             if (!(d && d.ok)) { renderDupe((d && d.message) || 'Could not save'); return; }
-            load().then(function () { if (!dupes.length) render(notDupe ? 'Got it — both go on for approval.' : 'Done — duplicate removed.'); });
+            load().then(function () { if (!dupes.length) render(notDupe ? 'Got it — they go on for approval.' : 'Done — copy removed.'); else renderDupe(notDupe ? 'Got it — not duplicates.' : 'Copy removed.'); });
         }).catch(function () { busy = false; renderDupe('Network error — try again'); });
     }
 
@@ -408,8 +421,8 @@
     }
 
     root.addEventListener('click', function (e) {
-        var dk = e.target.getAttribute && e.target.getAttribute('data-dup-keep');
-        if (dk) { settleDupe(dk, false); return; }
+        var dr = e.target.getAttribute && e.target.getAttribute('data-dup-remove');
+        if (dr) { settleDupe(dr, false); return; }
         if (e.target.getAttribute && e.target.getAttribute('data-dup-not')) { settleDupe(null, true); return; }
         var zsrc = e.target.getAttribute && e.target.getAttribute('data-zoomsrc');
         if (zsrc) { window.open(zsrc, '_blank', 'noopener'); return; }

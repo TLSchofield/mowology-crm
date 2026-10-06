@@ -137,6 +137,43 @@ class DuplicateReceiptService
     // Pure (unit tested)
     // ─────────────────────────────────────────────────────────────────────────
 
+    /**
+     * Pairs → groups (receipts linked by any pair are one group: seven copies of one
+     * receipt are one decision, not 21 pairs). Each group: members (oldest first) and
+     * the pair keys inside it, for "not duplicates".
+     * @return array<int, array{members: array, pairs: array}>
+     */
+    public static function groups(array $pairs): array
+    {
+        $parent = [];
+        $find = function (int $x) use (&$parent, &$find): int {
+            if (!isset($parent[$x])) $parent[$x] = $x;
+            return $parent[$x] === $x ? $x : ($parent[$x] = $find($parent[$x]));
+        };
+        $rows = [];
+        foreach ($pairs as $p) {
+            $a = (int)$p['a']['id'];
+            $b = (int)$p['b']['id'];
+            $rows[$a] = ($rows[$a] ?? []) + $p['a'];
+            $rows[$b] = ($rows[$b] ?? []) + $p['b'];
+            $parent[$find($a)] = $find($b);
+        }
+        $groups = [];
+        foreach ($pairs as $p) {
+            $root = $find((int)$p['a']['id']);
+            $groups[$root]['pairs'][] = [(int)$p['a']['id'], (int)$p['b']['id']];
+        }
+        foreach (array_keys($rows) as $id) {
+            $groups[$find($id)]['members'][] = $rows[$id];
+        }
+        $out = [];
+        foreach ($groups as $g) {
+            usort($g['members'], fn($x, $y) => (int)$x['id'] <=> (int)$y['id']);
+            $out[] = $g;
+        }
+        return $out;
+    }
+
     public static function key(int $a, int $b): string
     {
         return min($a, $b) . '-' . max($a, $b);

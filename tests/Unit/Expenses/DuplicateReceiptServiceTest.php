@@ -35,4 +35,13 @@ class DuplicateReceiptServiceTest extends TestCase
         $this->assertSame([], DuplicateReceiptService::pairUp([$this->r(9)], [9 => [$this->r(3, 'rejected')]]));
         $this->assertSame([], DuplicateReceiptService::pairUp([$this->r(9)], [9 => [$this->r(3)]], ['3-9' => true]));
     }
+
+    public function test_copies_linked_by_any_pair_are_one_group(): void
+    {
+        $pairs = [['a' => $this->r(1), 'b' => $this->r(4)], ['a' => $this->r(4), 'b' => $this->r(7, 'forwarded')], ['a' => $this->r(24), 'b' => $this->r(290)]];
+        $g = DuplicateReceiptService::groups($pairs);
+        $this->assertCount(2, $g);
+        $this->assertSame([1, 4, 7], array_map(fn($m) => (int)$m['id'], $g[0]['members']));
+        $this->assertCount(2, $g[0]['pairs']);
+    }
 }

@@ -14,7 +14,7 @@
  * POST {mode: 'decide', suggestion_id, overrides?: {field: value}, save_draft?: bool, csrf_token}
  * POST {mode: 'prepare', max?, csrf_token}   Prepare the next receipts (daily-capped).
  * POST {mode: 'recheck', suggestion_id, csrf_token}  Penny reads one receipt again, with the photo.
- * POST {mode: 'not_dupe', a, b, csrf_token}  "Not a duplicate" — remembered (migration 1127).
+ * POST {mode: 'not_dupe', pairs: [[a, b], ...], csrf_token}  "Not a duplicate" — remembered (migration 1127).
  * GET  ?mode=questions  Penny's open questions (scans for unbilled materials first).
  * POST {mode: 'answer', question_id, answer: invoice|contract|not_billable, csrf_token}
  *
@@ -191,7 +191,7 @@ try {
             } elseif ($mode === 'queue') {
                 // Possible duplicates are sorted first and never offered for approval.
                 $dupes = $dupSvc->pairsInLine(60);
-                echo json_encode(['ok' => true, 'dupes' => $dupes,
+                echo json_encode(['ok' => true, 'dupes' => DuplicateReceiptService::groups($dupes),
                                   'queue' => $desk->queue((int)($_GET['limit'] ?? 10), DuplicateReceiptService::heldIds($dupes))]);
             } elseif ($mode === 'decide') {
                 if ($method !== 'POST') throw new RuntimeException('POST required');
@@ -215,7 +215,14 @@ try {
         case 'not_dupe': {
             if ($method !== 'POST') throw new RuntimeException('POST required');
             require_once APP_ROOT . '/Modules/Expenses/Services/DuplicateReceiptService.php';
-            echo json_encode((new DuplicateReceiptService($db))->dismiss((int)($input['a'] ?? 0), (int)($input['b'] ?? 0), $user));
+            // One or many pairs: [[a, b], ...] — "none of these are duplicates" for a group.
+            $dup = new DuplicateReceiptService($db);
+            $res = ['ok' => false, 'message' => 'Nothing to save'];
+            foreach ((array)($input['pairs'] ?? [[$input['a'] ?? 0, $input['b'] ?? 0]]) as $pr) {
+                $res = $dup->dismiss((int)($pr[0] ?? 0), (int)($pr[1] ?? 0), $user);
+                if (!$res['ok']) break;
+            }
+            echo json_encode($res);
             break;
         }
 
