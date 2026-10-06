@@ -24,7 +24,9 @@ require_once __DIR__ . '/OttoRules.php';
 
 class OpsDeskService
 {
-    public const KINDS = ['weather', 'clock_out', 'job_timer', 'no_time', 'silent'];
+    public const KINDS = ['weather', 'clock_out', 'job_timer', 'no_time', 'silent', 'bylaw', 'west_end', 'truck_range', 'maintenance', 'pack_fading'];
+    /** Dispatcher kinds (phase 2): rule tables + equipment register. */
+    public const DISPATCH_KINDS = ['bylaw', 'west_end', 'truck_range', 'maintenance', 'pack_fading'];
     private const LIMIT = 20;
 
     private PDO $db;
@@ -116,7 +118,7 @@ class OpsDeskService
      */
     public function current(bool $persist = false): array
     {
-        $items = array_merge($this->weatherItems(), $this->clockOutItems(), $this->timerItems(), $this->noTimeItems(), $this->silentItems());
+        $items = array_merge($this->weatherItems(), $this->clockOutItems(), $this->timerItems(), $this->noTimeItems(), $this->silentItems(), $this->dispatchItems());
         $known = $this->known();
         $open = [];
         foreach ($items as $it) {
@@ -147,6 +149,7 @@ class OpsDeskService
             'by_kind' => $by,
             'weather' => $by['weather'],
             'gaps'    => $by['clock_out'] + $by['job_timer'] + $by['no_time'],
+            'dispatch' => array_sum(array_intersect_key($by, array_flip(self::DISPATCH_KINDS))),
             'silent'  => $silent,
             'right_first_time' => $this->rightFirstTime(),
             'outlook' => $this->outlookLine(),
@@ -166,7 +169,7 @@ class OpsDeskService
         $s = $this->stats($items);
         $headline = OttoRules::headline([
             'stops' => $s['today']['stops'], 'done' => $s['today']['done'], 'crews' => count($s['today']['crews']),
-            'silent' => $s['silent'], 'weather' => $s['weather'], 'gaps' => $s['gaps'],
+            'silent' => $s['silent'], 'weather' => $s['weather'], 'gaps' => $s['gaps'], 'dispatch' => $s['dispatch'] ?? 0,
         ], $ownerFirstName);
         $out = [];
         foreach ($items as $it) {
@@ -415,6 +418,29 @@ class OpsDeskService
                 'url' => '/crm/timeclock/crew-map.php', 'value' => $quietFor, 'since' => $this->today,
                 'propose' => ['minutes' => $quietFor],
             ];
+        }
+        return $out;
+    }
+
+    // ── Dispatcher: bylaw hours, West End, Might-E range, maintenance, packs ─
+
+    /** From the rule tables and equipment register; nothing until migrations 1153–1157 have run. */
+    private function dispatchItems(): array
+    {
+        $out = [];
+        try {
+            require_once __DIR__ . '/MunicipalRuleService.php';
+            [$bylaw, $westEnd] = (new MunicipalRuleService($this->db, $this->today))->items();
+            $out = array_merge($out, $bylaw, $westEnd);
+        } catch (Throwable $e) {
+            error_log('Otto rules: ' . $e->getMessage());
+        }
+        try {
+            require_once __DIR__ . '/EquipmentService.php';
+            [$maint, $packs, $trucks] = (new EquipmentService($this->db, $this->today))->suggestionItems();
+            $out = array_merge($out, $trucks, $maint, $packs);
+        } catch (Throwable $e) {
+            error_log('Otto equipment: ' . $e->getMessage());
         }
         return $out;
     }

@@ -36,6 +36,9 @@ require_once __DIR__ . '/../app/Modules/Operations/Services/OttoActionService.ph
 require_once __DIR__ . '/../app/Modules/Operations/Services/OttoQuestionService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/OttoBadgeService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/OttoBrainService.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/DispatchRules.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/MunicipalRuleService.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/EquipmentService.php';
 
 require_once __DIR__ . '/../app/Modules/Invoices/Services/StatementService.php';
 

@@ -9,6 +9,7 @@
  *   quiet catcher  — 5 quiet phones the owner confirmed were a real problem
  *   gap closer     — 25 timesheet gaps closed from his suggestions
  *   in a row       — 10 suggestions in a row kept without a change
+ *   bylaw keeper   — 10 bylaw / West End flags acted on (new time or a crew note)
  * Streak badges are lost again when he slips; the closest unearned one shows dimmed.
  *
  * No namespace / no autoloader in production: require_once and `new`.
@@ -20,6 +21,7 @@ class OttoBadgeService
     public const QUIET_REAL = 5;
     public const GAPS = 25;
     public const STREAK = 10;
+    public const BYLAW = 10;
 
     private PDO $db;
 
@@ -86,6 +88,11 @@ class OttoBadgeService
         $badges[] = ['key' => 'gaps', 'icon' => '🧩', 'label' => 'Gap closer',
             'title' => self::GAPS . ' timesheet gaps closed from his suggestions',
             'have' => min(self::GAPS, $closed), 'need' => self::GAPS];
+
+        $bylaw = count(array_filter($decisions, fn($d) => in_array($d['kind'], ['bylaw', 'west_end'], true) && $d['status'] === 'accepted'));
+        $badges[] = ['key' => 'bylaw', 'icon' => '📏', 'label' => 'Bylaw keeper',
+            'title' => self::BYLAW . ' visits kept inside the bylaw hours from his flags',
+            'have' => min(self::BYLAW, $bylaw), 'need' => self::BYLAW];
 
         $judged = array_values(array_filter($decisions, fn($d) => $d['kind'] !== 'silent'
             && !($d['kind'] === 'weather' && ($d['outcome']['followed'] ?? null) === null)));

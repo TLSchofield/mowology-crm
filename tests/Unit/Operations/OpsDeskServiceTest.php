@@ -80,4 +80,23 @@ class OpsDeskServiceTest extends TestCase
         $this->assertSame('Rain 55% is in the forecast for 3 mowing visits. Do you usually keep mowing going in rain like that, or move it?',
             OttoQuestionService::weatherQuestion('mowing', 55, 3));
     }
+
+    public function test_brain_counts_dispatcher_learning_when_given(): void
+    {
+        $raw = OttoBrainService::rawCounts([], 0, 0, 0, 0, ['rules' => 3, 'road' => 1, 'packs' => 6, 'intervals' => 2]);
+        $b = HeadBrain::combine($raw, OttoBrainService::LABELS);
+        $this->assertSame(12, $b['units']);
+        $this->assertSame(['3 bylaw rules confirmed', '1 truck road factor learned', '6 battery runs logged', '2 service intervals set'], array_column($b['parts'], 'label'));
+    }
+
+    public function test_dispatcher_kinds_are_part_of_otto(): void
+    {
+        foreach (OpsDeskService::DISPATCH_KINDS as $k) $this->assertContains($k, OpsDeskService::KINDS);
+    }
+
+    public function test_bylaw_check_is_silent_before_the_migration(): void
+    {
+        $this->assertSame([[], []], (new MunicipalRuleService($this->sqlite()))->items());
+        $this->assertSame([[], [], []], (new EquipmentService($this->sqlite()))->suggestionItems());
+    }
 }

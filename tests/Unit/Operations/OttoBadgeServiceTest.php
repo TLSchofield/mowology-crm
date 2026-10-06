@@ -65,4 +65,12 @@ class OttoBadgeServiceTest extends TestCase
         $this->assertSame('quiet', $b['next']['key']);
         $this->assertSame(4, $b['next']['have']);
     }
+
+    public function test_bylaw_keeper_counts_flags_acted_on(): void
+    {
+        $acted = array_merge(array_fill(0, 6, self::d('bylaw', 'accepted')), array_fill(0, 4, self::d('west_end', 'accepted')));
+        $this->assertContains('bylaw', self::keys(OttoBadgeService::compute($acted)['earned']));
+        $left = array_merge(array_fill(0, 9, self::d('bylaw', 'accepted')), array_fill(0, 5, self::d('bylaw', 'dismissed')));
+        $this->assertNotContains('bylaw', self::keys(OttoBadgeService::compute($left)['earned']));
+    }
 }

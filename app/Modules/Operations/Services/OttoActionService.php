@@ -21,6 +21,7 @@
  * No namespace / no autoloader in production: require_once and `new`.
  */
 require_once __DIR__ . '/OttoRules.php';
+require_once __DIR__ . '/DispatchRules.php';
 
 class OttoActionService
 {
@@ -54,6 +55,17 @@ class OttoActionService
             case 'job_timer': return $this->timer($sug, $propose, $choice, $in, $actorId);
             case 'no_time':   return $this->noTime($sug, $propose, $choice, $in, $actorId);
             case 'silent':    return $this->silent($sug, $choice, $actorId);
+            case 'bylaw':     return $this->bylaw($sug, $propose, $choice, $in, $actorId);
+            case 'west_end':  return $this->westEnd($sug, $propose, $choice, $actorId);
+            case 'truck_range':
+                if ($choice !== 'ack') return ['ok' => false, 'message' => 'Rework the day, or leave it?'];
+                return $this->close($sug, 'accepted', ['choice' => 'ack'], $actorId, 'Noted. Move a stop to another day or truck on the schedule.');
+            case 'maintenance': return $this->maintenance($sug, $propose, $choice, $actorId);
+            case 'pack_fading':
+                if ($choice !== 'retire') return ['ok' => false, 'message' => 'Retire it, or keep using it?'];
+                require_once __DIR__ . '/EquipmentService.php';
+                (new EquipmentService($this->db))->retire((int)$sug['subject_id']);
+                return $this->close($sug, 'accepted', ['choice' => 'retire'], $actorId, 'Retired in the register.');
         }
         return ['ok' => false, 'message' => 'Unknown suggestion.'];
     }
@@ -178,6 +190,63 @@ class OttoActionService
             (new OttoQuestionService($this->db))->afterSilentFine((int)$sug['subject_id']);
         }
         return $r;
+    }
+
+    // ── Dispatcher kinds ────────────────────────────────────────────────────
+
+    private function bylaw(array $sug, array $propose, string $choice, array $in, int $actorId): array
+    {
+        $visitId = (int)$sug['subject_id'];
+        if ($choice === 'note') {
+            $this->visitNote($visitId, 'Bylaw: ' . (($propose['problem'] ?? '') === 'ban' ? 'no leaf blowers this day here' : 'keep power equipment inside the allowed hours')
+                . ' — rake or vacuum instead. (From Otto)', $actorId);
+            return $this->close($sug, 'accepted', ['choice' => 'note'], $actorId, 'Note added to the visit for the crew.');
+        }
+        if ($choice !== 'retime') return ['ok' => false, 'message' => 'New time, a crew note, or leave it?'];
+        $time = substr((string)($in['time'] ?? ''), 0, 5);
+        if (!preg_match('/^\d{2}:\d{2}$/', $time)) return ['ok' => false, 'message' => 'Give a start time.'];
+        if (!empty($propose['allowed_start']) && $time < $propose['allowed_start']) {
+            return ['ok' => false, 'message' => 'That is still before ' . date('g:i a', strtotime('2000-01-01 ' . $propose['allowed_start'])) . '.'];
+        }
+        $len = (!empty($propose['start']) && !empty($propose['end'])) ? max(15, (int)((strtotime('2000-01-01 ' . $propose['end']) - strtotime('2000-01-01 ' . $propose['start'])) / 60)) : 60;
+        $end = DispatchRules::endTime($time, $len);
+        $this->db->prepare("UPDATE job_visits SET scheduled_time_start = ?, scheduled_time_end = ? WHERE id = ? AND status = 'scheduled'")
+            ->execute([$time . ':00', $end . ':00', $visitId]);
+        return $this->close($sug, 'accepted', ['choice' => 'retime', 'time' => $time, 'was' => $propose['start'] ?? null], $actorId,
+            'Moved to ' . date('g:i a', strtotime('2000-01-01 ' . $time)) . '.');
+    }
+
+    private function westEnd(array $sug, array $propose, string $choice, int $actorId): array
+    {
+        if ($choice !== 'note') return ['ok' => false, 'message' => 'Add the crew note, or leave it?'];
+        $this->visitNote((int)$sug['subject_id'], ($propose['area'] ?? 'West End') . ': no ' . (!empty($propose['gas_only']) ? 'gas ' : '')
+            . 'leaf blowers. Plan rake or vacuum time. (From Otto)', $actorId);
+        return $this->close($sug, 'accepted', ['choice' => 'note'], $actorId, 'Note added to the visit for the crew.');
+    }
+
+    private function maintenance(array $sug, array $propose, string $choice, int $actorId): array
+    {
+        require_once __DIR__ . '/EquipmentService.php';
+        $eq = new EquipmentService($this->db);
+        $item = null;
+        foreach ($eq->items() as $it) if ((int)$it['id'] === (int)$sug['subject_id']) $item = $it;
+        if (!$item) return ['ok' => false, 'message' => 'That item is gone.'];
+        $due = (array)($propose['due'] ?? []);
+        if ($choice === 'task') {
+            $taskId = $eq->createTask($item, $due, $actorId);
+            return $this->close($sug, 'accepted', ['choice' => 'task', 'task_id' => $taskId], $actorId, 'Task made. Log the service on the equipment page when it is done.');
+        }
+        if ($choice === 'done') {
+            foreach ($due as $d) $eq->logService((int)$item['id'], (string)$d['task'], null, $actorId, null, 'Marked done from Otto');
+            return $this->close($sug, 'accepted', ['choice' => 'done'], $actorId, 'Logged as done today.');
+        }
+        return ['ok' => false, 'message' => 'Make a task, mark it done, or leave it?'];
+    }
+
+    private function visitNote(int $visitId, string $text, int $actorId): void
+    {
+        $this->db->prepare("INSERT INTO visit_notes (visit_id, note_type, content, is_visible_to_customer, created_by) VALUES (?, 'internal', ?, 0, ?)")
+            ->execute([$visitId, $text, $actorId ?: null]);
     }
 
     // ── Shared ──────────────────────────────────────────────────────────────

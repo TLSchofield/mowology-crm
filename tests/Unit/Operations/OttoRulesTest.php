@@ -143,4 +143,10 @@ class OttoRulesTest extends TestCase
         $this->assertNull(OttoRules::rightFirstTime(['accepted', 'dismissed', 'edited']));
         $this->assertSame(67, OttoRules::rightFirstTime(['accepted', 'accepted', 'edited', 'dismissed']));
     }
+
+    public function test_headline_counts_bylaw_and_equipment_checks(): void
+    {
+        $this->assertSame('Hey Tim — 1 crew, 4 stops today. 2 things to check on bylaws and equipment.',
+            OttoRules::headline(['stops' => 4, 'crews' => 1, 'dispatch' => 2], 'Tim'));
+    }
 }

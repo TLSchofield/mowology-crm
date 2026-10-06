@@ -191,7 +191,9 @@ class OttoRules
         if ($w > 0) $parts[] = 'The weather puts ' . self::plural($w, 'visit') . ' in doubt.';
         $g = (int)($s['gaps'] ?? 0);
         if ($g > 0) $parts[] = self::plural($g, 'timesheet gap') . ' to close.';
-        if ($w === 0 && $g === 0 && !$silent && $stops > 0) $parts[] = 'Nothing needs you right now.';
+        $d = (int)($s['dispatch'] ?? 0);
+        if ($d > 0) $parts[] = self::plural($d, 'thing') . ' to check on bylaws and equipment.';
+        if ($w === 0 && $g === 0 && $d === 0 && !$silent && $stops > 0) $parts[] = 'Nothing needs you right now.';
         return $hi . implode(' ', $parts);
     }
 

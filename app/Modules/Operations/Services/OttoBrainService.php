@@ -25,6 +25,10 @@ class OttoBrainService
         'durations' => ['visit length learned', 'visit lengths learned'],
         'answers'   => ['question answered', 'questions answered'],
         'badges'    => ['badge', 'badges'],
+        'rules'     => ['bylaw rule confirmed', 'bylaw rules confirmed'],
+        'road'      => ['truck road factor learned', 'truck road factors learned'],
+        'packs'     => ['battery run logged', 'battery runs logged'],
+        'intervals' => ['service interval set', 'service intervals set'],
     ];
 
     private PDO $db;
@@ -42,7 +46,8 @@ class OttoBrainService
             count($this->lessons('silent')),
             count($this->lessons('duration')),
             (new OttoQuestionService($this->db))->answeredCount(),
-            count((new OttoBadgeService($this->db))->badges()['earned'])
+            count((new OttoBadgeService($this->db))->badges()['earned']),
+            $this->dispatchCounts()
         );
         require_once APP_ROOT . '/Services/HeadBrain.php';
         $b = (new HeadBrain($this->db, 'otto'))->learned($raw, self::LABELS);
@@ -61,11 +66,29 @@ class OttoBrainService
         }
     }
 
+    /** Dispatcher learning: rules Tim confirmed, the truck's road factor, pack runs, intervals. */
+    private function dispatchCounts(): array
+    {
+        $out = ['rules' => 0, 'road' => 0, 'packs' => 0, 'intervals' => 0];
+        try {
+            require_once __DIR__ . '/MunicipalRuleService.php';
+            $out['rules'] = (new MunicipalRuleService($this->db))->confirmedCount();
+            require_once __DIR__ . '/EquipmentService.php';
+            $eq = new EquipmentService($this->db);
+            if ($eq->ready()) $out = $eq->learnedCounts() + $out;
+        } catch (Throwable $e) { /* not migrated yet */ }
+        return $out;
+    }
+
     /** Pure: a weather lesson counts once it holds enough decisions to lean on. */
-    public static function rawCounts(array $weatherLessons, int $crew, int $durations, int $answers, int $badges): array
+    public static function rawCounts(array $weatherLessons, int $crew, int $durations, int $answers, int $badges, array $dispatch = []): array
     {
         $weather = count(array_filter($weatherLessons,
             fn($l) => count((array)($l['keep'] ?? [])) + count((array)($l['move'] ?? [])) >= OttoRules::LEAN_MIN));
-        return ['weather' => $weather, 'crew' => $crew, 'durations' => $durations, 'answers' => $answers, 'badges' => $badges];
+        $out = ['weather' => $weather, 'crew' => $crew, 'durations' => $durations, 'answers' => $answers, 'badges' => $badges];
+        foreach (['rules', 'road', 'packs', 'intervals'] as $k) {
+            if (array_key_exists($k, $dispatch)) $out[$k] = max(0, (int)$dispatch[$k]);
+        }
+        return $out;
     }
 }
