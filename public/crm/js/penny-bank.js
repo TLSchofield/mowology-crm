@@ -74,7 +74,7 @@
               '<div class="mw-bl-now">Booked now: <s>' + esc(now) + '</s></div>' +
             '</div>' +
             '<div class="mw-bl-say">' + (GREETING ? esc(GREETING) + ', ' : '') +
-              (s ? 'I think this is <b>' + esc(s.name) + '</b>: ' + esc(s.reason) + '.'
+              (l.note ? esc(l.note) : s ? 'I think this is <b>' + esc(s.name) + '</b>: ' + esc(s.reason) + '.'
                  : 'I don\'t know this one yet. What is it? Your answer teaches the import.') + '</div>' +
             '<div class="mw-bl-pick"><select class="mw-rc-in" data-bl-acct aria-label="Account">' + options(l, s ? s.account_id : '') + '</select></div>' +
             '<div class="mw-rc-actions">' +

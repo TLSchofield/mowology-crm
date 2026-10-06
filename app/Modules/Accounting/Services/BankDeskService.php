@@ -30,6 +30,29 @@ class BankDeskService
         '2400'  => ['/\b(PAYMENT - THANK YOU|PAYMENT RECEIVED|PAYMENT THANK YOU|MASTERCARD PAYMENT|VISA PAYMENT)\b/i', 'is a credit-card payment, not spending'],
     ];
 
+    /**
+     * Receipt category → chart code, used when chart_of_accounts.expense_category_alias
+     * isn't filled in (it was empty on production). A filled-in alias wins.
+     * 'Other' maps to nothing: Penny never suggests the default account.
+     */
+    public const CATEGORY_CODES = [
+        'materials'           => '5200',   // Materials & Supplies
+        'fuel'                => '6100',   // Fuel & Vehicle
+        'tools/equipment'     => '1500',   // Equipment & Tools
+        'repairs/maintenance' => '6200',   // Equipment Maintenance
+        'vehicle'             => '6120',   // Vehicle Maintenance
+        'disposal/dump'       => '5000',   // Cost of Services
+        'licenses/permits'    => '6500',   // Office & Administration
+        'subcontractors'      => '5400',
+        'marketing'           => '6400',
+        'office/admin'        => '6500',
+        'overhead'            => '6000',   // Operating Expenses
+        'meals'               => '6850',   // Meals & Entertainment
+        'safety'              => '6000',
+    ];
+    /** Income from a contract invoice (contracts bill without line items). */
+    public const CONTRACT_INCOME_CODE = '4050';
+
     private PDO $db;
 
     public function __construct(PDO $db)
@@ -71,6 +94,7 @@ class BankDeskService
         $limit = max(1, min(30, $limit));
         $rows = $this->db->query("
             SELECT t.id, t.transaction_date, t.type, t.amount, t.description, t.account_id, t.matched_expense_id,
+                   " . ($this->hasInvoiceMatch() ? 't.matched_invoice_id' : 'NULL AS matched_invoice_id') . ",
                    t.bank_account, a.code AS account_code, a.name AS account_name
             " . $this->waitingSql() . "
             ORDER BY t.transaction_date DESC, t.id DESC
@@ -91,9 +115,19 @@ class BankDeskService
                 'bank'        => $r['bank_account'],
                 'current'     => $r['account_id'] ? ['id' => (int)$r['account_id'], 'code' => $r['account_code'], 'name' => $r['account_name']] : null,
                 'suggestion'  => $s,
+                'note'        => self::note($r),
             ];
         }
         return $out;
+    }
+
+    private function hasInvoiceMatch(): bool
+    {
+        try {
+            return $this->db->query("SHOW COLUMNS FROM accounting_transactions LIKE 'matched_invoice_id'")->rowCount() > 0;
+        } catch (Throwable $e) {
+            return false;
+        }
     }
 
     /** Everything advise() needs, loaded once per queue. */
@@ -104,6 +138,11 @@ class BankDeskService
         $byAlias = [];
         foreach ($accounts as $a) {
             $byCode[$a['code']] = $a;
+        }
+        foreach (self::CATEGORY_CODES as $cat => $code) {
+            if (isset($byCode[$code])) $byAlias[$cat] = $byCode[$code];
+        }
+        foreach ($accounts as $a) {
             if (!empty($a['expense_category_alias'])) $byAlias[strtolower($a['expense_category_alias'])] = $a;
         }
         $vendors = $this->db->query("SELECT name, aliases, default_accounting_category FROM vendors
@@ -117,6 +156,16 @@ class BankDeskService
             $s->execute(array_values($expenseIds));
             foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $e) $expenses[(int)$e['id']] = $e;
         }
+        $contractInvoices = [];
+        $invoiceIds = array_filter(array_map(fn($r) => (int)($r['matched_invoice_id'] ?? 0), $rows));
+        if ($invoiceIds) {
+            try {
+                $in = implode(',', array_fill(0, count($invoiceIds), '?'));
+                $s = $this->db->prepare("SELECT id, invoice_number FROM invoices WHERE id IN ({$in}) AND contract_id IS NOT NULL");
+                $s->execute(array_values($invoiceIds));
+                foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $i) $contractInvoices[(int)$i['id']] = $i['invoice_number'];
+            } catch (Throwable $e) { /* no contracts column → no contract income */ }
+        }
         $rules = [];
         try {
             require_once __DIR__ . '/RulesEngine.php';
@@ -126,7 +175,8 @@ class BankDeskService
                 if ($m) $rules[(int)$r['id']] = $m;
             }
         } catch (Throwable $e) { /* rules are one source of four */ }
-        return ['byCode' => $byCode, 'byAlias' => $byAlias, 'vendors' => $vendors, 'expenses' => $expenses, 'rules' => $rules];
+        return ['byCode' => $byCode, 'byAlias' => $byAlias, 'vendors' => $vendors, 'expenses' => $expenses, 'rules' => $rules,
+                'contractInvoices' => $contractInvoices];
     }
 
     /**
@@ -197,6 +247,11 @@ class BankDeskService
         if ($e && ($a = $ctx['byAlias'][strtolower((string)$e['accounting_category'])] ?? null)) {
             if ($r = $pick($a, 'Matched to your ' . ($e['vendor'] ?: 'receipt') . ' receipt, booked as ' . $e['accounting_category'], 'receipt')) return $r;
         }
+        // 1b. A deposit matched to a contract invoice → Contract Income.
+        $inv = $ctx['contractInvoices'][(int)($line['matched_invoice_id'] ?? 0)] ?? null;
+        if ($inv && ($a = $ctx['byCode'][self::CONTRACT_INCOME_CODE] ?? null)) {
+            if ($r = $pick($a, 'Paid on contract invoice ' . $inv, 'invoice')) return $r;
+        }
         // 2. A vendor named in the description.
         $hay = self::plain($desc);
         foreach ($ctx['vendors'] as $v) {
@@ -218,6 +273,16 @@ class BankDeskService
             if (!preg_match($re, $desc, $hit)) continue;
             $a = $key === 'fuel' ? ($ctx['byAlias']['fuel'] ?? null) : ($ctx['byCode'][$key] ?? null);
             if ($r = $pick($a, ucfirst(strtolower(trim($hit[0]))) . ' ' . $why, 'fact')) return $r;
+        }
+        return null;
+    }
+
+    /** A note for lines she shouldn't categorize here (they belong to invoice matching). */
+    public static function note(array $line): ?string
+    {
+        $d = (string)($line['description'] ?? '');
+        if (($line['type'] ?? '') === 'income' && preg_match('/\bSTRIPE\b/i', $d)) {
+            return 'This is a Stripe payout — card payments from your customers, already counted on their invoices. I\'ll match payouts to invoices in my next bank step; skip it for now.';
         }
         return null;
     }

@@ -53,4 +53,19 @@ class BankDeskServiceTest extends TestCase
         $this->assertNull(BankDeskService::advise($this->line('POINT SALE YELLOW CAB'), $this->ctx()));
         $this->assertNull(BankDeskService::advise($this->line('POINT SALE SHELL', ['account_id' => 31]), $this->ctx()), 'already there');
     }
+
+    public function test_contract_invoice_deposits_are_contract_income(): void
+    {
+        $c = $this->ctx();
+        $c['byCode']['4050'] = ['id' => 45, 'code' => '4050', 'name' => 'Contract Income'];
+        $c['contractInvoices'] = [77 => 'INV-2026-0375'];
+        $s = BankDeskService::advise($this->line('e-Transfer credit KAM SINGH', ['type' => 'income', 'account_id' => 49, 'matched_invoice_id' => 77]), $c);
+        $this->assertSame('4050', $s['code']);
+    }
+
+    public function test_stripe_payouts_get_a_note_not_a_guess(): void
+    {
+        $this->assertStringContainsString('Stripe payout', BankDeskService::note(['type' => 'income', 'description' => 'Preauthorized credit STRIPE STRIPE']));
+        $this->assertNull(BankDeskService::note(['type' => 'expense', 'description' => 'POINT SALE SHELL']));
+    }
 }
