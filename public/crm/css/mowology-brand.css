@@ -37862,6 +37862,10 @@ body.mw-rc-zoom-open { overflow: hidden; }
    =================================================================== */
 .mw-closer { border-color: var(--mw-light); }
 .mw-closer-who { font-size: .72rem; font-weight: 700; color: var(--mw-green); text-transform: uppercase; letter-spacing: .04em; }
+.mw-closer-head { display: flex; align-items: center; gap: 18px; }
+.mw-closer-photo { position: relative; flex: none; width: max-content; }
+.mw-closer-photo img { width: 56px; height: 56px; border-radius: var(--mw-radius-lg); object-fit: cover; display: block; box-shadow: 0 0 0 2px var(--mw-lime), var(--mw-shadow-md); }
+.mw-closer-photo .mw-head-brain { right: -14px; bottom: -12px; width: 32px; height: 32px; border-radius: 9px; }
 .mw-closer-loading { margin: 0; font-size: .85rem; color: var(--mw-ink-500); }
 .mw-closer-alert { background: var(--mw-color-danger-bg); color: var(--mw-color-danger); border-radius: 8px; padding: 8px 10px; font-size: .82rem; font-weight: 600; margin-bottom: 10px; }
 .mw-closer-table { width: 100%; font-size: .82rem; border-collapse: collapse; }
