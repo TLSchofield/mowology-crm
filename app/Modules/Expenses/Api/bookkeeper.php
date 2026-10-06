@@ -15,6 +15,8 @@
  * POST {mode: 'prepare', max?, csrf_token}   Prepare the next receipts (daily-capped).
  * POST {mode: 'recheck', suggestion_id, csrf_token}  Penny reads one receipt again, with the photo.
  * POST {mode: 'reject', suggestion_id, reason, csrf_token}  Reject a receipt from the card.
+ * GET  ?mode=bank_queue  Imported bank lines on the default account, with Penny's suggestion.
+ * POST {mode: 'bank_decide', transaction_id, action: approve|keep, account_id?, suggested_id?, csrf_token}
  * GET  ?mode=dismissed_dupes  Pairs marked "not a duplicate" (the receipts page reads these).
  * POST {mode: 'not_dupe', pairs: [[a, b], ...], csrf_token}  "Not a duplicate" — remembered (migration 1127).
  * GET  ?mode=questions  Penny's open questions (scans for unbilled materials first).
@@ -214,6 +216,23 @@ try {
                 if (!$svc->ready()) throw new RuntimeException('Not ready — check ?mode=status');
                 set_time_limit(240);
                 echo json_encode(['ok' => true] + $desk->prepare((int)($input['max'] ?? 2), DuplicateReceiptService::heldIds($dupSvc->pairsInLine(60))));
+            }
+            break;
+        }
+
+        case 'bank_queue':
+        case 'bank_decide': {
+            require_once APP_ROOT . '/Modules/Accounting/Services/BankDeskService.php';
+            $bank = new BankDeskService($db);
+            if ($mode === 'bank_queue') {
+                echo json_encode(['ok' => true, 'ready' => $bank->ready(), 'waiting' => $bank->waiting(),
+                                  'lines' => $bank->queue((int)($_GET['limit'] ?? 10)), 'accounts' => $bank->ready() ? $bank->accounts() : []]);
+            } else {
+                if ($method !== 'POST') throw new RuntimeException('POST required');
+                if (!userHasPermission('expenses.edit')) throw new RuntimeException('Permission denied: expenses.edit required');
+                echo json_encode($bank->decide((int)($input['transaction_id'] ?? 0), (string)($input['action'] ?? ''),
+                    isset($input['account_id']) ? (int)$input['account_id'] : null,
+                    isset($input['suggested_id']) ? (int)$input['suggested_id'] : null, $user));
             }
             break;
         }

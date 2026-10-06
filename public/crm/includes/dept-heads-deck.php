@@ -160,6 +160,8 @@ $__team = [
         <div class="mw-rc-empty">Loading receipts…</div>
       </div>
 
+      <div class="mw-bl" id="mw-bl" hidden aria-live="polite" data-name="<?= h($__hi) ?>"></div>
+
       <div class="mw-head-foot">
         <span>Learning from every approval: store locations · item names · your fuel &amp; EGO rules</span>
         <a class="btn btn-sm btn-success" href="/crm/expenses_appstack.php">All receipts →</a>
@@ -181,3 +183,4 @@ $__team = [
 </div>
 <script src="<?= function_exists('_av') ? _av('/crm/js/bookkeeper-card.js') : '/crm/js/bookkeeper-card.js' ?>" defer></script>
 <script src="<?= function_exists('_av') ? _av('/crm/js/penny-brain.js') : '/crm/js/penny-brain.js' ?>" defer></script>
+<script src="<?= function_exists('_av') ? _av('/crm/js/penny-bank.js') : '/crm/js/penny-bank.js' ?>" defer></script>

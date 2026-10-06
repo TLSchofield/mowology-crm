@@ -37727,6 +37727,18 @@ span.mw-icon-box--missing {
 .mw-rc-iactions .mw-rc-ed { background: var(--mw-ink-0); color: var(--mw-forest); border: 1px solid var(--mw-ink-200); border-radius: 8px; padding: 4px 10px; font-size: .75rem; font-weight: 600; }
 .mw-rc-isave { font-size: .72rem; color: var(--mw-green); }
 .mw-rc-isave.is-bad { color: var(--mw-orange); }
+/* Penny's bank lines (penny-bank.js) */
+.mw-bl { margin-top: 14px; border: 1px solid var(--mw-ink-200); border-radius: var(--mw-radius-md); padding: 12px 14px; background: var(--mw-ink-0); }
+.mw-bl-head { display: flex; justify-content: space-between; align-items: center; font-size: .82rem; color: var(--mw-forest); margin-bottom: 8px; }
+.mw-bl-line { background: var(--mw-light); border-radius: 10px; padding: 10px 12px; }
+.mw-bl-top { display: flex; justify-content: space-between; font-size: .78rem; color: var(--mw-ink-500); }
+.mw-bl-top b { font-size: 1rem; }
+.mw-bl-top .is-out { color: var(--mw-forest); }
+.mw-bl-top .is-in { color: var(--mw-green); }
+.mw-bl-desc { font-family: ui-monospace, Menlo, monospace; font-size: .85rem; color: var(--mw-forest); margin: 4px 0; word-break: break-word; }
+.mw-bl-now { font-size: .75rem; color: var(--mw-ink-500); }
+.mw-bl-say { font-size: .85rem; color: var(--mw-forest); margin: 10px 0 6px; }
+.mw-bl-pick select { width: 100%; max-width: 420px; }
 .mw-rc-dup-say { font-size: .85rem; color: var(--mw-forest); background: var(--mw-light); border-radius: var(--mw-radius-md); padding: 8px 12px; margin: 8px 0; }
 .mw-rc-dup { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
 .mw-rc-dup-side { display: flex; flex-direction: column; gap: 8px; min-width: 0; border: 1px solid var(--mw-ink-200); border-radius: var(--mw-radius-md); padding: 10px; }
