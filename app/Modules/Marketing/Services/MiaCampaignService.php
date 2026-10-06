@@ -17,7 +17,7 @@
  *       property is within 400 m of a client's). Proposed Oct 1–31. The words never tell
  *       anyone to water during the restrictions.
  *
- * Never: a price or discount Tim hasn't written, a client's address or face (the photo is a
+ * Never: a discount, a price Tim hasn't written, a client's address or face (the photo is a
  * published before/after pair from the public portfolio, shown without any address), a
  * send to anyone without a consent record.
  *
@@ -265,7 +265,9 @@ class MiaCampaignService
         $all = $subject . "\n" . $body;
         if ($subject === '' || $body === '') $p[] = 'it needs a subject and a message';
         if (strpos($all, '!') !== false) $p[] = 'no exclamation marks';
-        if (preg_match('/\$\s?\d|\d+\s?%|\bdiscount|\bcoupon|\bpromo code|\bper cent off/i', $all)) $p[] = 'a price or discount needs Tim to write it in a campaign of his own';
+        // Tim writes the words he approves, so his own prices are fine ("Aeration starts at $95").
+        // Discounts stay out: a discount is a decision of its own, not a line slipped into a campaign.
+        if (preg_match('/\d+\s?%\s*off|\bdiscount|\bcoupon|\bpromo code|\bper cent off|\$\s?\d[\d.,]*\s*off\b/i', $all)) $p[] = 'a discount needs a campaign of its own';
         if (preg_match('/\b(water|sprinkl\w*|irrigat\w*)\b[^.]*\b(now|today|this week|daily|every day|more)\b/i', $all)) $p[] = 'never tell people to water while the restrictions are on';
         if (preg_match('/\breview\b/i', $all) && preg_match('/\b(free|discount|gift|reward|draw|entry)\b/i', $all)) $p[] = 'no rewards for reviews';
         if (preg_match('/\{\{(?!first_name\}\})[a-z_]+\}\}/', $all)) $p[] = 'only {{first_name}} is filled in per person';

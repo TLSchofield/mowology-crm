@@ -96,7 +96,7 @@ class MiaCampaignTest extends TestCase
         $c->propose($this->today);
         $r = $c->approve(1, ['id' => 1], 'Lawn care', "Hi {{first_name}},\n\n20% off aeration this month.\n\nTim", $this->today);
         $this->assertFalse($r['ok']);
-        $this->assertStringContainsString('price or discount', $r['error']);
+        $this->assertStringContainsString('discount needs a campaign of its own', $r['error']);
         $this->assertSame(0, (int)$this->db->query("SELECT COUNT(*) FROM campaign_sends")->fetchColumn());
     }
 
@@ -111,7 +111,10 @@ class MiaCampaignTest extends TestCase
         $this->assertNotEmpty(MiaCampaignService::problems('Hi', 'Turn the sprinklers on this week.'));
         $this->assertNotEmpty(MiaCampaignService::problems('Hi', 'Leave a review and get a free cut.'));
         $this->assertNotEmpty(MiaCampaignService::problems('Hi!', 'Hello'));
-        $this->assertNotEmpty(MiaCampaignService::problems('Hi', 'Only $49.'));
+        $this->assertSame([], MiaCampaignService::problems('Hi', 'Aeration starts at $95 and overseeding at $90.'), "Tim's own prices are fine");
+        $this->assertNotEmpty(MiaCampaignService::problems('Hi', 'Save 20% off aeration this month.'));
+        $this->assertNotEmpty(MiaCampaignService::problems('Hi', 'Get $20 off your first visit.'));
+        $this->assertNotEmpty(MiaCampaignService::problems('Hi', 'Use the coupon FALL.'));
         $this->assertNotEmpty(MiaCampaignService::problems('Hi', 'Dear {{last_name}}'));
     }
 
