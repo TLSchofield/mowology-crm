@@ -3,8 +3,10 @@
  * Department heads deck — dashboard top row.
  *
  * Penny (bookkeeper) is live: her numbers and the receipt carousel
- * (/crm/js/bookkeeper-card.js → /crm/api/bookkeeper.php). Sam, Otto, Mia and
- * Charlie are placeholders until each head is built.
+ * (/crm/js/bookkeeper-card.js → /crm/api/bookkeeper.php). Every other head shows as a
+ * placeholder until its card exists: when includes/<slug>-card.php is there (sam-card.php,
+ * otto-card.php, mia-card.php, charlie-card.php) it is shown full-width under Penny instead.
+ * Each card guards itself (permission, migration) and renders nothing until it's ready.
  *
  * Shown only to users who can approve expenses, and only once migration 1125 has
  * run. Never breaks the dashboard: any failure renders nothing.
@@ -137,16 +139,24 @@ $__team = [
     </div>
   </section>
 
+  <?php $__live = array_values(array_filter(array_column($__team, 0), fn($__s) => is_file(__DIR__ . '/' . $__s . '-card.php'))); ?>
+  <?php if (count($__live) < count($__team)): ?>
   <div class="mw-heads-side">
-    <?php foreach ($__team as [$__slug, $__name, $__role, $__items]): ?>
+    <?php foreach ($__team as [$__slug, $__name, $__role, $__items]): if (in_array($__slug, $__live, true)) continue; ?>
     <section class="mw-head-card mw-head-soon">
       <img class="mw-head-face" src="/crm/img/heads/<?= $__slug ?>.jpg" alt="<?= h($__name) ?>, <?= h($__role) ?>" width="96" height="96">
       <div class="mw-head-nm"><?= h($__name) ?></div>
       <div class="mw-head-role"><?= h($__role) ?></div>
-      <span class="mw-head-pill is-planned"><i></i><?= $__slug === 'sam' ? 'Coming next' : 'Planned' ?></span>
+      <span class="mw-head-pill is-planned"><i></i>Planned</span>
       <ul><?php foreach ($__items as $__it): ?><li><?= h($__it) ?></li><?php endforeach; ?></ul>
     </section>
     <?php endforeach; ?>
   </div>
+  <?php endif; ?>
+  <?php if ($__live): ?>
+  <div class="mw-heads-live">
+    <?php foreach ($__live as $__slug) { include __DIR__ . '/' . $__slug . '-card.php'; } ?>
+  </div>
+  <?php endif; ?>
 </div>
 <script src="<?= function_exists('_av') ? _av('/crm/js/bookkeeper-card.js') : '/crm/js/bookkeeper-card.js' ?>" defer></script>

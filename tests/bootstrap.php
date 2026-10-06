@@ -26,6 +26,18 @@ require_once __DIR__ . '/../app/Services/Messaging/EmailWrapper.php';
 // Quotes
 require_once __DIR__ . '/../app/Modules/Quotes/Services/QuoteService.php';
 
+// Department heads — shared brain
+require_once __DIR__ . '/../app/Services/HeadBrain.php';
+
+// Sales — Sam, the sales head
+require_once __DIR__ . '/../app/Modules/Sales/Services/SalesDeskService.php';
+require_once __DIR__ . '/../app/Modules/Sales/Services/SamFollowupService.php';
+require_once __DIR__ . '/../app/Modules/Sales/Services/SamQuestionService.php';
+require_once __DIR__ . '/../app/Modules/Sales/Services/SamBadgeService.php';
+require_once __DIR__ . '/../app/Modules/Sales/Services/SamBrainService.php';
+require_once __DIR__ . '/../app/Modules/Sales/Services/SalesInboxService.php';
+require_once __DIR__ . '/../app/Modules/Sales/Services/TextBridgeService.php';
+
 require_once __DIR__ . '/../app/Modules/Invoices/Services/StatementService.php';
 
 // Products
