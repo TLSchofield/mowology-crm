@@ -42,7 +42,7 @@ class PennySelfAuditService
     public function dueThenLast(): ?array
     {
         $last = $this->last();
-        if ($last && strtotime((string)$last['at']) > strtotime('-' . self::EVERY_DAYS . ' days')) return $last;
+        if ($last && (int)($last['checked'] ?? 0) > 0 && strtotime((string)$last['at']) > strtotime('-' . self::EVERY_DAYS . ' days')) return $last;
         try {
             return $this->run();
         } catch (Throwable $e) {
