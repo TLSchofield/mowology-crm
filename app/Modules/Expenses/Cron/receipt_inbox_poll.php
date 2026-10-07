@@ -5,9 +5,11 @@
  * Reads the dedicated receipts mailbox over IMAP, extracts each PDF/image
  * attachment, runs it through the existing OCR + vendor-match pipeline, and
  * creates an expense:
- *   - clean 100% match (known vendor + total + date + vendor category) → 'approved'
- *     (the sync-ledger cron posts it to the books)
- *   - anything else → 'draft' (surfaced in the Expenses review panel)
+ *   - clean 100% match (known vendor + total + date + vendor category) →
+ *     'pending_approval', flagged high-confidence: Penny prepares it first, the owner
+ *     approves. Nothing is auto-approved or posted here (changed 2026-10-07).
+ *   - anything else → 'draft'
+ *   Both are surfaced in the Expenses review panel and on Penny's card.
  *
  * Mailbox:
  *   - receipts@mowology.ca — RECEIPTS_IMAP_PASS in secrets.php
@@ -228,7 +230,7 @@ $clientEmails = [];
 try { $ownerEmails = array_merge($ownerEmails, $lower($db->query("SELECT email FROM users WHERE email IS NOT NULL")->fetchAll(PDO::FETCH_COLUMN))); } catch (\Throwable $e) {}
 try { $clientEmails = $lower($db->query("SELECT email FROM contacts WHERE email IS NOT NULL AND email <> ''")->fetchAll(PDO::FETCH_COLUMN)); } catch (\Throwable $e) {}
 
-$autoPosted = [];
+$cleanMatches = [];
 $pending    = [];
 $seen = 0;
 $searchFailed = false;
@@ -326,9 +328,10 @@ foreach ($mailboxes as $mb) {
 
                 $res = $service->ingestAttachment($msgMeta, $bytes, $p['filename'], $p['mime'], $systemUserId);
                 $line = "{$from} — {$p['filename']} ({$p['mime']}) → {$res['status']}";
-                if ($res['status'] === 'auto_posted') {
-                    $autoPosted[] = ['who' => $from, 'subject' => $subject, 'file' => $p['filename'], 'id' => $res['expense_id']];
-                    rpLog("AUTO-POST: {$line} expense #{$res['expense_id']}");
+                if ($res['status'] === 'pending' && !empty($res['high_confidence'])) {
+                    // Clean match: waits for approval (Penny prepares it first) — never auto-approved.
+                    $cleanMatches[] = ['who' => $from, 'subject' => $subject, 'file' => $p['filename'], 'id' => $res['expense_id']];
+                    rpLog("CLEAN MATCH (awaiting approval): {$line} expense #{$res['expense_id']}");
                 } elseif ($res['status'] === 'pending') {
                     $pending[] = ['who' => $from, 'subject' => $subject, 'file' => $p['filename'], 'id' => $res['expense_id'], 'note' => $res['note']];
                     rpLog("PENDING: {$line}" . ($res['note'] ? " ({$res['note']})" : ''));
@@ -344,20 +347,13 @@ foreach ($mailboxes as $mb) {
 
     imap_close($mbox);
 }
-rpLog("Scanned {$seen} attachment(s): " . count($autoPosted) . ' auto-posted, ' . count($pending) . ' pending.');
+rpLog("Scanned {$seen} attachment(s): " . count($cleanMatches) . ' clean match(es) awaiting approval, ' . count($pending) . ' pending.');
 
-// Post auto-approved expenses to the ledger now (idempotent; sync-ledger cron also runs).
-if (!empty($autoPosted)) {
-    try {
-        (new AccountingService($db))->syncFromExpenses();
-        rpLog('Ledger sync run for auto-posted expenses.');
-    } catch (\Throwable $e) {
-        rpLog('Ledger sync error (non-fatal): ' . $e->getMessage());
-    }
-}
+// Nothing is posted to the books here any more: every receipt waits for the owner's
+// approval (the sync-ledger cron posts it after that).
 
 // Summary email — only when something new arrived.
-if (!empty($autoPosted) || !empty($pending)) {
+if (!empty($cleanMatches) || !empty($pending)) {
     $section = function (string $title, array $items, string $colour) {
         if (empty($items)) { return ''; }
         $rows = '';
@@ -372,12 +368,12 @@ if (!empty($autoPosted) || !empty($pending)) {
              . ' (' . count($items) . ')</h3><table style="width:100%;border-collapse:collapse;">' . $rows . '</table>';
     };
 
-    $count   = count($autoPosted) + count($pending);
+    $count   = count($cleanMatches) + count($pending);
     $subject = "{$count} emailed receipt" . ($count === 1 ? '' : 's') . ' processed';
     $link    = (defined('SITE_URL') ? rtrim(SITE_URL, '/') : 'https://mowology.ca') . '/crm/expenses_appstack.php#receipt-inbox';
     $html    = '<div style="font-family:Arial,sans-serif;max-width:560px;">'
              . '<h2 style="color:#1A5F4A;">Emailed receipts processed</h2>'
-             . $section('Auto-posted to the books', $autoPosted, '#2D8659')
+             . $section('Clean match — high confidence, waiting for your approval', $cleanMatches, '#2D8659')
              . $section('Needs review', $pending, '#b45309')
              . '<p style="margin-top:18px;"><a href="' . $link . '" style="background:#2D8659;color:#fff;'
              . 'padding:10px 18px;border-radius:6px;text-decoration:none;">Open Expenses review</a></p>'
@@ -388,7 +384,7 @@ if (!empty($autoPosted) || !empty($pending)) {
     rpLog("Summary email to {$to}: " . ($ok ? 'sent' : 'FAILED'));
 }
 
-$summary = "Scanned {$seen} attachment(s): " . count($autoPosted) . ' auto-posted, ' . count($pending) . ' pending.';
+$summary = "Scanned {$seen} attachment(s): " . count($cleanMatches) . ' clean match(es) awaiting approval, ' . count($pending) . ' pending.';
 if ($searchFailed) {
     $summary = 'IMAP search failed (mail server may be flaky) — ' . $summary;
 }

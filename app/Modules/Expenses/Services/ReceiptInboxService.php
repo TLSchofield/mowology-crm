@@ -8,12 +8,13 @@
  * storage + OCR + auto-post logic so the decision rules can be unit-tested without
  * a mailbox.
  *
- * Auto-post rule (the safety gate — see isCleanMatch): a receipt only posts straight
- * to the books when the vendor is recognised in the vendor directory AND a total
- * amount parsed AND a date parsed AND that vendor has a default accounting category.
- * Anything short of that is created as a draft and surfaced in the Expenses review
- * panel for one-click confirmation. PDFs that can't be rasterised for OCR never
- * auto-post.
+ * Nothing is approved here (2026-10-07). A "clean match" (isCleanMatch: the vendor is
+ * recognised in the vendor directory AND a total parsed AND a date parsed AND that
+ * vendor has a default accounting category) used to be created 'approved' and posted
+ * straight to the books. Now it is created 'pending_approval' and flagged high-confidence
+ * — Penny prepares those first (BookkeeperDeskService::prepare orders pending_approval
+ * first) and the owner approves. Anything short of a clean match is a 'draft'. Both show
+ * in the Expenses review panel. PDFs that can't be rasterised for OCR are never clean.
  *
  * Reuses the existing receipt pipeline: ReceiptOCR / ReceiptParser / ReceiptSmartMatch
  * (the same code the camera "Snap Receipt" flow runs), media_assets for storage, and
@@ -161,6 +162,23 @@ class ReceiptInboxService
         return $cat !== '';
     }
 
+    /** Note on the inbox log for a clean match, so it reads as high-confidence. */
+    public const HIGH_CONFIDENCE_NOTE = 'clean match — high confidence, waiting for approval';
+
+    /**
+     * The status an emailed receipt is created with. Never 'approved': a clean match
+     * waits for approval flagged high-confidence (Penny prepares it first), anything
+     * else is a draft. Pure.
+     *
+     * @return array{status:string, high_confidence:bool}
+     */
+    public static function inboxStatus(bool $cleanMatch): array
+    {
+        return $cleanMatch
+            ? ['status' => 'pending_approval', 'high_confidence' => true]
+            : ['status' => 'draft', 'high_confidence' => false];
+    }
+
     /** True for a real calendar date in YYYY-MM-DD form. */
     public static function isValidDate(?string $date): bool
     {
@@ -235,7 +253,7 @@ class ReceiptInboxService
      * @param string $mime         MIME type
      * @param int    $systemUserId users.id to attribute the expense to (an admin)
      * @return array{status:string,expense_id:?int,note:?string}
-     *         status ∈ duplicate | unsupported | auto_posted | pending | error
+     *         status ∈ duplicate | unsupported | pending | error (never auto_posted since 2026-10-07; high_confidence flags a clean match)
      */
     public function ingestAttachment(array $msg, string $bytes, string $filename, string $mime, int $systemUserId): array
     {
@@ -296,14 +314,15 @@ class ReceiptInboxService
         $category   = $suggestions['accounting_category'] ?? $vendorCat;
         $confidence = (int) ($suggestions['vendor_confidence'] ?? 0);
 
-        // 4) Auto-post gate. A PDF we couldn't OCR can never be a clean match.
+        // 4) Confidence gate. A PDF we couldn't OCR can never be a clean match. A clean
+        //    match is NOT approved — it waits for approval, flagged high-confidence.
         $clean = $mayAutoPost && $ocr['readable'] && self::isCleanMatch([
             'vendor_id'               => $vendorId,
             'total'                   => $total,
             'expense_date'            => $parsed['date'] ?? null,   // gate on the *parsed* date, not the fallback
             'vendor_default_category' => $vendorCat,
         ]);
-        $status = $clean ? 'approved' : 'draft';
+        $status = self::inboxStatus($clean)['status'];
 
         // 5) Anomaly scoring (best-effort, mirrors expense-save.php).
         $anomalyFlags = null;
@@ -355,11 +374,13 @@ class ReceiptInboxService
         $expenseId = (int) $this->db->lastInsertId();
 
         // 7) Finalize the claimed audit row with the outcome.
-        $outcome = $clean ? 'auto_posted' : 'pending';
-        $logNote = $ocr['readable'] ? null : $unreadableNote;
+        //    'auto_posted' is now written only when the owner approves (approve() /
+        //    BookkeeperDeskService::afterInboxApproval).
+        $outcome = 'pending';
+        $logNote = $ocr['readable'] ? ($clean ? self::HIGH_CONFIDENCE_NOTE : null) : $unreadableNote;
         $this->finalizeClaim($dedup, $mediaId, $expenseId, $outcome, $confidence, $logNote);
 
-        return ['status' => $outcome, 'expense_id' => $expenseId, 'note' => $logNote];
+        return ['status' => $outcome, 'expense_id' => $expenseId, 'note' => $logNote, 'high_confidence' => $clean];
     }
 
     /** Persist the raw bytes to /uploads/receipts/ and register in media_assets. */
@@ -514,7 +535,7 @@ class ReceiptInboxService
              LEFT JOIN vendors v        ON e.vendor_id = v.id
              LEFT JOIN media_assets m   ON e.receipt_media_id = m.id
              LEFT JOIN receipt_inbox_messages rim ON rim.expense_id = e.id
-                 WHERE e.source = 'email_inbox' AND e.status = 'draft'
+                 WHERE e.source = 'email_inbox' AND e.status IN ('draft', 'pending_approval')
               ORDER BY e.created_at DESC, e.id DESC";
         return $this->db->query($sql)->fetchAll(PDO::FETCH_ASSOC);
     }
@@ -522,7 +543,7 @@ class ReceiptInboxService
     public function countPending(): int
     {
         return (int) $this->db->query(
-            "SELECT COUNT(*) FROM expenses WHERE source = 'email_inbox' AND status = 'draft'"
+            "SELECT COUNT(*) FROM expenses WHERE source = 'email_inbox' AND status IN ('draft', 'pending_approval')"
         )->fetchColumn();
     }
 
@@ -553,7 +574,7 @@ class ReceiptInboxService
             UPDATE expenses
                SET vendor_id = ?, expense_date = ?, amount = ?, gst_amount = ?, pst_amount = ?,
                    total = ?, accounting_category = ?, status = 'approved', updated_at = NOW()
-             WHERE id = ? AND source = 'email_inbox' AND status = 'draft'
+             WHERE id = ? AND source = 'email_inbox' AND status IN ('draft', 'pending_approval')
         ")->execute([$vendorId, $date, $amount, $gst, $pst, $total, $category, $expenseId]);
 
         $this->db->prepare(
@@ -572,7 +593,7 @@ class ReceiptInboxService
     {
         $upd = $this->db->prepare(
             "UPDATE expenses SET status = 'cancelled', updated_at = NOW()
-              WHERE id = ? AND source = 'email_inbox' AND status = 'draft'"
+              WHERE id = ? AND source = 'email_inbox' AND status IN ('draft', 'pending_approval')"
         );
         $upd->execute([$expenseId]);
         if ($upd->rowCount() === 0) {
@@ -587,7 +608,7 @@ class ReceiptInboxService
     private function loadPendingExpense(int $expenseId): ?array
     {
         $stmt = $this->db->prepare(
-            "SELECT * FROM expenses WHERE id = ? AND source = 'email_inbox' AND status = 'draft' LIMIT 1"
+            "SELECT * FROM expenses WHERE id = ? AND source = 'email_inbox' AND status IN ('draft', 'pending_approval') LIMIT 1"
         );
         $stmt->execute([$expenseId]);
         return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;

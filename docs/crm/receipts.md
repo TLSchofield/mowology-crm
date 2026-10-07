@@ -56,19 +56,26 @@ Approved/forwarded expenses post to the ledger via
 3. `ReceiptInboxService::ingestAttachment()` stores the file, runs the shared OCR
    pipeline (`ReceiptOCR` → `ReceiptParser` → `ReceiptSmartMatch`; PDFs are
    rasterised page-1 via Imagick), and creates the expense.
-4. **Auto-post gate** (`ReceiptInboxService::isCleanMatch()`): the expense is
-   created `status='approved'` (posts to the books) **only** when all of:
+4. **Confidence gate** (`ReceiptInboxService::isCleanMatch()` → `inboxStatus()`).
+   Nothing is approved automatically (since 2026-10-07). A clean match — all of:
    - vendor matched in the vendor directory (`vendor_id`),
    - a positive total parsed,
    - a valid date parsed,
-   - the matched vendor has a `default_accounting_category`.
-   PDFs that couldn't be OCR'd never auto-post. Everything else is `status='draft'`.
-5. **Review**: drafts from email (`source='email_inbox'`) appear in the
-   "Receipts from email — pending review" panel on the Expenses page. Edit
-   vendor/date/total/GST/PST/category, then **Approve** (→ `approved`) or
-   **Dismiss** (→ `cancelled`). API: `public/crm/api/receipt-inbox-confirm.php`.
+   - the matched vendor has a `default_accounting_category` —
+   is created `status='pending_approval'`, flagged high-confidence (inbox note
+   "clean match — high confidence"). Penny prepares `pending_approval` receipts
+   first; the owner approves. PDFs that couldn't be OCR'd are never clean.
+   Everything else is `status='draft'`.
+5. **Review**: emailed receipts (`source='email_inbox'`, draft or pending_approval)
+   appear in the "Receipts from email — pending review" panel on the Expenses page
+   and on Penny's card. Edit vendor/date/total/GST/PST/category, then **Approve**
+   (→ `approved`) or **Dismiss** (→ `cancelled`). API: `public/crm/api/receipt-inbox-confirm.php`.
 6. **Notify**: each poll run that processed anything emails a summary to
-   `mowology@icloud.com` (auto-posted vs needs-review).
+   `mowology@icloud.com` (clean matches awaiting approval vs needs-review).
+7. **Penny prepares in the background**: `app/Modules/Expenses/Cron/penny_prepare.php`
+   (every 15 min, `5,20,35,50 * * * *`) prepares up to 5 receipts per run within the
+   daily cap (`ops_settings bookkeeper_daily_cap`, default 40), holding back possible
+   duplicates. `--dry-run` lists what it would prepare without calling the AI.
 
 ### Dedup
 `receipt_inbox_messages.dedup_key` = `message-id:sha256` (or `sha:sha256` when the

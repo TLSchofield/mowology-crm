@@ -163,4 +163,12 @@ class ReceiptInboxServiceTest extends TestCase
         $t = ReceiptInboxService::htmlToText($html);
         $this->assertSame("Bark Mulch \$12.98\nGST \$0.65\nTotal \$13.63", $t);
     }
+
+    /** The inbox never approves: a clean match waits for approval, flagged for Penny. */
+    public function test_clean_match_waits_for_approval_flagged_high_confidence(): void
+    {
+        $this->assertSame(['status' => 'pending_approval', 'high_confidence' => true], ReceiptInboxService::inboxStatus(true));
+        $this->assertSame(['status' => 'draft', 'high_confidence' => false], ReceiptInboxService::inboxStatus(false));
+        $this->assertNotSame('approved', ReceiptInboxService::inboxStatus(true)['status']);
+    }
 }
