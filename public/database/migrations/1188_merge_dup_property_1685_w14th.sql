@@ -7,7 +7,7 @@
 
 UPDATE quotes q
   JOIN properties dup  ON dup.id = 1484 AND dup.address = '1685 West 14th Avenue'
-  JOIN properties real ON real.id = 76  AND real.address = '1685 West 14th Avenue'
+  JOIN properties keep ON keep.id = 76  AND keep.address = '1685 West 14th Avenue'
    SET q.property_id = 76
  WHERE q.id = 99 AND q.property_id = 1484;
 
