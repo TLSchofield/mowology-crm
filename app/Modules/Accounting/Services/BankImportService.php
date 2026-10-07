@@ -88,6 +88,45 @@ class BankImportService
     private ?InvoiceReconciliationService $reconSvc = null;
 
     /** Lazily built — no autoloader on production, so require the file here. */
+    /**
+     * What commit() does with a deposit auto-matched to an invoice's ledger row. Pure.
+     *
+     *  - Not an e-Transfer match (Stripe/processor — the webhook closes those) or no
+     *    invoice → 'transfer_only': the deposit is a cash-clearing transfer, invoice untouched.
+     *  - Payments already recorded on the invoice and not yet linked to any deposit that
+     *    add up exactly to the deposit → 'link_recorded' (allocation_ids): link them; the
+     *    invoice is NOT credited again.
+     *  - Invoice still open (not paid/cancelled, balance > 0) → 'allocate' (amount): record
+     *    the payment through InvoiceReconciliationService::applyAllocation().
+     *  - Otherwise (already paid, nothing to link) → 'transfer_only'.
+     *
+     * @param array|null $invoice  ['status' => string, 'balance_due' => float|string]
+     * @param array $unlinked      [['id' => int, 'amount' => float], ...] the invoice's
+     *                             allocations with transaction_id NULL
+     * @return array{action:string, allocation_ids?:int[], amount?:float}
+     */
+    public static function invoiceMatchPlan(string $matchMethod, ?array $invoice, float $depositAmount, array $unlinked): array
+    {
+        $deposit = round($depositAmount, 2);
+        if ($matchMethod !== 'etransfer' || !$invoice || $deposit <= 0) {
+            return ['action' => 'transfer_only'];
+        }
+        if ($unlinked) {
+            if (!class_exists('InvoiceReconciliationService')) {
+                require_once __DIR__ . '/InvoiceReconciliationService.php';
+            }
+            $pick = InvoiceReconciliationService::exactSubset(array_map(fn($a) => round((float)$a['amount'], 2), $unlinked), $deposit);
+            if ($pick !== null) {
+                return ['action' => 'link_recorded', 'allocation_ids' => array_map(fn($i) => (int)$unlinked[$i]['id'], $pick)];
+            }
+        }
+        $status = (string)($invoice['status'] ?? '');
+        if (!in_array($status, ['paid', 'cancelled'], true) && round((float)($invoice['balance_due'] ?? 0), 2) > 0.005) {
+            return ['action' => 'allocate', 'amount' => $deposit];
+        }
+        return ['action' => 'transfer_only'];
+    }
+
     private function reconciliationService(): InvoiceReconciliationService
     {
         if ($this->reconSvc === null) {
@@ -556,24 +595,98 @@ class BankImportService
                         WHERE id = ?
                     ")->execute([$accountName, $bankAccountId ?: null, $sessionId, $confidence, $invTxId]);
 
-                    // Book the bank deposit as a cash-clearing TRANSFER — NOT a second
-                    // income row. The invoice's own ledger row (marked 'reconciled'
-                    // above) already recognizes this revenue; booking the deposit as
-                    // income too would double-count it in the P&L / GST. Mirrors
-                    // InvoiceReconciliationService::recomputeDepositRow() (fully-allocated
-                    // deposit → type='transfer', excluded from income reports).
+                    // The deposit is NOT a second income row: the invoice's own ledger
+                    // row already recognizes this revenue (double-count in P&L / GST
+                    // otherwise). What happens to the invoice goes through the allocation
+                    // ledger (InvoiceReconciliationService), never a direct UPDATE:
+                    //   link_recorded — the money was already recorded on this invoice
+                    //                   (Record Payment / e-Transfer inbox): link those
+                    //                   payments to this deposit; the invoice is unchanged.
+                    //   allocate      — an e-Transfer for an invoice still open: record the
+                    //                   payment with applyAllocation() (allocation row linked
+                    //                   to this deposit, invoice paid/partial, its income row,
+                    //                   and on production the pipeline-stage hook).
+                    //   transfer_only — Stripe/processor (closed by the webhook) or already
+                    //                   paid: the deposit is a cash-clearing transfer.
+                    // Either way the deposit ends as type='transfer' once fully accounted for
+                    // (mirrors InvoiceReconciliationService::recomputeDepositRow()).
                     $invoiceIdForDeposit = (int)($row['matched_invoice_id'] ?? 0);
+                    $matchMethod   = $row['match_method'] ?? '';
+                    $depositAmount = round((float)$row['amount'], 2);
+                    $priorInvoice  = null;
+                    $priorInvoiceTx = null;
+                    $newAllocationIds = [];
+
+                    $invState = null;
+                    $unlinked = [];
+                    if ($matchMethod === 'etransfer' && $invoiceIdForDeposit) {
+                        $invRow = $this->db->prepare("
+                            SELECT total, amount_paid, balance_due, status, payment_method, paid_at
+                            FROM invoices WHERE id = ? LIMIT 1
+                        ");
+                        $invRow->execute([$invoiceIdForDeposit]);
+                        $invState = $invRow->fetch(PDO::FETCH_ASSOC) ?: null;
+                        $ua = $this->db->prepare("
+                            SELECT id, amount FROM invoice_payment_allocations
+                            WHERE invoice_id = ? AND transaction_id IS NULL AND amount > 0
+                            ORDER BY payment_date ASC, id ASC
+                        ");
+                        $ua->execute([$invoiceIdForDeposit]);
+                        $unlinked = $ua->fetchAll(PDO::FETCH_ASSOC);
+                    }
+                    $plan = self::invoiceMatchPlan($matchMethod, $invState, $depositAmount, $unlinked);
+
                     $txStmt->execute([
-                        $row['date'], 'transfer', $row['account_id'], $row['amount'],
+                        $row['date'], $plan['action'] === 'transfer_only' ? 'transfer' : 'income',
+                        $row['account_id'], $row['amount'],
                         0, $row['description'],
                         0, null, $accountName, $bankAccountId ?: null, $sessionId, $userId,
                     ]);
                     $txId = (int)$this->db->lastInsertId();
 
-                    // Flag the transfer reconciled + link it to the invoice (audit trail).
+                    if ($plan['action'] === 'link_recorded') {
+                        // Deposit → transfer, linked to the payments already on the invoice.
+                        $this->reconciliationService()->linkAllocationsToDeposit($txId, $plan['allocation_ids'], $userId);
+                    } elseif ($plan['action'] === 'allocate') {
+                        // Snapshot BEFORE recording, so rollback() restores it exactly.
+                        $priorInvoice = [
+                            'id'             => $invoiceIdForDeposit,
+                            'status'         => $invState['status'],
+                            'amount_paid'    => $invState['amount_paid'],
+                            'balance_due'    => $invState['balance_due'],
+                            'payment_method' => $invState['payment_method'],
+                            'paid_at'        => $invState['paid_at'],
+                        ];
+                        $snap = $this->db->prepare("SELECT id, amount, gst_amount, transaction_date FROM accounting_transactions WHERE id = ?");
+                        $snap->execute([$invTxId]);
+                        $priorInvoiceTx = $snap->fetch(PDO::FETCH_ASSOC) ?: null;
+
+                        $applied = $this->reconciliationService()->applyAllocation(
+                            $invoiceIdForDeposit, $depositAmount, 'e_transfer', $payRef !== '' ? $payRef : null,
+                            (string)$row['date'], $txId, $userId
+                        );
+                        $ids = $this->db->prepare("SELECT id FROM invoice_payment_allocations WHERE transaction_id = ?");
+                        $ids->execute([$txId]);
+                        $newAllocationIds = array_map('intval', $ids->fetchAll(PDO::FETCH_COLUMN));
+
+                        // Deposit row from what was allocated: all of it → transfer; a
+                        // remainder (invoice balance was smaller) stays income for that remainder.
+                        // (null = the invoice was settled meanwhile: as before, just a transfer.)
+                        $remaining = $applied === null ? 0.0 : round($depositAmount - (float)$applied['applied'], 2);
+                        if ($remaining > 0.005) {
+                            $this->db->prepare("UPDATE accounting_transactions SET amount = ? WHERE id = ?")
+                                     ->execute([$remaining, $txId]);
+                        } else {
+                            $this->db->prepare("UPDATE accounting_transactions SET type = 'transfer' WHERE id = ?")
+                                     ->execute([$txId]);
+                        }
+                    }
+
+                    // Flag the deposit + link it to the invoice (audit trail). A remainder
+                    // still counted as income stays 'cleared' rather than 'reconciled'.
                     $this->db->prepare("
                         UPDATE accounting_transactions SET
-                          status             = 'reconciled',
+                          status             = CASE WHEN type = 'transfer' THEN 'reconciled' ELSE status END,
                           matched_invoice_id = ?,
                           match_confidence   = ?,
                           matched_at         = NOW(),
@@ -581,42 +694,6 @@ class BankImportService
                           payment_reference  = ?
                         WHERE id = ?
                     ")->execute([$invoiceIdForDeposit ?: null, $confidence, $payRef ?: null, $txId]);
-
-                    // Close the invoice if this was an e-Transfer (Stripe closes via webhook)
-                    $matchMethod   = $row['match_method'] ?? '';
-                    $invoiceId     = (int)($row['matched_invoice_id'] ?? 0);
-                    $priorInvoice  = null;
-                    if ($matchMethod === 'etransfer' && $invoiceId) {
-                        // Snapshot prior invoice state BEFORE closing it, so rollback()
-                        // can restore it exactly (status/amount_paid/balance/method/paid_at).
-                        $invRow = $this->db->prepare("
-                            SELECT total, amount_paid, balance_due, status, payment_method, paid_at
-                            FROM invoices
-                            WHERE id = ? AND status NOT IN ('paid','cancelled')
-                            LIMIT 1
-                        ");
-                        $invRow->execute([$invoiceId]);
-                        $inv = $invRow->fetch(PDO::FETCH_ASSOC);
-                        if ($inv) {
-                            $priorInvoice = [
-                                'id'             => $invoiceId,
-                                'status'         => $inv['status'],
-                                'amount_paid'    => $inv['amount_paid'],
-                                'balance_due'    => $inv['balance_due'],
-                                'payment_method' => $inv['payment_method'],
-                                'paid_at'        => $inv['paid_at'],
-                            ];
-                            $this->db->prepare("
-                                UPDATE invoices SET
-                                    status           = 'paid',
-                                    amount_paid      = total,
-                                    balance_due      = 0,
-                                    payment_method   = 'e_transfer',
-                                    paid_at          = COALESCE(paid_at, ?)
-                                WHERE id = ?
-                            ")->execute([$row['date'], $invoiceId]);
-                        }
-                    }
 
                     // Auto-create the processing fee as an expense
                     if ($processingFee > 0.01) {
@@ -635,11 +712,21 @@ class BankImportService
                     }
 
                     // Capture what rollback() must undo for this row: un-reconcile the
-                    // invoice's income ledger row, and reopen the invoice if we closed it.
+                    // invoice's income ledger row; for a payment recorded here, delete its
+                    // allocation and restore the invoice + its ledger row exactly. (A linked
+                    // already-recorded payment unlinks itself when the deposit is deleted:
+                    // the allocation FK sets transaction_id back to NULL.)
                     $row['_revert'] = ['unflag_tx' => [$invTxId]];
                     if ($priorInvoice) {
-                        $row['_revert']['reopen_invoice'] = $priorInvoice;
+                        $row['_revert']['restore_invoice'] = $priorInvoice;
                     }
+                    if ($newAllocationIds) {
+                        $row['_revert']['delete_allocations'] = $newAllocationIds;
+                    }
+                    if ($priorInvoiceTx) {
+                        $row['_revert']['restore_tx'] = $priorInvoiceTx;
+                    }
+                    $row['invoice_match_action'] = $plan['action'];
                     $rowStmt->execute([
                         $sessionId, $row['date'], $row['description'], $rawAmount,
                         'income', $row['amount'], $row['account_id'],
@@ -781,11 +868,32 @@ class BankImportService
                     $deleteTx->execute([(int)$txId]);
                 }
                 if (!empty($revert['reopen_invoice']['id'])) {
+                    // Sessions committed before 2026-10-07 (invoice closed directly).
                     $pi = $revert['reopen_invoice'];
                     $reopen->execute([
                         $pi['status'], $pi['amount_paid'], $pi['balance_due'],
                         $pi['payment_method'], $pi['paid_at'], (int)$pi['id'],
                     ]);
+                }
+                // A payment recorded through the allocation ledger: remove the allocation,
+                // then put the invoice and its income ledger row back as they were.
+                foreach (($revert['delete_allocations'] ?? []) as $allocId) {
+                    $this->db->prepare("DELETE FROM invoice_payment_allocations WHERE id = ?")->execute([(int)$allocId]);
+                }
+                if (!empty($revert['restore_invoice']['id'])) {
+                    $pi = $revert['restore_invoice'];
+                    $this->db->prepare("
+                        UPDATE invoices SET status = ?, amount_paid = ?, balance_due = ?, payment_method = ?, paid_at = ?
+                        WHERE id = ?
+                    ")->execute([
+                        $pi['status'], $pi['amount_paid'], $pi['balance_due'],
+                        $pi['payment_method'], $pi['paid_at'], (int)$pi['id'],
+                    ]);
+                }
+                if (!empty($revert['restore_tx']['id'])) {
+                    $pt = $revert['restore_tx'];
+                    $this->db->prepare("UPDATE accounting_transactions SET amount = ?, gst_amount = ?, transaction_date = ? WHERE id = ?")
+                             ->execute([$pt['amount'], $pt['gst_amount'], $pt['transaction_date'], (int)$pt['id']]);
                 }
             }
 
