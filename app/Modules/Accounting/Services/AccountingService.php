@@ -405,9 +405,14 @@ class AccountingService
             $data[$row['type']]['pst'] = (float)$row['pst_total'];
         }
 
-        $gstCollected = $data['income']['gst'];
-        $gstPaidITC   = $data['expense']['gst'];
-        $netGstOwing  = $gstCollected - $gstPaidITC;
+        // GST comes from the one GST calculation (GstReportService, 2026-10-07) so the
+        // dashboard agrees with the GST return: ITCs from approved/posted expenses only,
+        // meals & entertainment limited. PST stays from the ledger.
+        require_once __DIR__ . '/GstReportService.php';
+        $gst = (new GstReportService($this->db))->reportForRange($dateFrom, $dateTo);
+        $gstCollected = $gst['line_103'];
+        $gstPaidITC   = $gst['line_106'];
+        $netGstOwing  = $gst['line_109'];
 
         return [
             'date_from'       => $dateFrom,
