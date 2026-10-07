@@ -145,8 +145,14 @@ foreach ($folders as $folder) {
             if ($res === 'skipped') { $counts['skipped']++; continue; }
             if ($res === 'stored') {
                 // Customer mail: now read its text (FT_PEEK) and fill the snippet in.
-                $snip = SalesInboxService::snippet($body($mbox, $no));
+                $raw = $body($mbox, $no);
+                $snip = SalesInboxService::snippet($raw);
                 if ($snip !== '') $svc->setSnippet($svc->lastKey, $snip);
+                // Inbound from a known contact: keep the signature too (clues check, migration 1206).
+                if ($svc->lastDirection === 'inbound') {
+                    $sig = SalesInboxService::signature($raw);
+                    if ($sig !== '') $svc->setSignature($svc->lastKey, $sig);
+                }
             }
             $counts[$res]++;
         } catch (Throwable $e) {

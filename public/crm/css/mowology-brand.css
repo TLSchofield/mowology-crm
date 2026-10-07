@@ -38557,6 +38557,16 @@ body.mw-rc-zoom-open { overflow: hidden; }
     .mw-yui-act { justify-content: flex-start; }
 }
 
+/* Clues — facts Penny and Yui spotted in payments and mail (clues-card.js, on Yui's card) */
+.mw-clues:empty { display: none; }
+.mw-clues { margin-top: 10px; }
+.mw-clue-sec { border-color: var(--mw-lime); background: var(--mw-light); }
+.mw-clue-sec .mw-yui-n { background: var(--mw-lime); color: var(--mw-forest); }
+.mw-clue-sec .mw-yui-row { border-top-color: var(--mw-ink-200); }
+.mw-clue-tag { display: inline-block; font-size: .66rem; font-weight: 800; letter-spacing: .02em; text-transform: uppercase; border-radius: var(--mw-radius-pill); padding: 1px 7px; margin-right: 4px; vertical-align: 1px; color: var(--mw-forest); background: var(--mw-lime); }
+.mw-clue-tag.is-penny { color: var(--mw-light); background: var(--mw-dark); }
+.mw-clue-ev { display: block; margin-top: 2px; color: var(--mw-ink-500); overflow-wrap: anywhere; }
+
 /* ==========================================================================
    Mia — Channels (dashboard card), Listings page, Media Library tags, photo opt-out
    (feature/mia-channels, 2026-10-06)

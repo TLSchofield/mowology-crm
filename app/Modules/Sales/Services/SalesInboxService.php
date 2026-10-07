@@ -18,12 +18,17 @@ class SalesInboxService
 {
     public const OUR_DOMAINS = ['mowology.ca'];
     public const SNIPPET_MAX = 800;
+    /** The sender's signature block, kept apart from the snippet (migration 1206) for the clues check. */
+    public const SIGNATURE_MAX = 300;
 
     private PDO $db;
     /** @var array<string, int>|null lowercase email => contact id */
     private ?array $contacts = null;
     /** message_key of the last ingest() — so the cron can add the text afterwards. */
     public string $lastKey = '';
+    /** direction of the last ingest() — only inbound mail gets a signature. */
+    public string $lastDirection = '';
+    private ?bool $sigReady = null;
 
     public function __construct(PDO $db)
     {
@@ -64,6 +69,7 @@ class SalesInboxService
             ? mb_substr(trim((string)$m['message_id']), 0, 191)
             : 'h-' . sha1($m['mailbox'] . '|' . $m['from'] . '|' . $m['to'] . '|' . $m['subject'] . '|' . $sentAt);
         $this->lastKey = $key;
+        $this->lastDirection = $c['direction'];
         $s = $this->db->prepare("
             INSERT IGNORE INTO sales_messages (mailbox, message_key, direction, channel, contact_id, from_addr, to_addr, subject, snippet, sent_at)
             VALUES (?, ?, ?, 'email', ?, ?, ?, ?, ?, ?)
@@ -84,6 +90,28 @@ class SalesInboxService
         if ($key === '' || $snippet === '') return;
         $this->db->prepare("UPDATE sales_messages SET snippet = ? WHERE message_key = ? AND (snippet IS NULL OR snippet = '')")
            ->execute([$snippet, $key]);
+    }
+
+    /** Migration 1206 has added sales_messages.signature. */
+    public function signatureReady(): bool
+    {
+        if ($this->sigReady === null) {
+            try {
+                $this->db->query('SELECT signature FROM sales_messages LIMIT 0');
+                $this->sigReady = true;
+            } catch (Throwable $e) {
+                $this->sigReady = false;
+            }
+        }
+        return $this->sigReady;
+    }
+
+    /** Inbound mail from a known contact: keep the signature block (clues check). Never overwrites. */
+    public function setSignature(string $key, string $signature): void
+    {
+        if ($key === '' || $signature === '' || !$this->signatureReady()) return;
+        $this->db->prepare("UPDATE sales_messages SET signature = ? WHERE message_key = ? AND direction = 'inbound' AND signature IS NULL")
+           ->execute([$signature, $key]);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -144,5 +172,57 @@ class SalesInboxService
         $t = implode("\n", array_filter(explode("\n", $t), fn($l) => strpos(ltrim($l), '>') !== 0));
         $t = trim(preg_replace("/\n{3,}/", "\n\n", preg_replace('/[ \t]+/', ' ', $t)));
         return mb_strlen($t) > self::SNIPPET_MAX ? rtrim(mb_substr($t, 0, self::SNIPPET_MAX - 1)) . '…' : $t;
+    }
+
+    /** Sign-offs that end the message and start the signature ("Thanks," / "Kind regards"). */
+    private const SIGN_OFF = '/^(?:thanks(?: again| so much)?|thank you|many thanks|regards|kind regards|best regards|warm regards|warmest regards|with thanks|best|all the best|cheers|sincerely|yours truly|respectfully)\b[\s,.!\-]*$/i';
+
+    /**
+     * The sender's signature: the last lines of the new text, before the quoted history —
+     * after a "-- " line, else after the last sign-off ("Thanks,"), else the trailing block
+     * when it is short and not the whole message. Up to SIGNATURE_MAX characters; '' if none.
+     * The snippet can be cut off before this, so the cron stores it separately.
+     */
+    public static function signature(string $body): string
+    {
+        $t = str_replace(["\r\n", "\r"], "\n", $body);
+        $t = html_entity_decode(strip_tags(preg_replace('/<br\s*\/?>|<\/(p|div|tr)>/i', "\n", $t)), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $cut = [
+            '/^On .{5,200}wrote:\s*$/m',
+            '/^-{2,}\s*Original Message\s*-{2,}/mi',
+            '/^From:\s.+$/m',
+            '/^_{5,}\s*$/m',
+            '/^Sent from my (iPhone|iPad|Android|Galaxy|mobile).*$/mi',
+        ];
+        $end = strlen($t);
+        foreach ($cut as $re) {
+            if (preg_match($re, $t, $m, PREG_OFFSET_CAPTURE) && $m[0][1] > 0) $end = min($end, $m[0][1]);
+        }
+        $lines = array_map(fn($l) => trim((string)(preg_replace('/[ \t\x{00A0}]+/u', ' ', $l) ?? $l)),
+            array_filter(explode("\n", substr($t, 0, $end)), fn($l) => strpos(ltrim($l), '>') !== 0));
+        while ($lines && end($lines) === '') array_pop($lines);
+        $lines = array_values($lines);
+        if (count($lines) < 2) return '';
+
+        $start = null;
+        foreach ($lines as $i => $l) {
+            if ($l === '--' || $l === '-- ') $start = $i + 1;
+        }
+        if ($start === null) {
+            for ($i = count($lines) - 2; $i >= 0; $i--) {
+                if ($lines[$i] !== '' && preg_match(self::SIGN_OFF, $lines[$i])) { $start = $i + 1; break; }
+            }
+        }
+        if ($start === null) {
+            // No sign-off: the last block, if short and something came before it.
+            for ($i = count($lines) - 1; $i > 0; $i--) {
+                if ($lines[$i] === '') { $start = $i + 1; break; }
+            }
+            if ($start === null || count($lines) - $start < 2 || count($lines) - $start > 8) return '';
+        }
+        $sig = array_values(array_filter(array_slice($lines, $start), fn($l) => $l !== ''));
+        if (!$sig) return '';
+        $s = implode("\n", $sig);
+        return mb_strlen($s) > self::SIGNATURE_MAX ? rtrim(mb_substr($s, 0, self::SIGNATURE_MAX)) : $s;
     }
 }
