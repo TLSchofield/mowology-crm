@@ -507,8 +507,8 @@ class MiaDeskService
     }
 
     /**
-     * Read-only summary for Charlie. Cheap: reads waiting suggestions and questions; never
-     * prepares, never sends.
+     * Read-only summary for Charlie. Cheap: reads waiting suggestions, campaign replies that
+     * still need a quote, and questions; never prepares, never sends.
      * @return array{head: string, headline: string, items: array, count: int}
      */
     public function brief(string $ownerFirstName): array
@@ -535,6 +535,11 @@ class MiaDeskService
                     'url' => '/crm/dashboard_appstack.php#mw-mia', 'priority' => 1, 'kind' => 'campaign', 'value' => $n]);
             }
         } catch (Throwable $e) { /* no campaigns table yet */ }
+        // Everyone who answered a campaign and has no quote yet: a yes is money, so these lead.
+        try {
+            require_once __DIR__ . '/MiaCampaignService.php';
+            $items = array_merge((new MiaCampaignService($this->db))->replyItems(new DateTimeImmutable('today')), $items);
+        } catch (Throwable $e) { error_log('Mia brief campaign replies: ' . $e->getMessage()); }
         foreach ((new MiaQuestionService($this->db))->open(2) as $q) {
             $items[] = ['key' => 'mia:question:' . $q['id'], 'text' => $q['question'], 'url' => $q['url'] ?? '/crm/dashboard_appstack.php#mw-mia', 'priority' => 3, 'kind' => 'question'];
         }

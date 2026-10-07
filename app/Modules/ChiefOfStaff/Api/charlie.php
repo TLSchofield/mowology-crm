@@ -73,6 +73,9 @@ try {
     $slim = static fn(?array $it) => $it === null ? null : [
         'key' => $it['key'], 'head' => $it['head'], 'text' => $it['text'], 'url' => $it['url'],
         'priority' => $it['priority'], 'value' => $it['value'],
+        // For the dashboard's Action Board: what kind it is, how long it has waited, its rank.
+        'kind' => $it['kind'] ?? null, 'since' => $it['since'] ?? null,
+        'first_seen' => $it['first_seen'] ?? null, 'score' => $it['score'] ?? null,
     ];
     $need = static function (bool $ready, string $migration) {
         if ($ready) return true;

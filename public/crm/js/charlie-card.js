@@ -106,6 +106,11 @@
                     acts.hidden = true;
                     return;
                 }
+                // Share today's ranked list so the dashboard's Action Board doesn't ask again.
+                try {
+                    window.MW_CHARLIE_TODAY = d;
+                    window.dispatchEvent(new CustomEvent('mw:charlie-today', { detail: d }));
+                } catch (err) { /* a listener's failure is never Charlie's */ }
                 renderSay(d);
                 renderHeads(d.heads);
                 renderQuestions(d.questions);

@@ -53,6 +53,8 @@ class MiaCampaignService
                 // the leaf warning shows knowledge and steers treed lawns to aerate now / seed in
                 // spring; real prices from his pricing rules; the P.S. is the spring pre-book.
                 'subject' => 'Your lawn after the watering ban',
+                // How Mia names it in her brief: "Colleen replied to the fall lawn email."
+                'label'   => 'the fall lawn email',
                 'body'  => "Hi {{first_name}},\n\n"
                     . "A lot of lawns came through this summer brown and thin. The watering restrictions lift on October 15, and with the fall rain on its way, the second half of October is the right time to bring yours back. A lawn that goes into winter thin usually comes out of it full of moss and weeds.\n\n"
                     . "Three things do most of the work:\n"
@@ -168,6 +170,146 @@ class MiaCampaignService
             }
         } catch (Throwable $e) { /* none yet */ }
         return self::tally($recipients, $quotes, $plans, $replies, $spring);
+    }
+
+    /** Replies to campaigns approved this long ago or less are still worth a brief item. */
+    public const REPLY_LOOKBACK_DAYS = 90;
+
+    /**
+     * Each campaign reply as one of Mia's brief items (for Charlie). Read-only and cheap:
+     * a handful of queries over the recent approved campaigns. A reply is an inbound
+     * sales_messages row from a recipient within RESULT_DAYS of their send — the same
+     * definition results() counts. The item goes once a quote exists for that contact
+     * (quotes.contact_id or the property's site contact) created after the reply.
+     * @return array<int, array> brief items (contract in CharlieBriefService)
+     */
+    public function replyItems(DateTimeImmutable $today): array
+    {
+        try {
+            $s = $this->db->prepare("SELECT id, campaign_key, name, marketing_campaign_id FROM mia_campaigns
+                                     WHERE status = 'approved' AND marketing_campaign_id IS NOT NULL AND decided_at >= ?
+                                     ORDER BY id");
+            $s->execute([$today->modify('-' . self::REPLY_LOOKBACK_DAYS . ' days')->format('Y-m-d')]);
+            $campaigns = $s->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            return []; // no campaigns table yet
+        }
+        $out = [];
+        foreach ($campaigns as $c) {
+            try {
+                $out = array_merge($out, $this->replyItemsFor($c));
+            } catch (Throwable $e) {
+                error_log('Mia campaign replies: ' . $e->getMessage());
+            }
+        }
+        return $out;
+    }
+
+    private function replyItemsFor(array $c): array
+    {
+        $s = $this->db->prepare("SELECT contact_id, status, sent_at FROM campaign_sends WHERE campaign_id = ? AND status = 'sent' AND sent_at IS NOT NULL");
+        $s->execute([(int)$c['marketing_campaign_id']]);
+        $recipients = $s->fetchAll(PDO::FETCH_ASSOC);
+        if (!$recipients) return [];
+        $ids = implode(',', array_map(fn($r) => (int)$r['contact_id'], $recipients)); // ints only
+        $from = min(array_column($recipients, 'sent_at'));
+
+        try {
+            $m = $this->db->prepare("SELECT contact_id, sent_at, snippet FROM sales_messages
+                                     WHERE direction = 'inbound' AND sent_at >= ? AND contact_id IN ($ids) ORDER BY sent_at");
+            $m->execute([$from]);
+            $replies = $m->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            return []; // no office@ log yet
+        }
+        if (!$replies) return [];
+        $replied = implode(',', array_unique(array_map(fn($r) => (int)$r['contact_id'], $replies)));
+
+        $q = $this->db->prepare("
+            SELECT q.contact_id, p.site_contact_id, q.created_at
+            FROM quotes q LEFT JOIN properties p ON p.id = q.property_id
+            WHERE q.created_at >= ? AND (q.contact_id IN ($replied) OR p.site_contact_id IN ($replied))");
+        $q->execute([$from]);
+        $quotes = $q->fetchAll(PDO::FETCH_ASSOC);
+
+        $people = [];
+        foreach ($this->db->query("SELECT id, first_name FROM contacts WHERE id IN ($replied)")->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $people[(int)$r['id']] = ['first_name' => (string)$r['first_name'], 'property_id' => null];
+        }
+        foreach ($this->db->query("SELECT site_contact_id AS cid, MIN(id) AS pid FROM properties WHERE site_contact_id IN ($replied) GROUP BY site_contact_id")->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            if (isset($people[(int)$r['cid']])) $people[(int)$r['cid']]['property_id'] = (int)$r['pid'];
+        }
+        $label = null;
+        foreach (self::catalogue((int)substr((string)$c['campaign_key'], -4)) as $k => $cat) {
+            if ($k === $c['campaign_key']) $label = $cat['label'] ?? null;
+        }
+        return self::replyBriefItems(['id' => (int)$c['id'], 'name' => (string)$c['name'], 'label' => $label],
+            $recipients, $replies, $quotes, $people);
+    }
+
+    /**
+     * Pure: one brief item per person who replied to the campaign and has no quote since.
+     * @param array $campaign   ['id' => mia_campaigns.id, 'name' => string, 'label' => ?string ("the fall lawn email")]
+     * @param array $recipients [['contact_id', 'status', 'sent_at']]
+     * @param array $replies    [['contact_id', 'sent_at', 'snippet']] inbound messages
+     * @param array $quotes     [['contact_id', 'site_contact_id', 'created_at']]
+     * @param array $people     contact_id => ['first_name' => string, 'property_id' => ?int]
+     */
+    public static function replyBriefItems(array $campaign, array $recipients, array $replies, array $quotes, array $people, int $days = self::RESULT_DAYS): array
+    {
+        $win = [];
+        foreach ($recipients as $r) {
+            if (($r['status'] ?? '') !== 'sent' || empty($r['sent_at'])) continue;
+            $t = strtotime((string)$r['sent_at']);
+            if ($t !== false) $win[(int)$r['contact_id']] = [$t, $t + $days * 86400];
+        }
+        // First reply in each person's window; "spring" anywhere in any of their replies.
+        $first = $spring = [];
+        foreach ($replies as $m) {
+            $cid = (int)$m['contact_id'];
+            $t = strtotime((string)$m['sent_at']);
+            if (!isset($win[$cid]) || $t === false || $t < $win[$cid][0] || $t > $win[$cid][1]) continue;
+            if (!isset($first[$cid]) || $t < $first[$cid]) $first[$cid] = $t;
+            if (preg_match('/\bspring\b/i', (string)($m['snippet'] ?? ''))) $spring[$cid] = true;
+        }
+        // A quote for them made after they replied means the reply has been dealt with.
+        foreach ($quotes as $q) {
+            $t = strtotime((string)$q['created_at']);
+            if ($t === false) continue;
+            foreach ([(int)($q['contact_id'] ?? 0), (int)($q['site_contact_id'] ?? 0)] as $cid) {
+                if ($cid && isset($first[$cid]) && $t >= $first[$cid]) unset($first[$cid]);
+            }
+        }
+        asort($first);
+        $label = trim((string)($campaign['label'] ?? '')) ?: 'the ' . trim(preg_replace('/\s*\(\d{4}\)\s*$/', '', (string)($campaign['name'] ?? 'campaign'))) . ' email';
+        $items = [];
+        foreach ($first as $cid => $t) {
+            $p = $people[$cid] ?? [];
+            $name = self::firstNameOnly((string)($p['first_name'] ?? ''));
+            $text = ($name !== '' ? $name : 'Someone') . ' replied to ' . $label
+                . (isset($spring[$cid]) ? ' and wants it done in spring' : '') . '. Start the quote.';
+            $pid = (int)($p['property_id'] ?? 0);
+            $items[] = [
+                'key'      => 'mia:campaign_reply:' . (int)$campaign['id'] . ':' . $cid,
+                'kind'     => 'campaign_reply',
+                'text'     => $text,
+                'since'    => date('Y-m-d', $t),
+                'url'      => $pid
+                    ? '/crm/quotes/create.php?contact_id=' . $cid . '&property_id=' . $pid
+                    : '/crm/clients_appstack.php?action=view_contact&id=' . $cid,
+                'priority' => 1, // a yes is money
+            ];
+        }
+        return $items;
+    }
+
+    /** A first name fit to show: never an email address, never more than one word. */
+    public static function firstNameOnly(string $name): string
+    {
+        $name = trim($name);
+        if ($name === '' || strpos($name, '@') !== false) return '';
+        $name = (string)strtok($name, " \t");
+        return ucfirst(mb_substr($name, 0, 40));
     }
 
     /** Pure: one line per person, counted once each in their best outcome's column. */

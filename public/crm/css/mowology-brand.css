@@ -38331,3 +38331,35 @@ body.mw-rc-zoom-open { overflow: hidden; }
 .mw-charlie-inbox-page .mw-charlie-rows { display: flex; flex-direction: column; gap: 8px; }
 .mw-charlie-inbox-page .mw-charlie-row { font-size: .85rem; padding: 10px 12px; }
 .mw-charlie-table { font-size: .8rem; }
+
+/* ===================================================================
+   ACTION BOARD — "Needs you now" (dashboard, above the heads deck)
+   action-board.php / action-board.js · Charlie's ranked items as rows,
+   sibling to the Otto property-gaps rows and the Closer panel.
+   =================================================================== */
+.mw-action-board { border-color: var(--mw-light); padding: 14px 16px; margin-bottom: var(--mw-space-4, 16px); }
+.mw-ab-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
+.mw-ab-title { margin: 0; font-size: 1.05rem; font-weight: 800; color: var(--mw-forest); }
+.mw-ab-count { font-size: .72rem; font-weight: 700; color: var(--mw-green); background: var(--mw-light); border-radius: var(--mw-radius-pill); padding: 1px 8px; }
+.mw-ab-line { margin: 0; font-size: .88rem; color: var(--mw-ink-500); }
+.mw-ab-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.mw-ab-row { display: flex; align-items: center; gap: 14px; padding: 10px 12px; border: 1px solid var(--mw-ink-200); border-left: 4px solid var(--mw-lime); border-radius: var(--mw-radius-md); background: var(--mw-ink-0); }
+.mw-ab-row:first-child { border-left-color: var(--mw-orange); }
+.mw-ab-face { flex: none; width: 56px; height: 56px; border-radius: 50%; object-fit: cover; display: block; box-shadow: 0 0 0 3px var(--mw-lime), var(--mw-shadow-sm); background: var(--mw-light); }
+.mw-ab-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.mw-ab-who { display: flex; align-items: baseline; gap: 8px; font-size: .78rem; color: var(--mw-forest); }
+.mw-ab-who b { font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: var(--mw-green); }
+.mw-ab-wait { font-size: .74rem; color: var(--mw-ink-500); }
+.mw-ab-text { font-size: .9rem; color: var(--mw-forest); overflow-wrap: anywhere; }
+.mw-ab-acts { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.mw-ab-go { white-space: nowrap; }
+.mw-ab-later { border: 0; background: none; padding: 0; font-size: .75rem; color: var(--mw-ink-500); text-decoration: underline; cursor: pointer; }
+.mw-ab-later:hover, .mw-ab-later:focus { color: var(--mw-forest); }
+.mw-ab-later:disabled { opacity: .5; cursor: default; }
+.mw-ab-msg { margin: 6px 0 0; font-size: .78rem; color: var(--mw-ink-500); }
+.mw-ab-msg:empty { display: none; }
+@media (max-width: 575px) {
+    .mw-ab-row { flex-wrap: wrap; align-items: flex-start; }
+    .mw-ab-body { flex: 1 1 0; }
+    .mw-ab-acts { flex-direction: row; align-items: center; gap: 14px; width: 100%; justify-content: flex-end; }
+}
