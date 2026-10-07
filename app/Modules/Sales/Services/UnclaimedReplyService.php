@@ -383,6 +383,7 @@ class UnclaimedReplyService
             'text'       => $text,
             'url'        => '/crm/clients_appstack.php?action=view_contact&id=' . $cid,
             'priority'   => $yes ? 1 : 2,
+            'yes'        => $yes,
             // for the card (Sam's "Replies waiting" / Yui's inbox)
             'lane'       => $lane,
             'message_key'=> (string)$r['message_key'],

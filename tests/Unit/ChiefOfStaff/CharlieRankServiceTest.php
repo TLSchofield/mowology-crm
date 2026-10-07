@@ -98,4 +98,16 @@ class CharlieRankServiceTest extends TestCase
         $this->assertLessThanOrEqual(CharlieRankService::MAX_PREF, $w);
         $this->assertGreaterThanOrEqual(CharlieRankService::MIN_PREF, $l);
     }
+
+    public function test_a_fresh_yes_outranks_an_older_top_priority_item(): void
+    {
+        $old = CharlieRankService::normalize(['key' => 'yui:promise:1', 'text' => 'Council approved', 'priority' => 1, 'since' => '2026-09-11'], 'yui');
+        $yes = CharlieRankService::normalize(['key' => 'yui:reply:2', 'text' => 'Gaby replied "Yes"', 'priority' => 1, 'since' => '2026-10-06', 'yes' => true], 'yui');
+        $this->assertTrue($yes['yes']);
+        $this->assertFalse($old['yes']);
+        $this->assertGreaterThan(
+            CharlieRankService::score($old, 1.0, '2026-10-07'),
+            CharlieRankService::score($yes, 1.0, '2026-10-07')
+        );
+    }
 }

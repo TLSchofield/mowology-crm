@@ -416,7 +416,10 @@ class YuiRulesTest extends TestCase
         $this->assertSame(['yui:reply:3:c', 'yui:promise:7:d', 'yui:arrears:company-12', 'yui:reply:2:b', 'yui:account:no_primary:12', 'yui:checkin:14'],
             array_column($b['items'], 'key'));
         $this->assertSame(6, $b['count']);
-        $this->assertSame(['key', 'kind', 'value', 'since', 'text', 'url', 'priority'], array_keys($b['items'][0]));
+        $keys = array_keys($b['items'][0]);
+        sort($keys);   // the contract fields, plus 'yes' when the item is a clear yes (Charlie ranks those first)
+        $this->assertSame(array_values(array_intersect(['kind', 'key', 'priority', 'since', 'text', 'url', 'value', 'yes'], $keys)), $keys);
+        $this->assertEmpty(array_diff(['key', 'kind', 'value', 'since', 'text', 'url', 'priority'], $keys));
         $this->assertSame('1 client said yes · 1 approval with no accepted quote', $b['headline']);
         // Charlie normalises Yui's kinds under her name.
         $this->assertSame('yui:k', CharlieRankService::normalize($b['items'][0], 'yui')['kind']);

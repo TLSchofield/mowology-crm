@@ -594,7 +594,7 @@ class YuiRules
             $ra = self::rank($a); $rb = self::rank($b);
             return $ra !== $rb ? $ra <=> $rb : $a['_i'] <=> $b['_i'];
         });
-        $items = array_map(fn($it) => array_intersect_key($it, array_flip(['key', 'kind', 'value', 'since', 'text', 'url', 'priority'])),
+        $items = array_map(fn($it) => array_intersect_key($it, array_flip(['key', 'kind', 'value', 'since', 'text', 'url', 'priority', 'yes'])),
             array_slice($all, 0, $max));
         return ['head' => self::HEAD, 'headline' => self::headline($sections), 'items' => $items, 'count' => count($all)];
     }

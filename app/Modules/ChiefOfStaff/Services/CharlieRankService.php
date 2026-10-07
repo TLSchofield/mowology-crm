@@ -17,6 +17,8 @@
 class CharlieRankService
 {
     public const PRIORITY_WEIGHT = [1 => 100.0, 2 => 40.0, 3 => 15.0];
+    /** A customer's clear yes waiting on an answer outranks everything: it is money walking in. */
+    public const YES_BOOST = 5.0;
     public const MIN_PREF = 0.25;
     public const MAX_PREF = 4.0;
     /** Step size: one ordinary decision. Dismissals and direct answers are stronger. */
@@ -55,6 +57,7 @@ class CharlieRankService
             'priority' => max(1, min(3, $p ?: 2)),
             'value'    => isset($item['value']) && is_numeric($item['value']) ? round((float)$item['value'], 2) : null,
             'since'    => $since,
+            'yes'      => !empty($item['yes']),
         ];
     }
 
@@ -77,7 +80,8 @@ class CharlieRankService
         $age = min(2.0, 1 + 0.1 * $days);
         $money = (isset($item['value']) && $item['value'] !== null && (float)$item['value'] > 0)
             ? 1 + log10(1 + (float)$item['value'] / 100) : 1.0;
-        return round($w * self::clamp($pref) * $age * $money, 3);
+        $yes = !empty($item['yes']) ? self::YES_BOOST : 1.0;
+        return round($w * self::clamp($pref) * $age * $money * $yes, 3);
     }
 
     /**
