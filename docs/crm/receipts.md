@@ -360,3 +360,9 @@ Match"). API: `app/Modules/Accounting/Api/reconciliation.php`
 - Review panel + JS in `public/crm/expenses_appstack.php`; styles `.mw-receipt-inbox` in `mowology-brand.css`
 - `app/Modules/Accounting/Services/BankImportService.php` (manual matching methods, + `tests/Unit/Accounting/BankImportServiceTest.php`), `app/Modules/Accounting/Api/reconciliation.php`
 - `tests/Unit/Expenses/ReceiptInboxServiceTest.php`
+
+## Trip receipts tagged to jobs (migration 1218)
+
+`TripAttributionService` (run nightly by `trip_runs_daily`) links the receipts on a dump or supply run to the job visited from that property that day. It sets `expenses.job_id` only when the receipt has a single purpose, and only when `job_id` is still empty. It never overwrites a job that is already there.
+
+A mixed supplier receipt is split by its line items into `ops_trip_job_costs`. For example, mulch that is on the job's quote goes to the job, and grass seed bought for the shop stays as job-less stock on 5200. A receipt with no line items is left untagged. See `heads-shared-facts.md`.
