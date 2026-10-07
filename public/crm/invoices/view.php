@@ -364,24 +364,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
             }
         }
 
-        // Generate PDF once (used for all recipients).
-        // We always regenerate on send so the PDF reflects the latest invoice state
-        // (line items, totals, bill-to) — caching stale PDFs confuses customers.
-        $attachPath = null;
-        require_once dirname(__DIR__) . '/includes/pdf_bootstrap.php';
-        require_once dirname(__DIR__) . '/includes/PdfGenerator.php';
-
-        $pdfGen    = new PdfGenerator();
-        $pdfResult = $pdfGen->generateInvoicePdf($invoiceId);
-        if (!empty($pdfResult['success']) && !empty($pdfResult['path']) && file_exists($pdfResult['path'])) {
-            $attachPath = $pdfResult['path'];
-        } else {
-            // Fall back to any cached copy so the email still has an attachment
-            $cached = $pdfGen->getPdfPath('invoice', $invoiceId);
-            if ($cached && file_exists($cached)) {
-                $attachPath = $cached;
-            }
-            error_log("Invoice send: PDF generation failed for invoice {$invoiceId}: " . ($pdfResult['error'] ?? 'unknown') . ($attachPath ? ' — using cached copy' : ' — sending WITHOUT attachment'));
+        // Generate PDF once (used for all recipients) — regenerated on send so it
+        // reflects the latest invoice state; the cached copy is the fallback.
+        // Every invoice email carries the PDF (owner rule 2026-10-06): no PDF →
+        // nothing is sent and the status is not touched (InvoicePdfGate).
+        require_once APP_ROOT . '/Modules/Invoices/Services/InvoicePdfGate.php';
+        $pdfGate    = new InvoicePdfGate($db);
+        $attachPath = $pdfGate->ensurePdf($invoiceId);
+        $pdfBlocked = ($attachPath === null);
+        if ($pdfBlocked) {
+            $pdfGate->recordBlocked($invoiceId, 'view_send');
         }
 
         // Ensure the invoice has a valid (non-expired) access_token
@@ -407,7 +399,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         $sentTo = [];
         $smsRecipients = [];
 
-        foreach ($recipients as $recipient) {
+        foreach (($pdfBlocked ? [] : $recipients) as $recipient) {
             if (empty($recipient['email_address'])) {
                 continue;
             }
@@ -458,6 +450,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                 '<img src="' . $trackPixelUrl . '" width="1" height="1" alt="" style="display:block;height:1px;width:1px;border:0;" /></body>',
                 $emailBody
             );
+
+            // The file must still be there now — sendEmail() would silently drop it.
+            if (!$pdfGate->isUsable($attachPath)) {
+                $pdfBlocked = true;
+                $pdfGate->recordBlocked($invoiceId, 'view_send', 'PDF vanished before send: ' . $attachPath);
+                break;
+            }
 
             // Send email
             $emailResult = sendCrmEmail($recipient['email_address'], $emailSubject, $emailBody, $attachPath);
@@ -557,6 +556,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                 $message .= " and SMS sent to " . count($smsSentTo) . " contact(s)";
             }
             $messageType = 'success';
+        } elseif ($pdfBlocked) {
+            $message     = InvoicePdfGate::NOT_SENT_MESSAGE . '. Nothing was emailed and the status is unchanged. Try "Regenerate PDF", then send again.';
+            $messageType = 'danger';
         } else {
             // Distinguish "no recipients at all" from "recipients exist but email delivery failed"
             $hasAnyRecipientWithEmail = false;

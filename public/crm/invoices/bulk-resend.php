@@ -47,9 +47,8 @@ if (count($invoiceIds) > 50) {
     exit;
 }
 
-require_once dirname(__DIR__) . '/includes/pdf_bootstrap.php';
-require_once dirname(__DIR__) . '/includes/PdfGenerator.php';
 require_once APP_ROOT . '/Services/Messaging/EmailWrapper.php';
+require_once APP_ROOT . '/Modules/Invoices/Services/InvoicePdfGate.php';
 
 $db      = getDB();
 $results = [];
@@ -138,18 +137,15 @@ function _bulkResendOne(PDO $db, array $user, int $invoiceId): array {
             return ['id' => $invoiceId, 'invoice_number' => $num, 'success' => false, 'error' => 'No recipients'];
         }
 
-        // Generate PDF
-        $attachPath = null;
-        $pdfGen    = new PdfGenerator();
-        $pdfResult = $pdfGen->generateInvoicePdf($invoiceId);
-        if (!empty($pdfResult['success']) && !empty($pdfResult['path']) && file_exists($pdfResult['path'])) {
-            $attachPath = $pdfResult['path'];
-        } else {
-            $cached = $pdfGen->getPdfPath('invoice', $invoiceId);
-            if ($cached && file_exists($cached)) {
-                $attachPath = $cached;
-            }
+        // Every invoice email carries the PDF (owner rule 2026-10-06): fresh render,
+        // else the cached copy; neither → NOT sent, status and counters untouched.
+        $pdfGate    = new InvoicePdfGate($db);
+        $attachPath = $pdfGate->ensurePdf($invoiceId);
+        if ($attachPath === null) {
+            $pdfGate->recordBlocked($invoiceId, 'bulk_resend');
+            return ['id' => $invoiceId, 'invoice_number' => $num, 'success' => false, 'error' => InvoicePdfGate::NOT_SENT_MESSAGE];
         }
+        $pdfVanished = false;
 
         $invoiceViewUrl = 'https://mowology.ca/customer/invoice.php?token=' . urlencode($invoice['access_token']);
         $companyInfo    = EmailWrapper::getCompanyInfo();
@@ -190,6 +186,13 @@ function _bulkResendOne(PDO $db, array $user, int $invoiceId): array {
                 $emailBody = str_replace('</body>', '<img src="' . $trackUrl . '" width="1" height="1" alt="" style="display:block;height:1px;width:1px;border:0;" /></body>', $emailBody);
             }
 
+            // The file must still be there now — sendEmail() would silently drop it.
+            if (!$pdfGate->isUsable($attachPath)) {
+                $pdfVanished = true;
+                $pdfGate->recordBlocked($invoiceId, 'bulk_resend', 'PDF vanished before send: ' . $attachPath);
+                break;
+            }
+
             $ok = sendCrmEmail($recipient['email_address'], $emailSubject, $emailBody, $attachPath);
             if ($ok) {
                 $sentTo[] = $recipientName;
@@ -201,7 +204,8 @@ function _bulkResendOne(PDO $db, array $user, int $invoiceId): array {
         }
 
         if (empty($sentTo)) {
-            return ['id' => $invoiceId, 'invoice_number' => $num, 'success' => false, 'error' => 'Email delivery failed'];
+            return ['id' => $invoiceId, 'invoice_number' => $num, 'success' => false,
+                    'error' => $pdfVanished ? InvoicePdfGate::NOT_SENT_MESSAGE : 'Email delivery failed'];
         }
 
         // Update invoice counters

@@ -5,6 +5,11 @@
  *
  * Creates an invoice from a completed job visit using CRM session auth.
  * Admin-only. Returns JSON.
+ *
+ * 2026-10-06: no callers found in the repo (web, iOS, Capacitor) — possibly dead, kept on
+ * purpose. "send_now" no longer hand-writes a link-only email: the invoice is created as a
+ * draft and sent through InvoiceFromVisitService::send() (invoice_sent template, PDF
+ * required via InvoicePdfGate, marks sent + autopay only when an email actually went).
  */
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
@@ -184,7 +189,7 @@ try {
         $visit['service_city'] ?? null,
         $visit['service_province'] ?? null,
         $visit['service_postal'] ?? null,
-        $sendNow ? 'sent' : 'draft',
+        'draft',   // flipped to 'sent' by InvoiceFromVisitService::send() only when an email goes
         $user['id'],
     ]);
     $invoiceId = (int)$db->lastInsertId();
@@ -228,44 +233,25 @@ try {
     exit;
 }
 
-// ── Send email + SMS if requested ─────────────────────────────────────────────
-$sentTo  = [];
-$smsSent = false;
+// ── Send if requested — the standard invoice_sent path, PDF required ─────────
+$sentTo   = [];
+$smsSent  = false;   // send() handles SMS for consenting recipients; not reported here
+$status   = 'draft';
+$sendNote = null;
 
-if ($sendNow && !empty($visit['email'])) {
-    $clientName = trim(($visit['first_name'] ?? '') . ' ' . ($visit['last_name'] ?? '')) ?: 'Valued Client';
-    $portalUrl  = 'https://mowology.ca/customer/invoice.php?token=' . $accessToken;
-    $totalFmt   = '$' . number_format($total, 2);
-    $dueFmt     = date('F j, Y', strtotime($dueDate));
-
-    $subject = "Invoice {$invoiceNumber} from Mowology — {$totalFmt} due {$dueFmt}";
-    $htmlBody = '<p>Hi ' . htmlspecialchars($clientName) . ',</p>'
-              . '<p>Thank you for choosing Mowology! Please find your invoice below.</p>'
-              . '<table style="border-collapse:collapse;width:100%;max-width:460px;">'
-              . '<tr><td style="padding:8px;border:1px solid #eee;color:#666;">Invoice</td><td style="padding:8px;border:1px solid #eee;font-weight:600;">' . htmlspecialchars($invoiceNumber) . '</td></tr>'
-              . '<tr><td style="padding:8px;border:1px solid #eee;color:#666;">Amount Due</td><td style="padding:8px;border:1px solid #eee;font-weight:600;color:#2D8659;">' . $totalFmt . '</td></tr>'
-              . '<tr><td style="padding:8px;border:1px solid #eee;color:#666;">Due Date</td><td style="padding:8px;border:1px solid #eee;">' . htmlspecialchars($dueFmt) . '</td></tr>'
-              . '</table>'
-              . '<p style="margin-top:20px;"><a href="' . $portalUrl . '" style="background:#2D8659;color:#fff;padding:10px 22px;border-radius:6px;text-decoration:none;font-weight:600;">View &amp; Pay Invoice</a></p>'
-              . '<p style="color:#999;font-size:12px;margin-top:20px;">Questions? Call us at (778) 846-9273 or reply to this email.</p>';
-
+if ($sendNow) {
     try {
-        $emailResult = sendEmail($visit['email'], $subject, $htmlBody);
-        if ($emailResult['success']) {
-            $sentTo[] = $visit['email'];
+        require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceFromVisitService.php';
+        $sendResult = (new InvoiceFromVisitService($db))->send($invoiceId, (int)$user['id']);
+        if (!empty($sendResult['success'])) {
+            $sentTo = $sendResult['sent_to'] ?? [];
+            $status = 'sent';
+        } else {
+            $sendNote = $sendResult['error'] ?? 'Not sent.';
         }
     } catch (Throwable $e) {
-        error_log("invoice-create.php email error: " . $e->getMessage());
-    }
-
-    // SMS — only if contact opted in
-    if (!empty($visit['receive_sms']) && !empty($visit['mobile'])) {
-        try {
-            $smsResult = sendInvoiceNotificationSms($visit['mobile'], $invoiceNumber, $total);
-            $smsSent   = $smsResult['success'];
-        } catch (Throwable $e) {
-            error_log("invoice-create.php SMS error: " . $e->getMessage());
-        }
+        error_log("invoice-create.php send error: " . $e->getMessage());
+        $sendNote = 'Not sent: the invoice was created as a draft but could not be emailed.';
     }
 }
 
@@ -275,7 +261,8 @@ echo json_encode([
     'invoice_id'     => $invoiceId,
     'invoice_number' => $invoiceNumber,
     'total'          => $total,
-    'status'         => $sendNow ? 'sent' : 'draft',
+    'status'         => $status,
     'sent_to'        => $sentTo,
     'sms_sent'       => $smsSent,
+    'send_error'     => $sendNote,   // e.g. InvoicePdfGate::NOT_SENT_MESSAGE
 ]);

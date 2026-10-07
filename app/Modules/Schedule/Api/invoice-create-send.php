@@ -64,6 +64,7 @@ require_once APP_ROOT . '/Services/CrmFunctions.php';
 require_once APP_ROOT . '/Services/Messaging/MessagingService.php';
 require_once APP_ROOT . '/Services/Messaging/EmailWrapper.php';
 require_once APP_ROOT . '/Services/Payments/AutopayService.php';
+require_once APP_ROOT . '/Modules/Invoices/Services/InvoicePdfGate.php';
 
 $jwtUser = requireJwt();
 $isAdmin = jwtIsAdmin($jwtUser['role']);
@@ -320,21 +321,24 @@ try {
     $smsSent = false;
     $portalUrl = 'https://mowology.ca/customer/invoice.php?token=' . urlencode($accessToken);
 
-    // Generate the invoice PDF so the mobile send carries the same attachment as
-    // the other four send paths (see Known-Failure-Patterns → invoice-send paths).
+    // Every invoice email carries the PDF (owner rule 2026-10-06). The row was
+    // inserted as 'sent' above; with no PDF nothing goes out, so put it back to a
+    // draft (and un-stamp the recipients) and tell the caller it was NOT sent.
+    $pdfNotSent = false;
     $attachPath = null;
-    try {
-        require_once CRM_INCLUDES . '/pdf_bootstrap.php';
-        require_once CRM_INCLUDES . '/PdfGenerator.php';
-        $pdfGen    = new PdfGenerator();
-        $pdfResult = $pdfGen->generateInvoicePdf($invoiceId);
-        if (!empty($pdfResult['success']) && !empty($pdfResult['path']) && file_exists($pdfResult['path'])) {
-            $attachPath = $pdfResult['path'];
-        } else {
-            error_log('[invoice-create-send] PDF generation failed for ' . $invoiceNumber . ': ' . ($pdfResult['error'] ?? 'unknown'));
+    if ($sendNow && !empty($validEmailRecipients)) {
+        $pdfGate    = new InvoicePdfGate($db);
+        $attachPath = $pdfGate->ensurePdf($invoiceId);
+        if ($attachPath === null) {
+            $pdfGate->recordBlocked($invoiceId, 'schedule_invoice_create_send');
+            $db->prepare("UPDATE invoices SET status = 'draft', sent_at = NULL WHERE id = ? AND status = 'sent'")
+               ->execute([$invoiceId]);
+            $db->prepare("UPDATE invoice_contacts SET invoice_sent_at = NULL WHERE invoice_id = ?")
+               ->execute([$invoiceId]);
+            $invoiceStatus = 'draft';
+            $sendNow       = false;
+            $pdfNotSent    = true;
         }
-    } catch (Throwable $pdfEx) {
-        error_log('[invoice-create-send] PDF generation exception for ' . $invoiceNumber . ': ' . $pdfEx->getMessage());
     }
 
     if ($sendNow && !empty($validEmailRecipients)) {
@@ -372,6 +376,12 @@ try {
                 $companyInfo
             );
 
+            // The file must still be there now — sendEmail() would silently drop it.
+            if (!$pdfGate->isUsable($attachPath)) {
+                $pdfGate->recordBlocked($invoiceId, 'schedule_invoice_create_send', 'PDF vanished before send: ' . $attachPath);
+                error_log('[invoice-create-send] PDF vanished before send for ' . $invoiceNumber . ' — not emailing ' . $r['email']);
+                continue;
+            }
             $emailResult = sendCrmEmail($r['email'], $tpl['subject'], $emailBody, $attachPath);
             if ($emailResult) {
                 $sentTo[] = $r['email'];
@@ -399,6 +409,23 @@ try {
         } catch (\Throwable $e) {
             error_log('[Autopay] Failed to trigger charge for invoice ' . $invoiceId . ': ' . $e->getMessage());
         }
+    }
+
+    if ($pdfNotSent) {
+        // The invoice exists (as a draft, linked to the visit) but nothing was emailed.
+        echo json_encode([
+            'success'            => false,
+            'not_sent'           => true,
+            'message'            => InvoicePdfGate::NOT_SENT_MESSAGE,
+            'invoice_id'         => $invoiceId,
+            'invoice_number'     => $invoiceNumber,
+            'total'              => $total,
+            'status'             => 'draft',
+            'payment_portal_url' => $portalUrl,
+            'sent_to'            => [],
+            'sms_sent'           => false,
+        ]);
+        exit;
     }
 
     echo json_encode([

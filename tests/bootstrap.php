@@ -126,8 +126,10 @@ require_once __DIR__ . '/../app/Modules/Clients/Services/BillToResolver.php';
 // Contracts
 require_once __DIR__ . '/../app/Modules/Contracts/Services/ContractService.php';
 require_once __DIR__ . '/../app/Modules/Contracts/Services/ContractTermsService.php';
+require_once __DIR__ . '/../app/Modules/Contracts/Services/ContractInvoiceSender.php';
 
 // Invoices
+require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoicePdfGate.php';
 require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceFromVisitService.php';
 require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceLineItems.php';
 require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceRouting.php';
