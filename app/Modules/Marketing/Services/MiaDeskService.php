@@ -535,11 +535,8 @@ class MiaDeskService
                     'url' => '/crm/dashboard_appstack.php#mw-mia', 'priority' => 1, 'kind' => 'campaign', 'value' => $n]);
             }
         } catch (Throwable $e) { /* no campaigns table yet */ }
-        // Everyone who answered a campaign and has no quote yet: a yes is money, so these lead.
-        try {
-            require_once __DIR__ . '/MiaCampaignService.php';
-            $items = array_merge((new MiaCampaignService($this->db))->replyItems(new DateTimeImmutable('today')), $items);
-        } catch (Throwable $e) { error_log('Mia brief campaign replies: ' . $e->getMessage()); }
+        // Campaign replies are interest, so they are Sam's leads now (SalesDeskService::brief); Mia keeps
+        // the campaign's results (sent / replied / quoted / booked) on her own card.
         foreach ((new MiaQuestionService($this->db))->open(2) as $q) {
             $items[] = ['key' => 'mia:question:' . $q['id'], 'text' => $q['question'], 'url' => $q['url'] ?? '/crm/dashboard_appstack.php#mw-mia', 'priority' => 3, 'kind' => 'question'];
         }

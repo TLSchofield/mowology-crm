@@ -339,6 +339,16 @@ class SalesDeskService
         }
         // Other replies about a quote nobody has answered (hand-sent emails, texts), kind quote_reply.
         // Replies that aren't about a quote are Yui's (client_reply) — never both.
+        // Mia brings them in, Sam sells: anyone who answered one of her campaigns and has no quote yet.
+        // Same keys as before (mia:campaign_reply:…) so earlier "Not now"s still hold.
+        try {
+            require_once APP_ROOT . '/Modules/Marketing/Services/MiaCampaignService.php';
+            foreach ((new MiaCampaignService($this->db))->replyItems(new DateTimeImmutable('today')) as $c) {
+                $c['text'] = 'From Mia\'s campaign: ' . $c['text'];
+                array_unshift($items, $c);
+            }
+        } catch (Throwable $e) { error_log('Sam brief campaign leads: ' . $e->getMessage()); }
+
         $unclaimed = $this->unclaimed($cards);
         foreach (array_slice($unclaimed, 0, self::UNCLAIMED_BRIEF_MAX) as $u) {
             $items[] = array_intersect_key($u, array_flip(['key', 'kind', 'value', 'since', 'text', 'url', 'priority']));
