@@ -173,10 +173,28 @@ class ApnsService
         $payload = self::base64url(json_encode(['iss' => APNS_TEAM_ID, 'iat' => $iat]));
         $message = $header . '.' . $payload;
 
-        $privateKey = openssl_pkey_get_private(APNS_PRIVATE_KEY);
-        openssl_sign($message, $derSig, $privateKey, OPENSSL_ALGO_SHA256);
+        $privateKey = openssl_pkey_get_private(self::normalizePem((string)APNS_PRIVATE_KEY));
+        if ($privateKey === false) {
+            throw new RuntimeException('APNS_PRIVATE_KEY in secrets.php could not be read as a .p8 key — paste the whole file once, BEGIN and END lines included.');
+        }
+        if (!openssl_sign($message, $derSig, $privateKey, OPENSSL_ALGO_SHA256) || !is_string($derSig)) {
+            throw new RuntimeException('Signing with APNS_PRIVATE_KEY failed: ' . (string)openssl_error_string());
+        }
 
         return $message . '.' . self::base64url(self::derToP1363($derSig));
+    }
+
+    /**
+     * Rebuild a clean PEM from however the .p8 was pasted into secrets.php: doubled
+     * BEGIN/END lines, Windows or missing line breaks, stray spaces (2026-10-07: the
+     * first paste could not be read). Keeps only the base64 body, wrapped at 64.
+     */
+    public static function normalizePem(string $raw): string
+    {
+        $body = preg_replace('/-----(BEGIN|END)[A-Z ]*-----/', '', $raw);
+        $body = preg_replace('/[^A-Za-z0-9+\/=]/', '', (string)$body);
+        if ($body === '') return $raw;
+        return "-----BEGIN PRIVATE KEY-----\n" . chunk_split($body, 64, "\n") . "-----END PRIVATE KEY-----\n";
     }
 
     /**
