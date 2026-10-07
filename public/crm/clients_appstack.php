@@ -788,8 +788,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         ]);
 
                         // Update pipeline stage if provided
+                        // Only a real change is a manual choice (and pins the stage) — the select
+                        // is always posted, so an untouched form must not pin anything.
                         $newLifecycleStage = trim($_POST['lifecycle_stage'] ?? '');
-                        if ($newLifecycleStage) {
+                        $oldLifecycleStage = trim((string)($_POST['lifecycle_stage_was'] ?? ''));
+                        if (!empty($_POST['lifecycle_unpin'])) {
+                            setContactLifecyclePinned((int)$contactId, false);   // let Sam manage it
+                        } elseif ($newLifecycleStage !== '' && $newLifecycleStage !== $oldLifecycleStage) {
                             updateContactLifecycleStage($contactId, $newLifecycleStage, $user['id']);
                         }
 
@@ -2490,11 +2495,18 @@ $unconvertedRequests = $db->query("
                     </div>
                     <div class="card-body">
                       <?php
-                        $currentStage  = $_POST['lifecycle_stage'] ?? $contact['lifecycle_stage'] ?? $contact['prospect_status'] ?? 'prospect';
+                        $storedStage   = (string)($contact['lifecycle_stage'] ?? $contact['prospect_status'] ?? 'prospect');
+                        $currentStage  = $_POST['lifecycle_stage'] ?? $storedStage;
                         $editStages    = function_exists('getLifecycleStages') ? getLifecycleStages() : [];
+                        $stagePinned   = array_key_exists('lifecycle_pinned', $contact) ? (int)$contact['lifecycle_pinned'] === 1 : null;
+                        // Keep a stage the list doesn't offer, so saving the form can't silently change it.
+                        if ($editStages && $storedStage !== '' && !in_array($storedStage, array_column($editStages, 'stage_key'), true)) {
+                            $editStages[] = ['stage_key' => $storedStage, 'stage_label' => ucwords(str_replace('_', ' ', $storedStage))];
+                        }
                       ?>
+                      <input type="hidden" name="lifecycle_stage_was" value="<?php echo h($storedStage); ?>">
                       <div class="form-group mb-0">
-                        <select class="form-control" name="lifecycle_stage">
+                        <select class="form-control" name="lifecycle_stage" aria-describedby="mw-stage-pin-help">
                           <?php if (!empty($editStages)): ?>
                             <?php foreach ($editStages as $st): ?>
                               <option value="<?php echo h($st['stage_key']); ?>"
@@ -2509,6 +2521,17 @@ $unconvertedRequests = $db->query("
                           <?php endif; ?>
                         </select>
                       </div>
+                      <?php if ($stagePinned === true): ?>
+                        <div class="mw-stage-pin" id="mw-stage-pin-help">
+                          <span class="mw-stage-pin-badge"><i data-feather="lock"></i> Set by hand</span>
+                          <div class="custom-control custom-checkbox">
+                            <input type="checkbox" class="custom-control-input" id="lifecycle_unpin" name="lifecycle_unpin" value="1">
+                            <label class="custom-control-label" for="lifecycle_unpin">Unpin (let Sam manage it)</label>
+                          </div>
+                        </div>
+                      <?php elseif ($stagePinned === false): ?>
+                        <small class="form-text text-muted" id="mw-stage-pin-help">Managed by Sam from contracts, quotes and invoices. Changing it here pins it.</small>
+                      <?php endif; ?>
                     </div>
                   </div>
 

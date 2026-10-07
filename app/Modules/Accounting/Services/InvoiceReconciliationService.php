@@ -243,6 +243,14 @@ class InvoiceReconciliationService
         // Recognize income on the invoice ledger row (per-job attribution)
         $this->upsertInvoiceIncomeRow($invoiceId);
 
+        // Sam's pipeline stage (a paid invoice makes a client). Never blocks the payment.
+        try {
+            require_once dirname(__DIR__, 2) . '/Sales/Services/PipelineStageService.php';
+            PipelineStageService::onEvent($this->db, 'invoice', $invoiceId);
+        } catch (Throwable $e) {
+            error_log('[pipeline] invoice#' . $invoiceId . ': ' . $e->getMessage());
+        }
+
         return [
             'invoice_id'     => $invoiceId,
             'invoice_number' => $inv['invoice_number'],

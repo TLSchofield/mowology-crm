@@ -4,7 +4,11 @@
  *
  * Scans quote_line_items (accepted quotes) and plan_line_items (active plans)
  * to build a materialized contact↔product history table. Also refreshes
- * contacts.lifecycle_stage, last_service_date, and total_lifetime_value.
+ * contacts.last_service_date and total_lifetime_value.
+ *
+ * It no longer writes contacts.lifecycle_stage (2026-10-06): counting product purchases
+ * left contract clients as 'lead' and overwrote hand-set stages. Stages are Sam's now —
+ * app/Modules/Sales/Services/PipelineStageService.php + Cron/pipeline_sweep.php.
  *
  * Run daily: 0 2 * * * php /home/mowology/crm/cron/refresh_purchase_history.php
  * Also callable via web POST: POST /crm/cron/refresh_purchase_history.php
@@ -195,13 +199,8 @@ try {
     }
 
     // ── Step 3: Update contact lifecycle fields ────────────────────────
-    // Check which lifecycle columns exist
-    $hasLifecycle = false;
-    try {
-        $check = $db->query("SHOW COLUMNS FROM contacts LIKE 'lifecycle_stage'");
-        $hasLifecycle = ($check->rowCount() > 0);
-    } catch (\Exception $e) {}
-
+    // Check which lifecycle columns exist. lifecycle_stage is deliberately not written here
+    // any more — PipelineStageService owns it.
     $hasLastService = false;
     try {
         $check = $db->query("SHOW COLUMNS FROM contacts LIKE 'last_service_date'");
@@ -216,7 +215,7 @@ try {
 
     $contactsUpdated = 0;
 
-    if ($hasLifecycle || $hasLastService || $hasLtv) {
+    if ($hasLastService || $hasLtv) {
         // Get all active contacts
         $contacts = $db->query("SELECT id FROM contacts WHERE is_active = 1")->fetchAll(PDO::FETCH_COLUMN);
 
@@ -237,39 +236,10 @@ try {
             $totalRevenue = (float)($s['total_revenue'] ?? 0);
             $lastPurchase = $s['last_purchase'] ?? null;
 
-            // Determine lifecycle stage
-            $stage = 'lead';
-            if ($productCount > 0) {
-                if ($productCount >= 3 || $totalRevenue >= 1000) {
-                    $stage = 'repeat';
-                } else {
-                    $stage = 'customer';
-                }
-                // Check if at-risk (no purchase in 6+ months)
-                if ($lastPurchase && strtotime($lastPurchase) < strtotime('-6 months')) {
-                    $stage = 'at_risk';
-                }
-            } else {
-                // Check if they have any quotes (prospect)
-                $quoteCheck = $db->prepare("
-                    SELECT COUNT(*) FROM quotes q
-                    JOIN properties p ON p.id = q.property_id
-                    WHERE p.site_contact_id = ?
-                ");
-                $quoteCheck->execute([$contactId]);
-                if ((int)$quoteCheck->fetchColumn() > 0) {
-                    $stage = 'prospect';
-                }
-            }
-
             // Build UPDATE dynamically
             $setClauses = [];
             $params = [];
 
-            if ($hasLifecycle) {
-                $setClauses[] = "lifecycle_stage = ?";
-                $params[] = $stage;
-            }
             if ($hasLastService && $lastPurchase) {
                 $setClauses[] = "last_service_date = ?";
                 $params[] = $lastPurchase;

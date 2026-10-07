@@ -43,6 +43,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
     if ($action === 'resume_contract' && $contract['status'] === 'paused') {
         $db->prepare("UPDATE contracts SET status = 'active', updated_at = NOW() WHERE id = ?")
            ->execute([$contractId]);
+        if (function_exists('pipelineStageEvent')) pipelineStageEvent('contract', (int)$contractId);
         $message     = 'Contract resumed.';
         $messageType = 'success';
         $contract    = getContractById($contractId);

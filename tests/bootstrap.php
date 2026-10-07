@@ -39,6 +39,7 @@ require_once __DIR__ . '/../app/Modules/Sales/Services/SamBrainService.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/SalesInboxService.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/TextBridgeService.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/UnclaimedReplyService.php';
+require_once __DIR__ . '/../app/Modules/Sales/Services/PipelineStageService.php';
 
 // Yui — comms / client relations head
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiRules.php';
