@@ -2728,6 +2728,7 @@ $unconvertedRequests = $db->query("
                         <span class="mw-contact-pref-badge <?php echo !empty($viewContact['consent_quote_followup']) ? 'active' : 'inactive'; ?>">
                           <i data-feather="check-circle" style="width: 12px; height: 12px;"></i> Follow-up
                         </span>
+                        <?php include __DIR__ . '/includes/photo-optout-control.php'; ?>
                       </div>
                     </div>
 

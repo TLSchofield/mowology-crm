@@ -307,6 +307,12 @@ try {
             ]);
         } catch (PDOException $e) { /* non-fatal */ }
 
+        // Mia's media library: copy into the library and tag from context. Never fails the upload.
+        try {
+            require_once APP_ROOT . '/Modules/Marketing/Services/MediaTagService.php';
+            MediaTagService::onVisitPhoto($db, $photoId);
+        } catch (Throwable $e) { /* non-fatal */ }
+
         $thumbUrl = $variants['thumb_path'] ?? ('/uploads/photos/' . $filename);
         $viewUrl  = $variants['view_path']  ?? ('/uploads/photos/' . $filename);
 

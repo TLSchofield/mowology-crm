@@ -89,6 +89,22 @@ try {
               </div>
           </div>
 
+          <?php
+          // Facebook/Instagram connection: one plain answer instead of "no page token".
+          $__socState = ['needs_reconnect' => false];
+          try {
+              require_once APP_ROOT . '/Modules/Social/Services/SocialConnectionState.php';
+              $__socState = SocialConnectionState::fromAccounts(SocialConnectionState::load(getDB()));
+          } catch (Throwable $e) { /* banner is a bonus */ }
+          if (!empty($__socState['needs_reconnect'])): ?>
+          <div class="mw-soc-reconnect" role="alert">
+              <p><strong>Reconnect Facebook.</strong> <?php echo h(preg_replace('/^Reconnect Facebook — /', '', $__socState['message'])); ?></p>
+              <?php if ($canApprove): ?>
+              <a href="<?php echo h($__socState['action_url']); ?>" class="btn btn-success">Reconnect Facebook</a>
+              <?php endif; ?>
+          </div>
+          <?php endif; ?>
+
           <!-- KPI Stats — 6 tiles -->
           <div class="mw-soc-stats-row mb-4" id="socStats">
               <div class="mw-soc-stat-card">

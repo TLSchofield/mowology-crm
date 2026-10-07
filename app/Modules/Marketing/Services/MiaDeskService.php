@@ -540,6 +540,11 @@ class MiaDeskService
         foreach ((new MiaQuestionService($this->db))->open(2) as $q) {
             $items[] = ['key' => 'mia:question:' . $q['id'], 'text' => $q['question'], 'url' => $q['url'] ?? '/crm/dashboard_appstack.php#mw-mia', 'priority' => 3, 'kind' => 'question'];
         }
+        // Channels: reviews to reply to, Google/social drafts, Facebook reconnect, website insight, listings.
+        try {
+            require_once __DIR__ . '/MiaChannelsService.php';
+            foreach ((new MiaChannelsService($this->db))->briefItems() as $it) $items[] = $it;
+        } catch (Throwable $e) { error_log('Mia channels brief: ' . $e->getMessage()); }
         return ['head' => 'mia', 'headline' => self::headline($st, $ownerFirstName), 'items' => $items, 'count' => count($items)];
     }
 

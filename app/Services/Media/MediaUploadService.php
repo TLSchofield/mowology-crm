@@ -201,6 +201,12 @@ function mediaUploadFile(
 
         $mediaId = (int)$db->lastInsertId();
 
+        // Mia's media library tags (season, hero, consent…). Never fails the upload.
+        try {
+            require_once dirname(__DIR__, 2) . '/Modules/Marketing/Services/MediaTagService.php';
+            MediaTagService::onUpload($db, $mediaId);
+        } catch (Throwable $e) { /* non-fatal */ }
+
         return [
             'success' => true,
             'media_id' => $mediaId,

@@ -101,6 +101,8 @@ $__js = function (string $p): string { return function_exists('_av') ? _av($p) :
     <div class="mw-mia-empty">Loading Mia's suggestions…</div>
   </div>
 
+  <div class="mw-mia-chan" id="mw-mia-chan" aria-live="polite" hidden></div>
+
   <div class="mw-head-foot">
     <span>Learning from what you send, change and skip · I never send on my own</span>
   </div>
@@ -109,3 +111,4 @@ $__js = function (string $p): string { return function_exists('_av') ? _av($p) :
 <script src="<?= h($__js('/crm/js/head-brain.js')) ?>" defer></script>
 <?php endif; ?>
 <script src="<?= h($__js('/crm/js/mia-card.js')) ?>" defer></script>
+<script src="<?= h($__js('/crm/js/mia-channels.js')) ?>" defer></script>

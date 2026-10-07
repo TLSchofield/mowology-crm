@@ -60,6 +60,17 @@ require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaQuestionService.ph
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaBrainService.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaDeskService.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaCampaignService.php';
+// Mia — channels (GBP, social, website watch, listings) and the media library
+require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaSeasonThemes.php';
+require_once __DIR__ . '/../app/Modules/Marketing/Services/ReviewReplyDrafter.php';
+require_once __DIR__ . '/../app/Modules/Marketing/Services/WebsiteWatchRules.php';
+require_once __DIR__ . '/../app/Modules/Marketing/Services/WebsiteWatchService.php';
+require_once __DIR__ . '/../app/Modules/Marketing/Services/ListingsService.php';
+require_once __DIR__ . '/../app/Modules/Marketing/Services/MediaTagRules.php';
+require_once __DIR__ . '/../app/Modules/Marketing/Services/MediaTagService.php';
+require_once __DIR__ . '/../app/Modules/Marketing/Services/MediaPickerService.php';
+require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaSocialService.php';
+require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaChannelsService.php';
 
 // Otto — operations head
 require_once __DIR__ . '/../app/Modules/Operations/Services/OttoRules.php';
@@ -195,6 +206,8 @@ require_once __DIR__ . '/../app/Modules/Portfolio/Services/BeforeAfterService.ph
 require_once __DIR__ . '/../app/Modules/Social/Services/SocialEncryption.php';
 require_once __DIR__ . '/../app/Modules/Social/Services/MetaService.php';
 require_once __DIR__ . '/../app/Modules/Social/Services/SocialAccountHealth.php';
+require_once __DIR__ . '/../app/Modules/Social/Services/SocialConnectionState.php';
+require_once __DIR__ . '/../app/Modules/Social/Services/GbpService.php';
 
 // Integration test base class (needed when --testsuite Integration is run)
 require_once __DIR__ . '/Integration/ApiTestCase.php';

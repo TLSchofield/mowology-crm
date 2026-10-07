@@ -187,6 +187,11 @@ class OpsDeskService
                 'text' => OttoRules::plural($n, 'stop') . ' today ' . ($n === 1 ? 'has' : 'have') . ' no crew.',
                 'url' => '/crm/jobs/schedule.php', 'priority' => 2, 'value' => $n, 'since' => $this->today];
         }
+        // Completed visits with no photos in the last 7 days (priority 3) — Mia's library needs them.
+        try {
+            require_once dirname(__DIR__, 2) . '/Marketing/Services/MediaTagService.php';
+            foreach (MediaTagService::missingPhotoItems($this->db, $this->today) as $it) $out[] = $it;
+        } catch (Throwable $e) { /* additive only */ }
         $out = OttoRules::sortItems($out);
         return ['head' => 'otto', 'headline' => $headline, 'items' => $out, 'count' => count($out)];
     }
