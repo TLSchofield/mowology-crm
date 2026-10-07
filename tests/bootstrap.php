@@ -75,6 +75,23 @@ require_once __DIR__ . '/../app/Modules/Sales/Services/CloserRateCard.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/CloserService.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/CloserSettingsService.php';
 
+// Charlie — Chief of Staff
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieRankService.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieVoice.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieBriefService.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/PennyBriefAdapter.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/HouseBriefAdapter.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieBadgeService.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieDeskService.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieBriefEmail.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/DeadlineRules.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/DeadlineService.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/AccountantPackService.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/ConflictRules.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieInboxService.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieUrgentService.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieForemanService.php';
+
 require_once __DIR__ . '/../app/Modules/Invoices/Services/StatementService.php';
 
 // Products

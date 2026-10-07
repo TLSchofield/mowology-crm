@@ -38211,3 +38211,123 @@ body.mw-rc-zoom-open { overflow: hidden; }
     .mw-otto-gap { flex-direction: column; align-items: flex-start; }
     .mw-otto-gaps-head { gap: 18px; }
 }
+
+/* ===================================================================
+   CHARLIE — CHIEF OF STAFF (dashboard deck: the one thing + 7 am brief)
+   charlie-card.php / charlie-card.js; brain popup styles are shared (.mw-brain-pop)
+   =================================================================== */
+.mw-charlie { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.mw-charlie-top { display: flex; align-items: center; gap: 14px; }
+.mw-charlie-photo { position: relative; flex: 0 0 auto; }
+.mw-charlie-face { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; display: block; box-shadow: 0 0 0 3px var(--mw-lime), var(--mw-shadow-md); }
+.mw-charlie-brain { position: absolute; right: -12px; bottom: -10px; width: 40px; height: 40px; padding: 0; border: 0; border-radius: 10px; cursor: pointer;
+    background: radial-gradient(circle at 50% 42%, var(--mw-dark) 0%, var(--mw-forest) 72%); box-shadow: 0 0 0 2px var(--mw-ink-0), var(--mw-shadow-md); }
+.mw-charlie-brain canvas { width: 100%; height: 100%; display: block; }
+.mw-charlie-brain:hover, .mw-charlie-brain:focus-visible { box-shadow: 0 0 0 3px var(--mw-lime), var(--mw-shadow-md); outline: none; }
+.mw-charlie-id { min-width: 0; }
+.mw-charlie-id .mw-head-pill { margin-top: 6px; }
+.mw-charlie .mw-charlie-badges { margin-top: 0; max-width: none; }
+
+.mw-charlie-say { background: var(--mw-light); border-radius: 10px; padding: 10px 12px; font-size: .85rem; line-height: 1.45; color: var(--mw-forest); }
+.mw-charlie-lead { display: block; }
+.mw-charlie-thing { display: block; margin: 6px 0; padding-left: 10px; border-left: 3px solid var(--mw-green); font-size: .92rem; font-weight: 700; color: var(--mw-dark); overflow-wrap: anywhere; }
+.mw-charlie-after { display: block; font-size: .76rem; color: var(--mw-ink-500); margin-top: 4px; }
+
+.mw-charlie-acts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.mw-charlie-acts[hidden] { display: none; }
+.mw-charlie-acts button { border-radius: 9px; padding: 6px 10px; font-size: .78rem; font-weight: 700; white-space: nowrap; }
+.mw-charlie-go { background: var(--mw-green); color: var(--mw-ink-0); border: 0; }
+.mw-charlie-go:hover { background: var(--mw-dark); }
+.mw-charlie-later { background: var(--mw-ink-0); color: var(--mw-forest); border: 1px solid var(--mw-ink-200); }
+.mw-charlie-later:hover { border-color: var(--mw-green); }
+.mw-charlie-acts .mw-charlie-skip { margin-left: auto; padding: 6px 4px; background: none; border: 0; color: var(--mw-ink-500); font-weight: 600; }
+.mw-charlie-skip:hover { color: var(--mw-orange); }
+.mw-charlie-msg { font-size: .75rem; color: var(--mw-dark); min-height: 1em; }
+.mw-charlie-msg:empty { display: none; }
+
+.mw-charlie-qs { border: 1px solid var(--mw-color-warning-bg); background: var(--mw-color-warning-bg); border-radius: 10px; padding: 8px 10px; }
+.mw-charlie-q p { margin: 0 0 6px; font-size: .8rem; line-height: 1.4; color: var(--mw-ink-900); }
+.mw-charlie-qbtns { display: flex; flex-direction: column; gap: 5px; }
+.mw-charlie-qbtns button { text-align: left; border: 1px solid var(--mw-ink-200); background: var(--mw-ink-0); border-radius: 8px; padding: 5px 9px; font-size: .75rem; font-weight: 600; color: var(--mw-forest); }
+.mw-charlie-qbtns button:hover { background: var(--mw-light); border-color: var(--mw-green); }
+
+.mw-charlie-brief { border-top: 1px solid var(--mw-ink-200); padding-top: 8px; }
+.mw-charlie-brief summary { cursor: pointer; font-size: .76rem; font-weight: 700; color: var(--mw-forest); }
+.mw-charlie-heads { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.mw-charlie-head { font-size: .76rem; color: var(--mw-ink-700); }
+.mw-charlie-hd b { color: var(--mw-forest); }
+.mw-charlie-hd small { color: var(--mw-ink-500); }
+.mw-charlie-hl { color: var(--mw-ink-500); }
+.mw-charlie-head ul { margin: 3px 0 0; padding-left: 16px; line-height: 1.45; }
+.mw-charlie-head li.is-p1 { font-weight: 700; }
+.mw-charlie-head a { color: var(--mw-forest); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.mw-charlie-head a:hover { color: var(--mw-green); }
+.mw-charlie-more { color: var(--mw-ink-500); font-size: .7rem; }
+
+/* Charlie, Foreman — bad news first, the decision inbox, the calendar page (phase 2) */
+.mw-charlie-bad { border: 1px solid var(--mw-orange); border-left-width: 4px; border-radius: 10px; padding: 8px 10px; font-size: .78rem; color: var(--mw-ink-900); background: var(--mw-color-warning-bg); }
+.mw-charlie-bad[hidden] { display: none; }
+.mw-charlie-bad b { color: var(--mw-orange); }
+.mw-charlie-bad ul { margin: 4px 0 0; padding-left: 16px; line-height: 1.45; }
+.mw-charlie-acts .mw-charlie-go[hidden] { display: none; }
+.mw-charlie-cal-link { font-size: .74rem; font-weight: 600; color: var(--mw-green); }
+.mw-charlie-cal-link:hover { color: var(--mw-dark); }
+.mw-charlie-inbox .mw-charlie-rows { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.mw-charlie-row { border: 1px solid var(--mw-ink-200); border-radius: 8px; padding: 7px 9px; font-size: .78rem; color: var(--mw-ink-900); background: var(--mw-ink-0); }
+.mw-charlie-row.is-p1 { border-left: 3px solid var(--mw-green); }
+.mw-charlie-row.is-batch { background: var(--mw-light); }
+.mw-charlie-row.is-held { border-style: dashed; }
+.mw-charlie-row-main a { color: var(--mw-forest); }
+.mw-charlie-row-main small { color: var(--mw-dark); font-weight: 700; }
+.mw-charlie-row details summary { cursor: pointer; font-size: .72rem; color: var(--mw-ink-500); }
+.mw-charlie-row details ul { margin: 4px 0 0; padding-left: 16px; }
+.mw-charlie-tag { display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: var(--mw-radius-pill); background: var(--mw-ink-100); color: var(--mw-ink-700); font-size: .66rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; }
+.mw-charlie-why { margin-top: 3px; font-size: .72rem; color: var(--mw-orange); }
+.mw-charlie-row-btns { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.mw-charlie-btn { border: 1px solid var(--mw-ink-200); background: var(--mw-ink-0); color: var(--mw-forest); border-radius: 8px; padding: 4px 9px; font-size: .74rem; font-weight: 700; }
+.mw-charlie-btn:hover { border-color: var(--mw-green); background: var(--mw-light); }
+.mw-charlie-btn.is-primary { background: var(--mw-green); border-color: var(--mw-green); color: var(--mw-ink-0); }
+.mw-charlie-btn.is-primary:hover { background: var(--mw-dark); }
+.mw-charlie-btn.is-quiet { border-color: transparent; background: none; color: var(--mw-ink-500); font-weight: 600; }
+.mw-charlie-btn:disabled { opacity: .6; cursor: wait; }
+.mw-charlie-held-hd { margin-top: 8px; font-size: .72rem; font-weight: 700; color: var(--mw-orange); }
+.mw-charlie-held { display: flex; flex-direction: column; gap: 6px; }
+.mw-charlie-held[hidden] { display: none; }
+.mw-charlie-empty { padding: 10px; font-size: .8rem; color: var(--mw-ink-500); }
+
+.mw-charlie-page { margin-top: 12px; }
+.mw-charlie-page-msg { margin: 10px 0; font-size: .85rem; }
+.mw-charlie-tabs { margin-bottom: 14px; }
+.mw-charlie-cal { display: flex; flex-direction: column; gap: 18px; margin-bottom: 18px; }
+.mw-charlie-dl-group h5 { font-size: .95rem; font-weight: 800; color: var(--mw-forest); margin-bottom: 8px; }
+.mw-charlie-dl-group h5 small { color: var(--mw-ink-500); font-weight: 600; }
+.mw-charlie-dl-group.is-now h5 { color: var(--mw-orange); }
+.mw-charlie-dl, .mw-charlie-rule { border: 1px solid var(--mw-ink-200); border-radius: var(--mw-radius-md); padding: 10px 12px; margin-bottom: 8px; background: var(--mw-ink-0); font-size: .85rem; color: var(--mw-ink-900); }
+.mw-charlie-dl.is-overdue { border-left: 4px solid var(--mw-orange); }
+.mw-charlie-dl.is-target { box-shadow: 0 0 0 3px var(--mw-lime); }
+.mw-charlie-dl-group.is-off .mw-charlie-dl, .mw-charlie-rule.is-later { opacity: .7; }
+.mw-charlie-dl-hd { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+.mw-charlie-dl-hd b { color: var(--mw-forest); }
+.mw-charlie-dl-when { font-size: .78rem; font-weight: 700; color: var(--mw-dark); white-space: nowrap; }
+.mw-charlie-dl.is-overdue .mw-charlie-dl-when { color: var(--mw-orange); }
+.mw-charlie-dl-rule { font-size: .76rem; color: var(--mw-ink-500); margin-top: 2px; }
+.mw-charlie-note { font-size: .76rem; color: var(--mw-ink-700); margin-top: 4px; }
+.mw-charlie-note.is-confirm { color: var(--mw-color-warning); }
+.mw-charlie-prep { margin: 6px 0 0; padding-left: 18px; font-size: .8rem; color: var(--mw-ink-700); }
+.mw-charlie-pack { margin-bottom: 18px; }
+.mw-charlie-pack-list { padding-left: 18px; margin-bottom: 8px; }
+.mw-charlie-pack-list li.is-bad { color: var(--mw-orange); font-weight: 700; }
+.mw-charlie-edit { margin-bottom: 18px; }
+.mw-charlie-form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px 14px; }
+.mw-charlie-form label { display: flex; flex-direction: column; gap: 4px; font-size: .78rem; font-weight: 600; color: var(--mw-ink-700); }
+.mw-charlie-form label[hidden] { display: none; }
+.mw-charlie-form .mw-charlie-wide { grid-column: 1 / -1; }
+.mw-charlie-form .mw-charlie-check, .mw-charlie-rule-edit .mw-charlie-check { flex-direction: row; align-items: center; gap: 6px; }
+.mw-charlie-form-btns { display: flex; gap: 8px; margin-top: 12px; }
+.mw-charlie-rule-edit { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin-top: 8px; font-size: .78rem; }
+.mw-charlie-rule-edit label { display: flex; flex-direction: column; gap: 3px; font-weight: 600; color: var(--mw-ink-700); }
+.mw-charlie-rule-edit input[type="number"] { width: 110px; }
+.mw-charlie-inbox-page { display: flex; flex-direction: column; gap: 8px; max-width: 900px; }
+.mw-charlie-inbox-page .mw-charlie-rows { display: flex; flex-direction: column; gap: 8px; }
+.mw-charlie-inbox-page .mw-charlie-row { font-size: .85rem; padding: 10px 12px; }
+.mw-charlie-table { font-size: .8rem; }
