@@ -418,7 +418,7 @@ class YuiRulesTest extends TestCase
         $this->assertSame(6, $b['count']);
         $keys = array_keys($b['items'][0]);
         sort($keys);   // the contract fields, plus 'yes' when the item is a clear yes (Charlie ranks those first)
-        $this->assertSame(array_values(array_intersect(['kind', 'key', 'priority', 'since', 'text', 'url', 'value', 'yes'], $keys)), $keys);
+        $this->assertSame(array_values(array_intersect(['key', 'kind', 'priority', 'since', 'text', 'url', 'value', 'yes'], $keys)), $keys);
         $this->assertEmpty(array_diff(['key', 'kind', 'value', 'since', 'text', 'url', 'priority'], $keys));
         $this->assertSame('1 client said yes · 1 approval with no accepted quote', $b['headline']);
         // Charlie normalises Yui's kinds under her name.
