@@ -38243,6 +38243,9 @@ body.mw-rc-zoom-open { overflow: hidden; }
 .mw-otto-name a { font-size: .72rem; font-weight: 600; color: var(--mw-green); margin-left: 4px; }
 .mw-otto-name input[type="text"] { flex: 1; min-width: 160px; }
 .mw-otto-name select { border: 1px solid var(--mw-ink-200); border-radius: 8px; padding: 4px 6px; font-size: .78rem; color: var(--mw-ink-900); background: var(--mw-ink-0); }
+/* Otto asks Penny — receipt evidence on a stop, and her Yes / No guess for an unnamed one */
+.mw-otto-ev { font-size: .68rem; color: var(--mw-ink-500); }
+.mw-otto-ask { display: flex; flex-direction: column; gap: 6px; font-size: .76rem; color: var(--mw-ink-900); background: var(--mw-light); border-radius: 8px; padding: 8px 10px; }
 .mw-otto-base { background: var(--mw-light); border-radius: 8px; padding: 6px 10px; font-size: .75rem; color: var(--mw-forest); line-height: 1.5; }
 .mw-otto-trips-ft { font-size: .66rem; color: var(--mw-ink-500); }
 /* Penny — overhead runs with no receipt yet (dept-heads-deck.php) */

@@ -53,6 +53,77 @@ final class TripTrailFixture
         return array_values(array_filter($out, fn($p) => $p['t'] <= $cut));
     }
 
+    /** The real 2026-10-07 unnamed stop (Lawn Boy, per Tim) and the real dump stop window. */
+    public const LAWNBOY_REAL = [49.2069, -123.1176];
+
+    /**
+     * The real 2026-10-07 trail as Otto saw it: Oakridge 08:56–09:36, Vancouver Transfer Station
+     * 09:51–10:00, unnamed 10:15–10:24 at 49.2069,-123.1176, Oakridge 10:35–11:16, unnamed again
+     * 11:29–11:41 at 49.2070,-123.1177 (the truck was still there at the last ping).
+     */
+    public static function real1007(string $date = '2026-10-07'): array
+    {
+        $plan = [
+            ['stay', self::YARD, '06:30', '08:30'],
+            ['go', self::YARD, self::OAKRIDGE, '08:30', '08:56'],
+            ['stay', self::OAKRIDGE, '08:56', '09:36'],
+            ['go', self::OAKRIDGE, self::DUMP, '09:36', '09:51'],
+            ['stay', self::DUMP, '09:51', '10:00'],
+            ['go', self::DUMP, self::LAWNBOY_REAL, '10:00', '10:15'],
+            ['stay', self::LAWNBOY_REAL, '10:15', '10:24'],
+            ['go', self::LAWNBOY_REAL, self::OAKRIDGE, '10:24', '10:35'],
+            ['stay', self::OAKRIDGE, '10:35', '11:16'],
+            ['go', self::OAKRIDGE, [49.2070, -123.1177], '11:16', '11:29'],
+            ['stay', [49.2070, -123.1177], '11:29', '11:41'],
+        ];
+        return self::build($plan, $date);
+    }
+
+    /** Pings every minute for a plan (one-minute spacing so odd-minute stop edges land exactly). */
+    private static function build(array $plan, string $date): array
+    {
+        $out = [];
+        foreach ($plan as $p) {
+            if ($p[0] === 'stay') {
+                [, $at, $a, $b] = $p;
+                for ($t = strtotime("$date $a"); $t <= strtotime("$date $b"); $t += 60) {
+                    $out[$t] = ['lat' => $at[0], 'lng' => $at[1], 'speed_kph' => 0.0, 't' => $t];
+                }
+            } else {
+                [, $from, $to, $a, $b] = $p;
+                $t0 = strtotime("$date $a"); $t1 = strtotime("$date $b");
+                for ($t = $t0 + 60; $t < $t1; $t += 60) {
+                    $f = ($t - $t0) / ($t1 - $t0);
+                    $out[$t] = ['lat' => $from[0] + ($to[0] - $from[0]) * $f, 'lng' => $from[1] + ($to[1] - $from[1]) * $f, 'speed_kph' => 38.0, 't' => $t];
+                }
+            }
+        }
+        ksort($out);
+        return array_values($out);
+    }
+
+    /** Expense #411 as stored: the dump's scale ticket, filed by Nigel at 11:21 (truck between stops). */
+    public static function ticket411(): array
+    {
+        return [
+            'id' => 411, 'expense_date' => '2026-10-07', 'vendor_id' => 12, 'vendor' => 'City of Vancouver Vancouver Landfill',
+            'vendor_name_raw' => 'City of Vancouver Vancouver Landfill', 'accounting_category' => 'Disposal/Dump', 'gbp' => null,
+            'total' => '27.00', 'created_at' => '2026-10-07 11:21:00', 'created_by' => 6, 'receipt_lat' => null, 'receipt_lng' => null,
+            'raw_ocr_json' => "CITY OF VANCOUVER\nVancouver Landfill\nDate: 10/07/26\nTime In: 09:49 AM\nTime Out: 10:01 AM\nTruck ID: PF8865\nNet 0.43 t\nTotal 25.71",
+        ];
+    }
+
+    /** A synthetic Lawn Boy slip printed at 10:18 (none was filed on the real day yet). */
+    public static function lawnBoySlip(int $id = 412, string $date = '2026-10-07', string $time = '10:18'): array
+    {
+        return [
+            'id' => $id, 'expense_date' => $date, 'vendor_id' => 31, 'vendor' => 'Lawn Boy', 'vendor_name_raw' => 'LAWN BOY LANDSCAPE SUPPLY',
+            'accounting_category' => 'Materials', 'gbp' => 'Garden center/nursery', 'total' => '128.10',
+            'created_at' => $date . ' 16:40:00', 'created_by' => 6, 'receipt_lat' => null, 'receipt_lng' => null,
+            'raw_ocr_json' => "LAWN BOY\nInvoice 88120\n" . date('m/d/Y', strtotime($date)) . ' ' . $time . "\n2 YD BLACK MULCH\nGRASS SEED 10KG\nTOTAL 128.10",
+        ];
+    }
+
     public static function properties(): array
     {
         return [

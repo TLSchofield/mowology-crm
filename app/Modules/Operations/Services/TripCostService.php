@@ -7,8 +7,16 @@
  *            burden: ops_settings freedom_burden_pct (Owner Freedom's, default 15).
  *            No rate → labour NULL, rate_missing = 1, and the card says "rate missing — set it".
  *   truck  = km × ops_settings truck_cost_per_km (seeded 0.70 by migration 1216, "edit me")
- *   receipts = that day's expenses whose vendor matches the place (ops_places.vendor_match or
- *            its name) — the dump fee, the mulch. Penny's card nags while a run has none.
+ *   receipts = the receipt(s) Penny time-matched to the stop (StopEvidenceService: printed time on
+ *            the ticket / till slip, or photographed there) — else that day's expenses whose vendor
+ *            matches the place (ops_places.vendor_match or its name), minus receipts time-matched to
+ *            another stop. Penny's card nags while a run has none. This is "receipts on this run",
+ *            NOT job cost: one supplier slip can hold job material and shop stock (2026-10-07 Lawn
+ *            Boy: mulch for Oakridge + grass seed for stock) — per-line job attribution lives elsewhere.
+ *   onsite = GPS minutes at the stop, or the scale ticket's Time In → Time Out when there is one.
+ *
+ * Before pricing, Otto asks Penny about the day (StopEvidenceService::resolveDay): strong evidence
+ * names unnamed stops itself; a bank-line guess comes back as a Yes / No proposal.
  *
  * One ops_trip_runs row per overhead stop, idempotent on (run_date, place_id, arrived_at); a
  * re-run (after a stop is named, or the crew toggle) rewrites the numbers and keeps the toggle.
@@ -17,6 +25,7 @@
  * No namespace / no autoloader in production: require_once and `new`.
  */
 require_once __DIR__ . '/TripSegmentService.php';
+require_once __DIR__ . '/StopEvidenceService.php';
 
 class TripCostService
 {
@@ -25,12 +34,14 @@ class TripCostService
 
     private PDO $db;
     public TripSegmentService $seg;
+    public StopEvidenceService $ev;
     private ?array $settings = null;
 
-    public function __construct(PDO $db, ?TripSegmentService $seg = null)
+    public function __construct(PDO $db, ?TripSegmentService $seg = null, ?StopEvidenceService $ev = null)
     {
         $this->db = $db;
         $this->seg = $seg ?? new TripSegmentService($db);
+        $this->ev = $ev ?? new StopEvidenceService($db, $this->seg);
     }
 
     public function ready(): bool
@@ -104,8 +115,11 @@ class TripCostService
         return false;
     }
 
-    /** That day's non-rejected expenses at this place: {ids: int[], total: float}. */
-    public function receipts(string $date, array $place): array
+    /**
+     * That day's non-rejected expenses at this place: {ids: int[], total: float}.
+     * @param int[] $exclude receipts Penny time-matched to a different stop that day
+     */
+    public function receipts(string $date, array $place, array $exclude = []): array
     {
         $words = self::vendorWords($place);
         if (!$words) return ['ids' => [], 'total' => 0.0];
@@ -119,6 +133,7 @@ class TripCostService
             $s->execute([$date]);
             $ids = []; $total = 0.0;
             foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                if (in_array((int)$r['id'], $exclude, true)) continue;
                 if (self::vendorMatches($r['vendor'] . ' ' . $r['vendor_raw'], $words)) {
                     $ids[] = (int)$r['id'];
                     $total += (float)$r['total'];
@@ -228,6 +243,7 @@ class TripCostService
      */
     public function pricedDay(string $date): array
     {
+        $penny = $this->ev->resolveDay($date);   // may name stops (creates places) before the day is split
         $day = $this->seg->day($date, $this->overrides($date));
         $st = $this->settings();
         $places = [];
@@ -240,7 +256,16 @@ class TripCostService
             $run['people'] = $people;
             $run['total'] = 0.0;
             foreach ($run['legs'] as &$leg) {
-                $rc = $leg['place_id'] && isset($places[$leg['place_id']]) ? $this->receipts($date, $places[$leg['place_id']]) : ['ids' => [], 'total' => 0.0];
+                $evs = $penny['stops'][$leg['arrived_at']] ?? [];
+                $leg = self::applyEvidence($leg, $evs);
+                if ($evs) {
+                    // Prefer the time-matched receipt(s) over the vendor-word match.
+                    $rc = ['ids' => array_column($evs, 'receipt_id'), 'total' => round(array_sum(array_column($evs, 'total')), 2)];
+                } elseif ($leg['place_id'] && isset($places[$leg['place_id']])) {
+                    $rc = $this->receipts($date, $places[$leg['place_id']], self::matchedElsewhere($penny['stops'], $leg['arrived_at']));
+                } else {
+                    $rc = ['ids' => [], 'total' => 0.0];
+                }
                 $leg['receipt_ids'] = $rc['ids'];
                 $leg['cost'] = self::cost($leg['drive_min'], $leg['onsite_min'], $leg['km'], $c['driver_id'] ? $driver['rate'] : null, $st['burden_pct'], $people, $st['per_km'], $rc['total']);
                 $run['total'] += $leg['cost']['total'];
@@ -250,7 +275,41 @@ class TripCostService
         }
         unset($run);
         $day['settings'] = $st;
+        $day['evidence'] = $penny['stops'];
+        $day['proposals'] = $penny['weak'];
+        $day['penny_named'] = $penny['created'];
+        $day['penny_places'] = $penny['penny_places'];
         return $day;
+    }
+
+    /**
+     * A leg with Penny's evidence: the first one shown, and a scale ticket's Time In → Time Out as
+     * the minutes on site (onsite_basis 'ticket'), else GPS.
+     */
+    public static function applyEvidence(array $leg, array $evs): array
+    {
+        $leg['evidence'] = $evs[0] ?? null;
+        $leg['evidence_line'] = StopEvidenceService::evidenceLine($evs[0] ?? null);
+        $leg['onsite_basis'] = 'gps';
+        $tk = $evs[0]['ticket'] ?? null;
+        if ($tk) {
+            $leg['onsite_min'] = (float)$tk['minutes'];
+            $leg['onsite_basis'] = 'ticket';
+            $leg['ticket_in'] = $tk['in'];
+            $leg['ticket_out'] = $tk['out'];
+        }
+        return $leg;
+    }
+
+    /** Receipt ids Penny time-matched to stops other than the one starting at $start. */
+    public static function matchedElsewhere(array $byStop, int $start): array
+    {
+        $ids = [];
+        foreach ($byStop as $st => $list) {
+            if ((int)$st === $start) continue;
+            foreach ($list as $e) if ($e['receipt_id']) $ids[] = (int)$e['receipt_id'];
+        }
+        return $ids;
     }
 
     /**
@@ -264,13 +323,14 @@ class TripCostService
         $today = $date >= date('Y-m-d');
         $keep = [];
         $stored = 0; $open = 0;
+        $ev = $this->ev->ready1217();   // migration 1217: the evidence line + where onsite_min came from
         $up = $this->db->prepare("
             INSERT INTO ops_trip_runs
                 (run_date, trip_key, place_id, kind, user_id, crew_count, one_man, crew_basis, from_property_id, return_property_id,
                  left_at, arrived_at, departed_at, returned_at, drive_min, onsite_min, km, labour_cost, truck_cost, receipt_cost,
-                 receipt_ids, total, rate_missing, ping_from, ping_to)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON DUPLICATE KEY UPDATE trip_key = VALUES(trip_key), kind = VALUES(kind), user_id = VALUES(user_id), crew_count = VALUES(crew_count),
+                 receipt_ids, total, rate_missing, ping_from, ping_to" . ($ev ? ", evidence, onsite_basis" : "") . ")
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?" . ($ev ? ", ?, ?" : "") . ")
+            ON DUPLICATE KEY UPDATE" . ($ev ? " evidence = VALUES(evidence), onsite_basis = VALUES(onsite_basis)," : "") . " trip_key = VALUES(trip_key), kind = VALUES(kind), user_id = VALUES(user_id), crew_count = VALUES(crew_count),
                 one_man = VALUES(one_man), crew_basis = VALUES(crew_basis), from_property_id = VALUES(from_property_id),
                 return_property_id = VALUES(return_property_id), left_at = VALUES(left_at), departed_at = VALUES(departed_at),
                 returned_at = VALUES(returned_at), drive_min = VALUES(drive_min), onsite_min = VALUES(onsite_min), km = VALUES(km),
@@ -285,7 +345,7 @@ class TripCostService
             foreach ($run['legs'] as $leg) {
                 if (!$leg['place_id']) continue;
                 $cost = $leg['cost'];
-                $up->execute([
+                $vals = [
                     $date, $run['trip_key'], $leg['place_id'], $leg['kind'], $c['driver_id'], $run['people'],
                     $c['one_man'] === null ? null : ($c['one_man'] ? 1 : 0), $c['basis'],
                     $run['from']['property_id'] ?? null, $run['to']['property_id'] ?? null,
@@ -293,7 +353,12 @@ class TripCostService
                     $leg['drive_min'], $leg['onsite_min'], $leg['km'], $cost['labour'], $cost['truck'], $cost['receipts'],
                     $leg['receipt_ids'] ? implode(',', $leg['receipt_ids']) : null, $cost['total'], $cost['rate_missing'] ? 1 : 0,
                     $dt($run['left_at']), $dt($run['returned_at'] ?? $leg['departed_at']),
-                ]);
+                ];
+                if ($ev) {
+                    $vals[] = $leg['evidence_line'] !== '' ? mb_substr($leg['evidence_line'], 0, 255) : null;
+                    $vals[] = $leg['onsite_basis'];
+                }
+                $up->execute($vals);
                 $keep[] = $leg['place_id'] . '@' . $dt($leg['arrived_at']);
                 $stored++;
             }
@@ -338,6 +403,29 @@ class TripCostService
         return ['ok' => true, 'place_id' => $id, 'processed' => $res];
     }
 
+    /**
+     * The owner's answer to Penny's guess for an unnamed stop (a supplier charge on the bank feed).
+     * Yes → the place is created (source 'confirmed') and the day re-priced; No → remembered, never
+     * offered again for that spot, and the stop stays open for the name form.
+     */
+    public function confirmStop(float $lat, float $lng, string $name, string $kind, ?int $vendorId, bool $yes, int $userId, string $date, string $evidence = ''): array
+    {
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) return ['ok' => false, 'error' => 'Invalid date.'];
+        $name = trim(preg_replace('/\s+/', ' ', $name));
+        if ($name === '' || mb_strlen($name) > 120) return ['ok' => false, 'error' => 'Unknown guess.'];
+        if (abs($lat) > 90 || abs($lng) > 180 || ($lat == 0.0 && $lng == 0.0)) return ['ok' => false, 'error' => 'That stop has no position.'];
+        if (!$yes) {
+            return $this->ev->reject($date, $lat, $lng, $name, $userId ?: null)
+                ? ['ok' => true, 'rejected' => true]
+                : ['ok' => false, 'error' => 'Could not remember that answer (migration 1217 needed).'];
+        }
+        if (!in_array($kind, ['dump', 'supplier', 'fuel', 'other'], true)) $kind = 'supplier';
+        $id = $this->ev->createPlace($name, $kind, $lat, $lng, $vendorId ?: null,
+            mb_substr(trim($evidence) !== '' ? trim($evidence) . ' — you said yes' : 'You said yes to Penny\'s guess', 0, 255), 'confirmed', $userId ?: null);
+        if (!$id) return ['ok' => false, 'error' => 'That spot is already a known place.'];
+        return ['ok' => true, 'place_id' => $id, 'processed' => $this->process($date)];
+    }
+
     /** The owner's one-man / two-man toggle for a run (null clears it), then re-price the day. */
     public function setCrew(string $tripKey, ?int $oneMan): array
     {
@@ -376,7 +464,8 @@ class TripCostService
     public function missingReceipts(int $days = 14): array
     {
         $s = $this->db->prepare("
-            SELECT r.id, r.run_date, r.kind, r.place_id, r.labour_cost, r.truck_cost, p.name, p.vendor_match
+            SELECT r.id, r.run_date, r.kind, r.place_id, r.labour_cost, r.truck_cost, r.arrived_at, r.departed_at,
+                   p.name, p.vendor_match, p.lat, p.lng
             FROM ops_trip_runs r JOIN ops_places p ON p.id = r.place_id
             WHERE r.receipt_ids IS NULL AND r.kind IN ('dump', 'supplier') AND r.run_date >= ?
             ORDER BY r.run_date DESC, r.arrived_at DESC
@@ -385,7 +474,10 @@ class TripCostService
         $s->execute([date('Y-m-d', strtotime("-{$days} days"))]);
         $out = [];
         foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
-            $rc = $this->receipts((string)$r['run_date'], $r);
+            // A receipt whose printed time (or photo) puts it at this stop wins over the vendor words.
+            $e = $this->ev->receiptForWindow((string)$r['run_date'], (int)strtotime((string)$r['arrived_at']),
+                (int)strtotime((string)$r['departed_at']), (float)$r['lat'], (float)$r['lng']);
+            $rc = $e ? ['ids' => [(int)$e['receipt_id']], 'total' => (float)$e['total']] : $this->receipts((string)$r['run_date'], $r);
             if ($rc['ids']) {
                 $this->db->prepare("UPDATE ops_trip_runs SET receipt_ids = ?, receipt_cost = ?, total = COALESCE(labour_cost, 0) + COALESCE(truck_cost, 0) + ? WHERE id = ?")
                          ->execute([implode(',', $rc['ids']), $rc['total'], $rc['total'], (int)$r['id']]);
@@ -397,20 +489,26 @@ class TripCostService
     }
 
     /**
-     * Charlie's brief items ({key, kind, value, since, text, url, priority}): today's unnamed stops
-     * of 5+ min — named once on Otto's card, every later run there is costed.
+     * Charlie's brief items ({key, kind, value, since, text, url, priority}): Penny's guesses for
+     * today's unnamed stops, for a Yes / No on Otto's card. Otto asks Penny before asking Tim, so a
+     * stop with no evidence yet is NOT in the brief — it stays open on the card and is re-checked as
+     * receipts and bank lines arrive; stops Penny can prove are named without asking anyone.
      */
     public function briefItems(string $date): array
     {
         if (!$this->ready()) return [];
+        $penny = $this->ev->resolveDay($date);   // names what Penny can prove
+        if (!$penny['weak']) return [];
         $out = [];
         foreach (TripSegmentService::unnamedStops(TripSegmentService::segments(
             $pings = $this->seg->pings($date), $this->seg->propertiesNear($pings), $this->seg->places())) as $u) {
+            $g = $penny['weak'][$u['start']] ?? null;
+            if (!$g) continue;
             $out[] = [
                 'key' => 'otto:unnamed-stop:' . $date . ':' . number_format($u['lat'], 4, '.', '') . ',' . number_format($u['lng'], 4, '.', ''),
                 'kind' => 'unnamed_stop', 'priority' => 3, 'value' => (int)round($u['minutes']), 'since' => $date,
-                'text' => 'The truck stopped ' . self::mins((float)$u['minutes']) . ' at a place I don\'t know (' . date('g:i', $u['start'])
-                    . '). Name it once on my card and I\'ll cost every run there.',
+                'text' => 'Penny thinks the truck\'s ' . date('g:i', $u['start']) . ' stop (' . self::mins((float)$u['minutes']) . ') was '
+                    . $g['name'] . ' (' . StopEvidenceService::evidenceLine($g) . '). Yes or no on my card.',
                 'url' => '/crm/dashboard_appstack.php#mw-otto-trips',
             ];
         }

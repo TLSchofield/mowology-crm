@@ -4,7 +4,10 @@
  *
  * Splits the day's Trackimo pings into stops and drives (TripSegmentService), prices each
  * overhead stop (TripCostService: driver's rate + burden, km × truck_cost_per_km, matching
- * receipts) and stores it in ops_trip_runs. Idempotent: re-running a date rewrites its rows
+ * receipts) and stores it in ops_trip_runs.
+ * First Otto asks Penny (StopEvidenceService::learnPlaces): the last 120 days of supplier / dump /
+ * fuel receipts are lined up with the truck stops they came from, and every vendor seen at the same
+ * spot on 2+ days becomes a named place — so stops are named from history, not by Tim. Idempotent: re-running a date rewrites its rows
  * and keeps the owner's one-man / two-man toggles.
  *
  * CLI:  /usr/local/bin/php /home/mowology/public_html/app/Modules/Operations/Cron/trip_runs_daily.php [YYYY-MM-DD [YYYY-MM-DD]]
@@ -75,6 +78,12 @@ try {
         $__finish('warning', 'Migration 1216 not run yet — nothing to do');
         exit;
     }
+    $learned = ['created' => []];
+    try {
+        $learned = $svc->ev->learnPlaces(120);
+    } catch (Throwable $e) {
+        error_log('[trip_runs_daily] learnPlaces: ' . $e->getMessage());   // pricing still runs
+    }
     $tot = ['stored' => 0, 'removed' => 0, 'open' => 0, 'unnamed' => 0, 'days' => 0];
     for ($t = strtotime($__from); $t <= strtotime($__to); $t = strtotime('+1 day', $t)) {
         $r = $svc->process(date('Y-m-d', $t));
@@ -83,7 +92,9 @@ try {
     }
     $span = $__from === $__to ? $__from : "{$__from} → {$__to} ({$tot['days']} days)";
     $__finish('success', "{$span}: {$tot['stored']} overhead stop(s) priced, {$tot['removed']} removed, "
-        . "{$tot['unnamed']} unnamed stop(s) to name" . ($tot['open'] ? ", {$tot['open']} still away" : ''));
+        . "{$tot['unnamed']} unnamed stop(s) to name" . ($tot['open'] ? ", {$tot['open']} still away" : '')
+        . ($learned['created'] ? '; Penny named ' . count($learned['created']) . ' place(s) from past receipts: '
+            . implode(', ', array_column($learned['created'], 'name')) : ''));
 } catch (Throwable $e) {
     error_log('[trip_runs_daily] ' . $e->getMessage());
     $__finish('error', 'Cron failed', $e->getMessage());

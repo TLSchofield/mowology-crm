@@ -9,6 +9,11 @@
  *        creates the ops_places row; with date, re-prices that day.
  * POST {mode: 'set_crew', trip_key, one_man: 1|0|null, csrf_token}
  *        the owner's one-man / two-man toggle for a stored run (null clears it).
+ * POST {mode: 'confirm_stop', lat, lng, date, name, kind, vendor_id?, evidence?, answer: 1|0, csrf_token}
+ *        Yes / No to Penny's guess (a supplier card charge) for an unnamed stop.
+ * POST {mode: 'learn_places', days?: 1–120, csrf_token}   admin only
+ *        walk past supplier / dump / fuel receipts against the truck trail and create a place for
+ *        every vendor seen at the same truck stop on 2+ days (the cron does this nightly).
  *
  * ?mode=, never ?action= (see the /api/ router note in the vault). jobs.edit only.
  */
@@ -68,11 +73,17 @@ try {
         }
         $day = $svc->pricedDay($date);
         $hm = fn($t) => $t === null ? null : date('H:i', (int)$t);
+        $evOut = fn(?array $e) => $e === null ? null : [
+            'basis' => $e['basis'], 'strength' => $e['strength'], 'receipt_id' => $e['receipt_id'], 'vendor_id' => $e['vendor_id'],
+            'name' => $e['name'], 'kind' => $e['kind'], 'total' => $e['total'], 'line' => StopEvidenceService::evidenceLine($e),
+            'ticket' => $e['ticket'] ? ['in' => $hm($e['ticket']['in']), 'out' => $hm($e['ticket']['out']), 'minutes' => $e['ticket']['minutes']] : null,
+        ];
         echo json_encode([
             'ok' => true, 'date' => $date, 'pings' => $day['pings'], 'first' => $day['first'], 'last' => $day['last'],
             'stops' => array_values(array_map(fn($s) => [
                 'from' => $hm($s['start']), 'to' => $hm($s['end']), 'minutes' => $s['minutes'], 'lat' => $s['lat'], 'lng' => $s['lng'],
                 'type' => $s['label']['type'], 'name' => $s['label']['name'], 'kind' => $s['label']['kind'],
+                'evidence' => $evOut($day['evidence'][$s['start']][0] ?? null),
             ], array_filter($day['segments'], fn($s) => $s['type'] === 'stop'))),
             'runs' => array_map(fn($r) => [
                 'trip_key' => $r['trip_key'], 'left' => $hm($r['left_at']), 'back' => $hm($r['returned_at']),
@@ -83,9 +94,13 @@ try {
                     'place_id' => $l['place_id'], 'name' => $l['name'], 'kind' => $l['kind'], 'arrived' => $hm($l['arrived_at']),
                     'departed' => $hm($l['departed_at']), 'onsite_min' => $l['onsite_min'], 'drive_min' => $l['drive_min'],
                     'km' => $l['km'], 'cost' => $l['cost'], 'receipt_ids' => $l['receipt_ids'],
+                    'onsite_basis' => $l['onsite_basis'], 'evidence' => $evOut($l['evidence']),
                 ], $r['legs']),
             ], $day['runs']),
-            'unnamed' => array_map(fn($u) => ['lat' => $u['lat'], 'lng' => $u['lng'], 'from' => $hm($u['start']), 'to' => $hm($u['end']), 'minutes' => $u['minutes']], $day['unnamed']),
+            'unnamed' => array_map(fn($u) => ['lat' => $u['lat'], 'lng' => $u['lng'], 'from' => $hm($u['start']), 'to' => $hm($u['end']), 'minutes' => $u['minutes'],
+                'penny_thinks' => $evOut($day['proposals'][$u['start']] ?? null)], $day['unnamed']),
+            'penny_named' => array_map(fn($c) => ['place_id' => $c['place_id'], 'name' => $c['name'], 'kind' => $c['kind'], 'at' => $hm($c['start']),
+                'evidence' => StopEvidenceService::evidenceLine($c['evidence'])], $day['penny_named']),
             'settings' => ['per_km' => $day['settings']['per_km'], 'per_km_default' => $day['settings']['per_km_default'], 'burden_pct' => $day['settings']['burden_pct']],
         ]);
         exit;
@@ -110,6 +125,26 @@ try {
         $r = $svc->setCrew((string)($input['trip_key'] ?? ''), $v === null || $v === '' ? null : (int)(bool)$v);
         if (!$r['ok']) http_response_code(400);
         echo json_encode($r);
+        exit;
+    }
+
+    if ($method === 'POST' && $mode === 'confirm_stop') {
+        $r = $svc->confirmStop((float)($input['lat'] ?? 0), (float)($input['lng'] ?? 0), (string)($input['name'] ?? ''),
+            (string)($input['kind'] ?? 'supplier'), isset($input['vendor_id']) ? (int)$input['vendor_id'] : null,
+            (int)($input['answer'] ?? 0) === 1, (int)$user['id'], (string)($input['date'] ?? ''), (string)($input['evidence'] ?? ''));
+        if (!$r['ok']) http_response_code(400);
+        echo json_encode($r);
+        exit;
+    }
+
+    if ($method === 'POST' && $mode === 'learn_places') {
+        if (!isAdmin()) {
+            http_response_code(403);
+            echo json_encode(['ok' => false, 'error' => 'Learning places is for admins.']);
+            exit;
+        }
+        $r = $svc->ev->learnPlaces((int)($input['days'] ?? 120));
+        echo json_encode(['ok' => true] + $r);
         exit;
     }
 

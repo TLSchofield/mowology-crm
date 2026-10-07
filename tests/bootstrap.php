@@ -93,6 +93,7 @@ require_once __DIR__ . '/../app/Modules/Operations/Services/TrainingRules.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/TrainingService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/PropertyReadinessService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/TripSegmentService.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/StopEvidenceService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/TripCostService.php';
 
 // Sales — Sam the Closer (rate card + pricing)

@@ -3,7 +3,8 @@
  *
  * Two owner actions, both posted to /crm/api/trips.php, then the page reloads to show the
  * re-priced day: name an unnamed stop once (creates the place), and the one-man / two-man
- * toggle on a finished run. Nothing here messages anyone.
+ * toggle on a finished run, plus Yes / No on Penny's guess for an unnamed stop (confirm_stop).
+ * Nothing here messages anyone.
  */
 (function () {
     'use strict';
@@ -52,6 +53,37 @@
                 btn.disabled = false;
                 say(form, (r && r.error) || 'Could not save that.');
             }).catch(function () { btn.disabled = false; say(form, 'Could not reach the server.'); });
+        });
+
+        // Penny's guess for an unnamed stop (a supplier card charge): Yes names it, No is remembered.
+        box.addEventListener('click', function (e) {
+            var btn = e.target.closest('.mw-otto-ask button[data-answer]');
+            if (!btn) return;
+            var ask = btn.closest('.mw-otto-ask');
+            var yes = btn.getAttribute('data-answer') === '1';
+            ask.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+            post({
+                mode: 'confirm_stop',
+                lat: parseFloat(ask.getAttribute('data-lat')),
+                lng: parseFloat(ask.getAttribute('data-lng')),
+                name: ask.getAttribute('data-name') || '',
+                kind: ask.getAttribute('data-kind') || 'supplier',
+                vendor_id: parseInt(ask.getAttribute('data-vendor') || '0', 10) || null,
+                evidence: ask.getAttribute('data-evidence') || '',
+                answer: yes ? 1 : 0,
+                date: date
+            }).then(function (r) {
+                if (r && r.ok) {
+                    if (yes) { window.location.reload(); return; }
+                    say(ask, 'Got it — Penny won\'t suggest that here again.');
+                    return;
+                }
+                ask.querySelectorAll('button').forEach(function (b) { b.disabled = false; });
+                say(ask, (r && r.error) || 'Could not save that.');
+            }).catch(function () {
+                ask.querySelectorAll('button').forEach(function (b) { b.disabled = false; });
+                say(ask, 'Could not reach the server.');
+            });
         });
 
         box.addEventListener('click', function (e) {
