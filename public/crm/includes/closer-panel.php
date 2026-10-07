@@ -34,7 +34,7 @@ try {
                       <div class="card-header d-flex justify-content-between align-items-center">
                           <div class="mw-closer-head">
                               <div class="mw-closer-photo">
-                                  <img src="/crm/img/heads/sam.jpg" alt="Sam, the Closer" width="56" height="56">
+                                  <img src="/crm/img/heads/sam.jpg" alt="Sam, the Closer" width="104" height="104">
                                   <?php if ($__cbrain !== null): ?>
                                   <button type="button" class="mw-head-brain" aria-label="Sam's brain: <?php echo (int)$__cbrain['units']; ?> things learned"
                                           data-head="Sam"
@@ -46,9 +46,12 @@ try {
                                           data-teach="He glows brighter the more of his drafts you send unchanged"><canvas></canvas></button>
                                   <?php endif; ?>
                               </div>
-                              <h5 class="card-title mb-0">Closer's price</h5>
+                              <div>
+                                  <div class="mw-closer-name">Sam</div>
+                                  <span class="mw-closer-who">The Closer</span>
+                                  <h5 class="card-title mb-0 mt-1">Closer's price</h5>
+                              </div>
                           </div>
-                          <span class="mw-closer-who">Sam · Closer</span>
                       </div>
                       <div class="card-body mw-closer-body">
                           <p class="mw-closer-loading">Working out what this lot costs…</p>
