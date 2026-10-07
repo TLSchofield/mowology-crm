@@ -14,6 +14,7 @@
 
     var API = '/crm/api/charlie.php';
     var MAX = 6;
+    var PER_HEAD = 2;
     var WAIT_MS = 6000;
     var status = root.querySelector('[data-ab-status]');
     var list = root.querySelector('[data-ab-rows]');
@@ -91,7 +92,15 @@
     }
 
     function render() {
-        var show = items.filter(function (it) { return it && it.key && !gone[it.key]; }).slice(0, MAX);
+        // Charlie's order, but at most PER_HEAD rows from any one head — so 50 of Otto's timers
+        // can't push Mia's "yes, please do it" replies off the board.
+        var perHead = {}, show = [];
+        items.forEach(function (it) {
+            if (!it || !it.key || gone[it.key] || show.length >= MAX) return;
+            var h = it.head || '?';
+            if ((perHead[h] = (perHead[h] || 0) + 1) > PER_HEAD) return;
+            show.push(it);
+        });
         if (!show.length) {
             list.hidden = true;
             list.innerHTML = '';
@@ -111,7 +120,14 @@
     function take(d) {
         if (!d || !d.ok) return false;
         got = true;
-        items = [d.one].concat(d.rest || []).filter(Boolean);
+        // Everything Charlie ranked plus each head's own top items, one list by score.
+        var seen = {}, all = [d.one].concat(d.rest || []);
+        (Array.isArray(d.heads) ? d.heads : Object.keys(d.heads || {}).map(function (k) { return d.heads[k]; }))
+            .forEach(function (h) { all = all.concat((h && h.items) || []); });
+        items = all.filter(function (it) {
+            if (!it || !it.key || seen[it.key]) return false;
+            return (seen[it.key] = true);
+        }).sort(function (a, b) { return (b.score || 0) - (a.score || 0); });
         render();
         return true;
     }
