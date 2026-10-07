@@ -9,6 +9,9 @@
  * A line she can't place offers "Ask Penny for guidance" (+ an optional note): only that
  * click calls Claude — POST bank_guidance (BankGuidanceService; free reuse per payee,
  * daily cap). Her answer preselects the account; the owner still presses Approve.
+ * After an approve she offers "Also put the other N lines from <payee> on <account>" —
+ * POST bank_bulk_apply (BankLineMoveService: each line moves with its journal entry).
+ * When a payee's rule switches on (2 owner decisions) the card offers Undo — POST bank_rule_off.
  */
 (function () {
     'use strict';
@@ -23,6 +26,8 @@
     var guide = {};        // bank line id → {pending} | Penny's guidance (bank_guidance answer)
     var notes = {};        // bank line id → what the owner typed in "Tell Penny"
     var gStatus = null;    // {ready, cap, used, left} — guidance asks left today
+    var offer = null;      // {tx, bulk: {count, total, payee, account_id, account, from, to}} after an approve
+    var undoRule = null;   // learned rule id Penny just switched on (Undo = keep asking)
 
     function esc(s) {
         return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -30,6 +35,23 @@
         });
     }
     function money(v) { return '$' + Math.abs(Number(v) || 0).toFixed(2); }
+
+    // The message line, then what she offers after a decision: the payee's other lines, or Undo.
+    function msgBlock(msg) {
+        var html = '<div class="mw-rc-msg">' + (msg ? esc(msg) : '') + '</div>';
+        if (offer) {
+            var b = offer.bulk;
+            html += '<div class="mw-bl-bulk"><span>Also put the other <b>' + b.count + '</b> line' + (b.count === 1 ? '' : 's') + ' from <b>' + esc(b.payee) +
+                '</b> on <b>' + esc(b.account) + '</b>?<small>' + money(b.total) + (b.from ? ' · ' + esc(b.from) + (b.to && b.to !== b.from ? ' → ' + esc(b.to) : '') : '') +
+                ' · each moves in the books too</small></span>' +
+                '<button type="button" class="mw-rc-ok" data-bl="bulk"' + (busy ? ' disabled' : '') + '>✓ Also put the other ' + b.count + ' on ' + esc(String(b.account).split(' ')[0]) + '</button>' +
+                '<button type="button" class="mw-rc-sk" data-bl="bulkno">No thanks</button></div>';
+        } else if (undoRule) {
+            html += '<div class="mw-bl-bulk is-undo"><span>I\'ll file these myself from now on.</span>' +
+                '<button type="button" class="mw-rc-sk" data-bl="undo">Undo — keep asking me</button></div>';
+        }
+        return html;
+    }
     function post(body) {
         body.csrf_token = window.MW_CSRF_TOKEN || '';
         return fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
@@ -68,8 +90,9 @@
     function render(msg) {
         if (!lines.length) {
             box.hidden = waiting === 0 && !msg;
+            box.hidden = box.hidden && !offer && !undoRule;
             box.innerHTML = '<div class="mw-bl-head"><b>🏦 Bank lines</b></div><div class="mw-rc-empty">' +
-                esc(msg || 'All bank lines are categorized. 🎉') + '</div>';
+                esc(msg || 'All bank lines are categorized. 🎉') + '</div>' + (offer || undoRule ? msgBlock('') : '');
             return;
         }
         box.hidden = false;
@@ -113,7 +136,7 @@
               (l.type === 'income' ? '<button type="button" class="mw-rc-ed" data-bl="inv">🧾 Invoice payment</button>' : '') +
               '<button type="button" class="mw-rc-sk" data-bl="next">Skip →</button>' +
             '</div>' +
-            '<div class="mw-rc-msg">' + (msg ? esc(msg) : '') + '</div>';
+            msgBlock(msg);
     }
 
     // A client paying: which invoice(s)? Already recorded → link; else tick and record.
@@ -134,7 +157,8 @@
             (r.spread || []).forEach(function (s) {
                 seen[s.invoice_id] = 1;
                 rows.push({ id: s.invoice_id, number: s.invoice_number, amount: s.amount, tick: !(r.recorded || []).length && !(r.legacy || []).length,
-                            about: about[s.invoice_id] || ((r.spread.length > 1 ? 'oldest first' : 'from the Interac email')) });
+                            about: r.exact ? (r.exact.payer ? r.exact.payer + ' · ' : '') + 'owes ' + money(s.amount) + ' · together they add up exactly'
+                                   : about[s.invoice_id] || (r.spread.length > 1 ? 'oldest first' : 'from the Interac email') });
             });
             (r.invoices || []).forEach(function (v, i) {
                 if (seen[v.invoice_id]) return;
@@ -173,7 +197,7 @@
               '<button type="button" class="mw-rc-ed" data-bl="notinv">Not an invoice — pick an account</button>' +
               '<button type="button" class="mw-rc-sk" data-bl="next">Skip →</button>' +
             '</div>' +
-            '<div class="mw-rc-msg">' + (msg ? esc(msg) : '') + '</div>';
+            msgBlock(msg);
     }
 
     // After "Tim, " the sentence goes on in lower case ("Tim, this $824.25 …"); "I" stays.
@@ -246,7 +270,7 @@
               (r.ok ? '<button type="button" class="mw-rc-ok" data-bl="stripe">✓ Book it</button>' : '') +
               '<button type="button" class="mw-rc-sk" data-bl="next">Skip →</button>' +
             '</div>' +
-            '<div class="mw-rc-msg">' + (msg ? esc(msg) : '') + '</div>';
+            msgBlock(msg);
     }
 
     function bookStripe() {
@@ -270,6 +294,7 @@
         var sel = box.querySelector('[data-bl-acct]');
         var acct = sel && sel.value ? parseInt(sel.value, 10) : null;
         if (action === 'approve' && !acct) { render('Pick an account first'); return; }
+        offer = null; undoRule = null;
         busy = true;
         var g = guide[l.id] && guide[l.id].ok ? guide[l.id] : null;
         post({ mode: 'bank_decide', transaction_id: l.id, action: action, account_id: acct,
@@ -279,10 +304,37 @@
             .then(function (d) {
                 busy = false;
                 if (!(d && d.ok)) { render((d && (d.message || d.error)) || 'Could not save'); return; }
+                offer = d.bulk && d.bulk.count ? { tx: l.id, bulk: d.bulk } : null;
+                undoRule = d.rule_id || null;
                 lines.splice(idx, 1);
                 waiting = Math.max(0, waiting - 1);
                 if (lines.length < 3 && waiting > lines.length) load(d.message); else render(d.message);
             })
+            .catch(function () { busy = false; render('Network error — try again'); });
+    }
+
+    // One click: the payee's other unreviewed lines go on the same account (server picks them again).
+    function bulkApply() {
+        if (busy || !offer) return;
+        var o = offer;
+        busy = true;
+        render('Moving ' + o.bulk.count + ' line' + (o.bulk.count === 1 ? '' : 's') + '…');
+        post({ mode: 'bank_bulk_apply', transaction_id: o.tx, account_id: o.bulk.account_id })
+            .then(function (d) {
+                busy = false;
+                if (!(d && d.ok)) { render((d && (d.message || d.error)) || 'Could not move them'); return; }
+                offer = null;
+                undoRule = d.rule_id || undoRule;
+                load(d.message);      // the moved lines leave the queue
+            })
+            .catch(function () { busy = false; render('Network error — try again'); });
+    }
+
+    function undo() {
+        if (busy || !undoRule) return;
+        busy = true;
+        post({ mode: 'bank_rule_off', rule_id: undoRule })
+            .then(function (d) { busy = false; undoRule = null; render((d && (d.message || d.error)) || 'Done'); })
             .catch(function () { busy = false; render('Network error — try again'); });
     }
 
@@ -318,6 +370,9 @@
         else if (a === 'approve') decide('approve');
         else if (a === 'keep') decide('keep');
         else if (a === 'stripe') bookStripe();
+        else if (a === 'bulk') bulkApply();
+        else if (a === 'bulkno') { offer = null; render(); }
+        else if (a === 'undo') undo();
         else if (a === 'inv') { invMode[lines[idx].id] = true; render(); }
         else if (a === 'notinv') { invMode[lines[idx].id] = false; render(); }
         else if (a === 'invrec') recordInvoice();

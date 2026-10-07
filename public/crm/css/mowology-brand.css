@@ -37854,6 +37854,16 @@ span.mw-icon-box--missing {
 .mw-bl-ask .mw-bl-askbtn:hover:not([disabled]) { background: var(--mw-light); }
 .mw-bl-ask .mw-bl-askbtn[disabled] { opacity: .6; cursor: wait; }
 .mw-bl-left { font-size: .72rem; color: var(--mw-ink-500); }
+/* "Also put the other N lines from <payee> on <account>" after an approve (BankLineMoveService) */
+.mw-bl-bulk { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin-top: 10px; padding: 9px 12px; border-radius: 10px;
+              background: var(--mw-light); border: 1px dashed var(--mw-green); font-size: .82rem; color: var(--mw-forest); }
+.mw-bl-bulk > span { flex: 1 1 260px; min-width: 0; }
+.mw-bl-bulk small { display: block; color: var(--mw-ink-500); font-size: .72rem; }
+.mw-bl-bulk .mw-rc-ok { background: var(--mw-green); color: var(--mw-ink-0); border: 0; border-radius: 9px; padding: 7px 14px; font-weight: 700; font-size: .8rem; }
+.mw-bl-bulk .mw-rc-ok:hover:not([disabled]) { background: var(--mw-dark); }
+.mw-bl-bulk .mw-rc-ok[disabled] { opacity: .6; cursor: wait; }
+.mw-bl-bulk .mw-rc-sk { color: var(--mw-ink-500); background: none; border: 0; font-size: .78rem; }
+.mw-bl-bulk.is-undo { background: var(--mw-ink-0); border-style: solid; border-color: var(--mw-ink-200); }
 /* Penny bank line → "which invoice does this pay?" (BankInvoiceMatchService) */
 .mw-bl-inv { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 8px; }
 .mw-bl-inv-row { display: grid; grid-template-columns: 20px minmax(0, 1fr) 110px; gap: 8px; align-items: center; margin: 0; font-size: .82rem; }

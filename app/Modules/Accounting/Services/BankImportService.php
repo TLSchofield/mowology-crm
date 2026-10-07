@@ -798,12 +798,8 @@ class BankImportService
             throw $e;
         }
 
-        // Learn from confirmed categorizations — non-critical, runs after commit.
-        try {
-            $this->learnFromCommit($rows, $userId);
-        } catch (Throwable $ignored) {
-            // Learning failure must never surface to the user or undo the import.
-        }
+        // An import never teaches rules: lines committed untouched taught wrong ones (Wave PYRL →
+        // 2400). Only the owner's decisions count (BankRuleLearning, migration 1220, 2026-10-07).
 
         return [
             'session_id'        => $sessionId,
@@ -3675,37 +3671,9 @@ class BankImportService
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // SELF-LEARNING — description → account rule generation
+    // SELF-LEARNING — the description key rules are learned on (BankRuleLearning;
+    // only the owner's decisions teach — an import never does, since 2026-10-07)
     // ══════════════════════════════════════════════════════════════════════════
-
-    /**
-     * After a successful import, write back learned categorization rules.
-     *
-     * For every committed (non-duplicate) row that had NO existing rule match
-     * (rule_id === null) but does have an account assigned, we upsert a
-     * 'learned' rule in transaction_rules keyed on the normalized description.
-     *
-     * Learned rules sit at priority 9000+ so they never override manual rules.
-     * They are applied automatically on future imports by the existing RulesEngine,
-     * and will continue to work identically when the bank API replaces PDF/OCR.
-     *
-     * Rows that already fired a rule (rule_id set) are skipped — the rule's
-     * match_count is updated by RulesEngine when applyAll() runs.
-     */
-    private function learnFromCommit(array $rows, int $userId): void
-    {
-        // One learner for imports and corrections (BankRuleLearning): default accounts
-        // never teach, and a rule switches on only after 2 confirmations.
-        require_once __DIR__ . '/BankRuleLearning.php';
-        $learner = new BankRuleLearning($this->db);
-        foreach ($rows as $row) {
-            if (!empty($row['is_duplicate'])) continue;
-            if (empty($row['account_id']))    continue;
-            if (!empty($row['rule_id']))      continue; // an existing rule already covers this
-            $learner->learn((string)($row['description'] ?? ''), (int)$row['account_id'],
-                            ($row['type'] ?? '') === 'income' ? 'income' : 'expense', $userId, 'confirmed');
-        }
-    }
 
     /**
      * Produce a stable, bank-agnostic key from a raw transaction description.

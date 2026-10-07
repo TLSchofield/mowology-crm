@@ -19,6 +19,8 @@
  *      markDepositAlreadyRecorded().
  *   2. The Interac email for it — its invoice number / likely match / oldest-first spread.
  *   3. Open invoices ranked by amount (balance, then total), payer name, date.
+ *   4. No single invoice is the amount: one payer's open invoices that add up exactly,
+ *      pre-ticked oldest first (exactSpread: Dorset $804.04 = 2 x $402.02).
  * Recording goes through the existing paths: the email's own recordPayment() then a
  * link, or InvoiceReconciliationService::attach(). Never records on its own.
  *
@@ -68,7 +70,8 @@ class BankInvoiceMatchService
 
         $deposit  = ['id' => (int)$line['id'], 'transaction_date' => $date, 'amount' => $amount,
                      'description' => (string)$line['description'], 'payer_names' => $payerNames];
-        $invoices = $this->recon->invoicesForDeposit($deposit, 6);
+        $pool     = $this->recon->invoicesForDeposit($deposit, 40);
+        $invoices = array_slice($pool, 0, 6);
 
         $spread = [];
         if ($email && ($email['status'] ?? '') === 'pending') {
@@ -84,6 +87,13 @@ class BankInvoiceMatchService
             $v = $this->inbox->suggestFifoAllocationByValue($amount);
             if ($v) $spread = array_map(fn($l) => ['invoice_number' => $l['invoice_number'], 'amount' => $l['apply_amount']], $v['lines']);
         }
+        // No single invoice is this amount: one payer's open invoices that add up to it exactly
+        // (Dorset $804.04 = INV-0360 + INV-0419, 2 x $402.02), pre-ticked oldest first.
+        $exact = null;
+        if (!$spread && !$recorded && !$legacy && !self::hasExactSingle($invoices, $amount)) {
+            $exact = self::exactSpread($pool, $amount);
+            if ($exact) $spread = $exact['lines'];
+        }
         $spread = $this->withInvoiceIds($spread);
 
         return [
@@ -95,7 +105,8 @@ class BankInvoiceMatchService
             'legacy'   => $legacy,
             'invoices' => $invoices,
             'spread'   => $spread,
-            'say'      => self::say($amount, $sender, $recorded, $legacy, $invoices, $spread),
+            'exact'    => $exact ? ['payer' => $exact['payer'], 'count' => count($exact['lines']), 'each' => $exact['each']] : null,
+            'say'      => self::say($amount, $sender, $recorded, $legacy, $invoices, $spread, $exact),
         ];
     }
 
@@ -440,8 +451,50 @@ class BankInvoiceMatchService
         return (bool)preg_match('/E-?TRANSFER|ETRANSFER|INTERAC|\bEFT\b|PREAUTHORI[SZ]ED CREDIT|CHEQUE DEPOSIT|\bCHQ\b|MOBILE DEPOSIT|BRANCH DEPOSIT|DIRECT DEPOSIT/i', $description);
     }
 
+    /** Does one ranked invoice owe exactly this amount? */
+    public static function hasExactSingle(array $invoices, float $amount): bool
+    {
+        foreach ($invoices as $v) {
+            if (abs(round((float)$v['balance_due'], 2) - round($amount, 2)) < 0.005) return true;
+        }
+        return false;
+    }
+
+    /**
+     * One payer's open invoices that add up exactly to a deposit no single invoice matches.
+     * $invoices: invoicesForDeposit() rows. Only invoices owing less than the deposit can be
+     * part of a set, and those are only ranked when the memo / Interac email names their
+     * payer, so a set never mixes clients. Per payer: oldest first, at most 12 looked at,
+     * at most 4 in the set (InvoiceReconciliationService::exactSubsetBounded, same-amount
+     * multiples first). Two payers both adding up is a guess: nothing is ticked.
+     * @return array{payer: string, each: ?float, lines: array<int, array{invoice_number: string, amount: float}>}|null
+     */
+    public static function exactSpread(array $invoices, float $amount): ?array
+    {
+        $byPayer = [];
+        foreach ($invoices as $v) {
+            $bal = round((float)$v['balance_due'], 2);
+            if ($bal <= 0.005 || $bal >= $amount - 0.005) continue;
+            $key = strtoupper((string)preg_replace('/[^A-Za-z0-9]/', '', (string)($v['payer'] ?? '')));
+            if ($key === '') continue;
+            $byPayer[$key][] = $v;
+        }
+        $hits = [];
+        foreach ($byPayer as $rows) {
+            usort($rows, fn($a, $b) => [(string)$a['invoice_date'], (int)$a['invoice_id']] <=> [(string)$b['invoice_date'], (int)$b['invoice_id']]);
+            $rows = array_slice($rows, 0, 12);
+            $pick = InvoiceReconciliationService::exactSubsetBounded(array_map(fn($r) => (float)$r['balance_due'], $rows), $amount, 4, 12);
+            if ($pick === null || count($pick) < 2) continue;
+            $sel = array_map(fn($i) => $rows[$i], $pick);
+            $amts = array_values(array_unique(array_map(fn($r) => number_format((float)$r['balance_due'], 2, '.', ''), $sel)));
+            $hits[] = ['payer' => (string)$sel[0]['payer'], 'each' => count($amts) === 1 ? (float)$amts[0] : null,
+                       'lines' => array_map(fn($r) => ['invoice_number' => (string)$r['invoice_number'], 'amount' => round((float)$r['balance_due'], 2)], $sel)];
+        }
+        return count($hits) === 1 ? $hits[0] : null;
+    }
+
     /** Penny's sentence for the panel. */
-    public static function say(float $amount, ?string $sender, array $recorded, array $legacy, array $invoices, array $spread): string
+    public static function say(float $amount, ?string $sender, array $recorded, array $legacy, array $invoices, array $spread, ?array $exact = null): string
     {
         $m = '$' . number_format($amount, 2);
         $who = $sender ? $sender . '\'s ' . $m : 'This ' . $m;
@@ -456,6 +509,12 @@ class BankInvoiceMatchService
         }
         if ($recorded) return "{$who} matches payments already recorded for more than one client. Pick the right one to link.";
         if ($legacy) return "{$who} matches {$legacy[0]['invoice_number']}, {$legacy[0]['how']}. If that's this money, link it so it counts once.";
+        if ($exact && count($spread) > 1) {
+            $nums = array_column($spread, 'invoice_number');
+            $list = count($nums) === 2 ? $nums[0] . ' and ' . $nums[1] : implode(', ', array_slice($nums, 0, -1)) . ' and ' . end($nums);
+            return "{$who} adds up exactly to " . ($exact['each'] ? count($spread) . ' × $' . number_format($exact['each'], 2) : count($spread) . ' invoices') .
+                   ($exact['payer'] !== '' ? " from {$exact['payer']}" : '') . ": {$list}. I've ticked them — check and record.";
+        }
         if (count($spread) > 1) {
             return "{$who} covers more than one invoice — oldest first: " . implode(', ', array_column($spread, 'invoice_number')) . '.';
         }

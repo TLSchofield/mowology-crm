@@ -592,6 +592,51 @@ class InvoiceReconciliationService
     }
 
     /**
+     * exactSubset() with bounds, for pre-ticking a client's invoices on a deposit
+     * (Penny's bank card, 2026-10-07): only the first $maxPool amounts (pass them oldest
+     * first), at most $maxItems in the set. Preference, same tolerance as exactSubset():
+     *   1. the same amount several times (Dorset $804.04 = 2 × $402.02) — the oldest ones;
+     *   2. the fewest invoices, oldest first (earliest indices).
+     * At most C(12,2..4) = 781 sums.
+     * @return int[]|null indices into $amounts
+     */
+    public static function exactSubsetBounded(array $amounts, float $target, int $maxItems = 4, int $maxPool = 12): ?array
+    {
+        $amounts = array_slice(array_values(array_map('floatval', $amounts)), 0, $maxPool);
+        $n = count($amounts);
+        if ($n === 0 || $target <= 0) return null;
+        $eq = fn(float $a, float $b) => abs($a - $b) < 0.005;
+        // 1. Same-amount multiples.
+        $byAmount = [];
+        foreach ($amounts as $i => $a) $byAmount[number_format(round($a, 2), 2, '.', '')][] = $i;
+        foreach ($byAmount as $amt => $idx) {
+            if ((float)$amt <= 0) continue;
+            $k = (int)round($target / (float)$amt);
+            if ($k >= 2 && $k <= min($maxItems, count($idx)) && $eq(round($k * (float)$amt, 2), $target)) {
+                return array_slice($idx, 0, $k);
+            }
+        }
+        // 2. Fewest invoices, oldest first.
+        for ($size = 1; $size <= min($maxItems, $n); $size++) {
+            $pick = self::firstCombination($amounts, $target, $size, 0, [], 0.0, $eq);
+            if ($pick !== null) return $pick;
+        }
+        return null;
+    }
+
+    /** Lexicographically first combination of $size indices from $start summing to $target. */
+    private static function firstCombination(array $amounts, float $target, int $size, int $start, array $chosen, float $sum, callable $eq): ?array
+    {
+        if (count($chosen) === $size) return $eq(round($sum, 2), $target) ? $chosen : null;
+        for ($i = $start; $i < count($amounts); $i++) {
+            if ($sum + $amounts[$i] > $target + 0.005) continue;   // amounts are positive: too big already
+            $r = self::firstCombination($amounts, $target, $size, $i + 1, array_merge($chosen, [$i]), $sum + $amounts[$i], $eq);
+            if ($r !== null) return $r;
+        }
+        return null;
+    }
+
+    /**
      * The deposit's money was already recorded against invoices by hand (e.g. via
      * Record Payment or the e-Transfer inbox before the bank statement was imported),
      * so no allocation rows point at it and the matcher keeps offering it.

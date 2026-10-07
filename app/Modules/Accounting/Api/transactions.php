@@ -152,10 +152,20 @@ try {
                 throw new Exception(substr((string)$d, 0, 7) . ' is locked — this transaction can\'t be changed.');
             }
 
-            $svc->updateTransaction($id, [
-                'account_id'         => $accountId,
-                'is_auto_categorized' => 0,  // manually set — override any auto-cat
-            ]);
+            // A bank line moves with its journal entry and its type follows the account
+            // (BankLineMoveService) — recategorize used to leave the journal on the old account.
+            $rt = $db->prepare("SELECT reference_type FROM accounting_transactions WHERE id = ?");
+            $rt->execute([$id]);
+            if ($rt->fetchColumn() === 'bank_import') {
+                require_once APP_ROOT . '/Modules/Accounting/Services/BankLineMoveService.php';
+                $moved = (new BankLineMoveService($db))->move($id, $accountId, (int)$user['id']);
+                if (empty($moved['ok'])) throw new Exception($moved['message'] ?? 'Could not move this line');
+            } else {
+                $svc->updateTransaction($id, [
+                    'account_id'         => $accountId,
+                    'is_auto_categorized' => 0,  // manually set — override any auto-cat
+                ]);
+            }
             // Teach the import: this description belongs on this account (BankRuleLearning).
             $learned = null;
             try {

@@ -17,6 +17,10 @@
  * POST {mode: 'reject', suggestion_id, reason, csrf_token}  Reject a receipt from the card.
  * GET  ?mode=bank_queue  Imported bank lines on the default account, with Penny's suggestion.
  * POST {mode: 'bank_decide', transaction_id, action: approve|keep, account_id?, suggested_id?, guidance_id?, csrf_token}
+ *                      → {ok, message, bulk?: {count, total, payee, account_id, account, from, to}, rule_id?}
+ * POST {mode: 'bank_bulk_apply', transaction_id, account_id, csrf_token}  "Also put the other N lines from <payee> on
+ *                      <account>": moves each unreviewed line of that payee with its journal entry (BankLineMoveService).
+ * POST {mode: 'bank_rule_off', rule_id, csrf_token}  Undo "I'll file these myself": the learned rule stops.
  * POST {mode: 'bank_guidance', transaction_id, note?, csrf_token}  Penny explains a line she can't place (Claude, on
  *                      click only; free reuse per payee, daily cap) — BankGuidanceService. Nothing is filed.
  * GET  ?mode=bank_invoice&transaction_id=N  A credit: already-recorded payments, its Interac email, ranked open invoices.
@@ -267,6 +271,8 @@ try {
 
         case 'bank_queue':
         case 'bank_decide':
+        case 'bank_bulk_apply':
+        case 'bank_rule_off':
         case 'bank_guidance': {
             require_once APP_ROOT . '/Modules/Accounting/Services/BankDeskService.php';
             require_once APP_ROOT . '/Modules/Accounting/Services/BankGuidanceService.php';
@@ -280,6 +286,13 @@ try {
                 if ($method !== 'POST') throw new RuntimeException('POST required');
                 set_time_limit(120);
                 echo json_encode($guide->guide((int)($input['transaction_id'] ?? 0), (string)($input['note'] ?? ''), (int)$user['id']));
+            } elseif ($mode === 'bank_bulk_apply' || $mode === 'bank_rule_off') {
+                if ($method !== 'POST') throw new RuntimeException('POST required');
+                if (!userHasPermission('expenses.edit')) throw new RuntimeException('Permission denied: expenses.edit required');
+                set_time_limit(120);
+                echo json_encode($mode === 'bank_rule_off'
+                    ? $bank->ruleOff((int)($input['rule_id'] ?? 0))
+                    : $bank->bulkApply((int)($input['transaction_id'] ?? 0), (int)($input['account_id'] ?? 0), $user));
             } else {
                 if ($method !== 'POST') throw new RuntimeException('POST required');
                 if (!userHasPermission('expenses.edit')) throw new RuntimeException('Permission denied: expenses.edit required');

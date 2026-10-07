@@ -10,8 +10,10 @@
  *   3. an active categorization rule (RulesEngine::previewMatch);
  *   4. a few plain facts: fuel brands, bank fees, credit-card payments;
  * or says she doesn't know yet. The owner approves, picks another account, or keeps it
- * as it is. Approving changes the line's account and teaches the import
- * (BankRuleLearning — default accounts never teach; 2 confirmations switch a rule on).
+ * as it is. Approving moves the line and its journal entry (BankLineMoveService) and
+ * teaches the import (BankRuleLearning — owner decisions only; default accounts never
+ * teach; 2 confirmations switch a rule on). After an approve she offers to file the
+ * payee's other unreviewed lines on the same account in one click (bulkApply).
  * Every decision is kept in bank_line_reviews (migration 1129): the line never comes
  * back, and her suggestions get a scorecard.
  *
@@ -21,6 +23,7 @@ require_once __DIR__ . '/BankRuleLearning.php';
 require_once __DIR__ . '/BankImportService.php';
 require_once __DIR__ . '/LedgerAccountMap.php';
 require_once __DIR__ . '/BankInvoiceMatchService.php';
+require_once __DIR__ . '/BankLineMoveService.php';
 if (!defined('EXPENSE_ACCOUNTING_CATEGORIES') && defined('APP_ROOT')) {
     require_once APP_ROOT . '/Modules/Expenses/ExpenseConstants.php';
 }
@@ -234,14 +237,17 @@ class BankDeskService
                 if ($m) $rules[(int)$r['id']] = $m;
             }
         } catch (Throwable $e) { /* rules are one source of four */ }
-        // Rules you've confirmed 2+ times but that haven't earned 50 yet: Penny proposes them.
+        // What the owner has already filed for a payee (1 decision: she proposes it; 2: the rule
+        // is on, but lines imported before it still sit here). Owner decisions only (migration 1220).
         $learned = [];
         try {
-            foreach ($this->db->query("SELECT r.condition_value, r.learned_count, c.id, c.code, c.name FROM transaction_rules r
-                                       JOIN chart_of_accounts c ON c.id = r.account_id
-                                       WHERE r.source = 'learned' AND r.condition_field = 'description' AND r.learned_count >= 2
-                                       ORDER BY r.learned_count DESC")->fetchAll(PDO::FETCH_ASSOC) as $lr) {
-                $learned[] = $lr;
+            if ((new BankRuleLearning($this->db))->hasOwnerColumns()) {
+                foreach ($this->db->query("SELECT r.condition_value, r.learned_count, r.owner_confirmations, c.id, c.code, c.name FROM transaction_rules r
+                                           JOIN chart_of_accounts c ON c.id = r.account_id
+                                           WHERE r.source = 'learned' AND r.condition_field = 'description' AND r.owner_confirmations >= 1
+                                           ORDER BY r.owner_confirmations DESC")->fetchAll(PDO::FETCH_ASSOC) as $lr) {
+                    $learned[] = $lr;
+                }
             }
         } catch (Throwable $e) { /* one source of several */ }
         return ['byCode' => $byCode, 'byAlias' => $byAlias, 'vendors' => $vendors, 'expenses' => $expenses, 'rules' => $rules, 'learned' => $learned,
@@ -266,24 +272,20 @@ class BankDeskService
 
         $outcome = 'kept';
         $learned = null;
+        $bulk = null;
         if ($action === 'approve') {
             if (!$accountId) return ['ok' => false, 'message' => 'Pick an account'];
-            $a = $this->db->prepare("SELECT id FROM chart_of_accounts WHERE id = ? AND is_active = 1");
-            $a->execute([$accountId]);
-            if (!$a->fetchColumn()) return ['ok' => false, 'message' => 'Unknown account'];
-            // Moving a line onto a cost account makes it a cost (it counts in profit and loss);
-            // a bill the import had booked as a card payoff was type 'transfer'.
-            $at = $this->db->prepare("SELECT type FROM chart_of_accounts WHERE id = ?");
-            $at->execute([$accountId]);
-            $acctType = (string)$at->fetchColumn();
-            $this->db->prepare("UPDATE accounting_transactions SET account_id = ?, is_auto_categorized = 0,
-                                       type = CASE WHEN type = 'transfer' AND ? = 'expense' THEN 'expense' ELSE type END
-                                WHERE id = ?")
-               ->execute([$accountId, $acctType, $transactionId]);
+            // One way to move a line (BankLineMoveService): the type follows the account
+            // (a bill booked as a card payoff becomes a cost; a loan payment a transfer) and
+            // the journal entry moves with it. A receipt link reverses the entry itself.
+            $moved = (new BankLineMoveService($this->db))->move($transactionId, $accountId, (int)$user['id'],
+                $suggestedId && $suggestedId === $accountId ? 'penny' : 'owner', !$expenseId);
+            if (empty($moved['ok'])) return $moved;
             $learned = (new BankRuleLearning($this->db))->learnFromCorrection($transactionId, $accountId, (int)$user['id']);
             if ($expenseId) {
                 $linked = $this->linkReceipt($transactionId, $expenseId, (int)$user['id']);
                 if ($linked) $this->alignReceiptCategory($expenseId, $accountId);
+                else (new BankLineMoveService($this->db))->rejournal($transactionId, (int)$user['id']);
             }
             $outcome = $suggestedId && $suggestedId === $accountId ? 'accepted' : 'edited';
         }
@@ -297,13 +299,55 @@ class BankDeskService
         if (!empty($linked)) {
             return ['ok' => true, 'message' => "Linked to the receipt — it's counted once in your books now."];
         }
-        $msg = $action === 'approve'
-            ? ($learned && ($learned['action'] ?? '') !== 'skipped'
-                ? ($learned['active'] ? 'Done — that\'s ' . BankRuleLearning::CONFIRMATIONS . ' confirmations, so the import now does this one by itself.'
-                                      : 'Done — confirmed ' . (int)($learned['count'] ?? 1) . ' of ' . BankRuleLearning::CONFIRMATIONS . '; at ' . BankRuleLearning::CONFIRMATIONS . ' the import does this one by itself.')
-                : 'Done.')
-            : 'Kept as it is.';
-        return ['ok' => true, 'message' => $msg];
+        if ($action !== 'approve') return ['ok' => true, 'message' => 'Kept as it is.'];
+        // The other lines from this payee, one click away ("also put the other N lines …").
+        try {
+            $bulk = (new BankLineMoveService($this->db))->bulkOffer($transactionId, $accountId);
+        } catch (Throwable $e) {
+            error_log('Penny bulk offer failed for tx ' . $transactionId . ': ' . $e->getMessage());
+        }
+        $res = ['ok' => true, 'message' => self::learnedMessage($learned, $bulk['payee'] ?? $this->payee($transactionId), (string)($moved['account']['code'] ?? ''),
+                                                                (string)($moved['account']['name'] ?? ''))];
+        if ($bulk) $res['bulk'] = $bulk;
+        if ($learned && !empty($learned['active'])) $res['rule_id'] = (int)$learned['rule_id'];
+        return $res;
+    }
+
+    /**
+     * "Also put the other N lines from <payee> on <account>" — the owner's second click.
+     * Moves each line with its journal entry and counts as one more owner confirmation.
+     */
+    public function bulkApply(int $transactionId, int $accountId, array $user): array
+    {
+        if (!$this->ready()) return ['ok' => false, 'message' => 'Needs migration 1129'];
+        $mover = new BankLineMoveService($this->db);
+        $offer = $mover->bulkOffer($transactionId, $accountId);
+        if (!$offer) return ['ok' => true, 'moved' => 0, 'message' => 'Nothing else to move — they\'re all filed.'];
+        $r = $mover->bulkApply($transactionId, $accountId, (int)$user['id']);
+        $learned = $r['ids'] ? (new BankRuleLearning($this->db))->learnFromCorrection($r['ids'][0], $accountId, (int)$user['id']) : null;
+        $msg = 'Done — moved ' . $r['moved'] . ' more ' . $offer['payee'] . ' line' . ($r['moved'] === 1 ? '' : 's') . ' to ' . $offer['account'] . '.'
+             . ($r['failed'] ? ' ' . $r['failed'] . ' couldn\'t move (a closed month?).' : '');
+        if ($learned && !empty($learned['active'])) {
+            $msg .= ' I\'ll file ' . $offer['payee'] . ' lines on ' . $offer['account'] . ' myself from now on.';
+        }
+        $res = ['ok' => true, 'moved' => $r['moved'], 'failed' => $r['failed'], 'message' => $msg];
+        if ($learned && !empty($learned['active'])) $res['rule_id'] = (int)$learned['rule_id'];
+        return $res;
+    }
+
+    /** "Undo" after Penny says she'll file a payee herself: the rule stops and starts counting again. */
+    public function ruleOff(int $ruleId): array
+    {
+        $ok = (new BankRuleLearning($this->db))->switchOff($ruleId);
+        return ['ok' => $ok, 'message' => $ok ? 'Undone — I\'ll keep asking you about these.' : 'That rule is already off.'];
+    }
+
+    private function payee(int $transactionId): string
+    {
+        $s = $this->db->prepare("SELECT description FROM accounting_transactions WHERE id = ?");
+        $s->execute([$transactionId]);
+        $d = (string)$s->fetchColumn();
+        return BankLineMoveService::payeeLabel($d, BankImportService::descriptionKey($d));
     }
 
     /**
@@ -382,6 +426,18 @@ class BankDeskService
     // Pure (unit tested)
     // ─────────────────────────────────────────────────────────────────────────
 
+    /** What she says after an approve: how close the payee is to filing itself. */
+    public static function learnedMessage(?array $learned, string $payee, string $code, string $name): string
+    {
+        if (!$learned || ($learned['action'] ?? '') === 'skipped') return 'Done.';
+        if (!empty($learned['active'])) {
+            return 'Done — I\'ll file ' . ($payee !== '' ? $payee : 'these') . ' lines on ' . trim($code . ' ' . $name) . ' myself from now on.';
+        }
+        $n = (int)($learned['count'] ?? 1);
+        $left = BankRuleLearning::CONFIRMATIONS - $n;
+        return 'Done — ' . $n . ' of ' . BankRuleLearning::CONFIRMATIONS . ' — ' . ($left === 1 ? 'one more' : $left . ' more') . ' and I\'ll do these myself.';
+    }
+
     /**
      * Her suggestion for one line, from code alone.
      * @return array{account_id: int, code: string, name: string, reason: string, source: string}|null
@@ -438,7 +494,11 @@ class BankDeskService
         foreach ($ctx['learned'] ?? [] as $lr) {
             if ($key === '' || strpos($key, (string)$lr['condition_value']) === false) continue;
             $a = ['id' => (int)$lr['id'], 'code' => $lr['code'], 'name' => $lr['name']];
-            if ($r = $pick($a, 'You\'ve put this on ' . $lr['name'] . ' ' . (int)$lr['learned_count'] . ' times (the import does it alone at ' . BankRuleLearning::CONFIRMATIONS . ')', 'learned')) return $r;
+            $n = (int)($lr['owner_confirmations'] ?? 0);
+            $why = BankRuleLearning::isTrusted($n)
+                ? 'You\'ve put these on ' . $lr['name'] . ' ' . $n . ' times — I file new ones myself; this one came in before'
+                : 'You put one like this on ' . $lr['name'] . ' before — one more and I\'ll do these myself';
+            if ($r = $pick($a, $why, 'learned')) return $r;
         }
         // 3. A rule.
         $m = $ctx['rules'][(int)($line['id'] ?? 0)] ?? null;
