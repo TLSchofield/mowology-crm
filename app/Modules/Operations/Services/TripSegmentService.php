@@ -96,7 +96,7 @@ class TripSegmentService
         $lngs = array_column($pings, 'lng');
         $m = 0.003;
         $s = $this->db->prepare("
-            SELECT p.id, p.latitude, p.longitude, p.address, p.name, p.property_name
+            SELECT p.id, p.latitude, p.longitude, p.address, p.property_name
             FROM properties p
             WHERE p.latitude BETWEEN ? AND ? AND p.longitude BETWEEN ? AND ?
         ");
