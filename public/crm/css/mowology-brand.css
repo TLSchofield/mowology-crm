@@ -38043,6 +38043,23 @@ body.mw-rc-zoom-open { overflow: hidden; }
 .mw-mia-skips button:hover { border-color: var(--mw-orange); color: var(--mw-orange); }
 .mw-mia-msg { font-size: .76rem; color: var(--mw-dark); min-height: 1em; margin-top: 6px; }
 .mw-mia-empty { text-align: center; padding: 18px 8px; color: var(--mw-ink-500); font-size: .84rem; }
+/* Mia's email hub (migration 1195): watering stage, calendar, sequences, send times, what worked */
+.mw-mia-hub { border: 1px solid var(--mw-ink-200); border-radius: 12px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+.mw-mia-hub .mw-k { font-size: .62rem; color: var(--mw-ink-500); font-weight: 600; text-transform: uppercase; letter-spacing: .03em; margin-right: 4px; }
+.mw-mia-hub-water { font-size: .8rem; color: var(--mw-forest); font-weight: 600; }
+.mw-mia-hub-water small { display: block; font-weight: 400; font-size: .7rem; color: var(--mw-ink-500); }
+.mw-mia-hub-water.is-strict small { color: var(--mw-orange); font-weight: 600; }
+.mw-mia-hub-list { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.mw-mia-hub-list li { font-size: .76rem; color: var(--mw-ink-700); line-height: 1.35; }
+.mw-mia-hub-list b { color: var(--mw-forest); font-weight: 600; }
+.mw-mia-hub-list span { color: var(--mw-ink-500); }
+.mw-mia-hub-list em { display: block; font-style: normal; font-size: .7rem; color: var(--mw-green); }
+.mw-mia-hub-list.is-worked li { color: var(--mw-dark); }
+.mw-mia-hub-foot { font-size: .72rem; color: var(--mw-ink-500); }
+.mw-mia-hub-foot b { color: var(--mw-forest); }
+.mw-mia-camp-seq, .mw-mia-camp-ly { font-size: .74rem; color: var(--mw-ink-700); margin: 0 0 6px; }
+.mw-mia-camp-ly { color: var(--mw-green); font-weight: 600; }
+.mw-mia-camp-flags { margin: 0 0 8px; padding: 6px 10px 6px 24px; background: var(--mw-color-warning-bg); border-radius: 8px; font-size: .74rem; color: var(--mw-ink-900); }
 @media (max-width: 575px) {
     .mw-mia .mw-head-brain { width: 36px; height: 36px; right: -10px; bottom: -10px; }
 }
