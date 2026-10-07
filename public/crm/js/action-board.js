@@ -13,8 +13,6 @@
     if (!root) return;
 
     var API = '/crm/api/charlie.php';
-    var MAX = 6;
-    var PER_HEAD = 2;
     var WAIT_MS = 6000;
     var status = root.querySelector('[data-ab-status]');
     var list = root.querySelector('[data-ab-rows]');
@@ -24,14 +22,15 @@
 
     // Who each head is on the board. Unknown heads (and the Work Queue) are Charlie's.
     var HEADS = {
-        charlie: { name: 'Charlie', face: 'charlie' },
-        penny:   { name: 'Penny',   face: 'penny' },
-        sam:     { name: 'Sam',     face: 'sam' },
-        otto:    { name: 'Otto',    face: 'otto' },
-        mia:     { name: 'Mia',     face: 'mia' },
-        yui:     { name: 'Yui',     face: 'yui' },
-        house:   { name: 'Charlie', face: 'charlie' }
+        charlie: { name: 'Charlie', face: 'charlie', role: 'Foreman' },
+        penny:   { name: 'Penny',   face: 'penny',   role: 'Bookkeeper' },
+        sam:     { name: 'Sam',     face: 'sam',     role: 'Sales' },
+        otto:    { name: 'Otto',    face: 'otto',    role: 'Operations' },
+        mia:     { name: 'Mia',     face: 'mia',     role: 'Marketing' },
+        yui:     { name: 'Yui',     face: 'yui',     role: 'Comms' },
+        house:   { name: 'Charlie', face: 'charlie', role: 'Foreman' }
     };
+    var PER_COL = 3;     // items shown under each head before "+N more"
 
     var items = [];
     var gone = {};
@@ -46,10 +45,11 @@
     function safeUrl(u) {
         return (typeof u === 'string' && /^(\/(?!\/)|#|https:\/\/)/.test(u)) ? u : null;
     }
-    function head(slug) {
+    function headKey(slug) {
         var key = String(slug || '').toLowerCase();
-        return HEADS[key] || HEADS.charlie;
+        return (HEADS[key] && key !== 'house') ? key : 'charlie';
     }
+    function head(slug) { return HEADS[headKey(slug)]; }
     /** "today", "1 day", "3 days", "2 weeks" — from since (or first_seen when the head gave no date). */
     function waited(it) {
         var from = String(it.since || it.first_seen || '').slice(0, 10);
@@ -74,35 +74,46 @@
             .then(function (r) { return r.json(); });
     }
 
-    function row(it) {
-        var h = head(it.head);
+    function row(it, first) {
         var u = safeUrl(it.url);
         var w = waited(it);
-        return '<li class="mw-ab-row" data-key="' + esc(it.key) + '">'
-            + '<img class="mw-ab-face" src="/crm/img/heads/' + esc(h.face) + '.jpg" alt="" width="56" height="56" loading="lazy">'
-            + '<div class="mw-ab-body">'
-            +   '<div class="mw-ab-who"><b>' + esc(h.name) + '</b>'
-            +     (w ? '<span class="mw-ab-wait" title="How long this has been waiting">' + esc(w) + '</span>' : '') + '</div>'
+        return '<li class="mw-ab-row' + (first ? ' is-top' : '') + '" data-key="' + esc(it.key) + '">'
             +   '<div class="mw-ab-text">' + esc(it.text) + '</div>'
+            +   '<div class="mw-ab-foot">'
+            +     (w ? '<span class="mw-ab-wait" title="How long this has been waiting">' + esc(w) + '</span>' : '<span></span>')
+            +     '<span class="mw-ab-acts">'
+            +       '<button type="button" class="mw-ab-later" data-ab-snooze title="Bring it back tomorrow">Not now</button>'
+            +       (u ? '<a class="btn btn-sm btn-primary mw-ab-go" href="' + esc(u) + '" data-ab-open>' + esc(label(it)) + '</a>' : '')
+            +     '</span>'
+            +   '</div>'
+            + '</li>';
+    }
+
+    /** One column per head: face and name on top, that head's items beneath, in Charlie's order. */
+    function column(key, its) {
+        var h = HEADS[key];
+        var more = its.length - PER_COL;
+        return '<li class="mw-ab-col">'
+            + '<div class="mw-ab-colhead">'
+            +   '<img class="mw-ab-face" src="/crm/img/heads/' + esc(h.face) + '.jpg" alt="" width="72" height="72" loading="lazy">'
+            +   '<div><b>' + esc(h.name) + '</b><span>' + esc(h.role) + '</span></div>'
+            +   '<em class="mw-ab-n">' + its.length + '</em>'
             + '</div>'
-            + '<div class="mw-ab-acts">'
-            +   (u ? '<a class="btn btn-sm btn-primary mw-ab-go" href="' + esc(u) + '" data-ab-open>' + esc(label(it)) + '</a>' : '')
-            +   '<button type="button" class="mw-ab-later" data-ab-snooze title="Bring it back tomorrow">Not now</button>'
-            + '</div>'
+            + '<ul class="mw-ab-items">' + its.slice(0, PER_COL).map(function (it, i) { return row(it, i === 0); }).join('') + '</ul>'
+            + (more > 0 ? '<div class="mw-ab-more">+' + more + ' more</div>' : '')
             + '</li>';
     }
 
     function render() {
-        // Charlie's order, but at most PER_HEAD rows from any one head — so 50 of Otto's timers
-        // can't push Mia's "yes, please do it" replies off the board.
-        var perHead = {}, show = [];
+        var cols = {}, order = [], total = 0;
         items.forEach(function (it) {
-            if (!it || !it.key || gone[it.key] || show.length >= MAX) return;
-            var h = it.head || '?';
-            if ((perHead[h] = (perHead[h] || 0) + 1) > PER_HEAD) return;
-            show.push(it);
+            if (!it || !it.key || gone[it.key]) return;
+            var k = headKey(it.head);
+            if (!cols[k]) { cols[k] = []; order.push(k); }   // columns ordered by each head's most urgent item
+            cols[k].push(it);
+            total++;
         });
-        if (!show.length) {
+        if (!total) {
             list.hidden = true;
             list.innerHTML = '';
             count.hidden = true;
@@ -111,10 +122,9 @@
             return;
         }
         status.hidden = true;
-        list.innerHTML = show.map(row).join('');
+        list.innerHTML = order.map(function (k) { return column(k, cols[k]); }).join('');
         list.hidden = false;
-        var left = items.filter(function (it) { return it && it.key && !gone[it.key]; }).length;
-        count.textContent = left > show.length ? show.length + ' of ' + left : String(left);
+        count.textContent = String(total);
         count.hidden = false;
     }
 

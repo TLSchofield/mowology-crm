@@ -45,10 +45,10 @@ $__oCrewLine = implode(' · ', array_map(fn($c) => $c['name'] . ' ' . $c['done']
 ?>
 <section class="mw-head-card mw-otto" id="mw-otto">
   <div class="mw-otto-top">
-    <img class="mw-otto-face" src="/crm/img/heads/otto.jpg" alt="Otto, dispatcher" width="72" height="72">
+    <img class="mw-otto-face" src="/crm/img/heads/otto.jpg" alt="Otto, operations" width="72" height="72">
     <div class="mw-otto-who">
       <div class="mw-head-nm">Otto</div>
-      <div class="mw-head-role">Dispatcher · crews, weather, bylaws, equipment &amp; training</div>
+      <div class="mw-head-role">Operations · crews, weather, bylaws, equipment &amp; training</div>
       <span class="mw-head-pill"><i></i>Working</span>
     </div>
     <?php if ($__oBrain !== null): ?>

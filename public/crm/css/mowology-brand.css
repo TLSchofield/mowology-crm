@@ -38353,26 +38353,30 @@ body.mw-rc-zoom-open { overflow: hidden; }
 .mw-ab-title { margin: 0; font-size: 1.05rem; font-weight: 800; color: var(--mw-forest); }
 .mw-ab-count { font-size: .72rem; font-weight: 700; color: var(--mw-green); background: var(--mw-light); border-radius: var(--mw-radius-pill); padding: 1px 8px; }
 .mw-ab-line { margin: 0; font-size: .88rem; color: var(--mw-ink-500); }
-.mw-ab-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-.mw-ab-row { display: flex; align-items: center; gap: 14px; padding: 10px 12px; border: 1px solid var(--mw-ink-200); border-left: 4px solid var(--mw-lime); border-radius: var(--mw-radius-md); background: var(--mw-ink-0); }
-.mw-ab-row:first-child { border-left-color: var(--mw-orange); }
-.mw-ab-face { flex: none; width: 56px; height: 56px; border-radius: 50%; object-fit: cover; display: block; box-shadow: 0 0 0 3px var(--mw-lime), var(--mw-shadow-sm); background: var(--mw-light); }
-.mw-ab-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.mw-ab-who { display: flex; align-items: baseline; gap: 8px; font-size: .78rem; color: var(--mw-forest); }
-.mw-ab-who b { font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: var(--mw-green); }
-.mw-ab-wait { font-size: .74rem; color: var(--mw-ink-500); }
-.mw-ab-text { font-size: .9rem; color: var(--mw-forest); overflow-wrap: anywhere; }
-.mw-ab-acts { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.mw-ab-rows { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; align-items: start; }
+.mw-ab-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.mw-ab-colhead { display: flex; align-items: center; gap: 12px; padding-bottom: 6px; border-bottom: 2px solid var(--mw-light); }
+.mw-ab-colhead > div { display: flex; flex-direction: column; min-width: 0; }
+.mw-ab-colhead b { font-size: .95rem; font-weight: 800; color: var(--mw-forest); }
+.mw-ab-colhead span { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--mw-green); }
+.mw-ab-n { margin-left: auto; font-style: normal; font-size: .75rem; font-weight: 800; color: var(--mw-green); background: var(--mw-light); border-radius: var(--mw-radius-pill); padding: 1px 9px; }
+.mw-ab-face { flex: none; width: 72px; height: 72px; border-radius: 50%; object-fit: cover; display: block; box-shadow: 0 0 0 3px var(--mw-lime), var(--mw-shadow-sm); background: var(--mw-light); }
+.mw-ab-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.mw-ab-row { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--mw-ink-200); border-left: 4px solid var(--mw-lime); border-radius: var(--mw-radius-md); background: var(--mw-ink-0); }
+.mw-ab-row.is-top { border-left-color: var(--mw-orange); }
+.mw-ab-text { font-size: .86rem; color: var(--mw-forest); overflow-wrap: anywhere; }
+.mw-ab-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.mw-ab-wait { font-size: .72rem; color: var(--mw-ink-500); }
+.mw-ab-acts { display: flex; align-items: center; gap: 10px; }
 .mw-ab-go { white-space: nowrap; }
 .mw-ab-later { border: 0; background: none; padding: 0; font-size: .75rem; color: var(--mw-ink-500); text-decoration: underline; cursor: pointer; }
 .mw-ab-later:hover, .mw-ab-later:focus { color: var(--mw-forest); }
 .mw-ab-later:disabled { opacity: .5; cursor: default; }
+.mw-ab-more { font-size: .75rem; color: var(--mw-ink-500); padding-left: 4px; }
 .mw-ab-msg { margin: 6px 0 0; font-size: .78rem; color: var(--mw-ink-500); }
 .mw-ab-msg:empty { display: none; }
 @media (max-width: 575px) {
-    .mw-ab-row { flex-wrap: wrap; align-items: flex-start; }
-    .mw-ab-body { flex: 1 1 0; }
-    .mw-ab-acts { flex-direction: row; align-items: center; gap: 14px; width: 100%; justify-content: flex-end; }
+    .mw-ab-face { width: 56px; height: 56px; }
 }
 
 /* ===================================================================

@@ -48,7 +48,7 @@ try {
                       <div class="card-header">
                           <div class="mw-otto-gaps-head">
                               <div class="mw-otto-gaps-photo">
-                                  <img src="/crm/img/heads/otto.jpg" alt="Otto, the Dispatcher" width="104" height="104">
+                                  <img src="/crm/img/heads/otto.jpg" alt="Otto, operations" width="104" height="104">
                                   <?php if ($__pgBrain !== null): ?>
                                   <button type="button" class="mw-head-brain" aria-label="Otto's brain: <?= (int)$__pgBrain['units'] ?> things learned"
                                           data-head="Otto"
@@ -62,7 +62,7 @@ try {
                               </div>
                               <div>
                                   <div class="mw-otto-gaps-name">Otto</div>
-                                  <span class="mw-otto-gaps-who">The Dispatcher</span>
+                                  <span class="mw-otto-gaps-who">Operations</span>
                                   <h5 class="card-title mb-0 mt-1">Before I can route here</h5>
                               </div>
                           </div>
