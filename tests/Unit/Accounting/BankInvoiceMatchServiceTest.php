@@ -125,6 +125,27 @@ class BankInvoiceMatchServiceTest extends TestCase
         $this->assertSame($plain['confidence'], $s['confidence']);
     }
 
+    public function test_sender_names_agree_on_distinctive_words_only(): void
+    {
+        $this->assertTrue(InvoiceReconciliationService::namesAgree('STRATA PLAN BCS-2106', 'The Owners, Strata Plan BCS 2106'));
+        $this->assertFalse(InvoiceReconciliationService::namesAgree('STRATA PLAN BCS-2106', 'The Owners, Strata Plan BCS 4079'));
+        $this->assertFalse(InvoiceReconciliationService::namesAgree('STRATA PLAN BCS-2106', 'Strata 3775'));
+        $this->assertTrue(InvoiceReconciliationService::namesAgree('alaninglis', 'Alan Inglis'));
+        $this->assertTrue(InvoiceReconciliationService::namesAgree('alan inglis', 'Alan Inglis'));
+        $this->assertTrue(InvoiceReconciliationService::namesAgree('TOVE MARIE PASHKOWSKI', 'Tove Marie Pashkowski'));
+        $this->assertFalse(InvoiceReconciliationService::namesAgree('alan inglis', 'Maureen Kirkbride'));
+        $this->assertFalse(InvoiceReconciliationService::namesAgree('ALAN SMITH', 'Alan Cook'), 'one shared first name is not the same payer');
+    }
+
+    public function test_a_shared_generic_word_never_ties_a_strata_to_another_strata(): void
+    {
+        $svc = new InvoiceReconciliationService($this->createMock(PDO::class));
+        $s = $svc->scoreDeposit($this->deposit(['amount' => 364.65, 'transaction_date' => '2026-10-03', 'payer_names' => ['Interac email from' => 'STRATA PLAN BCS-2106']]),
+                                $this->invoice(['balance_due' => 262.50, 'total' => 262.50, 'invoice_date' => '2026-10-01', 'contact_name' => null,
+                                                'company_name' => 'The Owners, Strata Plan BCS 4079']));
+        $this->assertNull($s, 'a bigger deposit is only offered when a name ties it to the invoice');
+    }
+
     public function test_invoice_total_match_when_partly_paid(): void
     {
         $svc = new InvoiceReconciliationService($this->createMock(PDO::class));

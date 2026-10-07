@@ -542,6 +542,29 @@ class InvoiceReconciliationService
     }
 
     /**
+     * Is this sender name the same payer as this name on file? Stricter than the memo
+     * test: every DISTINCTIVE word of the sender must be in the name ("STRATA PLAN
+     * BCS-2106" ~ "The Owners, Strata Plan BCS 2106", not "… BCS 4079"), or the words
+     * run together ("alaninglis" ~ "Alan Inglis").
+     */
+    public static function namesAgree(string $sender, string $onFile): bool
+    {
+        $generic = array_merge(self::NAME_STOPWORDS, ['strata', 'plan', 'owners', 'owner', 'mr', 'mrs', 'ms', 'dr']);
+        $words = function (string $s) use ($generic): array {
+            $all = array_values(array_filter(preg_split('/[^a-z0-9]+/', strtolower($s)) ?: [], fn($w) => $w !== ''));
+            return [$all, array_values(array_filter($all, fn($w) => !in_array($w, $generic, true)))];
+        };
+        [$sAll, $sKey] = $words($sender);
+        [$fAll, $fKey] = $words($onFile);
+        if (!$sAll || !$fAll) return false;
+        $sJoined = implode('', $sAll);
+        if (strlen($sJoined) >= 5 && ($sJoined === implode('', $fAll) || (count($fAll) >= 2 && $sJoined === $fAll[0] . end($fAll)))) return true;
+        if (!$sKey) return false;
+        foreach ($sKey as $w) if (!in_array($w, $fAll, true)) return false;
+        return count($sKey) >= 2 || preg_match('/\d/', $sKey[0]) || (count($fKey) === 1 && $fKey[0] === $sKey[0]);
+    }
+
+    /**
      * Indices of a subset of $amounts summing to $target (±0.5¢), or null.
      * Prefers the whole pool, then a single item, then a bitmask search over at
      * most 14 items (16k combos) — enough for one payer's recent payments.
@@ -778,10 +801,8 @@ class InvoiceReconciliationService
                 foreach ((array)($deposit['payer_names'] ?? []) as $why => $name) {
                     $name = trim((string)$name);
                     if ($name === '') continue;
-                    $nameWords = self::bankMemoWords($name);
-                    if ($nameWords) $nameWords[] = implode('', $nameWords);   // "Alan Inglis" ~ "alaninglis"
                     foreach ($fields + ['bill_to_name' => trim((string)($invoice['bill_to_name'] ?? ''))] as $value) {
-                        if ($value !== '' && self::payerMatchesWords($value, $nameWords)) {
+                        if ($value !== '' && self::namesAgree($name, $value)) {
                             $descScore = 25;
                             $reasons[] = (is_string($why) ? $why : 'Paid by') . ' ' . $name;
                             break 2;

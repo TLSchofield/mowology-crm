@@ -287,6 +287,7 @@ try {
         case 'bank_invoice_link':
         case 'bank_teach_payer': {
             require_once APP_ROOT . '/Modules/Accounting/Services/BankInvoiceMatchService.php';
+            ini_set('serialize_precision', '-1');   // 364.65, not 364.6499999999999772… (prod sets 17)
             $match = new BankInvoiceMatchService($db);
             if ($mode === 'bank_invoice') {
                 echo json_encode($match->suggest((int)($_GET['transaction_id'] ?? 0)));
