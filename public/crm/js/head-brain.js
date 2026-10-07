@@ -150,13 +150,13 @@
     // change both together. Strength = confirmations in a row; unset reads as Bronze.
     // Each tier is a material: base colour, specular highlight, how shiny, how much ambient.
     var TIERS = [
-        { slug: 'obsidian', name: 'Obsidian', min: 1,  base: [16, 13, 22],    hi: [190, 150, 255], shin: 40, spec: 0.9,  amb: 0.75, glass: true },
+        { slug: 'obsidian', name: 'Obsidian', min: 1,  base: [16, 13, 22],    hi: [190, 150, 255], shin: 40, spec: 1.0,  amb: 0.75, glass: true, gloss: 0.6 },
         { slug: 'black',    name: 'Black',    min: 2,  base: [58, 60, 64],    hi: [150, 152, 156], shin: 4,  spec: 0.12, amb: 0.7 },
-        { slug: 'bronze',   name: 'Bronze',   min: 3,  base: [150, 86, 40],   hi: [240, 170, 110], shin: 18, spec: 0.5,  amb: 0.55 },
-        { slug: 'silver',   name: 'Silver',   min: 5,  base: [128, 138, 152], hi: [255, 255, 255], shin: 26, spec: 0.8,  amb: 0.5 },
-        { slug: 'gold',     name: 'Gold',     min: 10, base: [214, 164, 34],  hi: [255, 244, 176], shin: 20, spec: 0.85, amb: 0.5 },
-        { slug: 'white',    name: 'White',    min: 20, base: [252, 249, 240], hi: [255, 255, 255], shin: 60, spec: 0.3,  amb: 0.92 },
-        { slug: 'platinum', name: 'Platinum', min: 50, base: [196, 208, 228], hi: [235, 245, 255], shin: 14, spec: 0.9,  amb: 0.7, irid: true, glow: true }
+        { slug: 'bronze',   name: 'Bronze',   min: 3,  base: [150, 86, 40],   hi: [255, 196, 140], shin: 22, spec: 0.95, amb: 0.5,  metal: 0.35, gloss: 0.55 },
+        { slug: 'silver',   name: 'Silver',   min: 5,  base: [128, 138, 152], hi: [255, 255, 255], shin: 30, spec: 1.1,  amb: 0.45, metal: 0.45, gloss: 0.75 },
+        { slug: 'gold',     name: 'Gold',     min: 10, base: [214, 164, 34],  hi: [255, 248, 196], shin: 26, spec: 1.1,  amb: 0.45, metal: 0.4,  gloss: 0.75 },
+        { slug: 'white',    name: 'White',    min: 20, base: [246, 242, 232], hi: [255, 255, 255], shin: 70, spec: 0.6,  amb: 0.88, gloss: 0.45 },
+        { slug: 'platinum', name: 'Platinum', min: 50, base: [196, 208, 228], hi: [240, 248, 255], shin: 18, spec: 1.2,  amb: 0.6,  metal: 0.5, gloss: 0.9, irid: true, glow: true }
     ];
     var UNSET_TIER = 2;
     function tierRank(strength) {
@@ -183,7 +183,13 @@
         if (T.irid) hi = hsl(200 + n[0] * 140 + n[1] * 90 + t * 0.012, 0.75, 0.78);      // cool rainbow sheen that drifts as it turns
         if (T.glass) hi = n[0] > 0 ? [160, 110, 240] : [70, 210, 150];                  // obsidian: purple / green glints
         var k = T.amb + (1 - T.amb) * d;
-        return [clamp(T.base[0] * k + hi[0] * sp), clamp(T.base[1] * k + hi[1] * sp), clamp(T.base[2] * k + hi[2] * sp)];
+        var c = [T.base[0] * k + hi[0] * sp, T.base[1] * k + hi[1] * sp, T.base[2] * k + hi[2] * sp];
+        // Metals mirror a soft studio "sky": brighter where the face tilts up, darker where it tilts down.
+        if (T.metal) {
+            var env = mix([40, 44, 52], T.hi, Math.max(0, Math.min(1, (n[1] + 1) / 2)));
+            c = mix(c, env, T.metal);
+        }
+        return [clamp(c[0]), clamp(c[1]), clamp(c[2])];
     }
     function edgeOf(T, n, onLight) {
         if (T.glass) return n[0] > 0 ? [150, 100, 220] : [70, 190, 140];
@@ -289,6 +295,21 @@
                         if (T.glow) { g.shadowColor = rgba(light ? [150, 175, 215] : [215, 230, 255], 0.85); g.shadowBlur = 7; }
                         g.fillStyle = rgba(col, fade); g.fill();
                         g.shadowBlur = 0;
+                        if (T.gloss) {
+                            // Lacquer: a soft highlight across the face from its lit corner, plus a
+                            // thin glint band that travels over the shape as it turns.
+                            var cx = (q[0][0] + q[1][0] + q[2][0]) / 3, cy = (q[0][1] + q[1][1] + q[2][1]) / 3;
+                            var lx = cx - LIGHT[0] * 40, ly = cy - LIGHT[1] * 40, rx = cx + LIGHT[0] * 40, ry = cy + LIGHT[1] * 40;
+                            var sheen = g.createLinearGradient(lx, ly, rx, ry);
+                            var hiC = T.irid ? hsl(200 + nrm[0] * 140 + t * 0.012, 0.7, 0.85) : T.hi;
+                            var band = 0.5 + 0.45 * Math.sin(t / 1300 + fc.i * 0.7 + nrm[0] * 3);
+                            sheen.addColorStop(0, rgba(hiC, 0));
+                            sheen.addColorStop(Math.max(0, band - 0.12), rgba(hiC, 0));
+                            sheen.addColorStop(band, rgba(hiC, 0.55 * T.gloss * fade));
+                            sheen.addColorStop(Math.min(1, band + 0.12), rgba(hiC, 0));
+                            sheen.addColorStop(1, rgba([0, 0, 0], 0.18 * T.gloss));
+                            g.fillStyle = sheen; g.fill();
+                        }
                         if (fc.i === newest) { g.fillStyle = 'rgba(127,216,88,' + (0.55 * pulse).toFixed(3) + ')'; g.fill(); }
                         g.strokeStyle = fc.i === newest ? 'rgba(200,245,180,0.9)' : rgba(edgeOf(T, nrm, light), 0.8);
                     } else {
