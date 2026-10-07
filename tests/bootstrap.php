@@ -53,6 +53,19 @@ require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaBrainService.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaDeskService.php';
 require_once __DIR__ . '/../app/Modules/Marketing/Services/MiaCampaignService.php';
 
+// Otto — operations head
+require_once __DIR__ . '/../app/Modules/Operations/Services/OttoRules.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/OpsDeskService.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/OttoActionService.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/OttoQuestionService.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/OttoBadgeService.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/OttoBrainService.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/DispatchRules.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/MunicipalRuleService.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/EquipmentService.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/TrainingRules.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/TrainingService.php';
+
 require_once __DIR__ . '/../app/Modules/Invoices/Services/StatementService.php';
 
 // Products
@@ -140,6 +153,8 @@ require_once __DIR__ . '/../app/Modules/Jobs/Services/SeasonalOutlookRefreshServ
 require_once __DIR__ . '/../app/Modules/Jobs/Services/CrewAssignmentService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/StopRescheduleService.php';
 require_once __DIR__ . '/../app/Modules/Jobs/Services/VisitEndorsementService.php';
+require_once __DIR__ . '/../app/Modules/Jobs/Services/WeatherGuardSummary.php';
+require_once __DIR__ . '/../app/Modules/Jobs/Services/WeatherActionGuard.php';
 require_once __DIR__ . '/../app/Modules/Portfolio/Services/BeforeAfterService.php';
 
 // Social (Meta/GBP publishing — credential contract + connection health)

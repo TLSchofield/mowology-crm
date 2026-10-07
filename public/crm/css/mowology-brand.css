@@ -38035,3 +38035,111 @@ body.mw-rc-zoom-open { overflow: hidden; }
 @media (max-width: 575px) {
     .mw-mia .mw-head-brain { width: 36px; height: 36px; right: -10px; bottom: -10px; }
 }
+
+/* ===================================================================
+   OTTO — OPERATIONS HEAD (dashboard deck card, public/crm/includes/otto-card.php)
+   =================================================================== */
+.mw-otto { display: flex; flex-direction: column; gap: 10px; }
+.mw-otto-top { display: flex; align-items: center; gap: 12px; }
+.mw-otto-face { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; flex: none; box-shadow: 0 0 0 3px var(--mw-lime), var(--mw-shadow-md); }
+.mw-otto-who { flex: 1; min-width: 0; }
+.mw-otto-who .mw-head-nm { font-weight: 800; font-size: 1.05rem; color: var(--mw-forest); }
+.mw-otto-who .mw-head-pill { margin-top: 6px; }
+.mw-otto-brain, .mw-otto .mw-head-brain { flex: none; width: 64px; height: 64px; padding: 0; border: 1px solid var(--mw-light); border-radius: 50%;
+    background: radial-gradient(circle at 50% 40%, var(--mw-ink-0), var(--mw-light)); cursor: pointer; }
+.mw-otto .mw-head-brain canvas { width: 100%; height: 100%; display: block; }
+.mw-otto .mw-head-brain:hover { border-color: var(--mw-green); }
+.mw-otto-badges { max-width: none; margin-top: 0; }
+.mw-otto-say { background: var(--mw-light); border-radius: 10px; padding: 10px 12px; font-size: .85rem; line-height: 1.45; color: var(--mw-forest); }
+.mw-otto-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(84px, 1fr)); gap: 8px; }
+.mw-otto-stat { border: 1px solid var(--mw-ink-200); border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; min-width: 0; }
+.mw-otto-stat .mw-k { font-size: .66rem; color: var(--mw-ink-500); font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
+.mw-otto-stat .mw-v { font-size: 1.35rem; font-weight: 800; margin: 2px 0; color: var(--mw-forest); line-height: 1.1; }
+.mw-otto-stat .mw-v small { font-size: .75rem; font-weight: 600; color: var(--mw-ink-500); }
+.mw-otto-stat .mw-n { font-size: .7rem; color: var(--mw-ink-500); line-height: 1.35; margin-top: auto; overflow-wrap: anywhere; }
+.mw-otto-stat .mw-n b { color: var(--mw-orange); }
+.mw-otto-stat.is-alert .mw-v { color: var(--mw-orange); }
+.mw-otto-outlook { font-size: .75rem; color: var(--mw-ink-700); background: var(--mw-ink-50); border-radius: 8px; padding: 6px 10px; }
+
+.mw-otto-list { display: flex; flex-direction: column; gap: 8px; }
+.mw-otto-empty { font-size: .8rem; color: var(--mw-ink-500); padding: 6px 2px; }
+.mw-otto-item { position: relative; border: 1px solid var(--mw-ink-200); border-left: 4px solid var(--mw-ink-300); border-radius: 10px; padding: 9px 12px; background: var(--mw-ink-0); }
+.mw-otto-item.is-p1 { border-left-color: var(--mw-orange); }
+.mw-otto-item.is-p2 { border-left-color: var(--mw-green); }
+.mw-otto-item p { margin: 0 52px 4px 0; font-size: .82rem; color: var(--mw-ink-900); line-height: 1.4; }
+.mw-otto-detail { display: block; font-size: .72rem; color: var(--mw-ink-500); margin-bottom: 6px; }
+.mw-otto-open { position: absolute; top: 9px; right: 12px; font-size: .72rem; font-weight: 600; color: var(--mw-green); }
+.mw-otto-btns { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.mw-otto-btns button { border: 1px solid var(--mw-ink-200); background: var(--mw-ink-0); border-radius: 8px; padding: 5px 10px; font-size: .76rem; font-weight: 600; color: var(--mw-forest); }
+.mw-otto-btns button:hover { background: var(--mw-light); border-color: var(--mw-green); }
+.mw-otto-btns button.is-main { background: var(--mw-green); border-color: var(--mw-green); color: var(--mw-ink-0); }
+.mw-otto-btns button.is-main:hover { background: var(--mw-dark); }
+.mw-otto-btns button:disabled { opacity: .55; cursor: wait; }
+.mw-otto-btns input { border: 1px solid var(--mw-ink-200); border-radius: 8px; padding: 4px 8px; font-size: .78rem; color: var(--mw-ink-900); max-width: 100%; }
+.mw-otto-btns input[type="number"] { width: 72px; }
+.mw-otto-field { display: inline-flex; align-items: center; gap: 6px; font-size: .74rem; color: var(--mw-ink-500); margin: 0; }
+.mw-otto-slot { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--mw-ink-200); }
+.mw-otto-slot small { display: block; font-size: .74rem; color: var(--mw-ink-700); margin-bottom: 6px; }
+.mw-otto-msg { margin-top: 6px; font-size: .74rem; color: var(--mw-dark); }
+.mw-otto-msg.is-bad { color: var(--mw-orange); }
+.mw-otto-done { color: var(--mw-dark); font-weight: 600; margin: 0 !important; }
+.mw-otto-item.is-done { border-left-color: var(--mw-lime); background: var(--mw-light); }
+
+.mw-otto-qs { border: 1px solid var(--mw-color-warning-bg); background: var(--mw-color-warning-bg); border-radius: 12px; padding: 10px 12px; }
+.mw-otto-qhead { font-size: .8rem; color: var(--mw-ink-700); margin-bottom: 4px; }
+.mw-otto-qhead b { color: var(--mw-forest); }
+.mw-otto-q { background: var(--mw-ink-0); border-radius: 8px; padding: 8px 10px; margin-top: 6px; }
+.mw-otto-q p { margin: 0 0 6px; font-size: .82rem; color: var(--mw-ink-900); line-height: 1.4; }
+.mw-otto-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: .72rem; color: var(--mw-ink-500); margin-top: 2px; }
+
+/* The shared brain's pop-out (head-brain.js) — scoped so it stands alone if no other head styles it */
+.mw-head-brain-pop { position: fixed; inset: 0; z-index: 1080; display: flex; align-items: center; justify-content: center; padding: 16px; background: color-mix(in srgb, var(--mw-forest) 55%, transparent); }
+.mw-head-brain-pop .mw-brain-card { position: relative; display: grid; grid-template-columns: 260px 1fr; gap: 16px; width: min(640px, 100%); max-height: 90vh; overflow: auto;
+    background: var(--mw-ink-0); border-radius: var(--mw-radius-lg); padding: 18px; box-shadow: var(--mw-shadow-md); }
+.mw-head-brain-pop .mw-brain-big { width: 260px; height: 260px; border-radius: 50%; background: radial-gradient(circle at 50% 40%, var(--mw-ink-0), var(--mw-light)); }
+.mw-head-brain-pop .mw-brain-close { position: absolute; top: 8px; right: 10px; border: 0; background: transparent; font-size: 1rem; color: var(--mw-ink-500); }
+.mw-head-brain-pop h4 { font-size: 1rem; font-weight: 800; color: var(--mw-forest); margin: 0 0 4px; }
+.mw-head-brain-pop p, .mw-head-brain-pop li { font-size: .8rem; color: var(--mw-ink-700); }
+.mw-head-brain-pop ul { padding-left: 0; list-style: none; margin: 8px 0; }
+.mw-head-brain-pop .mw-brain-note { font-size: .72rem; color: var(--mw-ink-500); }
+@media (max-width: 575.98px) {
+    .mw-otto-foot { flex-direction: column; align-items: flex-start; }
+    .mw-otto-item p { margin-right: 0; }
+    .mw-otto-open { position: static; display: inline-block; margin-top: 6px; }
+    .mw-head-brain-pop .mw-brain-card { grid-template-columns: 1fr; }
+    .mw-head-brain-pop .mw-brain-big { width: 200px; height: 200px; margin: 0 auto; }
+}
+
+/* Otto the Dispatcher — Bylaw rules and Equipment pages (/crm/ops/municipal-rules.php, /crm/ops/equipment.php) */
+.mw-ops-page .card { margin-bottom: 16px; }
+.mw-ops-head { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+.mw-ops-head img { width: 56px; height: 56px; border-radius: 50%; object-fit: cover; flex: none; box-shadow: 0 0 0 3px var(--mw-lime); }
+.mw-ops-hint { font-size: .78rem; color: var(--mw-ink-500); margin: 6px 0 0; }
+.mw-ops-table { font-size: .8rem; }
+.mw-ops-table td { vertical-align: middle; }
+.mw-ops-table .form-control-sm { min-width: 110px; }
+.mw-ops-table td.mw-ops-note { min-width: 240px; }
+.mw-ops-time .form-control-sm { min-width: 96px; }
+.mw-ops-table tr.mw-ops-status-unverified td:first-child { box-shadow: inset 3px 0 0 var(--mw-orange); }
+.mw-ops-table tr.mw-ops-status-verified td:first-child { box-shadow: inset 3px 0 0 var(--mw-green); }
+.mw-ops-table tr.mw-ops-status-confirm_current_bylaw td:first-child { box-shadow: inset 3px 0 0 var(--mw-ink-300); }
+.mw-ops-table tr.mw-ops-over td { color: var(--mw-orange); font-weight: 600; }
+.mw-ops-table tr.mw-ops-retired td { color: var(--mw-ink-500); }
+.mw-ops-table tr.mw-ops-edit td { border-top: 0; padding-top: 0; }
+.mw-ops-src { font-size: .72rem; color: var(--mw-green); }
+.mw-ops-flag { display: inline-block; font-size: .7rem; font-weight: 700; color: var(--mw-orange); }
+.mw-ops-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.mw-ops-chip { font-size: .76rem; padding: 4px 10px; border-radius: var(--mw-radius-pill); background: var(--mw-ink-100); color: var(--mw-ink-700); }
+.mw-ops-chip.is-covered { background: var(--mw-light); color: var(--mw-dark); }
+.mw-ops-chip b { margin-left: 4px; }
+.mw-ops-list { list-style: none; padding: 0; margin: 6px 0 0; font-size: .8rem; color: var(--mw-ink-700); }
+.mw-ops-list li { padding: 3px 0; border-bottom: 1px dashed var(--mw-ink-200); }
+.mw-ops-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px 12px; padding: 10px 0; }
+.mw-ops-form label { font-size: .72rem; color: var(--mw-ink-500); font-weight: 600; margin: 0; }
+.mw-ops-form .mw-ops-wide { grid-column: 1 / -1; }
+.mw-ops-check { display: flex; align-items: center; gap: 6px; }
+.mw-ops-add { margin-top: 10px; }
+.mw-ops-add > summary { list-style: none; cursor: pointer; }
+.mw-ops-question { border-color: var(--mw-color-warning-bg); background: var(--mw-color-warning-bg); }
+.mw-ops-msg { display: inline-block; margin-left: 8px; font-size: .75rem; color: var(--mw-dark); }
+.mw-ops-msg.is-bad { color: var(--mw-orange); }

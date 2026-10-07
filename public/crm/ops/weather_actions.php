@@ -253,7 +253,7 @@ try {
 
             fetch('/crm/api/weather-actions.php?action=keep', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
               body: JSON.stringify({ visit_id: visitId, reason: 'Manual override' })
             })
             .then(r => r.json())
@@ -267,7 +267,7 @@ try {
           function dismissVisit(visitId) {
             fetch('/crm/api/weather-actions.php?action=dismiss', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
               body: JSON.stringify({ visit_id: visitId })
             })
             .then(r => r.json())
@@ -285,7 +285,7 @@ try {
 
             fetch('/crm/api/weather-actions.php?action=run-guard', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.MW_CSRF_TOKEN || '' },
               body: '{}'
             })
             .then(r => r.json())
