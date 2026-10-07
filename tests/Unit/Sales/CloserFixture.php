@@ -75,6 +75,7 @@ class FakeCloserService extends CloserService
             2 => ['id' => 2, 'name' => 'Edging & Trimming', 'service_type' => null, 'base_cost' => 0, 'base_price' => 12, 'min_price' => null],
             3 => ['id' => 3, 'name' => 'Fall Clean-up', 'service_type' => 'Cleanup', 'base_cost' => 4, 'base_price' => 180, 'min_price' => 150],
             4 => ['id' => 4, 'name' => 'Hedge Trimming', 'service_type' => 'Hedge', 'base_cost' => 0, 'base_price' => 95, 'min_price' => 80],
+            5 => ['id' => 5, 'name' => 'Black Composted Bark Mulch', 'service_type' => 'Garden', 'base_cost' => 60, 'base_price' => 175, 'min_price' => null],
         ];
         foreach ($p as &$r) {
             $r['service_key'] = CloserPricing::serviceKey((string)$r['service_type']) ?? CloserPricing::serviceKey($r['name']);
@@ -87,7 +88,11 @@ class FakeCloserService extends CloserService
         // The current rule for Fall Clean-up: $0.03 / sq ft, $150 minimum.
         return [['id' => 7, 'product_id' => 3, 'measurement_group_id' => 1, 'pricing_model' => 'per_sqft', 'price_per_unit' => 0.03,
                  'minimum_price' => 150, 'included_units' => 0, 'default_frequency' => 'seasonal', 'group_key' => 'lawn_area',
-                 'group_label' => 'Lawn & Garden Area', 'unit' => 'sqft']];
+                 'group_label' => 'Lawn & Garden Area', 'unit' => 'sqft'],
+                // Mulch by the yard (per_yard_area): must imply no bed-work minutes.
+                ['id' => 8, 'product_id' => 5, 'measurement_group_id' => 9, 'pricing_model' => 'per_yard_area', 'price_per_unit' => 175,
+                 'minimum_price' => 0, 'included_units' => 0, 'depth_inches' => 3, 'min_units' => 2, 'default_frequency' => 'one_off',
+                 'group_key' => 'garden_bed', 'group_label' => 'Garden beds', 'unit' => 'sqft']];
     }
 
     public function lineItems(int $quoteId): array
@@ -98,6 +103,7 @@ class FakeCloserService extends CloserService
             ['id' => 3, 'product_id' => 3, 'service_type' => 'Fall Clean-up', 'description' => '', 'quantity' => 1, 'unit_price' => 180],
             ['id' => 4, 'product_id' => 4, 'service_type' => 'Hedge Trimming', 'description' => '', 'quantity' => 2, 'unit_price' => 95],
             ['id' => 5, 'product_id' => null, 'service_type' => 'Gutter cleaning', 'description' => 'Front only', 'quantity' => 1, 'unit_price' => 60],
+            ['id' => 6, 'product_id' => 5, 'service_type' => 'Black Composted Bark Mulch', 'description' => '4 yd · 432 sq ft at 3 in', 'quantity' => 4, 'unit_type' => 'yd', 'unit_price' => 175],
         ];
     }
 

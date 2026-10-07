@@ -1450,9 +1450,12 @@ Work to be completed weather permitting.</textarea>
             rules.forEach(function(rule) {
                 var price = wfCalculatePreviewPrice(rule, totalUnits);
                 var freq = frequencyLabels[rule.default_frequency] || rule.default_frequency;
+                var yp = rule.pricing_model === 'per_yard_area' ? mwYardRuleParams(rule) : null;
                 var rateInfo = rule.pricing_model === 'flat'
                     ? 'Flat rate'
-                    : '$' + parseFloat(rule.price_per_unit).toFixed(4) + '/' + (rule.unit || 'sqft');
+                    : (yp
+                        ? mwYardsFromArea(totalUnits, yp.depth, yp.min) + ' yd × $' + parseFloat(rule.price_per_unit).toFixed(2) + ' (' + yp.depth + ' in deep, ' + yp.min + ' yd min)'
+                        : '$' + parseFloat(rule.price_per_unit).toFixed(4) + '/' + (rule.unit || 'sqft'));
 
                 rulesHtml +=
                     '<label class="mw-service-option">' +
@@ -1499,8 +1502,34 @@ Work to be completed weather permitting.</textarea>
             case 'min_plus_linear_ft':
                 price = minPrice + (Math.max(0, totalUnits - included) * perUnit);
                 break;
+            case 'per_yard_area':
+                var yp = mwYardRuleParams(rule);
+                price = mwYardsFromArea(totalUnits, yp.depth, yp.min) * perUnit;
+                break;
         }
         return Math.round(price * 100) / 100;
+    }
+
+    // JS/PHP PARITY: mirrors QuoteCalculator::yardsFromArea() and ::yardRuleParams() in
+    // app/Services/QuoteCalculator.php (and the copy in quotes/create.php). Change all three
+    // together. Integer maths in hundredths: 216 sq ft at 3 in is exactly 2 yd, not 3.
+    function mwYardsFromArea(sqft, depthIn, minYards) {
+        depthIn = parseFloat(depthIn);
+        if (!(depthIn > 0)) depthIn = 3;
+        minYards = Math.max(0, parseInt(minYards, 10) || 0);
+        var area  = Math.round(Math.max(0, parseFloat(sqft) || 0) * 100);
+        var depth = Math.round(depthIn * 100);
+        var den   = 324 * 10000;
+        var yards = Math.floor((area * depth + den - 1) / den);
+        return Math.max(minYards, yards);
+    }
+    function mwYardRuleParams(rule) {
+        var depth = parseFloat(rule.depth_inches);
+        var min = rule.min_units;
+        return {
+            depth: depth > 0 ? depth : 3,
+            min: (min === null || min === undefined || min === '') ? 2 : Math.max(0, parseInt(min, 10) || 0)
+        };
     }
 
     function wfUpdateAddButtonState() {

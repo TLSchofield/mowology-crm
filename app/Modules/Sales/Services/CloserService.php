@@ -126,7 +126,10 @@ class CloserService
                 'why_not'     => null,
             ];
             $s = $key ? $perService[$key] : null;
-            if (!$key) {
+            if (self::isYardLine($it)) {
+                // Mulch & co: sold in whole yards by the per_yard_area rule, not by site minutes.
+                $line['why_not'] = self::yardLineNote($it);
+            } elseif (!$key) {
                 $line['why_not'] = 'Not a service the Closer prices';
             } elseif (!$priced) {
                 $line['why_not'] = 'Hourly cost not set';
@@ -189,6 +192,21 @@ class CloserService
             'flags'   => array_values(array_unique($flags)),
             'note'    => 'Draft from the map measurement — price confirmed after the first visit.',
         ];
+    }
+
+    /** A line sold by the cubic yard (QuoteCalculator's per_yard_area model writes unit 'yd'). */
+    public static function isYardLine(array $item): bool
+    {
+        return strtolower(trim((string)($item['unit_type'] ?? ''))) === 'yd';
+    }
+
+    /** What the panel says beside a per-yard line instead of a minutes price. */
+    public static function yardLineNote(array $item): string
+    {
+        $qty = (float)($item['quantity'] ?? 0);
+        $yd  = rtrim(rtrim(number_format($qty, 2, '.', ''), '0'), '.');
+        return 'Sold by the yard (' . $yd . ' yd × $' . number_format((float)($item['unit_price'] ?? 0), 2)
+             . ') — the per-yard rule prices it, not site minutes';
     }
 
     /** A per-visit service quoted once at more than five visits' worth is a season total, not a visit price. */
@@ -324,7 +342,8 @@ class CloserService
     {
         try {
             $opt = $this->hasColumn('quote_line_items', 'is_optional') ? 'is_optional' : '0 AS is_optional';
-            $st = $this->db->prepare("SELECT id, product_id, service_type, description, quantity, unit_price, {$opt}
+            $ut  = $this->hasColumn('quote_line_items', 'unit_type') ? 'unit_type' : "'each' AS unit_type";
+            $st = $this->db->prepare("SELECT id, product_id, service_type, description, quantity, {$ut}, unit_price, {$opt}
                                       FROM quote_line_items WHERE quote_id = ? ORDER BY sort_order, id");
             $st->execute([$quoteId]);
             return $st->fetchAll(PDO::FETCH_ASSOC);
@@ -412,6 +431,8 @@ class CloserService
                 $prod = $products[(int)$rule['product_id']] ?? null;
                 $key = $prod['service_key'] ?? null;
                 if (!$key || isset($out[$key])) continue;
+                // A per-yard rule prices material by the yard (mulch); it implies no labour minutes.
+                if (($rule['pricing_model'] ?? '') === 'per_yard_area') continue;
                 $units = SiteMinutesModel::units($key, $lot);
                 if ($units === null) continue;
                 $ruleUnits = $rule['unit'] === 'linear_ft'

@@ -44,11 +44,11 @@ try {
 
         $totals = getMeasurementTotalsForProperty($propertyId);
 
-        // Also get available pricing rules per group
+        // Also get available pricing rules per group.
+        // r.* so per_yard_area's depth_inches / min_units (migration 1189) reach the picker's
+        // price preview when they exist, without breaking before the migration runs.
         $rules = $db->query("
-            SELECT r.id, r.product_id, r.measurement_group_id, r.pricing_model,
-                   r.price_per_unit, r.minimum_price, r.included_units,
-                   r.default_frequency, r.is_default_for_group,
+            SELECT r.*,
                    mg.group_key, mg.group_label, mg.unit,
                    p.name as product_name, p.base_price
             FROM product_pricing_rules r

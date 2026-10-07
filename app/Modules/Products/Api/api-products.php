@@ -741,7 +741,7 @@ try {
             throw new Exception('Product, measurement group, and pricing model are required');
         }
 
-        $validModels = ['flat', 'per_sqft', 'per_linear_ft', 'min_plus_sqft', 'min_plus_linear_ft'];
+        $validModels = ['flat', 'per_sqft', 'per_linear_ft', 'min_plus_sqft', 'min_plus_linear_ft', 'per_yard_area'];
         if (!in_array($data['pricing_model'], $validModels)) {
             throw new Exception('Invalid pricing model');
         }
@@ -749,6 +749,16 @@ try {
         $validFreqs = ['one_off', 'daily', '7_day', '14_day', '21_day', 'monthly', 'seasonal'];
         $freq = (isset($data['default_frequency']) && in_array($data['default_frequency'], $validFreqs))
             ? $data['default_frequency'] : 'one_off';
+
+        // per_yard_area (migration 1189): depth + minimum yards go in their own UPDATE, so the
+        // INSERT/UPDATE below stay exactly as on production (and work before 1189 runs).
+        $saveYardParams = function ($ruleId) use ($db, $data) {
+            if (($data['pricing_model'] ?? '') !== 'per_yard_area') return;
+            require_once APP_ROOT . '/Services/QuoteCalculator.php';
+            $p = QuoteCalculator::yardRuleParams($data);
+            $db->prepare("UPDATE product_pricing_rules SET depth_inches = ?, min_units = ? WHERE id = ?")
+               ->execute([$p['depth_inches'], $p['min_units'], (int)$ruleId]);
+        };
 
         if (!empty($data['id'])) {
             // Update
@@ -773,6 +783,7 @@ try {
                 $data['id'],
                 $data['product_id'],
             ]);
+            $saveYardParams($data['id']);
             echo json_encode(['success' => true, 'message' => 'Pricing rule updated']);
         } else {
             // Create
@@ -796,7 +807,9 @@ try {
                 $data['notes'] ?? null,
                 $data['is_active'] ?? 1,
             ]);
-            echo json_encode(['success' => true, 'id' => $db->lastInsertId(), 'message' => 'Pricing rule created']);
+            $newRuleId = $db->lastInsertId();
+            $saveYardParams($newRuleId);
+            echo json_encode(['success' => true, 'id' => $newRuleId, 'message' => 'Pricing rule created']);
         }
 
     } elseif ($action === 'delete-pricing-rule') {

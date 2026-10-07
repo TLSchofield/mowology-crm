@@ -62,6 +62,24 @@ class CloserForQuoteTest extends TestCase
         $this->assertSame('Not a service the Closer prices', $g['why_not']);
     }
 
+    public function test_a_per_yard_line_is_left_to_the_yard_rule(): void
+    {
+        $m = $this->line(6);
+        $this->assertSame('beds', $m['service']);       // "Garden" maps to bed work…
+        $this->assertNull($m['closer']);                 // …but the yard rule prices it, not minutes
+        $this->assertSame('Sold by the yard (4 yd × $175.00) — the per-yard rule prices it, not site minutes', $m['why_not']);
+        $this->assertTrue(CloserService::isYardLine(['unit_type' => 'YD ']));
+        $this->assertFalse(CloserService::isYardLine(['unit_type' => 'each']));
+        $this->assertFalse(CloserService::isYardLine([]));
+    }
+
+    public function test_a_per_yard_rule_implies_no_bed_work_minutes(): void
+    {
+        // The mulch rule ($175/yd) must not seed bed-work minutes: Full care still lists beds as missing.
+        $this->assertContains('beds', $this->r['tiers'][2]['missing']);
+        $this->assertNull($this->r['services']['beds']['basis']);
+    }
+
     public function test_tiers_and_flags(): void
     {
         $prices = array_column($this->r['tiers'], 'price', 'label');

@@ -2214,12 +2214,13 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
                     </div>
                     <div class="col-md-4">
                       <label class="small">Pricing Model</label>
-                      <select class="form-control form-control-sm" onchange="currentPricingRules[${idx}].pricing_model=this.value;renderPricingRules()">
+                      <select class="form-control form-control-sm" onchange="setPricingRuleModel(${idx}, this.value)">
                         <option value="flat" ${rule.pricing_model==='flat'?'selected':''}>Flat Price</option>
                         <option value="per_sqft" ${rule.pricing_model==='per_sqft'?'selected':''}>Per Sq Ft</option>
                         <option value="per_linear_ft" ${rule.pricing_model==='per_linear_ft'?'selected':''}>Per Linear Ft</option>
                         <option value="min_plus_sqft" ${rule.pricing_model==='min_plus_sqft'?'selected':''}>Min + Per Sq Ft</option>
                         <option value="min_plus_linear_ft" ${rule.pricing_model==='min_plus_linear_ft'?'selected':''}>Min + Per Linear Ft</option>
+                        <option value="per_yard_area" ${rule.pricing_model==='per_yard_area'?'selected':''}>Per yard from area</option>
                       </select>
                     </div>
                     <div class="col-md-3">
@@ -2240,7 +2241,34 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
                       </button>
                     </div>
                   </div>
-                  ${rule.pricing_model !== 'flat' ? `
+                  ${rule.pricing_model === 'per_yard_area' ? `
+                  <div class="row mt-2">
+                    <div class="col-md-3">
+                      <label class="small">Price per yard ($)</label>
+                      <input type="number" class="form-control form-control-sm" step="0.01" min="0" value="${rule.price_per_unit||0}"
+                             onchange="currentPricingRules[${idx}].price_per_unit=this.value">
+                    </div>
+                    <div class="col-md-3">
+                      <label class="small">Depth (inches)</label>
+                      <input type="number" class="form-control form-control-sm" step="0.25" min="0.25" value="${rule.depth_inches||3}"
+                             onchange="currentPricingRules[${idx}].depth_inches=this.value">
+                    </div>
+                    <div class="col-md-3">
+                      <label class="small">Minimum yards</label>
+                      <input type="number" class="form-control form-control-sm" step="1" min="0" value="${(rule.min_units === null || rule.min_units === undefined || rule.min_units === '') ? 2 : rule.min_units}"
+                             onchange="currentPricingRules[${idx}].min_units=this.value">
+                    </div>
+                    <div class="col-md-3 d-flex align-items-end">
+                      <label class="mw-product-checkbox-label small">
+                        <input type="checkbox" ${rule.is_default_for_group == 1 ? 'checked' : ''}
+                               onchange="currentPricingRules[${idx}].is_default_for_group=this.checked?1:0">
+                        Default for group
+                      </label>
+                    </div>
+                    <div class="col-12">
+                      <small class="text-muted">Sold in whole yards: yards = area &divide; sq ft per yard (108 at 3 in), rounded up, never below the minimum.</small>
+                    </div>
+                  </div>` : rule.pricing_model !== 'flat' ? `
                   <div class="row mt-2">
                     <div class="col-md-3">
                       <label class="small">Price/Unit ($)</label>
@@ -2287,6 +2315,20 @@ $hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByTy
                 priority: 0,
                 is_active: 1,
               });
+              renderPricingRules();
+            }
+
+            // Switching a rule to "Per yard from area" fills the owner's mulch defaults
+            // ($175/yd, 3 in deep, 2-yd minimum) where the fields are still empty.
+            function setPricingRuleModel(idx, model) {
+              const rule = currentPricingRules[idx];
+              rule.pricing_model = model;
+              if (model === 'per_yard_area') {
+                // A per-sq-ft rate (cents) is never a yard price.
+                if (!(parseFloat(rule.price_per_unit) >= 1)) rule.price_per_unit = 175;
+                if (!(parseFloat(rule.depth_inches) > 0)) rule.depth_inches = 3;
+                if (rule.min_units === null || rule.min_units === undefined || rule.min_units === '') rule.min_units = 2;
+              }
               renderPricingRules();
             }
 
