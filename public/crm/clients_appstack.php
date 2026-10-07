@@ -3731,6 +3731,29 @@ $unconvertedRequests = $db->query("
               <!-- Right Column: Map + Route Intelligence -->
               <div class="col-lg-5">
 
+                <!-- Team on this client + Recent conversation: filled by contact-team.js from
+                     /crm/api/contact-team.php; stay hidden if the load fails. -->
+                <div class="card mb-3 mw-ct-card" id="mw-ct-team" data-contact-id="<?php echo (int)$clientId; ?>" hidden>
+                  <div class="card-header">
+                    <h5 class="card-title mb-0"><i data-feather="users"></i> Team on this client</h5>
+                  </div>
+                  <div class="card-body p-0">
+                    <ul class="mw-ct-list"></ul>
+                    <button type="button" class="mw-ct-more" hidden></button>
+                  </div>
+                </div>
+                <div class="card mb-3 mw-ct-card" id="mw-ct-comms" data-contact-id="<?php echo (int)$clientId; ?>" hidden>
+                  <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0"><i data-feather="message-circle"></i> Recent conversation</h5>
+                    <span class="mw-ct-sub">Last 90 days</span>
+                  </div>
+                  <div class="card-body p-0">
+                    <ol class="mw-ct-timeline"></ol>
+                    <button type="button" class="mw-ct-showmore" hidden>Show more</button>
+                  </div>
+                </div>
+                <script src="<?php echo function_exists('_av') ? _av('/crm/js/contact-team.js') : '/crm/js/contact-team.js'; ?>" defer></script>
+
                 <!-- Managed Properties panel (shown when contact has a role or employer PM) -->
                 <?php if (!empty($managedProperties)): ?>
                 <div class="card mb-3 mw-managed-props-card">

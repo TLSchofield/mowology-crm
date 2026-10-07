@@ -157,6 +157,8 @@ require_once __DIR__ . '/../app/Services/Receipts/ReceiptLineItemIntelligence.ph
 // Contacts
 require_once __DIR__ . '/../app/Modules/Contacts/Services/ContactService.php';
 require_once __DIR__ . '/../app/Modules/Contacts/Services/OnsiteContactService.php';
+require_once __DIR__ . '/../app/Modules/Contacts/Services/ContactTeamService.php';
+require_once __DIR__ . '/../app/Modules/Contacts/Services/ContactTimelineService.php';
 
 // Clients (Client/Account model — Phase 0)
 require_once __DIR__ . '/../app/Modules/Clients/Services/BillToResolver.php';
