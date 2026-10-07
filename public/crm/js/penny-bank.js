@@ -6,6 +6,9 @@
  * A client's payment (credit) asks "which invoice?" first — ?mode=bank_invoice, POST
  * bank_invoice_record / bank_invoice_link (BankInvoiceMatchService): tying it to the
  * invoice books it once; as income on an account it would count twice.
+ * A line she can't place offers "Ask Penny for guidance" (+ an optional note): only that
+ * click calls Claude — POST bank_guidance (BankGuidanceService; free reuse per payee,
+ * daily cap). Her answer preselects the account; the owner still presses Approve.
  */
 (function () {
     'use strict';
@@ -17,6 +20,9 @@
     var stripeRead = {};   // bank line id → what Stripe says the payout holds (read only)
     var invRead = {};      // bank line id → which invoice(s) it may pay (read only)
     var invMode = {};      // bank line id → true: invoice panel · false: pick an account
+    var guide = {};        // bank line id → {pending} | Penny's guidance (bank_guidance answer)
+    var notes = {};        // bank line id → what the owner typed in "Tell Penny"
+    var gStatus = null;    // {ready, cap, used, left} — guidance asks left today
 
     function esc(s) {
         return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -38,6 +44,7 @@
                 lines = d.lines || [];
                 accounts = d.accounts || [];
                 waiting = d.waiting || 0;
+                gStatus = d.guidance || null;
                 idx = 0;
                 render(msg);
             })
@@ -71,6 +78,15 @@
         var now = l.current ? l.current.name : 'No account';
         if (l.stripe) { renderStripe(l, msg); return; }
         if (l.type === 'income' && (invMode[l.id] === true || (invMode[l.id] === undefined && l.client_payment))) { renderInvoice(l, msg); return; }
+        var g = guide[l.id] && guide[l.id].ok ? guide[l.id] : null;
+        var asking = !!(guide[l.id] && guide[l.id].pending);
+        // Only where she has no confident suggestion (none, or a receipt with no account).
+        var canAsk = !!(gStatus && gStatus.ready) && (!s || !s.account_id);
+        var say = g ? '💡 ' + esc(g.say) + (g.from_earlier ? ' <span class="mw-bl-earlier">from earlier</span>' : '')
+            : l.note ? esc(l.note) : s && s.source === 'found_receipt' ? '🧾 ' + esc(s.reason) + '.' + (s.name ? ' So: <b>' + esc(s.name) + '</b>.' : '')
+            : s ? 'I think this is <b>' + esc(s.name) + '</b>: ' + esc(s.reason) + '.'
+            : 'I don\'t know this one yet. What is it? Your answer teaches the import.';
+        var left = gStatus ? Math.max(0, gStatus.left | 0) : 0;
         box.innerHTML =
             '<div class="mw-bl-head"><span><b>🏦 Bank lines</b> · ' + waiting + ' to check</span>' +
               '<span><button type="button" class="mw-rc-arrow" data-bl="prev" aria-label="Previous">‹</button> ' +
@@ -78,14 +94,19 @@
             '<div class="mw-bl-line">' +
               '<div class="mw-bl-top"><span>' + esc(l.date) + (l.bank ? ' · ' + esc(l.bank) : '') + '</span>' +
                 '<b class="' + (l.type === 'income' ? 'is-in' : 'is-out') + '">' + (l.type === 'income' ? '+' : '−') + money(l.amount) + '</b></div>' +
+              (l.payee_name ? '<div class="mw-bl-payee">' + esc(l.payee_name) + '</div>' : '') +
               '<div class="mw-bl-desc">' + esc(l.description) + '</div>' +
               '<div class="mw-bl-now">Booked now: <s>' + esc(now) + '</s></div>' +
             '</div>' +
-            '<div class="mw-bl-say">' + (GREETING ? esc(GREETING) + ', ' : '') +
-              (l.note ? esc(l.note) : s && s.source === 'found_receipt' ? '🧾 ' + esc(s.reason) + '.' + (s.name ? ' So: <b>' + esc(s.name) + '</b>.' : '')
-                 : s ? 'I think this is <b>' + esc(s.name) + '</b>: ' + esc(s.reason) + '.'
-                 : 'I don\'t know this one yet. What is it? Your answer teaches the import.') + '</div>' +
-            '<div class="mw-bl-pick"><select class="mw-rc-in" data-bl-acct aria-label="Account">' + options(l, s ? s.account_id : '') + '</select></div>' +
+            '<div class="mw-bl-say' + (g ? ' mw-bl-guide' : '') + '">' + (GREETING && !g ? esc(GREETING) + ', ' : '') + say + '</div>' +
+            (canAsk ? '<div class="mw-bl-ask">' +
+                '<input class="mw-rc-in" data-bl-note maxlength="300" value="' + esc(notes[l.id] || '') + '"' + (asking ? ' disabled' : '') +
+                  ' placeholder="Tell Penny (optional), e.g. bus when the truck broke down" aria-label="Tell Penny about this line">' +
+                '<button type="button" class="mw-rc-ed mw-bl-askbtn" data-bl="guide"' + (asking ? ' disabled' : '') + '>' +
+                  (asking ? 'Penny is looking…' : g ? '💡 Ask again' : '💡 Ask Penny for guidance') + '</button>' +
+                '<small class="mw-bl-left">' + left + ' guidance ask' + (left === 1 ? '' : 's') + ' left today</small>' +
+              '</div>' : '') +
+            '<div class="mw-bl-pick"><select class="mw-rc-in" data-bl-acct aria-label="Account">' + options(l, g ? g.account_id : s ? s.account_id : '') + '</select></div>' +
             '<div class="mw-rc-actions">' +
               '<button type="button" class="mw-rc-ok" data-bl="approve">✓ Approve</button>' +
               '<button type="button" class="mw-rc-ed" data-bl="keep">Keep as ' + esc(now) + '</button>' +
@@ -250,8 +271,10 @@
         var acct = sel && sel.value ? parseInt(sel.value, 10) : null;
         if (action === 'approve' && !acct) { render('Pick an account first'); return; }
         busy = true;
+        var g = guide[l.id] && guide[l.id].ok ? guide[l.id] : null;
         post({ mode: 'bank_decide', transaction_id: l.id, action: action, account_id: acct,
-               suggested_id: l.suggestion ? l.suggestion.account_id : null,
+               suggested_id: g ? g.account_id : l.suggestion ? l.suggestion.account_id : null,
+               guidance_id: g ? g.guidance_id : null,
                expense_id: l.suggestion && l.suggestion.expense_id ? l.suggestion.expense_id : null })
             .then(function (d) {
                 busy = false;
@@ -263,10 +286,36 @@
             .catch(function () { busy = false; render('Network error — try again'); });
     }
 
+    // "Ask Penny for guidance": the only place the bank card calls Claude (on click).
+    function askPenny() {
+        if (busy || !lines.length) return;
+        var l = lines[idx];
+        if (guide[l.id] && guide[l.id].pending) return;
+        var prev = guide[l.id];
+        guide[l.id] = { pending: true };
+        render();
+        post({ mode: 'bank_guidance', transaction_id: l.id, note: notes[l.id] || '' })
+            .then(function (d) {
+                if (d && typeof d.left === 'number' && gStatus) gStatus.left = d.left;
+                if (d && d.ok) { guide[l.id] = d; if (lines[idx] === l) render(); return; }
+                guide[l.id] = prev && prev.ok ? prev : undefined;
+                if (lines[idx] === l) render((d && (d.message || d.error)) || 'Penny couldn\'t answer — try again');
+            })
+            .catch(function () { guide[l.id] = prev && prev.ok ? prev : undefined; if (lines[idx] === l) render('Network error — try again'); });
+    }
+
+    box.addEventListener('input', function (e) {
+        if (e.target.hasAttribute && e.target.hasAttribute('data-bl-note') && lines[idx]) notes[lines[idx].id] = e.target.value;
+    });
+    box.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && e.target.hasAttribute && e.target.hasAttribute('data-bl-note')) { e.preventDefault(); askPenny(); }
+    });
+
     box.addEventListener('click', function (e) {
         var a = e.target.getAttribute && e.target.getAttribute('data-bl');
         if (!a) return;
-        if (a === 'approve') decide('approve');
+        if (a === 'guide') askPenny();
+        else if (a === 'approve') decide('approve');
         else if (a === 'keep') decide('keep');
         else if (a === 'stripe') bookStripe();
         else if (a === 'inv') { invMode[lines[idx].id] = true; render(); }

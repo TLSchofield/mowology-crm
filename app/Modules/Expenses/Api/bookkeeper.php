@@ -16,7 +16,9 @@
  * POST {mode: 'recheck', suggestion_id, csrf_token}  Penny reads one receipt again, with the photo.
  * POST {mode: 'reject', suggestion_id, reason, csrf_token}  Reject a receipt from the card.
  * GET  ?mode=bank_queue  Imported bank lines on the default account, with Penny's suggestion.
- * POST {mode: 'bank_decide', transaction_id, action: approve|keep, account_id?, suggested_id?, csrf_token}
+ * POST {mode: 'bank_decide', transaction_id, action: approve|keep, account_id?, suggested_id?, guidance_id?, csrf_token}
+ * POST {mode: 'bank_guidance', transaction_id, note?, csrf_token}  Penny explains a line she can't place (Claude, on
+ *                      click only; free reuse per payee, daily cap) — BankGuidanceService. Nothing is filed.
  * GET  ?mode=bank_invoice&transaction_id=N  A credit: already-recorded payments, its Interac email, ranked open invoices.
  * GET  ?mode=bank_invoice_report  Read-only: unmatched deposits whose money is already on invoices (counted twice).
  * POST {mode: 'bank_invoice_record', transaction_id, allocations: [{invoice_id|invoice_number, amount}], sender?, force?, csrf_token}
@@ -264,19 +266,33 @@ try {
         }
 
         case 'bank_queue':
-        case 'bank_decide': {
+        case 'bank_decide':
+        case 'bank_guidance': {
             require_once APP_ROOT . '/Modules/Accounting/Services/BankDeskService.php';
+            require_once APP_ROOT . '/Modules/Accounting/Services/BankGuidanceService.php';
             $bank = new BankDeskService($db);
+            $guide = new BankGuidanceService($db);
             if ($mode === 'bank_queue') {
                 echo json_encode(['ok' => true, 'ready' => $bank->ready(), 'waiting' => $bank->waiting(),
-                                  'lines' => $bank->queue((int)($_GET['limit'] ?? 10)), 'accounts' => $bank->ready() ? $bank->accounts() : []]);
+                                  'lines' => $guide->decorate($bank->queue((int)($_GET['limit'] ?? 10))),
+                                  'accounts' => $bank->ready() ? $bank->accounts() : [], 'guidance' => $guide->status()]);
+            } elseif ($mode === 'bank_guidance') {
+                if ($method !== 'POST') throw new RuntimeException('POST required');
+                set_time_limit(120);
+                echo json_encode($guide->guide((int)($input['transaction_id'] ?? 0), (string)($input['note'] ?? ''), (int)$user['id']));
             } else {
                 if ($method !== 'POST') throw new RuntimeException('POST required');
                 if (!userHasPermission('expenses.edit')) throw new RuntimeException('Permission denied: expenses.edit required');
-                echo json_encode($bank->decide((int)($input['transaction_id'] ?? 0), (string)($input['action'] ?? ''),
+                $txId = (int)($input['transaction_id'] ?? 0);
+                $res = $bank->decide($txId, (string)($input['action'] ?? ''),
                     isset($input['account_id']) ? (int)$input['account_id'] : null,
                     isset($input['suggested_id']) ? (int)$input['suggested_id'] : null, $user,
-                    !empty($input['expense_id']) ? (int)$input['expense_id'] : null));
+                    !empty($input['expense_id']) ? (int)$input['expense_id'] : null);
+                // Approved after asking Penny: keep her reason on the decision, learn the payee's name.
+                if (!empty($res['ok']) && ($input['action'] ?? '') === 'approve' && !empty($input['guidance_id'])) {
+                    $guide->recordDecision($txId, (int)$input['guidance_id'], (int)$user['id']);
+                }
+                echo json_encode($res);
             }
             break;
         }

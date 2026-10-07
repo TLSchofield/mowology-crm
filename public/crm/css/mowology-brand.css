@@ -37843,6 +37843,17 @@ span.mw-icon-box--missing {
 .mw-bl-now { font-size: .75rem; color: var(--mw-ink-500); }
 .mw-bl-say { font-size: .85rem; color: var(--mw-forest); margin: 10px 0 6px; }
 .mw-bl-pick select { width: 100%; max-width: 420px; }
+/* Penny's on-demand guidance on a bank line (BankGuidanceService) */
+.mw-bl-payee { font-weight: 700; font-size: .9rem; color: var(--mw-forest); margin-top: 4px; }
+.mw-bl-say.mw-bl-guide { background: var(--mw-ink-0); border-left: 3px solid var(--mw-lime); border-radius: 6px; padding: 8px 10px; line-height: 1.45; }
+.mw-bl-earlier { display: inline-block; font-size: .7rem; font-weight: 600; color: var(--mw-dark); background: var(--mw-light); border-radius: 999px; padding: 1px 8px; margin-left: 4px; }
+.mw-bl-ask { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin: 4px 0 8px; }
+.mw-bl-ask .mw-rc-in { flex: 1 1 260px; min-width: 0; max-width: 420px; margin-left: 0; padding: 5px 8px; font-size: .82rem; font-weight: 400;
+                      background: var(--mw-ink-0); border-color: var(--mw-ink-200); }
+.mw-bl-ask .mw-bl-askbtn { background: var(--mw-ink-0); color: var(--mw-forest); border: 1px solid var(--mw-green); border-radius: 9px; padding: 6px 12px; font-size: .8rem; font-weight: 600; white-space: nowrap; }
+.mw-bl-ask .mw-bl-askbtn:hover:not([disabled]) { background: var(--mw-light); }
+.mw-bl-ask .mw-bl-askbtn[disabled] { opacity: .6; cursor: wait; }
+.mw-bl-left { font-size: .72rem; color: var(--mw-ink-500); }
 /* Penny bank line → "which invoice does this pay?" (BankInvoiceMatchService) */
 .mw-bl-inv { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 8px; }
 .mw-bl-inv-row { display: grid; grid-template-columns: 20px minmax(0, 1fr) 110px; gap: 8px; align-items: center; margin: 0; font-size: .82rem; }
