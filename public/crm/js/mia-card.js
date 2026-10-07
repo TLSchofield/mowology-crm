@@ -110,9 +110,12 @@
         cBox.innerHTML =
             '<div class="mw-mia-camp-head"><b>Campaign for your OK: ' + esc(c.name) + '</b></div>' +
             '<p class="mw-mia-camp-why">' + esc(c.why) + '</p>' +
+            hubLines(c) +
             '<div class="mw-mia-camp-nums">' +
-              '<span><b>' + (n.clients || 0) + '</b> current clients</span>' +
-              '<span><b>' + (n.neighbours || 0) + '</b> neighbours of clients</span>' +
+              (n.segment
+                ? '<span><b>' + (n.clients || 0) + '</b> ' + esc(String(n.segment).replace(/_/g, ' ').replace(/,/g, ' and ')) + '</span>'
+                : '<span><b>' + (n.clients || 0) + '</b> current clients</span>' +
+                  '<span><b>' + (n.neighbours || 0) + '</b> neighbours of clients</span>') +
               '<span><b>' + (n.consented || 0) + '</b> of ' + (n.considered || 0) + ' pass the consent check</span>' +
               '<span>' + (c.photo ? 'With your before/after photo' : 'No lawn before/after in the portfolio yet') + '</span>' +
             '</div>' +
@@ -126,6 +129,19 @@
             '</div>' +
             '<div class="mw-mia-msg">' + (msg ? esc(msg) : 'Goes out through the campaign sender, with your address and an unsubscribe link in every email.') + '</div>';
         grow(cBox.querySelector('[data-c="body"]'));
+    }
+
+    /** Calendar campaigns (migration 1195): when it goes, its follow-ups, last year, and any flags. */
+    function hubLines(c) {
+        var bits = [];
+        if (c.send_window) bits.push('Goes out ' + c.send_window + ', at each person\'s best time');
+        if (c.sequence_note) bits.push(c.sequence_note + ' to anyone who hasn\'t answered — your OK covers them');
+        var out = bits.length ? '<p class="mw-mia-camp-seq">' + esc(bits.join(' · ')) + '</p>' : '';
+        if (c.last_year) out += '<p class="mw-mia-camp-ly">' + esc(c.last_year) + '</p>';
+        if (c.flags && c.flags.length) {
+            out += '<ul class="mw-mia-camp-flags">' + c.flags.map(function (f) { return '<li>' + esc(f) + '</li>'; }).join('') + '</ul>';
+        }
+        return out;
     }
 
     if (cBox) cBox.addEventListener('click', function (e) {

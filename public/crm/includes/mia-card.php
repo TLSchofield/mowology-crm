@@ -33,6 +33,13 @@ try {
     return;
 }
 $__ms = $__miaStats;
+// Email hub (migration 1195): watering stage, the next calendar campaigns, sequences, send times.
+$__miaHub = null;
+try {
+    require_once APP_ROOT . '/Modules/Marketing/Services/MiaEmailHubService.php';
+    $__hubSvc = new MiaEmailHubService(getDB());
+    if ($__hubSvc->ready()) $__miaHub = $__hubSvc->card();
+} catch (Throwable $__e) { error_log('Mia email hub: ' . $__e->getMessage()); /* a bonus — never block the card */ }
 $__js = function (string $p): string { return function_exists('_av') ? _av($p) : $p; };
 ?>
 <section class="mw-head-card mw-mia" id="mw-mia">
@@ -92,6 +99,45 @@ $__js = function (string $p): string { return function_exists('_av') ? _av($p) :
       <div class="mw-n"><?= (int)$__ms['referrals_open'] ?> waiting on a first visit</div>
     </div>
   </div>
+
+  <?php if ($__miaHub): $__w = $__miaHub['water']; ?>
+  <div class="mw-mia-hub" id="mw-mia-hub">
+    <div class="mw-mia-hub-water<?= (int)($__w['stage'] ?? 0) >= 2 ? ' is-strict' : '' ?>">
+      <span class="mw-k">Watering</span> <?= h($__w['label']) ?>
+      <?php if ((int)($__w['stage'] ?? 0) >= 2): ?><small>No lawn watering · lawn-seeding emails held</small><?php endif; ?>
+    </div>
+    <div class="mw-mia-hub-sec">
+      <div class="mw-k">Next on my calendar</div>
+      <ul class="mw-mia-hub-list">
+        <?php foreach ($__miaHub['next'] as $__n): ?>
+          <li><b><?= h($__n['name']) ?></b> <span><?= h($__n['when']) ?></span> <em><?= h($__n['state']) ?></em></li>
+        <?php endforeach; ?>
+      </ul>
+    </div>
+    <?php if ($__miaHub['sequences']): ?>
+    <div class="mw-mia-hub-sec">
+      <div class="mw-k">Running</div>
+      <ul class="mw-mia-hub-list">
+        <?php foreach ($__miaHub['sequences'] as $__sq): ?>
+          <li><b><?= h($__sq['name']) ?></b> <span><?= (int)$__sq['sent'] ?> sent<?= $__sq['followups'] ? ' · ' . (int)$__sq['followups'] . ' follow-ups' : '' ?></span>
+            <?php if ($__sq['next']): ?><em><?= h(ucfirst((string)$__sq['next_step'])) ?> <?= h(MiaCalendar::short((string)$__sq['next'])) ?> to anyone who hasn't answered</em><?php endif; ?></li>
+        <?php endforeach; ?>
+      </ul>
+    </div>
+    <?php endif; ?>
+    <div class="mw-mia-hub-foot">
+      <span>Learned send times for <b><?= (int)$__miaHub['learned'] ?></b> <?= (int)$__miaHub['learned'] === 1 ? 'client' : 'clients' ?> · the rest get their group's usual time</span>
+    </div>
+    <?php if ($__miaHub['worked']): ?>
+    <div class="mw-mia-hub-sec">
+      <div class="mw-k">What worked</div>
+      <ul class="mw-mia-hub-list is-worked">
+        <?php foreach ($__miaHub['worked'] as $__wk): ?><li><?= h($__wk) ?></li><?php endforeach; ?>
+      </ul>
+    </div>
+    <?php endif; ?>
+  </div>
+  <?php endif; ?>
 
   <div class="mw-mia-q" id="mw-mia-q" hidden></div>
 

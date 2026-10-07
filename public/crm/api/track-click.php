@@ -48,6 +48,15 @@ if ($sid > 0) {
             WHERE id = ? AND clicked_at IS NULL AND status = 'sent'
         ")->execute([$sid]);
 
+        // Every click with its time and user agent (migration 1195), for Mia's send-time learning.
+        try {
+            $db->prepare("
+                INSERT INTO campaign_events (send_id, kind, at, user_agent)
+                SELECT id, 'click', ?, ? FROM campaign_sends
+                WHERE id = ? AND status = 'sent' AND (SELECT COUNT(*) FROM campaign_events WHERE send_id = ? AND kind = 'click') < 20
+            ")->execute([date('Y-m-d H:i:s'), substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 255), $sid, $sid]);
+        } catch (\Throwable $e) { /* before migration 1195 */ }
+
         // Also increment campaign click_count
         $db->prepare("
             UPDATE marketing_campaigns mc
