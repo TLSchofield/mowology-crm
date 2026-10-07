@@ -13,9 +13,6 @@
  *   - Only invoices with status in (sent, viewed, overdue, partial)
  *   - SMS requires receive_sms consent on contact
  *   - SMS has no URLs (carrier gateway compliance)
- *   - Every reminder email carries the invoice PDF (owner rule 2026-10-06). No PDF ->
- *     that invoice's reminder is skipped this run (counter untouched, so the next run
- *     retries) and recorded for Charlie (InvoicePdfGate).
  *
  * Cron: run once daily, e.g. at 9am (after invoice_overdue marks overdue at 8am)
  *   0 9 * * * /usr/local/bin/php /home/mowology/public_html/app/Modules/Marketing/Cron/invoice_reminders.php
@@ -59,8 +56,6 @@ $APPROACHING_DAYS = 3; // days before due_date to send first reminder
 
 // Who a reminder goes to is NOT invoices.contact_id — see resolveReminderRecipients().
 require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceRouting.php';
-require_once APP_ROOT . '/Modules/Invoices/Services/InvoicePdfGate.php';
-$pdfGate = new InvoicePdfGate($db);
 
 try {
     // Find invoices eligible for a reminder:
@@ -122,14 +117,6 @@ try {
             continue;
         }
 
-        // ── The invoice PDF rides on every reminder ──────────────────────
-        $attachPath = $pdfGate->ensurePdf($invoiceId);
-        if ($attachPath === null) {
-            $pdfGate->recordBlocked($invoiceId, 'reminder');
-            remLog("  SKIPPED {$inv['invoice_number']} — " . InvoicePdfGate::NOT_SENT_MESSAGE . ' (' . ($pdfGate->lastError() ?? '') . ')');
-            continue;
-        }
-
         $amount   = '$' . number_format((float)$inv['balance_due'], 2);
         $viewUrl  = !empty($inv['access_token'])
             ? 'https://mowology.ca/customer/invoice.php?token=' . urlencode($inv['access_token'])
@@ -172,13 +159,7 @@ try {
                 $companyInfo
             );
 
-            // The file must still be there now — sendEmail() would silently drop it.
-            if (!$pdfGate->isUsable($attachPath)) {
-                $pdfGate->recordBlocked($invoiceId, 'reminder', 'PDF vanished before send: ' . $attachPath);
-                remLog("  SKIPPED {$inv['invoice_number']} — PDF vanished before send");
-                break;
-            }
-            $result = sendCrmEmail($rcpt['email_address'], $subject, $emailBody, $attachPath);
+            $result = sendCrmEmail($rcpt['email_address'], $subject, $emailBody);
             if ($result) {
                 $emailsSent++;
                 $sentTo[] = $contactName . ' <' . $rcpt['email_address'] . '>';
