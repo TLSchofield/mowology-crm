@@ -603,30 +603,11 @@ class BookkeeperDeskService
     /** @param int[] $hold expense ids not to read yet (possible duplicates) */
     public function prepare(int $max = 2, array $hold = []): array
     {
-        $max = max(1, min(5, $max));
-        $cap = self::DEFAULT_DAILY_CAP;
-        try {
-            $c = $this->db->query("SELECT setting_value FROM ops_settings WHERE setting_key = 'bookkeeper_daily_cap'")->fetchColumn();
-            if ($c !== false && $c !== '') $cap = (int)$c;
-        } catch (Throwable $e) { /* default */ }
-        $today = (int)$this->db->query("SELECT COUNT(*) FROM expense_suggestions WHERE source = 'live' AND created_at >= CURDATE()")->fetchColumn();
-        $room = max(0, $cap - $today);
-        if ($room === 0) {
+        $next = $this->nextToPrepare($max, $hold);
+        if ($next['room'] === 0) {
             return ['prepared' => [], 'capped' => true];
         }
-
-        $ids = $this->db->query("
-            SELECT e.id FROM expenses e
-            WHERE e.status IN ('pending_approval', 'draft')
-              AND e.raw_ocr_json IS NOT NULL AND e.raw_ocr_json <> ''
-              AND NOT EXISTS (SELECT 1 FROM expense_suggestions s
-                              WHERE s.expense_id = e.id AND s.source = 'live' AND s.status IN ('pending', 'error'))
-              " . ($hold ? 'AND e.id NOT IN (' . implode(',', array_map('intval', $hold)) . ')' : '') . "
-            ORDER BY (e.status = 'pending_approval') DESC,
-                     (e.created_at >= DATE_SUB(NOW(), INTERVAL 3 DAY)) DESC,   -- just arrived (emailed) before the old backlog
-                     e.expense_date ASC, e.id ASC
-            LIMIT " . min($max, $room)
-        )->fetchAll(PDO::FETCH_COLUMN);
+        $ids = $next['ids'];
 
         $done = [];
         foreach ($ids as $id) {
@@ -643,6 +624,58 @@ class BookkeeperDeskService
             $done[] = ['expense_id' => (int)$id, 'error' => $r['error'] ?? null];
         }
         return ['prepared' => $done, 'capped' => false];
+    }
+
+    /**
+     * How many receipts one round may prepare: the request clamped to 1..5, then to
+     * what is left of the daily cap. Pure.
+     */
+    public static function batchSize(int $requested, int $cap, int $preparedToday): int
+    {
+        return min(max(1, min(5, $requested)), max(0, $cap - $preparedToday));
+    }
+
+    /** The daily cap: ops_settings bookkeeper_daily_cap, else DEFAULT_DAILY_CAP. */
+    public function dailyCap(): int
+    {
+        $cap = self::DEFAULT_DAILY_CAP;
+        try {
+            $c = $this->db->query("SELECT setting_value FROM ops_settings WHERE setting_key = 'bookkeeper_daily_cap'")->fetchColumn();
+            if ($c !== false && $c !== '') $cap = (int)$c;
+        } catch (Throwable $e) { /* default */ }
+        return $cap;
+    }
+
+    /**
+     * Which receipts the next round would prepare (waiting-for-approval first, then the
+     * newest arrivals, then the oldest drafts) — no API call, nothing written. Used by
+     * prepare() and by the penny_prepare cron's --dry-run.
+     * @param int[] $hold expense ids not to read yet (possible duplicates)
+     * @return array{ids:int[], cap:int, today:int, room:int}
+     */
+    public function nextToPrepare(int $max = 2, array $hold = []): array
+    {
+        $cap = $this->dailyCap();
+        $today = (int)$this->db->query("SELECT COUNT(*) FROM expense_suggestions WHERE source = 'live' AND created_at >= CURDATE()")->fetchColumn();
+        $room = max(0, $cap - $today);
+        $n = self::batchSize($max, $cap, $today);
+        if ($n === 0) {
+            return ['ids' => [], 'cap' => $cap, 'today' => $today, 'room' => $room];
+        }
+
+        $ids = $this->db->query("
+            SELECT e.id FROM expenses e
+            WHERE e.status IN ('pending_approval', 'draft')
+              AND e.raw_ocr_json IS NOT NULL AND e.raw_ocr_json <> ''
+              AND NOT EXISTS (SELECT 1 FROM expense_suggestions s
+                              WHERE s.expense_id = e.id AND s.source = 'live' AND s.status IN ('pending', 'error'))
+              " . ($hold ? 'AND e.id NOT IN (' . implode(',', array_map('intval', $hold)) . ')' : '') . "
+            ORDER BY (e.status = 'pending_approval') DESC,
+                     (e.created_at >= DATE_SUB(NOW(), INTERVAL 3 DAY)) DESC,   -- just arrived (emailed) before the old backlog
+                     e.expense_date ASC, e.id ASC
+            LIMIT " . $n
+        )->fetchAll(PDO::FETCH_COLUMN);
+        return ['ids' => array_map('intval', $ids), 'cap' => $cap, 'today' => $today, 'room' => $room];
     }
 
     /** YYYY-MM-DD that is a real date, not in the future and not absurdly old; else null. Pure. */
