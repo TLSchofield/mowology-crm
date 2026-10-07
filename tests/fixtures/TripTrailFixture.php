@@ -79,6 +79,34 @@ final class TripTrailFixture
         return self::build($plan, $date);
     }
 
+    /**
+     * The 2026-10-07 trail through the afternoon: the dump, then Lawn Boy three times from Oakridge —
+     * 10:15–10:24, 11:29–11:34 and 12:32–12:42 (what Tim asked Charlie about).
+     */
+    public static function real1007Full(string $date = '2026-10-07'): array
+    {
+        $plan = [
+            ['stay', self::YARD, '06:30', '08:30'],
+            ['go', self::YARD, self::OAKRIDGE, '08:30', '08:56'],
+            ['stay', self::OAKRIDGE, '08:56', '09:36'],
+            ['go', self::OAKRIDGE, self::DUMP, '09:36', '09:51'],
+            ['stay', self::DUMP, '09:51', '10:00'],
+            ['go', self::DUMP, self::LAWNBOY_REAL, '10:00', '10:15'],
+            ['stay', self::LAWNBOY_REAL, '10:15', '10:24'],
+            ['go', self::LAWNBOY_REAL, self::OAKRIDGE, '10:24', '10:35'],
+            ['stay', self::OAKRIDGE, '10:35', '11:16'],
+            ['go', self::OAKRIDGE, [49.2070, -123.1177], '11:16', '11:29'],
+            ['stay', [49.2070, -123.1177], '11:29', '11:34'],
+            ['go', [49.2070, -123.1177], self::OAKRIDGE, '11:34', '11:45'],
+            ['stay', self::OAKRIDGE, '11:45', '12:20'],
+            ['go', self::OAKRIDGE, self::LAWNBOY_REAL, '12:20', '12:32'],
+            ['stay', self::LAWNBOY_REAL, '12:32', '12:42'],
+            ['go', self::LAWNBOY_REAL, self::OAKRIDGE, '12:42', '12:55'],
+            ['stay', self::OAKRIDGE, '12:55', '13:30'],
+        ];
+        return self::build($plan, $date);
+    }
+
     /** Pings every minute for a plan (one-minute spacing so odd-minute stop edges land exactly). */
     private static function build(array $plan, string $date): array
     {

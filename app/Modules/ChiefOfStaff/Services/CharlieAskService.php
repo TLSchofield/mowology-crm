@@ -11,11 +11,18 @@
  *   - Nothing matched → Charlie says so without calling Claude (free, not counted).
  *   - A daily cap (ops_settings charlie_ask_daily_cap, default 30 calls).
  *   - Every ask is logged in charlie_asks with tokens and cost (migration 1215).
+ *   - Counts and totals from the other heads (Otto's truck log and cost facts, Penny's receipts,
+ *     the schedule) are answered first by CharlieFactAnswerer with plain SQL — free, not counted
+ *     against the cap, logged with source 'facts'. When it isn't sure, the same summaries are
+ *     added to Claude's context (counts and totals, never raw rows).
+ *   - Every answer ends with where it came from ("— from Otto's truck log").
  * Claude is called over HTTP the way BankGuidanceService does (no SDK on the FTP-deployed
  * host); tests inject a fake transport.
  *
  * No namespace / no autoloader in production: require_once and `new`.
  */
+require_once __DIR__ . '/CharlieFactAnswerer.php';
+
 class CharlieAskService
 {
     public const API_URL     = 'https://api.anthropic.com/v1/messages';
@@ -39,6 +46,7 @@ How to read the records:
 - invoice: balance_due > 0 means still owing; paid_at is when it was paid; overdue = past its due date and unpaid.
 - visits: scheduled = coming up; completed = done.
 - Several people can share a first name — if more than one matches, say which one you mean or list them briefly.
+- facts: counts and totals already worked out from Otto's truck log and cost facts, Penny's receipts and the schedule, for the period named. Trust them as given; don't recount.
 
 Reply in Charlie's voice: plain, short, friendly, first person, to the owner. At most 4 short sentences, plain text, no markdown, no bullet points. Use real dates (e.g. "Oct 3") and amounts ($1,240). You can't change anything in the CRM — you only look things up.
 TXT;
@@ -60,12 +68,14 @@ TXT;
     /** @var callable|null fn(array $requestBody): array{code: int, body: string} — injected in tests */
     private $transport;
     private ?string $today;
+    private CharlieFactAnswerer $facts;
 
-    public function __construct(PDO $db, ?callable $transport = null, ?string $today = null)
+    public function __construct(PDO $db, ?callable $transport = null, ?string $today = null, ?CharlieFactAnswerer $facts = null)
     {
         $this->db = $db;
         $this->transport = $transport;
         $this->today = $today;
+        $this->facts = $facts ?? new CharlieFactAnswerer($db, $today);
     }
 
     private function today(): string { return $this->today ?? date('Y-m-d'); }
@@ -128,8 +138,26 @@ TXT;
         $question = self::cleanQuestion($question);
         if (mb_strlen($question) < 3) return ['ok' => false, 'message' => 'Type a question first.', 'left' => $this->status()['left']];
 
+        // Counts and totals from the other heads: plain SQL, no model, not counted.
+        $fact = null;
+        try {
+            $fact = $this->facts->answer($question);
+        } catch (Throwable $e) {
+            error_log('Charlie facts: ' . $e->getMessage());
+        }
+        if ($fact) {
+            $this->record($question, [$fact['about']], ['facts' => $fact['head']], 'facts', $fact['answer'], null, 0, 0, null, $userId);
+            return ['ok' => true, 'answer' => $fact['answer'], 'source' => 'facts', 'left' => $this->status()['left']];
+        }
+
         $terms = self::terms($question);
         $ctx = $this->context($terms);
+        $summary = $this->facts->summary($question);
+        $from = array_sum(self::matched($ctx)) > 0 ? ['the CRM'] : [];
+        if ($summary) {
+            $ctx['facts'] = $summary['lines'];
+            foreach ($summary['heads'] as $h) $from[] = CharlieFactAnswerer::FROM[$h];
+        }
         $matched = self::matched($ctx);
 
         // Nothing in the CRM matched: say so for free.
@@ -170,6 +198,7 @@ TXT;
             return ['ok' => false, 'message' => 'I couldn\'t answer that just now (' . $error . '). Try again in a minute.',
                     'left' => self::capLeft($cap, $used + 1)];
         }
+        if ($from) $answer .= "\n— from " . implode(' and ', array_values(array_unique($from)));
         return ['ok' => true, 'answer' => $answer, 'source' => 'claude', 'left' => self::capLeft($cap, $used + 1)];
     }
 
@@ -370,6 +399,7 @@ TXT;
     {
         $out = [];
         foreach (['contacts', 'companies', 'properties', 'quotes', 'invoices', 'visits'] as $k) $out[$k] = count((array)($ctx[$k] ?? []));
+        if (!empty($ctx['facts'])) $out['facts'] = count((array)$ctx['facts']);
         return $out;
     }
 
@@ -377,7 +407,8 @@ TXT;
     {
         $records = [];
         foreach ($ctx as $k => $rows) {
-            if ($rows) $records[$k] = array_map(fn($r) => array_filter($r, fn($v) => $v !== null && $v !== ''), $rows);
+            if (!$rows) continue;
+            $records[$k] = $k === 'facts' ? array_values($rows) : array_map(fn($r) => array_filter($r, fn($v) => $v !== null && $v !== ''), $rows);
         }
         return "Today is {$today}.\n\nThe owner asks: \"{$question}\"\n\nCRM records that matched (contact_id / company_id / property_id link them):\n"
             . json_encode($records, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);

@@ -125,6 +125,7 @@ require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieInboxServic
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieUrgentService.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieForemanService.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/TeamCardService.php';
+require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieFactAnswerer.php';
 require_once __DIR__ . '/../app/Modules/ChiefOfStaff/Services/CharlieAskService.php';
 
 require_once __DIR__ . '/../app/Modules/Invoices/Services/StatementService.php';

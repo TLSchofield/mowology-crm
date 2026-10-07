@@ -6,6 +6,8 @@
  *                       questions, the decision inbox and the urgent list.
  * GET  ?mode=calendar   Deadlines, history, the year-end pack, rules, rulings, settings.
  * POST {mode: 'act', key, what: open|dismiss|snooze, csrf_token}
+ * POST {mode: 'ask', question, csrf_token}         Ask Charlie (CharlieAskService — the iOS Ask box's
+ *                       answer: facts by SQL first, then Claude, daily-capped). Owner or admin.
  * POST {mode: 'answer', question_id, answer, csrf_token}
  * POST {mode: 'deadline_done', key, csrf_token}                    from the card / inbox
  * POST {mode: 'deadline_mark', occurrence_id, what: done|skip|snooze, days?, note?, csrf_token}
@@ -62,7 +64,9 @@ try {
         echo json_encode(['ok' => false, 'ready' => false, 'error' => 'Migration 1170 has not run']);
         exit;
     }
-    if (!$desk->isOwner($user)) {
+    // Ask Charlie is also open to an admin (to try it from a browser session); everything else is the owner's.
+    $canAsk = $mode === 'ask' && ($user['role'] ?? '') === 'admin';
+    if (!$desk->isOwner($user) && !$canAsk) {
         http_response_code(403);
         echo json_encode(['ok' => false, 'error' => 'Charlie works for the owner only']);
         exit;
@@ -134,6 +138,13 @@ try {
                 break;
             }
             echo json_encode($desk->act(substr((string)($input['key'] ?? ''), 0, 120), $what));
+            break;
+
+        case 'ask':
+            // The same answer the iOS Team tab gets (team-mobile.php mode=ask): facts first, then Claude, capped.
+            require_once APP_ROOT . '/Modules/ChiefOfStaff/Services/CharlieAskService.php';
+            @set_time_limit(90);
+            echo json_encode((new CharlieAskService($db))->ask((string)($input['question'] ?? ''), $uid));
             break;
 
         case 'answer':
