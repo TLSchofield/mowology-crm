@@ -187,6 +187,10 @@ class BankInvoiceMatchService
                 $l = $this->legacyPaid(round((float)$line['amount'], 2), substr((string)$line['transaction_date'], 0, 10));
                 if (!$l) throw new RuntimeException('I can\'t find that payment any more.');
                 $this->recon->markDepositAlreadyRecorded($txId, $userId, 'payment already on ' . $l[0]['invoice_number'] . ' (Penny)');
+                // Claim the invoice: legacyPaid() skips invoices a deposit already points at,
+                // so the same payment can't be offered for a second deposit.
+                $this->db->prepare("UPDATE accounting_transactions SET matched_invoice_id = ? WHERE id = ?")
+                   ->execute([(int)$l[0]['invoice_id'], $txId]);
                 $numbers = [$l[0]['invoice_number']];
             } else {
                 $r = $this->recon->linkAllocationsToDeposit($txId, $allocationIds, $userId);
