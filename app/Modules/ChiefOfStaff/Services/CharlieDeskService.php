@@ -233,10 +233,12 @@ class CharlieDeskService
         $s = $this->db->prepare("
             SELECT item_key FROM charlie_items
             WHERE resolved_at IS NULL
-              AND (dismissed_at >= ? OR opened_at >= ? OR (snoozed_until IS NOT NULL AND snoozed_until > ?))
+              AND (dismissed_at >= ? OR (snoozed_until IS NOT NULL AND snoozed_until > ?))
         ");
+        // Opening an item is not doing it ("Start the quote" then closing the tab): it stays on the
+        // list until the head stops reporting it (the work is done) or Tim says "Not now".
         $t = $this->day();
-        $s->execute([$t . ' 00:00:00', $t . ' 00:00:00', $t]);
+        $s->execute([$t . ' 00:00:00', $t]);
         return $s->fetchAll(PDO::FETCH_COLUMN);
     }
 
