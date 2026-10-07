@@ -56,6 +56,17 @@ try {
         exit;
     }
 
+    // One photo, one expense (see ExpenseCreateGuard): a repeat of this save answers with
+    // the expense already made from the photo instead of inserting another.
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseCreateGuard.php';
+    $createGuard  = new ExpenseCreateGuard(getDB());
+    $guardMediaId = !empty($input['receipt_media_id']) ? (int)$input['receipt_media_id'] : null;
+    $existingId   = $createGuard->claim($guardMediaId);
+    if ($existingId !== null) {
+        echo json_encode(ExpenseCreateGuard::existingResponse($existingId));
+        exit;
+    }
+
     $anomalyFlags = '';
     $anomalyScore = 0;
     try {
@@ -69,6 +80,7 @@ try {
     }
 
     $db   = getDB();
+    try {
     $stmt = $db->prepare("
         INSERT INTO expenses
             (expense_date, vendor_id, vendor_name_raw, description, amount, gst_amount, pst_amount, total,
@@ -103,8 +115,10 @@ try {
         $status,
         $userId,
     ]);
-
     $expenseId = (int)$db->lastInsertId();
+    } finally {
+        $createGuard->release($guardMediaId);   // the INSERT is in: the next request sees it
+    }
 
     // Line-item provenance ('ocr' | 'vision' | 'llm' | 'manual') — column arrives with
     // migration 1115; never fatal before it runs.

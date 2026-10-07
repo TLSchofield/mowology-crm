@@ -2878,7 +2878,16 @@ async function submitReceiptExport() {
     window.saveFromReview = function() { saveReviewExpense(false); };
     window.saveAndSend = function() { saveReviewExpense(true); };
 
+    // One save at a time: a second click while the duplicate check or the save is still
+    // out would create a second expense for the same photo.
+    var reviewSaveInFlight = false;
     async function saveReviewExpense(andSend) {
+        if (reviewSaveInFlight) return;
+        reviewSaveInFlight = true;
+        try { await saveReviewExpenseOnce(andSend); } finally { reviewSaveInFlight = false; }
+    }
+
+    async function saveReviewExpenseOnce(andSend) {
         // Prepare line items for saving — carries ocr_name / removed / manual so the
         // server records per-vendor lessons from any correction made here.
         var liPayload = reviewLineItemsPayload('review');
@@ -5078,10 +5087,16 @@ async function submitReceiptExport() {
         });
     })();
 
+    // One save at a time. The button used to be disabled only AFTER the duplicate-check
+    // fetch, and re-enabled for the 600 ms before the batch buttons replaced it, so taps
+    // during either window each created another expense for the same photo (#408-#410).
+    var mobileSaveInFlight = false;
     window.mobileSaveExpense = async function(andSend) {
+        if (mobileSaveInFlight) return;
         var review = document.getElementById('mobileReviewPanel');
         var saveBtn = review.querySelector('.mw-mc-expense-save-btn');
         var activeBtn = saveBtn;
+        var saved = false;
 
         // Prepare line items for saving
         var liPayload = reviewLineItemsPayload('mobile');
@@ -5122,16 +5137,17 @@ async function submitReceiptExport() {
             return;
         }
 
-        // Duplicate check at save time
-        var okToSave = await confirmDuplicateCheck(
-            data.vendor_name_raw, data.vendor_id, data.total, data.expense_date, null
-        );
-        if (!okToSave) return;
-
-        // Disable buttons and show loading
+        // Disable before anything async — the duplicate check below is a network round trip.
+        mobileSaveInFlight = true;
         if (activeBtn) { activeBtn.disabled = true; activeBtn.classList.add('mw-mc-expense-btn-loading'); }
 
         try {
+            // Duplicate check at save time
+            var okToSave = await confirmDuplicateCheck(
+                data.vendor_name_raw, data.vendor_id, data.total, data.expense_date, null
+            );
+            if (!okToSave) return;
+
             var d = await withCSRFRetry(async function() {
                 var r = await fetch('/crm/api/expenses.php', {
                     method: 'POST',
@@ -5163,7 +5179,8 @@ async function submitReceiptExport() {
 
             // Haptic feedback on save
             haptic('save');
-            mobileToast(andSend ? 'Saved & sent!' : 'Expense saved!');
+            mobileToast(d.deduplicated ? 'Already saved' : (andSend ? 'Saved & sent!' : 'Expense saved!'));
+            saved = true;   // the button stays disabled until the batch buttons replace it
 
             // Batch mode: show "Snap Another" / "Done" instead of auto-resetting
             setTimeout(function() {
@@ -5171,6 +5188,7 @@ async function submitReceiptExport() {
                 loadStats();
                 if (andSend) loadSendLog();
                 showBatchButtons();
+                mobileSaveInFlight = false;
             }, 600);
         } catch(e) {
             haptic('error');
@@ -5179,7 +5197,10 @@ async function submitReceiptExport() {
                 : ('Error: ' + e.message);
             mobileToast(userMsg, true);
         } finally {
-            if (activeBtn) { activeBtn.disabled = false; activeBtn.classList.remove('mw-mc-expense-btn-loading'); }
+            if (!saved) {
+                mobileSaveInFlight = false;
+                if (activeBtn) { activeBtn.disabled = false; activeBtn.classList.remove('mw-mc-expense-btn-loading'); }
+            }
         }
     };
 
