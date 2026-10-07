@@ -38218,6 +38218,36 @@ body.mw-rc-zoom-open { overflow: hidden; }
 .mw-otto-slot { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--mw-ink-200); }
 .mw-otto-slot small { display: block; font-size: .74rem; color: var(--mw-ink-700); margin-bottom: 6px; }
 .mw-otto-msg { margin-top: 6px; font-size: .74rem; color: var(--mw-dark); }
+/* Otto — Today's runs (trip overhead: otto-trips.php / otto-trips.js) */
+.mw-otto-trips { border: 1px solid var(--mw-ink-200); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; background: var(--mw-ink-0); }
+.mw-otto-trips-hd { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; font-size: .82rem; color: var(--mw-forest); }
+.mw-otto-trips-hd small { font-size: .7rem; color: var(--mw-ink-500); }
+.mw-otto-stops { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.mw-otto-stops li { display: flex; gap: 8px; align-items: baseline; font-size: .76rem; color: var(--mw-ink-900); padding: 2px 0 2px 8px; border-left: 3px solid var(--mw-ink-200); }
+.mw-otto-stops li.is-property { border-left-color: var(--mw-green); }
+.mw-otto-stops li.is-dump, .mw-otto-stops li.is-supplier, .mw-otto-stops li.is-fuel { border-left-color: var(--mw-orange); }
+.mw-otto-stops li.is-unnamed { color: var(--mw-ink-500); border-left-style: dashed; }
+.mw-otto-stop-t { flex: none; width: 76px; font-variant-numeric: tabular-nums; color: var(--mw-ink-500); }
+.mw-otto-stop-nm { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.mw-otto-stop-m { flex: none; font-variant-numeric: tabular-nums; color: var(--mw-ink-700); }
+.mw-otto-run { border-top: 1px dashed var(--mw-ink-200); padding-top: 8px; }
+.mw-otto-run p { margin: 0 0 4px; font-size: .8rem; color: var(--mw-ink-900); line-height: 1.4; }
+.mw-otto-run.is-open p em { color: var(--mw-orange); font-style: normal; font-weight: 600; }
+.mw-otto-run-cost { float: right; font-weight: 800; color: var(--mw-forest); }
+.mw-otto-run-cost small { font-weight: 600; color: var(--mw-orange); }
+.mw-otto-legs { margin: 0 0 6px; padding-left: 16px; font-size: .72rem; color: var(--mw-ink-700); line-height: 1.45; }
+.mw-otto-crew { font-size: .74rem; color: var(--mw-ink-700); margin-right: 4px; }
+.mw-otto-crew small { color: var(--mw-ink-500); }
+.mw-otto-warn { color: var(--mw-orange); font-weight: 600; font-size: .74rem; }
+.mw-otto-name { border-top: 1px dashed var(--mw-ink-200); padding-top: 8px; display: flex; flex-direction: column; gap: 6px; font-size: .76rem; color: var(--mw-ink-900); margin: 0; }
+.mw-otto-name a { font-size: .72rem; font-weight: 600; color: var(--mw-green); margin-left: 4px; }
+.mw-otto-name input[type="text"] { flex: 1; min-width: 160px; }
+.mw-otto-name select { border: 1px solid var(--mw-ink-200); border-radius: 8px; padding: 4px 6px; font-size: .78rem; color: var(--mw-ink-900); background: var(--mw-ink-0); }
+.mw-otto-base { background: var(--mw-light); border-radius: 8px; padding: 6px 10px; font-size: .75rem; color: var(--mw-forest); line-height: 1.5; }
+.mw-otto-trips-ft { font-size: .66rem; color: var(--mw-ink-500); }
+/* Penny — overhead runs with no receipt yet (dept-heads-deck.php) */
+.mw-penny-trips { margin-top: 8px; font-size: .78rem; color: var(--mw-ink-900); background: var(--mw-ink-50); border-left: 3px solid var(--mw-orange); border-radius: 8px; padding: 6px 10px; }
+.mw-penny-trips div + div { margin-top: 2px; }
 .mw-otto-msg.is-bad { color: var(--mw-orange); }
 .mw-otto-done { color: var(--mw-dark); font-weight: 600; margin: 0 !important; }
 .mw-otto-item.is-done { border-left-color: var(--mw-lime); background: var(--mw-light); }

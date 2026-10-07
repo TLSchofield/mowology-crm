@@ -192,6 +192,11 @@ class OpsDeskService
             require_once dirname(__DIR__, 2) . '/Marketing/Services/MediaTagService.php';
             foreach (MediaTagService::missingPhotoItems($this->db, $this->today) as $it) $out[] = $it;
         } catch (Throwable $e) { /* additive only */ }
+        // Unnamed truck stops today (priority 3) — name them once so dump / supply runs get costed.
+        try {
+            require_once __DIR__ . '/TripCostService.php';
+            foreach ((new TripCostService($this->db))->briefItems($this->today) as $it) $out[] = $it;
+        } catch (Throwable $e) { /* additive only (migration 1216) */ }
         $out = OttoRules::sortItems($out);
         return ['head' => 'otto', 'headline' => $headline, 'items' => $out, 'count' => count($out)];
     }

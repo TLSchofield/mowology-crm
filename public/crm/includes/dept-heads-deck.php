@@ -43,6 +43,12 @@ try {
         require_once APP_ROOT . '/Modules/Expenses/Services/PennySelfAuditService.php';
         $__audit = (new PennySelfAuditService(getDB()))->dueThenLast();   // weekly; code only
     } catch (Throwable $__e) { /* badges are a bonus — never block the card */ }
+    $__tripMissing = [];
+    try {
+        require_once APP_ROOT . '/Modules/Operations/Services/TripCostService.php';
+        $__tcp = new TripCostService(getDB());
+        if ($__tcp->ready()) $__tripMissing = $__tcp->missingReceipts(14);   // links receipts filed since the cron
+    } catch (Throwable $__e) { /* trip overhead is a bonus (migration 1216) */ }
 } catch (Throwable $__e) {
     error_log('Dept heads deck unavailable: ' . $__e->getMessage());
     return;
@@ -169,6 +175,13 @@ $__team = [
         I re-checked <?= (int)$__audit['checked'] ?> of my past calls you approved —
         <?php if ((int)$__audit['wrong'] === 0): ?>none have been corrected since. ✓
         <?php else: ?><b><?= (int)$__audit['wrong'] ?></b> were corrected later (<?= (int)$__audit['rate'] ?>% wrong). Hover to see which.<?php endif; ?>
+      </div>
+      <?php endif; ?>
+
+      <?php if ($__tripMissing): ?>
+      <div class="mw-penny-trips" title="Otto saw the truck at these places. A receipt for that day whose vendor matches the place links itself.">
+        <?php foreach (array_slice($__tripMissing, 0, 3) as $__m): ?><div>🧾 <?= h(TripCostService::missingLine($__m)) ?></div><?php endforeach; ?>
+        <?php if (count($__tripMissing) > 3): ?><div><small>+<?= count($__tripMissing) - 3 ?> more runs without a receipt</small></div><?php endif; ?>
       </div>
       <?php endif; ?>
 

@@ -35,6 +35,16 @@ try {
         require_once APP_ROOT . '/Modules/Operations/Services/OttoBrainService.php';
         $__oBrain = (new OttoBrainService(getDB()))->learned($__os['right_first_time']);
     } catch (Throwable $__e) { /* the brain is a bonus */ }
+    $__tripDay = null;
+    $__tripBase = [];
+    try {
+        require_once APP_ROOT . '/Modules/Operations/Services/TripCostService.php';
+        $__tc = new TripCostService(getDB());
+        if ($__tc->ready()) {
+            $__tripDay = $__tc->pricedDay(date('Y-m-d'));
+            $__tripBase = $__tc->baseline();
+        }
+    } catch (Throwable $__e) { /* trips are a bonus (migration 1216) */ }
 } catch (Throwable $__e) {
     error_log('Otto card unavailable: ' . $__e->getMessage());
     return;
@@ -122,6 +132,8 @@ $__oCrewLine = implode(' · ', array_map(fn($c) => $c['name'] . ' ' . $c['done']
     <div class="mw-otto-outlook">❄ <?= h($__os['outlook']) ?></div>
   <?php endif; ?>
 
+  <?php include __DIR__ . '/otto-trips.php'; ?>
+
   <div class="mw-otto-qs" id="mw-otto-qs" hidden></div>
   <div class="mw-otto-list" id="mw-otto-list" aria-live="polite">
     <div class="mw-otto-empty">Loading suggestions…</div>
@@ -134,3 +146,4 @@ $__oCrewLine = implode(' · ', array_map(fn($c) => $c['name'] . ' ' . $c['done']
 </section>
 <script src="<?= function_exists('_av') ? _av('/crm/js/head-brain.js') : '/crm/js/head-brain.js' ?>" defer></script>
 <script src="<?= function_exists('_av') ? _av('/crm/js/otto-card.js') : '/crm/js/otto-card.js' ?>" defer></script>
+<?php if (!empty($__tripDay)): ?><script src="<?= function_exists('_av') ? _av('/crm/js/otto-trips.js') : '/crm/js/otto-trips.js' ?>" defer></script><?php endif; ?>
