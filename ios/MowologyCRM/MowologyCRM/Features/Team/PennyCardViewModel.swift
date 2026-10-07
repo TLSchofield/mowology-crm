@@ -162,6 +162,31 @@ final class PennyCardViewModel: ObservableObject {
         show(r.message ?? "Got it — they go on for approval.", error: false)
     }
 
+    /// "Keep this one": every other waiting copy in the group is set aside (rejected
+    /// "Duplicate of receipt #N" on the server, kept on record); anything the kept one is
+    /// missing — job, category, notes, line items, photo — is taken from them first.
+    func keep(_ member: BKDupeMember, in group: BKDupeGroup) async {
+        guard !isBusy else { return }
+        let removeIds = Self.copiesToRemove(keeping: member.id, in: group)
+        guard !removeIds.isEmpty else { return }
+        guard let r = await perform(["mode": "remove_dupes", "keep_id": member.id, "remove_ids": removeIds]) else { return }
+        await load()
+        show(r.message ?? "Kept #\(member.id) — the copies are set aside.", error: false)
+    }
+
+    /// The copies "Keep this one" removes: every other member still waiting (an approved
+    /// or sent one is never removed).
+    nonisolated static func copiesToRemove(keeping keepId: Int, in group: BKDupeGroup) -> [Int] {
+        group.members.filter { $0.id != keepId && $0.isWaiting }.map(\.id)
+    }
+
+    /// Where "Keep this one" is offered. When a member is already approved/sent it stays
+    /// regardless, so only it can be the one kept — keeping a waiting one would leave the pair.
+    nonisolated static func canKeep(_ member: BKDupeMember, in group: BKDupeGroup) -> Bool {
+        let settled = group.members.contains { !$0.isWaiting }
+        return (settled ? !member.isWaiting : true) && !copiesToRemove(keeping: member.id, in: group).isEmpty
+    }
+
     /// The values sent with decide — the same keys the web card's form sends.
     func overrides() -> [String: Any] {
         guard let it = current else { return [:] }

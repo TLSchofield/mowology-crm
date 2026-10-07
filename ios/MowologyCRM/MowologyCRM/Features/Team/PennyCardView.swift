@@ -16,6 +16,7 @@ struct PennyCardView: View {
     @State private var zoomTarget: ZoomTarget?
     @State private var showReject = false
     @State private var rejectReason = ""
+    @State private var keepTarget: KeepTarget?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -44,6 +45,17 @@ struct PennyCardView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("It leaves Penny's desk and won't be booked. The person who sent it in sees the reason.")
+        }
+        .alert(keepTarget?.title ?? "", isPresented: Binding(
+            get: { keepTarget != nil },
+            set: { if !$0 { keepTarget = nil } }
+        ), presenting: keepTarget) { target in
+            Button(target.removeCount == 1 ? "Remove the copy" : "Remove \(target.removeCount) copies", role: .destructive) {
+                Task { await vm.keep(target.member, in: target.group) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("They're set aside as duplicates — kept on record, not deleted. Anything the one you keep is missing (job, category, notes, line items, photo) is taken from them.")
         }
     }
 
@@ -312,7 +324,7 @@ struct PennyCardView: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: 10) {
-                    ForEach(group.members) { m in dupeMember(m) }
+                    ForEach(group.members) { m in dupeMember(m, in: group) }
                 }
             }
 
@@ -329,14 +341,14 @@ struct PennyCardView: View {
             .tint(Color.MW.green)
             .disabled(vm.isBusy)
 
-            Text("To remove a copy, use the receipts page on the web for now.")
+            Text("Same receipt? Tap \"Keep this one\" under the copy to keep — the others are set aside, not deleted.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             messageLine
         }
     }
 
-    private func dupeMember(_ m: BKDupeMember) -> some View {
+    private func dupeMember(_ m: BKDupeMember, in group: BKDupeGroup) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Group {
                 if let s = m.receiptPath, let url = URL(string: s) {
@@ -368,6 +380,19 @@ struct PennyCardView: View {
                     .font(.caption2)
                     .foregroundStyle(Color.MW.green)
             }
+            if PennyCardViewModel.canKeep(m, in: group) {
+                Button {
+                    keepTarget = KeepTarget(member: m, group: group)
+                } label: {
+                    Label("Keep this one", systemImage: "checkmark.circle")
+                        .font(.caption.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .tint(Color.MW.green)
+                .controlSize(.small)
+                .disabled(vm.isBusy)
+            }
         }
         .frame(width: 150, alignment: .leading)
     }
@@ -392,6 +417,17 @@ private struct ConfidenceChip: View {
         case "medium": return Color.MW.orange
         default: return .red
         }
+    }
+}
+
+/// "Keep this one" waiting for its confirmation.
+private struct KeepTarget {
+    let member: BKDupeMember
+    let group: BKDupeGroup
+
+    var removeCount: Int { PennyCardViewModel.copiesToRemove(keeping: member.id, in: group).count }
+    var title: String {
+        "Remove \(removeCount == 1 ? "1 copy" : "\(removeCount) copies"), keep #\(member.id)?"
     }
 }
 
