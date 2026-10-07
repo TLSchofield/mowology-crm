@@ -38374,3 +38374,43 @@ body.mw-rc-zoom-open { overflow: hidden; }
     .mw-ab-body { flex: 1 1 0; }
     .mw-ab-acts { flex-direction: row; align-items: center; gap: 14px; width: 100%; justify-content: flex-end; }
 }
+
+/* ===================================================================
+   YUI — COMMS / CLIENT RELATIONS HEAD (dashboard deck)
+   Card: includes/yui-card.php · JS: js/yui-card.js · brain: js/head-brain.js
+   Five sections of one-to-one client conversations; the editor and buttons
+   reuse Sam's draft classes (.mw-sam-in, .mw-sam-chan, .mw-sam-msg, .mw-sam-lead-act).
+   =================================================================== */
+.mw-yui { display: grid; grid-template-columns: 150px 1fr; gap: 18px; border-color: var(--mw-light); }
+.mw-yui-photo { position: relative; width: max-content; }
+.mw-yui-photo img { width: 120px; height: 120px; border-radius: var(--mw-radius-lg); object-fit: cover; display: block; box-shadow: 0 0 0 3px var(--mw-lime), var(--mw-shadow-md); }
+.mw-yui-body { min-width: 0; }
+.mw-yui-stats { grid-template-columns: repeat(4, 1fr); }
+.mw-yui-stats .mw-v small { margin-left: 4px; color: var(--mw-dark); }
+.mw-yui-secs { margin-top: 14px; display: flex; flex-direction: column; gap: 10px; }
+.mw-yui-sec { border: 1px solid var(--mw-ink-200); border-radius: 12px; padding: 10px 12px; }
+.mw-yui-sec-head { font-size: .8rem; color: var(--mw-forest); margin-bottom: 4px; }
+.mw-yui-sec-head small { color: var(--mw-ink-500); }
+.mw-yui-n { display: inline-block; min-width: 20px; text-align: center; font-size: .68rem; font-weight: 800; color: var(--mw-dark); background: var(--mw-light); border-radius: var(--mw-radius-pill); padding: 0 6px; }
+.mw-yui-row { border-top: 1px dashed var(--mw-ink-200); padding: 8px 0; font-size: .82rem; color: var(--mw-ink-900); }
+.mw-yui-row.is-open { background: var(--mw-ink-50); margin: 0 -12px; padding: 8px 12px; }
+.mw-yui-line { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.mw-yui-main { min-width: 0; }
+.mw-yui-main q { color: var(--mw-ink-700); font-style: italic; }
+.mw-yui-row.is-yes .mw-yui-main q { color: var(--mw-dark); font-weight: 700; font-style: normal; }
+.mw-yui-row.is-money .mw-yui-main { color: var(--mw-forest); }
+.mw-yui-meta, .mw-yui-to { display: block; color: var(--mw-ink-500); }
+.mw-yui-to.is-none { color: var(--mw-orange); }
+.mw-yui-act { flex-wrap: wrap; justify-content: flex-end; }
+.mw-yui-act button:disabled { opacity: .5; cursor: not-allowed; }
+.mw-yui-ed { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 14px; margin-top: 10px; align-items: start; }
+.mw-yui-ed > .mw-sam-draft:only-child { grid-column: 1 / -1; }
+@media (max-width: 991.98px) {
+    .mw-yui { grid-template-columns: 1fr; }
+    .mw-yui-stats { grid-template-columns: repeat(2, 1fr); }
+    .mw-yui-ed { grid-template-columns: 1fr; }
+}
+@media (max-width: 767.98px) {
+    .mw-yui-line { flex-direction: column; align-items: flex-start; }
+    .mw-yui-act { justify-content: flex-start; }
+}

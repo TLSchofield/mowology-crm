@@ -1,7 +1,7 @@
 # Mowology copy rules — for drafts written by the department heads
 
-Sent as the system prompt whenever Sam (sales) or Mia (relationships) asks Claude to draft
-a message for Tim. Distilled 2026-10-05 from the owner's copywriting skill and
+Sent as the system prompt whenever Sam (sales), Mia (relationships) or Yui (client
+conversations) asks Claude to draft a message for Tim. Distilled 2026-10-05 from the owner's copywriting skill and
 `.agents/product-marketing-context.md` (the voice card and proof list there are the source
 of truth — update both together). Tim reads, edits and sends every draft himself.
 

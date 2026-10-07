@@ -32,7 +32,7 @@ class SalesDeskService
     public const LEAD_MAX_AGE_DAYS = 60;
     /** Quotes this close to valid-until get the "last call" note. */
     public const LAST_CALL_DAYS = 5;
-    /** Unclaimed customer replies handed to Charlie per brief (yeses first). */
+    /** Unclaimed replies about a quote handed to Charlie per brief (yeses first). Other client replies are Yui's. */
     public const UNCLAIMED_BRIEF_MAX = 8;
 
     /** Dollars on a quote: some writers fill total_amount, older ones only amount. */
@@ -337,7 +337,8 @@ class SalesDeskService
             $items[] = ['key' => 'sam:lead:' . $l['id'], 'kind' => 'new_lead', 'value' => $l['value'], 'since' => null,
                         'text' => 'New lead: ' . $l['name'] . ' — ' . $l['next'], 'url' => $l['url'], 'priority' => $l['hot'] ? 1 : 3];
         }
-        // Every other customer reply nobody has answered (hand-sent emails, texts) — Sam claims them.
+        // Other replies about a quote nobody has answered (hand-sent emails, texts), kind quote_reply.
+        // Replies that aren't about a quote are Yui's (client_reply) — never both.
         $unclaimed = $this->unclaimed($cards);
         foreach (array_slice($unclaimed, 0, self::UNCLAIMED_BRIEF_MAX) as $u) {
             $items[] = array_intersect_key($u, array_flip(['key', 'kind', 'value', 'since', 'text', 'url', 'priority']));
@@ -354,8 +355,9 @@ class SalesDeskService
     }
 
     /**
-     * Customer replies no net has caught (UnclaimedReplyService), leaving out the people
-     * this queue already shows as "replied". Never throws — a failure here costs only the extra list.
+     * Replies about a quote that no net has caught (UnclaimedReplyService, 'quote' lane), leaving
+     * out the people this queue already shows as "replied". The 'client' lane is Yui's inbox.
+     * Never throws — a failure here costs only the extra list.
      * @param array|null $cards queue() if the caller already has it
      */
     public function unclaimed(?array $cards = null): array
@@ -364,7 +366,8 @@ class SalesDeskService
             require_once __DIR__ . '/UnclaimedReplyService.php';
             $cards = $cards ?? $this->queue();
             $replied = array_values(array_filter(array_map(fn($c) => $c['kind'] === 'replied' ? (int)$c['contact_id'] : 0, $cards)));
-            return (new UnclaimedReplyService($this->db))->items($replied);
+            return array_values(array_filter((new UnclaimedReplyService($this->db))->items($replied),
+                fn($u) => ($u['lane'] ?? 'quote') === 'quote'));
         } catch (Throwable $e) {
             error_log('Sam unclaimed replies: ' . $e->getMessage());
             return [];

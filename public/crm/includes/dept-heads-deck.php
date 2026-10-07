@@ -5,7 +5,7 @@
  * Penny (bookkeeper) is live: her numbers and the receipt carousel
  * (/crm/js/bookkeeper-card.js → /crm/api/bookkeeper.php). Every other head shows as a
  * placeholder until its card exists: when includes/<slug>-card.php is there (sam-card.php,
- * otto-card.php, mia-card.php, charlie-card.php) it is shown full-width under Penny instead.
+ * otto-card.php, mia-card.php, yui-card.php, charlie-card.php) it is shown full-width under Penny instead.
  * Each card guards itself (permission, migration) and renders nothing until it's ready.
  *
  * Shown only to users who can approve expenses, and only once migration 1125 has
@@ -45,6 +45,7 @@ $__team = [
     ['sam',     'Sam',     'Sales',                     ['New leads & HomeStars requests', 'Quotes waiting on a reply', 'Follow-ups due today']],
     ['otto',    'Otto',    'Operations',                ["Today's crew & route", 'Weather changes', 'GPS / timesheet gaps']],
     ['mia',     'Mia',     'Marketing & relationships', ['Who to reconnect with', 'Quiet property managers', 'Reviews & referrals']],
+    ['yui',     'Yui',     'Comms · client relations',  ['Client replies waiting on you', 'Approvals with no accepted quote', 'Renewals, check-ins & arrears notes']],
     ['charlie', 'Charlie', 'Chief of Staff',            ['The one thing that needs you today', '7 am brief from every head']],
 ];
 ?>

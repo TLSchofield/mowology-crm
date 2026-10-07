@@ -11,7 +11,7 @@ window.CharlieInbox = (function () {
     'use strict';
     var CHARLIE = '/crm/api/charlie.php';
     var ALLOWED = ['/crm/api/otto.php', '/crm/api/sales-head.php', '/crm/api/bookkeeper.php', '/crm/api/charlie.php', '/crm/api/mia.php'];
-    var HEADS = { charlie: 'Charlie', penny: 'Penny', sam: 'Sam', otto: 'Otto', mia: 'Mia', house: 'Work Queue' };
+    var HEADS = { charlie: 'Charlie', penny: 'Penny', sam: 'Sam', otto: 'Otto', mia: 'Mia', yui: 'Yui', house: 'Work Queue' };
 
     function esc(s) {
         return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {

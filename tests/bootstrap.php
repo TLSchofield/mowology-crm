@@ -39,6 +39,13 @@ require_once __DIR__ . '/../app/Modules/Sales/Services/SamBrainService.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/SalesInboxService.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/TextBridgeService.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/UnclaimedReplyService.php';
+
+// Yui — comms / client relations head
+require_once __DIR__ . '/../app/Modules/Comms/Services/YuiRules.php';
+require_once __DIR__ . '/../app/Modules/Comms/Services/YuiDraftService.php';
+require_once __DIR__ . '/../app/Modules/Comms/Services/YuiDeskService.php';
+require_once __DIR__ . '/../app/Modules/Comms/Services/YuiBadgeService.php';
+require_once __DIR__ . '/../app/Modules/Comms/Services/YuiBrainService.php';
 // Consent ledger
 require_once __DIR__ . '/../app/Modules/Consent/Services/ConsentLedgerService.php';
 

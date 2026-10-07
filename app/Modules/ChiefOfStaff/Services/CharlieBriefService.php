@@ -3,7 +3,7 @@
  * CharlieBriefService — asks every department head for its brief.
  *
  * Contract (shared by every head): brief(string $ownerFirstName): array
- *   ['head' => 'sam'|'otto'|'mia'|'penny'|'house', 'headline' => string, 'count' => int,
+ *   ['head' => 'sam'|'otto'|'mia'|'yui'|'penny'|'house', 'headline' => string, 'count' => int,
  *    'items' => [['key' => string (required, stable), 'text' => string, 'url' => ?string,
  *                 'priority' => 1|2|3, 'kind' => ?string, 'value' => ?float, 'since' => ?Y-m-d]]]
  * brief() must be read-only and cheap.
@@ -25,6 +25,7 @@ class CharlieBriefService
         'sam'   => ['name' => 'Sam',   'role' => 'Sales'],
         'otto'  => ['name' => 'Otto',  'role' => 'Operations'],
         'mia'   => ['name' => 'Mia',   'role' => 'Marketing & relationships'],
+        'yui'   => ['name' => 'Yui',   'role' => 'Comms · client relations'],
         'house' => ['name' => 'Everything else', 'role' => 'Work Queue'],
     ];
     /** A head slower than this is logged — brief() is meant to be cheap. */
@@ -59,6 +60,7 @@ class CharlieBriefService
             'sam'  => ['/Modules/Sales/Services/SalesDeskService.php', 'SalesDeskService'],
             'otto' => ['/Modules/Operations/Services/OpsDeskService.php', 'OpsDeskService'],
             'mia'  => ['/Modules/Marketing/Services/MiaDeskService.php', 'MiaDeskService'],
+            'yui'  => ['/Modules/Comms/Services/YuiDeskService.php', 'YuiDeskService'],
         ];
         foreach ($desks as $head => [$file, $class]) {
             if (!defined('APP_ROOT') || !is_file(APP_ROOT . $file)) continue;

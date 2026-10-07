@@ -29,6 +29,7 @@
         sam:     { name: 'Sam',     face: 'sam' },
         otto:    { name: 'Otto',    face: 'otto' },
         mia:     { name: 'Mia',     face: 'mia' },
+        yui:     { name: 'Yui',     face: 'yui' },
         house:   { name: 'Charlie', face: 'charlie' }
     };
 

@@ -1,6 +1,6 @@
 <?php
 /**
- * UnclaimedReplyService — Sam claims every customer reply that no other net caught.
+ * UnclaimedReplyService — every customer reply that no other net caught, split by who owns it.
  *
  * Why (2026-10-06): Gaby at Cambridge Apartments replied "Yes" to a fall-cleanup email Tim
  * sent by hand from office@, and nothing in the CRM surfaced it. Each existing net only
@@ -19,8 +19,15 @@
  *   - not automated (no-reply senders, bounces, out-of-office).
  * One item per contact: their latest such reply. A short "yes" ranks first (isYes()).
  *
- * Read-only and cheap: Sam's brief() calls it for Charlie, and the sales-head desk shows it
- * on Sam's card ("Replies waiting"). "Handled" there is Charlie's act/dismiss for the key.
+ * Two lanes (2026-10-06, Yui — comms / client relations — took over client conversations):
+ *   quote  — the reply talks about a quote / estimate / proposal (aboutQuote()): Sam's, shown
+ *            on his card under "Replies waiting", kind quote_reply, key sam:reply:<contact>:<hash>;
+ *   client — everything else: Yui's inbox, kind client_reply, key yui:reply:<contact>:<hash>.
+ * Each reply is in exactly one lane, so it is never shown twice. A key "Handled" under
+ * either prefix hides the reply (Sam's old dismissals keep counting after the move).
+ *
+ * Read-only and cheap: Sam's and Yui's brief() call it for Charlie. "Handled" is Charlie's
+ * act/dismiss for the key (Sam's card) or Yui's own handled log (passed in as $extraHidden).
  *
  * No namespace / no autoloader in production: require_once and `new`.
  */
@@ -28,6 +35,7 @@ class UnclaimedReplyService
 {
     public const WINDOW_DAYS = 14;
     public const KEY_PREFIX = 'sam:reply:';
+    public const YUI_PREFIX = 'yui:reply:';
     public const QUOTE_CHARS = 60;
     /** isYes(): a message longer than this is not a "short" yes. */
     public const YES_MAX_CHARS = 200;
@@ -51,10 +59,11 @@ class UnclaimedReplyService
 
     /**
      * The unclaimed replies, best first.
-     * @param int[] $samRepliedContactIds contacts Sam's quote queue already shows as "replied"
-     * @return array<int, array> brief items plus card fields (contact_id, name, subject, quote, channel, yes, at)
+     * @param int[]    $samRepliedContactIds contacts Sam's quote queue already shows as "replied"
+     * @param string[] $extraHidden          more keys to hide (Yui's "Handled" log)
+     * @return array<int, array> brief items plus card fields (contact_id, name, subject, quote, channel, yes, at, lane, message_key)
      */
-    public function items(array $samRepliedContactIds = [], ?string $now = null): array
+    public function items(array $samRepliedContactIds = [], ?string $now = null, array $extraHidden = []): array
     {
         $now = $now ?? date('Y-m-d H:i:s');
         if (!$this->hasTable('sales_messages')) return [];
@@ -95,7 +104,7 @@ class UnclaimedReplyService
             'asks'     => $this->asks($now),
             'outbound' => $outbound,
             'quotes'   => $quotes,
-            'hidden'   => $this->hiddenKeys($now),
+            'hidden'   => array_merge($this->hiddenKeys($now), $extraHidden),
         ], $now);
     }
 
@@ -152,7 +161,8 @@ class UnclaimedReplyService
         if (!$this->hasTable('charlie_items')) return [];
         try {
             $s = $this->db->prepare("SELECT item_key FROM charlie_items
-                                     WHERE item_key LIKE 'sam:reply:%' AND (dismissed_at IS NOT NULL OR snoozed_until > ?)");
+                                     WHERE (item_key LIKE 'sam:reply:%' OR item_key LIKE 'yui:reply:%')
+                                       AND (dismissed_at IS NOT NULL OR snoozed_until > ?)");
             $s->execute([substr($now, 0, 10)]);
             return $s->fetchAll(PDO::FETCH_COLUMN);
         } catch (Throwable $e) {
@@ -193,9 +203,10 @@ class UnclaimedReplyService
         $items = [];
         foreach ($latest as $cid => $r) {
             if (self::answered($cid, (string)$r['sent_at'], $ctx)) continue;
-            $key = self::key($cid, (string)$r['message_key']);
-            if (isset($hidden[$key])) continue;
-            $items[] = self::item($cid, $r, $key);
+            $mk = (string)$r['message_key'];
+            if (isset($hidden[self::key($cid, $mk, 'quote')]) || isset($hidden[self::key($cid, $mk, 'client')])) continue;
+            $lane = self::aboutQuote((string)($r['subject'] ?? ''), (string)($r['snippet'] ?? '')) ? 'quote' : 'client';
+            $items[] = self::item($cid, $r, self::key($cid, $mk, $lane), $lane);
         }
         usort($items, function ($a, $b) {
             if ($a['priority'] !== $b['priority']) return $a['priority'] <=> $b['priority'];
@@ -231,9 +242,16 @@ class UnclaimedReplyService
         return false;
     }
 
-    public static function key(int $cid, string $messageKey): string
+    /** @param string $lane 'quote' (Sam) | 'client' (Yui) */
+    public static function key(int $cid, string $messageKey, string $lane = 'quote'): string
     {
-        return self::KEY_PREFIX . $cid . ':' . substr(sha1($messageKey), 0, 12);
+        return ($lane === 'client' ? self::YUI_PREFIX : self::KEY_PREFIX) . $cid . ':' . substr(sha1($messageKey), 0, 12);
+    }
+
+    /** Is the reply about a quote (Sam's lane)? Its subject or text names a quote, estimate or proposal. */
+    public static function aboutQuote(string $subject, string $snippet): bool
+    {
+        return (bool)preg_match('/\b(?:quotes?|quoted|quotation|estimates?|proposals?|QUO-\d{4}-\d+)\b/i', $subject . "\n" . $snippet);
     }
 
     /** Machines, not people: no-reply senders, bounces, notifications, out-of-office. */
@@ -344,7 +362,7 @@ class UnclaimedReplyService
         return mb_strlen($s) > 80 ? rtrim(mb_substr($s, 0, 79)) . '…' : $s;
     }
 
-    private static function item(int $cid, array $r, string $key): array
+    private static function item(int $cid, array $r, string $key, string $lane = 'quote'): array
     {
         $name = self::firstName((string)($r['first_name'] ?? ''));
         $who = $name !== '' ? $name : 'A customer';
@@ -359,13 +377,15 @@ class UnclaimedReplyService
             . '. ' . ($yes ? 'That\'s a yes. Answer them.' : 'Answer them.');
         return [
             'key'        => $key,
-            'kind'       => 'unclaimed_reply',
+            'kind'       => $lane === 'client' ? 'client_reply' : 'quote_reply',
             'value'      => null,
             'since'      => date('Y-m-d', (int)$r['_t']),
             'text'       => $text,
             'url'        => '/crm/clients_appstack.php?action=view_contact&id=' . $cid,
             'priority'   => $yes ? 1 : 2,
-            // for Sam's card
+            // for the card (Sam's "Replies waiting" / Yui's inbox)
+            'lane'       => $lane,
+            'message_key'=> (string)$r['message_key'],
             'contact_id' => $cid,
             'name'       => $who,
             'subject'    => $subject,

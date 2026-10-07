@@ -64,6 +64,14 @@ The nine automatic quote follow-up `automation_rules` (ids 2, 6, 10, 14, 18, 22,
 were switched off on 2026-10-05 at Tim's request — Sam is the only follow-up path. Seven of
 them were duplicates of the same rule, each had fired 132 times.
 
+## Replies waiting — quote replies only
+
+`UnclaimedReplyService` catches customer replies no other list has (hand-sent emails,
+texts). Since 2026-10-06 it splits them in two lanes so nothing shows twice: replies that
+mention a quote / estimate / proposal stay on Sam's card ("Replies waiting", kind
+`quote_reply`, key `sam:reply:…`); everything else goes to Yui's inbox (`client_reply`,
+`yui:reply:…`) — see `comms-head.md`.
+
 ## Conversation history (office@, read-only)
 
 `app/Modules/Sales/Cron/sales_inbox_poll.php` (every 15 min, registry key

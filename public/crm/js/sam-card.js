@@ -12,9 +12,10 @@
  * included) and then sent to the billing contact on a second click. Asks with no reply
  * after a week show as one quiet line. POST ask_build / ask_send_quote / ask_close.
  *
- * Replies waiting (UnclaimedReplyService): customer replies no other list caught — a
- * hand-sent email answered, a text. Open goes to the contact; Handled is Charlie's
- * act/dismiss for the same key (POST /crm/api/charlie.php), so it leaves his list too.
+ * Replies waiting (UnclaimedReplyService, 'quote' lane): replies about a quote no other list
+ * caught — a hand-sent email answered, a text. Other client replies are Yui's inbox
+ * (yui-card.js). Open goes to the contact; Handled is Charlie's act/dismiss for the same key
+ * (POST /crm/api/charlie.php), so it leaves his list too.
  */
 (function () {
     'use strict';
@@ -182,7 +183,7 @@
         if (!rbox) return;
         if (!replies.length && !msg) { rbox.hidden = true; return; }
         rbox.hidden = false;
-        rbox.innerHTML = '<div class="mw-sam-leads-head"><b>Replies waiting</b> <small>customers who wrote back and haven\'t heard from us</small></div>' +
+        rbox.innerHTML = '<div class="mw-sam-leads-head"><b>Replies waiting</b> <small>replies about a quote that haven\'t heard from us</small></div>' +
             (msg ? '<div class="mw-rc-msg">' + esc(msg) + '</div>' : '') +
             replies.slice(0, 6).map(function (r) {
                 return '<div class="mw-sam-reply' + (r.yes ? ' is-yes' : '') + '" data-k="' + esc(r.key) + '">' +

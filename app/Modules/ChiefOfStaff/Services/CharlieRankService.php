@@ -25,7 +25,7 @@ class CharlieRankService
     public const K_ANSWER = 0.25;
     /** The top two are a "close call" when the runner-up is within this share of the leader. */
     public const CLOSE_CALL = 0.9;
-    public const HEADS = ['penny', 'sam', 'otto', 'mia', 'house'];
+    public const HEADS = ['penny', 'sam', 'otto', 'mia', 'yui', 'house'];
 
     /**
      * Bring one head's item onto the contract, or null if there's nothing to show.

@@ -138,10 +138,12 @@ class UnclaimedReplyServiceTest extends TestCase
         $this->assertCount(2, $items);
         $this->assertSame(5, $items[0]['contact_id']);            // the yes ranks first
         $this->assertSame(1, $items[0]['priority']);
-        $this->assertSame('unclaimed_reply', $items[0]['kind']);
+        // Not about a quote → Yui's lane (client_reply), never Sam's.
+        $this->assertSame('client_reply', $items[0]['kind']);
+        $this->assertSame('client', $items[0]['lane']);
         $this->assertSame('2026-10-05', $items[0]['since']);
-        $this->assertSame(UnclaimedReplyService::key(5, 'msg-5-2026-10-05 16:20:00'), $items[0]['key']);
-        $this->assertMatchesRegularExpression('/^sam:reply:5:[0-9a-f]{12}$/', $items[0]['key']);
+        $this->assertSame(UnclaimedReplyService::key(5, 'msg-5-2026-10-05 16:20:00', 'client'), $items[0]['key']);
+        $this->assertMatchesRegularExpression('/^yui:reply:5:[0-9a-f]{12}$/', $items[0]['key']);
         $this->assertSame('Gaby replied "Yes" to "Cambridge Apartments: fall cleanup". That\'s a yes. Answer them.', $items[0]['text']);
         $this->assertSame('/crm/clients_appstack.php?action=view_contact&id=5', $items[0]['url']);
         $this->assertSame(2, $items[1]['priority']);
@@ -232,6 +234,45 @@ class UnclaimedReplyServiceTest extends TestCase
         $this->assertSame([], UnclaimedReplyService::unclaimed($r, ['quotes' => [['contact_id' => 5, 'site_contact_id' => null, 'created_at' => '2026-10-05 11:00:00']]], self::NOW));
         $this->assertSame([], UnclaimedReplyService::unclaimed($r, ['quotes' => [['contact_id' => 2, 'site_contact_id' => 5, 'created_at' => '2026-10-06 08:00:00']]], self::NOW));
         $this->assertCount(1, UnclaimedReplyService::unclaimed($r, ['quotes' => [['contact_id' => 5, 'site_contact_id' => null, 'created_at' => '2026-10-01 11:00:00']]], self::NOW));
+    }
+
+    // ── Lanes: Sam keeps replies about a quote, Yui gets the rest ────────
+
+    public function test_a_reply_about_a_quote_is_sams_and_everything_else_is_yuis(): void
+    {
+        $items = UnclaimedReplyService::unclaimed([
+            self::reply(5, '2026-10-05 09:00:00', 'Yes', ['subject' => 'Re: Your fall cleanup quote QUO-2026-0144']),
+            self::reply(6, '2026-10-05 09:00:00', 'Can you send a revised estimate?', ['subject' => 'Re: hedges']),
+            self::reply(7, '2026-10-05 09:00:00', 'Thanks, the lawn looks great', ['subject' => 'Re: Cambridge Apartments: fall cleanup']),
+        ], [], self::NOW);
+        $by = array_column($items, null, 'contact_id');
+        $this->assertSame('quote', $by[5]['lane']);
+        $this->assertSame('quote_reply', $by[5]['kind']);
+        $this->assertStringStartsWith('sam:reply:5:', $by[5]['key']);
+        $this->assertSame('quote', $by[6]['lane']);
+        $this->assertSame('client', $by[7]['lane']);
+        $this->assertSame('client_reply', $by[7]['kind']);
+        $this->assertStringStartsWith('yui:reply:7:', $by[7]['key']);
+        // Never "unclaimed_reply" any more — one source, one owner.
+        $this->assertNotContains('unclaimed_reply', array_column($items, 'kind'));
+    }
+
+    public function test_about_quote(): void
+    {
+        $this->assertTrue(UnclaimedReplyService::aboutQuote('Re: Quote for 4180 Oak Ct', ''));
+        $this->assertTrue(UnclaimedReplyService::aboutQuote('', 'Council approved the quote'));
+        $this->assertTrue(UnclaimedReplyService::aboutQuote('QUO-2026-0012', ''));
+        $this->assertTrue(UnclaimedReplyService::aboutQuote('', 'Could you send a proposal?'));
+        $this->assertFalse(UnclaimedReplyService::aboutQuote('Re: fall cleanup', 'Yes please'));
+        $this->assertFalse(UnclaimedReplyService::aboutQuote('Gate code', 'The code is 1234, as quoting goes'));
+    }
+
+    public function test_handled_under_either_prefix_hides_the_reply(): void
+    {
+        $r = [self::reply(5, '2026-10-05 09:00:00')];   // client lane
+        $mk = 'msg-5-2026-10-05 09:00:00';
+        $this->assertSame([], UnclaimedReplyService::unclaimed($r, ['hidden' => [UnclaimedReplyService::key(5, $mk, 'client')]], self::NOW));
+        $this->assertSame([], UnclaimedReplyService::unclaimed($r, ['hidden' => [UnclaimedReplyService::key(5, $mk, 'quote')]], self::NOW));
     }
 
     public function test_handled_or_snoozed_in_charlie_hides_that_reply_only(): void
