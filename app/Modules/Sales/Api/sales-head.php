@@ -12,6 +12,9 @@
  *                          last email — Tim's click only, capped per day.
  * POST {mode: 'answer', question_id, answer: lost|keep|won, csrf_token}
  * POST {mode: 'lead_dismiss', lead_id, csrf_token}    "Not a lead" (spam, out of area…)
+ * POST {mode: 'test_push', csrf_token}   "Send me a test push": APNs configured? how many active
+ *                          iOS tokens the current user has, and APNs' answer per token
+ *                          (QuoteViewNotifier::testPush — the quote-opened push uses the same path).
  * GET  ?mode=thread&contact_id=N  The emails/texts Sam holds for one contact (read-only).
  * POST {mode: 'ask_build', observation_id, price?, csrf_token}   They said yes to an
  *                          Ask-first note → build the quote on that observation (not sent).
@@ -162,6 +165,12 @@ try {
             ");
             $s->execute([$cid]);
             echo json_encode(['ok' => true, 'messages' => $s->fetchAll(PDO::FETCH_ASSOC)]);
+            break;
+        }
+
+        case 'test_push': {
+            require_once APP_ROOT . '/Modules/Sales/Services/QuoteViewNotifier.php';
+            echo json_encode((new QuoteViewNotifier($db))->testPush((int)$user['id']));
             break;
         }
 

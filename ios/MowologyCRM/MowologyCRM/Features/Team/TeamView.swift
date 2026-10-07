@@ -8,6 +8,9 @@
 //  column of the dashboard Action Board, their brain and their one action). The profile
 //  row and Sign Out (moved here from Account) sit at the bottom.
 //
+//  Tapping a department-head push (NotificationRouter.pendingHead — e.g. "Sam: Linda just
+//  opened QUO-…") switches to that head, reloads the card and scrolls it into view.
+//
 
 import SwiftUI
 
@@ -44,6 +47,10 @@ struct TeamView: View {
     @State private var selected: String
     /// Shows the profile row + Sign Out; off only for the static render (no AuthSession needed there).
     private let showsAccount: Bool
+    @ObservedObject private var notificationRouter = NotificationRouter.shared
+    /// Bumped when a push asks for a card, so the ScrollViewReader scrolls to it.
+    @State private var scrollRequest = 0
+    private static let cardAnchor = "mw-team-head-card"
 
     init(authSession: AuthSession, api: BookkeeperDeskAPI? = nil, salesAPI: SalesDeskAPI? = nil,
          teamAPI: TeamHeadAPI? = nil, geocoder: AddressGeocoder = AppleAddressGeocoder(),
@@ -64,6 +71,7 @@ struct TeamView: View {
 
     var body: some View {
         NavigationStack {
+            ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     headsRow
@@ -94,6 +102,7 @@ struct TeamView: View {
                     }
                     .padding(16)
                     .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 16))
+                    .id(Self.cardAnchor)
 
                     if showsAccount {
                         VStack(alignment: .leading, spacing: 0) {
@@ -114,9 +123,7 @@ struct TeamView: View {
             }
             .background(Color(.systemGroupedBackground))
             .scrollDismissesKeyboard(.interactively)
-            .refreshable {
-                if let head = headVM { await head.load() } else if selected == "sam" { await sam.load() } else { await penny.load() }
-            }
+            .refreshable { await reload() }
             .navigationTitle("Team")
             .navigationBarTitleDisplayMode(.inline)
             .task(id: selected) {
@@ -128,7 +135,32 @@ struct TeamView: View {
                     await penny.load()
                 }
             }
+            .onAppear { consumeHeadRoute() }
+            .onChange(of: notificationRouter.pendingHead) { _, _ in consumeHeadRoute() }
+            .onChange(of: scrollRequest) { _, _ in
+                withAnimation { proxy.scrollTo(Self.cardAnchor, anchor: .top) }
+            }
+            // A head push while the app is open: refresh that card if it's the one showing.
+            .onReceive(NotificationCenter.default.publisher(for: .mwHeadPushReceived)) { note in
+                guard let slug = note.object as? String, slug == selected else { return }
+                Task { await reload() }
+            }
+            }
         }
+    }
+
+    /// Follow a tapped department-head push: show that head, reload, scroll the card into view.
+    private func consumeHeadRoute() {
+        guard let route = notificationRouter.pendingHead else { return }
+        notificationRouter.pendingHead = nil
+        guard TeamHead.all.contains(where: { $0.slug == route.head && $0.isLive }) else { return }
+        selected = route.head
+        scrollRequest += 1
+        Task { await reload() }
+    }
+
+    private func reload() async {
+        if let head = headVM { await head.load() } else if selected == "sam" { await sam.load() } else { await penny.load() }
     }
 
     /// The shared head card's model for the selected face (nil for Penny and Sam).

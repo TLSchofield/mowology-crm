@@ -9,6 +9,8 @@
 //
 //  Server payload (ApnsService): { aps: {...}, data: { screen, visit_id?, stop_id?, date? } }
 //  Local payload (GPSTrackingService auto-start): { type, visit_id } at the top level.
+//  Department-head pushes (QuoteViewNotifier — "Sam: Linda just opened QUO-…"):
+//  { aps: {...}, data: { open: "team", head: "sam", quote_id? } } → the Team tab, that head's card.
 //
 
 import Foundation
@@ -22,7 +24,18 @@ struct NotificationRoute: Equatable {
     let date:    String?
 }
 
+/// A push that wants a department head's card on the Team tab.
+struct HeadRoute: Equatable {
+    /// Head slug as on TeamHead.all ("sam", "penny", …).
+    let head: String
+    let quoteId: Int?
+}
+
 extension Notification.Name {
+    /// Posted when a department-head push arrives while the app is in the foreground —
+    /// the Team tab reloads that head's card. `object` is the head slug.
+    static let mwHeadPushReceived = Notification.Name("ca.mowology.headPushReceived")
+
     /// Posted when a schedule-affecting push arrives while the app is in the
     /// foreground — lets the schedule refresh instead of waiting for its poll tick.
     static let mwSchedulePushReceived = Notification.Name("ca.mowology.schedulePushReceived")
@@ -35,6 +48,9 @@ final class NotificationRouter: NSObject, ObservableObject {
 
     /// Set on tap; the UI consumes it and resets it to nil.
     @Published var pendingRoute: NotificationRoute?
+
+    /// Set on tapping a department-head push; TeamView consumes it and resets it to nil.
+    @Published var pendingHead: HeadRoute?
 
     private override init() { super.init() }
 
@@ -58,6 +74,14 @@ final class NotificationRouter: NSObject, ObservableObject {
         return NotificationRoute(visitId: visitId, stopId: stopId, date: data["date"] as? String)
     }
 
+    nonisolated static func headRoute(from userInfo: [AnyHashable: Any]) -> HeadRoute? {
+        let data = (userInfo["data"] as? [AnyHashable: Any]) ?? userInfo
+        guard (data["open"] as? String) == "team",
+              let head = data["head"] as? String,
+              TeamHead.all.contains(where: { $0.slug == head }) else { return nil }
+        return HeadRoute(head: head, quoteId: intValue(data["quote_id"]))
+    }
+
     /// JSON numbers arrive as NSNumber, but a PHP sender can just as easily emit "123".
     private nonisolated static func intValue(_ any: Any?) -> Int? {
         if let n = any as? Int { return n }
@@ -76,9 +100,14 @@ extension NotificationRouter: UNUserNotificationCenterDelegate {
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
-        if Self.route(from: notification.request.content.userInfo) != nil {
+        let userInfo = notification.request.content.userInfo
+        if Self.route(from: userInfo) != nil {
             await MainActor.run {
                 NotificationCenter.default.post(name: .mwSchedulePushReceived, object: nil)
+            }
+        } else if let head = Self.headRoute(from: userInfo) {
+            await MainActor.run {
+                NotificationCenter.default.post(name: .mwHeadPushReceived, object: head.head)
             }
         }
         return [.banner, .list, .sound]
@@ -88,9 +117,12 @@ extension NotificationRouter: UNUserNotificationCenterDelegate {
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
-        let route = Self.route(from: response.notification.request.content.userInfo)
+        let userInfo = response.notification.request.content.userInfo
+        let route = Self.route(from: userInfo)
+        let head = route == nil ? Self.headRoute(from: userInfo) : nil
         await MainActor.run {
             if let route { self.pendingRoute = route }
+            if let head { self.pendingHead = head }
         }
     }
 }

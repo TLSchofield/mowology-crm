@@ -16,6 +16,9 @@
  * caught — a hand-sent email answered, a text. Other client replies are Yui's inbox
  * (yui-card.js). Open goes to the contact; Handled is Charlie's act/dismiss for the same key
  * (POST /crm/api/charlie.php), so it leaves his list too.
+ *
+ * "Send me a test push" (POST test_push): the server's diagnosis of the quote-opened push —
+ * APNs configured, the user's active iPhone tokens, and Apple's answer per token.
  */
 (function () {
     'use strict';
@@ -380,6 +383,30 @@
             }
         }).catch(function () { busy = false; render('Network error — nothing was sent. Try again.'); });
     });
+
+    var pushBtn = document.getElementById('mw-sam-testpush');
+    var pushOut = document.getElementById('mw-sam-pushdiag');
+    if (pushBtn && pushOut) {
+        pushBtn.addEventListener('click', function () {
+            pushBtn.disabled = true;
+            pushOut.hidden = false;
+            pushOut.textContent = 'Sending…';
+            post({ mode: 'test_push' }).then(function (d) {
+                pushBtn.disabled = false;
+                if (!d || (d.ok === false && d.error)) { pushOut.textContent = (d && d.error) || 'That didn\'t work.'; return; }
+                var lines = [
+                    esc(d.message || ''),
+                    'APNs configured: ' + (d.apns_configured ? 'yes' + (d.sandbox ? ' (sandbox)' : '') : 'no') +
+                        ' · your active iPhones: ' + Number(d.tokens || 0)
+                ];
+                (d.results || []).forEach(function (r) {
+                    lines.push(esc(r.token) + ' → ' + (r.success ? 'accepted' : 'HTTP ' + r.http_code + ' ' + esc(r.error || '')) +
+                        (r.deactivated ? ' (token retired)' : ''));
+                });
+                pushOut.innerHTML = lines.join('<br>');
+            }).catch(function () { pushBtn.disabled = false; pushOut.textContent = 'Network error — try again.'; });
+        });
+    }
 
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', load); else load();
 })();

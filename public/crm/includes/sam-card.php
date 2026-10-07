@@ -120,8 +120,13 @@ $__sm = fn(float $v) => SalesDeskService::money($v);
 
     <div class="mw-head-foot">
       <span>Learning from every follow-up you send, edit or skip · I never send anything myself</span>
-      <a class="btn btn-sm btn-success" href="/crm/quotes_appstack.php">All quotes →</a>
+      <span>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="mw-sam-testpush"
+                title="I push to your iPhone when a customer first opens their quote">Send me a test push</button>
+        <a class="btn btn-sm btn-success" href="/crm/quotes_appstack.php">All quotes →</a>
+      </span>
     </div>
+    <div class="small text-muted mt-2" id="mw-sam-pushdiag" aria-live="polite" hidden></div>
   </div>
 </section>
 <script src="<?= function_exists('_av') ? _av('/crm/js/head-brain.js') : '/crm/js/head-brain.js' ?>" defer></script>

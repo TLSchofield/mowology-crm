@@ -69,6 +69,20 @@ struct MainTabView: View {
         }
         .onAppear {
             if notificationRouter.pendingRoute != nil { selectedTab = .schedule }
+            else if notificationRouter.pendingHead != nil { openTeamForHead() }
+        }
+        // Department-head pushes ("Sam: Linda just opened QUO-…") land on the Team tab;
+        // TeamView consumes the route and shows that head's card. Admins only have Team.
+        .onChange(of: notificationRouter.pendingHead) { _, head in
+            if head != nil { openTeamForHead() }
+        }
+    }
+
+    private func openTeamForHead() {
+        if authSession.user?.isAdmin == true {
+            selectedTab = .account
+        } else {
+            notificationRouter.pendingHead = nil
         }
     }
 

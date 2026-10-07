@@ -112,7 +112,18 @@ if (empty($token)) {
         $quote = null;
         $error = 'This quote link has expired or is invalid. Please contact us for a new quote.';
     } else {
+        // A browser logged in to the CRM is staff (Tim checking the page), not the customer:
+        // it isn't counted as a view and never pushes. See QuoteViewNotifier.
+        $__staffViewer = false;
+        try {
+            require_once APP_ROOT . '/Modules/Sales/Services/QuoteViewNotifier.php';
+            $__staffViewer = QuoteViewNotifier::isStaffViewer();
+        } catch (Throwable $e) {
+            error_log('Quote view staff check failed: ' . $e->getMessage());
+        }
+
         // Update view tracking — first-view timestamp + rolling last_viewed_at + count
+        if (!$__staffViewer) {
         try {
             $stmt = $db->prepare("
                 UPDATE quotes
@@ -125,6 +136,32 @@ if (empty($token)) {
         } catch (Exception $e) {
             // Non-critical — silently skip if column missing
             error_log("Quote view tracking update failed: " . $e->getMessage());
+        }
+        }
+
+        // Sam: "<customer> just opened <quote>" to the owner's iPhone — first counted view
+        // only ($quote is the row from before this view). Sent after the page is flushed so
+        // the customer never waits on APNs; errors go to error_log only.
+        try {
+            if (class_exists('QuoteViewNotifier')
+                && QuoteViewNotifier::decide($quote, $__staffViewer, time())['notify']) {
+                $__pushQuoteId = (int)$quote['id'];
+                register_shutdown_function(static function () use ($__pushQuoteId) {
+                    try {
+                        ignore_user_abort(true);
+                        if (function_exists('fastcgi_finish_request')) {
+                            fastcgi_finish_request();
+                        } elseif (function_exists('litespeed_finish_request')) {
+                            litespeed_finish_request();
+                        }
+                        (new QuoteViewNotifier(getDB()))->notifyFirstView($__pushQuoteId);
+                    } catch (Throwable $e) {
+                        error_log('Sam quote-view push failed: ' . $e->getMessage());
+                    }
+                });
+            }
+        } catch (Throwable $e) {
+            error_log('Sam quote-view push not scheduled: ' . $e->getMessage());
         }
 
         // Get line items
