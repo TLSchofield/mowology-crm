@@ -73,9 +73,24 @@ class BankInvoiceMatchServiceTest extends TestCase
 
     public function test_already_recorded_says_it_counts_twice(): void
     {
-        $say = BankInvoiceMatchService::say(824.25, 'alaninglis', [['allocation_ids' => [7], 'invoice_numbers' => ['INV-2026-0433'], 'payer' => 'Maureen Kirkbride', 'how' => 'recorded by hand on 2026-10-05']], [], [], []);
+        $say = BankInvoiceMatchService::say(824.25, 'alaninglis', [['allocation_ids' => [7], 'invoice_numbers' => ['INV-2026-0433'], 'payer' => 'Maureen Kirkbride', 'how' => 'recorded from alaninglis\'s e-Transfer', 'sure' => true]], [], [], []);
         $this->assertStringContainsString('INV-2026-0433', $say);
         $this->assertStringContainsString('counts twice', $say);
+    }
+
+    public function test_an_amount_only_match_is_worded_as_a_question(): void
+    {
+        $say = BankInvoiceMatchService::say(66.15, null, [['allocation_ids' => [23], 'invoice_numbers' => ['INV-2026-0315'], 'payer' => 'Ann Lee', 'how' => 'recorded by hand on 2026-10-05', 'sure' => false]], [], [], []);
+        $this->assertStringContainsString("If that's this money", $say);
+        $this->assertStringNotContainsString('counts twice', $say);
+        $r = BankInvoiceMatchService::pickRecorded([$this->pay(['amount' => 66.15, 'payer' => 'Ann Lee'])], 66.15, '2026-09-23', null);
+        $this->assertFalse($r[0]['sure']);
+    }
+
+    public function test_i_think_sentence_keeps_lower_case(): void
+    {
+        $say = BankInvoiceMatchService::say(804.04, null, [], [], [['invoice_number' => 'INV-2026-0418', 'payer' => 'Dorset', 'confidence' => 70, 'reasons' => ['Memo names Dorset']]], []);
+        $this->assertStringStartsWith('I think this $804.04 pays', $say);
     }
 
     // ── the scorer, fed the Interac sender because the TD memo names only us ──

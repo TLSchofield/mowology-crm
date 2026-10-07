@@ -112,7 +112,7 @@
             });
             (r.spread || []).forEach(function (s) {
                 seen[s.invoice_id] = 1;
-                rows.push({ id: s.invoice_id, number: s.invoice_number, amount: s.amount, tick: true,
+                rows.push({ id: s.invoice_id, number: s.invoice_number, amount: s.amount, tick: !(r.recorded || []).length && !(r.legacy || []).length,
                             about: about[s.invoice_id] || ((r.spread.length > 1 ? 'oldest first' : 'from the Interac email')) });
             });
             (r.invoices || []).forEach(function (v, i) {
@@ -122,7 +122,7 @@
             });
         }
         var already = r.ok ? (r.recorded || []).map(function (x, k) {
-                return '<button type="button" class="mw-rc-ok" data-bl="linkrec" data-k="' + k + '">🔗 Already recorded — link ' + esc(x.invoice_numbers.join(', ')) + '</button>';
+                return '<button type="button" class="mw-rc-ok" data-bl="linkrec" data-k="' + k + '">🔗 ' + (x.sure ? 'Already recorded — link ' : 'It\'s the payment on ') + esc(x.invoice_numbers.join(', ')) + (x.sure ? '' : ' — link') + '</button>';
             }).concat((r.legacy || []).slice(0, 1).map(function (x) {
                 return '<button type="button" class="mw-rc-ok" data-bl="linklegacy">🔗 Already paid on ' + esc(x.invoice_number) + ' — link</button>';
             })) : [];

@@ -79,7 +79,8 @@ class BankInvoiceMatchService
             $spread = array_map(fn($l) => ['invoice_number' => $l['invoice_number'], 'amount' => $l['apply_amount']],
                                 $this->inbox->suggestFifoAllocation($sender, $amount));
         }
-        if (!$spread && !$invoices) {
+        if ($recorded || $legacy) $spread = [];   // the money is already on an invoice: nothing to pre-tick
+        if (!$spread && !$invoices && !$recorded && !$legacy) {
             $v = $this->inbox->suggestFifoAllocationByValue($amount);
             if ($v) $spread = array_map(fn($l) => ['invoice_number' => $l['invoice_number'], 'amount' => $l['apply_amount']], $v['lines']);
         }
@@ -408,7 +409,7 @@ class BankInvoiceMatchService
         uksort($byEmail, fn($a, $b) => ($b === $emailId) <=> ($a === $emailId));
         foreach ($byEmail as $rows) {
             if ($eq(array_sum(array_column($rows, 'amount')), $amount)) {
-                return [$pack($rows, 'recorded from ' . ($rows[0]['sender_name'] ?: 'the Interac email') . '\'s e-Transfer on ' . $rows[0]['payment_date'])];
+                return [$pack($rows, 'recorded from ' . ($rows[0]['sender_name'] ?: 'the Interac email') . '\'s e-Transfer on ' . $rows[0]['payment_date']) + ['sure' => true]];
             }
         }
         // 2. One payer's payments (by hand, any method but card) adding up exactly.
@@ -423,7 +424,7 @@ class BankInvoiceMatchService
             $pick = InvoiceReconciliationService::exactSubset(array_map(fn($r) => (float)$r['amount'], $rows), $amount);
             if ($pick === null) continue;
             $sel = array_map(fn($i) => $rows[$i], $pick);
-            $hits[] = $pack($sel, 'recorded by hand on ' . $sel[0]['payment_date'] . ($sel[0]['reference'] ? ' (ref ' . $sel[0]['reference'] . ')' : ''));
+            $hits[] = $pack($sel, 'recorded by hand on ' . $sel[0]['payment_date'] . ($sel[0]['reference'] ? ' (ref ' . $sel[0]['reference'] . ')' : '')) + ['sure' => false];
         }
         return $hits;   // more than one = the card shows each; the owner picks
     }
@@ -440,8 +441,14 @@ class BankInvoiceMatchService
     {
         $m = '$' . number_format($amount, 2);
         $who = $sender ? $sender . '\'s ' . $m : 'This ' . $m;
-        if (count($recorded) === 1) {
+        $whoMid = $sender ? $who : 'this ' . $m;
+        if (count($recorded) === 1 && !empty($recorded[0]['sure'])) {
             return "{$who} is already recorded on " . implode(', ', $recorded[0]['invoice_numbers']) . " — {$recorded[0]['how']} — but the bank deposit was never tied to it, so it counts twice. Link it and it counts once.";
+        }
+        if (count($recorded) === 1) {
+            $r = $recorded[0];
+            return "{$who} matches a payment of the same amount on " . implode(', ', $r['invoice_numbers']) . ($r['payer'] ? " ({$r['payer']})" : '') .
+                   " — {$r['how']}. If that's this money, link it so it counts once; if not, record it below.";
         }
         if ($recorded) return "{$who} matches payments already recorded for more than one client. Pick the right one to link.";
         if ($legacy) return "{$who} matches {$legacy[0]['invoice_number']}, {$legacy[0]['how']}. If that's this money, link it so it counts once.";
@@ -450,7 +457,7 @@ class BankInvoiceMatchService
         }
         $top = $invoices[0] ?? null;
         if ($top && $top['confidence'] >= 70) {
-            return "I think {$who} pays {$top['invoice_number']}" . ($top['payer'] ? " ({$top['payer']})" : '') . ': ' . strtolower(implode(', ', $top['reasons'])) . '.';
+            return "I think {$whoMid} pays {$top['invoice_number']}" . ($top['payer'] ? " ({$top['payer']})" : '') . ': ' . strtolower(implode(', ', $top['reasons'])) . '.';
         }
         if ($invoices) return "{$who} could be one of these invoices. Tick the right one" . ($sender ? '' : ' — and tell me who sent it, so I know next time') . '.';
         return "I can't find an open invoice for {$m}. If it's for one, search by number; if it isn't a client payment, pick an account below.";
