@@ -127,6 +127,10 @@ class PipelineStageService
         if ($pinned) return null;
         $cur = trim((string)$current);
         if (!in_array($cur, $managed, true)) return null;   // set by a person — custom key
+        // A client only ever moves on to inactive (12 quiet months): the rules can miss how a
+        // contract is filed (VR15-40's sits under the building, not the strata company), and
+        // demoting a paying client to "prospect" is never right.
+        if (in_array($cur, ['client', 'customer', 'repeat'], true) && !in_array($target, ['client', 'inactive'], true)) return null;
         return $cur === $target ? null : $target;
     }
 

@@ -362,4 +362,15 @@ class PipelineStageServiceTest extends TestCase
         PipelineStageService::onEvent(new PDO('sqlite::memory:'), 'invoice', 1);   // no tables at all
         $this->assertTrue(true, 'never throws');
     }
+
+    public function test_a_client_is_never_demoted_except_to_inactive(): void
+    {
+        $m = PipelineStageService::CONTACT_MANAGED;
+        $this->assertNull(PipelineStageService::decide('client', false, 'opportunity', $m));
+        $this->assertNull(PipelineStageService::decide('client', false, 'lead', $m));
+        $this->assertNull(PipelineStageService::decide('customer', false, 'lost', $m));
+        $this->assertSame('client', PipelineStageService::decide('customer', false, 'client', $m));
+        $this->assertSame('inactive', PipelineStageService::decide('client', false, 'inactive', $m));
+        $this->assertSame('client', PipelineStageService::decide('lead', false, 'client', $m));
+    }
 }
