@@ -5,9 +5,11 @@
  * Reads the dedicated receipts mailbox over IMAP, extracts each PDF/image
  * attachment, runs it through the existing OCR + vendor-match pipeline, and
  * creates an expense:
- *   - clean 100% match (known vendor + total + date + vendor category) → 'approved'
- *     (the sync-ledger cron posts it to the books)
- *   - anything else → 'draft' (surfaced in the Expenses review panel)
+ *   - clean 100% match (known vendor + total + date + vendor category) →
+ *     'pending_approval', flagged high-confidence: Penny prepares it first, the owner
+ *     approves. Nothing is auto-approved or posted here (changed 2026-10-07).
+ *   - anything else → 'draft'
+ *   Both are surfaced in the Expenses review panel and on Penny's card.
  *
  * Mailbox:
  *   - receipts@mowology.ca — RECEIPTS_IMAP_PASS in secrets.php
@@ -33,6 +35,9 @@ for ($__i = 0; $__i < 5; $__i++) {
     }
 }
 unset($__dir, $__i);
+// Under cron (CLI) nothing else defines getDB()/Database — the web shim gets them from auth.php.
+// Missing since the start: every cPanel run fatalled at getDB() before it could log (2026-10-06).
+require_once APP_ROOT . '/Core/config.php';
 
 require_once CRM_INCLUDES . '/functions.php';
 require_once CRM_INCLUDES . '/messaging.php';
@@ -155,6 +160,28 @@ function rpParam($part, string $key): ?string {
 }
 
 /**
+ * The email's own text part — HTML preferred, else plain — for receipts that ARE the
+ * email. Returns ['pn','encoding','charset','html'] or null.
+ */
+function rpBodyPart($part, string $pn = ''): ?array {
+    if (!empty($part->parts)) {
+        $plain = null;
+        foreach ($part->parts as $i => $child) {
+            $hit = rpBodyPart($child, $pn === '' ? (string)($i + 1) : $pn . '.' . ($i + 1));
+            if ($hit && $hit['html']) return $hit;
+            if ($hit && !$plain) $plain = $hit;
+        }
+        return $plain;
+    }
+    if ((int)($part->type ?? 7) !== 0) return null;
+    $sub = strtolower((string)($part->subtype ?? ''));
+    if ($sub !== 'html' && $sub !== 'plain') return null;
+    if (strtolower((string)($part->disposition ?? '')) === 'attachment') return null;
+    return ['pn' => $pn ?: '1', 'encoding' => (int)($part->encoding ?? 0),
+            'charset' => strtoupper((string)(rpParam($part, 'charset') ?? 'UTF-8')), 'html' => $sub === 'html'];
+}
+
+/**
  * Recursively collect attachment parts (PDF + images). Accumulates
  * ['pn'=>section, 'filename'=>?, 'mime'=>str, 'encoding'=>int].
  */
@@ -184,96 +211,149 @@ function rpWalk($part, string $pn, array &$acc): void {
     }
 }
 
-$ref  = "{{$host}:{$port}/imap/ssl}INBOX";
-$mbox = @imap_open($ref, $user, RECEIPTS_IMAP_PASS, 0, 1);
-if ($mbox === false) {
-    $mbox = @imap_open("{{$host}:{$port}/imap/ssl/novalidate-cert}INBOX", $user, RECEIPTS_IMAP_PASS, 0, 1);
+// Mailboxes: receipts@ takes everything; office@ (shared business inbox, added 2026-10-06)
+// only receipt-looking mail, read-only, from the day it was added.
+$mailboxes = [['user' => $user, 'pass' => RECEIPTS_IMAP_PASS, 'filter' => false, 'floor' => $floorTs]];
+if (defined('SMTP_USER') && defined('SMTP_PASS') && SMTP_PASS !== '' && strtolower((string)SMTP_USER) !== $user) {
+    $mailboxes[] = ['user' => SMTP_USER, 'pass' => SMTP_PASS, 'filter' => true, 'floor' => strtotime('2026-10-06 00:00:00')];
 }
-if ($mbox === false) {
-    rpFail("ERROR: could not log into {$user}: " . implode('; ', imap_errors() ?: ['unknown']));
+// Tim's personal iCloud inbox (2026-10-06, his call): same receipt-only filter, read-only,
+// from the day it was added — but a mail from himself is NOT automatically a receipt there.
+// Needs an Apple app-specific password: ICLOUD_IMAP_USER / ICLOUD_IMAP_PASS in secrets.php.
+if (defined('ICLOUD_IMAP_USER') && defined('ICLOUD_IMAP_PASS') && ICLOUD_IMAP_PASS !== '') {
+    $mailboxes[] = ['user' => ICLOUD_IMAP_USER, 'pass' => ICLOUD_IMAP_PASS, 'filter' => true, 'personal' => true,
+                    'host' => 'imap.mail.me.com', 'floor' => strtotime('2026-10-06 00:00:00')];
 }
+$lower = fn($rows) => array_values(array_filter(array_map(fn($e) => strtolower(trim((string)$e)), $rows)));
+$ownerEmails = ['mowology@icloud.com'];
+$clientEmails = [];
+try { $ownerEmails = array_merge($ownerEmails, $lower($db->query("SELECT email FROM users WHERE email IS NOT NULL")->fetchAll(PDO::FETCH_COLUMN))); } catch (\Throwable $e) {}
+try { $clientEmails = $lower($db->query("SELECT email FROM contacts WHERE email IS NOT NULL AND email <> ''")->fetchAll(PDO::FETCH_COLUMN)); } catch (\Throwable $e) {}
 
-$rawHits = @imap_search($mbox, 'SINCE "' . $since . '"');
-$searchFailed = ($rawHits === false);
-$searchError  = null;
-if ($searchFailed) {
-    $searchError = implode('; ', imap_errors() ?: ['unknown IMAP error']);
-    rpLog("WARNING: imap_search failed ({$searchError}) — treating as 0 results this run, not a confirmed empty mailbox.");
-    $hits = [];
-} else {
-    $hits = $rawHits;
-}
-rpLog("{$user}: " . count($hits) . ' email(s) in window');
-
-$autoPosted = [];
+$cleanMatches = [];
 $pending    = [];
 $seen = 0;
+$searchFailed = false;
+$searchError  = null;
 
-foreach ($hits as $msgNo) {
-    try {
-        $hdr     = @imap_headerinfo($mbox, $msgNo);
-        $subject = $hdr && isset($hdr->subject) ? imap_utf8($hdr->subject) : '';
-        $msgId   = $hdr->message_id ?? null;
-        $date    = $hdr->date ?? null;
-        $from    = ($hdr && !empty($hdr->from) && isset($hdr->from[0]))
-                 ? (($hdr->from[0]->mailbox ?? '') . '@' . ($hdr->from[0]->host ?? '')) : null;
-
-        if ($date && $floorTs && strtotime($date) < $floorTs) { continue; }
-
-        $struct = @imap_fetchstructure($mbox, $msgNo);
-        if (!$struct) { continue; }
-
-        $parts = [];
-        if (!empty($struct->parts)) {
-            rpWalk($struct, '', $parts);
-        }
-        if (empty($parts)) {
-            // No PDF/image attachment — nothing to ingest. Body-only receipts
-            // (Stripe/Amazon/Uber HTML) are phase 2. Cheap to re-scan headers.
-            continue;
-        }
-
-        $msgMeta = ['message_id' => $msgId, 'sender_email' => $from, 'subject' => $subject, 'email_date' => $date];
-
-        foreach ($parts as $p) {
-            $seen++;
-            $raw   = imap_fetchbody($mbox, $msgNo, $p['pn']);
-            $bytes = rpDecode($raw, $p['encoding']);
-            if ($bytes === '' || strlen($bytes) > 15 * 1024 * 1024) { continue; } // skip empty / >15MB
-
-            $res = $service->ingestAttachment($msgMeta, $bytes, $p['filename'], $p['mime'], $systemUserId);
-            $line = "{$from} — {$p['filename']} ({$p['mime']}) → {$res['status']}";
-            if ($res['status'] === 'auto_posted') {
-                $autoPosted[] = ['who' => $from, 'subject' => $subject, 'file' => $p['filename'], 'id' => $res['expense_id']];
-                rpLog("AUTO-POST: {$line} expense #{$res['expense_id']}");
-            } elseif ($res['status'] === 'pending') {
-                $pending[] = ['who' => $from, 'subject' => $subject, 'file' => $p['filename'], 'id' => $res['expense_id'], 'note' => $res['note']];
-                rpLog("PENDING: {$line}" . ($res['note'] ? " ({$res['note']})" : ''));
-            } else {
-                rpLog($line);
-            }
-        }
-    } catch (\Throwable $e) {
-        rpLog("ERROR processing msg {$msgNo}: " . $e->getMessage());
+foreach ($mailboxes as $mb) {
+    $user = $mb['user'];
+    $mbHost = $mb['host'] ?? $host;
+    $ref  = "{{$mbHost}:{$port}/imap/ssl}INBOX";
+    $mbox = @imap_open($ref, $user, $mb['pass'], $mb['filter'] ? OP_READONLY : 0, 1);
+    if ($mbox === false) {
+        $mbox = @imap_open("{{$mbHost}:{$port}/imap/ssl/novalidate-cert}INBOX", $user, $mb['pass'], $mb['filter'] ? OP_READONLY : 0, 1);
+    }
+    if ($mbox === false) {
+        if (!$mb['filter']) rpFail("ERROR: could not log into {$user}: " . implode('; ', imap_errors() ?: ['unknown']));
+        rpLog("WARNING: could not log into {$user}: " . implode('; ', imap_errors() ?: ['unknown']));
         continue;
     }
-}
 
-imap_close($mbox);
-rpLog("Scanned {$seen} attachment(s): " . count($autoPosted) . ' auto-posted, ' . count($pending) . ' pending.');
-
-// Post auto-approved expenses to the ledger now (idempotent; sync-ledger cron also runs).
-if (!empty($autoPosted)) {
-    try {
-        (new AccountingService($db))->syncFromExpenses();
-        rpLog('Ledger sync run for auto-posted expenses.');
-    } catch (\Throwable $e) {
-        rpLog('Ledger sync error (non-fatal): ' . $e->getMessage());
+    // imap_search() returns false for "no matches" too — only an IMAP error on the stack is a
+    // real failure (the Sep 22 version reported every empty window as a failed search).
+    imap_errors();   // clear notices left over from the login
+    $rawHits = @imap_search($mbox, 'SINCE "' . $since . '"');
+    $searchErrors = $rawHits === false ? (imap_errors() ?: []) : [];
+    $searchFailed = $searchFailed || (bool)$searchErrors;
+    if ($rawHits === false && !$searchErrors) {
+        $rawHits = [];   // nothing new in the window
     }
+    if ($searchErrors) {
+        $searchError = implode('; ', $searchErrors);
+        rpLog("WARNING: imap_search failed ({$searchError}) — treating as 0 results this run, not a confirmed empty mailbox.");
+        $hits = [];
+    } else {
+        $hits = $rawHits;
+    }
+    rpLog("{$user}: " . count($hits) . ' email(s) in window');
+
+
+    foreach ($hits as $msgNo) {
+        try {
+            $hdr     = @imap_headerinfo($mbox, $msgNo);
+            $subject = $hdr && isset($hdr->subject) ? imap_utf8($hdr->subject) : '';
+            $msgId   = $hdr->message_id ?? null;
+            $date    = $hdr->date ?? null;
+            $from    = ($hdr && !empty($hdr->from) && isset($hdr->from[0]))
+                     ? (($hdr->from[0]->mailbox ?? '') . '@' . ($hdr->from[0]->host ?? '')) : null;
+
+            if ($date && $mb['floor'] && strtotime($date) < $mb['floor']) { continue; }
+
+            $struct = @imap_fetchstructure($mbox, $msgNo);
+            if (!$struct) { continue; }
+
+            $parts = [];
+            if (!empty($struct->parts)) {
+                rpWalk($struct, '', $parts);
+            }
+            if (empty($parts) && ReceiptInboxService::isBodyReceipt($from, $subject, empty($mb['personal']) ? $ownerEmails : [], $clientEmails)) {
+                // The receipt IS the email (RONA, Amazon…): read its text (2026-10-06).
+                $bp = rpBodyPart($struct);
+                if ($bp) {
+                    $body = rpDecode((string)imap_fetchbody($mbox, $msgNo, $bp['pn'], FT_PEEK), $bp['encoding']);
+                    if ($bp['charset'] !== 'UTF-8' && $bp['charset'] !== 'US-ASCII') {
+                        $body = (string)@mb_convert_encoding($body, 'UTF-8', $bp['charset']);
+                    }
+                    if (!$bp['html']) $body = nl2br(htmlspecialchars($body));
+                    $seen++;
+                    $res = $service->ingestEmailBody(['message_id' => $msgId, 'sender_email' => $from, 'subject' => $subject, 'email_date' => $date], $body, $systemUserId);
+                    rpLog("BODY RECEIPT: {$from} — {$subject} → {$res['status']}" . ($res['expense_id'] ? " expense #{$res['expense_id']}" : ''));
+                    if ($res['status'] === 'pending') {
+                        $pending[] = ['who' => $from, 'subject' => $subject, 'file' => 'email', 'id' => $res['expense_id'], 'note' => 'read from the email itself'];
+                    }
+                }
+                continue;
+            }
+            if (empty($parts)) {
+                if ($mb['filter'] && empty($mb['personal'])) rpLog("office@ skip (no PDF/photo attached): {$from} — {$subject}");
+                // No PDF/image attachment — nothing to ingest. Body-only receipts
+                // (Stripe/Amazon/Uber HTML) are phase 2. Cheap to re-scan headers.
+                continue;
+            }
+
+            // office@ is a shared inbox: only receipt-looking mail (ReceiptInboxService::isOfficeReceipt).
+            if ($mb['filter'] && !ReceiptInboxService::isOfficeReceipt($from, $subject, (string)($parts[0]['filename'] ?? ''), empty($mb['personal']) ? $ownerEmails : [], $clientEmails)) {
+                if (empty($mb['personal'])) rpLog("office@ skip (doesn't look like a receipt): {$from} — {$subject} — " . ($parts[0]['filename'] ?? ''));
+                continue;
+            }
+
+            $msgMeta = ['message_id' => $msgId, 'sender_email' => $from, 'subject' => $subject, 'email_date' => $date];
+
+            foreach ($parts as $p) {
+                $seen++;
+                $raw   = imap_fetchbody($mbox, $msgNo, $p['pn'], FT_PEEK);   // never marks mail as read
+                $bytes = rpDecode($raw, $p['encoding']);
+                if ($bytes === '' || strlen($bytes) > 15 * 1024 * 1024) { continue; } // skip empty / >15MB
+
+                $res = $service->ingestAttachment($msgMeta, $bytes, $p['filename'], $p['mime'], $systemUserId);
+                $line = "{$from} — {$p['filename']} ({$p['mime']}) → {$res['status']}";
+                if ($res['status'] === 'pending' && !empty($res['high_confidence'])) {
+                    // Clean match: waits for approval (Penny prepares it first) — never auto-approved.
+                    $cleanMatches[] = ['who' => $from, 'subject' => $subject, 'file' => $p['filename'], 'id' => $res['expense_id']];
+                    rpLog("CLEAN MATCH (awaiting approval): {$line} expense #{$res['expense_id']}");
+                } elseif ($res['status'] === 'pending') {
+                    $pending[] = ['who' => $from, 'subject' => $subject, 'file' => $p['filename'], 'id' => $res['expense_id'], 'note' => $res['note']];
+                    rpLog("PENDING: {$line}" . ($res['note'] ? " ({$res['note']})" : ''));
+                } else {
+                    rpLog($line);
+                }
+            }
+        } catch (\Throwable $e) {
+            rpLog("ERROR processing msg {$msgNo}: " . $e->getMessage());
+            continue;
+        }
+    }
+
+    imap_close($mbox);
 }
+rpLog("Scanned {$seen} attachment(s): " . count($cleanMatches) . ' clean match(es) awaiting approval, ' . count($pending) . ' pending.');
+
+// Nothing is posted to the books here any more: every receipt waits for the owner's
+// approval (the sync-ledger cron posts it after that).
 
 // Summary email — only when something new arrived.
-if (!empty($autoPosted) || !empty($pending)) {
+if (!empty($cleanMatches) || !empty($pending)) {
     $section = function (string $title, array $items, string $colour) {
         if (empty($items)) { return ''; }
         $rows = '';
@@ -288,12 +368,12 @@ if (!empty($autoPosted) || !empty($pending)) {
              . ' (' . count($items) . ')</h3><table style="width:100%;border-collapse:collapse;">' . $rows . '</table>';
     };
 
-    $count   = count($autoPosted) + count($pending);
+    $count   = count($cleanMatches) + count($pending);
     $subject = "{$count} emailed receipt" . ($count === 1 ? '' : 's') . ' processed';
     $link    = (defined('SITE_URL') ? rtrim(SITE_URL, '/') : 'https://mowology.ca') . '/crm/expenses_appstack.php#receipt-inbox';
     $html    = '<div style="font-family:Arial,sans-serif;max-width:560px;">'
              . '<h2 style="color:#1A5F4A;">Emailed receipts processed</h2>'
-             . $section('Auto-posted to the books', $autoPosted, '#2D8659')
+             . $section('Clean match — high confidence, waiting for your approval', $cleanMatches, '#2D8659')
              . $section('Needs review', $pending, '#b45309')
              . '<p style="margin-top:18px;"><a href="' . $link . '" style="background:#2D8659;color:#fff;'
              . 'padding:10px 18px;border-radius:6px;text-decoration:none;">Open Expenses review</a></p>'
@@ -304,7 +384,7 @@ if (!empty($autoPosted) || !empty($pending)) {
     rpLog("Summary email to {$to}: " . ($ok ? 'sent' : 'FAILED'));
 }
 
-$summary = "Scanned {$seen} attachment(s): " . count($autoPosted) . ' auto-posted, ' . count($pending) . ' pending.';
+$summary = "Scanned {$seen} attachment(s): " . count($cleanMatches) . ' clean match(es) awaiting approval, ' . count($pending) . ' pending.';
 if ($searchFailed) {
     $summary = 'IMAP search failed (mail server may be flaky) — ' . $summary;
 }

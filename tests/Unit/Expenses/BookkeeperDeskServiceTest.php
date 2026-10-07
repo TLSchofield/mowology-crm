@@ -99,4 +99,16 @@ class BookkeeperDeskServiceTest extends TestCase
         $this->assertNull(BookkeeperDeskService::pct(0, 0));
         $this->assertSame(89, BookkeeperDeskService::pct(34, 38));
     }
+
+    /** The penny_prepare cron asks for 5 a run; the daily cap still wins. */
+    public function test_batch_size_respects_the_daily_cap(): void
+    {
+        $this->assertSame(5, BookkeeperDeskService::batchSize(5, 40, 0));
+        $this->assertSame(5, BookkeeperDeskService::batchSize(50, 40, 0));   // never more than 5 a round
+        $this->assertSame(1, BookkeeperDeskService::batchSize(0, 40, 0));    // at least 1 asked
+        $this->assertSame(3, BookkeeperDeskService::batchSize(5, 40, 37));   // only what's left today
+        $this->assertSame(0, BookkeeperDeskService::batchSize(5, 40, 40));   // capped
+        $this->assertSame(0, BookkeeperDeskService::batchSize(5, 40, 55));   // over (manual runs) → still 0
+        $this->assertSame(BookkeeperDeskService::DEFAULT_DAILY_CAP, 40);     // the cap is not raised
+    }
 }

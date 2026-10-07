@@ -56,19 +56,26 @@ Approved/forwarded expenses post to the ledger via
 3. `ReceiptInboxService::ingestAttachment()` stores the file, runs the shared OCR
    pipeline (`ReceiptOCR` → `ReceiptParser` → `ReceiptSmartMatch`; PDFs are
    rasterised page-1 via Imagick), and creates the expense.
-4. **Auto-post gate** (`ReceiptInboxService::isCleanMatch()`): the expense is
-   created `status='approved'` (posts to the books) **only** when all of:
+4. **Confidence gate** (`ReceiptInboxService::isCleanMatch()` → `inboxStatus()`).
+   Nothing is approved automatically (since 2026-10-07). A clean match — all of:
    - vendor matched in the vendor directory (`vendor_id`),
    - a positive total parsed,
    - a valid date parsed,
-   - the matched vendor has a `default_accounting_category`.
-   PDFs that couldn't be OCR'd never auto-post. Everything else is `status='draft'`.
-5. **Review**: drafts from email (`source='email_inbox'`) appear in the
-   "Receipts from email — pending review" panel on the Expenses page. Edit
-   vendor/date/total/GST/PST/category, then **Approve** (→ `approved`) or
-   **Dismiss** (→ `cancelled`). API: `public/crm/api/receipt-inbox-confirm.php`.
+   - the matched vendor has a `default_accounting_category` —
+   is created `status='pending_approval'`, flagged high-confidence (inbox note
+   "clean match — high confidence"). Penny prepares `pending_approval` receipts
+   first; the owner approves. PDFs that couldn't be OCR'd are never clean.
+   Everything else is `status='draft'`.
+5. **Review**: emailed receipts (`source='email_inbox'`, draft or pending_approval)
+   appear in the "Receipts from email — pending review" panel on the Expenses page
+   and on Penny's card. Edit vendor/date/total/GST/PST/category, then **Approve**
+   (→ `approved`) or **Dismiss** (→ `cancelled`). API: `public/crm/api/receipt-inbox-confirm.php`.
 6. **Notify**: each poll run that processed anything emails a summary to
-   `mowology@icloud.com` (auto-posted vs needs-review).
+   `mowology@icloud.com` (clean matches awaiting approval vs needs-review).
+7. **Penny prepares in the background**: `app/Modules/Expenses/Cron/penny_prepare.php`
+   (every 15 min, `5,20,35,50 * * * *`) prepares up to 5 receipts per run within the
+   daily cap (`ops_settings bookkeeper_daily_cap`, default 40), holding back possible
+   duplicates. `--dry-run` lists what it would prepare without calling the AI.
 
 ### Dedup
 `receipt_inbox_messages.dedup_key` = `message-id:sha256` (or `sha:sha256` when the
@@ -211,6 +218,38 @@ styles in `mowology-brand.css` "DEPARTMENT HEADS DECK"; headshots `/crm/img/head
   `ops_settings.bookkeeper_daily_cap` (default 40).
 - **Numbers:** right-first-time from real decisions (backtest until 5 exist); net
   saving only from real decisions × the Owner Freedom rate − AI cost.
+
+### Penny's card — what's on it (2026-10-05)
+
+- **Duplicates first:** `DuplicateReceiptService` reuses `ExpenseLookupService::findDuplicates`
+  (same total to the cent, ±3 days, same vendor — the receipts page's rule) over the next
+  60 waiting receipts, groups linked pairs, and holds every waiting member out of the
+  approval queue and out of Penny's AI read. Removing a copy calls `expenses.php
+  action=merge` (approved/sent keepers are merged with `fields: {receipt: 'keep'}` so
+  they don't change). "Not duplicates" → `expense_duplicate_dismissals` (migration 1127).
+- **Fields:** vendor (search + new), receipt date (MwDatePicker), category, tag, totals,
+  job; line items edited in place via `expenses.php` `add/update/delete_line_item`
+  (saved immediately; same learning as the receipts page), "Use Penny's items".
+- **Re-check:** `?mode=recheck` — Penny re-reads one receipt with the photo; old
+  suggestion becomes `superseded`. Different from the receipts page Rescan (OCR).
+- **Rotate:** view only, like the receipts page lightbox (↻, R key).
+- **Self-approval:** checked before anything is written; blocked → edits kept as a
+  draft and the reason shown. Owner exemption: Team → Approvals.
+- **Vendor strength:** `PennyBadgeService::vendorStrength` — per vendor run toward
+  trusted (5 unchanged in a row), % unchanged, receipts seen; shown as "Vendors I know"
+  and under each receipt's Vendor field.
+
+### Penny's brain
+
+`PennyBrainService::learned()` counts trusted vendors, earned badges, learned store
+locations (`vendor_locations.source='learned'`), learned vendor categories
+(`vendor_parse_profiles`) and `receipt_parse_lessons`. `public/crm/js/penny-brain.js`
+draws shape N = units + 1 of 500 (deterministic: tetrahedron, double / twisted double
+pyramids up to 90, then folded geodesic spheres of the tetra/octa/icosahedron, each
+with its own seeded folds and orientation; shape N has ≥ N + 3 triangles), lights one
+triangle per unit, pulses the newest and glows with right-first-time. Canvas 2D, no
+library, reduced-motion aware. Also on the card: Reject with a reason, anomaly rules +
+bank match in the checks, product search on item names (`link_product`).
 
 ### Penny's badges
 

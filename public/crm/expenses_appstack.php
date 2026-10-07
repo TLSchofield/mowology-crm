@@ -3318,21 +3318,40 @@ async function submitReceiptExport() {
         if (!vA && !vB) return true; // both anonymous, same total + date
         return false;
     }
+    // "Not a duplicate" is kept on the server (expense_duplicate_dismissals, shared with
+    // Penny's card — /crm/api/bookkeeper.php); sessionStorage stays as the fallback for
+    // users without approve rights or before migration 1127.
+    var serverDismissed = [];
     function getDismissedPairs() {
-        try { return JSON.parse(sessionStorage.getItem('mw_dup_dismissed') || '[]'); } catch(e) { return []; }
+        var local = [];
+        try { local = JSON.parse(sessionStorage.getItem('mw_dup_dismissed') || '[]'); } catch(e) {}
+        return local.concat(serverDismissed);
     }
     function dismissPair(idA, idB) {
         var key = [Math.min(idA, idB), Math.max(idA, idB)].join('_');
         var pairs = getDismissedPairs();
         if (pairs.indexOf(key) === -1) {
-            pairs.push(key);
-            try { sessionStorage.setItem('mw_dup_dismissed', JSON.stringify(pairs)); } catch(e) {}
+            try {
+                var local = JSON.parse(sessionStorage.getItem('mw_dup_dismissed') || '[]');
+                local.push(key);
+                sessionStorage.setItem('mw_dup_dismissed', JSON.stringify(local));
+            } catch(e) {}
         }
+        fetch('/crm/api/bookkeeper.php', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode: 'not_dupe', pairs: [[idA, idB]], csrf_token: CSRF }) }).catch(function() {});
     }
     function isPairDismissed(idA, idB) {
         var key = [Math.min(idA, idB), Math.max(idA, idB)].join('_');
         return getDismissedPairs().indexOf(key) !== -1;
     }
+    fetch('/crm/api/bookkeeper.php?mode=dismissed_dupes', { cache: 'no-store' })
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(d) {
+            if (!d || !d.ok || !d.pairs || !d.pairs.length) return;
+            serverDismissed = d.pairs.map(function(p) { return Math.min(p[0], p[1]) + '_' + Math.max(p[0], p[1]); });
+            if (typeof loadExpenses === 'function') loadExpenses(currentPage);
+        })
+        .catch(function() {});
     function findDuplicateGroups(expenses) {
         var groups = [], inGroupIds = new Set();
         for (var i = 0; i < expenses.length; i++) {

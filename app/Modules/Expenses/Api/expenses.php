@@ -313,12 +313,23 @@ function handleList(PDO $db): void
  */
 function handleReviewQueue(PDO $db): void
 {
+    // Not while Penny has the receipt on her desk (prepared, waiting for the owner): it
+    // would be sent before she's approved it, and she'd then show it as already handled.
+    $pennyHolds = '';
+    try {
+        if ($db->query("SHOW TABLES LIKE 'expense_suggestions'")->rowCount() > 0) {
+            $pennyHolds = "AND NOT EXISTS (SELECT 1 FROM expense_suggestions ps
+                                           WHERE ps.expense_id = e.id AND ps.source = 'live' AND ps.status = 'pending')";
+        }
+    } catch (Throwable $e) { /* no Penny → no hold */ }
+
     $countStmt = $db->prepare("
         SELECT COUNT(*), SUM(e.total)
         FROM expenses e
         WHERE e.status IN ('draft', 'approved')
           AND (e.forwarded_to_accounting IS NULL OR e.forwarded_to_accounting = 0)
           AND (e.anomaly_score <= 30 OR e.anomaly_score IS NULL)
+          {$pennyHolds}
     ");
     $countStmt->execute();
     $totals      = $countStmt->fetch(PDO::FETCH_NUM);
@@ -335,6 +346,7 @@ function handleReviewQueue(PDO $db): void
         WHERE e.status IN ('draft', 'approved')
           AND (e.forwarded_to_accounting IS NULL OR e.forwarded_to_accounting = 0)
           AND (e.anomaly_score <= 30 OR e.anomaly_score IS NULL)
+          {$pennyHolds}
         ORDER BY e.expense_date DESC, e.created_at DESC
         LIMIT 100
     ");
@@ -885,7 +897,8 @@ function handleCheckDuplicates(PDO $db): void
 
 /**
  * POST {action:'merge', keep_id, discard_id, csrf_token}
- * Merge two duplicate expense records: keep one, delete the other.
+ * Merge two duplicate expense records: keep one; the other is rejected "Merged into
+ * receipt #N" and kept on record (never deleted — CRA six-year retention).
  * If the discarded expense has a receipt and the kept one doesn't,
  * the receipt is transferred before deletion.
  */
@@ -900,8 +913,10 @@ function handleMergeExpenses(PDO $db, ?array $input): void
     if ($keepId === $discardId) throw new Exception('Cannot merge an expense with itself');
 
     // Fetch both expenses (full rows for per-field merge)
-    $stmt = $db->prepare("SELECT * FROM expenses WHERE id IN (?, ?)");
-    $stmt->execute([$keepId, $discardId]);
+    // Ids are ints, so plain (unprepared) queries are safe here — and they avoid MySQL
+    // 1615 "Prepared statement needs to be re-prepared", which this host raises when a
+    // statement touches many tables (the DELETE cascades) and the table cache is short.
+    $stmt = $db->query("SELECT * FROM expenses WHERE id IN (" . $keepId . ", " . $discardId . ")");
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     $keep    = null;
@@ -947,21 +962,36 @@ function handleMergeExpenses(PDO $db, ?array $input): void
 
         if (!empty($updates)) {
             $params[] = $keepId;
-            $db->prepare("UPDATE expenses SET " . implode(', ', $updates) . " WHERE id = ?")
-               ->execute($params);
+            $upd = "UPDATE expenses SET " . implode(', ', $updates) . " WHERE id = ?";
+            try {
+                $db->prepare($upd)->execute($params);
+            } catch (PDOException $e) {
+                if (strpos($e->getMessage(), '1615') === false) throw $e;
+                $db->prepare($upd)->execute($params);      // re-prepare once
+            }
         }
     } else {
         // Legacy behavior: transfer receipt if kept has none and discarded has one
         if (empty($keep['receipt_media_id']) && !empty($discard['receipt_media_id'])) {
-            $db->prepare("UPDATE expenses SET receipt_media_id = ? WHERE id = ?")
-               ->execute([$discard['receipt_media_id'], $keepId]);
+            $db->exec("UPDATE expenses SET receipt_media_id = " . (int)$discard['receipt_media_id'] . " WHERE id = " . $keepId);
         }
     }
 
     // Delete the duplicate
-    $db->prepare("DELETE FROM expenses WHERE id = ?")->execute([$discardId]);
+    // Never delete (six-year record): the merged-away receipt is rejected "Merged into
+    // receipt #N" and kept; if it had already posted to the books, that entry is reversed.
+    $db->prepare("UPDATE expenses SET status = 'rejected', rejection_reason = ? WHERE id = ?")
+       ->execute(['Merged into receipt #' . $keepId, $discardId]);
+    try {
+        require_once APP_ROOT . '/Modules/Accounting/Services/LedgerService.php';
+        $ledger = new LedgerService($db);
+        $entryId = $ledger->findEntryIdBySource('expense', $discardId);
+        if ($entryId) $ledger->reverseEntry($entryId, (int)(getCurrentUser()['id'] ?? 0), 'receipt merged into #' . $keepId);
+    } catch (Throwable $e) {
+        error_log('Merge: could not reverse the journal entry of expense ' . $discardId . ': ' . $e->getMessage());
+    }
 
-    echo json_encode(['success' => true, 'message' => 'Merged: expense #' . $discardId . ' deleted, #' . $keepId . ' kept.']);
+    echo json_encode(['success' => true, 'message' => 'Merged: expense #' . $discardId . ' set aside (kept on record), #' . $keepId . ' kept.']);
 }
 
 

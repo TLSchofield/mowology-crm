@@ -15,6 +15,7 @@ if (!function_exists('userHasPermission') || !userHasPermission('expenses.approv
     return;
 }
 try {
+    require_once APP_ROOT . '/Modules/Expenses/ExpenseConstants.php';   // categories for the card, loaded here, not via another file
     require_once APP_ROOT . '/Modules/Expenses/Services/BookkeeperDeskService.php';
     $__desk = new BookkeeperDeskService(getDB());
     if (!$__desk->ready()) {
@@ -29,9 +30,18 @@ try {
     require_once APP_ROOT . '/Modules/Expenses/Services/PennyQuestionService.php';
     $__hi = PennyQuestionService::firstName((array)($user ?? getCurrentUser() ?? []));
     $__badges = ['earned' => [], 'next' => null];
+    $__vendors = [];
+    $__brain = null;
+    $__audit = null;
     try {
         require_once APP_ROOT . '/Modules/Expenses/Services/PennyBadgeService.php';
-        $__badges = (new PennyBadgeService(getDB()))->badges();
+        $__pb = new PennyBadgeService(getDB());
+        $__badges = $__pb->badges();
+        $__vendors = $__pb->vendors(6);
+        require_once APP_ROOT . '/Modules/Expenses/Services/PennyBrainService.php';
+        $__brain = (new PennyBrainService(getDB()))->learned();
+        require_once APP_ROOT . '/Modules/Expenses/Services/PennySelfAuditService.php';
+        $__audit = (new PennySelfAuditService(getDB()))->dueThenLast();   // weekly; code only
     } catch (Throwable $__e) { /* badges are a bonus — never block the card */ }
 } catch (Throwable $__e) {
     error_log('Dept heads deck unavailable: ' . $__e->getMessage());
@@ -52,7 +62,16 @@ $__team = [
 <div class="mw-heads-deck" id="mw-heads-deck">
   <section class="mw-head-card mw-head-feature" id="mw-penny">
     <div class="mw-head-portrait">
-      <img src="/crm/img/heads/penny.jpg" alt="Penny, bookkeeper" width="168" height="168">
+      <div class="mw-head-photo">
+        <img src="/crm/img/heads/penny.jpg" alt="Penny, bookkeeper" width="168" height="168">
+        <?php if ($__brain !== null): ?>
+          <button type="button" class="mw-brain" aria-label="Penny's brain: <?= (int)$__brain['units'] ?> things learned"
+                  data-units="<?= (int)$__brain['units'] ?>"
+                  data-bright="<?= h((string)(($ps['right_first_time'] ?? 50) / 100)) ?>"
+                  data-parts="<?= h(json_encode($__brain['parts'])) ?>"
+                  data-since="<?= h(!empty($__brain['since']) ? date('M j, Y', strtotime($__brain['since'])) : '') ?>"><canvas></canvas></button>
+        <?php endif; ?>
+      </div>
       <div>
         <div class="mw-head-name">Penny</div>
         <div class="mw-head-role">Bookkeeper · receipts &amp; expenses</div>
@@ -127,11 +146,40 @@ $__team = [
         </div>
       </div>
 
+      <?php if ($__vendors): ?>
+      <div class="mw-head-vendors">
+        <div class="mw-k">Vendors I know <small>— 5 in a row approved unchanged and I'm trusted with them</small></div>
+        <div class="mw-hv-list">
+          <?php foreach ($__vendors as $__v): ?>
+            <span class="mw-hv<?= $__v['trusted'] ? ' is-trusted' : '' ?>" title="<?= h($__v['vendor']) ?>: <?= (int)$__v['seen'] ?> receipt<?= $__v['seen'] === 1 ? '' : 's' ?>, <?= (int)$__v['right'] ?> approved unchanged (<?= (int)$__v['pct'] ?>%). Current run: <?= (int)$__v['run'] ?> of <?= (int)$__v['need'] ?>.">
+              <b><?= h(PennyQuestionService::tidy($__v['vendor'])) ?></b>
+              <i class="mw-hv-dots" aria-hidden="true"><?php for ($__i = 0; $__i < $__v['need']; $__i++): ?><em class="<?= $__i < $__v['run'] ? 'on' : '' ?>"></em><?php endfor; ?></i>
+              <small><?= $__v['trusted'] ? '✓ trusted' : (int)$__v['pct'] . '% · ' . (int)$__v['seen'] . ' seen' ?></small>
+            </span>
+          <?php endforeach; ?>
+        </div>
+      </div>
+      <?php endif; ?>
+
+      <?php if ($__audit && (int)$__audit['checked'] > 0): ?>
+      <div class="mw-audit" title="<?= h(implode(' · ', array_map(fn($x) => $x['what'] . ': ' . implode(', ', $x['changed']), $__audit['examples'] ?? []))) ?>">
+        🔍 <b>My weekly self-check</b> (<?= h(date('M j', strtotime((string)$__audit['at']))) ?>):
+        I re-checked <?= (int)$__audit['checked'] ?> of my past calls you approved —
+        <?php if ((int)$__audit['wrong'] === 0): ?>none have been corrected since. ✓
+        <?php else: ?><b><?= (int)$__audit['wrong'] ?></b> were corrected later (<?= (int)$__audit['rate'] ?>% wrong). Hover to see which.<?php endif; ?>
+      </div>
+      <?php endif; ?>
+
       <div class="mw-pq" id="mw-pq" hidden></div>
 
       <div class="mw-rc" id="mw-rc" aria-live="polite" data-categories="<?= h(json_encode(array_values(EXPENSE_ACCOUNTING_CATEGORIES))) ?>" data-backlog="<?= (int)$__toReview ?>" data-name="<?= h($__hi) ?>">
         <div class="mw-rc-empty">Loading receipts…</div>
       </div>
+
+      <div class="mw-et" id="mw-et" hidden aria-live="polite"></div>
+      <div class="mw-bl" id="mw-bl" hidden aria-live="polite" data-name="<?= h($__hi) ?>"></div>
+      <div class="mw-sc" id="mw-rb" hidden></div>
+      <div class="mw-sc" id="mw-sc" hidden></div>
 
       <div class="mw-head-foot">
         <span>Learning from every approval: store locations · item names · your fuel &amp; EGO rules</span>
@@ -161,3 +209,5 @@ $__team = [
   <?php endif; ?>
 </div>
 <script src="<?= function_exists('_av') ? _av('/crm/js/bookkeeper-card.js') : '/crm/js/bookkeeper-card.js' ?>" defer></script>
+<script src="<?= function_exists('_av') ? _av('/crm/js/penny-brain.js') : '/crm/js/penny-brain.js' ?>" defer></script>
+<script src="<?= function_exists('_av') ? _av('/crm/js/penny-bank.js') : '/crm/js/penny-bank.js' ?>" defer></script>

@@ -7,6 +7,10 @@
  *   year    int   (default: current year)
  *   quarter int   1-4 or 0 = full year (default: current quarter)
  *   format  string  'json' (default) or 'csv'
+ *   mode    'compare' → read-only old-vs-new numbers for the period (or &from=&to=)
+ *
+ * Numbers come from GstReportService (the one GST calculation): ITCs from approved or
+ * posted expenses only, meals & entertainment limited to 50% (ops_settings).
  */
 declare(strict_types=1);
 
@@ -53,55 +57,48 @@ try {
 $businessName  = $bsRow['company_name']     ?? '';
 $gstRegNumber  = $bsRow['gst_registration'] ?? '';
 
-// ── Invoices in period ─────────────────────────────────────────────────────
-$invoices   = [];
-$apiErrors  = [];
+// ── The return: one shared calculation (GstReportService) ─────────────────
+// ITCs from approved or posted expenses only, with the meals & entertainment limit.
+$apiErrors = [];
+$invoices  = [];
+$expenses  = [];
+$rpt       = null;
 try {
-    $invStmt = $db->prepare("
-        SELECT i.id, i.invoice_number, i.issue_date, i.status,
-               i.subtotal, i.tax_rate, i.tax_amount, i.gst_number,
-               i.total, i.amount_paid, i.balance_due, i.payment_method,
-               COALESCE(CONCAT(pc.first_name,' ',pc.last_name), co.company_name, 'Unknown') AS client_name
-        FROM invoices i
-        LEFT JOIN properties p  ON i.property_id = p.id
-        LEFT JOIN contacts   pc ON p.site_contact_id = pc.id
-        LEFT JOIN companies  co ON i.company_id = co.id
-        WHERE i.issue_date BETWEEN ? AND ?
-          AND i.status NOT IN ('draft','cancelled')
-        ORDER BY i.issue_date ASC
-    ");
-    $invStmt->execute([$dateFrom, $dateTo]);
-    $invoices = $invStmt->fetchAll(PDO::FETCH_ASSOC);
+    require_once APP_ROOT . '/Modules/Accounting/Services/GstReportService.php';
+    $rpt      = (new GstReportService($db))->reportForRange($dateFrom, $dateTo, $periodLabel);
+    $invoices = $rpt['invoices'];
+    $expenses = $rpt['expenses'];
 } catch (\Throwable $__e) {
-    $apiErrors[] = 'invoice_query_failed';
-}
-
-// ── Expenses / ITCs in period — only approved expenses qualify for ITC claims ──
-$expenses = [];
-try {
-    $expStmt = $db->prepare("
-        SELECT e.id, e.expense_date, e.description,
-               e.vendor_name_raw AS vendor_name,
-               e.amount, e.gst_amount, e.total,
-               e.accounting_category AS category
-        FROM expenses e
-        WHERE e.expense_date BETWEEN ? AND ?
-          AND e.gst_amount > 0
-          AND e.status = 'approved'
-        ORDER BY e.expense_date ASC
-    ");
-    $expStmt->execute([$dateFrom, $dateTo]);
-    $expenses = $expStmt->fetchAll(PDO::FETCH_ASSOC);
-} catch (\Throwable $__e) {
-    $apiErrors[] = 'expense_query_failed';
+    $apiErrors[] = 'report_query_failed';
 }
 
 // ── Summary calculations ───────────────────────────────────────────────────
-$totalRevenue = round((float)array_sum(array_column($invoices, 'subtotal')), 2);
-$totalGstOut  = round((float)array_sum(array_column($invoices, 'tax_amount')), 2);
+$totalRevenue = $rpt ? $rpt['line_101'] : 0.0;
+$totalGstOut  = $rpt ? $rpt['line_103'] : 0.0;
 $totalPaid    = round((float)array_sum(array_column($invoices, 'amount_paid')), 2);
-$totalITC     = round((float)array_sum(array_column($expenses,  'gst_amount')), 2);
-$netTax       = round($totalGstOut - $totalITC, 2);
+$itcGross     = $rpt ? $rpt['itc_gross'] : 0.0;
+$mealsLimit   = $rpt ? $rpt['meals_limit'] : 0.0;
+$mealsLabel   = $rpt ? $rpt['meals_limit_label'] : '';
+$totalITC     = $rpt ? $rpt['line_106'] : 0.0;
+$netTax       = $rpt ? $rpt['line_109'] : 0.0;
+
+// ── What changed (read-only) — ?mode=compare[&from=YYYY-MM-DD&to=YYYY-MM-DD] ──
+// Old numbers (old page / old API / ledger) next to the new ones for a period already
+// filed. Reads only; no filed record is touched.
+if (($_GET['mode'] ?? '') === 'compare') {
+    $isDate = static fn($d) => is_string($d) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $d) && strtotime($d) !== false;
+    $cFrom = $isDate($_GET['from'] ?? null) ? $_GET['from'] : $dateFrom;
+    $cTo   = $isDate($_GET['to'] ?? null)   ? $_GET['to']   : $dateTo;
+    header('Content-Type: application/json');
+    try {
+        require_once APP_ROOT . '/Modules/Accounting/Services/GstReportService.php';
+        echo json_encode(['ok' => true] + (new GstReportService($db))->compareLegacy($cFrom, $cTo));
+    } catch (\Throwable $__e) {
+        http_response_code(500);
+        echo json_encode(['ok' => false, 'error' => 'compare_failed']);
+    }
+    exit;
+}
 
 // ── CSV export ─────────────────────────────────────────────────────────────
 if ($fmt === 'csv') {
@@ -122,6 +119,10 @@ if ($fmt === 'csv') {
     fputcsv($out, ['GST34 FILING SUMMARY']);
     fputcsv($out, ['Line 101 — Total sales and other revenues', number_format($totalRevenue, 2)]);
     fputcsv($out, ['Line 103 — GST/HST collected', number_format($totalGstOut, 2)]);
+    fputcsv($out, ['GST paid on approved/posted expenses', number_format($itcGross, 2)]);
+    if ($mealsLimit > 0) {
+        fputcsv($out, [$mealsLabel, number_format(-$mealsLimit, 2)]);
+    }
     fputcsv($out, ['Line 106 — Input Tax Credits (ITCs)', number_format($totalITC, 2)]);
     fputcsv($out, ['Line 109 — Net tax owing (Line 103 - Line 106)', number_format($netTax, 2)]);
     fputcsv($out, []);
@@ -149,15 +150,17 @@ if ($fmt === 'csv') {
     if ($expenses) {
         fputcsv($out, []);
         fputcsv($out, ['EXPENSE / INPUT TAX CREDITS (ITCs)']);
-        fputcsv($out, ['Date', 'Vendor', 'Description', 'Category', 'Pre-tax Amount', 'GST Paid (ITC)']);
+        fputcsv($out, ['Date', 'Vendor', 'Description', 'Category', 'Status', 'Pre-tax Amount', 'GST Paid', 'ITC Claimed']);
         foreach ($expenses as $exp) {
             fputcsv($out, [
                 $exp['expense_date'],
                 $exp['vendor_name'] ?? '',
                 $exp['description'] ?? '',
                 $exp['category'] ?? '',
+                $exp['status'] ?? '',
                 number_format((float)$exp['amount'], 2),
                 number_format((float)$exp['gst_amount'], 2),
+                number_format((float)$exp['itc_claimable'], 2),
             ]);
         }
     }
@@ -178,6 +181,9 @@ echo json_encode([
     'summary'     => [
         'total_revenue'  => $totalRevenue,
         'gst_collected'  => $totalGstOut,
+        'itc_gross'      => $itcGross,
+        'meals_limit'    => $mealsLimit,
+        'meals_limit_label' => $mealsLabel,
         'total_itc'      => $totalITC,
         'net_tax'        => $netTax,
         'invoice_count'  => count($invoices),

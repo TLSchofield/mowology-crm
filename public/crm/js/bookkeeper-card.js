@@ -29,8 +29,10 @@
     var jobLabels = {};     // job id → label, for jobs picked from search
     var jobTimer = null;
     var venTimer = null;
+    var rotation = {};      // expense id → degrees; view only, like the receipts page lightbox
     var datePopups = [];    // date-picker popups made for the current render (removed on the next)
     var rechecking = false;
+    var rejecting = false;   // the reason box is open
 
     function esc(s) {
         return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -57,7 +59,7 @@
             .then(function (r) { return r.json(); });
     }
 
-    function load() {
+    function load(msg) {
         return fetch(API + '?mode=queue&limit=15', { cache: 'no-store' })
             .then(function (r) { return r.json(); })
             .then(function (d) {
@@ -65,7 +67,7 @@
                 dupes = (d && d.ok && d.dupes) ? d.dupes : [];
                 idx = 0;
                 topUp();
-                render();
+                render(msg);
             })
             .catch(function () { root.innerHTML = '<div class="mw-rc-empty">Couldn\'t load receipts — refresh to try again.</div>'; });
     }
@@ -100,7 +102,7 @@
             '<div class="mw-rc-dup-facts"><b>' + esc(name) + '</b><span>' + esc(r.expense_date || '') + ' · ' + money(r.total) + '</span>' +
             '<small>#' + esc(r.id) + ' · ' + esc(String(r.status || '').replace('_', ' ')) + (r.submitted_by ? ' · from ' + esc(r.submitted_by) : '') + '</small></div>' +
             (waiting
-                ? '<button type="button" class="mw-rc-ed" data-dup-remove="' + esc(r.id) + '">✕ Remove — it\'s a copy</button>'
+                ? '<button type="button" class="mw-rc-ed" data-dup-remove="' + esc(r.id) + '">✕ It\'s a copy — set aside</button>'
                 : '<div class="mw-rc-dup-note">Already ' + (r.status === 'forwarded' ? 'sent to accounting' : 'approved') + ' — this one stays</div>') +
           '</div>';
     }
@@ -111,7 +113,7 @@
                 ' · sorted before anything is approved</span></div>' +
             '<div class="mw-rc-dup-say">' + (GREETING ? 'Hey ' + esc(GREETING) + ' — ' : '') +
                 (n === 2 ? 'these two look' : 'these ' + n + ' look') + ' like the same purchase: same total, within 3 days. ' +
-                'Remove the copies and keep one — a removed copy\'s photo moves to the one you keep if that has none.</div>' +
+                'Set the copies aside and keep one — they\'re kept on record, not deleted, and a copy\'s photo moves to the one you keep if that has none.</div>' +
             '<div class="mw-rc-dup">' + g.members.map(dupCard).join('') + '</div>' +
             '<div class="mw-rc-actions">' +
               '<button type="button" class="mw-rc-ed" data-dup-not="1">' + (n === 2 ? 'Not duplicates' : 'None of these are duplicates') + ' — approve ' + (n === 2 ? 'both' : 'them all') + '</button>' +
@@ -125,26 +127,17 @@
         var settled = others.filter(function (m) { return WAITING.indexOf(m.status) === -1; });
         return (settled[0] || others[0]).id;
     }
-    function keeperSettled(g, removeId) {
-        var k = keeperFor(g, removeId);
-        return g.members.some(function (m) { return String(m.id) === String(k) && WAITING.indexOf(m.status) === -1; });
-    }
     function settleDupe(removeId, notDupe) {
         if (busy || !dupes.length) return;
         var g = dupes[0];
         busy = true;
         var req = notDupe
             ? post({ mode: 'not_dupe', pairs: g.pairs })
-            : fetch('/crm/api/expenses.php', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                // An approved/sent receipt is locked: keep all its fields (no photo carried over).
-                body: JSON.stringify({ action: 'merge', csrf_token: window.MW_CSRF_TOKEN || '', keep_id: keeperFor(g, removeId), discard_id: removeId,
-                    fields: keeperSettled(g, removeId) ? { receipt: 'keep' } : undefined }) })
-                .then(function (r) { return r.json(); })
-                .then(function (d) { return { ok: !!(d && d.success), message: d && (d.message || d.error) }; });
+            : post({ mode: 'dupe_remove', copy_id: removeId, keep_id: keeperFor(g, removeId) });
         req.then(function (d) {
             busy = false;
             if (!(d && d.ok)) { renderDupe((d && d.message) || 'Could not save'); return; }
-            load().then(function () { if (!dupes.length) render(notDupe ? 'Got it — they go on for approval.' : 'Done — copy removed.'); else renderDupe(notDupe ? 'Got it — not duplicates.' : 'Copy removed.'); });
+            load().then(function () { if (!dupes.length) render(notDupe ? 'Got it — they go on for approval.' : (d.message || 'Copy set aside.')); else renderDupe(notDupe ? 'Got it — not duplicates.' : (d.message || 'Copy set aside.')); });
         }).catch(function () { busy = false; renderDupe('Network error — try again'); });
     }
 
@@ -163,11 +156,15 @@
         var it = queue[idx];
         var s = it.suggestion || {};
         var photo = it.image_url
-            ? '<img class="mw-rc-photo" src="' + esc(it.image_url) + '" alt="Receipt photo" data-zoom="' + esc(it.image_url) + '">'
+            ? '<div class="mw-rc-photowrap"><img class="mw-rc-photo" data-rot src="' + esc(it.image_url) + '" alt="Receipt photo" data-zoom="' + esc(it.image_url) + '">' +
+              '<button type="button" class="mw-rc-rot" data-act="rotate" title="Rotate (R)" aria-label="Rotate receipt">↻</button></div>'
             : '<div class="mw-rc-nophoto">No photo</div>';
         var checks = (it.checks || []).map(function (c) {
             return '<span class="' + (c.ok ? '' : 'is-bad') + '">' + (c.ok ? '✓ ' : '⚠ ') + esc(c.message) + '</span>';
-        }).join(' &nbsp; ');
+        }).concat((it.anomalies || []).filter(function (a) { return a.code !== 'DUPLICATE_DAY'; }).map(function (a) {
+            return '<span class="is-bad" title="Receipts system anomaly rule ' + esc(a.code) + '">⚠ ' + esc(a.detail) + '</span>';
+        })).concat(it.bank ? ['<span title="' + esc(it.bank.description || '') + '">🏦 Matched to the bank: ' + esc(it.bank.date || '') + ' · ' + money(Math.abs(it.bank.amount)) + '</span>'] : [])
+          .join(' &nbsp; ');
 
         // Always editable: the value shown is Penny's (or your saved draft); type over it.
         var d = it.saved_draft || null;
@@ -213,17 +210,31 @@
         var amt = function (f, label) {
             return '<label class="mw-rc-amt"><span>' + label + '</span><input class="mw-rc-in" data-f="' + f + '" type="number" step="0.01" inputmode="decimal" value="' + esc(cur(f)) + '" aria-label="' + label + '"></label>';
         };
+        // What the bank actually charged, beside the total it should equal.
+        var bankChip = function () {
+            var b = it.bank_candidate;
+            if (!b) return '';
+            var tot = parseFloat(cur('total'));
+            var paid = Math.abs(Number(b.amount));
+            var off = !isNaN(tot) && Math.abs(paid - tot) > 0.009;
+            var when = new Date(b.date + 'T12:00:00').toLocaleDateString('en-CA', { month: 'short', day: 'numeric' });
+            return '<div class="mw-rc-bankchip' + (off ? ' is-off' : '') + '" title="' + esc(b.description || '') + '">' +
+                '<span class="mw-rc-bankchip-k">🏦 Bank charged</span> <b>' + money(paid) + '</b> <span class="mw-rc-bankchip-d">on ' + esc(when) + '</span>' +
+                (off ? '<span class="mw-rc-bankchip-n">not ' + money(tot) + '</span><button type="button" class="mw-rc-bankchip-use" data-act="usebank" data-amt="' + paid.toFixed(2) + '">Use ' + money(paid) + '</button>'
+                     : '<span class="mw-rc-bankchip-n">✓ matches</span>') +
+            '</div>';
+        };
         var tagFld = function (f, label, control, conff) {
             return '<div class="mw-rc-fld' + (mine(f) ? ' is-yours' : '') + '" data-fld="' + f + '"><div class="mw-k">' + esc(label) +
                 ' ' + conf(s, conff || f) + '<span class="mw-rc-yours">edited by you</span></div>' +
                 '<div class="mw-v">' + control + '</div>' + why(s, conff || f) + '</div>';
         };
         var fields =
-            tagFld('vendor', 'Vendor', venCtl) +
+            tagFld('vendor', 'Vendor', venCtl + vendorStrengthLine(it)) +
             tagFld('expense_date', 'Receipt date', dateCtl) +
             tagFld('accounting_category', 'Category', '<select class="mw-rc-in' + (changed(it, 'accounting_category') ? ' mw-rc-changed' : '') + '" data-f="accounting_category">' + catOpts + '</select>') +
             tagFld('asset_tag', 'For', '<select class="mw-rc-in" data-f="asset_tag">' + tagOpts + '</select>') +
-            tagFld('total', 'Total · GST · PST', '<div class="mw-rc-amts">' + amt('total', 'Total') + amt('gst', 'GST') + amt('pst', 'PST') + '</div>') +
+            tagFld('total', 'Total · GST · PST', '<div class="mw-rc-amts">' + amt('total', 'Total') + amt('gst', 'GST') + amt('pst', 'PST') + '</div>' + bankChip()) +
             tagFld('job', 'Job', jobCtl);
 
         var top = function (closeBtn) {
@@ -240,14 +251,19 @@
                   (val(s, 'vendor') && it.vendor && val(s, 'vendor') !== it.vendor ? 'Recorded as <s>' + esc(it.vendor) + '</s>' : '') +
                   (it.submitted_by ? ' · from ' + esc(it.submitted_by) : '') + '</div>' +
                 '<div class="mw-rc-fields">' + fields + '</div>' +
+                itemsHtml(it) +
                 (checks ? '<div class="mw-rc-checks">' + checks + '</div>' : '') +
                 (s.notes ? '<div class="mw-rc-checks' + (fullNotes ? '' : ' mw-rc-note') + '" title="' + esc(s.notes) + '">📝 ' + esc(s.notes) + '</div>' : '') +
                 '<div class="mw-rc-actions">' +
                   '<button type="button" class="mw-rc-ok" data-act="approve">✓ Approve</button>' +
                   '<button type="button" class="mw-rc-ed" data-act="draft">💾 Save draft</button>' +
                   '<button type="button" class="mw-rc-ed" data-act="recheck" title="Penny reads this receipt again, with the photo (about 5¢)"' + (rechecking ? ' disabled' : '') + '>' + (rechecking ? '⏳ Re-reading…' : '🔄 Re-check') + '</button>' +
+                  '<button type="button" class="mw-rc-ed mw-rc-rej" data-act="reject" title="Reject this receipt, with a reason">✕ Reject</button>' +
                   '<button type="button" class="mw-rc-sk" data-act="next">Skip →</button>' +
                 '</div>' +
+                (rejecting ? '<div class="mw-rc-rejbox"><input class="mw-rc-in" data-rejreason placeholder="Why? e.g. personal purchase, not ours, duplicate…" aria-label="Reason for rejecting">' +
+                    '<button type="button" class="mw-rc-ed mw-rc-rej" data-act="reject-go">Reject it</button>' +
+                    '<button type="button" class="mw-rc-sk" data-act="reject-cancel">Cancel</button></div>' : '') +
                 '<div class="mw-rc-msg">' + (msg ? esc(msg) : '') + '</div>';
         };
 
@@ -255,20 +271,205 @@
         if (zoomed) {
             html += '<div class="mw-rc-zoom" role="dialog" aria-modal="true" aria-label="Receipt and Penny\'s read">' +
                 '<div class="mw-rc-zoom-img' + (zoomBig ? ' is-big' : '') + '">' +
-                  (it.image_url ? '<img src="' + esc(it.image_url) + '" alt="Receipt photo" data-act="bigger" title="Click to zoom">' : '<div class="mw-rc-nophoto">No photo</div>') +
+                  (it.image_url ? '<img src="' + esc(it.image_url) + '" data-rot alt="Receipt photo" data-act="bigger" title="Click to zoom">' : '<div class="mw-rc-nophoto">No photo</div>') +
                 '</div>' +
+                (it.image_url ? '<button type="button" class="mw-rc-rot mw-rc-rot-zoom" data-act="rotate" title="Rotate (R)" aria-label="Rotate receipt">↻</button>' : '') +
                 '<div class="mw-rc-zoom-side">' + top(true) + detail(true) +
-                  '<div class="mw-rc-zoom-hint">Click the receipt to zoom · type straight into any field · A approve · S save draft · → skip · Esc close</div>' +
+                  '<div class="mw-rc-zoom-hint">Click the receipt to zoom · R rotate · type straight into any field · A approve · S save draft · → skip · Esc close</div>' +
                 '</div>' +
               '</div>';
         }
         datePopups.forEach(function (p) { if (p.parentNode) p.parentNode.removeChild(p); });
         root.innerHTML = html;
+        applyRotation();
+        var isum = root.querySelector('.mw-rc-isum');
+        if (isum && queue[idx]) isum.textContent = itemsCheck(queue[idx]);
         if (window.mwInitDatePickers) {
             var before = document.querySelectorAll('.mw-datepicker-popup').length;
             window.mwInitDatePickers(root);
             datePopups = Array.prototype.slice.call(document.querySelectorAll('.mw-datepicker-popup'), before);
         }
+    }
+
+    /** "I know Chevron: 3 in a row right" — from your past approvals of this vendor. */
+    function vendorStrengthLine(it) {
+        var v = it.vendor_strength;
+        if (!v) return '<div class="mw-rc-vstrength">New to me — no approved receipts from this vendor yet</div>';
+        var dots = '';
+        for (var i = 0; i < v.need; i++) dots += '<em class="' + (i < v.run ? 'on' : '') + '"></em>';
+        return '<div class="mw-rc-vstrength"><i class="mw-hv-dots">' + dots + '</i> ' +
+            (v.trusted ? 'Trusted — ' : 'I know them: ') + v.run + ' in a row right · ' + v.right + ' of ' + v.seen + ' unchanged</div>';
+    }
+
+    // ── Line items: edited in place, saved straight away (same API as the receipts page) ──
+    function itemsSum(items) {
+        return items.reduce(function (a, i) { return a + (parseFloat(i.line_total) || 0); }, 0);
+    }
+    function pennyItems(it) {
+        var li = it.suggestion && it.suggestion.line_items;
+        var v = li && li.value !== undefined ? li.value : li;
+        return Array.isArray(v) ? v.filter(function (x) { return x && x.name; }) : [];
+    }
+    function itemsHtml(it) {
+        var items = it.items || [];
+        var locked = it.status === 'forwarded';
+        var rows = items.map(function (i) {
+            return '<div class="mw-rc-item" data-item="' + esc(i.id) + '">' +
+                '<div class="mw-rc-iname"><input class="mw-rc-in" data-iname autocomplete="off" value="' + esc(i.name) + '" aria-label="Item name — type to search your products"' + (locked ? ' disabled' : '') + '>' +
+                  (i.product_id ? '<span class="mw-rc-iprod-tag" title="Linked to your product: ' + esc(i.product_name || '') + '">📦</span>' : '') +
+                  '<div class="mw-rc-jobres mw-rc-iprod" hidden></div></div>' +
+                '<input class="mw-rc-in" data-iqty type="number" step="any" inputmode="decimal" value="' + esc(i.quantity) + '" aria-label="Quantity"' + (locked ? ' disabled' : '') + '>' +
+                '<input class="mw-rc-in" data-itotal type="number" step="0.01" inputmode="decimal" value="' + esc(Number(i.line_total).toFixed(2)) + '" aria-label="Line total"' + (locked ? ' disabled' : '') + '>' +
+                (locked ? '' : '<button type="button" class="mw-rc-idel" data-idel aria-label="Remove item">✕</button>') +
+              '</div>';
+        }).join('');
+        var pi = pennyItems(it);
+        var piSum = itemsSum(pi.map(function (x) { return { line_total: x.amount }; }));
+        var differs = pi.length && (pi.length !== items.length || Math.abs(piSum - itemsSum(items)) > 0.01);
+        return '<div class="mw-rc-items"><div class="mw-k">Items <span class="mw-rc-isum"></span></div>' +
+            (items.length ? '<div class="mw-rc-item mw-rc-ihead"><span>Item</span><span>Qty</span><span>Total</span><span></span></div>' + rows
+                          : '<div class="mw-rc-inone">No items read from this receipt yet.</div>') +
+            (locked ? '' : '<div class="mw-rc-iactions"><button type="button" class="mw-rc-ed" data-iadd>+ Add item</button>' +
+                (differs ? '<button type="button" class="mw-rc-ed" data-ipenny title="Replace these with the ' + pi.length + ' items Penny read">⭐ Use Penny\'s items (' + pi.length + ' · ' + money(piSum) + ')</button>' : '') +
+                '<span class="mw-rc-isave"></span></div>') +
+          '</div>';
+    }
+    /** Items vs the receipt's subtotal (total − GST − PST as typed in the fields). */
+    function itemsCheck(it) {
+        var items = it.items || [];
+        if (!items.length) return '';
+        var t = parseFloat((root.querySelector('[data-f="total"]') || {}).value);
+        var g = parseFloat((root.querySelector('[data-f="gst"]') || {}).value) || 0;
+        var p = parseFloat((root.querySelector('[data-f="pst"]') || {}).value) || 0;
+        if (isNaN(t)) t = parseFloat(val(it.suggestion || {}, 'total'));
+        if (isNaN(t)) return money(itemsSum(items));
+        var sub = t - g - p, sum = itemsSum(items), ok = Math.abs(sub - sum) <= 0.05;
+        return (ok ? '✓ ' : '⚠ ') + money(sum) + (ok ? ' — matches the subtotal' : ' vs subtotal ' + money(sub));
+    }
+    // ── Product search on an item's name (your products list, same search as the receipts page) ──
+    var prodTimer = null;
+    function searchProducts(input) {
+        var res = input.parentNode.querySelector('.mw-rc-iprod');
+        var q = input.value.trim();
+        clearTimeout(prodTimer);
+        if (q.length < 2) { res.hidden = true; return; }
+        prodTimer = setTimeout(function () {
+            fetch('/crm/products/api-products.php?action=list-products&search=' + encodeURIComponent(q), { cache: 'no-store' })
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    if (document.activeElement !== input) return;
+                    var rows = (d && d.success && d.products) ? d.products.slice(0, 8) : [];
+                    res.innerHTML = rows.length
+                        ? rows.map(function (p) {
+                            return '<button type="button" data-pick-prod="' + esc(p.id) + '" data-label="' + esc(p.name) + '">📦 ' + esc(p.name) +
+                                (p.sku ? '<small>' + esc(p.sku) + '</small>' : '') + '</button>';
+                          }).join('') + '<div class="mw-rc-jobnone">Or keep typing — it saves as written</div>'
+                        : '<div class="mw-rc-jobnone">No product matches — it saves as written</div>';
+                    res.hidden = false;
+                }).catch(function () {});
+        }, 250);
+    }
+    var picking = false;    // a product result is being picked: don't save the half-typed name on blur
+    function pickProduct(btn) {
+        var row = btn.closest('.mw-rc-item[data-item]');
+        var id = parseInt(row.getAttribute('data-item'), 10);
+        var pid = parseInt(btn.getAttribute('data-pick-prod'), 10);
+        var name = btn.getAttribute('data-label');
+        row.querySelector('[data-iname]').value = name;
+        btn.parentNode.hidden = true;
+        itemSaved('Linking ' + name + '…');
+        lineApi({ action: 'update_line_item', line_item_id: id, name: name })
+            .then(function () { return lineApi({ action: 'link_product', line_item_id: id, product_id: pid }); })
+            .then(function () {
+                var item = (queue[idx].items || []).filter(function (x) { return x.id === id; })[0];
+                if (item) { item.name = name; item.product_id = pid; item.product_name = name; }
+                picking = false;
+                render('Linked to your product: ' + name);
+            })
+            .catch(function (e) { picking = false; itemSaved(e.message, true); });
+    }
+
+    function lineApi(body) {
+        body.csrf_token = window.MW_CSRF_TOKEN || '';
+        return fetch('/crm/api/expenses.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+            .then(function (r) { return r.json(); })
+            .then(function (d) { if (!d || !d.success) throw new Error((d && d.error) || 'Could not save'); return d; });
+    }
+    function itemSaved(text, bad) {
+        var el = root.querySelector('.mw-rc-isave');
+        if (el) { el.textContent = text; el.classList.toggle('is-bad', !!bad); }
+        var sum = root.querySelector('.mw-rc-isum');
+        if (sum && queue[idx]) sum.textContent = itemsCheck(queue[idx]);
+    }
+    function saveItemRow(row) {
+        var it = queue[idx];
+        var id = parseInt(row.getAttribute('data-item'), 10);
+        var item = (it.items || []).filter(function (i) { return i.id === id; })[0];
+        if (!item) return;
+        var name = row.querySelector('[data-iname]').value.trim();
+        var qty = parseFloat(row.querySelector('[data-iqty]').value);
+        var tot = parseFloat(row.querySelector('[data-itotal]').value);
+        if (!name) { itemSaved('An item needs a name', true); return; }
+        var body = { action: 'update_line_item', line_item_id: id, name: name };
+        if (!isNaN(qty) && qty !== item.quantity) body.quantity = qty;
+        if (!isNaN(tot) && Math.abs(tot - item.line_total) > 0.004) body.line_total = tot;
+        else if (body.quantity !== undefined && item.unit_price == null) body.line_total = item.line_total;
+        itemSaved('Saving…');
+        lineApi(body).then(function (d) {
+            var li = d.line_item || {};
+            item.name = li.name || name;
+            item.quantity = li.quantity != null ? parseFloat(li.quantity) : qty;
+            item.line_total = li.line_total != null ? parseFloat(li.line_total) : tot;
+            item.unit_price = li.unit_price != null ? parseFloat(li.unit_price) : item.unit_price;
+            row.querySelector('[data-itotal]').value = Number(item.line_total).toFixed(2);
+            itemSaved('Saved ✓');
+        }).catch(function (e) { itemSaved(e.message, true); });
+    }
+    function addItem(name, qty, total) {
+        var it = queue[idx];
+        return lineApi({ action: 'add_line_item', expense_id: it.expense_id, name: name, quantity: qty, line_total: total })
+            .then(function (d) {
+                var li = d.line_item || {};
+                (it.items = it.items || []).push({ id: parseInt(li.id, 10), name: li.name || name, quantity: parseFloat(li.quantity || qty),
+                    unit_price: li.unit_price != null ? parseFloat(li.unit_price) : null, line_total: parseFloat(li.line_total != null ? li.line_total : total) });
+            });
+    }
+    function usePennyItems() {
+        var it = queue[idx];
+        var pi = pennyItems(it);
+        itemSaved('Swapping in Penny\'s items…');
+        var chain = Promise.resolve();
+        (it.items || []).slice().forEach(function (i) {
+            chain = chain.then(function () { return lineApi({ action: 'delete_line_item', line_item_id: i.id }); })
+                         .then(function () { it.items = it.items.filter(function (x) { return x.id !== i.id; }); });
+        });
+        pi.forEach(function (x) { chain = chain.then(function () { return addItem(x.name, 1, Number(x.amount) || 0); }); });
+        chain.then(function () { render('Using Penny\'s items — check them before you approve'); })
+             .catch(function (e) { render('Items: ' + e.message); });
+    }
+
+    /** Turn the receipt photo(s) for this receipt; sideways turns shrink to fit their box. */
+    function applyRotation() {
+        var it = queue[idx];
+        if (!it) return;
+        var deg = rotation[it.expense_id] || 0;
+        root.querySelectorAll('img[data-rot]').forEach(function (img) {
+            var fit = function () {
+                var box = img.parentElement;
+                var s = 1;
+                if (deg % 180 !== 0 && img.offsetWidth && img.offsetHeight) {
+                    s = Math.min(1, (box.clientWidth - 8) / img.offsetHeight, (box.clientHeight - 8) / img.offsetWidth);
+                }
+                img.style.transform = deg ? 'rotate(' + deg + 'deg) scale(' + s.toFixed(3) + ')' : '';
+            };
+            if (img.complete) fit(); else img.addEventListener('load', fit, { once: true });
+        });
+    }
+    function rotate() {
+        var it = queue[idx];
+        if (!it) return;
+        rotation[it.expense_id] = ((rotation[it.expense_id] || 0) + 90) % 360;
+        applyRotation();
     }
 
     function setZoom(on) {
@@ -389,7 +590,7 @@
                 } else if (d && d.ok) {
                     queue.splice(idx, 1);
                     render(d.message || 'Approved');
-                    if (queue.length < 3) { load(); }
+                    if (queue.length < 3) { load(d.message || 'Approved'); }
                 } else {
                     render((d && (d.message || d.error)) || 'Could not save');
                 }
@@ -397,6 +598,27 @@
             .catch(function () { busy = false; render('Network error — try again'); });
     }
     function approve() { submit(false); }
+
+    /** Reject with a reason — the same reject as the receipts page; it leaves the card. */
+    function rejectIt() {
+        if (busy || !queue.length) return;
+        var box = root.querySelector('[data-rejreason]');
+        var reason = box ? box.value.trim() : '';
+        if (!reason) { if (box) box.focus(); return; }
+        var it = queue[idx];
+        busy = true;
+        post({ mode: 'reject', suggestion_id: it.suggestion_id, reason: reason }).then(function (d) {
+            busy = false;
+            if (d && d.ok) {
+                rejecting = false;
+                queue.splice(idx, 1);
+                render(d.message || 'Rejected');
+                if (queue.length < 3) load(d.message || 'Rejected');
+            } else {
+                render((d && (d.message || d.error)) || 'Could not reject');
+            }
+        }).catch(function () { busy = false; render('Network error — try again'); });
+    }
 
     /** Penny reads this receipt again, with the photo; her new read replaces the old one. */
     function recheck() {
@@ -421,6 +643,25 @@
     }
 
     root.addEventListener('click', function (e) {
+        if (e.target.hasAttribute && e.target.hasAttribute('data-iadd')) {
+            addItem('New item', 1, 0).then(function () {
+                render();
+                var names = root.querySelectorAll('[data-iname]');
+                if (names.length) { names[names.length - 1].focus(); names[names.length - 1].select(); }
+            }).catch(function (err) { itemSaved(err.message, true); });
+            return;
+        }
+        if (e.target.hasAttribute && e.target.hasAttribute('data-idel')) {
+            var row = e.target.closest('.mw-rc-item');
+            var delId = parseInt(row.getAttribute('data-item'), 10);
+            lineApi({ action: 'delete_line_item', line_item_id: delId }).then(function () {
+                queue[idx].items = (queue[idx].items || []).filter(function (x) { return x.id !== delId; });
+                row.parentNode.removeChild(row);
+                itemSaved('Removed ✓');
+            }).catch(function (err) { itemSaved(err.message, true); });
+            return;
+        }
+        if (e.target.hasAttribute && e.target.hasAttribute('data-ipenny')) { usePennyItems(); return; }
         var dr = e.target.getAttribute && e.target.getAttribute('data-dup-remove');
         if (dr) { settleDupe(dr, false); return; }
         if (e.target.getAttribute && e.target.getAttribute('data-dup-not')) { settleDupe(null, true); return; }
@@ -444,11 +685,37 @@
         if (!act) return;
         if (act === 'close') { setZoom(false); render(); }
         else if (act === 'bigger') { zoomBig = !zoomBig; render(); }
+        else if (act === 'rotate') { e.stopPropagation(); rotate(); }
+        else if (act === 'usebank') {
+            var tin = root.querySelector('[data-f="total"]');
+            if (tin) { tin.value = e.target.getAttribute('data-amt'); tin.dispatchEvent(new Event('input', { bubbles: true })); }
+            var chip = e.target.closest('.mw-rc-bankchip');
+            if (chip) { chip.classList.remove('is-off'); chip.querySelector('.mw-rc-bankchip-n').textContent = '✓ matches'; e.target.remove(); }
+        }
         else if (act === 'approve') approve();
         else if (act === 'draft') submit(true);
         else if (act === 'recheck') recheck();
-        else if (act === 'next') { idx = (idx + 1) % Math.max(1, queue.length); render(); }
-        else if (act === 'prev') { idx = (idx - 1 + queue.length) % Math.max(1, queue.length); render(); }
+        else if (act === 'reject') { rejecting = true; render(); var rb = root.querySelector('[data-rejreason]'); if (rb) rb.focus(); }
+        else if (act === 'reject-cancel') { rejecting = false; render(); }
+        else if (act === 'reject-go') rejectIt();
+        else if (act === 'next') { rejecting = false; idx = (idx + 1) % Math.max(1, queue.length); render(); }
+        else if (act === 'prev') { rejecting = false; idx = (idx - 1 + queue.length) % Math.max(1, queue.length); render(); }
+    });
+
+    root.addEventListener('keydown', function (e) {
+        if (e.target.hasAttribute && e.target.hasAttribute('data-rejreason')) {
+            if (e.key === 'Enter') { e.preventDefault(); rejectIt(); }
+            else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); rejecting = false; render(); }
+        }
+    });
+
+    root.addEventListener('mousedown', function (e) {
+        var b = e.target.closest && e.target.closest('[data-pick-prod]');
+        if (b) { picking = true; e.preventDefault(); pickProduct(b); }
+    });
+    root.addEventListener('change', function (e) {
+        var row = e.target.closest && e.target.closest('.mw-rc-item[data-item]');
+        if (row && queue.length && !picking) saveItemRow(row);
     });
 
     root.addEventListener('focusin', function (e) {
@@ -456,6 +723,11 @@
         if (e.target.hasAttribute && e.target.hasAttribute('data-vensearch')) { e.target.select(); searchVendors(e.target); }
     });
     root.addEventListener('focusout', function (e) {
+        if (e.target.hasAttribute && e.target.hasAttribute('data-iname')) {
+            var pr = e.target.parentNode.querySelector('.mw-rc-iprod');
+            setTimeout(function () { if (pr) pr.hidden = true; }, 200);
+            return;
+        }
         if (!(e.target.hasAttribute && e.target.hasAttribute('data-vensearch'))) return;
         var box = e.target.closest('.mw-rc-ven');
         setTimeout(function () { if (!box.contains(document.activeElement)) box.querySelector('.mw-rc-jobres').hidden = true; }, 200);
@@ -473,6 +745,7 @@
 
     root.addEventListener('input', function (e) {
         if (e.target.hasAttribute && e.target.hasAttribute('data-jobsearch')) { searchJobs(e.target); return; }
+        if (e.target.hasAttribute && e.target.hasAttribute('data-iname')) { searchProducts(e.target); return; }
         if (e.target.hasAttribute && e.target.hasAttribute('data-vensearch')) {
             var vbox = e.target.closest('.mw-rc-ven');
             vbox.querySelector('[data-f="vendor_id"]').value = '';   // typed, not picked
@@ -483,6 +756,10 @@
             return;
         }
         var f = e.target.getAttribute && e.target.getAttribute('data-f');
+        if ((f === 'total' || f === 'gst' || f === 'pst') && queue.length) {
+            var isum = root.querySelector('.mw-rc-isum');
+            if (isum) isum.textContent = itemsCheck(queue[idx]);
+        }
         if (!f || !queue.length) return;
         var s = queue[idx].suggestion || {};
         var key = (f === 'gst' || f === 'pst') ? 'total' : f;
@@ -503,6 +780,7 @@
         var t = e.target.tagName;
         if (t === 'INPUT' || t === 'SELECT' || t === 'TEXTAREA' || e.metaKey || e.ctrlKey || e.altKey) return;
         if (zoomed && e.key === 'Escape') { e.preventDefault(); setZoom(false); render(); return; }
+        if ((e.key === 'r' || e.key === 'R') && queue.length && !dupes.length && root.offsetParent) { e.preventDefault(); rotate(); return; }
         if (!root.offsetParent || !queue.length) return;
         if (e.key === 'a' || e.key === 'A') { e.preventDefault(); approve(); }
         else if (e.key === 's' || e.key === 'S') { e.preventDefault(); submit(true); }
@@ -525,6 +803,12 @@
                 pqBox.innerHTML = '<div class="mw-pq-head"><b>' + head + '</b>' +
                     (found ? '<span>Found to bill this month: <b>$' + found.toFixed(2) + '</b></span>' : '') + '</div>' +
                     qs.map(function (q) {
+                        if (q.kind === 'service_account') {
+                            return '<div class="mw-pq-item" data-q="' + esc(q.id) + '"><p>' + esc(q.question) + '</p>' +
+                                '<div class="mw-pq-btns"><select class="mw-rc-in" data-pq-acct aria-label="Income account"><option value="">— pick an income account —</option>' +
+                                (q.choices || []).map(function (a) { return '<option value="' + esc(a.id) + '">' + esc(a.code + ' ' + a.name) + '</option>'; }).join('') +
+                                '</select><button type="button" data-ans="account">✓ Save</button></div></div>';
+                        }
                         return '<div class="mw-pq-item" data-q="' + esc(q.id) + '"><p>' + esc(q.question) + '</p>' +
                             '<div class="mw-pq-btns">' +
                               '<button type="button" data-ans="invoice">🧾 Forgot — invoice it</button>' +
@@ -541,8 +825,10 @@
             if (!ans) return;
             var item = e.target.closest('.mw-pq-item');
             var id = item.getAttribute('data-q');
+            var acctSel = item.querySelector('[data-pq-acct]');
+            if (ans === 'account' && (!acctSel || !acctSel.value)) { if (acctSel) acctSel.focus(); return; }
             item.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
-            post({ mode: 'answer', question_id: id, answer: ans }).then(function (d) {
+            post({ mode: 'answer', question_id: id, answer: ans, account_id: acctSel ? acctSel.value : null }).then(function (d) {
                 if (d && d.ok && d.invoice_url) { window.open(d.invoice_url, '_blank', 'noopener'); }
                 item.innerHTML = '<p class="mw-pq-done">' + esc((d && d.message) || 'Saved') + '</p>';
                 setTimeout(loadQuestions, 1500);

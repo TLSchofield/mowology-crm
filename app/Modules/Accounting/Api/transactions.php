@@ -144,12 +144,28 @@ try {
             $id        = (int)($input['id']        ?? 0);
             $accountId = (int)($input['account_id'] ?? 0);
             if (!$id || !$accountId) throw new Exception('Missing id or account_id');
+            // A locked month can't be changed (period lock).
+            require_once APP_ROOT . '/Modules/Accounting/Services/LedgerService.php';
+            $dt = $db->prepare("SELECT transaction_date FROM accounting_transactions WHERE id = ?");
+            $dt->execute([$id]);
+            if (($d = $dt->fetchColumn()) && (new LedgerService($db))->isLocked((string)$d)) {
+                throw new Exception(substr((string)$d, 0, 7) . ' is locked — this transaction can\'t be changed.');
+            }
 
             $svc->updateTransaction($id, [
                 'account_id'         => $accountId,
                 'is_auto_categorized' => 0,  // manually set — override any auto-cat
             ]);
-            echo json_encode(['ok' => true, 'message' => 'Transaction recategorized']);
+            // Teach the import: this description belongs on this account (BankRuleLearning).
+            $learned = null;
+            try {
+                require_once APP_ROOT . '/Modules/Accounting/Services/BankImportService.php';
+                require_once APP_ROOT . '/Modules/Accounting/Services/BankRuleLearning.php';
+                $learned = (new BankRuleLearning($db))->learnFromCorrection($id, $accountId, (int)$user['id']);
+            } catch (Throwable $e) {
+                error_log('Bank rule learning failed for transaction ' . $id . ': ' . $e->getMessage());
+            }
+            echo json_encode(['ok' => true, 'message' => 'Transaction recategorized', 'learned' => $learned]);
             break;
 
         // ── Flag / unflag for review ──────────────────────────────────────────

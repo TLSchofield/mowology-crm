@@ -127,4 +127,48 @@ class ReceiptInboxServiceTest extends TestCase
         $b = ReceiptInboxService::deriveDedupKey('<m1@x>', 'hashB', 'receipt.jpg');
         $this->assertNotSame($a, $b);
     }
+
+    public function test_office_inbox_takes_only_receipt_like_mail(): void
+    {
+        $own = ['mowology@icloud.com', 'tim@mowology.ca'];
+        $clients = ['strata@example.com'];
+        $ok = fn($from, $subj, $file = 'a.pdf') => ReceiptInboxService::isOfficeReceipt($from, $subj, $file, $own, $clients);
+        $this->assertTrue($ok('mowology@icloud.com', 'Fwd: lunch'), 'owner forwards are always receipts');
+        $this->assertTrue($ok('billing@telus.com', 'Your Telus bill is ready'));
+        $this->assertTrue($ok('orders@homedepot.ca', 'Order confirmation #123', 'HD.pdf'));
+        $this->assertTrue($ok('ap@supplier.ca', 'Statement', 'INV-4471.pdf'));
+        $this->assertFalse($ok('strata@example.com', 'Invoice question'), 'a client is never a receipt');
+        $this->assertFalse($ok('noreply@mowology.ca', 'Invoice INV-2026-0433'), 'our own sent copies');
+        $this->assertFalse($ok('eft@yardi.com', 'EFT remittance advice', 'remit.pdf'));
+        $this->assertFalse($ok('someone@gmail.com', 'Photos of the back yard', 'IMG_1.jpg'));
+        $this->assertFalse($ok(null, 'Receipt'));
+    }
+
+    public function test_a_receipt_that_is_the_email_itself(): void
+    {
+        $own = ['mowology@icloud.com']; $clients = ['strata@example.com'];
+        $b = fn($from, $subj) => ReceiptInboxService::isBodyReceipt($from, $subj, $own, $clients);
+        $this->assertTrue($b('recu-receipt-noreply@eml.rona.ca', 'Your RONA Receipt'));
+        $this->assertTrue($b('mowology@icloud.com', 'Fwd: Your Amazon.ca order #702-1'));
+        $this->assertFalse($b('mowology@icloud.com', 'Re: Your lawn after the watering ban'));
+        $this->assertFalse($b('strata@example.com', 'Invoice received'));
+        $this->assertFalse($b('notify@payments.interac.ca', 'INTERAC e-Transfer: you received money'));
+        $this->assertFalse($b('office@mowology.ca', 'Your receipt'));
+    }
+
+    public function test_html_email_becomes_readable_receipt_lines(): void
+    {
+        $html = '<html><head><style>td{color:red}</style></head><body><table><tr><td>Bark Mulch</td><td>$12.98</td></tr>'
+              . '<tr><td>GST</td><td>$0.65</td></tr></table><p>Total&nbsp;$13.63</p><script>x()</script></body></html>';
+        $t = ReceiptInboxService::htmlToText($html);
+        $this->assertSame("Bark Mulch \$12.98\nGST \$0.65\nTotal \$13.63", $t);
+    }
+
+    /** The inbox never approves: a clean match waits for approval, flagged for Penny. */
+    public function test_clean_match_waits_for_approval_flagged_high_confidence(): void
+    {
+        $this->assertSame(['status' => 'pending_approval', 'high_confidence' => true], ReceiptInboxService::inboxStatus(true));
+        $this->assertSame(['status' => 'draft', 'high_confidence' => false], ReceiptInboxService::inboxStatus(false));
+        $this->assertNotSame('approved', ReceiptInboxService::inboxStatus(true)['status']);
+    }
 }

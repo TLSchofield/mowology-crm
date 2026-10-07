@@ -29,49 +29,41 @@ if ($quarter >= 1 && $quarter <= 4) {
     $periodLabel = "Full Year {$year}";
 }
 
-// Business settings
-$bs = $db->query("SELECT company_name, gst_registration, gst_rate FROM business_settings LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+// Business settings (gst_rate added by migration 502; fall back gracefully if missing)
+$bs = [];
+try {
+    $bs = $db->query("SELECT company_name, gst_registration, gst_rate FROM business_settings LIMIT 1")->fetch(PDO::FETCH_ASSOC) ?: [];
+} catch (\Throwable $__e) {
+    try {
+        $bs = $db->query("SELECT company_name, gst_registration FROM business_settings LIMIT 1")->fetch(PDO::FETCH_ASSOC) ?: [];
+    } catch (\Throwable $__e2) { /* silent */ }
+}
 $gstRegNumber = $bs['gst_registration'] ?? '';
 $gstRatePct   = floatval($bs['gst_rate'] ?? 5.00);
 
 // Invoices
-$invStmt = $db->prepare("
-    SELECT i.id, i.invoice_number, i.issue_date, i.status,
-           i.subtotal, i.tax_rate, i.tax_amount, i.total,
-           i.amount_paid, i.balance_due, i.payment_method,
-           COALESCE(CONCAT(pc.first_name,' ',pc.last_name), co.company_name, 'Unknown') AS client_name
-    FROM invoices i
-    LEFT JOIN properties p  ON i.property_id = p.id
-    LEFT JOIN contacts   pc ON p.site_contact_id = pc.id
-    LEFT JOIN companies  co ON i.company_id = co.id
-    WHERE i.issue_date BETWEEN ? AND ?
-      AND i.status NOT IN ('draft','cancelled')
-    ORDER BY i.issue_date ASC
-");
-$invStmt->execute([$dateFrom, $dateTo]);
-$invoices = $invStmt->fetchAll(PDO::FETCH_ASSOC);
-
-// Expenses / ITCs
-$expenses = [];
+$invoices    = [];
+$expenses    = [];
+$dataErrors  = [];
+$totalRevenue = $totalGst = $itcGross = $mealsLimit = $totalITC = $netTax = 0.0;
+$gstReport   = ['meals_limit_label' => ''];
+// The return — one shared calculation (GstReportService): ITCs from approved or posted
+// expenses only, meals & entertainment limited per ops_settings (default 'Meals' at 50%).
 try {
-    $expStmt = $db->prepare("
-        SELECT e.id, e.expense_date, e.description, e.vendor_name,
-               e.amount, e.gst_amount, e.total, e.category
-        FROM expenses e
-        WHERE e.expense_date BETWEEN ? AND ?
-          AND e.status != 'rejected'
-          AND e.gst_amount > 0
-        ORDER BY e.expense_date ASC
-    ");
-    $expStmt->execute([$dateFrom, $dateTo]);
-    $expenses = $expStmt->fetchAll(PDO::FETCH_ASSOC);
-} catch (\Throwable $e) { /* expenses table may not have all columns */ }
-
-// Calculations
-$totalRevenue = array_sum(array_column($invoices, 'subtotal'));
-$totalGst     = array_sum(array_column($invoices, 'tax_amount'));
-$totalITC     = array_sum(array_column($expenses, 'gst_amount'));
-$netTax       = $totalGst - $totalITC;
+    require_once APP_ROOT . '/Modules/Accounting/Services/GstReportService.php';
+    $gstReport  = (new GstReportService($db))->reportForRange($dateFrom, $dateTo, $periodLabel);
+    $invoices   = $gstReport['invoices'];
+    $expenses   = $gstReport['expenses'];
+    $totalRevenue = $gstReport['line_101'];
+    $totalGst     = $gstReport['line_103'];
+    $itcGross     = $gstReport['itc_gross'];
+    $mealsLimit   = $gstReport['meals_limit'];
+    $totalITC     = $gstReport['line_106'];
+    $netTax       = $gstReport['line_109'];
+} catch (\Throwable $__e) {
+    error_log('[tax-report] ' . $__e->getMessage());
+    $dataErrors[] = 'Could not load the GST figures — totals below may be incomplete.';
+}
 
 // Status badge
 $statusClass = [
@@ -95,6 +87,11 @@ $statusClass = [
         <a href="/crm/api/tax-report.php?year=<?php echo $year; ?>&quarter=<?php echo $quarter; ?>&format=csv"
            class="btn btn-outline-secondary btn-sm">
             <i data-feather="download" class="align-middle mr-1"></i> Export CSV
+        </a>
+        <a href="/crm/api/tax-report.php?year=<?php echo $year; ?>&quarter=<?php echo $quarter; ?>&mode=compare"
+           class="btn btn-outline-secondary btn-sm" target="_blank" rel="noopener"
+           title="Read-only: the old report numbers for this period next to the new ones (for periods already filed)">
+            <i data-feather="git-pull-request" class="align-middle mr-1"></i> What changed
         </a>
         <button onclick="window.print()" class="btn btn-outline-secondary btn-sm">
             <i data-feather="printer" class="align-middle mr-1"></i> Print
@@ -133,6 +130,14 @@ $statusClass = [
         </div>
     </div>
 </form>
+
+<?php if ($dataErrors): ?>
+<div class="alert alert-danger mb-4">
+    <i data-feather="alert-triangle" class="align-middle mr-2" style="width:16px;height:16px;"></i>
+    <strong>Data error — figures below may be incomplete.</strong>
+    <?php foreach ($dataErrors as $e) echo '<br>' . htmlspecialchars($e); ?>
+</div>
+<?php endif; ?>
 
 <!-- GST34 summary cards -->
 <div class="row mb-4">
@@ -194,6 +199,13 @@ $statusClass = [
                 <div class="mw-cra-desc">Total GST/HST and adjustments to remit</div>
                 <div class="mw-cra-amount">$<?php echo number_format($totalGst, 2); ?></div>
             </div>
+            <?php if ($mealsLimit > 0): ?>
+            <div class="mw-cra-row">
+                <div class="mw-cra-line"></div>
+                <div class="mw-cra-desc"><?php echo h($gstReport['meals_limit_label']); ?> (GST paid $<?php echo number_format($itcGross, 2); ?> before the limit)</div>
+                <div class="mw-cra-amount">−$<?php echo number_format($mealsLimit, 2); ?></div>
+            </div>
+            <?php endif; ?>
             <div class="mw-cra-row">
                 <div class="mw-cra-line">Line 106</div>
                 <div class="mw-cra-desc">Total ITCs and adjustments (GST paid on business expenses)</div>
@@ -238,10 +250,7 @@ $statusClass = [
                     </tr>
                 </thead>
                 <tbody>
-                    <?php
-                    $runningGst = 0.0;
-                    foreach ($invoices as $inv):
-                        $runningGst += floatval($inv['tax_amount']);
+                    <?php foreach ($invoices as $inv):
                         $sc = $statusClass[$inv['status']] ?? 'secondary';
                     ?>
                     <tr>
@@ -290,7 +299,8 @@ $statusClass = [
                         <th>Description</th>
                         <th>Category</th>
                         <th class="text-right">Pre-tax Amount</th>
-                        <th class="text-right">GST Paid (ITC)</th>
+                        <th class="text-right">GST Paid</th>
+                        <th class="text-right">ITC Claimed</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -301,13 +311,20 @@ $statusClass = [
                         <td><?php echo h($exp['description'] ?? ''); ?></td>
                         <td><?php echo h($exp['category'] ?? ''); ?></td>
                         <td class="text-right">$<?php echo number_format((float)$exp['amount'], 2); ?></td>
-                        <td class="text-right" style="color:var(--mw-green);">$<?php echo number_format((float)$exp['gst_amount'], 2); ?></td>
+                        <td class="text-right">$<?php echo number_format((float)$exp['gst_amount'], 2); ?></td>
+                        <td class="text-right" style="color:var(--mw-green);">$<?php echo number_format((float)$exp['itc_claimable'], 2); ?><?php if (!empty($exp['meals_limited'])): ?> <small class="text-muted">(meals)</small><?php endif; ?></td>
                     </tr>
                     <?php endforeach; ?>
                 </tbody>
                 <tfoot>
+                    <?php if ($mealsLimit > 0): ?>
+                    <tr>
+                        <td colspan="6"><?php echo h($gstReport['meals_limit_label']); ?></td>
+                        <td class="text-right">−$<?php echo number_format($mealsLimit, 2); ?></td>
+                    </tr>
+                    <?php endif; ?>
                     <tr style="font-weight:600;border-top:2px solid var(--mw-light);">
-                        <td colspan="5">Total ITCs</td>
+                        <td colspan="6">Total ITCs (approved or posted expenses)</td>
                         <td class="text-right" style="color:var(--mw-green);">$<?php echo number_format($totalITC, 2); ?></td>
                     </tr>
                 </tfoot>
