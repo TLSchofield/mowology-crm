@@ -136,6 +136,12 @@ behind this is in `docs/crm/sam-closer-pricing-plan.md`.
 
 ![Closer's price card (stub render, made-up quote)](closer-render.jpg)
 
+**Trip lines (migration 1218).** If the quote has a mulch, soil or compost line, the card also suggests a
+"Material pickup" line. If it has cleanup, green-waste or haul-away work, it suggests a "Disposal run" line.
+Both are priced from Otto's shared cost facts and need at least 3 runs before a price shows. Tim adds the
+line himself or ignores it. See `heads-shared-facts.md`.
+![Trip lines on the Closer card (stub render)](renders/cost-facts-closer.jpg)
+
 ```
 visit price = max(minimum, ((site minutes + drive minutes added) × hourly cost
                             + materials + disposal) / (1 − target margin))

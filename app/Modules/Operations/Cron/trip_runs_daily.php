@@ -9,6 +9,8 @@
  * fuel receipts are lined up with the truck stops they came from, and every vendor seen at the same
  * spot on 2+ days becomes a named place — so stops are named from history, not by Tim. Idempotent: re-running a date rewrites its rows
  * and keeps the owner's one-man / two-man toggles.
+ * Then (migration 1218) Penny tags each run to the job that caused it (TripAttributionService) and
+ * Otto recomputes the shared cost facts Sam reads (CostFactsService::refresh).
  *
  * CLI:  /usr/local/bin/php /home/mowology/public_html/app/Modules/Operations/Cron/trip_runs_daily.php [YYYY-MM-DD [YYYY-MM-DD]]
  *       one date, or a from–to range for a backfill (max 120 days). Default: yesterday.
@@ -90,11 +92,35 @@ try {
         foreach (['stored', 'removed', 'open', 'unnamed'] as $k) $tot[$k] += $r[$k];
         $tot['days']++;
     }
+    // Shared facts (migration 1218): Penny tags the runs to jobs, then Otto recomputes the medians
+    // the other heads read. Additive — a failure here never loses the priced runs above.
+    $__facts = '';
+    try {
+        require_once APP_ROOT . '/Modules/Expenses/Services/TripAttributionService.php';
+        require_once APP_ROOT . '/Modules/Operations/Services/CostFactsService.php';
+        $attr = new TripAttributionService(getDB());
+        $cf = new CostFactsService(getDB());
+        if ($attr->ready() && $cf->ready()) {
+            $at = ['rows' => 0, 'tagged' => 0];
+            for ($t = strtotime($__from); $t <= strtotime($__to); $t = strtotime('+1 day', $t)) {
+                $a = $attr->attribute(date('Y-m-d', $t));
+                $at['rows'] += $a['rows'];
+                $at['tagged'] += $a['tagged'];
+            }
+            $f = $cf->refresh();
+            $__facts = "; {$at['rows']} job cost line(s), {$at['tagged']} receipt(s) tagged to a job, {$f['facts']} cost fact(s)";
+        } else {
+            $__facts = '; cost facts need migration 1218';
+        }
+    } catch (Throwable $e) {
+        error_log('[trip_runs_daily] cost facts: ' . $e->getMessage());
+        $__facts = '; cost facts failed: ' . $e->getMessage();
+    }
     $span = $__from === $__to ? $__from : "{$__from} → {$__to} ({$tot['days']} days)";
     $__finish('success', "{$span}: {$tot['stored']} overhead stop(s) priced, {$tot['removed']} removed, "
         . "{$tot['unnamed']} unnamed stop(s) to name" . ($tot['open'] ? ", {$tot['open']} still away" : '')
         . ($learned['created'] ? '; Penny named ' . count($learned['created']) . ' place(s) from past receipts: '
-            . implode(', ', array_column($learned['created'], 'name')) : ''));
+            . implode(', ', array_column($learned['created'], 'name')) : '') . $__facts);
 } catch (Throwable $e) {
     error_log('[trip_runs_daily] ' . $e->getMessage());
     $__finish('error', 'Cron failed', $e->getMessage());

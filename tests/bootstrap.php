@@ -95,6 +95,10 @@ require_once __DIR__ . '/../app/Modules/Operations/Services/PropertyReadinessSer
 require_once __DIR__ . '/../app/Modules/Operations/Services/TripSegmentService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/StopEvidenceService.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/TripCostService.php';
+// Shared cost facts (migration 1218): Otto writes, Sam / Penny / Charlie read
+require_once __DIR__ . '/../app/Modules/Operations/Services/CostFactsService.php';
+require_once __DIR__ . '/../app/Modules/Expenses/Services/TripAttributionService.php';
+require_once __DIR__ . '/../app/Modules/Sales/Services/TripLineSuggester.php';
 
 // Sales — Sam the Closer (rate card + pricing)
 require_once __DIR__ . '/../app/Modules/Sales/Services/CloserPricing.php';
