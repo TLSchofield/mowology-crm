@@ -38185,3 +38185,29 @@ body.mw-rc-zoom-open { overflow: hidden; }
 @media (max-width: 575px) {
     .mw-closer-tiers { grid-template-columns: 1fr; }
 }
+
+/* ===================================================================
+   OTTO — PROPERTY GAPS (quote + property view) · includes/otto-property-card.php
+   Header mirrors Sam's closer panel (.mw-closer-head) so the heads look like siblings.
+   =================================================================== */
+.mw-otto-gaps { border-color: var(--mw-light); }
+.mw-otto-gaps-head { display: flex; align-items: center; gap: 26px; padding: 4px 0 8px; }
+.mw-otto-gaps-photo { position: relative; flex: none; width: max-content; }
+.mw-otto-gaps-photo img { width: 104px; height: 104px; border-radius: var(--mw-radius-lg); object-fit: cover; display: block; box-shadow: 0 0 0 3px var(--mw-lime), var(--mw-shadow-md); }
+.mw-otto-gaps-photo .mw-head-brain { right: -20px; bottom: -18px; width: 56px; height: 56px; border-radius: 14px; }
+.mw-otto-gaps-name { font-size: 1.35rem; font-weight: 800; line-height: 1.1; color: var(--mw-forest); }
+.mw-otto-gaps-who { font-size: .72rem; font-weight: 700; color: var(--mw-green); text-transform: uppercase; letter-spacing: .04em; }
+.mw-otto-gaps-say { margin: 0 0 12px; font-size: .92rem; color: var(--mw-forest); }
+.mw-otto-gaps-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.mw-otto-gap { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--mw-ink-200); border-left: 4px solid var(--mw-orange); border-radius: var(--mw-radius-md); background: var(--mw-ink-0); }
+.mw-otto-gap.is-done { border-left-color: var(--mw-lime); background: var(--mw-light); }
+.mw-otto-gap-text { min-width: 0; display: flex; flex-direction: column; }
+.mw-otto-gap-text strong { font-size: .86rem; color: var(--mw-forest); }
+.mw-otto-gap.is-done .mw-otto-gap-text strong::after { content: " \2713"; color: var(--mw-green); }
+.mw-otto-gap-note { font-size: .78rem; color: var(--mw-ink-500); overflow-wrap: anywhere; }
+.mw-otto-gap-note.is-bad { color: var(--mw-orange); }
+.mw-otto-gap-btn { flex: none; white-space: nowrap; }
+@media (max-width: 575px) {
+    .mw-otto-gap { flex-direction: column; align-items: flex-start; }
+    .mw-otto-gaps-head { gap: 18px; }
+}

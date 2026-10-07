@@ -316,6 +316,9 @@ if ($apiKey) {
                 <?php endif; ?>
             </p>
 
+            <?php $ottoPropertyId = $propertyId;
+            if (is_file(dirname(__DIR__) . '/includes/otto-property-card.php')) include dirname(__DIR__) . '/includes/otto-property-card.php'; ?>
+
             <form method="POST">
                 <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken) ?>">
 

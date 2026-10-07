@@ -900,6 +900,9 @@ $activePage = 'quotes';
                       </div>
                   </div>
 
+                  <?php $ottoPropertyId = (int)($quote['property_id'] ?? 0);
+                  if (is_file(dirname(__DIR__) . '/includes/otto-property-card.php')) include dirname(__DIR__) . '/includes/otto-property-card.php'; ?>
+
                   <!-- Line Items -->
                   <div class="card">
                       <div class="card-header d-flex justify-content-between align-items-center">
