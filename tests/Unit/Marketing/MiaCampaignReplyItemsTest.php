@@ -47,7 +47,7 @@ class MiaCampaignReplyItemsTest extends TestCase
         $this->assertSame(1, $c['priority']);
         $this->assertSame('2026-10-06', $c['since']);          // the first reply
         $this->assertSame('Colleen replied to the fall lawn email. Start the quote.', $c['text']);
-        $this->assertSame('/crm/quotes/create.php?contact_id=11&property_id=501', $c['url']);
+        $this->assertSame('/crm/properties/view.php?id=501', $c['url']);
 
         $r = $items[1];
         $this->assertSame('Raj replied to the fall lawn email and wants it done in spring. Start the quote.', $r['text']);

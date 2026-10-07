@@ -236,8 +236,16 @@ class MiaCampaignService
         foreach ($this->db->query("SELECT id, first_name FROM contacts WHERE id IN ($replied)")->fetchAll(PDO::FETCH_ASSOC) as $r) {
             $people[(int)$r['id']] = ['first_name' => (string)$r['first_name'], 'property_id' => null];
         }
-        foreach ($this->db->query("SELECT site_contact_id AS cid, MIN(id) AS pid FROM properties WHERE site_contact_id IN ($replied) GROUP BY site_contact_id")->fetchAll(PDO::FETCH_ASSOC) as $r) {
-            if (isset($people[(int)$r['cid']])) $people[(int)$r['cid']]['property_id'] = (int)$r['pid'];
+        // Their live property: billing contact first, else the one whose quotes go to them (strata reps);
+        // archived duplicates never.
+        $props = "SELECT site_contact_id AS cid, MIN(id) AS pid FROM properties WHERE site_contact_id IN ($replied) AND status <> 'archived' GROUP BY site_contact_id";
+        try {
+            $this->db->query("SELECT quote_contact_id FROM properties LIMIT 0");
+            $props .= " UNION ALL SELECT quote_contact_id AS cid, MIN(id) AS pid FROM properties WHERE quote_contact_id IN ($replied) AND status <> 'archived' GROUP BY quote_contact_id";
+        } catch (Throwable $e) { /* before migration 1186 */ }
+        foreach ($this->db->query($props)->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $cid = (int)$r['cid'];
+            if (isset($people[$cid]) && empty($people[$cid]['property_id'])) $people[$cid]['property_id'] = (int)$r['pid'];
         }
         $label = null;
         foreach (self::catalogue((int)substr((string)$c['campaign_key'], -4)) as $k => $cat) {
@@ -294,8 +302,9 @@ class MiaCampaignService
                 'kind'     => 'campaign_reply',
                 'text'     => $text,
                 'since'    => date('Y-m-d', $t),
+                // The property page: measurements, zones and Otto's gaps first, then quote from there.
                 'url'      => $pid
-                    ? '/crm/quotes/create.php?contact_id=' . $cid . '&property_id=' . $pid
+                    ? '/crm/properties/view.php?id=' . $pid
                     : '/crm/clients_appstack.php?action=view_contact&id=' . $cid,
                 'priority' => 1, // a yes is money
             ];
