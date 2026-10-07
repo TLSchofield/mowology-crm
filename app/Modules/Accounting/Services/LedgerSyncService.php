@@ -14,6 +14,8 @@
  */
 declare(strict_types=1);
 
+require_once __DIR__ . '/LedgerAccountMap.php';
+
 class LedgerSyncService
 {
     private PDO $db;
@@ -80,7 +82,8 @@ class LedgerSyncService
             'net'             => round($total - $gst - $pst, 2),
             'gst'             => $gst,
             'pst'             => $pst,
-            'expense_account' => $categoryToCode[$cat] ?? '6900',
+            'expense_account' => LedgerAccountMap::refineExpenseCode($categoryToCode[$cat] ?? '6900', $cat,
+                                     $row['asset_tag'] ?? null, (string)($row['vendor_name'] ?? $row['vendor_name_raw'] ?? '')),
             'funding'         => $this->fundingAccountFor((string)($row['payment_method'] ?? '')),
             'cost_type_id'    => $categoryToCostType[$cat] ?? null,
             'service_type'    => $row['service_type'] ?? null,
@@ -220,6 +223,27 @@ class LedgerSyncService
         return ['bank_posted' => $posted, 'skipped' => $skipped, 'errors' => $errors];
     }
 
+    /** The entry a bank line should post now (null = it shouldn't post: revenue deposit, linked, zero). */
+    public function bankEntryArgsFor(int $transactionId): ?array
+    {
+        $s = $this->db->prepare("
+            SELECT at.id, at.transaction_date, at.type, at.account_id,
+                   coa.type AS account_type, coa.code AS account_code,
+                   at.bank_account_id, at.amount, at.gst_amount, at.pst_amount,
+                   at.description, at.job_id, at.contact_id, at.vendor_id
+            FROM accounting_transactions at
+            JOIN chart_of_accounts coa ON coa.id = at.account_id
+            WHERE at.id = ? AND at.reference_type = 'bank_import'
+              AND at.matched_invoice_id IS NULL AND at.matched_expense_id IS NULL
+        ");
+        $s->execute([$transactionId]);
+        $row = $s->fetch(PDO::FETCH_ASSOC);
+        if (!$row) return null;
+        return $this->bankRowToEntryArgs($row, $this->ledger->accountId(LedgerService::ACC_GST_ITC),
+            $this->ledger->accountId(LedgerService::ACC_GST_COLLECTED), $this->ledger->accountId(LedgerService::ACC_BANK),
+            $this->accountCodeToCostTypeMap());
+    }
+
     /** Chart code => cost_types.id, so bank cost rows carry the GGOB drill-down dimension. */
     private function accountCodeToCostTypeMap(): array
     {
@@ -240,17 +264,23 @@ class LedgerSyncService
 
     public function syncInvoices(): array
     {
+        require_once __DIR__ . '/LedgerAccountMap.php';
+        $map = new LedgerAccountMap($this->db);
         $posted = 0; $payments = 0; $skipped = 0;
         $rows = $this->db->query("
             SELECT id, subtotal, tax_amount, total, amount_paid, status,
-                   contact_id, plan_id, issue_date, paid_at, created_at
+                   contact_id, plan_id, contract_id, issue_date, paid_at, created_at
             FROM invoices
             WHERE COALESCE(total, 0) > 0
         ")->fetchAll(PDO::FETCH_ASSOC);
 
         foreach ($rows as $row) {
             try {
-                $this->ledger->postInvoice($this->mapInvoiceToInvoiceArgs($row));
+                $args = $this->mapInvoiceToInvoiceArgs($row);
+                if ($map->ready()) {
+                    $args['revenue_splits'] = $map->invoiceSplits($row, $args['net']);
+                }
+                $this->ledger->postInvoice($args);
                 $posted++;
                 $pay = $this->mapInvoiceToPaymentArgs($row);
                 if ($pay !== null) {
@@ -266,13 +296,16 @@ class LedgerSyncService
 
     public function syncExpenses(): array
     {
-        $categoryToCode = $this->categoryToCodeMap();
+        require_once __DIR__ . '/LedgerAccountMap.php';
+        // The owner's category → account map (migration 1130) wins over chart aliases.
+        $categoryToCode = (new LedgerAccountMap($this->db))->categoryCodes() + $this->categoryToCodeMap();
         $categoryToCost = $this->categoryToCostTypeMap();
         $posted = 0; $skipped = 0;
 
         $rows = $this->db->query("
             SELECT id, expense_date, total, gst_amount, pst_amount, accounting_category,
-                   payment_method, vendor_id, job_id, contact_id
+                   payment_method, vendor_id, job_id, contact_id, asset_tag, vendor_name_raw,
+                   (SELECT v.name FROM vendors v WHERE v.id = expenses.vendor_id) AS vendor_name
             FROM expenses
             WHERE total > 0 AND status IN ('approved', 'forwarded')
         ")->fetchAll(PDO::FETCH_ASSOC);
@@ -286,6 +319,17 @@ class LedgerSyncService
             }
         }
         return ['expenses_posted' => $posted, 'skipped' => $skipped];
+    }
+
+    /** Expense posting args with the same maps the nightly sync uses (repost shares this). */
+    public function expenseArgs(array $row): array
+    {
+        static $maps = null;
+        if ($maps === null) {
+            require_once __DIR__ . '/LedgerAccountMap.php';
+            $maps = [(new LedgerAccountMap($this->db))->categoryCodes() + $this->categoryToCodeMap(), $this->categoryToCostTypeMap()];
+        }
+        return $this->mapExpenseToExpenseArgs($row, $maps[0], $maps[1]);
     }
 
     /** accounting_category(lower) => chart_of_accounts.code (via expense_category_alias). */

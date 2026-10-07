@@ -8,14 +8,15 @@
  *   detection — ExpenseLookupService::findDuplicates() (same total to the cent within
  *               ±3 days, same vendor) — the same rule as the receipts page grouping and
  *               the review-form warning;
- *   merging   — expenses.php action=merge (keep one, the other is removed), called by
- *               the card itself.
+ *   removing  — the copy is rejected "Duplicate of receipt #X" (removeCopy): kept on
+ *               record for six years, never deleted.
  * New here: "not a duplicate" is remembered for good (expense_duplicate_dismissals,
  * migration 1127). The receipts page only remembered it for the browser session.
  *
  * No namespace / no autoloader in production: require_once and `new`.
  */
 require_once __DIR__ . '/ExpenseLookupService.php';
+require_once __DIR__ . '/ExpenseApprovalService.php';
 
 class DuplicateReceiptService
 {
@@ -121,6 +122,31 @@ class DuplicateReceiptService
             }
         }
         return array_keys($ids);
+    }
+
+    /**
+     * Remove a copy: REJECT it as "Duplicate of receipt #X" — kept for the six-year
+     * record, never deleted. Its photo moves to the one kept when that has none (a
+     * waiting receipt only — an approved one is locked). Only a waiting receipt can be
+     * removed this way.
+     */
+    public function removeCopy(int $copyId, int $keepId, array $user): array
+    {
+        if (!$copyId || !$keepId || $copyId === $keepId) return ['ok' => false, 'message' => 'Pick the copy and the one to keep'];
+        $s = $this->db->prepare("SELECT id, status, receipt_media_id FROM expenses WHERE id IN (?, ?)");
+        $s->execute([$copyId, $keepId]);
+        $rows = array_column($s->fetchAll(PDO::FETCH_ASSOC), null, 'id');
+        $copy = $rows[$copyId] ?? null;
+        $keep = $rows[$keepId] ?? null;
+        if (!$copy || !$keep) return ['ok' => false, 'message' => 'Receipt not found'];
+        if (!in_array($copy['status'], self::WAITING, true)) return ['ok' => false, 'message' => "That one's already approved — remove the other instead"];
+        if (empty($keep['receipt_media_id']) && !empty($copy['receipt_media_id']) && in_array($keep['status'], self::WAITING, true)) {
+            $this->db->prepare("UPDATE expenses SET receipt_media_id = ? WHERE id = ?")->execute([(int)$copy['receipt_media_id'], $keepId]);
+        }
+        (new ExpenseApprovalService($this->db))->reject($copyId, $user, 'Duplicate of receipt #' . $keepId);
+        $this->db->prepare("UPDATE expense_suggestions SET status = 'superseded' WHERE expense_id = ? AND source = 'live' AND status IN ('pending', 'error')")
+           ->execute([$copyId]);
+        return ['ok' => true, 'message' => "Done — #{$copyId} is set aside as a duplicate of #{$keepId} (kept on record, not deleted)."];
     }
 
     /** Owner: "not a duplicate" — never pair these two again (here or on the receipts page). */

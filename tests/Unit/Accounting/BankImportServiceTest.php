@@ -22,6 +22,14 @@ class BankImportServiceTest extends TestCase
         $pdo = $this->createMock(PDO::class);
         $this->service = new BankImportService($pdo);
         $this->ref = new \ReflectionClass(BankImportService::class);
+        $this->setToday('2026-10-05');
+    }
+
+    private function setToday(string $date): void
+    {
+        $p = $this->ref->getProperty('today');
+        $p->setAccessible(true);
+        $p->setValue($this->service, $date);
     }
 
     // ── detectPreset() ────────────────────────────────────────────────────────
@@ -119,6 +127,111 @@ class BankImportServiceTest extends TestCase
         $rows = $this->callPrivate('parsePdfText', $text, false)['rows'];
         $this->assertSame('2024-06-01', $rows[0]['date']);
         $this->assertSame('2024-06-15', $rows[1]['date']);
+    }
+
+    /** @test */
+    public function parsePdfText_dates_december_statement_imported_in_april_as_last_year(): void
+    {
+        // The 2026-04-29 incident: a Dec-2025 statement with no year anywhere
+        // was dated Dec 2026 — 122 future rows.
+        $this->setToday('2026-04-29');
+        $text = "WITHDRAWALS DEPOSITS BALANCE\nOPENING BALANCE 1000.00\n"
+              . "07 DEC MOBILE DEPOSIT 100.00 1100.00\n"
+              . "31 DEC INTEREST CREDITED TO ACCOUNT 0.50 1100.50\n";
+        $rows = $this->callPrivate('parsePdfText', $text, false)['rows'];
+        $this->assertSame('2025-12-07', $rows[0]['date']);
+        $this->assertSame('2025-12-31', $rows[1]['date']);
+    }
+
+    /** @test */
+    public function parsePdfText_anchors_to_statement_period_not_a_stray_later_year(): void
+    {
+        $this->setToday('2026-04-29');
+        $text = "STATEMENT PERIOD 01 DEC 2025 to 31 DEC 2025\nPrinted 2026 copyright 2026\n"
+              . "WITHDRAWALS DEPOSITS BALANCE\nOPENING BALANCE 1000.00\n"
+              . "07 DEC MOBILE DEPOSIT 100.00 1100.00\n";
+        $rows = $this->callPrivate('parsePdfText', $text, false)['rows'];
+        $this->assertSame('2025-12-07', $rows[0]['date']);
+    }
+
+    /** @test */
+    public function parsePdfText_period_across_year_end_uses_anchor_per_row(): void
+    {
+        // Multi-account statement: each section restarts the Dec → Jan period.
+        $text = "STATEMENT PERIOD 15 DEC 2025 to 14 JAN 2026\nWITHDRAWALS DEPOSITS BALANCE\nOPENING BALANCE 1000.00\n"
+              . "20 DEC POS A 10.00 990.00\n"
+              . "05 JAN POS B 10.00 980.00\n"
+              . "22 DEC POS C 10.00 970.00\n"
+              . "10 JAN POS D 10.00 960.00\n";
+        $dates = array_column($this->callPrivate('parsePdfText', $text, false)['rows'], 'date');
+        $this->assertSame(['2025-12-20', '2026-01-05', '2025-12-22', '2026-01-10'], $dates);
+    }
+
+    /** @test */
+    public function parsePdfText_multi_account_restart_is_not_a_year_rollover(): void
+    {
+        $text = "STATEMENT PERIOD 2025\nWITHDRAWALS DEPOSITS BALANCE\nOPENING BALANCE 1000.00\n"
+              . "20 NOV POS A 10.00 990.00\n"
+              . "05 DEC POS B 10.00 980.00\n"
+              . "21 NOV POS C 10.00 970.00\n"
+              . "06 DEC POS D 10.00 960.00\n";
+        $dates = array_column($this->callPrivate('parsePdfText', $text, false)['rows'], 'date');
+        $this->assertSame(['2025-11-20', '2025-12-05', '2025-11-21', '2025-12-06'], $dates);
+    }
+
+    /** @test */
+    public function parsePdfText_never_dates_a_row_after_the_import_date(): void
+    {
+        $this->setToday('2026-10-05');
+        $text = "WITHDRAWALS DEPOSITS BALANCE\nOPENING BALANCE 1000.00\n"
+              . "28 SEP POS A 10.00 990.00\n"
+              . "03 OCT POS B 10.00 980.00\n"
+              . "20 OCT POS C 10.00 970.00\n";
+        $dates = array_column($this->callPrivate('parsePdfText', $text, false)['rows'], 'date');
+        $this->assertSame(['2026-09-28', '2026-10-03', '2025-10-20'], $dates);
+        foreach ($dates as $d) $this->assertLessThanOrEqual('2026-10-05', $d);
+    }
+
+    /** @test */
+    public function parsePdfText_keeps_an_explicit_row_year(): void
+    {
+        $text = "STATEMENT PERIOD 01 JUN 2026 to 30 JUN 2026\n"
+              . "2024-06-03 OLD ITEM 10.00\n";
+        $rows = $this->callPrivate('parsePdfText', $text, false)['rows'];
+        $this->assertSame('2024-06-03', $rows[0]['date']);
+    }
+
+    /** @test */
+    public function statementAnchorDate_ignores_amounts_that_look_like_years(): void
+    {
+        $this->assertSame('2025-12-31',
+            $this->callPrivate('statementAnchorDate', "Dec 31, 2025\n15 MAY 2030.00 4000.00"));
+        $this->assertNull($this->callPrivate('statementAnchorDate', "no dates here 2025"));
+    }
+
+    /** @test */
+    public function latestOnOrBefore_handles_leap_day(): void
+    {
+        $this->assertSame('2024-02-29', $this->callPrivate('latestOnOrBefore', 2, 29, '2026-03-31'));
+    }
+
+    /** @test */
+    public function parseCSV_yearless_dates_are_never_in_the_future(): void
+    {
+        $this->setToday('2026-04-29');
+        $csv  = "Date,Description,Amount\nDec 07,MOBILE DEPOSIT,100.00\n2026-12-07,EXPLICIT,5.00\n";
+        $rows = $this->callPrivate('parseCSV', $csv, ['date' => 0, 'description' => 1, 'amount' => 2], 1, 'bank');
+        $this->assertSame('2025-12-07', $rows[0]['date']);
+        $this->assertSame('2026-12-07', $rows[1]['date']); // explicit year kept; commit() refuses it
+    }
+
+    /** @test */
+    public function commit_refuses_rows_dated_after_today(): void
+    {
+        $this->setToday('2026-04-29');
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessageMatches('/dated after today/');
+        $this->service->commit([['date' => '2026-12-07', 'description' => 'MOBILE DEPOSIT', 'amount' => 1, 'type' => 'income']], 1);
     }
 
     // ── parsePdfText: balance-delta classification (#3) ─────────────────────────
@@ -456,6 +569,15 @@ class BankImportServiceTest extends TestCase
         $this->assertTrue($this->isCreditCardPayment('VISA PAYMENT VANCITY'));
         $this->assertTrue($this->isCreditCardPayment('PAYMENT TO TD VISA'));
         $this->assertTrue($this->isCreditCardPayment('PRE-AUTHORIZED PAYMENT'));
+    }
+
+    /** @test */
+    public function isCreditCardPayment_a_preauthorized_bill_is_not_a_card_payment(): void
+    {
+        $this->assertFalse($this->isCreditCardPayment('Preauthorized payment TELUS MOBILITY Telus Mobility'));
+        $this->assertFalse($this->isCreditCardPayment('Preauthorized payment TD ON-LINE LOANS SYSTEM'));
+        $this->assertFalse($this->isCreditCardPayment('Preauthorized payment Wave PYRL Wave Payroll'));
+        $this->assertTrue($this->isCreditCardPayment('Preauthorized payment VANCITY VISA AUTO PAYMENT'), 'names the card');
     }
 
     /** @test */
