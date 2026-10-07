@@ -8,6 +8,10 @@
  *       accounting_category, asset_tag, job, subtotal, gst, pst, total}, save_draft?: bool}
  * POST {mode: 'reject', suggestion_id, reason}
  * POST {mode: 'not_dupe', pairs: [[a, b], ...]}
+ * POST {mode: 'remove_dupes', keep_id, remove_ids: [..]}
+ *      → {ok, message, kept, removed[], carried[]}  "Keep this one" — the other copies are
+ *        rejected "Duplicate of receipt #keep" (DuplicateReceiptService::removeCopies; added
+ *        2026-10-07). Never a DELETE.
  * GET  ?mode=risk&expense_id=N
  *      → {ok, score, tier, summary, flags:[{code, detail, penny}]}  (RiskExplainer: why the
  *        receipt has its anomaly score, in Penny's words; added 2026-10-07, read-only)
@@ -22,8 +26,8 @@
  *     web's /crm/api/serve-receipt.php needs a browser session);
  *   - the select options (categories, "For" tags) travel with the queue, so the app
  *     offers exactly what the web card offers.
- * "Remove the copy" on a duplicate is the web's expenses.php merge (session-only) —
- * not offered here yet.
+ * "Remove the copies" (remove_dupes) is the web card's dupe_remove (removeCopy) for a
+ * whole group at once, with empty fields of the kept receipt filled from the copies.
  *
  * ?mode=, never ?action= (the /api/ router appends its own action).
  */
@@ -156,6 +160,20 @@ try {
                 $res = $dup->dismiss((int)($pr[0] ?? 0), (int)($pr[1] ?? 0), $user);
                 if (!$res['ok']) break;
             }
+            echo json_encode($res);
+            break;
+        }
+
+        case 'remove_dupes': {
+            // "Keep this one": every other copy in the duplicate group is set aside the web
+            // card's way (rejected "Duplicate of receipt #keep", kept on record), after its
+            // missing fields are merged into the kept one. Waiting copies only, one group only.
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            $res = (new DuplicateReceiptService($db))->removeCopies(
+                (int)($input['keep_id'] ?? 0),
+                array_map('intval', (array)($input['remove_ids'] ?? [])),
+                $user
+            );
             echo json_encode($res);
             break;
         }

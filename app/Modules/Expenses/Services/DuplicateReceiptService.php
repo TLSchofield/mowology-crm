@@ -9,7 +9,11 @@
  *               ±3 days, same vendor) — the same rule as the receipts page grouping and
  *               the review-form warning;
  *   removing  — the copy is rejected "Duplicate of receipt #X" (removeCopy): kept on
- *               record for six years, never deleted.
+ *               record for six years, never deleted. removeCopies() is the phone's
+ *               "Keep this one": every other copy of the group goes, its missing fields
+ *               merged into the kept one first;
+ *   same photo — two expenses with the same receipt_media_id are always a pair, whatever
+ *               their OCR'd dates (#408-#410 were one photo read three ways).
  * New here: "not a duplicate" is remembered for good (expense_duplicate_dismissals,
  * migration 1127). The receipts page only remembered it for the browser session.
  *
@@ -78,9 +82,12 @@ class DuplicateReceiptService
         $lookup = new ExpenseLookupService($this->db);
         $candidates = [];
         foreach ($mine as $e) {
-            $candidates[(int)$e['id']] = $lookup->findDuplicates(
-                $e['vendor_name'] ?: $e['vendor_name_raw'], $e['vendor_id'] ? (int)$e['vendor_id'] : null,
-                (float)$e['total'], (string)$e['expense_date'], (int)$e['id']
+            $candidates[(int)$e['id']] = self::withSamePhoto(
+                $lookup->findDuplicates(
+                    $e['vendor_name'] ?: $e['vendor_name_raw'], $e['vendor_id'] ? (int)$e['vendor_id'] : null,
+                    (float)$e['total'], (string)$e['expense_date'], (int)$e['id']
+                ),
+                $this->samePhoto($e)
             );
         }
         $pairs = self::pairUp($mine, $candidates, $this->dismissed());
@@ -149,6 +156,123 @@ class DuplicateReceiptService
         return ['ok' => true, 'message' => "Done — #{$copyId} is set aside as a duplicate of #{$keepId} (kept on record, not deleted)."];
     }
 
+    /**
+     * "Keep this one" (Penny's phone card): every other copy in the group is set aside
+     * the web card's way — removeCopy(), i.e. rejected "Duplicate of receipt #keep", kept
+     * on record, its live Penny suggestion superseded. Before each copy goes, whatever the
+     * kept receipt is missing (job, category, notes, line items…) is carried over from it
+     * ("merge") — only into empty fields, and only while the kept one still waits.
+     *
+     * Refused unless every id is in ONE duplicate group with the kept one and every copy
+     * is still waiting (draft / pending_approval). All-or-nothing.
+     *
+     * @param int[] $removeIds
+     */
+    public function removeCopies(int $keepId, array $removeIds, array $user): array
+    {
+        $removeIds = array_values(array_unique(array_filter(array_map('intval', $removeIds), fn($id) => $id > 0)));
+        if (!$keepId || !$removeIds) return ['ok' => false, 'message' => 'Pick the receipt to keep and the copies to remove'];
+        if (in_array($keepId, $removeIds, true)) return ['ok' => false, 'message' => "You can't keep and remove the same receipt"];
+        if (count($removeIds) > 20) return ['ok' => false, 'message' => 'Too many copies in one go'];
+
+        $all = array_merge([$keepId], $removeIds);
+        $in = implode(',', array_fill(0, count($all), '?'));
+        $s = $this->db->prepare("SELECT * FROM expenses WHERE id IN ({$in})");
+        $s->execute($all);
+        $rows = [];
+        foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) $rows[(int)$r['id']] = $r;
+        foreach ($all as $id) {
+            if (!isset($rows[$id])) return ['ok' => false, 'message' => "Receipt #{$id} not found"];
+        }
+        foreach ($removeIds as $id) {
+            if (!in_array($rows[$id]['status'], self::WAITING, true)) {
+                return ['ok' => false, 'message' => "#{$id} is already " . str_replace('_', ' ', (string)$rows[$id]['status']) . ' — it stays. Keep that one instead.'];
+            }
+        }
+        if (!$this->inOneGroup($keepId, $removeIds)) {
+            return ['ok' => false, 'message' => "These aren't one duplicate group any more — refresh and try again"];
+        }
+
+        $keepWaits = in_array($rows[$keepId]['status'], self::WAITING, true);
+        $carried = [];
+        $own = !$this->db->inTransaction();
+        if ($own) $this->db->beginTransaction();
+        try {
+            foreach ($removeIds as $copyId) {
+                if ($keepWaits) {
+                    $fill = self::mergeFill($rows[$keepId], $rows[$copyId]);
+                    if ($fill) {
+                        $sets = implode(', ', array_map(fn($c) => "{$c} = ?", array_keys($fill)));
+                        $this->db->prepare("UPDATE expenses SET {$sets} WHERE id = ?")
+                           ->execute(array_merge(array_values($fill), [$keepId]));
+                        $rows[$keepId] = $fill + $rows[$keepId];
+                        $carried = array_merge($carried, array_keys($fill));
+                    }
+                    if ($this->moveLineItemsIfMissing($copyId, $keepId)) $carried[] = 'line items';
+                    if (empty($rows[$keepId]['receipt_media_id']) && !empty($rows[$copyId]['receipt_media_id'])) {
+                        $rows[$keepId]['receipt_media_id'] = $rows[$copyId]['receipt_media_id'];   // removeCopy moves the photo
+                        $carried[] = 'photo';
+                    }
+                }
+                $res = $this->removeCopy($copyId, $keepId, $user);
+                if (empty($res['ok'])) throw new RuntimeException($res['message'] ?? "Couldn't set #{$copyId} aside");
+            }
+            if ($own) $this->db->commit();
+        } catch (Throwable $e) {
+            if ($own && $this->db->inTransaction()) $this->db->rollBack();
+            return ['ok' => false, 'message' => $e->getMessage()];
+        }
+
+        $n = count($removeIds);
+        $carried = array_values(array_unique(array_map([self::class, 'fieldLabel'], $carried)));
+        return [
+            'ok'      => true,
+            'kept'    => $keepId,
+            'removed' => $removeIds,
+            'carried' => $carried,
+            'message' => "Kept #{$keepId} — " . ($n === 1 ? 'the copy is' : "{$n} copies are") . ' set aside (kept on record, not deleted)'
+                       . ($carried ? '; took the ' . implode(', ', $carried) . ' from ' . ($n === 1 ? 'it' : 'them') : '') . '.',
+        ];
+    }
+
+    /** Are the kept receipt and every copy linked into one group (the same grouping the card shows)? */
+    protected function inOneGroup(int $keepId, array $removeIds): bool
+    {
+        $ids = array_merge([$keepId], $removeIds);
+        return self::sameGroup(self::groups($this->pairsFor($ids)), $ids);
+    }
+
+    /** The copy's line items move to the kept receipt when that has none. */
+    private function moveLineItemsIfMissing(int $copyId, int $keepId): bool
+    {
+        try {
+            $c = $this->db->prepare("SELECT COUNT(*) FROM expense_line_items WHERE expense_id = ?");
+            $c->execute([$keepId]);
+            if ((int)$c->fetchColumn() > 0) return false;
+            $u = $this->db->prepare("UPDATE expense_line_items SET expense_id = ? WHERE expense_id = ?");
+            $u->execute([$keepId, $copyId]);
+            return $u->rowCount() > 0;
+        } catch (PDOException $e) {
+            return false;   // no line-items table here — nothing to carry
+        }
+    }
+
+    /** Other live expenses made from the very same photo — always the same receipt. */
+    private function samePhoto(array $e): array
+    {
+        if (empty($e['receipt_media_id'])) return [];
+        $s = $this->db->prepare("
+            SELECT e.id, e.expense_date, e.total, e.status, e.vendor_name_raw, e.receipt_media_id, v.name AS vendor_name
+            FROM expenses e LEFT JOIN vendors v ON v.id = e.vendor_id
+            WHERE e.receipt_media_id = ? AND e.id != ? AND e.status != 'rejected'
+        ");
+        $s->execute([(int)$e['receipt_media_id'], (int)$e['id']]);
+        $rows = $s->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($rows as &$r) $r['receipt_path'] = '/crm/api/serve-receipt.php?id=' . (int)$r['receipt_media_id'];
+        unset($r);
+        return $rows;
+    }
+
     /** Owner: "not a duplicate" — never pair these two again (here or on the receipts page). */
     public function dismiss(int $a, int $b, array $user): array
     {
@@ -198,6 +322,70 @@ class DuplicateReceiptService
             $out[] = $g;
         }
         return $out;
+    }
+
+    /** Columns a kept receipt takes from a removed copy when its own is empty. */
+    public const MERGE_COLUMNS = ['job_id', 'property_id', 'contact_id', 'accounting_category', 'asset_tag',
+                                  'payment_method', 'vendor_id', 'notes', 'description'];
+
+    /**
+     * What the kept receipt takes from a copy: each MERGE_COLUMNS value that is empty on
+     * the kept one and set on the copy. Never overwrites. A column the kept row doesn't
+     * have (migration not run) is skipped, and so is the offline queue's placeholder
+     * description.
+     * @return array<string, mixed> column => value
+     */
+    public static function mergeFill(array $keep, array $copy): array
+    {
+        $out = [];
+        foreach (self::MERGE_COLUMNS as $col) {
+            if (!array_key_exists($col, $keep)) continue;
+            if (!self::isBlank($keep[$col]) || self::isBlank($copy[$col] ?? null)) continue;
+            if ($col === 'description' && stripos((string)$copy[$col], 'Auto-saved from offline queue') === 0) continue;
+            $out[$col] = $copy[$col];
+        }
+        return $out;
+    }
+
+    private static function isBlank($v): bool
+    {
+        return $v === null || $v === 0 || $v === '0' || (is_string($v) && trim($v) === '');
+    }
+
+    public static function fieldLabel(string $col): string
+    {
+        $labels = ['job_id' => 'job', 'property_id' => 'property', 'contact_id' => 'client',
+                   'accounting_category' => 'category', 'asset_tag' => 'tag',
+                   'payment_method' => 'payment method', 'vendor_id' => 'vendor'];
+        return $labels[$col] ?? $col;
+    }
+
+    /** Are all these receipt ids members of one group from groups()? */
+    public static function sameGroup(array $groups, array $ids): bool
+    {
+        $ids = array_map('intval', $ids);
+        foreach ($groups as $g) {
+            $members = array_map(fn($m) => (int)$m['id'], $g['members'] ?? []);
+            if (!array_diff($ids, $members)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * findDuplicates() rows plus the receipts made from the same photo (no date/vendor
+     * rule needed for those: one photo is one receipt), each id once.
+     */
+    public static function withSamePhoto(array $found, array $samePhoto): array
+    {
+        $seen = [];
+        foreach ($found as $r) $seen[(int)$r['id']] = true;
+        foreach ($samePhoto as $r) {
+            if (!isset($seen[(int)$r['id']])) {
+                $found[] = $r;
+                $seen[(int)$r['id']] = true;
+            }
+        }
+        return $found;
     }
 
     public static function key(int $a, int $b): string

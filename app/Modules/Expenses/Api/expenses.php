@@ -483,6 +483,17 @@ function handleCreate(PDO $db, ?array $input, array $user): void
     $requestedStatus = $input['status'] ?? 'draft';
     $status = in_array($requestedStatus, ['draft', 'pending_approval'], true) ? $requestedStatus : 'draft';
 
+    // One photo, one expense: a repeat of this create (second tap, retry) answers with
+    // the expense already made from the photo instead of inserting another (#408-#410).
+    require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseCreateGuard.php';
+    $createGuard  = new ExpenseCreateGuard($db);
+    $guardMediaId = !empty($input['receipt_media_id']) ? (int)$input['receipt_media_id'] : null;
+    $existingId   = $createGuard->claim($guardMediaId);
+    if ($existingId !== null) {
+        echo json_encode(ExpenseCreateGuard::existingResponse($existingId));
+        return;
+    }
+
     // ── Run anomaly detection ─────────────────────────────────────
     $anomalyFlags = '';
     $anomalyScore = 0;
@@ -509,6 +520,7 @@ function handleCreate(PDO $db, ?array $input, array $user): void
         // Budget service non-critical
     }
 
+    try {
     $stmt = $db->prepare("
         INSERT INTO expenses
             (expense_date, vendor_id, vendor_name_raw, description, amount, gst_amount, pst_amount, total,
@@ -549,8 +561,10 @@ function handleCreate(PDO $db, ?array $input, array $user): void
         !empty($input['fuel_price_per_litre']) ? (float)$input['fuel_price_per_litre'] : null,
         $user['id'],
     ]);
-
     $expenseId = (int)$db->lastInsertId();
+    } finally {
+        $createGuard->release($guardMediaId);   // the INSERT is in: the next request sees it
+    }
 
     // Line-item provenance ('ocr' | 'vision' | 'llm' | 'manual') — column arrives with
     // migration 1115; never fatal before it runs.

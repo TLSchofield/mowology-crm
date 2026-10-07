@@ -227,6 +227,20 @@ styles in `mowology-brand.css` "DEPARTMENT HEADS DECK"; headshots `/crm/img/head
   approval queue and out of Penny's AI read. Removing a copy calls `expenses.php
   action=merge` (approved/sent keepers are merged with `fields: {receipt: 'keep'}` so
   they don't change). "Not duplicates" → `expense_duplicate_dismissals` (migration 1127).
+  Expenses sharing one `receipt_media_id` are always paired, whatever their OCR'd dates.
+- **Phone: "Keep this one"** (iOS 1.3.4, `bookkeeper-mobile.php` `mode=remove_dupes
+  {keep_id, remove_ids[]}` → `DuplicateReceiptService::removeCopies`): every other waiting
+  copy in the group is rejected "Duplicate of receipt #keep" (soft, never a DELETE), after
+  its job/category/tag/notes/line items/photo fill whatever the kept one has empty. One
+  group only, waiting copies only, all-or-nothing. When a member is already approved, only
+  that one can be kept.
+
+### One photo, one expense (2026-10-07)
+`ExpenseCreateGuard` in `expenses.php action=create` and iOS `expense-save.php`: a create
+whose `receipt_media_id` already has a non-rejected expense returns that expense
+(`deduplicated: true`) instead of inserting — a MySQL `GET_LOCK` on the media id covers
+same-second repeats. Splitting one photo into several expenses on purpose will need its
+own path.
 - **Fields:** vendor (search + new), receipt date (MwDatePicker), category, tag, totals,
   job; line items edited in place via `expenses.php` `add/update/delete_line_item`
   (saved immediately; same learning as the receipts page), "Use Penny's items".
