@@ -325,6 +325,12 @@ MwTripLog.submit('save_pre_trip' | 'save_post_trip' | 'declare', fields, MW_USER
 - **Updating for next season:** the cron handles the figures. For the prose, replace `SeasonalOutlookService::bundledOutlook()` or edit the `ops_settings` payload directly. No migration needed.
 - **Not auto-loaded** — `require_once` both files on the page that renders it.
 
+### Clues list (MwClues)
+- **JS:** `public/crm/js/clues-card.js` — renders into `#mw-clues`; **API:** `/crm/api/clues.php` (`?mode=list`, POST `apply` / `dismiss`); **Service:** `app/Modules/Comms/Services/ClueService.php`.
+- **CSS:** `mowology-brand.css` (`.mw-clue*`, next to Yui's `.mw-yui-*` rows it reuses).
+- **Purpose:** suggestions Penny and Yui spotted in payments and mail (strata plan numbers, job titles and firms in signatures, missing phones/emails, an accountant set up as the quote signer), each with Apply / Not right. Nothing changes a record without that click; buttons only for admins.
+- **Usage:** `<div class="mw-clues" id="mw-clues" data-contact-id="<?= (int)$contactId ?>"></div>` + the script. Leave out `data-contact-id` for every open clue (Yui's card does). Renders nothing when there are none, or before migration 1206.
+
 ---
 
-**Total: 19 components documented.**
+**Total: 20 components documented.**

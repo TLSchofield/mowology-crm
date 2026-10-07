@@ -48,6 +48,7 @@ require_once __DIR__ . '/../app/Modules/Comms/Services/YuiDraftService.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiDeskService.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiBadgeService.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/YuiBrainService.php';
+require_once __DIR__ . '/../app/Modules/Comms/Services/ClueService.php';
 // Consent ledger
 require_once __DIR__ . '/../app/Modules/Consent/Services/ConsentLedgerService.php';
 

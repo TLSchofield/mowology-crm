@@ -25,6 +25,19 @@ class PennyBriefAdapter
 
     public function brief(string $ownerFirstName = ''): array
     {
+        $brief = $this->books($ownerFirstName);
+        // Clues spotted in money (a strata plan paying a building on file as a house) — priority 2.
+        try {
+            require_once APP_ROOT . '/Modules/Comms/Services/ClueService.php';
+            $brief = ClueService::mergeBrief($brief, (new ClueService($this->db))->briefItems(ClueService::HEAD_PENNY));
+        } catch (Throwable $e) {
+            error_log('Penny brief (clues): ' . $e->getMessage());
+        }
+        return $brief;
+    }
+
+    private function books(string $ownerFirstName): array
+    {
         $svc = APP_ROOT . '/Modules/Expenses/Services/BookkeeperDeskService.php';
         $q = APP_ROOT . '/Modules/Expenses/Services/PennyQuestionService.php';
         if (!is_file($svc)) return self::fromStats(null, []);

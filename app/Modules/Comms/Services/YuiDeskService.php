@@ -99,7 +99,15 @@ class YuiDeskService
     /** Read-only and cheap — Charlie calls it for every head. */
     public function brief(string $ownerFirstName = ''): array
     {
-        return YuiRules::brief($this->sections());
+        $brief = YuiRules::brief($this->sections());
+        // Clues spotted in client mail (job titles, firms, details, strata plans) — priority 2.
+        try {
+            require_once __DIR__ . '/ClueService.php';
+            $brief = ClueService::mergeBrief($brief, (new ClueService($this->db))->briefItems(ClueService::HEAD_YUI));
+        } catch (Throwable $e) {
+            error_log('Yui brief (clues): ' . $e->getMessage());
+        }
+        return $brief;
     }
 
     /** Keys not to show: Handled (any time), sent recently, or dismissed / snoozed in Charlie. */

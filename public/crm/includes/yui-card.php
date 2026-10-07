@@ -8,6 +8,8 @@
  * greeting, numbers and the five sections load from /crm/api/yui.php (yui-card.js), so the
  * dashboard doesn't read the CRM twice.
  * Yui drafts; Tim edits and sends. Nothing on this card sends without Tim's click.
+ * Under her sections: Clues (clues-card.js, /crm/api/clues.php) — facts she and Penny spotted
+ * in payments and mail, each with Apply / Not right. Shown once migration 1206 has run.
  *
  * Included by dept-heads-deck.php when this file exists. Renders nothing — never breaks the
  * dashboard — until migration 1191 has run, or for users without billing.edit (same as Sam).
@@ -32,6 +34,11 @@ try {
         $__ybright = $__yb->rightFirstTime() ?? 0.5;
         $__ybrain = (new YuiBrainService(getDB()))->learned();
     } catch (Throwable $__e) { /* badges and brain are a bonus — never block the card */ }
+    $__yclues = false;
+    try {
+        require_once APP_ROOT . '/Modules/Comms/Services/ClueService.php';
+        $__yclues = (new ClueService(getDB()))->ready();
+    } catch (Throwable $__e) { /* clues are a bonus — never block the card */ }
 } catch (Throwable $__e) {
     error_log('Yui card unavailable: ' . $__e->getMessage());
     return;
@@ -84,6 +91,10 @@ try {
       <div class="mw-rc-empty">Loading client conversations…</div>
     </div>
 
+    <?php if ($__yclues): ?>
+    <div class="mw-clues" id="mw-clues" aria-live="polite" data-can-decide="<?= function_exists('isAdmin') && isAdmin() ? '1' : '0' ?>"></div>
+    <?php endif; ?>
+
     <div class="mw-head-foot">
       <span>Learning from every message you send, edit or mark handled · I never send anything myself</span>
       <a class="btn btn-sm btn-success" href="/crm/clients_appstack.php">All clients →</a>
@@ -92,3 +103,6 @@ try {
 </section>
 <script src="<?= function_exists('_av') ? _av('/crm/js/head-brain.js') : '/crm/js/head-brain.js' ?>" defer></script>
 <script src="<?= function_exists('_av') ? _av('/crm/js/yui-card.js') : '/crm/js/yui-card.js' ?>" defer></script>
+<?php if ($__yclues): ?>
+<script src="<?= function_exists('_av') ? _av('/crm/js/clues-card.js') : '/crm/js/clues-card.js' ?>" defer></script>
+<?php endif; ?>
