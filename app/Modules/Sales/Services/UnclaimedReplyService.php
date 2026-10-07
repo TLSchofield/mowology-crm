@@ -205,7 +205,7 @@ class UnclaimedReplyService
             if (self::answered($cid, (string)$r['sent_at'], $ctx)) continue;
             $mk = (string)$r['message_key'];
             if (isset($hidden[self::key($cid, $mk, 'quote')]) || isset($hidden[self::key($cid, $mk, 'client')])) continue;
-            $lane = self::aboutQuote((string)($r['subject'] ?? ''), (string)($r['snippet'] ?? '')) ? 'quote' : 'client';
+            $lane = self::lane((string)($r['subject'] ?? ''), (string)($r['snippet'] ?? ''));
             $items[] = self::item($cid, $r, self::key($cid, $mk, $lane), $lane);
         }
         usort($items, function ($a, $b) {
@@ -246,6 +246,18 @@ class UnclaimedReplyService
     public static function key(int $cid, string $messageKey, string $lane = 'quote'): string
     {
         return ($lane === 'client' ? self::YUI_PREFIX : self::KEY_PREFIX) . $cid . ':' . substr(sha1($messageKey), 0, 12);
+    }
+
+    /**
+     * Whose reply is it? Sam's when it is about a quote, OR when it is a clear yes to work
+     * (Gaby: "Yes" to "fall cleanup" — that is a sale to quote, not a conversation to keep).
+     * A yes about money (invoices, payments, statements) stays with Yui.
+     */
+    public static function lane(string $subject, string $snippet): string
+    {
+        if (self::aboutQuote($subject, $snippet)) return 'quote';
+        $money = (bool)preg_match('/\b(invoice|payment|paid|statement|receipt|e-?transfer|overdue|balance)\b/i', $subject . ' ' . $snippet);
+        return (!$money && self::isYes($snippet)) ? 'quote' : 'client';
     }
 
     /** Is the reply about a quote (Sam's lane)? Its subject or text names a quote, estimate or proposal. */
@@ -374,7 +386,7 @@ class UnclaimedReplyService
         $text = $who . ($isText ? ' texted' : ' replied')
             . ($quote !== '' ? ' "' . $quote . '"' : '')
             . (!$isText && $subject !== '' ? ' to "' . $subject . '"' : '')
-            . '. ' . ($yes ? 'That\'s a yes. Answer them.' : 'Answer them.');
+            . '. ' . ($yes ? ($lane === 'quote' ? 'That\'s a yes. Send the quote.' : 'That\'s a yes. Answer them.') : 'Answer them.');
         return [
             'key'        => $key,
             'kind'       => $lane === 'client' ? 'client_reply' : 'quote_reply',

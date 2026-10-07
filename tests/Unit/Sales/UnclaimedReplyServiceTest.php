@@ -138,13 +138,13 @@ class UnclaimedReplyServiceTest extends TestCase
         $this->assertCount(2, $items);
         $this->assertSame(5, $items[0]['contact_id']);            // the yes ranks first
         $this->assertSame(1, $items[0]['priority']);
-        // Not about a quote → Yui's lane (client_reply), never Sam's.
-        $this->assertSame('client_reply', $items[0]['kind']);
-        $this->assertSame('client', $items[0]['lane']);
+        // A clear yes to work is a sale to quote → Sam's lane (quote_reply), even with no quote named.
+        $this->assertSame('quote_reply', $items[0]['kind']);
+        $this->assertSame('quote', $items[0]['lane']);
         $this->assertSame('2026-10-05', $items[0]['since']);
-        $this->assertSame(UnclaimedReplyService::key(5, 'msg-5-2026-10-05 16:20:00', 'client'), $items[0]['key']);
-        $this->assertMatchesRegularExpression('/^yui:reply:5:[0-9a-f]{12}$/', $items[0]['key']);
-        $this->assertSame('Gaby replied "Yes" to "Cambridge Apartments: fall cleanup". That\'s a yes. Answer them.', $items[0]['text']);
+        $this->assertSame(UnclaimedReplyService::key(5, 'msg-5-2026-10-05 16:20:00', 'quote'), $items[0]['key']);
+        $this->assertMatchesRegularExpression('/^sam:reply:5:[0-9a-f]{12}$/', $items[0]['key']);
+        $this->assertSame('Gaby replied "Yes" to "Cambridge Apartments: fall cleanup". That\'s a yes. Send the quote.', $items[0]['text']);
         $this->assertSame('/crm/clients_appstack.php?action=view_contact&id=5', $items[0]['url']);
         $this->assertSame(2, $items[1]['priority']);
         $this->assertSame('Ron replied "When are you coming?" to "Cambridge Apartments: fall cleanup". Answer them.', $items[1]['text']);
@@ -172,7 +172,7 @@ class UnclaimedReplyServiceTest extends TestCase
     public function test_a_text_says_texted_and_has_no_subject(): void
     {
         $items = UnclaimedReplyService::unclaimed([self::reply(5, '2026-10-05 16:20:00', 'Sounds good', ['channel' => 'sms', 'subject' => null])], [], self::NOW);
-        $this->assertSame('Gaby texted "Sounds good". That\'s a yes. Answer them.', $items[0]['text']);
+        $this->assertSame('Gaby texted "Sounds good". That\'s a yes. Send the quote.', $items[0]['text']);
         $this->assertSame('sms', $items[0]['channel']);
     }
 
@@ -283,5 +283,14 @@ class UnclaimedReplyServiceTest extends TestCase
         // A newer reply is a new key: it comes back.
         $r[] = self::reply(5, '2026-10-06 08:00:00', 'One more thing');
         $this->assertCount(1, UnclaimedReplyService::unclaimed($r, ['hidden' => [$key]], self::NOW));
+    }
+
+    public function test_a_yes_to_work_is_sams_but_a_yes_about_money_stays_with_yui(): void
+    {
+        $this->assertSame('quote', UnclaimedReplyService::lane('Re: Cambridge Apartments: fall cleanup (photos from today)', 'Yes'));
+        $this->assertSame('quote', UnclaimedReplyService::lane('Re: Your lawn after the watering ban', 'Hi Tim Please do it. Thank you very much! Best Colleen'));
+        $this->assertSame('client', UnclaimedReplyService::lane('Re: Payment reminder: Invoice INV-2026-0089 is overdue', 'Ok thanks'));
+        $this->assertSame('client', UnclaimedReplyService::lane('Re: Gate code', 'The gate code changed to 4411'));
+        $this->assertSame('quote', UnclaimedReplyService::lane('Re: Quote from Mowology', 'Can we push it a week?'));
     }
 }
