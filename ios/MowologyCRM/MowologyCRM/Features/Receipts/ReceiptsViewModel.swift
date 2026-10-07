@@ -179,6 +179,12 @@ final class ReceiptsViewModel: ObservableObject {
 
     // MARK: - Saved line items (edit / add / delete / link — each teaches the parser)
 
+    /// Penny's reasons for a receipt's risk score (admins). Nil on any error — the view
+    /// falls back to the bare ring.
+    func loadRisk(expenseId: Int) async -> ReceiptRiskResponse? {
+        try? await apiClient.request(.bookkeeperRisk(expenseId: expenseId))
+    }
+
     func loadLineItems(expenseId: Int) async -> LineItemsResponse? {
         try? await apiClient.request(.expenseLineItems(expenseId: expenseId))
     }

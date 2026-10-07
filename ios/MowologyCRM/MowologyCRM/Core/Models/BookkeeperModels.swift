@@ -316,3 +316,40 @@ struct BookkeeperActionResponse: Decodable {
         error = c.bkString(.error)
     }
 }
+
+// MARK: - Penny's risk explanation (GET /api/expenses/bookkeeper-mobile?mode=risk)
+
+struct ReceiptRiskFlag: Decodable, Identifiable, Equatable {
+    var id: String { code }
+    let code: String
+    let detail: String?
+    let penny: String
+
+    private enum CodingKeys: String, CodingKey { case code, detail, penny }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        code = c.bkString(.code) ?? ""
+        detail = c.bkString(.detail)
+        penny = c.bkString(.penny) ?? (c.bkString(.detail) ?? "")
+    }
+}
+
+struct ReceiptRiskResponse: Decodable, Equatable {
+    let ok: Bool
+    let score: Int
+    let tier: String
+    let summary: String
+    let flags: [ReceiptRiskFlag]
+
+    private enum CodingKeys: String, CodingKey { case ok, score, tier, summary, flags }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        ok = c.bkBool(.ok) ?? false
+        score = c.bkInt(.score) ?? 0
+        tier = c.bkString(.tier) ?? "none"
+        summary = c.bkString(.summary) ?? ""
+        flags = (try? c.decodeIfPresent([ReceiptRiskFlag].self, forKey: .flags)) ?? []
+    }
+}

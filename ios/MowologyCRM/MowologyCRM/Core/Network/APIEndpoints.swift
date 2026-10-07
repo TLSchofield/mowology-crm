@@ -127,6 +127,21 @@ enum APIEndpoint {
     /// Body: { mode: "decide"|"reject"|"not_dupe", suggestion_id?, overrides?, save_draft?, reason?, pairs? }
     case bookkeeperAction
 
+    /// GET /api/expenses/bookkeeper-mobile?mode=risk&expense_id=N — Penny explains one
+    /// receipt's anomaly score: {score, tier, summary, flags:[{code, detail, penny}]} (JWT, admin).
+    case bookkeeperRisk(expenseId: Int)
+
+    /// GET /api/sales/sales-head-mobile?mode=desk — Sam's desk: stats, follow-up queue (with
+    /// drafts), leads, questions, replies waiting (JWT, admin or billing.edit).
+    case salesDesk
+
+    /// GET /api/sales/sales-head-mobile?mode=thread&contact_id=N — one contact's emails/texts (read-only).
+    case salesThread(contactId: Int)
+
+    /// POST /api/sales/sales-head-mobile — Sam's actions (JWT). Body: { mode: "send"|"park"|
+    /// "draft_reply"|"handled"|"answer", card_key?, reply_key?, key?, channel?, subject?, body?, … }
+    case salesAction
+
     /// GET /api/expenses/expense-lookup?type=vendors|jobs|categories|duplicates&… —
     /// review-form lookups shared with the Android review card (JWT). Uses `type=`
     /// because the /api/ router's rewrite appends its own `action` param.
@@ -320,6 +335,24 @@ enum APIEndpoint {
         case .bookkeeperAction:
             return URL(string: "\(baseURLString)/expenses/bookkeeper-mobile")
 
+        case .bookkeeperRisk(let expenseId):
+            var components = URLComponents(string: "\(baseURLString)/expenses/bookkeeper-mobile")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "risk"), URLQueryItem(name: "expense_id", value: "\(expenseId)")]
+            return components?.url
+
+        case .salesDesk:
+            var components = URLComponents(string: "\(baseURLString)/sales/sales-head-mobile")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "desk")]
+            return components?.url
+
+        case .salesThread(let contactId):
+            var components = URLComponents(string: "\(baseURLString)/sales/sales-head-mobile")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "thread"), URLQueryItem(name: "contact_id", value: "\(contactId)")]
+            return components?.url
+
+        case .salesAction:
+            return URL(string: "\(baseURLString)/sales/sales-head-mobile")
+
         case .expenseLookup(let query):
             var components = URLComponents(string: "\(baseURLString)/expenses/expense-lookup")
             components?.queryItems = query
@@ -454,6 +487,10 @@ enum APIEndpoint {
              .receiptAction,
              .bookkeeperQueue,
              .bookkeeperAction,
+             .bookkeeperRisk,
+             .salesDesk,
+             .salesThread,
+             .salesAction,
              .expenseLookup,
              .expenseDelete,
              .expenseLineItems,
@@ -507,12 +544,16 @@ enum APIEndpoint {
              .expenseUpdate,
              .receiptAction,
              .bookkeeperAction,
+             .salesAction,
              .expenseDelete,
              .expenseLineItemAction,
              .deviceTokenRegister: return "POST"
 
         case .expenseList,
              .bookkeeperQueue,
+             .bookkeeperRisk,
+             .salesDesk,
+             .salesThread,
              .expenseLookup,
              .expenseLineItems,
              .scheduleJobs,

@@ -135,7 +135,7 @@ struct ReceiptsView: View {
         // Detail/action sheet — tapping a row lets the user approve/reject/send a
         // saved receipt, closing the gap where iOS could only ever create drafts.
         .sheet(item: $selectedExpense) { expense in
-            ReceiptDetailView(viewModel: viewModel, expense: expense)
+            ReceiptDetailView(viewModel: viewModel, expense: expense, isAdmin: authSession.user?.isAdmin == true)
         }
         // Upload spinner overlay
         .overlay {

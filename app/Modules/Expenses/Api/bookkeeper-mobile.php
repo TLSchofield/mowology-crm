@@ -8,6 +8,9 @@
  *       accounting_category, asset_tag, job, subtotal, gst, pst, total}, save_draft?: bool}
  * POST {mode: 'reject', suggestion_id, reason}
  * POST {mode: 'not_dupe', pairs: [[a, b], ...]}
+ * GET  ?mode=risk&expense_id=N
+ *      → {ok, score, tier, summary, flags:[{code, detail, penny}]}  (RiskExplainer: why the
+ *        receipt has its anomaly score, in Penny's words; added 2026-10-07, read-only)
  *
  * Auth: Authorization: Bearer <jwt>, admin/manager role or the expenses.approve
  * permission (no CSRF token: there is no session). Skip is client-side, as on the web.
@@ -59,6 +62,27 @@ try {
     $mode   = $method === 'POST' ? (string)($input['mode'] ?? '') : (string)($_GET['mode'] ?? 'queue');
 
     $db = getDB();
+
+    if ($mode === 'risk') {
+        // Penny explains one receipt's risk score (the receipt detail screen). Read-only.
+        require_once APP_ROOT . '/Services/Receipts/AnomalyDetector.php';
+        require_once APP_ROOT . '/Modules/Expenses/Services/RiskExplainer.php';
+        $stmt = $db->prepare("
+            SELECT e.*, COALESCE(v.name, e.vendor_name_raw) AS vendor_name
+            FROM expenses e LEFT JOIN vendors v ON v.id = e.vendor_id
+            WHERE e.id = ?
+        ");
+        $stmt->execute([(int)($_GET['expense_id'] ?? 0)]);
+        $expense = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$expense) {
+            http_response_code(404);
+            echo json_encode(['ok' => false, 'error' => 'Receipt not found']);
+            exit;
+        }
+        $fresh = detectAnomalies($expense, $db)['details'] ?? [];
+        echo json_encode(['ok' => true] + RiskExplainer::explain($expense, $fresh, RiskExplainer::context($db, $expense)));
+        exit;
+    }
 
     require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptBookkeeperService.php';
     require_once APP_ROOT . '/Modules/Expenses/Services/BookkeeperDeskService.php';

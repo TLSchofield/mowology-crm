@@ -16,7 +16,13 @@ struct ReceiptDetailView: View {
 
     @ObservedObject var viewModel: ReceiptsViewModel
     let expense: Expense
+    /// Admins see Penny's explanation of the risk score; crew see the bare ring (above 15 only).
+    var isAdmin: Bool = false
     @Environment(\.dismiss) private var dismiss
+
+    // Penny's reasons for the risk score (bookkeeper-mobile ?mode=risk), loaded lazily.
+    @State private var risk: ReceiptRiskResponse?
+    @State private var riskFailed = false
 
     @State private var showRejectSheet = false
     @State private var rejectReason = ""
@@ -105,6 +111,7 @@ struct ReceiptDetailView: View {
             }
         }
         .task { await loadLineItems() }
+        .task(id: expense.id) { await loadRisk() }
         .alert("Rename item", isPresented: Binding(get: { renameItem != nil }, set: { if !$0 { renameItem = nil } })) {
             TextField("Item name", text: $renameText)
             Button("Save") {
@@ -301,8 +308,22 @@ struct ReceiptDetailView: View {
                 statusBadge
             }
             if let score = expense.anomalyScore, score > 0 {
-                RiskRingView(score: score)
+                if isAdmin, let risk, !risk.summary.isEmpty {
+                    PennyRiskRow(risk: risk, score: score, status: expense.status)
+                } else if isAdmin || score > 15 {
+                    // Admins: shown while Penny's reasons load, and if they can't be loaded.
+                    RiskRingView(score: score, status: expense.status)
+                }
             }
+        }
+    }
+
+    private func loadRisk() async {
+        guard isAdmin, let score = expense.anomalyScore, score > 0, risk == nil, !riskFailed else { return }
+        if let r = await viewModel.loadRisk(expenseId: expense.id), r.ok {
+            risk = r
+        } else {
+            riskFailed = true
         }
     }
 
@@ -432,6 +453,10 @@ struct ReceiptDetailView: View {
 /// Expense.anomalyTier): >30 high, 16–30 medium, 1–15 low.
 private struct RiskRingView: View {
     let score: Int
+    var status: String = ""
+
+    /// Already decided — the hint no longer asks for a review.
+    private var isDone: Bool { ["approved", "forwarded", "sent"].contains(status) }
 
     /// Score is the max of triggered anomaly rules (top rule = 35), so realistic values are
     /// ~0–35. Cap the ring at 40 rather than 100 so a real score reads as a meaningful fill
@@ -465,7 +490,7 @@ private struct RiskRingView: View {
                 Text(tier.label)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(tier.color)
-                Text(tier.hint)
+                Text(isDone ? "Checked" : tier.hint)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

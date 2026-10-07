@@ -3,8 +3,9 @@
 //  MowologyCRM
 //
 //  The admin's "Team" tab (replaces Account for admins): the department heads across
-//  the top — Penny is working, the rest are coming — Penny's receipt card under them,
-//  and the profile row and Sign Out (moved here from Account) at the bottom.
+//  the top — Penny and Sam are working, the rest are coming. Tapping a working head's face
+//  switches the card under the row (Penny's receipts by default, Sam's sales desk), and
+//  the profile row and Sign Out (moved here from Account) sit at the bottom.
 //
 
 import SwiftUI
@@ -21,7 +22,7 @@ struct TeamHead: Identifiable, Hashable {
 
     static let all: [TeamHead] = [
         TeamHead(slug: "penny",   name: "Penny",   role: "Bookkeeper",     isLive: true),
-        TeamHead(slug: "sam",     name: "Sam",     role: "Sales",          isLive: false),
+        TeamHead(slug: "sam",     name: "Sam",     role: "Sales",          isLive: true),
         TeamHead(slug: "otto",    name: "Otto",    role: "Operations",     isLive: false),
         TeamHead(slug: "mia",     name: "Mia",     role: "Marketing",      isLive: false),
         TeamHead(slug: "yui",     name: "Yui",     role: "Communications", isLive: false),
@@ -33,14 +34,21 @@ struct TeamView: View {
 
     @ObservedObject var authSession: AuthSession
     @StateObject private var penny: PennyCardViewModel
+    @StateObject private var sam: SamCardViewModel
+    /// Whose card is showing under the faces. Penny is the default.
+    @State private var selected: String
     /// Shows the profile row + Sign Out; off only for the static render (no AuthSession needed there).
     private let showsAccount: Bool
 
-    init(authSession: AuthSession, api: BookkeeperDeskAPI? = nil, showsAccount: Bool = true) {
+    init(authSession: AuthSession, api: BookkeeperDeskAPI? = nil, salesAPI: SalesDeskAPI? = nil,
+         showsAccount: Bool = true, selected: String = "penny") {
         self.authSession = authSession
         self.showsAccount = showsAccount
-        let deskAPI = api ?? LiveBookkeeperDeskAPI(client: APIClient(authSession: authSession))
+        let client = APIClient(authSession: authSession)
+        let deskAPI = api ?? LiveBookkeeperDeskAPI(client: client)
         _penny = StateObject(wrappedValue: PennyCardViewModel(api: deskAPI))
+        _sam = StateObject(wrappedValue: SamCardViewModel(api: salesAPI ?? LiveSalesDeskAPI(client: client)))
+        _selected = State(initialValue: selected)
     }
 
     var body: some View {
@@ -50,12 +58,21 @@ struct TeamView: View {
                     headsRow
 
                     VStack(alignment: .leading, spacing: 12) {
-                        HStack(spacing: 8) {
-                            Text("Penny's receipts").font(.title3.bold())
-                            Spacer()
-                            if penny.isLoading && penny.hasLoaded { ProgressView() }
+                        if selected == "sam" {
+                            HStack(spacing: 8) {
+                                Text("Sam's sales desk").font(.title3.bold())
+                                Spacer()
+                                if sam.isLoading && sam.hasLoaded { ProgressView() }
+                            }
+                            SamCardView(vm: sam)
+                        } else {
+                            HStack(spacing: 8) {
+                                Text("Penny's receipts").font(.title3.bold())
+                                Spacer()
+                                if penny.isLoading && penny.hasLoaded { ProgressView() }
+                            }
+                            PennyCardView(vm: penny)
                         }
-                        PennyCardView(vm: penny)
                     }
                     .padding(16)
                     .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 16))
@@ -79,11 +96,17 @@ struct TeamView: View {
             }
             .background(Color(.systemGroupedBackground))
             .scrollDismissesKeyboard(.interactively)
-            .refreshable { await penny.load() }
+            .refreshable {
+                if selected == "sam" { await sam.load() } else { await penny.load() }
+            }
             .navigationTitle("Team")
             .navigationBarTitleDisplayMode(.inline)
-            .task {
-                if !penny.hasLoaded { await penny.load() }
+            .task(id: selected) {
+                if selected == "sam" {
+                    if !sam.hasLoaded { await sam.load() }
+                } else if !penny.hasLoaded {
+                    await penny.load()
+                }
             }
         }
     }
@@ -94,7 +117,13 @@ struct TeamView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: 14) {
                 ForEach(TeamHead.all) { head in
-                    HeadFace(head: head)
+                    Button {
+                        if head.isLive { selected = head.slug }
+                    } label: {
+                        HeadFace(head: head, isSelected: head.slug == selected)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!head.isLive)
                 }
             }
             .padding(.horizontal, 2)
@@ -104,6 +133,7 @@ struct TeamView: View {
 
 private struct HeadFace: View {
     let head: TeamHead
+    var isSelected = false
 
     var body: some View {
         VStack(spacing: 4) {
@@ -120,7 +150,8 @@ private struct HeadFace: View {
             }
             .frame(width: 62, height: 62)
             .clipShape(Circle())
-            .overlay(Circle().stroke(head.isLive ? Color.MW.lime : Color.clear, lineWidth: 3))
+            .overlay(Circle().stroke(isSelected ? Color.MW.lime : (head.isLive ? Color.MW.lime.opacity(0.35) : Color.clear),
+                                     lineWidth: isSelected ? 4 : 2))
             .grayscale(head.isLive ? 0 : 1)
             .opacity(head.isLive ? 1 : 0.45)
 
@@ -134,5 +165,6 @@ private struct HeadFace: View {
         .frame(width: 76)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(head.isLive ? "\(head.name), \(head.role)" : "\(head.name), \(head.role), coming soon")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
