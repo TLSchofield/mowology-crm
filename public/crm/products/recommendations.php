@@ -6,6 +6,8 @@
  * - Approve & send recommendation emails
  * - Edit email before sending
  * - Dismiss with reason
+ * - Ask first (migration 1180): read, edit and send the no-price photo notes the crew
+ *   saved, and set each service's "what we do" sentence (js/field-ask-office.js).
  *
  * @package Mowology CRM
  */
@@ -16,6 +18,15 @@ $user = getCurrentUser();
 
 $pageTitle = 'Field Recommendations';
 $activePage = 'products';
+
+// Ask first is for whoever may send quotes (billing.edit: admin, manager).
+$mwCanAsk = false;
+try {
+    require_once APP_ROOT . '/Modules/Products/Services/FieldAskService.php';
+    $mwCanAsk = FieldAskService::canSend(getDB(), (array)$user);
+} catch (Throwable $e) {
+    $mwCanAsk = false;
+}
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
@@ -28,6 +39,22 @@ $activePage = 'products';
                   <p class="text-muted mb-0">Crew field observations that may trigger product recommendation emails.</p>
               </div>
           </div>
+
+          <?php if ($mwCanAsk): ?>
+          <!-- Ask first: crew drafts waiting for a manager, and the per-service wording -->
+          <section class="mw-ask-office" id="mwAskOffice" data-csrf="<?= h(generateCSRFToken()) ?>" hidden>
+              <div class="mw-ask-office-head">
+                  <div>
+                      <h2 class="h5 mb-0">Ask first</h2>
+                      <p class="text-muted mb-0">Photo notes with no price, to the person who decides the work. Nothing goes until you press Send.</p>
+                  </div>
+                  <button type="button" class="btn btn-sm btn-outline-secondary" id="mwAskWordingBtn">Wording per service</button>
+              </div>
+              <div id="mwAskDrafts"></div>
+              <div id="mwAskWording" hidden></div>
+          </section>
+          <script src="<?= function_exists('_av') ? _av('/crm/js/field-ask-office.js') : '/crm/js/field-ask-office.js' ?>" defer></script>
+          <?php endif; ?>
 
           <!-- Stats Bar -->
           <div class="mw-obs-stats" id="obsStats">

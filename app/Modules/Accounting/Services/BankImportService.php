@@ -64,9 +64,17 @@ class BankImportService
     private const DEFAULT_EXPENSE_CODE = '6900';
     private const CREDIT_CARD_CODE     = '2400';   // Credit Card Payable (liability)
 
+    /** Import date ('Y-m-d'); tests pin it. A year-less row is never dated after it. */
+    private ?string $today = null;
+
     public function __construct(PDO $db)
     {
         $this->db = $db;
+    }
+
+    private function today(): string
+    {
+        return $this->today ?? date('Y-m-d');
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -80,6 +88,45 @@ class BankImportService
     private ?InvoiceReconciliationService $reconSvc = null;
 
     /** Lazily built — no autoloader on production, so require the file here. */
+    /**
+     * What commit() does with a deposit auto-matched to an invoice's ledger row. Pure.
+     *
+     *  - Not an e-Transfer match (Stripe/processor — the webhook closes those) or no
+     *    invoice → 'transfer_only': the deposit is a cash-clearing transfer, invoice untouched.
+     *  - Payments already recorded on the invoice and not yet linked to any deposit that
+     *    add up exactly to the deposit → 'link_recorded' (allocation_ids): link them; the
+     *    invoice is NOT credited again.
+     *  - Invoice still open (not paid/cancelled, balance > 0) → 'allocate' (amount): record
+     *    the payment through InvoiceReconciliationService::applyAllocation().
+     *  - Otherwise (already paid, nothing to link) → 'transfer_only'.
+     *
+     * @param array|null $invoice  ['status' => string, 'balance_due' => float|string]
+     * @param array $unlinked      [['id' => int, 'amount' => float], ...] the invoice's
+     *                             allocations with transaction_id NULL
+     * @return array{action:string, allocation_ids?:int[], amount?:float}
+     */
+    public static function invoiceMatchPlan(string $matchMethod, ?array $invoice, float $depositAmount, array $unlinked): array
+    {
+        $deposit = round($depositAmount, 2);
+        if ($matchMethod !== 'etransfer' || !$invoice || $deposit <= 0) {
+            return ['action' => 'transfer_only'];
+        }
+        if ($unlinked) {
+            if (!class_exists('InvoiceReconciliationService')) {
+                require_once __DIR__ . '/InvoiceReconciliationService.php';
+            }
+            $pick = InvoiceReconciliationService::exactSubset(array_map(fn($a) => round((float)$a['amount'], 2), $unlinked), $deposit);
+            if ($pick !== null) {
+                return ['action' => 'link_recorded', 'allocation_ids' => array_map(fn($i) => (int)$unlinked[$i]['id'], $pick)];
+            }
+        }
+        $status = (string)($invoice['status'] ?? '');
+        if (!in_array($status, ['paid', 'cancelled'], true) && round((float)($invoice['balance_due'] ?? 0), 2) > 0.005) {
+            return ['action' => 'allocate', 'amount' => $deposit];
+        }
+        return ['action' => 'transfer_only'];
+    }
+
     private function reconciliationService(): InvoiceReconciliationService
     {
         if ($this->reconSvc === null) {
@@ -347,6 +394,17 @@ class BankImportService
         ?array $balanceCheck = null
     ): array {
 
+        // A bank line cannot post after the day it is imported. A future date means
+        // the year was mis-inferred — refuse the batch rather than book it.
+        $latestAllowed = date('Y-m-d', strtotime($this->today() . ' +1 day'));
+        $future = array_values(array_filter($rows, static fn($r) => (string)($r['date'] ?? '') > $latestAllowed));
+        if ($future) {
+            throw new RuntimeException(sprintf(
+                '%d row(s) are dated after today (first: %s "%s") — check the statement year before importing.',
+                count($future), $future[0]['date'], substr((string)($future[0]['description'] ?? ''), 0, 60)
+            ), 422);
+        }
+
         $sessionId = $this->createSession([
             'filename'        => $bankName ?: 'bank_import',
             'bank_name'       => $bankName,
@@ -537,24 +595,98 @@ class BankImportService
                         WHERE id = ?
                     ")->execute([$accountName, $bankAccountId ?: null, $sessionId, $confidence, $invTxId]);
 
-                    // Book the bank deposit as a cash-clearing TRANSFER — NOT a second
-                    // income row. The invoice's own ledger row (marked 'reconciled'
-                    // above) already recognizes this revenue; booking the deposit as
-                    // income too would double-count it in the P&L / GST. Mirrors
-                    // InvoiceReconciliationService::recomputeDepositRow() (fully-allocated
-                    // deposit → type='transfer', excluded from income reports).
+                    // The deposit is NOT a second income row: the invoice's own ledger
+                    // row already recognizes this revenue (double-count in P&L / GST
+                    // otherwise). What happens to the invoice goes through the allocation
+                    // ledger (InvoiceReconciliationService), never a direct UPDATE:
+                    //   link_recorded — the money was already recorded on this invoice
+                    //                   (Record Payment / e-Transfer inbox): link those
+                    //                   payments to this deposit; the invoice is unchanged.
+                    //   allocate      — an e-Transfer for an invoice still open: record the
+                    //                   payment with applyAllocation() (allocation row linked
+                    //                   to this deposit, invoice paid/partial, its income row,
+                    //                   and on production the pipeline-stage hook).
+                    //   transfer_only — Stripe/processor (closed by the webhook) or already
+                    //                   paid: the deposit is a cash-clearing transfer.
+                    // Either way the deposit ends as type='transfer' once fully accounted for
+                    // (mirrors InvoiceReconciliationService::recomputeDepositRow()).
                     $invoiceIdForDeposit = (int)($row['matched_invoice_id'] ?? 0);
+                    $matchMethod   = $row['match_method'] ?? '';
+                    $depositAmount = round((float)$row['amount'], 2);
+                    $priorInvoice  = null;
+                    $priorInvoiceTx = null;
+                    $newAllocationIds = [];
+
+                    $invState = null;
+                    $unlinked = [];
+                    if ($matchMethod === 'etransfer' && $invoiceIdForDeposit) {
+                        $invRow = $this->db->prepare("
+                            SELECT total, amount_paid, balance_due, status, payment_method, paid_at
+                            FROM invoices WHERE id = ? LIMIT 1
+                        ");
+                        $invRow->execute([$invoiceIdForDeposit]);
+                        $invState = $invRow->fetch(PDO::FETCH_ASSOC) ?: null;
+                        $ua = $this->db->prepare("
+                            SELECT id, amount FROM invoice_payment_allocations
+                            WHERE invoice_id = ? AND transaction_id IS NULL AND amount > 0
+                            ORDER BY payment_date ASC, id ASC
+                        ");
+                        $ua->execute([$invoiceIdForDeposit]);
+                        $unlinked = $ua->fetchAll(PDO::FETCH_ASSOC);
+                    }
+                    $plan = self::invoiceMatchPlan($matchMethod, $invState, $depositAmount, $unlinked);
+
                     $txStmt->execute([
-                        $row['date'], 'transfer', $row['account_id'], $row['amount'],
+                        $row['date'], $plan['action'] === 'transfer_only' ? 'transfer' : 'income',
+                        $row['account_id'], $row['amount'],
                         0, $row['description'],
                         0, null, $accountName, $bankAccountId ?: null, $sessionId, $userId,
                     ]);
                     $txId = (int)$this->db->lastInsertId();
 
-                    // Flag the transfer reconciled + link it to the invoice (audit trail).
+                    if ($plan['action'] === 'link_recorded') {
+                        // Deposit → transfer, linked to the payments already on the invoice.
+                        $this->reconciliationService()->linkAllocationsToDeposit($txId, $plan['allocation_ids'], $userId);
+                    } elseif ($plan['action'] === 'allocate') {
+                        // Snapshot BEFORE recording, so rollback() restores it exactly.
+                        $priorInvoice = [
+                            'id'             => $invoiceIdForDeposit,
+                            'status'         => $invState['status'],
+                            'amount_paid'    => $invState['amount_paid'],
+                            'balance_due'    => $invState['balance_due'],
+                            'payment_method' => $invState['payment_method'],
+                            'paid_at'        => $invState['paid_at'],
+                        ];
+                        $snap = $this->db->prepare("SELECT id, amount, gst_amount, transaction_date FROM accounting_transactions WHERE id = ?");
+                        $snap->execute([$invTxId]);
+                        $priorInvoiceTx = $snap->fetch(PDO::FETCH_ASSOC) ?: null;
+
+                        $applied = $this->reconciliationService()->applyAllocation(
+                            $invoiceIdForDeposit, $depositAmount, 'e_transfer', $payRef !== '' ? $payRef : null,
+                            (string)$row['date'], $txId, $userId
+                        );
+                        $ids = $this->db->prepare("SELECT id FROM invoice_payment_allocations WHERE transaction_id = ?");
+                        $ids->execute([$txId]);
+                        $newAllocationIds = array_map('intval', $ids->fetchAll(PDO::FETCH_COLUMN));
+
+                        // Deposit row from what was allocated: all of it → transfer; a
+                        // remainder (invoice balance was smaller) stays income for that remainder.
+                        // (null = the invoice was settled meanwhile: as before, just a transfer.)
+                        $remaining = $applied === null ? 0.0 : round($depositAmount - (float)$applied['applied'], 2);
+                        if ($remaining > 0.005) {
+                            $this->db->prepare("UPDATE accounting_transactions SET amount = ? WHERE id = ?")
+                                     ->execute([$remaining, $txId]);
+                        } else {
+                            $this->db->prepare("UPDATE accounting_transactions SET type = 'transfer' WHERE id = ?")
+                                     ->execute([$txId]);
+                        }
+                    }
+
+                    // Flag the deposit + link it to the invoice (audit trail). A remainder
+                    // still counted as income stays 'cleared' rather than 'reconciled'.
                     $this->db->prepare("
                         UPDATE accounting_transactions SET
-                          status             = 'reconciled',
+                          status             = CASE WHEN type = 'transfer' THEN 'reconciled' ELSE status END,
                           matched_invoice_id = ?,
                           match_confidence   = ?,
                           matched_at         = NOW(),
@@ -562,42 +694,6 @@ class BankImportService
                           payment_reference  = ?
                         WHERE id = ?
                     ")->execute([$invoiceIdForDeposit ?: null, $confidence, $payRef ?: null, $txId]);
-
-                    // Close the invoice if this was an e-Transfer (Stripe closes via webhook)
-                    $matchMethod   = $row['match_method'] ?? '';
-                    $invoiceId     = (int)($row['matched_invoice_id'] ?? 0);
-                    $priorInvoice  = null;
-                    if ($matchMethod === 'etransfer' && $invoiceId) {
-                        // Snapshot prior invoice state BEFORE closing it, so rollback()
-                        // can restore it exactly (status/amount_paid/balance/method/paid_at).
-                        $invRow = $this->db->prepare("
-                            SELECT total, amount_paid, balance_due, status, payment_method, paid_at
-                            FROM invoices
-                            WHERE id = ? AND status NOT IN ('paid','cancelled')
-                            LIMIT 1
-                        ");
-                        $invRow->execute([$invoiceId]);
-                        $inv = $invRow->fetch(PDO::FETCH_ASSOC);
-                        if ($inv) {
-                            $priorInvoice = [
-                                'id'             => $invoiceId,
-                                'status'         => $inv['status'],
-                                'amount_paid'    => $inv['amount_paid'],
-                                'balance_due'    => $inv['balance_due'],
-                                'payment_method' => $inv['payment_method'],
-                                'paid_at'        => $inv['paid_at'],
-                            ];
-                            $this->db->prepare("
-                                UPDATE invoices SET
-                                    status           = 'paid',
-                                    amount_paid      = total,
-                                    balance_due      = 0,
-                                    payment_method   = 'e_transfer',
-                                    paid_at          = COALESCE(paid_at, ?)
-                                WHERE id = ?
-                            ")->execute([$row['date'], $invoiceId]);
-                        }
-                    }
 
                     // Auto-create the processing fee as an expense
                     if ($processingFee > 0.01) {
@@ -616,11 +712,21 @@ class BankImportService
                     }
 
                     // Capture what rollback() must undo for this row: un-reconcile the
-                    // invoice's income ledger row, and reopen the invoice if we closed it.
+                    // invoice's income ledger row; for a payment recorded here, delete its
+                    // allocation and restore the invoice + its ledger row exactly. (A linked
+                    // already-recorded payment unlinks itself when the deposit is deleted:
+                    // the allocation FK sets transaction_id back to NULL.)
                     $row['_revert'] = ['unflag_tx' => [$invTxId]];
                     if ($priorInvoice) {
-                        $row['_revert']['reopen_invoice'] = $priorInvoice;
+                        $row['_revert']['restore_invoice'] = $priorInvoice;
                     }
+                    if ($newAllocationIds) {
+                        $row['_revert']['delete_allocations'] = $newAllocationIds;
+                    }
+                    if ($priorInvoiceTx) {
+                        $row['_revert']['restore_tx'] = $priorInvoiceTx;
+                    }
+                    $row['invoice_match_action'] = $plan['action'];
                     $rowStmt->execute([
                         $sessionId, $row['date'], $row['description'], $rawAmount,
                         'income', $row['amount'], $row['account_id'],
@@ -762,11 +868,32 @@ class BankImportService
                     $deleteTx->execute([(int)$txId]);
                 }
                 if (!empty($revert['reopen_invoice']['id'])) {
+                    // Sessions committed before 2026-10-07 (invoice closed directly).
                     $pi = $revert['reopen_invoice'];
                     $reopen->execute([
                         $pi['status'], $pi['amount_paid'], $pi['balance_due'],
                         $pi['payment_method'], $pi['paid_at'], (int)$pi['id'],
                     ]);
+                }
+                // A payment recorded through the allocation ledger: remove the allocation,
+                // then put the invoice and its income ledger row back as they were.
+                foreach (($revert['delete_allocations'] ?? []) as $allocId) {
+                    $this->db->prepare("DELETE FROM invoice_payment_allocations WHERE id = ?")->execute([(int)$allocId]);
+                }
+                if (!empty($revert['restore_invoice']['id'])) {
+                    $pi = $revert['restore_invoice'];
+                    $this->db->prepare("
+                        UPDATE invoices SET status = ?, amount_paid = ?, balance_due = ?, payment_method = ?, paid_at = ?
+                        WHERE id = ?
+                    ")->execute([
+                        $pi['status'], $pi['amount_paid'], $pi['balance_due'],
+                        $pi['payment_method'], $pi['paid_at'], (int)$pi['id'],
+                    ]);
+                }
+                if (!empty($revert['restore_tx']['id'])) {
+                    $pt = $revert['restore_tx'];
+                    $this->db->prepare("UPDATE accounting_transactions SET amount = ?, gst_amount = ?, transaction_date = ? WHERE id = ?")
+                             ->execute([$pt['amount'], $pt['gst_amount'], $pt['transaction_date'], (int)$pt['id']]);
                 }
             }
 
@@ -1349,12 +1476,19 @@ class BankImportService
         // — i.e. the statement-period end. This ignores stray year references (a
         // print/due date) that would otherwise mis-date the whole statement. Earlier
         // rows are corrected by the year-rollover pass after parsing.
-        $statementYear = (int)date('Y');
-        $monthAbbr = 'Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec';
-        if (preg_match_all('/(?:\d{1,2}\s*(?:' . $monthAbbr . ')|(?:' . $monthAbbr . ')\s*\d{1,2}),?\s*(20\d{2})/i', $text, $ym)) {
-            $statementYear = max(array_map('intval', $ym[1]));
+        // When a full date is present its LATEST value (the period end, or a due
+        // date a few weeks after it) is the anchor: every year-less row is the most
+        // recent occurrence of its month/day on or before it — order-independent, so
+        // multi-account statements and Dec→Jan periods both date correctly. With only
+        // bare years, fall back to the rollover pass below. Either way, no year-less
+        // row is ever dated after the import date (a Dec-2025 statement imported in
+        // April 2026 once landed as Dec 2026 — 122 future rows).
+        $statementYear = (int)substr($this->today(), 0, 4);
+        $anchorDate    = $this->statementAnchorDate($text);
+        if ($anchorDate !== null) {
+            $statementYear = (int)substr($anchorDate, 0, 4);
         } elseif (preg_match_all('/\b(20\d{2})\b/', $text, $ym2)) {
-            $statementYear = max(array_map('intval', $ym2[1]));
+            $statementYear = min(max(array_map('intval', $ym2[1])), $statementYear);
         }
 
         // ── 3-column format detection (WITHDRAWALS | DEPOSITS | BALANCE) ─────
@@ -1498,8 +1632,9 @@ class BankImportService
             }
 
             // Parse date
-            $dateStr = $dateRaw;
-            if (!preg_match('/\d{4}/', $dateRaw)) {
+            $dateStr      = $dateRaw;
+            $yearInferred = !preg_match('/\d{4}/', $dateRaw);
+            if ($yearInferred) {
                 $dateStr = $dateRaw . ' ' . $statementYear;
             }
             $date = $this->parseDate($dateStr);
@@ -1591,6 +1726,7 @@ class BankImportService
 
             $rows[] = [
                 'date'            => $date,
+                '_year_inferred'  => $yearInferred,
                 'description'     => substr($desc, 0, 500),
                 'amount'          => round($amount, 2),
                 'type'            => $type,
@@ -1605,24 +1741,35 @@ class BankImportService
             ];
         }
 
-        // ── Year-boundary correction ──────────────────────────────────────────
-        // Transactions are chronological; a month that decreases vs the previous
-        // row marks a year rollover (Dec → Jan). The statement is anchored to its
-        // latest (statement-date) year, so earlier rows belong to prior years.
+        // ── Year assignment for year-less rows ────────────────────────────────
+        // Rows that carried their own year are left alone.
         if (!empty($rows)) {
-            $months = array_map(static fn($r) => (int)substr($r['date'], 5, 2), $rows);
-            $rollovers = 0;
-            for ($i = 1; $i < count($months); $i++) {
-                if ($months[$i] < $months[$i - 1]) $rollovers++;
+            if ($anchorDate !== null) {
+                foreach ($rows as $k => $r) {
+                    if (!$r['_year_inferred']) continue;
+                    $rows[$k]['date'] = $this->latestOnOrBefore((int)substr($r['date'], 5, 2), (int)substr($r['date'], 8, 2), $anchorDate);
+                }
+            } else {
+                // No full date to anchor on: transactions are chronological, so a
+                // month that drops by six or more marks a Dec → Jan rollover. (A
+                // smaller drop is a new account section restarting the period.)
+                $inferred = array_keys(array_filter($rows, static fn($r) => $r['_year_inferred']));
+                $months   = array_map(static fn($k) => (int)substr($rows[$k]['date'], 5, 2), $inferred);
+                $rollovers = 0;
+                for ($i = 1; $i < count($months); $i++) {
+                    if ($months[$i - 1] - $months[$i] >= 6) $rollovers++;
+                }
+                $year  = $statementYear - $rollovers;
+                $prevM = null;
+                foreach ($inferred as $k) {
+                    $m = (int)substr($rows[$k]['date'], 5, 2);
+                    $d = (int)substr($rows[$k]['date'], 8, 2);
+                    if ($prevM !== null && $prevM - $m >= 6) $year++;
+                    $rows[$k]['date'] = $this->latestOnOrBefore($m, $d, sprintf('%04d-12-31', $year));
+                    $prevM = $m;
+                }
             }
-            $year  = (int)$statementYear - $rollovers;
-            $prevM = null;
-            foreach ($rows as $k => $r) {
-                $m = (int)substr($r['date'], 5, 2);
-                if ($prevM !== null && $m < $prevM) $year++;
-                $rows[$k]['date'] = sprintf('%04d-%02d-%s', $year, $m, substr($r['date'], 8, 2));
-                $prevM = $m;
-            }
+            foreach ($rows as $k => $r) unset($rows[$k]['_year_inferred']);
         }
 
         // ── Derive opening balance from running balance column if not explicit ─
@@ -2498,6 +2645,11 @@ class BankImportService
             $dateRaw = trim($cols[$mapping['date']] ?? '');
             $date    = $this->parseDate($dateRaw);
             if (!$date) continue;
+            // A year-less export date ("Dec 07") gets the current year from
+            // strtotime — take its most recent past occurrence instead.
+            if (!preg_match('/\d{4}|\b\d{1,2}[\/\-][A-Za-z]{3}[\/\-]\d{2}\b|[\/\-]\d{2}$/', $dateRaw)) {
+                $date = $this->latestOnOrBefore((int)substr($date, 5, 2), (int)substr($date, 8, 2), $this->today());
+            }
 
             // Description
             $desc = trim($cols[$mapping['description']] ?? '');
@@ -2613,6 +2765,48 @@ class BankImportService
     }
 
     /**
+     * The latest month-attached full date in the statement text ("15 DEC 2025",
+     * "Dec 15, 2025", "15DEC2025"), capped at the import date — i.e. the period
+     * end (or a due date just after it). Null when the text has none.
+     */
+    private function statementAnchorDate(string $text): ?string
+    {
+        $mon = 'Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec';
+        $found = [];
+        if (preg_match_all('/\b(\d{1,2})\s*(' . $mon . ')[a-z]*\.?,?\s*(20\d{2})(?![.,]?\d)/i', $text, $a, PREG_SET_ORDER)) {
+            foreach ($a as $x) $found[] = [(int)$x[3], $x[2], (int)$x[1]];
+        }
+        if (preg_match_all('/\b(' . $mon . ')[a-z]*\.?\s*(\d{1,2}),?\s*(20\d{2})(?![.,]?\d)/i', $text, $b, PREG_SET_ORDER)) {
+            foreach ($b as $x) $found[] = [(int)$x[3], $x[1], (int)$x[2]];
+        }
+        $latest = null;
+        foreach ($found as [$y, $m, $d]) {
+            $mm = (int)date('n', strtotime("1 $m 2000"));
+            if (!checkdate($mm, $d, $y)) continue;
+            $iso = sprintf('%04d-%02d-%02d', $y, $mm, $d);
+            if ($latest === null || $iso > $latest) $latest = $iso;
+        }
+        if ($latest === null) return null;
+        return min($latest, $this->today());
+    }
+
+    /**
+     * The most recent occurrence of month/day on or before $limit (and never
+     * after the import date) — how a statement line with no year is dated.
+     */
+    private function latestOnOrBefore(int $month, int $day, string $limit): string
+    {
+        $limit = min($limit, $this->today());
+        $year  = (int)substr($limit, 0, 4);
+        for ($i = 0; $i < 8; $i++, $year--) {
+            if (!checkdate($month, $day, $year)) continue;   // 29 Feb in a non-leap year
+            $iso = sprintf('%04d-%02d-%02d', $year, $month, $day);
+            if ($iso <= $limit) return $iso;
+        }
+        return sprintf('%04d-%02d-%02d', (int)substr($limit, 0, 4), $month, $day);
+    }
+
+    /**
      * Attempt to parse a date string in common Canadian bank formats.
      * Returns YYYY-MM-DD string or null.
      */
@@ -2652,7 +2846,11 @@ class BankImportService
 
         // The card's own "payment received" / autopay lines.
         if (preg_match('/\bPAYMENT\b.*\bTHANK\s*YOU\b/', $d)) return true;
-        if (preg_match('/\b(PRE-?AUTH(ORIZED)?|AUTOMATIC|AUTO)\s+PAYMENT\b/', $d)) return true;
+        // A card statement's own bare autopay line ("PRE-AUTHORIZED PAYMENT") — but NOT a bank
+        // statement's pre-authorized bill, which names its payee ("Preauthorized payment TELUS
+        // MOBILITY"): that's a bill. Catching those booked every PAD bill since June 2026 as a
+        // card payoff (Telus, ICBC, insurance, payroll, the RAM loan).
+        if (preg_match('/^\s*(PRE-?AUTH(ORIZED)?|AUTOMATIC|AUTO)\s+PAYMENT\s*(-?\s*THANK\s*YOU)?\s*$/', $d)) return true;
 
         // A payment from the bank TO a card, in either word order
         // ("VISA PAYMENT", "PAYMENT - VANCITY VISA", "MASTERCARD PMT", "PAY CREDIT CARD").
@@ -2692,6 +2890,19 @@ class BankImportService
         $row['duplicate_type']  = null;
         $row['duplicate_tx_id'] = null;
         $row['match_candidate'] = false;
+
+        // Card payoffs go through the duplicate check like every other line: skipping it let
+        // overlapping statement imports re-add the same payoff 2-4 times (2026-10-05).
+        try {
+            $dupe = !empty($row['date']) ? $this->checkTrueDuplicate((string)$row['date'], (float)$row['amount'], 'expense') : null;
+        } catch (Throwable $e) {
+            $dupe = null;   // never block an import on the check itself
+        }
+        if ($dupe) {
+            $row['is_duplicate']    = true;
+            $row['duplicate_type']  = 'true_duplicate';
+            $row['duplicate_tx_id'] = $dupe;
+        }
 
         if ($ccPayableId > 0) {
             $row['type']         = 'transfer';
@@ -3483,65 +3694,16 @@ class BankImportService
      */
     private function learnFromCommit(array $rows, int $userId): void
     {
-        // Preload all learned rules for fast duplicate detection (key → id mapping)
-        $existing = $this->db->query("
-            SELECT id, condition_value, account_id
-            FROM transaction_rules
-            WHERE source = 'learned' AND condition_field = 'description'
-        ")->fetchAll(PDO::FETCH_ASSOC);
-
-        $learnedMap = [];
-        foreach ($existing as $r) {
-            $learnedMap[$r['condition_value'] . '|' . $r['account_id']] = (int)$r['id'];
-        }
-
-        // Highest priority among learned rules (so new ones append after existing)
-        $maxPriority = (int)$this->db->query("
-            SELECT COALESCE(MAX(priority), 8999) FROM transaction_rules WHERE source = 'learned'
-        ")->fetchColumn();
-
+        // One learner for imports and corrections (BankRuleLearning): default accounts
+        // never teach, and a rule switches on only after 2 confirmations.
+        require_once __DIR__ . '/BankRuleLearning.php';
+        $learner = new BankRuleLearning($this->db);
         foreach ($rows as $row) {
-            // Skip duplicates and rows without a confirmed account
-            if (!empty($row['is_duplicate']))   continue;
-            if (empty($row['account_id']))       continue;
-            if (!empty($row['rule_id']))         continue; // existing rule already covers this
-
-            $desc      = trim($row['description'] ?? '');
-            $accountId = (int)$row['account_id'];
-            $type      = $row['type'] === 'income' ? 'income' : 'expense';
-
-            $key = $this->normalizeDescriptionKey($desc);
-            if (strlen($key) < 4) continue;
-
-            $mapKey = $key . '|' . $accountId;
-
-            if (isset($learnedMap[$mapKey])) {
-                // Already have a rule for this key+account — increment training count
-                $this->db->prepare("
-                    UPDATE transaction_rules
-                    SET learned_count = learned_count + 1, last_learned_at = NOW()
-                    WHERE id = ?
-                ")->execute([$learnedMap[$mapKey]]);
-            } else {
-                // New pattern — create a low-priority learned rule
-                $maxPriority++;
-                $this->db->prepare("
-                    INSERT INTO transaction_rules
-                        (name, priority, applies_to, condition_field, condition_operator,
-                         condition_value, account_id, transaction_type,
-                         is_active, source, learned_count, last_learned_at, created_by, created_at)
-                    VALUES (?, ?, ?, 'description', 'contains', ?, ?, ?, 1, 'learned', 1, NOW(), ?, NOW())
-                ")->execute([
-                    'Learned: ' . mb_substr($desc, 0, 80),
-                    $maxPriority,
-                    $type,
-                    $key,
-                    $accountId,
-                    $type,
-                    $userId,
-                ]);
-                $learnedMap[$mapKey] = (int)$this->db->lastInsertId();
-            }
+            if (!empty($row['is_duplicate'])) continue;
+            if (empty($row['account_id']))    continue;
+            if (!empty($row['rule_id']))      continue; // an existing rule already covers this
+            $learner->learn((string)($row['description'] ?? ''), (int)$row['account_id'],
+                            ($row['type'] ?? '') === 'income' ? 'income' : 'expense', $userId, 'confirmed');
         }
     }
 
@@ -3563,6 +3725,12 @@ class BankImportService
      *  "MONTHLY MAINTENANCE FEE"                      → "monthly maintenance fee"
      */
     private function normalizeDescriptionKey(string $desc): string
+    {
+        return self::descriptionKey($desc);
+    }
+
+    /** The bank-agnostic rule key for a description (shared with BankRuleLearning). */
+    public static function descriptionKey(string $desc): string
     {
         $s = strtoupper(trim($desc));
 

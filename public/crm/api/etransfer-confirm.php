@@ -137,6 +137,11 @@ try {
         }
 
         $result = $service->recordPayment($noteId, $allocations, (int) $user['id']);
+        // Teach the matcher who this sender pays for (strata plans, spouses, company accounts).
+        if (!empty($result['ok'])) {
+            $note = $service->find($noteId);
+            $service->learnSender($note['sender_name'] ?? null, array_column($allocations, 'invoice_id'));
+        }
     } else {
         http_response_code(400);
         echo json_encode(['ok' => false, 'message' => 'Unknown action']);

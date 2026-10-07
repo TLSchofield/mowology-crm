@@ -35,6 +35,18 @@ class PennyBadgeService
     /** @return array{earned: array, next: ?array} */
     public function badges(): array
     {
+        return self::compute($this->decisions(), $this->foundToBill());
+    }
+
+    /** How well she knows each vendor (see vendorStrength). */
+    public function vendors(int $limit = 8): array
+    {
+        return array_slice(self::vendorStrength($this->decisions()), 0, max(1, $limit));
+    }
+
+    /** Her real decisions, newest first (only receipts that were really approved). */
+    private function decisions(): array
+    {
         $rows = $this->db->query("
             SELECT s.status, s.outcome_json, COALESCE(v.name, e.vendor_name_raw) AS vendor, e.accounting_category
             FROM expense_suggestions s
@@ -54,7 +66,7 @@ class PennyBadgeService
                 'outcome'  => json_decode((string)$r['outcome_json'], true) ?: [],
             ];
         }
-        return self::compute($decisions, $this->foundToBill());
+        return $decisions;
     }
 
     private function foundToBill(): float
@@ -70,6 +82,36 @@ class PennyBadgeService
     // ─────────────────────────────────────────────────────────────────────────
     // Pure (unit tested)
     // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Per vendor, from her decisions (newest first): receipts seen, how many you approved
+     * unchanged, her current run of unchanged ones (toward VENDOR_RUN = trusted). Vendors
+     * she has seen most come first.
+     * @return array<int, array{vendor: string, seen: int, right: int, pct: int, run: int, need: int, trusted: bool}>
+     */
+    public static function vendorStrength(array $decisions): array
+    {
+        $by = [];
+        foreach ($decisions as $d) {
+            $v = trim((string)$d['vendor']);
+            if ($v === '') continue;
+            $k = strtolower($v);
+            $by[$k] ??= ['vendor' => $v, 'seen' => 0, 'right' => 0, 'run' => 0, 'broken' => false];
+            $by[$k]['seen']++;
+            if ($d['all_ok']) $by[$k]['right']++;
+            if (!$by[$k]['broken']) {
+                if ($d['all_ok']) $by[$k]['run']++; else $by[$k]['broken'] = true;
+            }
+        }
+        $out = [];
+        foreach ($by as $v) {
+            $out[] = ['vendor' => $v['vendor'], 'seen' => $v['seen'], 'right' => $v['right'],
+                      'pct' => (int)round($v['right'] / $v['seen'] * 100), 'run' => min(self::VENDOR_RUN, $v['run']),
+                      'need' => self::VENDOR_RUN, 'trusted' => $v['run'] >= self::VENDOR_RUN];
+        }
+        usort($out, fn($a, $b) => [$b['seen'], $b['run']] <=> [$a['seen'], $a['run']]);
+        return $out;
+    }
 
     /**
      * @param array $decisions newest first: [all_ok, vendor, category, outcome[field => [accepted, suggested, final]]]

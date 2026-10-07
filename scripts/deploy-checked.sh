@@ -6,7 +6,7 @@
 #   1. download each file's live copy and compare it with <base-ref>'s version —
 #      if prod differs, someone changed prod (or the repo is behind it): STOP, upload
 #      nothing, and say which file drifted;
-#   2. upload every file;
+#   2. upload every file atomically (temporary name, then rename over the live file);
 #   3. read each back and compare with the local file.
 # Files that don't exist at <base-ref> are new: no drift check, still read back.
 #
@@ -83,7 +83,10 @@ fi
 PUT=""
 for i in "${!FILES[@]}"; do
     f="${FILES[$i]}"; d=$(remote_dir "$f")
-    PUT+=" mkdir -pf $d; put -O $d/ $f; get $d/$(basename "$f") -o $TMP/post$i;"
+    b=$(basename "$f")
+    # Atomic: upload under a temporary name, then rename over the live file — a page
+    # loading mid-upload never reads a half-written (FTP truncates first) file.
+    PUT+=" mkdir -pf $d; put $f -o $d/.$b.uploading; mv $d/.$b.uploading $d/$b; get $d/$b -o $TMP/post$i;"
 done
 lftp -u "$U,$P" -e "$LFTP_SET $PUT quit" "$HOST" >/dev/null 2>&1 || true
 for i in "${!FILES[@]}"; do

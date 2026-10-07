@@ -27,8 +27,16 @@ class FieldRecommendationService
     /** Refuse a second open recommendation for the same property+product inside this window. */
     public const DUPLICATE_WINDOW_DAYS = 30;
 
-    /** Statuses that still count as "open" for duplicate suppression. */
-    public const OPEN_STATUSES = ['pending', 'approved', 'email_sent', 'quote_created'];
+    /**
+     * Statuses that still count as "open" for duplicate suppression. ask_draft / asked /
+     * ask_yes are the Ask-first path (migration 1180): an open ask blocks a second ask for
+     * the same service at that property, and "Send quote" upgrades it instead.
+     */
+    public const OPEN_STATUSES = ['pending', 'approved', 'email_sent', 'quote_created', 'ask_draft', 'asked', 'ask_yes'];
+
+    /** The two things the field app can do with a recommendation. */
+    public const INTENT_ASK   = 'ask';
+    public const INTENT_QUOTE = 'quote';
 
     private PDO $db;
 
@@ -70,15 +78,20 @@ class FieldRecommendationService
 
         $rows = $this->db->query($sql)->fetchAll(PDO::FETCH_ASSOC);
 
+        $canAsk  = $this->hasAskColumns();
         $options = [];
         foreach ($rows as $row) {
+            $model = $row['pricing_model'] ?? null;
             $options[] = [
                 'product_id'   => (int)$row['id'],
                 'label'        => self::resolveLabel($row),
                 'description'  => (string)($row['description'] ?? ''),
                 'price'        => (float)$row['base_price'],
-                'auto_send'    => self::isAutoSendEligible($row, $row['pricing_model'] ?? null),
-                'fixed_price'  => self::isFixedPrice($row['pricing_model'] ?? null),
+                'auto_send'    => self::isAutoSendEligible($row, $model),
+                'fixed_price'  => self::isFixedPrice($model),
+                'has_price'    => self::hasPrice($row, $model),
+                'price_label'  => self::priceLabel($row, $model),
+                'can_ask'      => $canAsk,
             ];
         }
 
@@ -135,6 +148,49 @@ class FieldRecommendationService
         return $has;
     }
 
+    /**
+     * Can this service be quoted without a person pricing it first? A flat price must be
+     * above zero; a measurement-driven rule (per sq ft, per linear ft…) prices itself.
+     */
+    public static function hasPrice(array $product, ?string $pricingModel): bool
+    {
+        if (!self::isFixedPrice($pricingModel)) {
+            return true;
+        }
+        return (float)($product['base_price'] ?? 0) > 0;
+    }
+
+    /** What the chip shows under the service name. Never "$0.00". */
+    public static function priceLabel(array $product, ?string $pricingModel): string
+    {
+        if (!self::isFixedPrice($pricingModel)) {
+            return 'Priced by size';
+        }
+        $p = (float)($product['base_price'] ?? 0);
+        return $p > 0 ? '$' . number_format($p, 2) : 'Price TBC';
+    }
+
+    /** "ask" or "quote" from a client payload. Old app builds send nothing → quote (1114 behaviour). */
+    public static function normaliseIntent($raw): string
+    {
+        return strtolower(trim((string)$raw)) === self::INTENT_ASK ? self::INTENT_ASK : self::INTENT_QUOTE;
+    }
+
+    /** Has migration 1180 (Ask first) been run? Cached for the life of the request. */
+    public function hasAskColumns(): bool
+    {
+        static $has = null;
+        if ($has !== null) {
+            return $has;
+        }
+        try {
+            $has = $this->db->query("SHOW COLUMNS FROM field_observations LIKE 'ask_contact_id'")->rowCount() > 0;
+        } catch (Throwable $e) {
+            $has = false;
+        }
+        return $has;
+    }
+
     /** Chip text: the short field label if the office set one, else the catalogue name. */
     public static function resolveLabel(array $product): string
     {
@@ -174,9 +230,9 @@ class FieldRecommendationService
     /**
      * Record a crew recommendation.
      *
-     * @param array $input visit_id, product_id, note, media_ids[],
-     *                     optional property_id/contact_id/observation_type
-     * @return array {observation_id, status, duplicate, quote_id, auto_sent, message}
+     * @param array $input visit_id, product_id, note, media_ids[], intent (ask|quote,
+     *                     default quote), optional property_id/contact_id/observation_type
+     * @return array {observation_id, status, duplicate, quote_id, auto_sent, intent, message}
      */
     public function create(int $userId, array $input): array
     {
@@ -184,6 +240,11 @@ class FieldRecommendationService
         $productId = isset($input['product_id']) ? (int)$input['product_id'] : 0;
         $note      = trim((string)($input['note'] ?? $input['notes'] ?? ''));
         $mediaIds  = $this->normaliseMediaIds($input['media_ids'] ?? []);
+        $intent    = self::normaliseIntent($input['intent'] ?? null);
+
+        if ($intent === self::INTENT_ASK && !$this->hasAskColumns()) {
+            throw new InvalidArgumentException('Ask first is not switched on yet (migration 1180) — use Send quote');
+        }
 
         if ($productId <= 0) {
             throw new InvalidArgumentException('A service must be selected');
@@ -194,24 +255,49 @@ class FieldRecommendationService
             throw new InvalidArgumentException('That service is not available for field recommendations');
         }
 
+        // Ask first goes to the person who decides the work: the on-site contact, else
+        // the site contact. Resolved before the site-contact check so a property with
+        // only an on-site contact can still be asked.
+        $ask = null;
+        if ($intent === self::INTENT_ASK) {
+            require_once __DIR__ . '/FieldAskService.php';
+            $propForAsk = $this->resolvePropertyId($visitId, $input);
+            $ask = (new FieldAskService($this->db))->recipients($propForAsk)['ask'];
+            if (!$ask) {
+                throw new InvalidArgumentException('Nobody at this property has an email address on file — call them instead');
+            }
+            if (empty($input['contact_id']) && $this->siteContactId($propForAsk) <= 0) {
+                $input['contact_id'] = $ask['contact_id'];
+            }
+        }
+
         [$propertyId, $contactId] = $this->resolveTarget($visitId, $input);
 
         // Duplicate suppression — crew re-snap the same cleanup every visit
         // otherwise, and the client gets the same quote over and over.
         $existing = $this->findRecentDuplicate($propertyId, $productId);
         if ($existing) {
+            // "Send quote" on a service that was already asked about: quote THAT
+            // observation, so the photos and the conversation stay together.
+            if ($intent === self::INTENT_QUOTE && ($existing['intent'] ?? self::INTENT_QUOTE) === self::INTENT_ASK
+                && empty($existing['quote_id'])) {
+                return $this->quoteExisting((int)$existing['id'], $userId, $product);
+            }
             return [
                 'observation_id' => (int)$existing['id'],
                 'status'         => (string)$existing['status'],
                 'duplicate'      => true,
                 'quote_id'       => $existing['quote_id'] !== null ? (int)$existing['quote_id'] : null,
                 'auto_sent'      => (bool)$existing['auto_sent'],
+                'intent'         => (string)($existing['intent'] ?? self::INTENT_QUOTE),
                 'message'        => 'Already recommended for this property in the last '
                                     . self::DUPLICATE_WINDOW_DAYS . ' days',
             ];
         }
 
-        $autoSend = self::isAutoSendEligible($product, $product['pricing_model'] ?? null);
+        // An ask never sends on its own — a manager or admin reads it first.
+        $autoSend = $intent === self::INTENT_QUOTE
+            && self::isAutoSendEligible($product, $product['pricing_model'] ?? null);
         $price    = (float)$product['base_price'];
 
         $this->db->beginTransaction();
@@ -238,6 +324,14 @@ class FieldRecommendationService
             ]);
 
             $obsId = (int)$this->db->lastInsertId();
+
+            if ($ask) {
+                $this->db->prepare("
+                    UPDATE field_observations
+                    SET intent = 'ask', status = 'ask_draft', ask_contact_id = ?, ask_role = ?
+                    WHERE id = ?
+                ")->execute([$ask['contact_id'], $ask['role'], $obsId]);
+            }
             $this->db->commit();
         } catch (Throwable $e) {
             if ($this->db->inTransaction()) {
@@ -257,8 +351,17 @@ class FieldRecommendationService
             'duplicate'      => false,
             'quote_id'       => null,
             'auto_sent'      => false,
-            'message'        => 'Sent to the office for review',
+            'intent'         => $intent,
+            'message'        => self::hasPrice($product, $product['pricing_model'] ?? null)
+                ? 'Sent to the office for review'
+                : 'Saved — the office will price it before it goes out',
         ];
+
+        if ($ask) {
+            $result['status']  = 'ask_draft';
+            $result['message'] = 'Saved — a manager will read it and send it to ' . $ask['first_name'];
+            return $result;
+        }
 
         if (!$autoSend) {
             return $result;
@@ -447,6 +550,15 @@ class FieldRecommendationService
         $contact = $quotes->resolveContact($quote);
         $email   = $contact['email'] ?? null;
 
+        if (!self::sendableAmount($quote)) {
+            return [
+                'success'  => false,
+                'quote_id' => $quoteId,
+                'email'    => $email,
+                'error'    => 'This quote is $0 — set a price on it before it goes to the client',
+            ];
+        }
+
         if (!$email) {
             return [
                 'success' => false,
@@ -499,6 +611,45 @@ class FieldRecommendationService
             'email'    => $email,
             'error'    => $result['error'] ?? null,
         ];
+    }
+
+    /** A quote may only be emailed with a real price on it. */
+    public static function sendableAmount(array $quote): bool
+    {
+        return max((float)($quote['total_amount'] ?? 0), (float)($quote['amount'] ?? 0)) > 0;
+    }
+
+    /**
+     * "Send quote" for a service that was already asked about: build the quote on the
+     * existing observation and follow the product's auto-send rule, exactly like a new one.
+     */
+    private function quoteExisting(int $obsId, int $userId, array $product): array
+    {
+        $result = [
+            'observation_id' => $obsId,
+            'status'         => 'quote_created',
+            'duplicate'      => false,
+            'quote_id'       => null,
+            'auto_sent'      => false,
+            'intent'         => self::INTENT_QUOTE,
+            'message'        => 'Quote added to the earlier ask — the office will send it',
+        ];
+        try {
+            $result['quote_id'] = $this->buildQuote($obsId, $userId);
+            if (self::isAutoSendEligible($product, $product['pricing_model'] ?? null)) {
+                $sent = $this->send($obsId, $userId);
+                $result['auto_sent'] = (bool)$sent['success'];
+                if ($sent['success']) {
+                    $result['status']  = 'email_sent';
+                    $result['message'] = 'Quote sent to the client';
+                }
+            }
+        } catch (Throwable $e) {
+            error_log('[FieldRecommendationService] quote on ask ' . $obsId . ' failed: ' . $e->getMessage());
+            $result['status']  = 'ask_draft';
+            $result['message'] = 'Saved — office will review';
+        }
+        return $result;
     }
 
     /** Inline thumbnails of what the crew photographed. */
@@ -606,6 +757,31 @@ class FieldRecommendationService
         return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
     }
 
+    /** The property a visit (or the payload) points at, 0 if none. */
+    public function resolvePropertyId(int $visitId, array $input): int
+    {
+        if ($visitId > 0) {
+            $stmt = $this->db->prepare("
+                SELECT jp.property_id FROM job_visits jv
+                JOIN job_plans jp ON jp.id = jv.plan_id
+                WHERE jv.id = ? LIMIT 1
+            ");
+            $stmt->execute([$visitId]);
+            $pid = (int)$stmt->fetchColumn();
+            if ($pid > 0) {
+                return $pid;
+            }
+        }
+        return isset($input['property_id']) ? (int)$input['property_id'] : 0;
+    }
+
+    private function siteContactId(int $propertyId): int
+    {
+        $stmt = $this->db->prepare("SELECT site_contact_id FROM properties WHERE id = ? LIMIT 1");
+        $stmt->execute([$propertyId]);
+        return (int)$stmt->fetchColumn();
+    }
+
     /** Resolve the property and contact, preferring the visit the crew are standing on. */
     private function resolveTarget(int $visitId, array $input): array
     {
@@ -624,7 +800,8 @@ class FieldRecommendationService
             $stmt->execute([$visitId]);
             if ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
                 $propertyId = (int)$row['property_id'];
-                $contactId  = (int)$row['contact_id'];
+                // An Ask to a property with only an on-site contact passes that contact in.
+                $contactId  = (int)$row['contact_id'] ?: $contactId;
             }
         }
 
@@ -642,7 +819,7 @@ class FieldRecommendationService
     {
         $placeholders = implode(',', array_fill(0, count(self::OPEN_STATUSES), '?'));
         $stmt = $this->db->prepare("
-            SELECT id, status, quote_id, auto_sent
+            SELECT id, status, quote_id, auto_sent" . ($this->hasAskColumns() ? ", intent" : "") . "
             FROM field_observations
             WHERE property_id = ?
               AND recommended_product_id = ?

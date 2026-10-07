@@ -642,19 +642,25 @@ class MetaService
      */
     public static function fetchInstagramMetrics(string $igMediaId, string $pageToken): ?array
     {
-        $metrics = self::insights($igMediaId, [
-            'views',
-            'reach',
-            'likes',
-            'comments',
-            'shares',
-            'saved',
-        ], $pageToken);
+        $metrics = self::insights($igMediaId, self::INSTAGRAM_METRICS, $pageToken);
 
         if ($metrics === null) {
             return null;
         }
 
+        return self::mapInstagramInsights($metrics);
+    }
+
+    /**
+     * Instagram media insights requested (FEED posts). Checked against Meta's Instagram
+     * Platform docs 2026-10-06: `impressions` is deprecated for media created after
+     * 2024-07-02 — `views` replaces it; `reach`, `likes`, `comments`, `shares`, `saved` current.
+     */
+    public const INSTAGRAM_METRICS = ['views', 'reach', 'likes', 'comments', 'shares', 'saved'];
+
+    /** Insights name => value → the social_metrics_daily row. `views` lands in the impressions column. */
+    public static function mapInstagramInsights(array $metrics): array
+    {
         return [
             'impressions'    => self::flatten($metrics['views'] ?? 0),
             'reach'          => self::flatten($metrics['reach'] ?? 0),

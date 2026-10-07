@@ -10,8 +10,13 @@
 //  Self-contained ViewModel + view so it can drop straight into
 //  VisitDetailView's ForEach(visits), same as JobPhotoSection.
 //
-//  Fixed-price packages send immediately; anything measurement-driven queues for
-//  office review. That decision is made server-side — the chip only hints at it.
+//  Two ways to send it (migration 1180):
+//    Ask first  — a short note with the photos and NO price to the person who decides
+//                 the work (on-site contact, else site contact). An admin/manager reads
+//                 and edits it in AskDraftSheet before it goes; crew save it for them.
+//    Send quote — the priced quote to the billing contact. Fixed-price packages flagged
+//                 auto-send go straight out; everything else queues for office review.
+//  Those decisions are made server-side — the buttons only describe them.
 //
 
 import SwiftUI
@@ -30,6 +35,13 @@ final class RecommendationViewModel: ObservableObject {
     @Published var isSubmitting: Bool                   = false
     @Published var errorMessage: String?                = nil
     @Published var successMessage: String?              = nil
+    @Published var recipients: RecommendationRecipientsResponse? = nil
+    /// Set when the server hands back an Ask-first email for this user to read and send.
+    @Published var askDraft: AskDraft?                  = nil
+    @Published var draftSubject: String                 = ""
+    @Published var draftBody: String                    = ""
+    @Published var isSendingAsk: Bool                   = false
+    @Published var askError: String?                    = nil
 
     private let visitId: Int
     private let apiClient: APIClient
@@ -41,6 +53,22 @@ final class RecommendationViewModel: ObservableObject {
 
     var canSubmit: Bool {
         selected != nil && !isSubmitting
+    }
+
+    /// Ask first needs a service, the 1180 server, someone with an email, and consent.
+    var canAsk: Bool {
+        canSubmit && (selected?.canAsk ?? false) && recipients?.askBlockedReason == nil
+    }
+
+    /// Label for the quote button — a service with no price goes to the office first.
+    var quoteButtonTitle: String {
+        (selected?.hasPrice ?? true) ? "Send quote" : "Send to office for pricing"
+    }
+
+    /// Who the recommendation goes to. Silent on failure, like the chips.
+    func loadRecipients() async {
+        guard recipients == nil else { return }
+        recipients = try? await apiClient.request(.recommendationRecipients(visitId: visitId))
     }
 
     /// Load the chips the office has published. Silent on failure — a crew member
@@ -69,8 +97,8 @@ final class RecommendationViewModel: ObservableObject {
     }
 
     /// Upload the photos, then log the recommendation. On a network failure the
-    /// whole thing queues rather than being lost.
-    func submit() async {
+    /// whole thing queues rather than being lost (an ask replays as a draft only).
+    func submit(intent: String = "quote") async {
         guard let option = selected else { return }
 
         isSubmitting = true
@@ -100,6 +128,7 @@ final class RecommendationViewModel: ObservableObject {
                 .recommendationCreate,
                 body: [
                     "action":     "create",
+                    "intent":     intent,
                     "visit_id":   visitId,
                     "product_id": option.productId,
                     "note":       note,
@@ -107,7 +136,14 @@ final class RecommendationViewModel: ObservableObject {
                 ]
             )
 
-            successMessage = result.message
+            if let draft = result.draft {
+                draftSubject = draft.subject
+                draftBody    = draft.body
+                askError     = nil
+                askDraft     = draft          // presents AskDraftSheet
+            } else {
+                successMessage = result.message
+            }
             reset()
 
         } catch APIError.networkError {
@@ -115,9 +151,12 @@ final class RecommendationViewModel: ObservableObject {
                 visitId: visitId,
                 productId: option.productId,
                 note: note,
-                images: payloads
+                images: payloads,
+                intent: intent
             )
-            successMessage = "Saved — will send when you're back in signal"
+            successMessage = intent == "ask"
+                ? "Saved — it will reach the office when you're back in signal"
+                : "Saved — will send when you're back in signal"
             reset()
 
         } catch APIError.serverError(let message) {
@@ -128,10 +167,129 @@ final class RecommendationViewModel: ObservableObject {
         }
     }
 
+    /// Send the Ask-first email as edited. The server re-checks who may send, the
+    /// recipient and consent; on failure it stays a draft in the office's Ask first tab.
+    func sendAsk() async {
+        guard let draft = askDraft else { return }
+        isSendingAsk = true
+        askError = nil
+        defer { isSendingAsk = false }
+        do {
+            let r: AskSendResponse = try await apiClient.request(
+                .recommendationAskSend,
+                body: [
+                    "action":         "ask_send",
+                    "observation_id": draft.observationId,
+                    "subject":        draftSubject,
+                    "body":           draftBody
+                ]
+            )
+            if r.success {
+                successMessage = r.message
+                askDraft = nil
+            } else {
+                askError = r.message.isEmpty ? "It didn't send — it's still saved" : r.message
+            }
+        } catch APIError.serverError(let message) {
+            askError = message
+        } catch {
+            askError = "No signal — it's still saved. Send it later from the office."
+        }
+    }
+
+    /// Close the sheet without sending; the draft waits in the office's Ask first tab.
+    func saveAskForLater() {
+        askDraft = nil
+        successMessage = "Saved — it's in the Ask first tab under Recommendations"
+    }
+
     private func reset() {
         selected = nil
         images   = []
         note     = ""
+    }
+}
+
+// MARK: - AskDraftSheet
+
+/// The Ask-first email, editable, for an admin/manager on site. Nothing is sent until
+/// they press Send. Kept in this file so no new Xcode file registration is needed.
+struct AskDraftSheet: View {
+    @ObservedObject var viewModel: RecommendationViewModel
+    let draft: AskDraft
+
+    var body: some View {
+        NavigationView {
+            Form {
+                Section {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(draft.to?.name ?? "—").font(.subheadline.weight(.semibold))
+                        Text(draft.to?.email ?? "No email").font(.caption).foregroundColor(.secondary)
+                        Text(draft.to?.roleLabel ?? "").font(.caption2).foregroundColor(.secondary)
+                    }
+                    if let consent = draft.consent {
+                        Label(consent.reason, systemImage: consent.ok ? "checkmark.seal" : "exclamationmark.triangle")
+                            .font(.caption)
+                            .foregroundColor(consent.ok ? Color.MW.green : .orange)
+                    }
+                } header: { Text("To") }
+
+                if !draft.photos.isEmpty {
+                    Section {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(draft.photos, id: \.self) { photo in
+                                    AsyncImage(url: URL(string: photo.url.hasPrefix("http") ? photo.url : "https://mowology.ca" + photo.url)) { img in
+                                        img.resizable().scaledToFill()
+                                    } placeholder: {
+                                        Color(.systemGray5)
+                                    }
+                                    .frame(width: 64, height: 64)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                                }
+                            }
+                        }
+                    } header: { Text("Attached at 1024px") }
+                }
+
+                Section {
+                    TextField("Subject", text: $viewModel.draftSubject)
+                } header: { Text("Subject") }
+
+                Section {
+                    TextEditor(text: $viewModel.draftBody)
+                        .frame(minHeight: 260)
+                        .font(.body)
+                } header: {
+                    Text(draft.draftedBy == "learned" ? "Email · written your way" : "Email")
+                } footer: {
+                    Text("No price goes in this one. Our name, address and an unsubscribe line are added underneath.")
+                }
+
+                if let error = viewModel.askError {
+                    Section {
+                        Label(error, systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                    }
+                }
+            }
+            .navigationTitle("Ask first")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Save for later") { viewModel.saveAskForLater() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button {
+                        Task { await viewModel.sendAsk() }
+                    } label: {
+                        if viewModel.isSendingAsk { ProgressView() } else { Text("Send").bold() }
+                    }
+                    .disabled(viewModel.isSendingAsk || !(draft.consent?.ok ?? false))
+                }
+            }
+        }
     }
 }
 
@@ -170,7 +328,8 @@ struct RecommendationSection: View {
                     chips
                     photoRow
                     noteField
-                    submitButton
+                    pathLines
+                    submitButtons
                 }
             }
 
@@ -181,7 +340,13 @@ struct RecommendationSection: View {
                 banner(error, color: .orange, icon: "exclamationmark.triangle.fill")
             }
         }
-        .task { await viewModel.loadOptions() }
+        .task {
+            await viewModel.loadOptions()
+            await viewModel.loadRecipients()
+        }
+        .sheet(item: $viewModel.askDraft) { draft in
+            AskDraftSheet(viewModel: viewModel, draft: draft)
+        }
         .fullScreenCover(isPresented: $isCapturing) {
             CameraPicker(
                 onCapture: { image in
@@ -293,36 +458,84 @@ struct RecommendationSection: View {
 
     private var noteField: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Note to the client")
+            Text("What you saw (optional)")
                 .font(.caption.weight(.semibold))
                 .foregroundColor(.secondary)
 
-            TextField("e.g. Back garden is knee deep in leaves",
+            TextField("e.g. Beds along the front are overgrown",
                       text: $viewModel.note, axis: .vertical)
                 .textFieldStyle(.roundedBorder)
                 .lineLimit(1...3)
         }
     }
 
-    private var submitButton: some View {
-        Button {
-            Task { await viewModel.submit() }
-        } label: {
-            HStack {
-                if viewModel.isSubmitting {
-                    ProgressView().tint(.white)
-                }
-                Text(viewModel.isSubmitting ? "Sending…" : "Send Recommendation")
-                    .font(.subheadline.weight(.semibold))
+    /// Who each button goes to, so the crew know before they press.
+    @ViewBuilder
+    private var pathLines: some View {
+        if let r = viewModel.recipients {
+            VStack(alignment: .leading, spacing: 6) {
+                pathLine("ASK FIRST", r.askBlockedReason ?? {
+                    let who = r.ask.map { "\($0.name) (\($0.roleLabel))" } ?? ""
+                    return who + " · photos, no price · " + (r.canSend ? "you read it before it goes" : "a manager reads it first")
+                }(), muted: r.askBlockedReason != nil)
+                pathLine("SEND QUOTE", r.quote.map {
+                    "\($0.name) (billing) · " + ((viewModel.selected?.hasPrice ?? true) ? "the office checks it first" : "the office prices it first")
+                } ?? "No site contact on file", muted: r.quote == nil)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .background(viewModel.canSubmit ? Color.MW.green : Color(.systemGray4))
-            .foregroundColor(.white)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
         }
-        .buttonStyle(.plain)
-        .disabled(!viewModel.canSubmit)
+    }
+
+    private func pathLine(_ key: String, _ text: String, muted: Bool) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(key)
+                .font(.caption2.weight(.bold))
+                .foregroundColor(.secondary)
+                .frame(width: 78, alignment: .leading)
+            Text(text)
+                .font(.caption)
+                .foregroundColor(muted ? .secondary : .primary)
+        }
+    }
+
+    private var submitButtons: some View {
+        HStack(spacing: 10) {
+            Button {
+                Task { await viewModel.submit(intent: "ask") }
+            } label: {
+                Text("Ask first")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .foregroundColor(viewModel.canAsk ? Color.MW.green : Color(.systemGray3))
+                    .background(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(viewModel.canAsk ? Color.MW.green : Color(.systemGray4), lineWidth: 2)
+                    )
+            }
+            .buttonStyle(.plain)
+            .disabled(!viewModel.canAsk)
+
+            Button {
+                Task { await viewModel.submit(intent: "quote") }
+            } label: {
+                HStack {
+                    if viewModel.isSubmitting {
+                        ProgressView().tint(.white)
+                    }
+                    Text(viewModel.isSubmitting ? "Sending…" : viewModel.quoteButtonTitle)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(viewModel.canSubmit ? Color.MW.green : Color(.systemGray4))
+                .foregroundColor(.white)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+            }
+            .buttonStyle(.plain)
+            .disabled(!viewModel.canSubmit)
+        }
     }
 
     private func banner(_ text: String, color: Color, icon: String) -> some View {

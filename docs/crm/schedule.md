@@ -141,6 +141,42 @@ spend, exactly as invoices do.
 Needs migration 1114. All new-column reads are `SHOW COLUMNS`-guarded, so the
 code is inert rather than broken if it ships first.
 
+### Ask first or Send quote (added 2026-10-06, migration 1180)
+
+After picking the service and photos there are two buttons, each showing who it
+goes to (`?mode=recipients`). Plan and the owner's decisions:
+`docs/crm/field-ask-first-plan.md`; renders in `docs/crm/renders/field-ask-*.jpg`.
+
+- **Ask first** (`intent: "ask"`) — a short note in Tim's voice, the photos
+  attached (≤4, 1024px JPEG, ≤6 MB) and **no price**, to the person who decides
+  the work: the on-site contact (`OnsiteContactService`), else the site contact.
+  Saved as `field_observations.status = 'ask_draft'`. Only users with
+  `billing.edit` (admin, manager) send it — on the phone (`action: ask_send`; the
+  create response carries `draft` for them) or from the Ask first panel on
+  `/crm/products/recommendations.php` (`js/field-ask-office.js`). Crew drafts wait
+  there. Never auto-sent, including offline replays.
+- **Send quote** (`intent: "quote"`, the default — old app builds send none) is
+  the 1114 path. A service with no price reads "Send to office for pricing" and
+  never auto-sends; `send()` refuses a $0 quote. On a service that already has an
+  open ask, it quotes **that** observation instead of making a second one.
+- Logic: `FieldAskService` (recipient, CASL, wording + learning, photos, send,
+  Sam's view). Email goes through `sendEmail()`'s optional attachment list — a
+  plain letter signed by the sender with name, address and unsubscribe link
+  underneath. CASL: unsubscribed blocks; company-managed property = B2B note;
+  else the consent ledger (`ConsentLedgerService::allows`), else
+  `canSendMarketing()`.
+- Wording: `FieldAskService::DEFAULT_*` + `SERVICES` (fall cleanup = Tim's own,
+  aeration drafted for his approval); per-service override
+  `products.field_ask_pitch` ("Wording per service" on the recommendations page).
+  When the sender edits, the edit is stored with `{placeholders}` in
+  `field_ask_messages.learned_*` and becomes the next draft for that product.
+- After: the send is logged to `sales_messages` (mailbox `field_ask`). A reply
+  from the asked contact (or the billing contact) after `asked_at` puts the ask on
+  Sam's card (`asks` in `?mode=desk`) with **Build the quote** (`ask_build`, price
+  optional) → **Send quote to Darren** (`ask_send_quote`, refuses $0) or Open
+  quote. No reply after 7 days = one "No reply yet" line. Asks are not yes/no
+  parsed; Tim reads the reply.
+
 ## Safety net
 
 `tests/Unit/Jobs/PlanFunctionsLoadTest.php` is a characterization test asserting

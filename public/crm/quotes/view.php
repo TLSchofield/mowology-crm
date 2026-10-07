@@ -10,6 +10,7 @@ require_once dirname(__DIR__) . '/includes/plan-functions.php';
 require_once dirname(__DIR__) . '/includes/messaging.php';
 require_once dirname(__DIR__) . '/includes/roi-functions.php';
 require_once APP_ROOT . '/Modules/Quotes/Services/QuoteService.php';
+require_once APP_ROOT . '/Modules/Quotes/Services/QuoteRecipientService.php';
 // Note: pdf_bootstrap.php and PdfGenerator.php are loaded lazily below only when PDF generation is needed
 
 requireLogin();
@@ -25,6 +26,7 @@ if (!$quoteId) {
 
 $db  = getDB();
 $svc = new QuoteService($db);
+$recipientSvc = new QuoteRecipientService($db);
 
 $quote = $svc->getWithContact($quoteId);
 
@@ -170,7 +172,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pixelUrl = "https://" . $_SERVER['HTTP_HOST'] . "/crm/api/track-quote-open.php?t=" . urlencode($quote['access_token']);
                 $emailBody = str_replace('</body>', '<img src="' . htmlspecialchars($pixelUrl) . '" width="1" height="1" alt="" style="display:none;border:none;" /></body>', $emailBody);
 
-                $emailResult = sendEmail($customerEmail, $emailSubject, $emailBody, $attachPath);
+                // Copy the building's property manager, if known (QuoteRecipientService).
+                $ccPerson    = $recipientSvc->ccForQuote($quote, $customer['contact_id'], $customerEmail);
+                $emailResult = sendEmail($customerEmail, $emailSubject, $emailBody, $attachPath, 'Mowology', [], $ccPerson ? [$ccPerson['email']] : []);
 
                 if ($emailResult['success']) {
                     $emailSent = true;
@@ -201,7 +205,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 $activityDetails = "Quote sent via " . implode(' + ', $sentVia);
                 if ($customerEmail) {
-                    $activityDetails .= " (email: {$customerEmail})";
+                    $activityDetails .= " (email: {$customerEmail}" . (!empty($ccPerson) ? ", cc: {$ccPerson['email']}" : '') . ")";
                 }
                 if ($customerPhone && $customerConsentsToSms) {
                     $activityDetails .= " (SMS: {$customerPhone})";
@@ -288,7 +292,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pixelUrl = "https://" . $_SERVER['HTTP_HOST'] . "/crm/api/track-quote-open.php?t=" . urlencode($quote['access_token']);
             $body = str_replace('</body>', '<img src="' . htmlspecialchars($pixelUrl) . '" width="1" height="1" alt="" style="display:none;border:none;" /></body>', $body);
 
-            $emailResult = sendEmail($customerEmail, $subject, $body);
+            $ccPerson    = $recipientSvc->ccForQuote($quote, $customer['contact_id'], $customerEmail);
+            $emailResult = sendEmail($customerEmail, $subject, $body, null, 'Mowology', [], $ccPerson ? [$ccPerson['email']] : []);
 
             if ($emailResult['success']) {
                 $svc->recordFollowUp($quoteId);
@@ -299,7 +304,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     sendSms($customerPhone, $smsMsg);
                 }
 
-                logActivityExtended($user['id'], 'Follow-up sent', "Quote follow-up email sent to {$customerEmail}", null, null, $quoteId);
+                logActivityExtended($user['id'], 'Follow-up sent', "Quote follow-up email sent to {$customerEmail}" . ($ccPerson ? " (cc: {$ccPerson['email']})" : ''), null, null, $quoteId);
 
                 $message     = 'Follow-up sent successfully to ' . $customerEmail . '.';
                 $messageType = 'success';
@@ -311,6 +316,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $messageType = 'error';
             }
         }
+    }
+
+    if ($action === 'set_recipient') {
+        // Who this quote goes to. Changes quotes.contact_id only — never a contact record.
+        $result = $recipientSvc->setRecipient($quoteId, (int)($_POST['recipient_contact_id'] ?? 0), (int)$user['id']);
+        if ($result['ok']) {
+            header("Location: view.php?id={$quoteId}&recipient=1");
+            exit;
+        }
+        $message     = $result['message'];
+        $messageType = 'error';
+    }
+
+    if ($action === 'set_cc') {
+        $recipientSvc->setCcEnabled($quoteId, !empty($_POST['cc_property_manager']), (int)$user['id']);
+        header("Location: view.php?id={$quoteId}&recipient=1");
+        exit;
     }
 
     if ($action === 'update_contact') {
@@ -424,6 +446,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 } // end POST
 
 $csrfToken = generateCSRFToken();
+
+if (isset($_GET['recipient'])) {
+    $message = 'Quote recipient updated.';
+    $messageType = 'success';
+}
+
+// "Send to" picker + property-manager CC (QuoteRecipientService, migration 1186)
+$recipientOptions   = $recipientSvc->pickerOptions($quote);
+$recipientResolved  = $svc->resolveContact($quote);
+$recipientCurrentId = (int)($recipientResolved['contact_id'] ?? 0);
+$recipientCc        = !empty($quote['property_id'])
+    ? $recipientSvc->ccForProperty((int)$quote['property_id'], $recipientCurrentId ?: null, $recipientResolved['email'])
+    : null;
+$recipientCcOn      = !array_key_exists('cc_property_manager', $quote) || (int)$quote['cc_property_manager'] === 1;
+$recipientCanToggle = array_key_exists('cc_property_manager', $quote);
 
 // Check for saved message
 if (isset($_GET['saved'])) {
@@ -766,8 +803,8 @@ $activePage = 'quotes';
                               $editContactId = $quote['qr_contact_id'] ?? $quote['contact_id'] ?? $quote['prop_contact_id'] ?? null;
                           ?>
                           <?php if ($editContactId): ?>
-                              <button type="button" class="btn btn-sm btn-outline-secondary" onclick="showContactEditModal()">
-                                  <i data-feather="edit-2" style="width: 14px; height: 14px;"></i> Edit
+                              <button type="button" class="btn btn-sm btn-outline-secondary" onclick="showContactEditModal()" title="Changes this person's name, email and phone everywhere in the CRM. To send the quote to someone else, use Send to below.">
+                                  <i data-feather="edit-2" style="width: 14px; height: 14px;"></i> Edit this contact's details
                               </button>
                           <?php endif; ?>
                       </div>
@@ -824,8 +861,47 @@ $activePage = 'quotes';
                                   <?php echo htmlspecialchars($quote['property_address'] . ', ' . $quote['property_city']); ?>
                               </span>
                           </div>
+
+                          <!-- Send to: who this quote goes to (changes the quote only, never a contact) -->
+                          <div class="mw-quote-recipient">
+                              <form method="POST" class="mw-quote-recipient-row">
+                                  <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrfToken); ?>">
+                                  <input type="hidden" name="action" value="set_recipient">
+                                  <label class="mw-detail-label" for="recipientPicker">Send to</label>
+                                  <select name="recipient_contact_id" id="recipientPicker" class="form-control form-control-sm mw-quote-recipient-select">
+                                      <?php if (!$recipientCurrentId): ?><option value="">— pick who gets this quote —</option><?php endif; ?>
+                                      <?php foreach ($recipientOptions as $opt): ?>
+                                      <option value="<?php echo (int)$opt['id']; ?>"<?php echo (int)$opt['id'] === $recipientCurrentId ? ' selected' : ''; ?>>
+                                          <?php echo htmlspecialchars($opt['name'] . ($opt['email'] !== '' ? ' · ' . $opt['email'] : ' · no email') . ' (' . $opt['why'] . ')'); ?>
+                                      </option>
+                                      <?php endforeach; ?>
+                                  </select>
+                                  <button type="submit" class="btn btn-sm btn-primary">Use</button>
+                              </form>
+                              <small class="text-muted d-block">Changes who this quote is sent to. It never edits a contact.</small>
+
+                              <div class="mw-quote-recipient-cc">
+                                  <span class="mw-detail-label">CC</span>
+                                  <?php if ($recipientCc): ?>
+                                      <form method="POST" class="mw-quote-recipient-row">
+                                          <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrfToken); ?>">
+                                          <input type="hidden" name="action" value="set_cc">
+                                          <label class="mw-quote-recipient-cc-label">
+                                              <input type="checkbox" name="cc_property_manager" value="1" <?php echo $recipientCcOn ? 'checked' : ''; ?> <?php echo $recipientCanToggle ? 'onchange="this.form.submit()"' : 'disabled'; ?>>
+                                              <?php echo htmlspecialchars($recipientCc['name'] . ' · ' . $recipientCc['email']); ?>
+                                              <span class="text-muted">(<?php echo htmlspecialchars($recipientCc['why']); ?>)</span>
+                                          </label>
+                                      </form>
+                                  <?php else: ?>
+                                      <span class="text-muted">No property manager on file for this building.</span>
+                                  <?php endif; ?>
+                              </div>
+                          </div>
                       </div>
                   </div>
+
+                  <?php $ottoPropertyId = (int)($quote['property_id'] ?? 0);
+                  if (is_file(dirname(__DIR__) . '/includes/otto-property-card.php')) include dirname(__DIR__) . '/includes/otto-property-card.php'; ?>
 
                   <!-- Line Items -->
                   <div class="card">
@@ -1062,6 +1138,9 @@ $activePage = 'quotes';
                           <?php endif; ?>
                       </div>
                   </div>
+
+                  <!-- Sam the Closer: his price beside this quote's (display only; renders nothing until migration 1141) -->
+                  <?php if (is_file(dirname(__DIR__) . '/includes/closer-panel.php')) include dirname(__DIR__) . '/includes/closer-panel.php'; ?>
 
                   <!-- Follow-Up Status Card (shown for sent/declined quotes) -->
                   <?php if (in_array($quote['status'], ['sent', 'declined', 'expired'])): ?>
@@ -1306,7 +1385,7 @@ $activePage = 'quotes';
                           <input type="hidden" name="action" value="update_contact">
                           <input type="hidden" name="contact_id" value="<?php echo (int)$editContact['id']; ?>">
                           <div class="modal-header">
-                              <h5 class="modal-title">Edit Contact Details</h5>
+                              <h5 class="modal-title">Edit this contact's details</h5>
                               <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
                           </div>
                           <div class="modal-body">

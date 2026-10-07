@@ -193,6 +193,20 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
             </div>
           </div>
 
+          <?php
+          // "Needs you now" — Charlie's ranked items as rows (owner only). Never breaks the page.
+          if (is_file(__DIR__ . '/includes/action-board.php')) {
+              ob_start();
+              try {
+                  include __DIR__ . '/includes/action-board.php';
+                  echo ob_get_clean();
+              } catch (Throwable $__abErr) {
+                  ob_end_clean();
+                  error_log('Action board failed: ' . $__abErr->getMessage());
+              }
+          }
+          ?>
+
           <?php include __DIR__ . '/includes/dept-heads-deck.php'; // Penny + the department heads ?>
 
           <?php

@@ -318,12 +318,11 @@ try {
     $results['total_visits'] = count($visits);
 
     $hasErrors = !empty($results['errors'] ?? []);
-    $reschedCount = $results['rescheduled'] ?? 0;
-    $flagCount    = $results['flagged'] ?? 0;
+    require_once APP_ROOT . '/Modules/Jobs/Services/WeatherGuardSummary.php';
     recordCronRun(
         'weather_guard',
         $hasErrors ? 'warning' : 'success',
-        "{$reschedCount} rescheduled, {$flagCount} flagged, {$results['total_visits']} visits checked",
+        WeatherGuardSummary::line($results),
         null,
         $hasErrors ? implode('; ', array_slice((array)$results['errors'], 0, 3)) : null,
         !$isCli

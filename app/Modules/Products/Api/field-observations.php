@@ -13,6 +13,13 @@
  *   dismiss         — Mark as dismissed with reason
  *   get-rules       — Return observation_product_rules for auto-suggest
  *   get-types       — Return valid observation types
+ *   ask-drafts      — Ask-first drafts the crew saved, waiting for a manager (GET)
+ *   ask-draft       — One Ask-first email as it would go (GET &id=)
+ *   ask-send        — Send it (POST {id, subject, body}) — admin/manager (billing.edit)
+ *   ask-close       — Delete a draft / close an ask (POST {id, reason})
+ *   ask-pitches     — Per-service "what we do" sentence (GET)
+ *   ask-pitch       — Save one (POST {product_id, pitch})
+ *   All ask-* logic lives in FieldAskService; these branches only route.
  *
  * POST /app/Modules/Products/Api/field-observations.php?action=ACTION
  */
@@ -645,6 +652,52 @@ HTML;
                 ['value' => 'other',              'label' => 'Other',               'icon' => 'edit-3'],
             ],
         ]);
+
+    // ── ASK FIRST (migration 1180) — thin routes over FieldAskService ─────
+    } elseif (strpos($action, 'ask-') === 0) {
+        require_once APP_ROOT . '/Modules/Products/Services/FieldAskService.php';
+        $askSvc = new FieldAskService($db);
+        if (!FieldAskService::canSend($db, $user)) {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'error' => 'Manager or admin access required']);
+            exit;
+        }
+        $data = [];
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            $data = json_decode(file_get_contents('php://input'), true) ?? [];
+            if (!verifyCSRFToken($data['csrf_token'] ?? '')) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+                exit;
+            }
+        }
+        $askId = (int)($data['id'] ?? $_GET['id'] ?? 0);
+        switch ($action) {
+            case 'ask-drafts':
+                echo json_encode(['success' => true, 'ready' => $askSvc->ready(), 'drafts' => $askSvc->drafts()]);
+                break;
+            case 'ask-draft':
+                $d = $askSvc->draft($askId, $user);
+                echo json_encode(['success' => $d['ok']] + $d);
+                break;
+            case 'ask-send':
+                $r = $askSvc->send($askId, $user, (string)($data['subject'] ?? ''), (string)($data['body'] ?? ''));
+                echo json_encode(['success' => $r['ok'], 'message' => $r['message']]);
+                break;
+            case 'ask-close':
+                $r = $askSvc->close($askId, $user, trim((string)($data['reason'] ?? '')) ?: 'Ask first: deleted by the office');
+                echo json_encode(['success' => $r['ok'], 'message' => $r['message']]);
+                break;
+            case 'ask-pitches':
+                echo json_encode(['success' => true, 'pitches' => $askSvc->pitches()]);
+                break;
+            case 'ask-pitch':
+                $r = $askSvc->savePitch((int)($data['product_id'] ?? 0), (string)($data['pitch'] ?? ''), $user);
+                echo json_encode(['success' => $r['ok'], 'message' => $r['message']]);
+                break;
+            default:
+                throw new Exception('Invalid action: ' . htmlspecialchars($action));
+        }
 
     } else {
         throw new Exception('Invalid action: ' . htmlspecialchars($action));

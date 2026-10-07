@@ -61,6 +61,11 @@ $say = static function (string $msg) use (&$log): void {
 try {
     if (getTimeClockSetting('tracking_silent_alert_enabled', '1') !== '1') {
         $say('Disabled via tracking_silent_alert_enabled.');
+        // Record the healthy no-op too, or the dashboard reads "Never run" (vault: Known-Failure-Patterns, cron rule).
+        if (function_exists('recordCronRun')) {
+            recordCronRun('tracking_silent_alert', 'success', 'Disabled via tracking_silent_alert_enabled',
+                (int) round((microtime(true) - $__cronStart) * 1000), null, php_sapi_name() !== 'cli');
+        }
         if (php_sapi_name() !== 'cli') { echo json_encode(['success' => true, 'silent' => [], 'log' => $log]); }
         exit;
     }

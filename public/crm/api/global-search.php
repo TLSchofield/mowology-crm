@@ -175,6 +175,35 @@ try {
     }
 } catch (PDOException $e) { error_log('[global-search] branch failed: ' . $e->getMessage()); }
 
+// ── Contracts ─────────────────────────────────────────
+// By number, title, the property's address or the client's name — "laburnum" finds the
+// 5661 Laburnum Street contract, not just the property.
+try {
+    $stmt = $db->prepare("
+        SELECT c.id, c.contract_number, c.title, c.status,
+               p.address, ct.first_name, ct.last_name
+        FROM contracts c
+        LEFT JOIN properties p ON p.id  = c.property_id
+        LEFT JOIN contacts ct  ON ct.id = c.contact_id
+        WHERE c.contract_number LIKE ? OR c.title LIKE ? OR p.address LIKE ?
+           OR CONCAT(COALESCE(ct.first_name, ''), ' ', COALESCE(ct.last_name, '')) LIKE ?
+        ORDER BY (c.status = 'active') DESC, c.id DESC
+        LIMIT 5
+    ");
+    $stmt->execute([$term, $term, $term, $term]);
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $who = trim(($r['first_name'] ?? '') . ' ' . ($r['last_name'] ?? ''));
+        $sub = array_filter([$r['status'], $r['address'] ?? '', $who]);
+        $results[] = [
+            'category' => 'Contracts',
+            'icon'     => 'file-text',
+            'label'    => $r['contract_number'] . ($r['title'] ? ' — ' . $r['title'] : ''),
+            'sublabel' => implode(' · ', $sub),
+            'url'      => '/crm/contracts/view.php?id=' . $r['id'],
+        ];
+    }
+} catch (PDOException $e) { error_log('[global-search] branch failed: ' . $e->getMessage()); }
+
 // ── Invoices ──────────────────────────────────────────
 try {
     $stmt = $db->prepare("

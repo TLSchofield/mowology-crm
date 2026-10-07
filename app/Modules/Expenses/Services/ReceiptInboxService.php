@@ -8,12 +8,13 @@
  * storage + OCR + auto-post logic so the decision rules can be unit-tested without
  * a mailbox.
  *
- * Auto-post rule (the safety gate — see isCleanMatch): a receipt only posts straight
- * to the books when the vendor is recognised in the vendor directory AND a total
- * amount parsed AND a date parsed AND that vendor has a default accounting category.
- * Anything short of that is created as a draft and surfaced in the Expenses review
- * panel for one-click confirmation. PDFs that can't be rasterised for OCR never
- * auto-post.
+ * Nothing is approved here (2026-10-07). A "clean match" (isCleanMatch: the vendor is
+ * recognised in the vendor directory AND a total parsed AND a date parsed AND that
+ * vendor has a default accounting category) used to be created 'approved' and posted
+ * straight to the books. Now it is created 'pending_approval' and flagged high-confidence
+ * — Penny prepares those first (BookkeeperDeskService::prepare orders pending_approval
+ * first) and the owner approves. Anything short of a clean match is a 'draft'. Both show
+ * in the Expenses review panel. PDFs that can't be rasterised for OCR are never clean.
  *
  * Reuses the existing receipt pipeline: ReceiptOCR / ReceiptParser / ReceiptSmartMatch
  * (the same code the camera "Snap Receipt" flow runs), media_assets for storage, and
@@ -41,6 +42,90 @@ class ReceiptInboxService
      * seen twice, collapses to one key; two different attachments on one email get
      * two keys (both ingested). Pure + static so it's trivially testable.
      */
+    /**
+     * office@ is a shared business inbox (clients, quotes, payment notices), not a
+     * receipts drop — so only take an attachment from it when it looks like a receipt
+     * (2026-10-06: "she should watch all emails"). receipts@ takes everything.
+     *   yes — sent or forwarded by one of us (staff / owner addresses)
+     *   no  — our own domain otherwise (sent copies), a client, payment / remittance notices
+     *   yes — the subject or file name says receipt / invoice / bill / order / statement
+     *   no  — anything else (client photos, documents)
+     * @param string[] $ownerEmails  staff + owner addresses (lower case)
+     * @param string[] $clientEmails client contact addresses (lower case)
+     */
+    public static function isOfficeReceipt(?string $from, string $subject, string $filename, array $ownerEmails, array $clientEmails): bool
+    {
+        $from = strtolower(trim((string)$from));
+        if ($from !== '' && in_array($from, $ownerEmails, true)) return true;
+        if ($from === '' || str_ends_with($from, '@mowology.ca')) return false;
+        if (in_array($from, $clientEmails, true)) return false;
+        $text = $subject . ' ' . $filename;
+        if (preg_match('/yardi|\beft\b|remittance|e-?transfer|interac|payment (advice|notification|received)|quote request/i', $text)) return false;
+        return (bool)preg_match('/receipt|invoice|\bbill\b|your order|order (confirmation|#)|purchase|statement|\binv[\s#-]*\d/i', $text);
+    }
+
+    /**
+     * A receipt that IS the email (RONA, Amazon, Uber… no attachment): only when the
+     * subject says so, and never a client, our own sent mail or a payment notice.
+     */
+    public static function isBodyReceipt(?string $from, string $subject, array $ownerEmails, array $clientEmails): bool
+    {
+        $from = strtolower(trim((string)$from));
+        if ($from === '') return false;
+        $ours = in_array($from, $ownerEmails, true);
+        if (!$ours && (str_ends_with($from, '@mowology.ca') || in_array($from, $clientEmails, true))) return false;
+        if (preg_match('/yardi|\beft\b|remittance|e-?transfer|interac|payment (advice|notification|received)|quote/i', $subject)) return false;
+        return (bool)preg_match('/receipt|re[çc]u|your order|order (confirmation|#|receipt)|purchase|invoice|\bbill\b/i', $subject);
+    }
+
+    /** An HTML (or plain) email body as readable receipt text, one row per line. */
+    public static function htmlToText(string $html): string
+    {
+        $t = preg_replace('#<(script|style|head)\b[^>]*>.*?</\1>#is', ' ', $html);
+        $t = preg_replace('#<br\s*/?>|</(p|div|tr|li|h[1-6]|table)>#i', "\n", (string)$t);
+        $t = preg_replace('#</t[dh]>#i', "  ", (string)$t);
+        $t = html_entity_decode(strip_tags((string)$t), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $t = str_replace("\xC2\xA0", ' ', $t);
+        $lines = array_filter(array_map(fn($l) => trim((string)preg_replace('/[ \t]+/', ' ', $l)), explode("\n", $t)), 'strlen');
+        return implode("\n", $lines);
+    }
+
+    /**
+     * Ingest a receipt that is the email body. The email is saved as a file (for the
+     * record), its text is read like OCR text, and it always becomes a draft for Penny —
+     * never auto-posted (no photo to check against).
+     */
+    public function ingestEmailBody(array $msg, string $html, int $systemUserId): array
+    {
+        $sha256 = hash('sha256', $html);
+        $dedup  = self::deriveDedupKey($msg['message_id'] ?? null, $sha256, 'email-body.html');
+        if (!$this->claim($msg, $dedup, 'email-body.html')) {
+            return ['status' => 'duplicate', 'expense_id' => null, 'note' => null];
+        }
+        try {
+            $text = self::htmlToText($html);
+            if (mb_strlen($text) < 20) {
+                $this->finalizeClaim($dedup, null, null, 'skipped', null, 'email body has no receipt text');
+                return ['status' => 'skipped', 'expense_id' => null, 'note' => 'no text'];
+            }
+            $dir = PUBLIC_ROOT . '/uploads/receipts/';
+            if (!is_dir($dir)) @mkdir($dir, 0755, true);
+            $file = 'receipt-email-' . date('Ymd-His') . '-' . bin2hex(random_bytes(4)) . '.html';
+            file_put_contents($dir . $file, $html);
+
+            require_once APP_ROOT . '/Services/Receipts/ReceiptParser.php';
+            require_once APP_ROOT . '/Services/Receipts/ReceiptSmartMatch.php';
+            $parsed = parseReceiptText($text, null);
+            $ocr = ['readable' => true, 'source' => 'email_body', 'ocr_text' => $text, 'parsed' => $parsed,
+                    'suggestions' => suggestReceiptMeta($text, null, null, null, $parsed)];
+            $msg['subject'] = trim(($msg['subject'] ?? '') . ' (saved: /uploads/receipts/' . $file . ')');
+            return $this->createExpenseFromRead($msg, $ocr, null, $dedup, false, 'no text extracted', $systemUserId);
+        } catch (\Throwable $e) {
+            $this->releaseClaim($dedup);
+            throw $e;
+        }
+    }
+
     public static function deriveDedupKey(?string $messageId, string $sha256, string $attachmentName): string
     {
         $mid = $messageId !== null ? trim($messageId) : '';
@@ -75,6 +160,23 @@ class ReceiptInboxService
         }
         $cat = trim((string) ($d['vendor_default_category'] ?? ''));
         return $cat !== '';
+    }
+
+    /** Note on the inbox log for a clean match, so it reads as high-confidence. */
+    public const HIGH_CONFIDENCE_NOTE = 'clean match — high confidence, waiting for approval';
+
+    /**
+     * The status an emailed receipt is created with. Never 'approved': a clean match
+     * waits for approval flagged high-confidence (Penny prepares it first), anything
+     * else is a draft. Pure.
+     *
+     * @return array{status:string, high_confidence:bool}
+     */
+    public static function inboxStatus(bool $cleanMatch): array
+    {
+        return $cleanMatch
+            ? ['status' => 'pending_approval', 'high_confidence' => true]
+            : ['status' => 'draft', 'high_confidence' => false];
     }
 
     /** True for a real calendar date in YYYY-MM-DD form. */
@@ -151,7 +253,7 @@ class ReceiptInboxService
      * @param string $mime         MIME type
      * @param int    $systemUserId users.id to attribute the expense to (an admin)
      * @return array{status:string,expense_id:?int,note:?string}
-     *         status ∈ duplicate | unsupported | auto_posted | pending | error
+     *         status ∈ duplicate | unsupported | pending | error (never auto_posted since 2026-10-07; high_confidence flags a clean match)
      */
     public function ingestAttachment(array $msg, string $bytes, string $filename, string $mime, int $systemUserId): array
     {
@@ -189,6 +291,15 @@ class ReceiptInboxService
         // 2) OCR (rasterise PDFs first). Unreadable PDFs return readable=false.
         $ocr = $this->runOcr($diskPath, $isPdf);
 
+        return $this->createExpenseFromRead($msg, $ocr, $mediaId, $dedup, true, $isPdf ? 'pdf not OCR-able' : 'no text extracted', $systemUserId);
+    }
+
+    /**
+     * Steps 3–7 for any read receipt (an OCR'd attachment or an email body): build the
+     * expense, gate auto-posting, score anomalies, insert, finalize the claim.
+     */
+    private function createExpenseFromRead(array $msg, array $ocr, ?int $mediaId, string $dedup, bool $mayAutoPost, string $unreadableNote, int $systemUserId): array
+    {
         // 3) Build expense fields from parsed text + smart match.
         $parsed      = $ocr['parsed'];
         $suggestions = $ocr['suggestions'];
@@ -203,14 +314,15 @@ class ReceiptInboxService
         $category   = $suggestions['accounting_category'] ?? $vendorCat;
         $confidence = (int) ($suggestions['vendor_confidence'] ?? 0);
 
-        // 4) Auto-post gate. A PDF we couldn't OCR can never be a clean match.
-        $clean = $ocr['readable'] && self::isCleanMatch([
+        // 4) Confidence gate. A PDF we couldn't OCR can never be a clean match. A clean
+        //    match is NOT approved — it waits for approval, flagged high-confidence.
+        $clean = $mayAutoPost && $ocr['readable'] && self::isCleanMatch([
             'vendor_id'               => $vendorId,
             'total'                   => $total,
             'expense_date'            => $parsed['date'] ?? null,   // gate on the *parsed* date, not the fallback
             'vendor_default_category' => $vendorCat,
         ]);
-        $status = $clean ? 'approved' : 'draft';
+        $status = self::inboxStatus($clean)['status'];
 
         // 5) Anomaly scoring (best-effort, mirrors expense-save.php).
         $anomalyFlags = null;
@@ -262,11 +374,13 @@ class ReceiptInboxService
         $expenseId = (int) $this->db->lastInsertId();
 
         // 7) Finalize the claimed audit row with the outcome.
-        $outcome = $clean ? 'auto_posted' : 'pending';
-        $logNote = $ocr['readable'] ? null : ($isPdf ? 'pdf not OCR-able' : 'no text extracted');
+        //    'auto_posted' is now written only when the owner approves (approve() /
+        //    BookkeeperDeskService::afterInboxApproval).
+        $outcome = 'pending';
+        $logNote = $ocr['readable'] ? ($clean ? self::HIGH_CONFIDENCE_NOTE : null) : $unreadableNote;
         $this->finalizeClaim($dedup, $mediaId, $expenseId, $outcome, $confidence, $logNote);
 
-        return ['status' => $outcome, 'expense_id' => $expenseId, 'note' => $logNote];
+        return ['status' => $outcome, 'expense_id' => $expenseId, 'note' => $logNote, 'high_confidence' => $clean];
     }
 
     /** Persist the raw bytes to /uploads/receipts/ and register in media_assets. */
@@ -421,7 +535,7 @@ class ReceiptInboxService
              LEFT JOIN vendors v        ON e.vendor_id = v.id
              LEFT JOIN media_assets m   ON e.receipt_media_id = m.id
              LEFT JOIN receipt_inbox_messages rim ON rim.expense_id = e.id
-                 WHERE e.source = 'email_inbox' AND e.status = 'draft'
+                 WHERE e.source = 'email_inbox' AND e.status IN ('draft', 'pending_approval')
               ORDER BY e.created_at DESC, e.id DESC";
         return $this->db->query($sql)->fetchAll(PDO::FETCH_ASSOC);
     }
@@ -429,7 +543,7 @@ class ReceiptInboxService
     public function countPending(): int
     {
         return (int) $this->db->query(
-            "SELECT COUNT(*) FROM expenses WHERE source = 'email_inbox' AND status = 'draft'"
+            "SELECT COUNT(*) FROM expenses WHERE source = 'email_inbox' AND status IN ('draft', 'pending_approval')"
         )->fetchColumn();
     }
 
@@ -460,7 +574,7 @@ class ReceiptInboxService
             UPDATE expenses
                SET vendor_id = ?, expense_date = ?, amount = ?, gst_amount = ?, pst_amount = ?,
                    total = ?, accounting_category = ?, status = 'approved', updated_at = NOW()
-             WHERE id = ? AND source = 'email_inbox' AND status = 'draft'
+             WHERE id = ? AND source = 'email_inbox' AND status IN ('draft', 'pending_approval')
         ")->execute([$vendorId, $date, $amount, $gst, $pst, $total, $category, $expenseId]);
 
         $this->db->prepare(
@@ -479,7 +593,7 @@ class ReceiptInboxService
     {
         $upd = $this->db->prepare(
             "UPDATE expenses SET status = 'cancelled', updated_at = NOW()
-              WHERE id = ? AND source = 'email_inbox' AND status = 'draft'"
+              WHERE id = ? AND source = 'email_inbox' AND status IN ('draft', 'pending_approval')"
         );
         $upd->execute([$expenseId]);
         if ($upd->rowCount() === 0) {
@@ -494,7 +608,7 @@ class ReceiptInboxService
     private function loadPendingExpense(int $expenseId): ?array
     {
         $stmt = $this->db->prepare(
-            "SELECT * FROM expenses WHERE id = ? AND source = 'email_inbox' AND status = 'draft' LIMIT 1"
+            "SELECT * FROM expenses WHERE id = ? AND source = 'email_inbox' AND status IN ('draft', 'pending_approval') LIMIT 1"
         );
         $stmt->execute([$expenseId]);
         return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;

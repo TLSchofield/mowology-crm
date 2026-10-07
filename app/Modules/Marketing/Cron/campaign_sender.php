@@ -82,6 +82,16 @@ try {
     $totalFailed = 0;
     $campaignsProcessed = 0;
 
+    // Migration 1195: a send can wait for the recipient's best time (Mia's send-time learning).
+    // Only rows whose scheduled_at has come are sent; rows without one go as before.
+    $hasSchedule = true;
+    try {
+        $db->query("SELECT scheduled_at FROM campaign_sends LIMIT 0");
+    } catch (\Exception $e) {
+        $hasSchedule = false;
+    }
+    $nowLocal = date('Y-m-d H:i:s'); // PHP's clock, the same one scheduled_at was written with
+
     foreach ($campaigns as $campaign) {
         if ($totalSent >= $batchSize) break; // Respect throttle
 
@@ -109,11 +119,19 @@ try {
             LEFT JOIN products prod ON prod.id = ?
             WHERE cs.campaign_id = ?
               AND cs.status = 'pending'
-            ORDER BY cs.id ASC
+              " . ($hasSchedule ? "AND (cs.scheduled_at IS NULL OR cs.scheduled_at <= ?)" : "") . "
+            ORDER BY " . ($hasSchedule ? "COALESCE(cs.scheduled_at, cs.created_at) ASC, " : "") . "cs.id ASC
             LIMIT $remaining
         ");
-        $sends->execute([$campaign['product_id'], $campaign['id']]);
+        $sends->execute($hasSchedule ? [$campaign['product_id'], $campaign['id'], $nowLocal] : [$campaign['product_id'], $campaign['id']]);
         $pendingSends = $sends->fetchAll(PDO::FETCH_ASSOC);
+
+        if (empty($pendingSends) && $hasSchedule) {
+            // Nothing due yet, but people are still waiting for their time: not finished.
+            $waiting = $db->prepare("SELECT COUNT(*) FROM campaign_sends WHERE campaign_id = ? AND status = 'pending'");
+            $waiting->execute([$campaign['id']]);
+            if ((int)$waiting->fetchColumn() > 0) continue;
+        }
 
         if (empty($pendingSends)) {
             // All sends processed — mark campaign as completed

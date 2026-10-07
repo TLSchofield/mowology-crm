@@ -131,18 +131,25 @@ class LedgerService
             }
         }
 
-        // Period lock guard.
+        // Period lock: an automatic posting (invoice, receipt, bank line, reversal) for a
+        // locked month lands in the current month as a late entry — never inside the
+        // locked month. Manual entries into a locked month are refused.
+        if ($sourceType !== 'manual' && $this->isLocked($entryDate) && !$this->isLocked(date('Y-m-d'))) {
+            $entry['memo'] = 'Late entry for ' . $entryDate . ' — ' . ($entry['memo'] ?? '');
+            $entryDate = date('Y-m-d');
+        }
         $this->assertPeriodPostable($entryDate);
         $periodId = $this->findPeriodId($entryDate);
 
         $this->db->beginTransaction();
         try {
+            $withProposer = $this->hasColumn('journal_entries', 'proposed_by');
             $hdr = $this->db->prepare(
                 "INSERT INTO journal_entries
-                    (entry_date, memo, source_type, source_id, period_id, status, is_adjusting, created_by)
-                 VALUES (?, ?, ?, ?, ?, 'posted', ?, ?)"
+                    (entry_date, memo, source_type, source_id, period_id, status, is_adjusting, created_by" . ($withProposer ? ', proposed_by' : '') . ")
+                 VALUES (?, ?, ?, ?, ?, 'posted', ?, ?" . ($withProposer ? ', ?' : '') . ")"
             );
-            $hdr->execute([
+            $vals = [
                 $entryDate,
                 $entry['memo'] ?? null,
                 $sourceType,
@@ -150,7 +157,10 @@ class LedgerService
                 $periodId,
                 !empty($entry['is_adjusting']) ? 1 : 0,
                 $entry['created_by'] ?? null,
-            ]);
+            ];
+            if ($withProposer) $vals[] = $entry['proposed_by'] ?? 'system';
+            $vals[1] = $entry['memo'] ?? null;
+            $hdr->execute($vals);
             $entryId = (int)$this->db->lastInsertId();
 
             $ln = $this->db->prepare(
@@ -212,11 +222,16 @@ class LedgerService
             'account' => self::ACC_AR, 'debit' => $total, 'credit' => 0,
             'contact_id' => $inv['contact_id'] ?? null, 'job_id' => $inv['job_id'] ?? null,
         ];
-        $lines[] = [
-            'account' => $revenue, 'debit' => 0, 'credit' => $net,
-            'service_type' => $inv['service_type'] ?? null,
-            'contact_id' => $inv['contact_id'] ?? null, 'job_id' => $inv['job_id'] ?? null,
-        ];
+        // Revenue: one line, or split across accounts (LedgerAccountMap::invoiceSplits —
+        // contract income / per-service accounts). Splits must sum to $net.
+        $splits = $inv['revenue_splits'] ?? [[$revenue, $net]];
+        foreach ($splits as [$code, $amt]) {
+            $lines[] = [
+                'account' => $code, 'debit' => 0, 'credit' => round((float)$amt, 2),
+                'service_type' => $inv['service_type'] ?? null,
+                'contact_id' => $inv['contact_id'] ?? null, 'job_id' => $inv['job_id'] ?? null,
+            ];
+        }
         if ($gst > 0) {
             $lines[] = ['account' => self::ACC_GST_COLLECTED, 'debit' => 0, 'credit' => $gst, 'gst_amount' => $gst];
         }
@@ -358,9 +373,18 @@ class LedgerService
 
     // ── post wrappers: resolve account codes -> ids, then postEntry ─────────────
 
-    public function postInvoice(array $inv): int      { return $this->postBuilt($this->buildInvoiceEntry($inv)); }
+    public function postInvoice(array $inv): int      { return $this->postBuilt(self::withWho($this->buildInvoiceEntry($inv), $inv)); }
     public function postPayment(array $pmt): int       { return $this->postBuilt($this->buildPaymentEntry($pmt)); }
-    public function postExpense(array $exp): int        { return $this->postBuilt($this->buildExpenseEntry($exp)); }
+    public function postExpense(array $exp): int        { return $this->postBuilt(self::withWho($this->buildExpenseEntry($exp), $exp)); }
+
+    /** Carry who posted it (created_by) and who proposed it (proposed_by) onto the entry. */
+    private static function withWho(array $entry, array $args): array
+    {
+        foreach (['created_by', 'proposed_by'] as $k) {
+            if (isset($args[$k])) $entry[$k] = $args[$k];
+        }
+        return $entry;
+    }
     public function postOwnerDraw(array $d): int        { return $this->postBuilt($this->buildOwnerDrawEntry($d)); }
     public function postTransfer(array $t): int         { return $this->postBuilt($this->buildTransferEntry($t)); }
     public function postOpeningBalances(array $b): int  { return $this->postBuilt($this->buildOpeningBalanceEntry($b)); }
@@ -382,15 +406,89 @@ class LedgerService
     // HELPERS
     // ══════════════════════════════════════════════════════════════════════════
 
-    /** Existing entry id for a source, or null. */
+    /** Existing (not reversed) entry id for a source, or null. */
     public function findEntryIdBySource(string $sourceType, int $sourceId): ?int
     {
         $stmt = $this->db->prepare(
-            "SELECT id FROM journal_entries WHERE source_type = ? AND source_id = ? LIMIT 1"
+            "SELECT id FROM journal_entries WHERE source_type = ? AND source_id = ? AND reversed_by_entry_id IS NULL LIMIT 1"
         );
         $stmt->execute([$sourceType, $sourceId]);
         $id = $stmt->fetchColumn();
         return $id === false ? null : (int)$id;
+    }
+
+    /**
+     * Reverse a posted entry — the append-only way to correct the books: a new entry
+     * with every debit and credit swapped, linked both ways (the original's
+     * reversed_by_entry_id). Dated with the original unless that month is locked, in
+     * which case the reversal lands today (an adjustment in the current month).
+     * Idempotent: an entry already reversed returns its reversal.
+     * @return int the reversal entry id
+     */
+    public function reverseEntry(int $entryId, ?int $userId, string $why, string $proposedBy = 'owner'): int
+    {
+        $s = $this->db->prepare("SELECT id, entry_date, memo, reversed_by_entry_id FROM journal_entries WHERE id = ?");
+        $s->execute([$entryId]);
+        $orig = $s->fetch(PDO::FETCH_ASSOC);
+        if (!$orig) throw new RuntimeException("Journal entry $entryId not found");
+        if (!empty($orig['reversed_by_entry_id'])) return (int)$orig['reversed_by_entry_id'];
+
+        $l = $this->db->prepare("SELECT account_id, debit, credit, gst_amount, pst_amount, description, job_id, contact_id,
+                                        vendor_id, crew_user_id, cost_type_id, service_type FROM journal_lines WHERE entry_id = ?");
+        $l->execute([$entryId]);
+        $lines = [];
+        foreach ($l->fetchAll(PDO::FETCH_ASSOC) as $ln) {
+            $lines[] = ['account_id' => (int)$ln['account_id'], 'debit' => (float)$ln['credit'], 'credit' => (float)$ln['debit'],
+                        'gst_amount' => -(float)$ln['gst_amount'], 'pst_amount' => -(float)$ln['pst_amount'],
+                        'description' => $ln['description'], 'job_id' => $ln['job_id'], 'contact_id' => $ln['contact_id'],
+                        'vendor_id' => $ln['vendor_id'], 'crew_user_id' => $ln['crew_user_id'], 'cost_type_id' => $ln['cost_type_id'],
+                        'service_type' => $ln['service_type']];
+        }
+        $date = $this->isLocked((string)$orig['entry_date']) ? date('Y-m-d') : (string)$orig['entry_date'];
+        $revId = $this->postEntry([
+            'entry_date' => $date, 'memo' => 'Reversal of #' . $entryId . ' — ' . $why,
+            'source_type' => 'adjusting', 'source_id' => $entryId, 'is_adjusting' => 1,
+            'created_by' => $userId, 'proposed_by' => $proposedBy, 'lines' => $lines,
+        ]);
+        $this->db->prepare("UPDATE journal_entries SET reversed_by_entry_id = ? WHERE id = ? AND reversed_by_entry_id IS NULL")
+           ->execute([$revId, $entryId]);
+        return $revId;
+    }
+
+    /** Is the month containing $date locked? */
+    public function isLocked(string $date): bool
+    {
+        [$y, $m] = $this->yearMonth($date);
+        $stmt = $this->db->prepare("SELECT status FROM accounting_periods WHERE year = ? AND month = ? LIMIT 1");
+        $stmt->execute([$y, $m]);
+        return $stmt->fetchColumn() === 'locked';
+    }
+
+    /**
+     * Can a source be posted again after its entry is reversed? Only once migration
+     * 1131 has dropped the old one-entry-per-source UNIQUE key.
+     */
+    public function canRepostSource(): bool
+    {
+        try {
+            return $this->db->query("SHOW INDEX FROM journal_entries WHERE Key_name = 'uq_source'")->rowCount() === 0;
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+
+    private function hasColumn(string $table, string $column): bool
+    {
+        static $seen = [];
+        $k = $table . '.' . $column;
+        if (!array_key_exists($k, $seen)) {
+            try {
+                $seen[$k] = $this->db->query("SHOW COLUMNS FROM `{$table}` LIKE " . $this->db->quote($column))->rowCount() > 0;
+            } catch (Throwable $e) {
+                $seen[$k] = false;
+            }
+        }
+        return $seen[$k];
     }
 
     /** Resolve a chart_of_accounts.id from its code. Cached per-request. */

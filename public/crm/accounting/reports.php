@@ -518,9 +518,10 @@ async function loadTax() {
     const owingLabel = rpt.is_refund ? 'Refund' : 'Remit to CRA';
 
     document.getElementById('tax-cra-rows').innerHTML = `
-        <tr><td>101</td><td>Total sales (incl. GST)</td><td class="text-end">${fmtMoney(rpt.line_101)}</td></tr>
+        <tr><td>101</td><td>Total sales (before GST, invoices issued)</td><td class="text-end">${fmtMoney(rpt.line_101)}</td></tr>
         <tr><td>103</td><td>GST/HST collected or collectible</td><td class="text-end text-danger">${fmtMoney(rpt.line_103)}</td></tr>
-        <tr><td>106</td><td>Input Tax Credits (ITC) — GST paid on expenses</td><td class="text-end text-success">${fmtMoney(rpt.line_106)}</td></tr>
+        ${rpt.meals_limit > 0 ? `<tr><td></td><td class="small">${esc(rpt.meals_limit_label)}</td><td class="text-end small">−${fmtMoney(rpt.meals_limit)}</td></tr>` : ''}
+        <tr><td>106</td><td>Input Tax Credits (ITC) — approved/posted expenses</td><td class="text-end text-success">${fmtMoney(rpt.line_106)}</td></tr>
         <tr class="table-light fw-bold">
             <td>109</td>
             <td>Net Tax (${owingLabel})</td>

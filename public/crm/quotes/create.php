@@ -223,6 +223,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $companyId = $propertyData['company_id'] ?? null;
                     $quoteContactId = $propertyData['site_contact_id'] ?? null;
 
+                    // Quotes go to the building's / company's quote contact, not the billing
+                    // contact (migration 1186; falls back to the site contact as before).
+                    require_once APP_ROOT . '/Modules/Quotes/Services/QuoteRecipientService.php';
+                    $quoteRecipients = new QuoteRecipientService($db);
+                    $resolvedRecipient = $quoteRecipients->forProperty((int)$propertyId);
+                    $quoteContactId = $resolvedRecipient['contact_id'] ?? $quoteContactId;
+
                     $stmt = $db->prepare("
                         INSERT INTO quotes (
                             quote_number, property_id, company_id, contact_id, title, service_type, amount,
@@ -238,6 +245,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $description, $accessToken, $user['id'], $isContract
                     ]);
                     $quoteId = $db->lastInsertId();
+                    if (in_array($resolvedRecipient['source'], ['property', 'company'], true)) {
+                        $quoteRecipients->markChosen((int)$quoteId);
+                    }
 
                     // If created from a quote request, link them together
                     if ($quoteRequestId) {
@@ -626,7 +636,7 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
 
                                 <div class="mw-form-group">
                                     <label class="form-label">Terms &amp; Conditions</label>
-                                    <textarea name="terms" class="form-control" rows="4" placeholder="Payment terms, warranty info, etc."><?php echo htmlspecialchars($quote['terms'] ?? "Payment due within 30 days of service completion.\nAll prices include GST.\nWork to be completed weather permitting."); ?></textarea>
+                                    <textarea name="terms" class="form-control" rows="4" placeholder="Payment terms, warranty info, etc."><?php echo htmlspecialchars($quote['terms'] ?? "Payment due within 30 days of service completion.\nGST (5%) is added to all prices.\nWork to be completed weather permitting."); ?></textarea>
                                 </div>
 
                                 <div class="mw-form-group">
@@ -2286,7 +2296,7 @@ document.addEventListener('keydown', (e) => {
                 items.forEach(function(item) {
                     var qty = parseFloat(item.quantity) || 1;
                     var price = parseFloat(item.unit_price) || 0;
-                    html += '<tr><td>' + escHtml(item.service_name || '') + '</td><td class="text-center">' + qty + '</td><td class="text-right">$' + price.toFixed(2) + '</td><td class="text-right">$' + (qty * price).toFixed(2) + '</td></tr>';
+                    html += '<tr><td>' + escHtml(item.service_type || item.service_name || '') + (item.description ? '<div class="text-muted small">' + escHtml(item.description) + '</div>' : '') + '</td><td class="text-center">' + qty + '</td><td class="text-right">$' + price.toFixed(2) + '</td><td class="text-right">$' + (qty * price).toFixed(2) + '</td></tr>';
                 });
                 html += '</tbody></table></div>';
             } else {

@@ -702,7 +702,7 @@ $extraHead = '<script src="/crm/js/map-draw/map-draw-tool.js?v=' . $mdtVer . '">
                                             <div class="col-md-12 mb-2">
                                                 <label class="form-label" style="font-size: 0.8rem; font-weight: 600;">Terms & Conditions</label>
                                                 <textarea name="terms" class="form-control" rows="3">Payment due within 30 days of service completion.
-All prices include GST.
+GST (5%) is added to all prices.
 Work to be completed weather permitting.</textarea>
                                             </div>
                                             <div class="col-md-6 mb-2">

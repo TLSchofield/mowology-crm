@@ -23,9 +23,26 @@ require_once CRM_INCLUDES . '/plan-functions.php';
 require_once CRM_ROOT . '/modules/scheduling/rescheduler.php';
 require_once CRM_ROOT . '/modules/snapshots/snapshot-manager.php';
 
+require_once APP_ROOT . '/Modules/Jobs/Services/WeatherActionGuard.php';
+
 requireLogin();
 $user = getCurrentUser();
-session_write_close(); // read-only — release session lock immediately
+
+// Writes need a CSRF token and jobs.edit (WeatherActionGuard). Checked before the
+// session lock is released; $_SESSION stays readable after session_write_close().
+$__csrf = (string)($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
+$__deny = WeatherActionGuard::reject(
+    $_SERVER['REQUEST_METHOD'] ?? 'GET',
+    $__csrf !== '' && verifyCSRFToken($__csrf),
+    function_exists('userHasPermission') && userHasPermission(WeatherActionGuard::PERMISSION)
+);
+session_write_close(); // release session lock immediately
+if ($__deny !== null) {
+    header('Content-Type: application/json');
+    http_response_code($__deny[0]);
+    echo json_encode(['success' => false, 'error' => $__deny[1]]);
+    exit;
+}
 
 header('Content-Type: application/json');
 
