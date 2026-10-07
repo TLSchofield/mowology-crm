@@ -62,6 +62,72 @@ class PropertyReadinessService
         ];
     }
 
+    /**
+     * Properties with a scheduled visit between $from and $to (Y-m-d) and no map pin —
+     * the ones Otto can't route to. Soonest visit first. For the phone's Otto card.
+     * @return array<int, array{id: int, address: string, city: string, province: string, postal_code: string, next_visit: string, geocode_address: string}>
+     */
+    public function unpinnedUpcoming(string $from, string $to, int $limit = 3): array
+    {
+        try {
+            $st = $this->db->prepare("
+                SELECT prop.id, prop.address, prop.city, prop.province, prop.postal_code, MIN(v.scheduled_date) AS next_visit
+                FROM job_visits v
+                JOIN job_plans p ON p.id = v.plan_id
+                JOIN properties prop ON prop.id = p.property_id
+                WHERE v.scheduled_date BETWEEN ? AND ?
+                  AND v.status = 'scheduled'
+                  AND (prop.latitude IS NULL OR prop.latitude = 0 OR prop.longitude IS NULL OR prop.longitude = 0)
+                GROUP BY prop.id, prop.address, prop.city, prop.province, prop.postal_code
+                ORDER BY next_visit, prop.id
+                LIMIT " . max(1, min(20, $limit))
+            );
+            $st->execute([$from, $to]);
+            $rows = $st->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            error_log('Otto unpinned: ' . $e->getMessage());
+            return [];
+        }
+        $out = [];
+        foreach ($rows as $r) {
+            $out[] = [
+                'id'              => (int)$r['id'],
+                'address'         => (string)($r['address'] ?? ''),
+                'city'            => (string)($r['city'] ?? ''),
+                'province'        => (string)($r['province'] ?? ''),
+                'postal_code'     => (string)($r['postal_code'] ?? ''),
+                'next_visit'      => (string)$r['next_visit'],
+                'geocode_address' => self::geocodeAddress($r),
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * Save a geocoded pin — the same write as /crm/api/geocode-save.php (the web Geocode
+     * button's save). Coordinates must be real (non-zero, in range).
+     * @return array{ok: bool, message?: string, lat?: float, lng?: float}
+     */
+    public function savePin(int $propertyId, float $lat, float $lng): array
+    {
+        if ($propertyId < 1 || !self::validPin($lat, $lng)) {
+            return ['ok' => false, 'message' => 'Invalid property or coordinates'];
+        }
+        $st = $this->db->prepare("UPDATE properties SET latitude = ?, longitude = ?, geocoded_at = NOW() WHERE id = ?");
+        $st->execute([$lat, $lng, $propertyId]);
+        if ($st->rowCount() < 1) {
+            $chk = $this->db->prepare("SELECT 1 FROM properties WHERE id = ?");
+            $chk->execute([$propertyId]);
+            if ($chk->fetchColumn() === false) return ['ok' => false, 'message' => 'That property no longer exists'];
+        }
+        return ['ok' => true, 'lat' => $lat, 'lng' => $lng];
+    }
+
+    public static function validPin(float $lat, float $lng): bool
+    {
+        return $lat != 0.0 && $lng != 0.0 && abs($lat) <= 90 && abs($lng) <= 180;
+    }
+
     /** null when job_geofences is absent or unreadable. */
     private function hasBorder(int $propertyId): ?bool
     {

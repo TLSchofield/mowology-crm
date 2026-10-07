@@ -104,4 +104,53 @@ class PropertyReadinessServiceTest extends TestCase
         $this->assertSame('12 Oak St, Canada', PropertyReadinessService::geocodeAddress(['address' => '12 Oak St', 'city' => ' ']));
         $this->assertSame('', PropertyReadinessService::geocodeAddress([]));
     }
+
+    // ── Otto's phone card: unpinned properties with a visit coming, and saving a pin ──
+
+    private function withVisits(): PDO
+    {
+        $db = $this->sqlite();
+        $db->sqliteCreateFunction('NOW', static fn() => '2026-10-07 09:00:00', 0);
+        $db->exec('ALTER TABLE properties ADD COLUMN geocoded_at TEXT');
+        $db->exec('CREATE TABLE job_plans (id INTEGER PRIMARY KEY, property_id INTEGER)');
+        $db->exec('CREATE TABLE job_visits (id INTEGER PRIMARY KEY, plan_id INTEGER, scheduled_date TEXT, status TEXT)');
+        $db->exec("INSERT INTO properties (id, address, city, province, postal_code, latitude, longitude) VALUES
+                   (1, '12 Oak St', 'Squamish', 'BC', 'V8B 0A1', NULL, NULL),
+                   (2, '3 Elm', 'Burnaby', 'BC', '', 0, 0),
+                   (3, '5 Ash', 'Vancouver', 'BC', '', 49.2, -123.1),
+                   (4, '7 Fir', 'Vancouver', 'BC', '', NULL, NULL)");
+        $db->exec('INSERT INTO job_plans VALUES (10, 1), (20, 2), (30, 3), (40, 4)');
+        $db->exec("INSERT INTO job_visits VALUES
+                   (1, 10, '2026-10-12', 'scheduled'), (2, 10, '2026-10-09', 'scheduled'),
+                   (3, 20, '2026-10-08', 'scheduled'),
+                   (4, 30, '2026-10-08', 'scheduled'),
+                   (5, 40, '2026-10-08', 'completed'), (6, 40, '2026-11-30', 'scheduled')");
+        return $db;
+    }
+
+    public function test_unpinned_upcoming_lists_soonest_first_and_skips_pinned_or_far_off(): void
+    {
+        $rows = (new PropertyReadinessService($this->withVisits()))->unpinnedUpcoming('2026-10-07', '2026-10-21', 3);
+        $this->assertSame([2, 1], array_column($rows, 'id'));
+        $this->assertSame('2026-10-09', $rows[1]['next_visit']);
+        $this->assertSame('12 Oak St, Squamish, BC, V8B 0A1, Canada', $rows[1]['geocode_address']);
+    }
+
+    public function test_save_pin_writes_coordinates_like_the_web_geocode_save(): void
+    {
+        $db = $this->withVisits();
+        $svc = new PropertyReadinessService($db);
+        $r = $svc->savePin(1, 49.7016, -123.1558);
+        $this->assertTrue($r['ok']);
+        $row = $db->query('SELECT latitude, longitude, geocoded_at FROM properties WHERE id = 1')->fetch(PDO::FETCH_ASSOC);
+        $this->assertEqualsWithDelta(49.7016, (float)$row['latitude'], 1e-9);
+        $this->assertEqualsWithDelta(-123.1558, (float)$row['longitude'], 1e-9);
+        $this->assertSame('2026-10-07 09:00:00', $row['geocoded_at']);
+        $this->assertSame([2], array_column($svc->unpinnedUpcoming('2026-10-07', '2026-10-21'), 'id'));
+
+        $this->assertFalse($svc->savePin(1, 0, -123.1)['ok']);
+        $this->assertFalse($svc->savePin(1, 95, -123.1)['ok']);
+        $this->assertFalse($svc->savePin(0, 49.7, -123.1)['ok']);
+        $this->assertFalse($svc->savePin(999, 49.7, -123.1)['ok']);
+    }
 }

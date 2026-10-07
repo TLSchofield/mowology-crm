@@ -108,6 +108,9 @@
 		E9B0E4623EB56A05D903707A /* SamCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1996709DF3D65EF03CB03BF /* SamCardView.swift */; };
 		72106E8C4DD4C8D40946448A /* SamCardViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 577E01DD3C064EC52D9560DA /* SamCardViewModel.swift */; };
 		782DC6502A7BD2BD46BC4BD5 /* PennyRiskRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7759B049ABD6C8712A3A8ABD /* PennyRiskRow.swift */; };
+		C0CEF0D7485D872AE4F08221 /* TeamHeadModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BC53691E52D3DF51426382D /* TeamHeadModels.swift */; };
+		6F333BF205C8178C78B34A41 /* HeadCardViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F139368B00D46A763E5C9EE /* HeadCardViewModel.swift */; };
+		5771288702B2F98773203CBF /* HeadCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 151DD4AF6EE21CA3CDDBB9D3 /* HeadCardView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -214,6 +217,9 @@
 		F1996709DF3D65EF03CB03BF /* SamCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SamCardView.swift; sourceTree = "<group>"; };
 		577E01DD3C064EC52D9560DA /* SamCardViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SamCardViewModel.swift; sourceTree = "<group>"; };
 		7759B049ABD6C8712A3A8ABD /* PennyRiskRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PennyRiskRow.swift; sourceTree = "<group>"; };
+		6BC53691E52D3DF51426382D /* TeamHeadModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeamHeadModels.swift; sourceTree = "<group>"; };
+		9F139368B00D46A763E5C9EE /* HeadCardViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeadCardViewModel.swift; sourceTree = "<group>"; };
+		151DD4AF6EE21CA3CDDBB9D3 /* HeadCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeadCardView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -424,6 +430,7 @@
 				21C82FF277952D2240D88C83 /* CrewAssignment.swift */,
 				418853FA3B14B9D85FA2EC9C /* BookkeeperModels.swift */,
 				868F8FF6FCD2A92B179A0F32 /* SalesModels.swift */,
+				6BC53691E52D3DF51426382D /* TeamHeadModels.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -474,6 +481,8 @@
 				BB3591CA54B959A360ED15A7 /* PennyCardViewModel.swift */,
 				F1996709DF3D65EF03CB03BF /* SamCardView.swift */,
 				577E01DD3C064EC52D9560DA /* SamCardViewModel.swift */,
+				9F139368B00D46A763E5C9EE /* HeadCardViewModel.swift */,
+				151DD4AF6EE21CA3CDDBB9D3 /* HeadCardView.swift */,
 			);
 			path = Team;
 			sourceTree = "<group>";
@@ -644,6 +653,9 @@
 				E9B0E4623EB56A05D903707A /* SamCardView.swift in Sources */,
 				72106E8C4DD4C8D40946448A /* SamCardViewModel.swift in Sources */,
 				782DC6502A7BD2BD46BC4BD5 /* PennyRiskRow.swift in Sources */,
+				C0CEF0D7485D872AE4F08221 /* TeamHeadModels.swift in Sources */,
+				6F333BF205C8178C78B34A41 /* HeadCardViewModel.swift in Sources */,
+				5771288702B2F98773203CBF /* HeadCardView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -717,7 +729,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.3.1;
+				MARKETING_VERSION = 1.3.2;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = "ca.mowology.crm-field";
@@ -803,7 +815,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.3.1;
+				MARKETING_VERSION = 1.3.2;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

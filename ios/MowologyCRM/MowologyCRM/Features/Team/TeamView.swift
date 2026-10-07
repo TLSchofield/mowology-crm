@@ -3,9 +3,10 @@
 //  MowologyCRM
 //
 //  The admin's "Team" tab (replaces Account for admins): the department heads across
-//  the top — Penny and Sam are working, the rest are coming. Tapping a working head's face
-//  switches the card under the row (Penny's receipts by default, Sam's sales desk), and
-//  the profile row and Sign Out (moved here from Account) sit at the bottom.
+//  the top. Tapping a face switches the card under the row — Penny's receipts (default),
+//  Sam's sales desk, and one shared HeadCardView for Otto, Mia, Yui and Charlie (their
+//  column of the dashboard Action Board, their brain and their one action). The profile
+//  row and Sign Out (moved here from Account) sit at the bottom.
 //
 
 import SwiftUI
@@ -23,10 +24,10 @@ struct TeamHead: Identifiable, Hashable {
     static let all: [TeamHead] = [
         TeamHead(slug: "penny",   name: "Penny",   role: "Bookkeeper",     isLive: true),
         TeamHead(slug: "sam",     name: "Sam",     role: "Sales",          isLive: true),
-        TeamHead(slug: "otto",    name: "Otto",    role: "Operations",     isLive: false),
-        TeamHead(slug: "mia",     name: "Mia",     role: "Marketing",      isLive: false),
-        TeamHead(slug: "yui",     name: "Yui",     role: "Communications", isLive: false),
-        TeamHead(slug: "charlie", name: "Charlie", role: "Chief of Staff", isLive: false),
+        TeamHead(slug: "otto",    name: "Otto",    role: "Operations",     isLive: true),
+        TeamHead(slug: "mia",     name: "Mia",     role: "Marketing",      isLive: true),
+        TeamHead(slug: "yui",     name: "Yui",     role: "Communications", isLive: true),
+        TeamHead(slug: "charlie", name: "Charlie", role: "Chief of Staff", isLive: true),
     ]
 }
 
@@ -35,12 +36,17 @@ struct TeamView: View {
     @ObservedObject var authSession: AuthSession
     @StateObject private var penny: PennyCardViewModel
     @StateObject private var sam: SamCardViewModel
+    @StateObject private var otto: HeadCardViewModel
+    @StateObject private var mia: HeadCardViewModel
+    @StateObject private var yui: HeadCardViewModel
+    @StateObject private var charlie: HeadCardViewModel
     /// Whose card is showing under the faces. Penny is the default.
     @State private var selected: String
     /// Shows the profile row + Sign Out; off only for the static render (no AuthSession needed there).
     private let showsAccount: Bool
 
     init(authSession: AuthSession, api: BookkeeperDeskAPI? = nil, salesAPI: SalesDeskAPI? = nil,
+         teamAPI: TeamHeadAPI? = nil, geocoder: AddressGeocoder = AppleAddressGeocoder(),
          showsAccount: Bool = true, selected: String = "penny") {
         self.authSession = authSession
         self.showsAccount = showsAccount
@@ -48,6 +54,11 @@ struct TeamView: View {
         let deskAPI = api ?? LiveBookkeeperDeskAPI(client: client)
         _penny = StateObject(wrappedValue: PennyCardViewModel(api: deskAPI))
         _sam = StateObject(wrappedValue: SamCardViewModel(api: salesAPI ?? LiveSalesDeskAPI(client: client)))
+        let heads = teamAPI ?? LiveTeamHeadAPI(client: client)
+        _otto = StateObject(wrappedValue: HeadCardViewModel(head: "otto", api: heads, geocoder: geocoder))
+        _mia = StateObject(wrappedValue: HeadCardViewModel(head: "mia", api: heads, geocoder: geocoder))
+        _yui = StateObject(wrappedValue: HeadCardViewModel(head: "yui", api: heads, geocoder: geocoder))
+        _charlie = StateObject(wrappedValue: HeadCardViewModel(head: "charlie", api: heads, geocoder: geocoder))
         _selected = State(initialValue: selected)
     }
 
@@ -58,7 +69,14 @@ struct TeamView: View {
                     headsRow
 
                     VStack(alignment: .leading, spacing: 12) {
-                        if selected == "sam" {
+                        if let head = headVM {
+                            HStack(spacing: 8) {
+                                Text(headTitle).font(.title3.bold())
+                                Spacer()
+                                if head.isLoading && head.hasLoaded { ProgressView() }
+                            }
+                            HeadCardView(vm: head)
+                        } else if selected == "sam" {
                             HStack(spacing: 8) {
                                 Text("Sam's sales desk").font(.title3.bold())
                                 Spacer()
@@ -97,18 +115,36 @@ struct TeamView: View {
             .background(Color(.systemGroupedBackground))
             .scrollDismissesKeyboard(.interactively)
             .refreshable {
-                if selected == "sam" { await sam.load() } else { await penny.load() }
+                if let head = headVM { await head.load() } else if selected == "sam" { await sam.load() } else { await penny.load() }
             }
             .navigationTitle("Team")
             .navigationBarTitleDisplayMode(.inline)
             .task(id: selected) {
-                if selected == "sam" {
+                if let head = headVM {
+                    if !head.hasLoaded { await head.load() }
+                } else if selected == "sam" {
                     if !sam.hasLoaded { await sam.load() }
                 } else if !penny.hasLoaded {
                     await penny.load()
                 }
             }
         }
+    }
+
+    /// The shared head card's model for the selected face (nil for Penny and Sam).
+    private var headVM: HeadCardViewModel? {
+        switch selected {
+        case "otto":    return otto
+        case "mia":     return mia
+        case "yui":     return yui
+        case "charlie": return charlie
+        default:        return nil
+        }
+    }
+
+    private var headTitle: String {
+        guard let h = TeamHead.all.first(where: { $0.slug == selected }) else { return "" }
+        return "\(h.name) · \(h.role)"
     }
 
     // MARK: - Faces

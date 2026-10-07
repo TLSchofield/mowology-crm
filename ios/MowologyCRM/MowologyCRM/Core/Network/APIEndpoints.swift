@@ -151,6 +151,15 @@ enum APIEndpoint {
     /// "draft_reply"|"handled"|"answer", card_key?, reply_key?, key?, channel?, subject?, body?, … }
     case salesAction
 
+    /// GET /api/team/team-mobile?mode=brief&head=charlie|otto|mia|yui — one head's card: the
+    /// Action Board's top 3 for that head, the brain, and the head's extra (Charlie's Ask status,
+    /// Otto's unpinned properties, Mia's Google post draft) (JWT, admin).
+    case teamHeadBrief(head: String)
+
+    /// POST /api/team/team-mobile — head actions (JWT, admin). Body: { mode: "act"|"geocode"|
+    /// "gbp_post"|"ask", key?, what?, property_id?, lat?, lng?, id?, question? }
+    case teamHeadAction
+
     /// GET /api/expenses/expense-lookup?type=vendors|jobs|categories|duplicates&… —
     /// review-form lookups shared with the Android review card (JWT). Uses `type=`
     /// because the /api/ router's rewrite appends its own `action` param.
@@ -368,6 +377,14 @@ enum APIEndpoint {
         case .salesAction:
             return URL(string: "\(baseURLString)/sales/sales-head-mobile")
 
+        case .teamHeadBrief(let head):
+            var components = URLComponents(string: "\(baseURLString)/team/team-mobile")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "brief"), URLQueryItem(name: "head", value: head)]
+            return components?.url
+
+        case .teamHeadAction:
+            return URL(string: "\(baseURLString)/team/team-mobile")
+
         case .expenseLookup(let query):
             var components = URLComponents(string: "\(baseURLString)/expenses/expense-lookup")
             components?.queryItems = query
@@ -508,6 +525,8 @@ enum APIEndpoint {
              .salesDesk,
              .salesThread,
              .salesAction,
+             .teamHeadBrief,
+             .teamHeadAction,
              .expenseLookup,
              .expenseDelete,
              .expenseLineItems,
@@ -562,6 +581,7 @@ enum APIEndpoint {
              .receiptAction,
              .bookkeeperAction,
              .salesAction,
+             .teamHeadAction,
              .expenseDelete,
              .expenseLineItemAction,
              .deviceTokenRegister: return "POST"
@@ -571,6 +591,7 @@ enum APIEndpoint {
              .bookkeeperRisk,
              .salesDesk,
              .salesThread,
+             .teamHeadBrief,
              .expenseLookup,
              .expenseLineItems,
              .scheduleJobs,
