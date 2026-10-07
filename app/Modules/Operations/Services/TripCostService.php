@@ -248,6 +248,7 @@ class TripCostService
         $st = $this->settings();
         $places = [];
         foreach ($this->seg->places() as $p) $places[(int)$p['id']] = $p;
+        $claimed = [];   // a receipt belongs to one stop a day — the first that claims it (2026-10-07: #412 was counted on two Lawnboy runs)
         foreach ($day['runs'] as &$run) {
             $c = $run['crew'];
             $driver = $this->person($c['driver_id']);
@@ -262,11 +263,12 @@ class TripCostService
                     // Prefer the time-matched receipt(s) over the vendor-word match.
                     $rc = ['ids' => array_column($evs, 'receipt_id'), 'total' => round(array_sum(array_column($evs, 'total')), 2)];
                 } elseif ($leg['place_id'] && isset($places[$leg['place_id']])) {
-                    $rc = $this->receipts($date, $places[$leg['place_id']], self::matchedElsewhere($penny['stops'], $leg['arrived_at']));
+                    $rc = $this->receipts($date, $places[$leg['place_id']], array_merge(self::matchedElsewhere($penny['stops'], $leg['arrived_at']), $claimed));
                 } else {
                     $rc = ['ids' => [], 'total' => 0.0];
                 }
                 $leg['receipt_ids'] = $rc['ids'];
+                $claimed = array_merge($claimed, array_map('intval', $rc['ids']));
                 $leg['cost'] = self::cost($leg['drive_min'], $leg['onsite_min'], $leg['km'], $c['driver_id'] ? $driver['rate'] : null, $st['burden_pct'], $people, $st['per_km'], $rc['total']);
                 $run['total'] += $leg['cost']['total'];
             }
