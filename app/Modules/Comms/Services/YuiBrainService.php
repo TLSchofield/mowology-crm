@@ -4,7 +4,9 @@
  *
  *   unchanged — drafts Tim sent as written (she has his voice for those)
  *   edited    — drafts Tim rewrote before sending (each one a lesson)
- *   lessons   — templates she now writes Tim's way (renewal, check-in, arrears…)
+ *   messages  — one triangle per template Tim rewrote (renewal, check-in, arrears…), coloured
+ *               by strength: sent as written since, a rewrite drops a tier (HeadBrain::templateItems;
+ *               replaces the old "lessons" count)
  *   handled   — items Tim cleared (what doesn't need a message)
  *   badges    — badges earned
  * Counted from Yui's start line (ops_settings yui_brain_baseline), so she starts at shape 1.
@@ -20,7 +22,6 @@ class YuiBrainService
     public const LABELS = [
         'unchanged' => ['draft sent as written', 'drafts sent as written'],
         'edited'    => ['draft you rewrote', 'drafts you rewrote'],
-        'lessons'   => ['message written your way', 'messages written your way'],
         'handled'   => ['item you cleared', 'items you cleared'],
         'badges'    => ['badge', 'badges'],
     ];
@@ -38,10 +39,10 @@ class YuiBrainService
         $raw = [
             'unchanged' => $c['unchanged'],
             'edited'    => $c['edited'],
-            'lessons'   => $c['lessons'],
             'handled'   => $c['handled'],
             'badges'    => count((new YuiBadgeService($this->db))->badges()['earned']),
         ];
-        return (new HeadBrain($this->db, 'yui'))->learned($raw, self::LABELS);
+        $hb = new HeadBrain($this->db, 'yui');
+        return HeadBrain::withItems($hb->learned($raw, self::LABELS), $hb->templateItems('yui_actions', 'Messages'));
     }
 }

@@ -65,7 +65,9 @@ $__team = [
       <div class="mw-head-photo">
         <img src="/crm/img/heads/penny.jpg" alt="Penny, bookkeeper" width="168" height="168">
         <?php if ($__brain !== null): ?>
-          <button type="button" class="mw-brain" aria-label="Penny's brain: <?= (int)$__brain['units'] ?> things learned"
+          <button type="button" class="mw-brain" data-head="Penny" aria-label="Penny's brain: <?= (int)$__brain['units'] ?> things learned"
+                  data-empty="Nothing learned yet. Every receipt you approve or correct teaches her something."
+                  data-teach="She glows brighter the more often she's right first time"
                   data-units="<?= (int)$__brain['units'] ?>"
                   data-bright="<?= h((string)(($ps['right_first_time'] ?? 50) / 100)) ?>"
                   data-parts="<?= h(json_encode($__brain['parts'])) ?>"
@@ -209,5 +211,5 @@ $__team = [
   <?php endif; ?>
 </div>
 <script src="<?= function_exists('_av') ? _av('/crm/js/bookkeeper-card.js') : '/crm/js/bookkeeper-card.js' ?>" defer></script>
-<script src="<?= function_exists('_av') ? _av('/crm/js/penny-brain.js') : '/crm/js/penny-brain.js' ?>" defer></script>
+<script src="<?= function_exists('_av') ? _av('/crm/js/head-brain.js') : '/crm/js/head-brain.js' ?>" defer></script>
 <script src="<?= function_exists('_av') ? _av('/crm/js/penny-bank.js') : '/crm/js/penny-bank.js' ?>" defer></script>

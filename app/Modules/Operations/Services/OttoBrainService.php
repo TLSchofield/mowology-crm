@@ -4,7 +4,9 @@
  * (shared HeadBrain, start line in ops_settings "otto_brain_baseline").
  *
  * Every unit is something real, learned from the owner:
- *   weather   service types where Otto now leans one way (3+ of the owner's rain calls)
+ *   weather   one triangle per service type where Otto now leans one way (3+ of the owner's
+ *             rain calls), coloured by strength = the calls on the side he leans to
+ *             (HeadBrain::TIERS). Replaces the old "weather" count.
  *   crew      people whose quiet phone Otto now waits longer for (owner's answer)
  *   durations plans whose visit length the owner has set
  *   answers   questions the owner answered
@@ -16,11 +18,11 @@
 require_once __DIR__ . '/OttoBadgeService.php';
 require_once __DIR__ . '/OttoQuestionService.php';
 require_once __DIR__ . '/OttoRules.php';
+require_once dirname(__DIR__, 3) . '/Services/HeadBrain.php';
 
 class OttoBrainService
 {
     public const LABELS = [
-        'weather'   => ['service type with a rain call learned', 'service types with a rain call learned'],
         'crew'      => ['crew phone pattern learned', 'crew phone patterns learned'],
         'durations' => ['visit length learned', 'visit lengths learned'],
         'answers'   => ['question answered', 'questions answered'],
@@ -45,8 +47,9 @@ class OttoBrainService
     /** @return array{units: int, parts: array, since: ?string, bright: float} */
     public function learned(?int $rightFirstTime): array
     {
+        $weather = $this->lessons('weather', true);
         $raw = self::rawCounts(
-            $this->lessons('weather'),
+            [],
             count($this->lessons('silent')),
             count($this->lessons('duration')),
             (new OttoQuestionService($this->db))->answeredCount(),
@@ -54,17 +57,19 @@ class OttoBrainService
             $this->dispatchCounts()
         );
         require_once APP_ROOT . '/Services/HeadBrain.php';
-        $b = (new HeadBrain($this->db, 'otto'))->learned($raw, self::LABELS);
+        unset($raw['weather']);
+        $b = HeadBrain::withItems((new HeadBrain($this->db, 'otto'))->learned($raw, self::LABELS), self::weatherItems($weather));
         $b['bright'] = $rightFirstTime === null ? 0.5 : max(0.0, min(1.0, $rightFirstTime / 100));
         return $b;
     }
 
-    private function lessons(string $scope): array
+    private function lessons(string $scope, bool $keyed = false): array
     {
         try {
-            $s = $this->db->prepare("SELECT value_json FROM otto_lessons WHERE scope = ?");
+            $s = $this->db->prepare("SELECT scope_key, value_json FROM otto_lessons WHERE scope = ?");
             $s->execute([$scope]);
-            return array_map(fn($j) => json_decode((string)$j, true) ?: [], $s->fetchAll(PDO::FETCH_COLUMN));
+            $rows = array_map(fn($j) => json_decode((string)$j, true) ?: [], $s->fetchAll(PDO::FETCH_KEY_PAIR));
+            return $keyed ? $rows : array_values($rows);
         } catch (Throwable $e) {
             return [];
         }
@@ -86,6 +91,26 @@ class OttoBrainService
             $tr = new TrainingService($this->db);
             if ($tr->ready()) $out = $tr->learnedCounts() + $out;
         } catch (Throwable $e) { /* no certification tables */ }
+        return $out;
+    }
+
+    /**
+     * Pure: [service type => lesson{keep: int[], move: int[]}] → one item per service type
+     * with LEAN_MIN+ of the owner's calls (as the old count); strength = calls on the bigger side.
+     */
+    public static function weatherItems(array $lessons): array
+    {
+        $out = [];
+        foreach ($lessons as $type => $l) {
+            $keep = count((array)($l['keep'] ?? []));
+            $move = count((array)($l['move'] ?? []));
+            $n = $keep + $move;
+            if ($n < OttoRules::LEAN_MIN) continue;
+            $agree = max($keep, $move);
+            $lean = $agree / $n < OttoRules::LEAN_SHARE ? 'no clear lean yet' : ($keep >= $move ? 'keep it' : 'move it');
+            $out[] = HeadBrain::item('weather:' . $type, ucfirst((string)$type) . ' in the rain: ' . $lean, $agree,
+                ['group' => 'Rain calls', 'note' => $agree . ' of ' . $n . ' calls agree']);
+        }
         return $out;
     }
 

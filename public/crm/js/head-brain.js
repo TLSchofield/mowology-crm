@@ -9,6 +9,14 @@
  * Every thing the head has learned (HeadBrain.php) moves it on one shape and lights one
  * more triangle; the newest one pulses; it glows brighter the more often the head is right.
  *
+ * Strength tiers (2026-10-07): a part with a stable key ("vendor:12", "payee:telus mobility")
+ * is one learned item. It lights ITS OWN triangle (key hash → triangle, linear probing) in
+ * the material of its tier — Obsidian → Black → Bronze → Silver → Gold → White → Platinum —
+ * from its `strength` (confirmations in a row; HeadBrain::TIERS holds the thresholds, TIERS
+ * below mirrors them). Parts without a key are counts: they light the rest in sweep order,
+ * as Bronze. The popup lists items by group, then tier, with a swatch and a legend.
+ * Penny's card uses this too (.mw-brain[data-head]); penny-brain.js is no longer loaded.
+ *
  * Markup: <button class="mw-head-brain" data-head="Sam" data-units data-bright data-parts='[…]'
  *                 data-since data-empty="…" data-teach="…"><canvas></canvas></button>
  * No libraries — canvas 2D with a hand-rolled projection.
@@ -137,20 +145,115 @@
         }).sort(function (a, b) { return a.k - b.k; }).map(function (o) { return o.i; });
     }
 
+    // ── Strength tiers ─────────────────────────────────────────────────────
+    // Mirrors HeadBrain::TIERS (app/Services/HeadBrain.php) — the thresholds live there;
+    // change both together. Strength = confirmations in a row; unset reads as Bronze.
+    // Each tier is a material: base colour, specular highlight, how shiny, how much ambient.
+    var TIERS = [
+        { slug: 'obsidian', name: 'Obsidian', min: 1,  base: [16, 13, 22],    hi: [190, 150, 255], shin: 40, spec: 0.9,  amb: 0.75, glass: true },
+        { slug: 'black',    name: 'Black',    min: 2,  base: [58, 60, 64],    hi: [150, 152, 156], shin: 4,  spec: 0.12, amb: 0.7 },
+        { slug: 'bronze',   name: 'Bronze',   min: 3,  base: [150, 86, 40],   hi: [240, 170, 110], shin: 18, spec: 0.5,  amb: 0.55 },
+        { slug: 'silver',   name: 'Silver',   min: 5,  base: [128, 138, 152], hi: [255, 255, 255], shin: 26, spec: 0.8,  amb: 0.5 },
+        { slug: 'gold',     name: 'Gold',     min: 10, base: [214, 164, 34],  hi: [255, 244, 176], shin: 20, spec: 0.85, amb: 0.5 },
+        { slug: 'white',    name: 'White',    min: 20, base: [252, 249, 240], hi: [255, 255, 255], shin: 60, spec: 0.3,  amb: 0.92 },
+        { slug: 'platinum', name: 'Platinum', min: 50, base: [196, 208, 228], hi: [235, 245, 255], shin: 14, spec: 0.9,  amb: 0.7, irid: true, glow: true }
+    ];
+    var UNSET_TIER = 2;
+    function tierRank(strength) {
+        if (strength === null || strength === undefined || strength === '' || isNaN(strength)) return UNSET_TIER;
+        var s = Number(strength), r = 0;
+        for (var i = 0; i < TIERS.length; i++) if (s >= TIERS[i].min) r = i;
+        return r;
+    }
+
+    // ── Shading ────────────────────────────────────────────────────────────
+    var LIGHT = norm([-0.45, 0.65, 0.62]), HALF = norm([LIGHT[0], LIGHT[1], LIGHT[2] + 1]);
+    function clamp(v) { return v < 0 ? 0 : v > 255 ? 255 : Math.round(v); }
+    function mix(a, b, t) { return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]; }
+    function hsl(h, s, l) {                        // h 0..360 → rgb 0..255
+        h = ((h % 360) + 360) % 360 / 360;
+        function f(n) { var k = (n + h * 12) % 12, a = s * Math.min(l, 1 - l); return 255 * (l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1))); }
+        return [f(0), f(8), f(4)];
+    }
+    /** Colour of a face of this material with view-space normal n (facing the viewer), at time t. */
+    function shade(T, n, t) {
+        var d = Math.max(0, n[0] * LIGHT[0] + n[1] * LIGHT[1] + n[2] * LIGHT[2]);
+        var sp = Math.pow(Math.max(0, n[0] * HALF[0] + n[1] * HALF[1] + n[2] * HALF[2]), T.shin) * T.spec;
+        var hi = T.hi;
+        if (T.irid) hi = hsl(200 + n[0] * 140 + n[1] * 90 + t * 0.012, 0.75, 0.78);      // cool rainbow sheen that drifts as it turns
+        if (T.glass) hi = n[0] > 0 ? [160, 110, 240] : [70, 210, 150];                  // obsidian: purple / green glints
+        var k = T.amb + (1 - T.amb) * d;
+        return [clamp(T.base[0] * k + hi[0] * sp), clamp(T.base[1] * k + hi[1] * sp), clamp(T.base[2] * k + hi[2] * sp)];
+    }
+    function edgeOf(T, n, onLight) {
+        if (T.glass) return n[0] > 0 ? [150, 100, 220] : [70, 190, 140];
+        if (onLight) return mix(T.base, [20, 24, 28], T.slug === 'black' ? 0.6 : 0.5);
+        return mix(T.base, [255, 255, 255], T.slug === 'black' ? 0.3 : 0.4);
+    }
+    function rgba(c, a) { return 'rgba(' + clamp(c[0]) + ',' + clamp(c[1]) + ',' + clamp(c[2]) + ',' + a.toFixed(3) + ')'; }
+
+    /** Is the brain drawn on a light background (the popup) or the dark one (the card)? */
+    function onLightBg(el) {
+        for (var i = 0; el && i < 5; i++, el = el.parentElement) {
+            var cs = getComputedStyle(el), src = cs.backgroundImage !== 'none' ? cs.backgroundImage : cs.backgroundColor;
+            var m = src.match(/rgba?\([^)]+\)/g);
+            if (!m) continue;
+            var cols = m.map(function (c) { return c.replace(/[^\d.,]/g, '').split(',').map(Number); })
+                        .filter(function (c) { return c.length < 4 || c[3] > 0.05; });
+            if (!cols.length) continue;
+            var l = cols.reduce(function (s, c) { return s + (0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]) / 255; }, 0) / cols.length;
+            return l > 0.6;
+        }
+        return false;
+    }
+
+    // ── Which triangle is whose ────────────────────────────────────────────
+    function hash(str) {                           // FNV-1a, 32-bit
+        var h = 0x811c9dc5;
+        for (var i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+        return h >>> 0;
+    }
+    function isItem(p) { return p && typeof p.key === 'string' && p.key.indexOf(':') > 0; }
+
+    /**
+     * Each keyed item lands on "its" triangle (key hash modulo the triangle count, linear
+     * probing on a collision; keys placed in sorted order so it never depends on list order).
+     * The rest of the units (counted things with no key) light in the old sweep order.
+     */
+    function assign(sh, units, items) {
+        var n = sh.tris.length, owner = new Array(n), lit = 0;
+        items.slice().sort(function (a, b) { return a.key < b.key ? -1 : a.key > b.key ? 1 : 0; }).forEach(function (it) {
+            if (lit >= n) return;
+            var i = hash(it.key) % n;
+            while (owner[i]) i = (i + 1) % n;
+            owner[i] = { tier: tierRank(it.strength), item: it };
+            lit++;
+        });
+        var order = lightOrder(sh.tris), rest = Math.max(0, units - items.length), last = -1;
+        for (var o = 0; o < order.length && rest > 0; o++) {
+            if (owner[order[o]]) continue;
+            owner[order[o]] = { tier: UNSET_TIER, item: null };
+            last = order[o]; rest--; lit++;
+        }
+        // Newest: the item touched most recently (its `at`), else the last counted triangle.
+        var newest = last, at = '';
+        for (var i = 0; i < n; i++) if (owner[i] && owner[i].item && owner[i].item.at && String(owner[i].item.at) > at) { at = String(owner[i].item.at); newest = i; }
+        return { owner: owner, lit: lit, newest: newest };
+    }
+
     var still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-    function draw(canvas, units, bright) {
+    function draw(canvas, units, bright, items) {
+        units = Math.max(units, items.length);
         var k = Math.max(1, Math.min(SHAPES, units + 1));
-        var sh = shape(k), order = lightOrder(sh.tris), litN = Math.min(units, sh.tris.length);
-        var lit = new Uint8Array(sh.tris.length);
-        order.slice(0, litN).forEach(function (i) { lit[i] = 1; });
-        var newest = litN > 0 ? order[litN - 1] : -1;
-        var t0 = performance.now(), alive = true;
+        var sh = shape(k), A = assign(sh, units, items), owner = A.owner, newest = A.newest;
+        var t0 = performance.now(), alive = true, light = null;
         function frame(now) {
             if (!alive || !canvas.isConnected) return;
             var dpr = window.devicePixelRatio || 1, W = canvas.clientWidth, H = canvas.clientHeight;
             if (!W || !H) { requestAnimationFrame(frame); return; }
             if (canvas.width !== Math.round(W * dpr)) { canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr); }
+            if (light === null) light = onLightBg(canvas);
             var g = canvas.getContext('2d');
             g.setTransform(dpr, 0, 0, dpr, 0, 0);
             var R = Math.min(W, H) * 0.32;
@@ -159,7 +262,7 @@
             function P(v) {
                 var x = v[0] * ca + v[2] * sa, z = -v[0] * sa + v[2] * ca, y = v[1];
                 var y2 = y * ct - z * st, z2 = y * st + z * ct, s = 3.2 / (3.2 - z2);
-                return [W / 2 + x * R * s, H / 2 - y2 * R * s, z2];
+                return [W / 2 + x * R * s, H / 2 - y2 * R * s, z2, x, y2];
             }
             g.clearRect(0, 0, W, H);
             var faces = new Array(sh.tris.length);
@@ -170,14 +273,28 @@
             }
             faces.sort(function (x, y) { return x.z - y.z; });
             var pulse = still ? 1 : 0.5 + 0.5 * Math.sin(now / 380), thin = sh.tris.length > 300 ? 0.5 : 0.8;
+            var t = still ? 0 : now - t0, fade = 0.72 + 0.28 * bright;
             for (var f = 0; f < faces.length; f++) {
-                var fc = faces[f], depth = (fc.z + 1.2) / 2.4;
-                g.beginPath(); g.moveTo(fc.p[0][0], fc.p[0][1]); g.lineTo(fc.p[1][0], fc.p[1][1]); g.lineTo(fc.p[2][0], fc.p[2][1]); g.closePath();
-                if (lit[fc.i]) {
-                    var al = (fc.front ? 0.3 + 0.6 * depth : 0.1) * (0.45 + 0.55 * bright);
-                    if (fc.i === newest) al = Math.min(1, al + 0.4 * pulse);
-                    g.fillStyle = 'rgba(127,216,88,' + al.toFixed(3) + ')'; g.fill();
-                    g.strokeStyle = 'rgba(200,245,180,' + (fc.front ? 0.7 : 0.18) + ')';
+                var fc = faces[f], q = fc.p, own = owner[fc.i];
+                g.beginPath(); g.moveTo(q[0][0], q[0][1]); g.lineTo(q[1][0], q[1][1]); g.lineTo(q[2][0], q[2][1]); g.closePath();
+                if (own) {
+                    var T = TIERS[own.tier];
+                    // view-space normal, turned to face the viewer
+                    var ux = q[1][3] - q[0][3], uy = q[1][4] - q[0][4], uz = q[1][2] - q[0][2];
+                    var vx = q[2][3] - q[0][3], vy = q[2][4] - q[0][4], vz = q[2][2] - q[0][2];
+                    var nrm = norm([uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx]);
+                    if (nrm[2] < 0) nrm = [-nrm[0], -nrm[1], -nrm[2]];
+                    var col = shade(T, nrm, t);
+                    if (fc.front) {
+                        if (T.glow) { g.shadowColor = rgba(light ? [150, 175, 215] : [215, 230, 255], 0.85); g.shadowBlur = 7; }
+                        g.fillStyle = rgba(col, fade); g.fill();
+                        g.shadowBlur = 0;
+                        if (fc.i === newest) { g.fillStyle = 'rgba(127,216,88,' + (0.55 * pulse).toFixed(3) + ')'; g.fill(); }
+                        g.strokeStyle = fc.i === newest ? 'rgba(200,245,180,0.9)' : rgba(edgeOf(T, nrm, light), 0.8);
+                    } else {
+                        g.fillStyle = rgba(col, 0.14); g.fill();
+                        g.strokeStyle = rgba(edgeOf(T, nrm, light), 0.16);
+                    }
                 } else {
                     g.strokeStyle = 'rgba(232,243,240,' + (fc.front ? 0.26 : 0.07) + ')';
                 }
@@ -186,7 +303,27 @@
             if (!still) requestAnimationFrame(frame);
         }
         requestAnimationFrame(frame);
-        return { shape: sh, lit: litN, stop: function () { alive = false; } };
+        return { shape: sh, lit: A.lit, stop: function () { alive = false; } };
+    }
+
+    /** A small swatch of a tier's material, as an image (drawn once per tier). */
+    var swatches = {};
+    function swatch(rank) {
+        if (swatches[rank]) return swatches[rank];
+        var T = TIERS[rank], c = document.createElement('canvas'), s = 2, w = 14;
+        c.width = c.height = w * s;
+        var g = c.getContext('2d');
+        g.scale(s, s);
+        var left = shade(T, norm([-0.5, 0.45, 0.75]), 0), right = shade(T, norm([0.55, -0.1, 0.83]), 0);
+        var gr = g.createLinearGradient(0, 0, w, w);
+        gr.addColorStop(0, rgba(left, 1)); gr.addColorStop(1, rgba(right, 1));
+        g.beginPath(); g.moveTo(w / 2, 1); g.lineTo(w - 1, w - 1.5); g.lineTo(1, w - 1.5); g.closePath();
+        g.fillStyle = gr; g.fill();
+        g.lineWidth = 1; g.strokeStyle = rgba(T.glass ? [150, 100, 220] : mix(T.base, [20, 24, 28], 0.45), 0.9); g.stroke();
+        return (swatches[rank] = c.toDataURL());
+    }
+    function swatchImg(rank) {
+        return '<img class="mw-brain-swatch" src="' + swatch(rank) + '" alt="" width="14" height="14">';
     }
 
     function esc(s) {
@@ -195,7 +332,48 @@
         });
     }
 
+    var SHOW_PER_TIER = 8;
+    function itemLine(p) {
+        var r = tierRank(p.strength), note = p.note;
+        if (!note) {
+            if (p.strength === null || p.strength === undefined) note = 'strength not tracked';
+            else { var n = p.streak !== undefined ? p.streak : p.strength; note = n + ' in a row'; }
+        }
+        return '<li>' + swatchImg(r) + ' ' + esc(p.label) + ' · ' + TIERS[r].name + ' · ' + esc(note) +
+            (p.corrected_recently ? ' · <span class="mw-brain-corrected">corrected recently</span>' : '') + '</li>';
+    }
+    /** Items grouped by skill ("Receipt vendors", "Bank payees"…), then by tier, strongest first. */
+    function itemsHtml(items) {
+        var groups = [], by = {};
+        items.forEach(function (p) {
+            var gname = p.group || 'Learned';
+            if (!by[gname]) { by[gname] = []; groups.push(gname); }
+            by[gname].push(p);
+        });
+        return groups.map(function (gname) {
+            var list = by[gname], html = '<div class="mw-brain-group"><h5>' + esc(gname) + ' (' + list.length + ')</h5>';
+            for (var r = TIERS.length - 1; r >= 0; r--) {
+                var inTier = list.filter(function (p) { return tierRank(p.strength) === r; })
+                    .sort(function (a, b) { return (Number(b.strength) || 0) - (Number(a.strength) || 0) || String(a.label).localeCompare(String(b.label)); });
+                if (!inTier.length) continue;
+                var shown = inTier.slice(0, SHOW_PER_TIER), more = inTier.slice(SHOW_PER_TIER);
+                html += '<ul class="mw-brain-tier-list">' + shown.map(itemLine).join('') + '</ul>';
+                if (more.length) {
+                    html += '<details class="mw-brain-more"><summary>' + more.length + ' more ' + TIERS[r].name + '</summary>' +
+                        '<ul class="mw-brain-tier-list">' + more.map(itemLine).join('') + '</ul></details>';
+                }
+            }
+            return html + '</div>';
+        }).join('');
+    }
+    function legendHtml() {
+        return '<p class="mw-brain-legend">' + TIERS.map(function (T, r) {
+            return '<span>' + swatchImg(r) + ' ' + T.name + '</span>';
+        }).join('') + '</p>';
+    }
+
     function open(btn, units, bright, parts, since, who, empty, teach) {
+        var items = parts.filter(isItem), counted = parts.filter(function (p) { return !isItem(p); });
         var pop = document.createElement('div');
         pop.className = 'mw-brain-pop mw-head-brain-pop';
         pop.setAttribute('role', 'dialog');
@@ -203,14 +381,18 @@
         pop.innerHTML = '<div class="mw-brain-card"><button type="button" class="mw-brain-close" aria-label="Close">✕</button>' +
             '<canvas class="mw-brain-big"></canvas><div class="mw-brain-facts"></div></div>';
         document.body.appendChild(pop);
-        var view = draw(pop.querySelector('canvas'), units, bright);
+        var view = draw(pop.querySelector('canvas'), units, bright, items);
         var k = view.shape.k;
         pop.querySelector('.mw-brain-facts').innerHTML =
             '<h4>' + esc(who) + '\'s brain · shape ' + k + ' of ' + SHAPES + '</h4>' +
             '<p>' + esc(view.shape.name) + ' · ' + view.lit + ' of ' + view.shape.tris.length + ' triangles lit</p>' +
-            (parts.length ? '<ul>' + parts.map(function (p) { return '<li>▲ ' + esc(p.label) + '</li>'; }).join('') + '</ul>'
-                          : '<p>' + esc(empty) + '</p>') +
-            '<p class="mw-brain-note">Each thing ' + esc(who) + ' learns lights a triangle and moves on to the next, more complex shape. ' +
+            legendHtml() +
+            (items.length ? itemsHtml(items) : '') +
+            (counted.length ? (items.length ? '<h5 class="mw-brain-also">Also learned</h5>' : '') +
+                '<ul>' + counted.map(function (p) { return '<li>▲ ' + esc(p.label) + '</li>'; }).join('') + '</ul>' : '') +
+            (!parts.length ? '<p>' + esc(empty) + '</p>' : '') +
+            '<p class="mw-brain-note">Each thing ' + esc(who) + ' learns lights its own triangle; its colour is how often in a row you\'ve ' +
+            'confirmed it unchanged (Obsidian first seen, Silver 5+, Platinum 50+), and a correction drops it one step. ' +
             esc(teach) + ' (' + Math.round(bright * 100) + '%).' +
             (since ? ' Counting since ' + esc(since) + '.' : '') + '</p>';
         function close() { view.stop(); pop.remove(); document.removeEventListener('keydown', onKey); btn.focus(); }
@@ -221,14 +403,15 @@
     }
 
     function init() {
-        document.querySelectorAll('.mw-head-brain').forEach(function (btn) {
+        document.querySelectorAll('.mw-head-brain, .mw-brain[data-head]').forEach(function (btn) {
             if (btn.dataset.ready) return;
             btn.dataset.ready = '1';
             var units = parseInt(btn.getAttribute('data-units') || '0', 10) || 0;
             var bright = Math.max(0, Math.min(1, parseFloat(btn.getAttribute('data-bright') || '0.5')));
             var parts = [];
             try { parts = JSON.parse(btn.getAttribute('data-parts') || '[]'); } catch (e) {}
-            var view = draw(btn.querySelector('canvas'), units, bright);
+            if (!Array.isArray(parts)) parts = [];
+            var view = draw(btn.querySelector('canvas'), units, bright, parts.filter(isItem));
             var who = btn.getAttribute('data-head') || 'Their';
             var empty = btn.getAttribute('data-empty') || 'Nothing learned yet.';
             var teach = btn.getAttribute('data-teach') || 'It glows brighter the more often it\'s right';
@@ -237,6 +420,6 @@
             btn.addEventListener('click', function () { open(btn, units, bright, parts, since, who, empty, teach); });
         });
     }
-    window.HeadBrain = { shape: shape, SHAPES: SHAPES };
+    window.HeadBrain = { shape: shape, SHAPES: SHAPES, TIERS: TIERS, tierRank: tierRank, hash: hash };
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();

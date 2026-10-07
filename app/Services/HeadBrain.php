@@ -10,11 +10,40 @@
  * and grows with what it learns from the owner from then on.
  * public/crm/js/head-brain.js draws the shape (one of 500, one new shape per thing learned).
  *
+ * Per-item strength (Tim, 2026-10-07): a head may also report ITEMS — one learned thing
+ * each (a vendor, a bank payee, a follow-up situation…) with a stable `key`
+ * ("vendor:12", "payee:telus mobility") and a `strength`: how many times in a row the
+ * owner confirmed it unchanged. Each item gets its own triangle (the key hashes to it)
+ * and its colour is its tier on the 7-step ladder in TIERS below — the ONE place the
+ * thresholds live; head-brain.js mirrors this table. An item with no strength shows as
+ * Bronze. A correction drops an item one tier (strengthFromHistory).
+ *
  * No namespace / no autoloader in production: require_once and `new`.
  */
 class HeadBrain
 {
     public const SHAPES = 500;
+
+    /**
+     * The strength ladder: [slug, name, lowest strength]. Strength = consistent
+     * confirmations (approved unchanged / right first time) in a row.
+     *   Obsidian 1 (first seen) · Black 2 · Bronze 3–4 · Silver 5–9 (trusted — Penny's
+     *   "5 in a row" vendor trust) · Gold 10–19 · White 20–49 · Platinum 50+.
+     * public/crm/js/head-brain.js TIERS mirrors these numbers — change both together.
+     */
+    public const TIERS = [
+        ['obsidian', 'Obsidian', 1],
+        ['black',    'Black',    2],
+        ['bronze',   'Bronze',   3],
+        ['silver',   'Silver',   5],
+        ['gold',     'Gold',     10],
+        ['white',    'White',    20],
+        ['platinum', 'Platinum', 50],
+    ];
+    /** Shown for an item whose head doesn't track strength. */
+    public const UNSET_TIER = 2;
+    /** At most this many items light triangles (the biggest shape has ~503); strongest kept. */
+    public const MAX_ITEMS = 480;
 
     private PDO $db;
     private string $key;
@@ -81,6 +110,129 @@ class HeadBrain
             if ($c > 0) $parts[] = ['key' => $k, 'label' => $c . ' ' . ($c === 1 ? $one : $many), 'n' => $c];
         }
         return ['units' => $units, 'parts' => $parts];
+    }
+
+    /**
+     * The tier for a strength. Null (not tracked) reads as Bronze; anything below 1 is
+     * still "first seen" (Obsidian).
+     * @return array{rank: int, slug: string, name: string, min: int}
+     */
+    public static function tier(?int $strength): array
+    {
+        $rank = self::UNSET_TIER;
+        if ($strength !== null) {
+            $rank = 0;
+            foreach (self::TIERS as $i => $t) if ($strength >= $t[2]) $rank = $i;
+        }
+        [$slug, $name, $min] = self::TIERS[$rank];
+        return ['rank' => $rank, 'slug' => $slug, 'name' => $name, 'min' => $min];
+    }
+
+    /** Strength after a correction: the bottom of the tier one below (never below first seen). */
+    public static function afterCorrection(int $strength): int
+    {
+        $rank = self::tier(max(1, $strength))['rank'];
+        return $rank === 0 ? 1 : self::TIERS[$rank - 1][2];
+    }
+
+    /**
+     * Fold an item's decisions, oldest first, into its strength. Each event is
+     * true (kept unchanged — one more confirmation) or false (corrected — drops one tier).
+     * The first event, either way, is "first seen" (1).
+     * @param bool[] $events
+     * @return array{strength: int, streak: int, corrected_recently: bool}
+     */
+    public static function strengthFromHistory(array $events): array
+    {
+        $s = 0;
+        $streak = 0;
+        $sinceCorrection = null;
+        foreach (array_values($events) as $kept) {
+            if ($kept) {
+                $s++;
+                $streak++;
+                if ($sinceCorrection !== null) $sinceCorrection++;
+            } else {
+                $s = $s === 0 ? 1 : self::afterCorrection($s);
+                $streak = 0;
+                $sinceCorrection = 0;
+            }
+        }
+        return ['strength' => $s, 'streak' => $streak,
+                'corrected_recently' => $sinceCorrection !== null && $sinceCorrection < 3];
+    }
+
+    /**
+     * One learned item as a brain part (the shape head-brain.js reads).
+     * @param array $extra optional: group, streak, corrected_recently, at (Y-m-d H:i:s), note
+     */
+    public static function item(string $key, string $label, ?int $strength, array $extra = []): array
+    {
+        $p = ['key' => $key, 'label' => $label, 'strength' => $strength === null ? null : max(1, $strength)];
+        foreach (['group', 'streak', 'corrected_recently', 'at', 'note'] as $k) {
+            if (array_key_exists($k, $extra) && $extra[$k] !== null) $p[$k] = $extra[$k];
+        }
+        return $p;
+    }
+
+    /**
+     * Add items to a counted brain (learned()/combine() result): every item lights its own
+     * triangle, so units grows by one per item. Items come first in parts, strongest first;
+     * past MAX_ITEMS the weakest are left off.
+     */
+    public static function withItems(array $brain, array $items): array
+    {
+        usort($items, fn($a, $b) => [($b['strength'] ?? 0), $a['key']] <=> [($a['strength'] ?? 0), $b['key']]);
+        $items = array_slice($items, 0, self::MAX_ITEMS);
+        $brain['parts'] = array_merge($items, $brain['parts'] ?? []);
+        $brain['units'] = (int)($brain['units'] ?? 0) + count($items);
+        return $brain;
+    }
+
+    /**
+     * Template lessons from a drafts table (Sam's sam_followups, Yui's yui_actions): one item
+     * per situation (template_key + channel) the owner rewrote; strength from the drafts for
+     * it since — sent as written = kept, rewritten = corrected.
+     * @param array<string, string> $names template_key => plain name
+     */
+    public function templateItems(string $table, string $group, array $names = []): array
+    {
+        if (!in_array($table, ['sam_followups', 'yui_actions'], true)) return [];
+        try {
+            $rows = $this->db->query("
+                SELECT template_key, channel, status, decided_at FROM {$table}
+                WHERE status IN ('sent', 'edited') AND template_key IS NOT NULL AND template_key <> ''
+                ORDER BY decided_at ASC, id ASC
+            ")->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            return [];
+        }
+        return self::templateItemsFrom($rows, $group, $names);
+    }
+
+    /** Pure: rows oldest first [template_key, channel, status, decided_at]. A situation is learned once rewritten. */
+    public static function templateItemsFrom(array $rows, string $group, array $names = []): array
+    {
+        $by = [];
+        foreach ($rows as $r) {
+            $k = $r['template_key'] . ':' . ($r['channel'] ?: 'email');
+            $by[$k]['events'][] = $r['status'] === 'sent';
+            $by[$k]['learned'] = ($by[$k]['learned'] ?? false) || $r['status'] === 'edited';
+            $by[$k]['at'] = $r['decided_at'] ?? null;
+            $by[$k]['tk'] = (string)$r['template_key'];
+            $by[$k]['ch'] = (string)($r['channel'] ?: 'email');
+        }
+        $out = [];
+        foreach ($by as $k => $v) {
+            if (!$v['learned']) continue;
+            // Learning starts at the first rewrite: that's the lesson; what came before was the stock template.
+            $first = array_search(false, $v['events'], true);
+            $h = self::strengthFromHistory(array_slice($v['events'], (int)$first));
+            $name = $names[$v['tk']] ?? ucfirst(str_replace('_', ' ', $v['tk']));
+            $out[] = self::item('template:' . $k, $name . ($v['ch'] === 'sms' ? ' (text)' : ' (email)'), $h['strength'],
+                ['group' => $group, 'streak' => $h['streak'], 'corrected_recently' => $h['corrected_recently'], 'at' => $v['at']]);
+        }
+        return $out;
     }
 
     /** Shape number (1-based) for this many things learned: one new shape per thing, up to SHAPES. */

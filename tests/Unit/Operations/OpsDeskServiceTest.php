@@ -70,9 +70,12 @@ class OpsDeskServiceTest extends TestCase
     {
         $raw = OttoBrainService::rawCounts([['keep' => [50, 55]], ['keep' => [50], 'move' => [80, 85]]], 2, 4, 1, 0);
         $this->assertSame(['weather' => 1, 'crew' => 2, 'durations' => 4, 'answers' => 1, 'badges' => 0], $raw);
+        // Weather lessons are their own triangles now (one per service type, coloured by strength).
         $b = HeadBrain::combine($raw, OttoBrainService::LABELS);
-        $this->assertSame(8, $b['units']);
-        $this->assertSame('1 service type with a rain call learned', $b['parts'][0]['label']);
+        $this->assertSame(7, $b['units']);
+        $items = OttoBrainService::weatherItems(['mowing' => ['keep' => [50, 55]], 'hedges' => ['keep' => [50], 'move' => [80, 85]]]);
+        $this->assertSame(['weather:hedges'], array_column($items, 'key'));
+        $this->assertSame(8, HeadBrain::withItems($b, $items)['units']);
     }
 
     public function test_weather_question_reads_plainly(): void
