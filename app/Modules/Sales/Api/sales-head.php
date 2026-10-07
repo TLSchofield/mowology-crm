@@ -19,6 +19,8 @@
  *                          billing contact (refuses $0).
  * POST {mode: 'ask_close', observation_id, csrf_token}           "Not now".
  *                          The desk response carries `asks` (FieldAskService::forSam()).
+ *                          and `unclaimed` (UnclaimedReplyService): customer replies no other net
+ *                          caught. "Handled" is POST /crm/api/charlie.php {mode: act, key, what: dismiss}.
  *
  * The card is always re-read on the server (card_key → SalesDeskService::queue()), so the
  * customer's address and quotes come from the CRM, never from the browser.
@@ -83,7 +85,8 @@ try {
     switch ($mode) {
         case 'desk': {
             $sq->scan();
-            $cards = array_slice($desk->queue(), 0, 25);
+            $all = $desk->queue();
+            $cards = array_slice($all, 0, 25);
             foreach ($cards as &$c) {
                 $c['draft'] = $fu->draft($c, $name);
                 $c['sms_ok'] = $c['phone'] !== '' && $c['contact_id'] && function_exists('hasSmConsent') && hasSmConsent((int)$c['contact_id']);
@@ -99,6 +102,7 @@ try {
                 'inbox'     => $desk->hasTable('sales_messages'),
                 'texts'     => (new TextBridgeService($db))->status(),   // messages bridge heartbeat, null = not set up
                 'asks'      => $asks->forSam(),                          // Ask-first notes: replied / no reply yet / crew drafts
+                'unclaimed' => array_slice($desk->unclaimed($all), 0, 12), // other customer replies nobody answered ("Handled" = Charlie dismiss)
             ]);
             break;
         }

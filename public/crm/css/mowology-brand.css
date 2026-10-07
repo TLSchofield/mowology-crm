@@ -37924,6 +37924,17 @@ body.mw-rc-zoom-open { overflow: hidden; }
 .mw-sam-lead-act .mw-rc-ed { background: var(--mw-ink-0); color: var(--mw-forest); border: 1px solid var(--mw-ink-200); border-radius: 9px; padding: 5px 10px; font-weight: 600; text-decoration: none; }
 .mw-sam-lead-act .mw-rc-sk { color: var(--mw-ink-500); background: none; border: 0; font-size: .75rem; }
 
+/* Replies waiting — customer replies no other list caught ("Handled" = Charlie dismiss) */
+.mw-sam-reply { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px dashed var(--mw-ink-200); font-size: .82rem; color: var(--mw-ink-900); }
+.mw-sam-reply-main { min-width: 0; }
+.mw-sam-reply-main q { color: var(--mw-ink-700); font-style: italic; }
+.mw-sam-reply-main small { color: var(--mw-ink-500); }
+.mw-sam-reply.is-yes .mw-sam-reply-main q { color: var(--mw-dark); font-weight: 700; font-style: normal; }
+.mw-sam-yes { display: inline-block; background: var(--mw-lime); color: var(--mw-forest); border-radius: var(--mw-radius-pill); padding: 0 8px; font-size: .7rem; font-weight: 800; text-transform: uppercase; letter-spacing: .03em; }
+@media (max-width: 767.98px) {
+    .mw-sam-reply { flex-direction: column; align-items: flex-start; }
+}
+
 /* Ask first — notes that got a reply ("Build the quote"), and ones with none yet */
 .mw-sam-ask-drafts { font-size: .8rem; color: var(--mw-ink-700); padding: 6px 0; border-top: 1px dashed var(--mw-ink-200); }
 .mw-sam-ask-drafts a { font-weight: 700; color: var(--mw-green); }

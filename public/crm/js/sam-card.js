@@ -11,6 +11,10 @@
  * note gets a card with "Build the quote" — the quote is built on that observation (photos
  * included) and then sent to the billing contact on a second click. Asks with no reply
  * after a week show as one quiet line. POST ask_build / ask_send_quote / ask_close.
+ *
+ * Replies waiting (UnclaimedReplyService): customer replies no other list caught — a
+ * hand-sent email answered, a text. Open goes to the contact; Handled is Charlie's
+ * act/dismiss for the same key (POST /crm/api/charlie.php), so it leaves his list too.
  */
 (function () {
     'use strict';
@@ -19,6 +23,9 @@
     var qbox = document.getElementById('mw-sq');
     var lbox = document.getElementById('mw-sam-leads');
     var abox = document.getElementById('mw-sam-asks');
+    var rbox = document.getElementById('mw-sam-replies');
+    var replies = [];        // unclaimed customer replies (desk.unclaimed)
+    var CHARLIE = '/crm/api/charlie.php';
     var asks = { replied: [], silent: [], drafts: 0 };
     var built = {};          // observation id → ask_build result
     var API = '/crm/api/sales-head.php';
@@ -74,8 +81,9 @@
                 if (!d || !d.ok) { root.innerHTML = '<div class="mw-rc-empty">Sam isn\'t set up yet.</div>'; return; }
                 queue = d.queue || []; leads = d.leads || []; questions = d.questions || []; texts = d.texts || null;
                 asks = d.asks || { replied: [], silent: [], drafts: 0 };
+                replies = d.unclaimed || [];
                 if (idx >= queue.length) idx = 0;
-                render(); renderLeads(); renderQuestions(); renderAsks();
+                render(); renderLeads(); renderQuestions(); renderAsks(); renderReplies();
             })
             .catch(function () { root.innerHTML = '<div class="mw-rc-empty">Couldn\'t load Sam\'s list — refresh to try again.</div>'; });
     }
@@ -167,6 +175,50 @@
             }
             renderAsks(d && (d.message || d.error) ? (d.message || d.error) : 'That didn\'t work — try again.');
         }).catch(function () { busy = false; renderAsks('Network error — nothing was sent. Try again.'); });
+    });
+
+    // ── Replies waiting ──────────────────────────────────────────────────
+    function renderReplies(msg) {
+        if (!rbox) return;
+        if (!replies.length && !msg) { rbox.hidden = true; return; }
+        rbox.hidden = false;
+        rbox.innerHTML = '<div class="mw-sam-leads-head"><b>Replies waiting</b> <small>customers who wrote back and haven\'t heard from us</small></div>' +
+            (msg ? '<div class="mw-rc-msg">' + esc(msg) + '</div>' : '') +
+            replies.slice(0, 6).map(function (r) {
+                return '<div class="mw-sam-reply' + (r.yes ? ' is-yes' : '') + '" data-k="' + esc(r.key) + '">' +
+                    '<div class="mw-sam-reply-main">' + (r.yes ? '<span class="mw-sam-yes">Yes</span> ' : '') +
+                    '<b>' + esc(r.name) + '</b> ' + (r.channel === 'sms' ? 'texted' : 'replied') +
+                    (r.quote ? ' <q>' + esc(r.quote) + '</q>' : '') +
+                    '<small class="mw-sam-meta">' + (r.channel !== 'sms' && r.subject ? esc(r.subject) + ' · ' : '') + esc(ago(r.at)) + '</small></div>' +
+                    '<div class="mw-sam-lead-act"><a class="mw-rc-ed" href="' + esc(r.url) + '">Open</a>' +
+                    '<button type="button" class="mw-rc-sk" data-handled>Handled</button></div></div>';
+            }).join('');
+    }
+    function charlieDismiss(key) {
+        var body = JSON.stringify({ mode: 'act', key: key, what: 'dismiss', csrf_token: window.MW_CSRF_TOKEN || '' });
+        var send = function () {
+            return fetch(CHARLIE, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body })
+                .then(function (r) { return r.json(); });
+        };
+        // Charlie only knows an item once his list has been read today; read it, then retry once.
+        return send().then(function (d) {
+            if (d && d.ok) return d;
+            return fetch(CHARLIE + '?mode=today', { cache: 'no-store' }).then(function () { return send(); });
+        });
+    }
+    if (rbox) rbox.addEventListener('click', function (e) {
+        var b = e.target.closest('[data-handled]'); if (!b || busy) return;
+        var key = b.closest('[data-k]').getAttribute('data-k'); busy = true; b.disabled = true;
+        charlieDismiss(key).then(function (d) {
+            busy = false;
+            if (d && d.ok) {
+                replies = replies.filter(function (r) { return r.key !== key; });
+                renderReplies('Marked handled.');
+            } else {
+                b.disabled = false;
+                renderReplies(d && (d.message || d.error) ? (d.message || d.error) : 'That didn\'t work — try again.');
+            }
+        }).catch(function () { busy = false; renderReplies('Network error — try again.'); });
     });
 
     // ── Leads ────────────────────────────────────────────────────────────

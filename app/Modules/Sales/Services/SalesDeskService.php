@@ -32,6 +32,8 @@ class SalesDeskService
     public const LEAD_MAX_AGE_DAYS = 60;
     /** Quotes this close to valid-until get the "last call" note. */
     public const LAST_CALL_DAYS = 5;
+    /** Unclaimed customer replies handed to Charlie per brief (yeses first). */
+    public const UNCLAIMED_BRIEF_MAX = 8;
 
     /** Dollars on a quote: some writers fill total_amount, older ones only amount. */
     public const AMOUNT_SQL = "COALESCE(NULLIF(q.total_amount, 0), q.amount, 0)";
@@ -335,13 +337,38 @@ class SalesDeskService
             $items[] = ['key' => 'sam:lead:' . $l['id'], 'kind' => 'new_lead', 'value' => $l['value'], 'since' => null,
                         'text' => 'New lead: ' . $l['name'] . ' — ' . $l['next'], 'url' => $l['url'], 'priority' => $l['hot'] ? 1 : 3];
         }
+        // Every other customer reply nobody has answered (hand-sent emails, texts) — Sam claims them.
+        $unclaimed = $this->unclaimed($cards);
+        foreach (array_slice($unclaimed, 0, self::UNCLAIMED_BRIEF_MAX) as $u) {
+            $items[] = array_intersect_key($u, array_flip(['key', 'kind', 'value', 'since', 'text', 'url', 'priority']));
+        }
         $replied = count(array_filter($cards, fn($c) => $c['kind'] === 'replied'));
         $amount = array_sum(array_column($cards, 'amount'));
-        $headline = $replied > 0
+        $headline = $unclaimed && $replied === 0
+            ? count($unclaimed) . ' customer repl' . (count($unclaimed) === 1 ? 'y is' : 'ies are') . ' waiting on an answer'
+            : ($replied > 0
             ? $replied . ' customer' . ($replied === 1 ? '' : 's') . ' wrote back and ' . ($replied === 1 ? 'is' : 'are') . ' waiting on you'
             : (count($cards) > 0 ? count($cards) . ' follow-up' . (count($cards) === 1 ? '' : 's') . ' due · ' . self::money($amount) . ' waiting'
-                                 : 'No quotes need a nudge today');
-        return ['head' => 'sam', 'headline' => $headline, 'items' => $items, 'count' => count($cards) + count($leads)];
+                                 : 'No quotes need a nudge today'));
+        return ['head' => 'sam', 'headline' => $headline, 'items' => $items, 'count' => count($cards) + count($leads) + count($unclaimed)];
+    }
+
+    /**
+     * Customer replies no net has caught (UnclaimedReplyService), leaving out the people
+     * this queue already shows as "replied". Never throws — a failure here costs only the extra list.
+     * @param array|null $cards queue() if the caller already has it
+     */
+    public function unclaimed(?array $cards = null): array
+    {
+        try {
+            require_once __DIR__ . '/UnclaimedReplyService.php';
+            $cards = $cards ?? $this->queue();
+            $replied = array_values(array_filter(array_map(fn($c) => $c['kind'] === 'replied' ? (int)$c['contact_id'] : 0, $cards)));
+            return (new UnclaimedReplyService($this->db))->items($replied);
+        } catch (Throwable $e) {
+            error_log('Sam unclaimed replies: ' . $e->getMessage());
+            return [];
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
