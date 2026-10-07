@@ -29,23 +29,41 @@ if ($quarter >= 1 && $quarter <= 4) {
     $periodLabel = "Full Year {$year}";
 }
 
-// Business settings
-$bs = $db->query("SELECT company_name, gst_registration, gst_rate FROM business_settings LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+// Business settings (gst_rate added by migration 502; fall back gracefully if missing)
+$bs = [];
+try {
+    $bs = $db->query("SELECT company_name, gst_registration, gst_rate FROM business_settings LIMIT 1")->fetch(PDO::FETCH_ASSOC) ?: [];
+} catch (\Throwable $__e) {
+    try {
+        $bs = $db->query("SELECT company_name, gst_registration FROM business_settings LIMIT 1")->fetch(PDO::FETCH_ASSOC) ?: [];
+    } catch (\Throwable $__e2) { /* silent */ }
+}
 $gstRegNumber = $bs['gst_registration'] ?? '';
 $gstRatePct   = floatval($bs['gst_rate'] ?? 5.00);
 
+// Invoices
+$invoices    = [];
+$expenses    = [];
+$dataErrors  = [];
+$totalRevenue = $totalGst = $itcGross = $mealsLimit = $totalITC = $netTax = 0.0;
+$gstReport   = ['meals_limit_label' => ''];
 // The return — one shared calculation (GstReportService): ITCs from approved or posted
 // expenses only, meals & entertainment limited per ops_settings (default 'Meals' at 50%).
-require_once APP_ROOT . '/Modules/Accounting/Services/GstReportService.php';
-$gstReport  = (new GstReportService($db))->reportForRange($dateFrom, $dateTo, $periodLabel);
-$invoices   = $gstReport['invoices'];
-$expenses   = $gstReport['expenses'];
-$totalRevenue = $gstReport['line_101'];
-$totalGst     = $gstReport['line_103'];
-$itcGross     = $gstReport['itc_gross'];
-$mealsLimit   = $gstReport['meals_limit'];
-$totalITC     = $gstReport['line_106'];
-$netTax       = $gstReport['line_109'];
+try {
+    require_once APP_ROOT . '/Modules/Accounting/Services/GstReportService.php';
+    $gstReport  = (new GstReportService($db))->reportForRange($dateFrom, $dateTo, $periodLabel);
+    $invoices   = $gstReport['invoices'];
+    $expenses   = $gstReport['expenses'];
+    $totalRevenue = $gstReport['line_101'];
+    $totalGst     = $gstReport['line_103'];
+    $itcGross     = $gstReport['itc_gross'];
+    $mealsLimit   = $gstReport['meals_limit'];
+    $totalITC     = $gstReport['line_106'];
+    $netTax       = $gstReport['line_109'];
+} catch (\Throwable $__e) {
+    error_log('[tax-report] ' . $__e->getMessage());
+    $dataErrors[] = 'Could not load the GST figures — totals below may be incomplete.';
+}
 
 // Status badge
 $statusClass = [
@@ -112,6 +130,14 @@ $statusClass = [
         </div>
     </div>
 </form>
+
+<?php if ($dataErrors): ?>
+<div class="alert alert-danger mb-4">
+    <i data-feather="alert-triangle" class="align-middle mr-2" style="width:16px;height:16px;"></i>
+    <strong>Data error — figures below may be incomplete.</strong>
+    <?php foreach ($dataErrors as $e) echo '<br>' . htmlspecialchars($e); ?>
+</div>
+<?php endif; ?>
 
 <!-- GST34 summary cards -->
 <div class="row mb-4">
@@ -224,10 +250,7 @@ $statusClass = [
                     </tr>
                 </thead>
                 <tbody>
-                    <?php
-                    $runningGst = 0.0;
-                    foreach ($invoices as $inv):
-                        $runningGst += floatval($inv['tax_amount']);
+                    <?php foreach ($invoices as $inv):
                         $sc = $statusClass[$inv['status']] ?? 'secondary';
                     ?>
                     <tr>
