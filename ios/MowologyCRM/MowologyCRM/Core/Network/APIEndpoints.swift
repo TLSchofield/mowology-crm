@@ -119,6 +119,14 @@ enum APIEndpoint {
     /// accounting (JWT). Body: { action: "approve"|"reject"|"send", expense_id, rejection_reason? }
     case receiptAction
 
+    /// GET /api/expenses/bookkeeper-mobile?mode=queue — Penny's receipts to review, duplicate
+    /// groups first, with app-signed photo links and the select options (JWT, admin).
+    case bookkeeperQueue
+
+    /// POST /api/expenses/bookkeeper-mobile — Penny's desk actions (JWT, admin).
+    /// Body: { mode: "decide"|"reject"|"not_dupe", suggestion_id?, overrides?, save_draft?, reason?, pairs? }
+    case bookkeeperAction
+
     /// GET /api/expenses/expense-lookup?type=vendors|jobs|categories|duplicates&… —
     /// review-form lookups shared with the Android review card (JWT). Uses `type=`
     /// because the /api/ router's rewrite appends its own `action` param.
@@ -304,6 +312,14 @@ enum APIEndpoint {
         case .receiptAction:
             return URL(string: "\(baseURLString)/expenses/receipt-actions")
 
+        case .bookkeeperQueue:
+            var components = URLComponents(string: "\(baseURLString)/expenses/bookkeeper-mobile")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "queue"), URLQueryItem(name: "limit", value: "15")]
+            return components?.url
+
+        case .bookkeeperAction:
+            return URL(string: "\(baseURLString)/expenses/bookkeeper-mobile")
+
         case .expenseLookup(let query):
             var components = URLComponents(string: "\(baseURLString)/expenses/expense-lookup")
             components?.queryItems = query
@@ -436,6 +452,8 @@ enum APIEndpoint {
              .expenseList,
              .expenseUpdate,
              .receiptAction,
+             .bookkeeperQueue,
+             .bookkeeperAction,
              .expenseLookup,
              .expenseDelete,
              .expenseLineItems,
@@ -488,11 +506,13 @@ enum APIEndpoint {
              .expenseSave,
              .expenseUpdate,
              .receiptAction,
+             .bookkeeperAction,
              .expenseDelete,
              .expenseLineItemAction,
              .deviceTokenRegister: return "POST"
 
         case .expenseList,
+             .bookkeeperQueue,
              .expenseLookup,
              .expenseLineItems,
              .scheduleJobs,

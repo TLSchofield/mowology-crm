@@ -710,7 +710,7 @@ private struct EditExpenseView: View {
 /// Tap a receipt thumbnail to inspect it full-screen. Supports pinch-to-zoom,
 /// double-tap to toggle zoom, and drag-to-pan while zoomed — for reading faint
 /// handwritten totals/GST that are illegible at thumbnail size.
-private struct ZoomableReceiptView: View {
+struct ZoomableReceiptView: View {
     let url: URL
     @Environment(\.dismiss) private var dismiss
 

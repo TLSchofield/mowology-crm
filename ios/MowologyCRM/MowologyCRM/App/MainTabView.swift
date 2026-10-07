@@ -14,6 +14,7 @@ struct MainTabView: View {
 
     /// Order: home first, the twice-a-day clock next to it, Search in the centre where either
     /// thumb reaches it, then the occasional Receipts, and Account last by convention.
+    /// For admins the last tab is Team (it carries Account's profile row and Sign Out).
     private enum Tab: Hashable { case schedule, timeClock, search, receipts, account }
     @State private var selectedTab = Tab.schedule
 
@@ -44,12 +45,21 @@ struct MainTabView: View {
                 }
                 .tag(Tab.receipts)
 
-            // Account / sign out
-            accountTab
-                .tabItem {
-                    Label("Account", systemImage: "person.fill")
-                }
-                .tag(Tab.account)
+            // Admins: Team (department heads + Penny's receipt card, with the profile
+            // row and Sign Out moved in). Everyone else: the Account tab, unchanged.
+            if authSession.user?.isAdmin == true {
+                TeamView(authSession: authSession)
+                    .tabItem {
+                        Label("Team", systemImage: "person.3.fill")
+                    }
+                    .tag(Tab.account)
+            } else {
+                accountTab
+                    .tabItem {
+                        Label("Account", systemImage: "person.fill")
+                    }
+                    .tag(Tab.account)
+            }
         }
         .tint(Color.MW.green)
         // Every notification route today lands on the schedule; ScheduleView
@@ -93,20 +103,8 @@ struct MainTabView: View {
             List {
                 if let user = authSession.user {
                     Section {
-                        HStack(spacing: 14) {
-                            Image(systemName: "person.circle.fill")
-                                .font(.system(size: 44))
-                                .foregroundStyle(Color.MW.green)
-
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(user.name)
-                                    .font(.headline)
-                                Text(user.email)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        .padding(.vertical, 4)
+                        AccountProfileRow(user: user)
+                            .padding(.vertical, 4)
                     }
                 }
 
@@ -120,10 +118,34 @@ struct MainTabView: View {
     }
 }
 
+// MARK: - Profile row
+
+/// The signed-in user's name and email — on Account, and on Team for admins.
+struct AccountProfileRow: View {
+    let user: User
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: "person.circle.fill")
+                .font(.system(size: 44))
+                .foregroundStyle(Color.MW.green)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(user.name)
+                    .font(.headline)
+                Text(user.email)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
 // MARK: - Sign Out
 
 /// Sign Out — asks first when a shift is still open (see SignOutViewModel).
-private struct SignOutButton: View {
+/// On Account, and on Team for admins.
+struct SignOutButton: View {
 
     @StateObject private var vm: SignOutViewModel
 

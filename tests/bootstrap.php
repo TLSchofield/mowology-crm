@@ -46,6 +46,7 @@ require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseApprovalService
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseLookupService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseLineItemService.php';
+require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptImageLinks.php';
 // Line-item learning: parser quality gate, LLM tier validators, ReceiptLearning helpers
 require_once __DIR__ . '/../app/Services/Receipts/ReceiptLineItemIntelligence.php';
 

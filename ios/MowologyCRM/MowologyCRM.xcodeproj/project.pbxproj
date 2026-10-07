@@ -100,6 +100,10 @@
 		EE9D883AD6DA3E70A5F4F2F6 /* CrewAssignment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21C82FF277952D2240D88C83 /* CrewAssignment.swift */; };
 		07F09F1C65F52262239683E5 /* MoveStopSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 012351B5F6A5D4F76A5667E0 /* MoveStopSheet.swift */; };
 		5786B09173A05AFA499FBA44 /* PhotoHistorySection.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC32DBE5A2AA1CD03B853C12 /* PhotoHistorySection.swift */; };
+		FC388547E9E1B39E1D03924E /* BookkeeperModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 418853FA3B14B9D85FA2EC9C /* BookkeeperModels.swift */; };
+		C1AA3BA1025FB13A8CF7D999 /* TeamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C62B1C324BBC71185289060 /* TeamView.swift */; };
+		DBDB76248C50D9EB798D3D78 /* PennyCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86F40FFBAA6E3FBE1C640747 /* PennyCardView.swift */; };
+		C2663D87CD5A6BF319DD0640 /* PennyCardViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB3591CA54B959A360ED15A7 /* PennyCardViewModel.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -198,6 +202,10 @@
 		21C82FF277952D2240D88C83 /* CrewAssignment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrewAssignment.swift; sourceTree = "<group>"; };
 		012351B5F6A5D4F76A5667E0 /* MoveStopSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoveStopSheet.swift; sourceTree = "<group>"; };
 		DC32DBE5A2AA1CD03B853C12 /* PhotoHistorySection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoHistorySection.swift; sourceTree = "<group>"; };
+		418853FA3B14B9D85FA2EC9C /* BookkeeperModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookkeeperModels.swift; sourceTree = "<group>"; };
+		6C62B1C324BBC71185289060 /* TeamView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeamView.swift; sourceTree = "<group>"; };
+		86F40FFBAA6E3FBE1C640747 /* PennyCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PennyCardView.swift; sourceTree = "<group>"; };
+		BB3591CA54B959A360ED15A7 /* PennyCardViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PennyCardViewModel.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -376,6 +384,7 @@
 				72C8560F970C9C517EFD669D /* TimeClock */,
 				A8B19292E74114A1A37EDE2C /* Receipts */,
 				5C93415700405E4C4DF85C7C /* Search */,
+				A42B52CF649FC198923F0595 /* Team */,
 			);
 			path = Features;
 			sourceTree = "<group>";
@@ -405,6 +414,7 @@
 				36B5D0651BAA7003EB0513D2 /* ServiceHistory.swift */,
 				1A1E4E199B9C01EFB35BDB1D /* FieldSearchModels.swift */,
 				21C82FF277952D2240D88C83 /* CrewAssignment.swift */,
+				418853FA3B14B9D85FA2EC9C /* BookkeeperModels.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -444,6 +454,16 @@
 				41E2CA19008E4095446DFDD3 /* SearchView.swift */,
 			);
 			path = Search;
+			sourceTree = "<group>";
+		};
+		A42B52CF649FC198923F0595 /* Team */ = {
+			isa = PBXGroup;
+			children = (
+				6C62B1C324BBC71185289060 /* TeamView.swift */,
+				86F40FFBAA6E3FBE1C640747 /* PennyCardView.swift */,
+				BB3591CA54B959A360ED15A7 /* PennyCardViewModel.swift */,
+			);
+			path = Team;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -604,6 +624,10 @@
 				EE9D883AD6DA3E70A5F4F2F6 /* CrewAssignment.swift in Sources */,
 				07F09F1C65F52262239683E5 /* MoveStopSheet.swift in Sources */,
 				5786B09173A05AFA499FBA44 /* PhotoHistorySection.swift in Sources */,
+				FC388547E9E1B39E1D03924E /* BookkeeperModels.swift in Sources */,
+				C1AA3BA1025FB13A8CF7D999 /* TeamView.swift in Sources */,
+				DBDB76248C50D9EB798D3D78 /* PennyCardView.swift in Sources */,
+				C2663D87CD5A6BF319DD0640 /* PennyCardViewModel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -677,7 +701,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.2.0;
+				MARKETING_VERSION = 1.3.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = "ca.mowology.crm-field";
@@ -763,7 +787,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.2.0;
+				MARKETING_VERSION = 1.3.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

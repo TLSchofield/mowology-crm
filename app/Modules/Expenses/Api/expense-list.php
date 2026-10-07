@@ -27,6 +27,7 @@ try {
     require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
     require_once CRM_INCLUDES . '/functions.php';
+    require_once APP_ROOT . '/Modules/Expenses/Services/ReceiptImageLinks.php';
 
     $jwtUser = requireJwt();
     $userId  = (int)$jwtUser['id'];
@@ -112,10 +113,7 @@ try {
     $urlExpiry = time() + 21600; // 6 hours — comfortably longer than a viewing session
     foreach ($rows as &$row) {
         if (!empty($row['receipt_media_id'])) {
-            $mid = (int)$row['receipt_media_id'];
-            $sig = hash_hmac('sha256', $mid . '.' . $urlExpiry, jwtSecret());
-            $row['receipt_url'] = 'https://mowology.ca/api/expenses/receipt-image'
-                . '?m=' . $mid . '&e=' . $urlExpiry . '&s=' . $sig;
+            $row['receipt_url'] = ReceiptImageLinks::appUrl((int)$row['receipt_media_id'], $urlExpiry, jwtSecret());
         } else {
             $row['receipt_url'] = null;
         }
