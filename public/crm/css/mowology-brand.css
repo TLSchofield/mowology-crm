@@ -38191,6 +38191,14 @@ body.mw-rc-zoom-open { overflow: hidden; }
    Header mirrors Sam's closer panel (.mw-closer-head) so the heads look like siblings.
    =================================================================== */
 .mw-otto-gaps { border-color: var(--mw-light); }
+.mw-cust-row.has-otto { display: grid; grid-template-columns: minmax(300px, 400px) minmax(0, 1fr); gap: 24px; align-items: start; }
+.mw-cust-row.has-otto > .card { margin-bottom: 24px; }
+.mw-cust-row.has-otto .mw-otto-gap { flex-wrap: wrap; }
+@media (max-width: 1199px) {
+    .mw-cust-row.has-otto { grid-template-columns: minmax(0, 1fr); }
+    .mw-cust-row.has-otto > .mw-otto-gaps,
+    .mw-cust-row.has-otto > .mw-closer { order: 2; }
+}
 .mw-otto-gaps-head { display: flex; align-items: center; gap: 26px; padding: 4px 0 8px; }
 .mw-otto-gaps-photo { position: relative; flex: none; width: max-content; }
 .mw-otto-gaps-photo img { width: 104px; height: 104px; border-radius: var(--mw-radius-lg); object-fit: cover; display: block; box-shadow: 0 0 0 3px var(--mw-lime), var(--mw-shadow-md); }

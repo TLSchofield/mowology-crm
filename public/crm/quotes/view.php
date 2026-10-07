@@ -795,6 +795,13 @@ $activePage = 'quotes';
 
           <div class="mw-content-grid">
               <div>
+                  <?php // Otto sits to the left of the customer card when the property is missing a pin, border or measurement
+                  $ottoPropertyId = (int)($quote['property_id'] ?? 0);
+                  ob_start();
+                  if (is_file(dirname(__DIR__) . '/includes/otto-property-card.php')) include dirname(__DIR__) . '/includes/otto-property-card.php';
+                  $ottoHtml = trim((string)ob_get_clean()); ?>
+                  <div class="mw-cust-row<?php echo $ottoHtml !== '' ? ' has-otto' : ''; ?>">
+                  <?php echo $ottoHtml; ?>
                   <!-- Customer Info -->
                   <div class="card">
                       <div class="card-header d-flex justify-content-between align-items-center">
@@ -900,9 +907,14 @@ $activePage = 'quotes';
                       </div>
                   </div>
 
-                  <?php $ottoPropertyId = (int)($quote['property_id'] ?? 0);
-                  if (is_file(dirname(__DIR__) . '/includes/otto-property-card.php')) include dirname(__DIR__) . '/includes/otto-property-card.php'; ?>
+                  </div><!-- /.mw-cust-row -->
 
+                  <?php // Sam the Closer sits to the left of the services: his price beside each line (display only; nothing until migration 1141)
+                  ob_start();
+                  if (is_file(dirname(__DIR__) . '/includes/closer-panel.php')) include dirname(__DIR__) . '/includes/closer-panel.php';
+                  $closerHtml = trim((string)ob_get_clean()); ?>
+                  <div class="mw-cust-row<?php echo $closerHtml !== '' ? ' has-otto' : ''; ?>">
+                  <?php echo $closerHtml; ?>
                   <!-- Line Items -->
                   <div class="card">
                       <div class="card-header d-flex justify-content-between align-items-center">
@@ -974,6 +986,7 @@ $activePage = 'quotes';
                           </div>
                       </div>
                   </div>
+                  </div><!-- /.mw-cust-row (Sam + services) -->
 
                   <!-- Job Plans / line-item allocation (accepted quotes only).
                        Shown once a plan exists, or always for multi-service quotes where
@@ -1139,8 +1152,6 @@ $activePage = 'quotes';
                       </div>
                   </div>
 
-                  <!-- Sam the Closer: his price beside this quote's (display only; renders nothing until migration 1141) -->
-                  <?php if (is_file(dirname(__DIR__) . '/includes/closer-panel.php')) include dirname(__DIR__) . '/includes/closer-panel.php'; ?>
 
                   <!-- Follow-Up Status Card (shown for sent/declined quotes) -->
                   <?php if (in_array($quote['status'], ['sent', 'declined', 'expired'])): ?>
