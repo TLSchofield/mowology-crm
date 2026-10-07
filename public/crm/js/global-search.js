@@ -27,6 +27,7 @@
     'Quotes':     { icon: 'file-text',   color: '#4a90d9' },
     'Jobs':       { icon: 'briefcase',   color: '#e85d04' },
     'Invoices':   { icon: 'credit-card', color: '#7c3aed' },
+    'Contracts':  { icon: 'file-text',   color: '#1A5F4A' },
     'Team':       { icon: 'users',       color: '#6c757d' }
   };
 
@@ -239,7 +240,7 @@
 
     var html = '';
     var itemIdx = 0;
-    var categoryOrder = ['Contacts', 'Companies', 'Properties', 'Quotes', 'Jobs', 'Invoices', 'Team'];
+    var categoryOrder = ['Contacts', 'Companies', 'Properties', 'Contracts', 'Quotes', 'Jobs', 'Invoices', 'Team'];
 
     categoryOrder.forEach(function(cat) {
       if (!groups[cat]) return;
