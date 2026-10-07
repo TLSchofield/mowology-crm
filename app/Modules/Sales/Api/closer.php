@@ -60,7 +60,16 @@ try {
         case 'quote': {
             $id = (int)($_GET['id'] ?? 0);
             if ($id <= 0) { http_response_code(400); echo json_encode(['ok' => false, 'error' => 'Quote id required']); break; }
-            echo json_encode(['ok' => true, 'admin' => $isAdmin] + $closer->forQuote($id));
+            $res = $closer->forQuote($id);
+            // Trip lines from Otto's shared cost facts (migration 1218) — a bonus, never a reason to fail
+            $res['trip_lines'] = [];
+            try {
+                require_once APP_ROOT . '/Modules/Sales/Services/TripLineSuggester.php';
+                $res['trip_lines'] = (new TripLineSuggester($db))->forQuote($id);
+            } catch (Throwable $e) {
+                error_log('[closer] trip lines: ' . $e->getMessage());
+            }
+            echo json_encode(['ok' => true, 'admin' => $isAdmin] + $res);
             break;
         }
 

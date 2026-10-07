@@ -455,16 +455,28 @@ class AccountingService
         $stmt->execute([$dateFrom, $dateTo, $dateFrom, $limit]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        return array_map(function ($r) {
+        // Trip overhead (dump / supply runs' time + km) Penny tagged to each job — an additive
+        // read from ops_trip_job_costs (migration 1218), never a journal entry. 0 before the migration.
+        $trips = [];
+        try {
+            require_once dirname(__DIR__, 2) . '/Expenses/Services/TripAttributionService.php';
+            $trips = (new TripAttributionService($this->db))->overheadForJobs(array_column($rows, 'job_id'));
+        } catch (Throwable $e) { /* no trip overhead */ }
+
+        return array_map(function ($r) use ($trips) {
             $profit = (float)$r['revenue'] - (float)$r['expenses'];
             $margin = (float)$r['revenue'] > 0
                 ? round(($profit / (float)$r['revenue']) * 100, 1)
                 : 0;
+            $trip = $trips[(int)$r['job_id']] ?? ['trip_overhead' => 0.0, 'trip_runs' => 0];
             return array_merge($r, [
                 'revenue'  => (float)$r['revenue'],
                 'expenses' => (float)$r['expenses'],
                 'profit'   => $profit,
                 'margin'   => $margin,
+                'trip_overhead' => $trip['trip_overhead'],
+                'trip_runs'     => $trip['trip_runs'],
+                'profit_after_trips' => round($profit - $trip['trip_overhead'], 2),
             ]);
         }, $rows);
     }

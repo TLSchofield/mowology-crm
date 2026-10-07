@@ -579,7 +579,7 @@ async function loadJobs() {
             <td class="small text-muted">${esc(j.client_name || '—')}</td>
             <td class="text-end text-success">${fmtMoney(j.revenue)}</td>
             <td class="text-end text-danger">${fmtMoney(j.expenses)}</td>
-            <td class="text-end ${profitColor} fw-bold">${fmtMoney(j.profit)}</td>
+            <td class="text-end ${profitColor} fw-bold">${fmtMoney(j.profit)}${j.trip_overhead > 0 ? `<div class="small text-muted fw-normal" title="Dump / supply runs tagged to this job (time + km)">trips −${fmtMoney(j.trip_overhead)} → ${fmtMoney(j.profit_after_trips)}</div>` : ''}</td>
             <td>
                 <div class="mw-acct-margin-bar" style="width:80px">
                     <div class="mw-acct-margin-fill" style="width:${margin}%;background:${barColor}"></div>

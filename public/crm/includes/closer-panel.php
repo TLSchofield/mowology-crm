@@ -58,4 +58,4 @@ try {
                       </div>
                   </div>
                   <script src="<?php echo function_exists('_av') ? _av('/crm/js/head-brain.js') : '/crm/js/head-brain.js'; ?>" defer></script>
-                  <script src="/crm/js/closer-panel.js?v=1"></script>
+                  <script src="/crm/js/closer-panel.js?v=2"></script>

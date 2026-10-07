@@ -38361,6 +38361,16 @@ body.mw-rc-zoom-open { overflow: hidden; }
 .mw-closer-rc-row { display: grid; grid-template-columns: 1fr 70px 70px; gap: 6px; align-items: center; }
 .mw-closer-rc-row input { width: 100%; }
 .mw-closer-rc-row .mw-closer-basis { grid-column: 1 / -1; }
+/* Trip lines Sam suggests from Otto's shared cost facts (migration 1218) */
+.mw-closer-trips { border-top: 1px solid var(--mw-ink-200); margin: 4px 0 10px; padding-top: 2px; }
+.mw-closer-trips ul { list-style: none; margin: 6px 0 4px; padding: 0; }
+.mw-closer-trips li { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; background: var(--mw-light); border-radius: 8px; padding: 7px 9px; margin-bottom: 6px; font-size: .82rem; }
+.mw-closer-trips li .mw-closer-basis { grid-column: 1 / -1; }
+.mw-closer-trips li.is-waiting { background: var(--mw-ink-100); }
+.mw-closer-trip-name { font-weight: 700; color: var(--mw-forest); }
+.mw-closer-trip-price { font-weight: 800; color: var(--mw-dark); text-align: right; }
+.mw-closer-trips li.is-waiting .mw-closer-trip-price { font-weight: 600; font-size: .75rem; color: var(--mw-ink-500); }
+.mw-closer-trip-price small { font-weight: 600; color: var(--mw-ink-500); }
 @media (max-width: 575px) {
     .mw-closer-tiers { grid-template-columns: 1fr; }
 }

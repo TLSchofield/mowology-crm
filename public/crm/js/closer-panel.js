@@ -75,6 +75,18 @@
             h += '</div>';
         }
 
+        // Trip lines Sam suggests from Otto's run costs. Tim adds or ignores them — never added here.
+        if ((d.trip_lines || []).length) {
+            h += '<div class="mw-closer-trips"><p class="mw-closer-rc-head">Trips this job needs</p><ul>';
+            d.trip_lines.forEach(function (t) {
+                h += '<li class="' + (t.ready ? '' : 'is-waiting') + '"><span class="mw-closer-trip-name">' + esc(t.label) + '</span>' +
+                     '<span class="mw-closer-trip-price">' + (t.ready ? money(t.price) + ' <small>+ GST</small>' : 'not enough runs yet (' + esc(Math.min(t.sample_n, t.needed)) + '/' + esc(t.needed) + ')') + '</span>' +
+                     '<div class="mw-closer-basis">Because of “' + esc(t.because) + '”. ' + esc(t.why) + '.</div>' +
+                     (t.basis ? '<div class="mw-closer-basis">' + esc(t.basis) + '</div>' : '') + '</li>';
+            });
+            h += '</ul><p class="mw-closer-basis">Suggestions only — add the line to the quote yourself if you want it.</p></div>';
+        }
+
         if ((d.flags || []).length) {
             h += '<ul class="mw-closer-flags">' + d.flags.map(function (f) { return '<li>' + esc(f) + '</li>'; }).join('') + '</ul>';
         }
