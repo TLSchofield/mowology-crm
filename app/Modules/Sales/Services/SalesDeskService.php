@@ -351,7 +351,7 @@ class SalesDeskService
 
         $unclaimed = $this->unclaimed($cards);
         foreach (array_slice($unclaimed, 0, self::UNCLAIMED_BRIEF_MAX) as $u) {
-            $items[] = array_intersect_key($u, array_flip(['key', 'kind', 'value', 'since', 'text', 'url', 'priority']));
+            $items[] = array_intersect_key($u, array_flip(['key', 'kind', 'value', 'since', 'text', 'url', 'priority', 'yes']));
         }
         $replied = count(array_filter($cards, fn($c) => $c['kind'] === 'replied'));
         $amount = array_sum(array_column($cards, 'amount'));
