@@ -66,6 +66,14 @@ require_once __DIR__ . '/../app/Modules/Operations/Services/EquipmentService.php
 require_once __DIR__ . '/../app/Modules/Operations/Services/TrainingRules.php';
 require_once __DIR__ . '/../app/Modules/Operations/Services/TrainingService.php';
 
+// Sales — Sam the Closer (rate card + pricing)
+require_once __DIR__ . '/../app/Modules/Sales/Services/CloserPricing.php';
+require_once __DIR__ . '/../app/Modules/Sales/Services/SiteMinutesModel.php';
+require_once __DIR__ . '/../app/Modules/Sales/Services/DriveMinutesAdded.php';
+require_once __DIR__ . '/../app/Modules/Sales/Services/CloserRateCard.php';
+require_once __DIR__ . '/../app/Modules/Sales/Services/CloserService.php';
+require_once __DIR__ . '/../app/Modules/Sales/Services/CloserSettingsService.php';
+
 require_once __DIR__ . '/../app/Modules/Invoices/Services/StatementService.php';
 
 // Products
