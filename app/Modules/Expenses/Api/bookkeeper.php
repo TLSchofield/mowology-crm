@@ -17,6 +17,11 @@
  * POST {mode: 'reject', suggestion_id, reason, csrf_token}  Reject a receipt from the card.
  * GET  ?mode=bank_queue  Imported bank lines on the default account, with Penny's suggestion.
  * POST {mode: 'bank_decide', transaction_id, action: approve|keep, account_id?, suggested_id?, csrf_token}
+ * GET  ?mode=bank_invoice&transaction_id=N  A credit: already-recorded payments, its Interac email, ranked open invoices.
+ * GET  ?mode=bank_invoice_report  Read-only: unmatched deposits whose money is already on invoices (counted twice).
+ * POST {mode: 'bank_invoice_record', transaction_id, allocations: [{invoice_id|invoice_number, amount}], sender?, force?, csrf_token}
+ * POST {mode: 'bank_invoice_link', transaction_id, allocation_ids?: [], legacy?: bool, csrf_token}  "Already recorded — link".
+ * POST {mode: 'bank_teach_payer', sender, invoice_id, csrf_token}  This sender pays that invoice's payer (learned).
  * GET  ?mode=stripe_read&transaction_id=N  Which invoices + fee a Stripe payout line holds (Stripe GETs only).
  * POST {mode: 'stripe_book', transaction_id, csrf_token}  Book it: transfer + fee line (StripePayoutService).
  * GET  ?mode=dismissed_dupes  Pairs marked "not a duplicate" (the receipts page reads these).
@@ -272,6 +277,39 @@ try {
                     isset($input['account_id']) ? (int)$input['account_id'] : null,
                     isset($input['suggested_id']) ? (int)$input['suggested_id'] : null, $user,
                     !empty($input['expense_id']) ? (int)$input['expense_id'] : null));
+            }
+            break;
+        }
+
+        case 'bank_invoice':
+        case 'bank_invoice_report':
+        case 'bank_invoice_record':
+        case 'bank_invoice_link':
+        case 'bank_teach_payer': {
+            require_once APP_ROOT . '/Modules/Accounting/Services/BankInvoiceMatchService.php';
+            $match = new BankInvoiceMatchService($db);
+            if ($mode === 'bank_invoice') {
+                echo json_encode($match->suggest((int)($_GET['transaction_id'] ?? 0)));
+                break;
+            }
+            if ($mode === 'bank_invoice_report') {
+                echo json_encode(['ok' => true] + $match->report((int)($_GET['limit'] ?? 300)));
+                break;
+            }
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            if (!userHasPermission('billing.edit')) throw new RuntimeException('Permission denied: billing.edit required');
+            $txId = (int)($input['transaction_id'] ?? 0);
+            if ($mode === 'bank_invoice_record') {
+                echo json_encode($match->record($txId, (array)($input['allocations'] ?? []), $user,
+                    isset($input['sender']) ? (string)$input['sender'] : null, !empty($input['force'])));
+            } elseif ($mode === 'bank_invoice_link') {
+                echo json_encode($match->linkRecorded($txId, $user, (array)($input['allocation_ids'] ?? []), !empty($input['legacy'])));
+            } else {
+                $sender = trim((string)($input['sender'] ?? ''));
+                $inv = (int)($input['invoice_id'] ?? 0);
+                if ($sender === '' || !$inv) throw new RuntimeException('sender and invoice_id required');
+                $ok = $match->teach($sender, [$inv]);
+                echo json_encode(['ok' => $ok, 'message' => $ok ? "Learned: {$sender} pays for that invoice's client." : 'Nothing new to learn (the names already match).']);
             }
             break;
         }

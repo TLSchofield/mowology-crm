@@ -354,7 +354,8 @@ class InvoiceReconciliationServiceTest extends TestCase
 
         $allocTotalStmt = $this->createMock(PDOStatement::class);
         $allocTotalStmt->method('execute')->willReturn(true);
-        $allocTotalStmt->method('fetchColumn')->willReturnOnConsecutiveCalls(0, 302.40, 302.40);
+        // allocated total: before linking; original amount (no staging row) + remaining in linkAllocationsToDeposit; after linking
+        $allocTotalStmt->method('fetchColumn')->willReturnOnConsecutiveCalls(0, 0, 0, 302.40, 302.40);
 
         $poolStmt = $this->createMock(PDOStatement::class);
         $poolStmt->method('execute')->willReturn(true);
@@ -367,11 +368,22 @@ class InvoiceReconciliationServiceTest extends TestCase
         $writeStmt = $this->createMock(PDOStatement::class);
         $writeStmt->method('execute')->willReturnCallback(function ($p) use (&$writes) { $writes[] = $p; return true; });
 
+        // No Interac email for it (the memo names the payer, the old way).
+        $emailStmt = $this->createMock(PDOStatement::class);
+        $emailStmt->method('execute')->willReturn(true);
+        $emailStmt->method('fetchAll')->willReturn([]);
+        // linkAllocationsToDeposit re-reads the picked payments: still unlinked.
+        $pickedStmt = $this->createMock(PDOStatement::class);
+        $pickedStmt->method('execute')->willReturn(true);
+        $pickedStmt->method('fetchAll')->willReturn(array_slice($rows, 0, 6));
+
         $pdo = $this->createMock(PDO::class);
-        $pdo->method('prepare')->willReturnCallback(function (string $sql) use ($depStmt, $allocTotalStmt, $poolStmt, $writeStmt) {
+        $pdo->method('prepare')->willReturnCallback(function (string $sql) use ($depStmt, $allocTotalStmt, $poolStmt, $writeStmt, $emailStmt, $pickedStmt) {
             if (strpos($sql, 'SUM(amount)') !== false)                 return $allocTotalStmt;
-            if (strpos($sql, 'a.transaction_id IS NULL') !== false)   return $poolStmt;
             if (strpos($sql, 'UPDATE') !== false)                      return $writeStmt;
+            if (strpos($sql, 'etransfer_notifications') !== false)    return $emailStmt;
+            if (strpos($sql, 'a.id IN') !== false)                     return $pickedStmt;
+            if (strpos($sql, 'a.transaction_id IS NULL') !== false)   return $poolStmt;
             return $depStmt;
         });
 

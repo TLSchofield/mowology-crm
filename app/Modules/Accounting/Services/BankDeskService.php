@@ -20,6 +20,7 @@
 require_once __DIR__ . '/BankRuleLearning.php';
 require_once __DIR__ . '/BankImportService.php';
 require_once __DIR__ . '/LedgerAccountMap.php';
+require_once __DIR__ . '/BankInvoiceMatchService.php';
 if (!defined('EXPENSE_ACCOUNTING_CATEGORIES') && defined('APP_ROOT')) {
     require_once APP_ROOT . '/Modules/Expenses/ExpenseConstants.php';
 }
@@ -134,6 +135,9 @@ class BankDeskService
                 'suggestion'  => $s,
                 'note'        => self::note($r),
                 'stripe'      => self::isStripePayout($r),
+                // A client paying (e-Transfer, EFT, cheque): the card asks "which invoice?" first.
+                'client_payment' => $r['type'] === 'income' && !self::isStripePayout($r)
+                                    && BankInvoiceMatchService::looksLikeClientPayment((string)$r['description']),
             ];
         }
         return $out;

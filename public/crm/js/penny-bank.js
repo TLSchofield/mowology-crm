@@ -3,6 +3,9 @@
  * Other Services, one at a time, with her suggested category and why. Approve it, pick
  * another account, keep it as it is, or skip. Approving teaches the import.
  * API: /crm/api/bookkeeper.php ?mode=bank_queue · POST bank_decide (BankDeskService).
+ * A client's payment (credit) asks "which invoice?" first — ?mode=bank_invoice, POST
+ * bank_invoice_record / bank_invoice_link (BankInvoiceMatchService): tying it to the
+ * invoice books it once; as income on an account it would count twice.
  */
 (function () {
     'use strict';
@@ -12,6 +15,8 @@
     var GREETING = box.getAttribute('data-name') || '';
     var lines = [], accounts = [], waiting = 0, idx = 0, busy = false;
     var stripeRead = {};   // bank line id → what Stripe says the payout holds (read only)
+    var invRead = {};      // bank line id → which invoice(s) it may pay (read only)
+    var invMode = {};      // bank line id → true: invoice panel · false: pick an account
 
     function esc(s) {
         return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -65,6 +70,7 @@
         var l = lines[idx], s = l.suggestion;
         var now = l.current ? l.current.name : 'No account';
         if (l.stripe) { renderStripe(l, msg); return; }
+        if (l.type === 'income' && (invMode[l.id] === true || (invMode[l.id] === undefined && l.client_payment))) { renderInvoice(l, msg); return; }
         box.innerHTML =
             '<div class="mw-bl-head"><span><b>🏦 Bank lines</b> · ' + waiting + ' to check</span>' +
               '<span><button type="button" class="mw-rc-arrow" data-bl="prev" aria-label="Previous">‹</button> ' +
@@ -83,9 +89,111 @@
             '<div class="mw-rc-actions">' +
               '<button type="button" class="mw-rc-ok" data-bl="approve">✓ Approve</button>' +
               '<button type="button" class="mw-rc-ed" data-bl="keep">Keep as ' + esc(now) + '</button>' +
+              (l.type === 'income' ? '<button type="button" class="mw-rc-ed" data-bl="inv">🧾 Invoice payment</button>' : '') +
               '<button type="button" class="mw-rc-sk" data-bl="next">Skip →</button>' +
             '</div>' +
             '<div class="mw-rc-msg">' + (msg ? esc(msg) : '') + '</div>';
+    }
+
+    // A client paying: which invoice(s)? Already recorded → link; else tick and record.
+    function renderInvoice(l, msg) {
+        var r = invRead[l.id];
+        if (!r) {
+            invRead[l.id] = r = { pending: true };
+            fetch(API + '?mode=bank_invoice&transaction_id=' + encodeURIComponent(l.id), { cache: 'no-store' })
+                .then(function (x) { return x.json(); })
+                .then(function (d) { invRead[l.id] = d || { ok: false, message: 'No answer' }; if (lines[idx] === l) render(msg); })
+                .catch(function () { invRead[l.id] = { ok: false, message: 'Could not look — try again' }; if (lines[idx] === l) render(msg); });
+        }
+        var rows = [], seen = {}, about = {};
+        if (r.ok) {
+            (r.invoices || []).forEach(function (v) {
+                about[v.invoice_id] = (v.payer ? v.payer + ' · ' : '') + 'owes ' + money(v.balance_due) + ' · ' + v.reasons.join(', ') + ' (' + v.confidence + '%)';
+            });
+            (r.spread || []).forEach(function (s) {
+                seen[s.invoice_id] = 1;
+                rows.push({ id: s.invoice_id, number: s.invoice_number, amount: s.amount, tick: true,
+                            about: about[s.invoice_id] || ((r.spread.length > 1 ? 'oldest first' : 'from the Interac email')) });
+            });
+            (r.invoices || []).forEach(function (v, i) {
+                if (seen[v.invoice_id]) return;
+                var tick = !(r.spread || []).length && !(r.recorded || []).length && !(r.legacy || []).length && i === 0 && v.confidence >= 70;
+                rows.push({ id: v.invoice_id, number: v.invoice_number, amount: v.apply, tick: tick, about: about[v.invoice_id] });
+            });
+        }
+        var already = r.ok ? (r.recorded || []).map(function (x, k) {
+                return '<button type="button" class="mw-rc-ok" data-bl="linkrec" data-k="' + k + '">🔗 Already recorded — link ' + esc(x.invoice_numbers.join(', ')) + '</button>';
+            }).concat((r.legacy || []).slice(0, 1).map(function (x) {
+                return '<button type="button" class="mw-rc-ok" data-bl="linklegacy">🔗 Already paid on ' + esc(x.invoice_number) + ' — link</button>';
+            })) : [];
+        box.innerHTML =
+            '<div class="mw-bl-head"><span><b>🏦 Bank lines</b> · ' + waiting + ' to check</span>' +
+              '<span><button type="button" class="mw-rc-arrow" data-bl="prev" aria-label="Previous">‹</button> ' +
+              '<button type="button" class="mw-rc-arrow" data-bl="next" aria-label="Next">›</button></span></div>' +
+            '<div class="mw-bl-line">' +
+              '<div class="mw-bl-top"><span>' + esc(l.date) + (l.bank ? ' · ' + esc(l.bank) : '') + '</span><b class="is-in">+' + money(l.amount) + '</b></div>' +
+              '<div class="mw-bl-desc">' + esc(l.description) + '</div>' +
+              '<div class="mw-bl-now">Booked now: <s>income — ' + esc(l.current ? l.current.name : 'No account') + '</s></div>' +
+              (r.ok && r.email ? '<div class="mw-bl-now">📧 Interac email from <b>' + esc(r.email.sender || '?') + '</b>' + (r.email.memo ? ' — “' + esc(r.email.memo) + '”' : '') + '</div>' : '') +
+            '</div>' +
+            '<div class="mw-bl-say">' + (GREETING ? esc(GREETING) + ', ' : '') +
+              esc(lead(r.pending ? 'Looking for the invoice this pays…' : (r.ok ? r.say : (r.message || 'Could not look')))) + '</div>' +
+            (r.ok ? '<div class="mw-bl-inv">' + rows.map(function (v) {
+                return '<label class="mw-bl-inv-row"><input type="checkbox" data-inv-id="' + esc(v.id) + '"' + (v.tick ? ' checked' : '') + '>' +
+                    '<span><b>' + esc(v.number) + '</b> <small>' + esc(v.about) + '</small></span>' +
+                    '<input class="mw-rc-in" data-inv-amt type="number" step="0.01" inputmode="decimal" value="' + esc(Number(v.amount).toFixed(2)) + '" aria-label="Amount for ' + esc(v.number) + '"></label>';
+              }).join('') +
+              '<div class="mw-bl-inv-row mw-bl-inv-other"><input class="mw-rc-in" data-inv-num placeholder="Other invoice # (INV-2026-…)" aria-label="Other invoice number">' +
+                '<input class="mw-rc-in" data-inv-numamt type="number" step="0.01" inputmode="decimal" placeholder="Amount" aria-label="Amount for the other invoice"></div>' +
+              '<div class="mw-bl-inv-row mw-bl-inv-other"><input class="mw-rc-in" data-inv-sender value="' + esc(r.email && r.email.sender ? r.email.sender : '') + '" placeholder="Sent by (the Interac name) — I\'ll learn it" aria-label="Sent by"></div>' +
+            '</div>' : '') +
+            '<div class="mw-rc-actions">' + already.join('') +
+              (r.ok ? '<button type="button" class="' + (already.length ? 'mw-rc-ed' : 'mw-rc-ok') + '" data-bl="invrec">' + (already.length ? 'Record anyway' : '✓ Record payment') + '</button>' : '') +
+              '<button type="button" class="mw-rc-ed" data-bl="notinv">Not an invoice — pick an account</button>' +
+              '<button type="button" class="mw-rc-sk" data-bl="next">Skip →</button>' +
+            '</div>' +
+            '<div class="mw-rc-msg">' + (msg ? esc(msg) : '') + '</div>';
+    }
+
+    // After "Tim, " the sentence goes on in lower case ("Tim, this $824.25 …"); "I" stays.
+    function lead(t) {
+        t = String(t || '');
+        return GREETING && !/^I\b/.test(t) && !/^[A-Z]{2}/.test(t) ? t.charAt(0).toLowerCase() + t.slice(1) : t;
+    }
+
+    function done(d) {
+        busy = false;
+        if (!(d && d.ok)) { render((d && (d.message || d.error)) || 'Could not save'); return; }
+        lines.splice(idx, 1);
+        waiting = Math.max(0, waiting - 1);
+        if (lines.length < 3 && waiting > lines.length) load(d.message); else render(d.message);
+    }
+
+    function recordInvoice() {
+        if (busy || !lines.length) return;
+        var l = lines[idx], r = invRead[l.id] || {};
+        var allocs = [];
+        box.querySelectorAll('.mw-bl-inv-row').forEach(function (row) {
+            var cb = row.querySelector('[data-inv-id]');
+            if (cb && cb.checked) allocs.push({ invoice_id: parseInt(cb.getAttribute('data-inv-id'), 10), amount: parseFloat(row.querySelector('[data-inv-amt]').value) || 0 });
+        });
+        var num = box.querySelector('[data-inv-num]'), numAmt = box.querySelector('[data-inv-numamt]');
+        if (num && num.value.trim()) allocs.push({ invoice_number: num.value.trim(), amount: parseFloat(numAmt.value) || l.amount });
+        if (!allocs.length) { render('Tick an invoice, or type its number.'); return; }
+        var sender = box.querySelector('[data-inv-sender]');
+        busy = true;
+        post({ mode: 'bank_invoice_record', transaction_id: l.id, allocations: allocs, sender: sender ? sender.value.trim() : '',
+               force: !!((r.recorded || []).length || (r.legacy || []).length) })
+            .then(done).catch(function () { busy = false; render('Network error — try again'); });
+    }
+
+    function linkRecorded(k, legacy) {
+        if (busy || !lines.length) return;
+        var l = lines[idx], r = invRead[l.id] || {};
+        var body = { mode: 'bank_invoice_link', transaction_id: l.id };
+        if (legacy) body.legacy = true; else body.allocation_ids = ((r.recorded || [])[k] || {}).allocation_ids || [];
+        busy = true;
+        post(body).then(done).catch(function () { busy = false; render('Network error — try again'); });
     }
 
     // A Stripe payout: ask Stripe (read only) which invoices it paid, then Book it.
@@ -161,6 +269,11 @@
         if (a === 'approve') decide('approve');
         else if (a === 'keep') decide('keep');
         else if (a === 'stripe') bookStripe();
+        else if (a === 'inv') { invMode[lines[idx].id] = true; render(); }
+        else if (a === 'notinv') { invMode[lines[idx].id] = false; render(); }
+        else if (a === 'invrec') recordInvoice();
+        else if (a === 'linkrec') linkRecorded(parseInt(e.target.getAttribute('data-k'), 10) || 0, false);
+        else if (a === 'linklegacy') linkRecorded(0, true);
         else if (a === 'next') { idx = (idx + 1) % Math.max(1, lines.length); render(); }
         else if (a === 'prev') { idx = (idx - 1 + lines.length) % Math.max(1, lines.length); render(); }
     });
