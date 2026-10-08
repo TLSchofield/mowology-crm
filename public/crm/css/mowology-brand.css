@@ -38858,3 +38858,30 @@ body.mw-rc-zoom-open { overflow: hidden; }
 .mw-bbc-scroll { max-height: 520px; overflow: auto; }
 .mw-bbc-preview { display: inline-block; margin-right: 12px; }
 .mw-bbc-details > summary { cursor: pointer; list-style: revert; }
+
+/* ── Settings → QuickBooks (/crm/accounting/quickbooks.php, 2026-10-07) ─────── */
+.mw-qbo-env { font-weight: 600; }
+.mw-qbo-env-sandbox { background: var(--mw-light); color: var(--mw-dark); }
+.mw-qbo-env-prod { background: var(--mw-green); color: #fff; }
+.mw-qbo-state { font-weight: 700; margin-bottom: 8px; }
+.mw-qbo-state-on { color: var(--mw-green); }
+.mw-qbo-state-off { color: var(--mw-orange); }
+.mw-qbo-facts { display: grid; grid-template-columns: max-content 1fr; gap: 2px 14px; margin: 0 0 12px; font-size: .9rem; }
+.mw-qbo-facts dt { font-weight: 600; color: var(--mw-dark); }
+.mw-qbo-facts dd { margin: 0; }
+@media (min-width: 992px) { .mw-qbo-facts-2 { grid-template-columns: max-content 1fr max-content 1fr; } }
+.mw-qbo-table td, .mw-qbo-table th { vertical-align: top; }
+.mw-qbo-num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.mw-qbo-has { font-weight: 600; }
+.mw-qbo-ok { color: var(--mw-green); font-weight: 600; }
+.mw-qbo-off { color: var(--mw-orange); font-weight: 600; }
+.mw-qbo-strong td { font-weight: 700; background: var(--mw-light); }
+.mw-qbo-scroll { max-height: 420px; overflow: auto; }
+.mw-qbo-details > summary { cursor: pointer; list-style: revert; }
+.mw-qbo-confirmed td { background: var(--mw-light); }
+.mw-qbo-select { max-width: 420px; }
+.mw-qbo-action { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: .78rem; font-weight: 600; background: var(--mw-light); color: var(--mw-dark); }
+.mw-qbo-action-create { background: var(--mw-green); color: #fff; }
+.mw-qbo-action-update { background: var(--mw-lime); color: var(--mw-forest); }
+.mw-qbo-action-blocked { background: var(--mw-orange); color: #fff; }
+.mw-qbo-pre { font-size: .72rem; max-height: 260px; overflow: auto; background: var(--mw-light); padding: 6px; margin: 4px 0 0; }

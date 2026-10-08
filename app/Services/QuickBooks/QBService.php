@@ -4,9 +4,12 @@
  * QuickBooks Abstraction Layer
  *
  * Single point of integration for all "send to accounting" operations.
- * Currently implemented via email forwarding (ReceiptService.php).
- * When QB Online API access is added, swap only this file — all callers
- * stay unchanged.
+ * Two routes, chosen per call by _qbCurrentMethod():
+ *   'email' (default) — ReceiptService forwards the receipt to the accounting mailbox.
+ *   'api'             — QboPushService (app/Modules/Accounting/Services/QuickBooks/) creates a
+ *                       Purchase + receipt Attachable through the QuickBooks Online API. Only
+ *                       when ops_settings qbo_push_enabled = 1, qbo_dry_run = 0 and a QBO
+ *                       connection is active (migration 1240). Callers stay unchanged.
  *
  * Adds on top of raw ReceiptService:
  *   - Batch forwarding (send multiple expenses in one call)
@@ -67,13 +70,13 @@ function qbForwardExpense(int $expenseId, ?PDO $db = null): array
     // Map expense fields to QB format
     $opts = _qbMapExpenseToOpts($expense);
 
-    // Execute: currently email, future: QB API
+    // Execute: email, or the QuickBooks API when the phase-2 flag is live
     $result = _qbExecuteForward($opts, $db);
 
     // Log the attempt for retry tracking
     _qbLogAttempt($expenseId, $result, $db);
 
-    return array_merge($result, ['method' => _qbCurrentMethod()]);
+    return array_merge($result, ['method' => _qbCurrentMethod($db)]);
 }
 
 
@@ -204,8 +207,10 @@ function qbGetStatus(?PDO $db = null): array
         $retryCount = 0;
     }
 
+    $api = _qbApiFacts($db);
+
     return [
-        'method'            => _qbCurrentMethod(),
+        'method'            => _qbCurrentMethod($db),
         'enabled'           => $config['enabled'],
         'accounting_email'  => $config['accounting_email'],
         'auto_send'         => $config['auto_send'],
@@ -215,8 +220,11 @@ function qbGetStatus(?PDO $db = null): array
         'last_sent_at'      => $counts['last_sent_at'] ?? null,
         'pending_count'     => $pendingCount,
         'retry_eligible'    => $retryCount,
-        'api_connected'     => false,   // Will be true when QB OAuth is implemented
-        'api_company_name'  => null,    // QB company name once connected
+        'api_connected'     => $api['connected'],
+        'api_company_name'  => $api['company_name'],
+        'api_environment'   => $api['environment'],
+        'api_push_enabled'  => $api['push_enabled'],
+        'api_dry_run'       => $api['dry_run'],
     ];
 }
 
@@ -248,10 +256,38 @@ function qbMapCategory(string $accountingCategory): string
 
 // ── Private Helpers ─────────────────────────────────────────────────────────
 
-/** Which integration method is currently active? */
-function _qbCurrentMethod(): string
+/** Which integration method is currently active? 'api' only when the phase-2 flag is live. */
+function _qbCurrentMethod(?PDO $db = null): string
 {
-    return 'email';  // Change to 'api' when QB OAuth is implemented
+    static $cache = null;
+    if ($cache !== null) return $cache;
+    if ($db === null) return 'email';
+    $cache = _qbApiFacts($db)['live'] ? 'api' : 'email';
+    return $cache;
+}
+
+/** The QuickBooks API connection facts for status + routing. Never throws; absent = email. */
+function _qbApiFacts(PDO $db): array
+{
+    static $facts = null;
+    if ($facts !== null) return $facts;
+    $facts = ['connected' => false, 'company_name' => null, 'environment' => null, 'push_enabled' => false, 'dry_run' => true, 'live' => false];
+    try {
+        $svcFile = APP_ROOT . '/Modules/Accounting/Services/QuickBooks/QboPushService.php';
+        if (!is_file($svcFile)) return $facts;
+        require_once $svcFile;
+        $push = new QboPushService($db);
+        $conn = $push->connections()->active();
+        $facts['connected']    = $conn !== null;
+        $facts['company_name'] = $conn['company_name'] ?? null;
+        $facts['environment']  = QboConfig::fromConstants()->env();
+        $facts['push_enabled'] = $push->isEnabled();
+        $facts['dry_run']      = $push->isDryRun();
+        $facts['live']         = $push->isLive();
+    } catch (\Throwable $e) {
+        error_log('_qbApiFacts: ' . $e->getMessage());
+    }
+    return $facts;
 }
 
 /** Load all expense fields needed for forwarding. */
@@ -299,16 +335,27 @@ function _qbMapExpenseToOpts(array $expense): array
     ];
 }
 
-/** Execute the forward using the current method (email or future API). */
+/** Execute the forward using the current method (email, or the QuickBooks API when live). */
 function _qbExecuteForward(array $opts, PDO $db): array
 {
-    // Currently: email forwarding via ReceiptService
+    if (_qbCurrentMethod($db) === 'api') {
+        return _qbApiCreateExpense($opts, $db);
+    }
+    // Email forwarding via ReceiptService
     return sendReceiptToAccounting($opts);
+}
 
-    // Future QB API implementation:
-    // if (_qbCurrentMethod() === 'api') {
-    //     return _qbApiCreateExpense($opts, $db);
-    // }
+/** QuickBooks API route: Purchase + receipt Attachable via QboPushService. Same result shape as email. */
+function _qbApiCreateExpense(array $opts, PDO $db): array
+{
+    try {
+        require_once APP_ROOT . '/Modules/Accounting/Services/QuickBooks/QboPushService.php';
+        $r = (new QboPushService($db))->pushExpense((int)$opts['expense_id']);
+        return ['success' => (bool)$r['success'], 'message' => (string)$r['message'], 'log_id' => null, 'qbo_id' => $r['qbo_id'] ?? null];
+    } catch (\Throwable $e) {
+        error_log('_qbApiCreateExpense: ' . $e->getMessage());
+        return ['success' => false, 'message' => 'QuickBooks API error: ' . $e->getMessage(), 'log_id' => null];
+    }
 }
 
 /** Count previous send attempts (successful + failed) for an expense. */

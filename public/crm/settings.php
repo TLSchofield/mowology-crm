@@ -564,7 +564,8 @@ function csrf() { return window.MW_CSRF_TOKEN || ''; }
             <div class="card">
                 <div class="card-header"><h5 class="card-title">Receipt Forwarding</h5></div>
                 <div class="card-body">
-                    <p class="text-muted mb-4">Forward expense receipts to your accounting software (e.g., QuickBooks) via email.</p>
+                    <p class="text-muted mb-2">Forward expense receipts to your accounting software (e.g., QuickBooks) via email.</p>
+                    <p class="mb-4"><a href="/crm/accounting/quickbooks.php" class="btn btn-sm btn-outline-primary">QuickBooks Online connection → </a> <span class="text-muted small">connect, read what is in the company file, map the chart of accounts</span></p>
 
                     <div class="row mb-3">
                         <div class="col-md-6">

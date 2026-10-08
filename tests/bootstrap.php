@@ -23,6 +23,9 @@ require_once __DIR__ . '/../app/Modules/Accounting/Services/EtransferInboxServic
 require_once __DIR__ . '/../app/Modules/Accounting/Services/YardiEftInboxService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/ClientCreditService.php';
 require_once __DIR__ . '/../app/Services/Messaging/EmailWrapper.php';
+// QuickBooks Online (OAuth, API client, discovery, account map, push planner — fake transport in tests)
+require_once __DIR__ . '/../app/Modules/Accounting/Services/QuickBooks/QboPushService.php';
+require_once __DIR__ . '/Unit/Accounting/QuickBooks/QboFakeTransport.php';
 
 // Quotes
 require_once __DIR__ . '/../app/Modules/Quotes/Services/QuoteService.php';
