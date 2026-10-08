@@ -33,6 +33,77 @@ $db = getDB();
 $action = $_GET['action'] ?? ($_POST['action'] ?? null);
 $token  = $_GET['token'] ?? ($_POST['token'] ?? '');
 
+/**
+ * Calculate a bundle's total price for a specific property:
+ * applies each component product's pricing rule against property measurements,
+ * then applies the bundle's discount.
+ */
+function calculateBundlePriceForProperty(int $bundleId, int $propertyId, PDO $db): float {
+    $bStmt = $db->prepare("SELECT discount_type, discount_value FROM product_bundles WHERE id = ?");
+    $bStmt->execute([$bundleId]);
+    $bundle = $bStmt->fetch(PDO::FETCH_ASSOC);
+    if (!$bundle) return 0.0;
+
+    $itemsStmt = $db->prepare("
+        SELECT bi.product_id, bi.override_price, bi.quantity_multiplier,
+               p.name, p.base_price
+        FROM product_bundle_items bi
+        JOIN products p ON bi.product_id = p.id
+        WHERE bi.bundle_id = ?
+    ");
+    $itemsStmt->execute([$bundleId]);
+    $items = $itemsStmt->fetchAll(PDO::FETCH_ASSOC);
+    if (empty($items)) return 0.0;
+
+    $measurementTotals = getMeasurementTotalsForProperty($propertyId);
+    $total = 0.0;
+
+    foreach ($items as $item) {
+        if ($item['override_price'] !== null) {
+            $total += (float)$item['override_price'];
+            continue;
+        }
+
+        $ruleStmt = $db->prepare("
+            SELECT r.*, mg.group_key
+            FROM product_pricing_rules r
+            JOIN measurement_groups mg ON r.measurement_group_id = mg.id
+            WHERE r.product_id = ? AND r.is_active = 1
+            ORDER BY r.priority DESC LIMIT 1
+        ");
+        $ruleStmt->execute([$item['product_id']]);
+        $rule = $ruleStmt->fetch(PDO::FETCH_ASSOC);
+
+        $itemPrice = (float)$item['base_price']; // fallback
+
+        if ($rule && isset($measurementTotals[$rule['group_key']])) {
+            $groupKey = $rule['group_key'];
+            $totalUnits = ($groupKey === 'hedge_linear')
+                ? $measurementTotals[$groupKey]['linear_ft']
+                : $measurementTotals[$groupKey]['sqft'];
+
+            $productArr = [
+                'id'         => (int)$item['product_id'],
+                'name'       => $item['name'],
+                'base_price' => (float)$item['base_price'],
+            ];
+            $calcItem = calculateLineItemFromRule($rule, $totalUnits, $productArr);
+            $itemPrice = (float)$calcItem['line_total'];
+        }
+
+        $qtyMult = (float)($item['quantity_multiplier'] ?? 1);
+        if ($qtyMult <= 0) $qtyMult = 1;
+        $total += $itemPrice * $qtyMult;
+    }
+
+    $dv = (float)$bundle['discount_value'];
+    $total = ($bundle['discount_type'] === 'percentage')
+        ? $total * (1 - $dv / 100)
+        : $total - $dv;
+
+    return max(0, round($total, 2));
+}
+
 try {
     // Validate token
     if (empty($token)) {
@@ -79,14 +150,25 @@ try {
         }
 
         // Get upsells for these products — products AND bundles (migration 1020 + 1021)
+        // product_bundles uses bundle_name (not name) and has no bundle_price column —
+        // price is calculated from product_bundle_items with discount applied.
         $placeholders = implode(',', array_fill(0, count($ids), '?'));
         try {
             $upsellStmt = $db->prepare("
                 SELECT u.*,
-                       COALESCE(p.name, b.name) as upsell_product_name,
-                       COALESCE(p.base_price, b.bundle_price) as upsell_price,
-                       COALESCE(p.description, b.description) as upsell_description,
-                       CASE WHEN u.upsell_bundle_id IS NOT NULL THEN 1 ELSE 0 END AS is_bundle
+                       COALESCE(p.name, b.bundle_name) AS upsell_product_name,
+                       COALESCE(p.base_price, 0) AS upsell_price,
+                       COALESCE(p.description, b.description) AS upsell_description,
+                       CASE WHEN u.upsell_bundle_id IS NOT NULL THEN 1 ELSE 0 END AS is_bundle,
+                       b.discount_type AS bundle_discount_type,
+                       b.discount_value AS bundle_discount_value,
+                       COALESCE(
+                           (SELECT SUM(COALESCE(bi.override_price, p2.base_price))
+                            FROM product_bundle_items bi
+                            JOIN products p2 ON bi.product_id = p2.id
+                            WHERE bi.bundle_id = b.id),
+                           0
+                       ) AS bundle_items_total
                 FROM product_upsells u
                 LEFT JOIN products p ON u.upsell_product_id = p.id AND p.active = 1 AND p.is_archived = 0
                 LEFT JOIN product_bundles b ON u.upsell_bundle_id = b.id AND b.is_active = 1
@@ -97,8 +179,19 @@ try {
             ");
             $upsellStmt->execute($ids);
             $upsells = $upsellStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // For bundle upsells, calculate real price by applying each component's
+            // pricing rule against this property's measurements, then bundle discount.
+            foreach ($upsells as &$row) {
+                if (!empty($row['is_bundle'])) {
+                    $row['upsell_price'] = calculateBundlePriceForProperty(
+                        (int)$row['upsell_bundle_id'], $propertyId, $db
+                    );
+                }
+            }
+            unset($row);
         } catch (PDOException $e) {
-            // Fallback for envs without migration 1021 (no upsell_bundle_id)
+            // Fallback for envs without migration 1021 (no upsell_bundle_id column)
             $upsellStmt = $db->prepare("
                 SELECT u.*, p.name as upsell_product_name, p.base_price as upsell_price,
                        p.description as upsell_description, 0 AS is_bundle
@@ -212,11 +305,24 @@ try {
         $isBundle = $upsellBundleId > 0;
 
         if ($isBundle) {
-            // Load bundle as the "product" for this line item
-            $bStmt = $db->prepare("SELECT id, name, description, bundle_price AS base_price FROM product_bundles WHERE id = ? AND is_active = 1");
+            // Load bundle — bundle_name is the name column; price is derived from items + discount
+            $bStmt = $db->prepare("
+                SELECT id, bundle_name AS name, description, discount_type, discount_value
+                FROM product_bundles WHERE id = ? AND is_active = 1
+            ");
             $bStmt->execute([$upsellBundleId]);
-            $product = $bStmt->fetch(PDO::FETCH_ASSOC);
-            if (!$product) throw new Exception('Bundle not found or inactive');
+            $bundleRow = $bStmt->fetch(PDO::FETCH_ASSOC);
+            if (!$bundleRow) throw new Exception('Bundle not found or inactive');
+
+            // Calculate bundle price by applying each component's pricing rule to this property's measurements
+            $calcBundlePrice = calculateBundlePriceForProperty($upsellBundleId, $propertyId, $db);
+
+            $product = [
+                'id'          => (int)$bundleRow['id'],
+                'name'        => $bundleRow['name'],
+                'description' => $bundleRow['description'],
+                'base_price'  => $calcBundlePrice,
+            ];
             // Prevent duplicate bundle adds
             $dupStmt = $db->prepare("
                 SELECT id FROM quote_line_items

@@ -15,7 +15,7 @@
  *
  * NOT responsible for:
  *  - Auth (callers authenticate via session or JWT before calling)
- *  - PDF rendering   → PdfGenerator (loaded lazily inside send())
+ *  - PDF rendering   → InvoicePdfGate (no PDF → send() refuses, invoice stays draft)
  *  - Email/SMS send  → messaging.php helpers (sendCrmEmail / sendInvoiceNotificationSms)
  *
  * Depends on functions provided by crm/includes/functions.php:
@@ -24,13 +24,23 @@
  */
 declare(strict_types=1);
 
+require_once __DIR__ . '/InvoicePdfGate.php';
+
 class InvoiceFromVisitService
 {
     private PDO $db;
+    private ?InvoicePdfGate $pdfGate;
+    /** @var callable|null (string $to, string $subject, string $html, string $attachPath): bool — tests only */
+    private $mailer;
+    /** @var callable|null (PDO $db, int $invoiceId): void — tests only; default AutopayService::triggerOnSend */
+    private $autopayTrigger;
 
-    public function __construct(PDO $db)
+    public function __construct(PDO $db, ?InvoicePdfGate $pdfGate = null, ?callable $mailer = null, ?callable $autopayTrigger = null)
     {
         $this->db = $db;
+        $this->pdfGate = $pdfGate;
+        $this->mailer = $mailer;
+        $this->autopayTrigger = $autopayTrigger;
     }
 
     /**
@@ -448,8 +458,6 @@ class InvoiceFromVisitService
     {
         if (!$invoiceId) return ['success' => false, 'error' => 'invoice_id required'];
 
-        require_once CRM_INCLUDES . '/pdf_bootstrap.php';
-        require_once CRM_INCLUDES . '/PdfGenerator.php';
         require_once APP_ROOT . '/Services/Messaging/EmailWrapper.php';
 
         $invStmt = $this->db->prepare("
@@ -500,11 +508,15 @@ class InvoiceFromVisitService
 
         if (!$recipients) return ['success' => false, 'error' => 'No recipients found for this invoice'];
 
-        // Generate PDF
-        $pdfGen     = new PdfGenerator();
-        $pdfResult  = $pdfGen->generateInvoicePdf($invoiceId);
-        $attachPath = (!empty($pdfResult['success']) && !empty($pdfResult['path']) && file_exists($pdfResult['path']))
-            ? $pdfResult['path'] : null;
+        // Every invoice email carries the PDF (owner rule 2026-10-06). No PDF → nothing
+        // is sent and the invoice stays a draft; Charlie alerts the owner.
+        $gate       = $this->pdfGate ?? new InvoicePdfGate($this->db);
+        $attachPath = $gate->ensurePdf($invoiceId);
+        if ($attachPath === null) {
+            $gate->recordBlocked($invoiceId, 'invoice_from_visit');
+            return ['success' => false, 'error' => InvoicePdfGate::NOT_SENT_MESSAGE, 'pdf_failed' => true];
+        }
+        $pdfVanished = false;
 
         // Ensure valid access token
         $accessToken = $invoice['access_token'] ?? '';
@@ -563,12 +575,16 @@ class InvoiceFromVisitService
                 );
             }
 
-            $emailOk = sendCrmEmail(
-                $recipient['email_address'],
-                $tpl['subject'],
-                $body,
-                $attachPath ?: null
-            );
+            // The file must still be there now — sendEmail() would silently drop it.
+            if (!$gate->isUsable($attachPath)) {
+                $pdfVanished = true;
+                $gate->recordBlocked($invoiceId, 'invoice_from_visit', 'PDF vanished before send: ' . $attachPath);
+                break;
+            }
+
+            $emailOk = $this->mailer
+                ? (bool)($this->mailer)($recipient['email_address'], $tpl['subject'], $body, $attachPath)
+                : sendCrmEmail($recipient['email_address'], $tpl['subject'], $body, $attachPath);
 
             // Only record recipients whose email actually went out — a failed
             // delivery must never be counted as "sent".
@@ -607,6 +623,9 @@ class InvoiceFromVisitService
         // Nothing went out → safe to report failure: the invoice stays a draft and
         // NO customer email was sent, so the caller can retry cleanly with no risk
         // of a duplicate email.
+        if (!$sentTo && $pdfVanished) {
+            return ['success' => false, 'error' => InvoicePdfGate::NOT_SENT_MESSAGE, 'pdf_failed' => true];
+        }
         if (!$sentTo) {
             return ['success' => false, 'error' => 'Email delivery failed. Please try again, or open the invoice to resend.'];
         }
@@ -636,10 +655,14 @@ class InvoiceFromVisitService
 
         // Autopay: first-send transition to 'sent' — attempt an off-session charge
         // if the bill-to is enrolled. See AutopayService::triggerOnSend().
-        $autopayServicePath = APP_ROOT . '/Services/Payments/AutopayService.php';
-        if (is_file($autopayServicePath)) {
-            require_once $autopayServicePath;
-            AutopayService::triggerOnSend($this->db, $invoiceId, 'InvoiceFromVisitService::send');
+        if ($this->autopayTrigger) {
+            ($this->autopayTrigger)($this->db, $invoiceId);
+        } else {
+            $autopayServicePath = APP_ROOT . '/Services/Payments/AutopayService.php';
+            if (is_file($autopayServicePath)) {
+                require_once $autopayServicePath;
+                AutopayService::triggerOnSend($this->db, $invoiceId, 'InvoiceFromVisitService::send');
+            }
         }
 
         return [

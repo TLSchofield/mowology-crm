@@ -29,7 +29,7 @@ class QuoteViewNotifier
 {
     public const ACTION = 'sam_quote_view_push';
     public const SELF_CHECK_MINUTES = 5;
-    public const TITLE = 'Sam';
+    public const TITLE = 'Sam [Sales]';   // every push names its head and department (PushHeads)
 
     private PDO $db;
     /** @var callable(string,string,string,array):array */

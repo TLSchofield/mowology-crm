@@ -265,6 +265,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && $quote['status'] 
 
                 $db->commit();
 
+                // Sam's pipeline stage (an accepted quote makes a client). Never blocks acceptance.
+                try {
+                    require_once APP_ROOT . '/Modules/Sales/Services/PipelineStageService.php';
+                    PipelineStageService::onEvent($db, 'quote', (int)$quote['id']);
+                } catch (Throwable $e) {
+                    error_log('[pipeline] portal accept: ' . $e->getMessage());
+                }
+
                 $quote['status'] = 'accepted';
                 $success = 'Thank you! Your quote has been accepted. We will be in touch shortly to schedule your service.';
 
