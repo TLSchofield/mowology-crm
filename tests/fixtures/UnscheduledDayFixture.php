@@ -34,7 +34,7 @@ final class UnscheduledDayFixture
             'CREATE TABLE calendar_stops (id INTEGER PRIMARY KEY, property_id INT, stop_date TEXT, status TEXT, crew_id INT, created_at TEXT)',
             'CREATE TABLE otto_lessons (scope TEXT, scope_key TEXT, value_json TEXT, PRIMARY KEY (scope, scope_key))',
             'CREATE TABLE contacts (id INTEGER PRIMARY KEY, first_name TEXT, last_name TEXT)',
-            'CREATE TABLE invoices (id INTEGER PRIMARY KEY, property_id INT, invoice_number TEXT, issue_date TEXT, total REAL, status TEXT)',
+            'CREATE TABLE invoices (id INTEGER PRIMARY KEY, property_id INT, invoice_number TEXT, issue_date TEXT, total REAL, status TEXT, contract_id INT)',
         ] as $ddl) $db->exec($ddl);
 
         $db->exec("INSERT INTO ops_places VALUES (1, 'Yard', 'yard', " . self::YARD[0] . ', ' . self::YARD[1] . ", 150, NULL, 1)");
@@ -49,7 +49,7 @@ final class UnscheduledDayFixture
         $db->exec("INSERT INTO job_plans VALUES (82, 441, 'PLN-2026-0068', 'Hedge care', 'Hedge Trimming', 0, 120, 'active')");
         $db->exec("INSERT INTO job_plans VALUES (90, 300, 'PLN-2026-0012', 'Weekly lawn', 'Lawn Maintenance', 1, 45, 'active')");
         $db->exec("INSERT INTO job_visits (id, plan_id, scheduled_date, status, completed_at, visit_number) VALUES (1, 90, '" . self::DATE . "', 'completed', '" . self::DATE . " 13:55:00', 'PLN-2026-0012-V009')");
-        $db->exec("INSERT INTO invoices VALUES (438, 441, 'INV-2026-0438', '2026-10-06', 540.75, 'sent')");
+        $db->exec("INSERT INTO invoices VALUES (438, 441, 'INV-2026-0438', '2026-10-06', 540.75, 'sent', NULL)");
 
         // The truck: yard → Larch (3 h 30) → dump → Oak St (scheduled) → yard.
         $plan = [

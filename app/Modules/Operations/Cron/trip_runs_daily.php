@@ -116,6 +116,19 @@ try {
         error_log('[trip_runs_daily] cost facts: ' . $e->getMessage());
         $__facts = '; cost facts failed: ' . $e->getMessage();
     }
+    // Contract sites (migration 1267): Otto logs work done there with nothing scheduled, by himself —
+    // yesterday, or the last 14 days on the first run. Additive: a failure never loses the runs above.
+    try {
+        require_once APP_ROOT . '/Modules/Operations/Services/OttoContractLogService.php';
+        $ocl = new OttoContractLogService(getDB());
+        if ($ocl->ready()) {
+            $p = $ocl->dailyPass();
+            $__facts .= "; contract sites: {$p['logged']} visit(s) logged (" . UnscheduledWorkRules::hours($p['minutes']) . "), {$p['asked']} left to ask over {$p['days']} day(s)";
+        }
+    } catch (Throwable $e) {
+        error_log('[trip_runs_daily] contract visits: ' . $e->getMessage());
+        $__facts .= '; contract visits failed: ' . $e->getMessage();
+    }
     $span = $__from === $__to ? $__from : "{$__from} → {$__to} ({$tot['days']} days)";
     $__finish('success', "{$span}: {$tot['stored']} overhead stop(s) priced, {$tot['removed']} removed, "
         . "{$tot['unnamed']} unnamed stop(s) to name" . ($tot['open'] ? ", {$tot['open']} still away" : '')

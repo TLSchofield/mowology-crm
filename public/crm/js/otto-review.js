@@ -91,11 +91,26 @@
         });
     }
 
+    /** Contract visits Otto logged by himself: Undo → /crm/api/otto-unscheduled.php (mode=undo_auto). */
+    function autoLog(root) {
+        root.addEventListener('click', function (e) {
+            var b = e.target.closest('button[data-or="undo_auto"]');
+            if (!b) return;
+            if (!window.confirm('Cancel the visit Otto logged? He will ask about that day instead.')) return;
+            var host = b.closest('li');
+            b.disabled = true;
+            post('/crm/api/otto-unscheduled.php', { mode: 'undo_auto', id: parseInt(b.getAttribute('data-id'), 10) }).then(function (r) {
+                msg(host, r.message || r.error || 'Done.', !r.ok);
+                if (r.ok) b.hidden = true; else b.disabled = false;
+            }).catch(function () { b.disabled = false; msg(host, 'No connection. Try again.', true); });
+        });
+    }
+
     function init() {
         var root = document.querySelector('.mw-or');
         if (!root) return;
         if (root.getAttribute('data-view') === 'durations') durations(root);
-        else unscheduled(root);
+        else { unscheduled(root); autoLog(root); }
     }
 
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

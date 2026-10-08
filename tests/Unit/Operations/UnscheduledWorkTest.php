@@ -229,7 +229,7 @@ class UnscheduledWorkTest extends TestCase
         $this->assertSame(['otto:extra:441:' . self::D], array_column($items, 'key'));
         $p = $items[0]['propose'];
         $this->assertSame('extra_work', $items[0]['kind']);
-        $this->assertSame(['08:40', '11:40', 180, true, 'lawn cut'], [$p['start'], $p['end'], $p['minutes'], $p['extra'], $p['scheduled_label']], 'the extra visit starts after the planned lawn cut');
+        $this->assertSame(['08:44', '11:40', 176, true, 'lawn cut'], [$p['start'], $p['end'], $p['minutes'], $p['extra'], $p['scheduled_label']], 'the lawn cut is placed where Nigel is first seen (8:14) for its 30 min; the extra visit starts after it');
         $this->assertSame('INV-2026-0438', $p['invoices'][0]['number']);
     }
 
@@ -278,6 +278,56 @@ class UnscheduledWorkTest extends TestCase
         $this->assertStringContainsString('empty calendar stop #812 (no visit on it — made Oct 1 8:02 am;', $c['evidence']);
         $this->assertStringContainsString("Nigel's timer 8:20–11:30 (190 min) on visit #5 scheduled Oct 6", $c['evidence']);
         $this->assertStringContainsString("Nigel's timer 11:00–11:35 (35 min) with no visit (PLN-2026-0068)", $c['evidence']);
+    }
+
+    // ── One truck stop, two neighbours (prod 2026-10-05: Alexandra Bee at 2505 W 8th, then Larch) ──
+
+    private const BEE = [49.26420, -123.16260];   // 2505 W 8th Ave, on the corner of Larch (~70 m from 2448 Larch)
+
+    private function neighbours(?int $beeTimer = 70, ?int $beePlan = 90): array
+    {
+        $props = [
+            ['id' => 441, 'latitude' => UnscheduledDayFixture::LARCH[0], 'longitude' => UnscheduledDayFixture::LARCH[1]],
+            ['id' => 843, 'latitude' => self::BEE[0], 'longitude' => self::BEE[1]],
+        ];
+        // The truck parked between the two, 08:17–12:02, labelled to the nearest (Larch) by the trip splitter.
+        $truck = UnscheduledWorkRules::truckDwells([self::stop([49.26385, -123.16215], '08:17', '12:02', ['type' => 'property', 'id' => 441, 'name' => '2448 Larch'])], $props, [], []);
+        // Nigel's phone: at Bee's 8:20–9:30, then Larch 9:36–11:58.
+        $fx = array_merge(self::fixes(self::BEE, '08:20', '09:30'), self::fixes(UnscheduledDayFixture::LARCH, '09:36', '11:58'));
+        $crew = [7 => UnscheduledWorkRules::crewDwells($fx, $props, [], [])];
+        $sched = [843 => [['visit_id' => 2478, 'plan_id' => 130, 'plan_number' => 'PLN-2026-0130', 'service_type' => 'Hedge Trimming',
+            'status' => 'completed', 'planned_min' => $beePlan, 'timer_min' => $beeTimer]]];
+        return [$truck, $crew, $sched];
+    }
+
+    public function test_one_stop_by_two_neighbours_explains_the_scheduled_one_and_flags_the_rest_at_larch(): void
+    {
+        [$truck, $crew, $sched] = $this->neighbours();
+        $this->assertSame([441, 843], $truck[0]['props'], 'both lots are within the radius of the stop');
+        $c = UnscheduledWorkRules::candidates(self::D, $truck, $crew, $sched);
+        $this->assertCount(1, $c, 'one site, not two candidates');
+        $c = $c[0];
+        $this->assertSame([441, true, 'unscheduled'], [$c['property_id'], $c['flag'], $c['kind']]);
+        $this->assertSame([[2478, 843, 70, 'timer']], array_map(fn($x) => [$x['visit_id'], $x['property_id'], $x['minutes'], $x['basis']], $c['explained']));
+        $this->assertSame(225, $c['site_minutes']);
+        $this->assertSame(155, $c['minutes'], '225 min stay − 70 min hedge trimming');
+        $this->assertSame(['09:30', '12:02'], [date('H:i', $c['start']), date('H:i', $c['end'])]);
+        $names = [441 => ['street' => '2448 Larch St', 'client' => 'Marc Nelitz'], 843 => ['street' => '2505 W 8th Ave', 'client' => 'Alexandra Bee']];
+        $this->assertSame("Truck parked Mon 8:17–12:02 by 2448 Larch St + 2505 W 8th Ave: Alexandra Bee's hedge trimming (scheduled, ~1 h 10 min) then ~2 h 35 min unexplained at 2448 Larch St.",
+            UnscheduledWorkRules::text($c, '2448 Larch St', $names));
+    }
+
+    public function test_neighbour_with_no_timer_uses_its_plan_length_and_a_fully_explained_stop_is_not_flagged(): void
+    {
+        [$truck, $crew, $sched] = $this->neighbours(null, 90);
+        $c = UnscheduledWorkRules::candidates(self::D, $truck, $crew, $sched)[0];
+        $this->assertSame([90, 'plan', 135, 441], [$c['explained'][0]['minutes'], $c['explained'][0]['basis'], $c['minutes'], $c['property_id']]);
+
+        // If Bee's job took the whole morning (timer 220 min, plan 200), nothing is left for Larch.
+        [$truck, $crew, $sched] = $this->neighbours(220, 200);
+        $c = UnscheduledWorkRules::candidates(self::D, $truck, $crew, $sched)[0];
+        $this->assertFalse($c['flag']);
+        $this->assertSame(['scheduled', 843], [$c['ignored'], $c['property_id']]);
     }
 
     public function test_small_helpers(): void

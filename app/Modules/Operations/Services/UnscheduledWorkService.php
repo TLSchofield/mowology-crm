@@ -29,13 +29,13 @@ require_once __DIR__ . '/TripSegmentService.php';
 class UnscheduledWorkService
 {
     /** Bump when the shape of a cached day changes; older rows are recomputed. */
-    public const CACHE_VERSION = 1;
+    public const CACHE_VERSION = 2;   // 2: crew dwells carry a per-fix track (neighbour split)
     /** Uncached days filled per call from the card's API (the first run needs a few calls). */
     public const FILL_PER_CALL = 3;
     /** Phone fixes closer together than this are thinned (5 s native cadence → 1 a minute). */
     public const THIN_SECONDS = 60;
 
-    private PDO $db;
+    protected PDO $db;
     private string $today;
 
     public function __construct(PDO $db, ?string $today = null)
@@ -359,12 +359,31 @@ class UnscheduledWorkService
     public function review(string $from, string $to, bool $useCache = true, bool $writeCache = false): array
     {
         $notWork = $this->notWork();
+        $auto = null;
+        try {
+            require_once __DIR__ . '/OttoContractLogService.php';
+            $auto = new OttoContractLogService($this->db, $this, $this->today);
+            if (!$auto->ready()) $auto = null;
+        } catch (Throwable $e) {
+            $auto = null;
+        }
         $days = [];
         $flagged = 0;
         for ($d = $from; $d <= $to; $d = date('Y-m-d', strtotime($d . ' +1 day'))) {
             $ev = $this->evidence($d, $useCache, $writeCache);
             $cands = UnscheduledWorkRules::candidates($d, $ev['truck'], $ev['crew'], $this->scheduledIds($d), $notWork);
             $cands = $this->describe($cands);
+            // Contract sites (migration 1267): what Otto did / would do by himself — read-only here.
+            if ($auto) {
+                foreach ($cands as &$c) {
+                    $row = $auto->row((int)$c['property_id'], $d);
+                    $c['auto'] = $row ? ['id' => (int)$row['id'], 'status' => (string)$row['status'], 'visit_id' => $row['visit_id'] !== null ? (int)$row['visit_id'] : null,
+                        'reason' => (string)($row['reason'] ?? '')] : null;
+                    $c['contract'] = $c['flag'] ? $auto->preview($c) : null;
+                    if ($c['auto'] && in_array($c['auto']['status'], ['logged', 'logging'], true)) { $c['flag'] = false; $c['ignored'] = 'logged_by_otto'; }
+                }
+                unset($c);
+            }
             $flagged += count(array_filter($cands, fn($c) => $c['flag']));
             $days[] = ['date' => $d, 'sources' => $ev['meta'] + ['cached' => $ev['cached']], 'candidates' => $cands];
         }
@@ -379,6 +398,14 @@ class UnscheduledWorkService
     {
         if (!$this->cacheReady()) return [];
         $notWork = $this->notWork();
+        $auto = null;
+        try {
+            require_once __DIR__ . '/OttoContractLogService.php';
+            $auto = new OttoContractLogService($this->db, $this, $this->today);
+            if (!$auto->ready()) $auto = null;
+        } catch (Throwable $e) {
+            $auto = null;
+        }
         $filled = 0;
         $out = [];
         for ($i = 1; $i <= UnscheduledWorkRules::LOOKBACK_DAYS; $i++) { // newest first: yesterday is filled first
@@ -395,9 +422,29 @@ class UnscheduledWorkService
                 }
             }
             $cands = UnscheduledWorkRules::candidates($d, $ev['truck'], $ev['crew'], $this->scheduledIds($d), $notWork);
-            foreach ($this->describe(array_values(array_filter($cands, fn($c) => $c['flag']))) as $c) $out[] = $this->item($c);
+            foreach ($cands as $c) {
+                // A day Otto already logged at a contract site is done — its own visit must not re-flag it.
+                if ($auto && in_array(($auto->row((int)$c['property_id'], $d)['status'] ?? ''), ['logged', 'logging'], true)) continue;
+                if (!$c['flag']) continue;
+                $c = $this->describe([$c])[0];
+                if ($auto) {
+                    // Contract sites: Otto logs, never asks (owner, 2026-10-07). Only with $fill (the card API /
+                    // the daily pass) — a page render never writes.
+                    $r = $fill ? $auto->log($c) : null;
+                    if ($r && $r['done']) continue;
+                    if (!$fill && ($pv = $auto->preview($c)) && $pv['log']) continue;   // it will be logged on the next pass
+                    if ($r && $r['reason'] !== 'not a contract site') $c['contract_note'] = 'Contract site, but ' . $r['reason'];
+                }
+                $out[] = $this->item($c);
+            }
         }
         return $out;
+    }
+
+    /** describe() for OttoContractLogService's daily pass. */
+    public function describePublic(array $cands): array
+    {
+        return $this->describe($cands);
     }
 
     private function item(array $c): array
@@ -406,19 +453,19 @@ class UnscheduledWorkService
         $crewId = null;
         foreach ($c['crew_people'] as $p) if (!$p['truck']) { $crewId = $p['id']; break; }
         $extra = ($c['kind'] ?? '') === 'extra';
-        // Extra work: the scheduled visit is assumed to come first, so the extra visit starts after it.
-        $from = $extra ? min($c['end'], $c['start'] + (int)$c['planned_min'] * 60) : $c['start'];
+        // The unexplained remainder (after any scheduled visit, placed where the crew was).
+        $from = $c['start'];
         return [
             'key' => 'otto:' . ($extra ? 'extra' : 'unsched') . ':' . $c['property_id'] . ':' . $c['date'], 'kind' => $extra ? 'extra_work' : 'unscheduled',
             'subject_type' => 'property', 'subject_id' => (int)$c['property_id'], 'for_date' => $c['date'],
             'user_id' => $crewId, 'priority' => $c['confidence'] === 'low' ? 3 : 2,
-            'text' => UnscheduledWorkRules::text($c, $street),
-            'detail' => $c['evidence'] . ($c['client'] !== '' ? ' · ' . $c['client'] : ''),
+            'text' => UnscheduledWorkRules::text($c, $street, $c['site_names'] ?? []),
+            'detail' => $c['evidence'] . ($c['client'] !== '' ? ' · ' . $c['client'] : '') . (!empty($c['contract_note']) ? ' · ' . $c['contract_note'] : ''),
             'url' => '/crm/properties/view.php?id=' . (int)$c['property_id'],
             'value' => $c['minutes'], 'since' => $c['date'],
             'propose' => [
                 'date' => $c['date'], 'start' => date('H:i', $from), 'end' => date('H:i', $c['end']),
-                'minutes' => (int)round(($c['end'] - $from) / 60), 'stay_minutes' => $c['minutes'],
+                'minutes' => (int)round(($c['end'] - $from) / 60), 'stay_minutes' => (int)($c['site_minutes'] ?? $c['minutes']),
                 'crew_id' => $crewId, 'people' => count(array_filter($c['crew_people'], fn($p) => !$p['truck'])) ?: null,
                 'confidence' => $c['confidence'], 'basis' => $c['basis'],
                 'plans' => $c['plans'], 'invoices' => $c['invoices'], 'street' => $street,
@@ -451,6 +498,12 @@ class UnscheduledWorkService
             foreach ($c['stray_timers'] as $t) $extra[] = UnscheduledWorkRules::strayTimerLine($t);
             if ($extra) $c['evidence'] .= ' · ' . implode(' · ', $extra);
             $c['window'] = date('H:i', $c['start']) . '–' . date('H:i', $c['end']);
+            $c['window_site'] = date('H:i', (int)($c['site_start'] ?? $c['start'])) . '–' . date('H:i', (int)($c['site_end'] ?? $c['end']));
+            $c['site_names'] = [];
+            foreach ((array)($c['site_props'] ?? [$pid]) as $sp) {
+                $pp = $this->property((int)$sp);
+                $c['site_names'][(int)$sp] = ['street' => self::street((string)($pp['address'] ?? '')), 'client' => trim((string)($pp['client'] ?? ''))];
+            }
         }
         unset($c);
         return $cands;
@@ -596,14 +649,15 @@ class UnscheduledWorkService
     {
         try {
             $s = $this->db->prepare("
-                SELECT id, invoice_number, issue_date, total, status
+                SELECT id, invoice_number, issue_date, total, status, contract_id
                 FROM invoices
-                WHERE property_id = ? AND issue_date BETWEEN ? AND ? AND status <> 'void'
+                WHERE property_id = ? AND issue_date BETWEEN ? AND ? AND status NOT IN ('void', 'cancelled')
                 ORDER BY issue_date LIMIT 5
             ");
             $s->execute([$propertyId, $date, date('Y-m-d', strtotime($date . ' +21 days'))]);
             return array_map(fn($r) => ['id' => (int)$r['id'], 'number' => (string)$r['invoice_number'], 'date' => (string)$r['issue_date'],
-                'total' => $r['total'] !== null ? (float)$r['total'] : null, 'status' => (string)$r['status']], $s->fetchAll(PDO::FETCH_ASSOC));
+                'total' => $r['total'] !== null ? (float)$r['total'] : null, 'status' => (string)$r['status'],
+                'contract_id' => $r['contract_id'] !== null ? (int)$r['contract_id'] : null], $s->fetchAll(PDO::FETCH_ASSOC));
         } catch (Throwable $e) {
             return [];
         }
@@ -757,7 +811,13 @@ class UnscheduledWorkService
             ")->execute([$start . ':00', $end . ':00', $stopId]);
             if (class_exists('VisitLifecycleService')) VisitLifecycleService::propagateStopStatus($stopId);
         }
-        // Cost snapshot (labour / drive) — no messages in it.
+        $this->captureCosts($visitId, $actorId);
+        return true;
+    }
+
+    /** Cost snapshot (labour / drive) — no messages in it. */
+    protected function captureCosts(int $visitId, int $actorId): void
+    {
         try {
             $f = dirname(__DIR__, 2) . '/Jobs/Services/VisitCompletionService.php';
             if (!class_exists('VisitCompletionService') && is_file($f)) require_once $f;
@@ -765,7 +825,16 @@ class UnscheduledWorkService
         } catch (Throwable $e) {
             error_log('Otto unscheduled capture: ' . $e->getMessage());
         }
-        return true;
+    }
+
+    /**
+     * A new visit on $planId for $date: a second one when the plan already has a visit that day (so the
+     * existing one is never re-used), else addAdHocVisit(). @return array{success: bool, visit_id?: int, errors?: array}
+     */
+    public function addVisitFor(int $planId, string $date, int $crewId): array
+    {
+        $this->loadPlanFunctions();
+        return $this->planHasVisitOn($planId, $date) ? $this->addExtraVisit($planId, $date, $crewId) : addAdHocVisit($planId, $date, $crewId, $crewId);
     }
 
     public function planHasVisitOn(int $planId, string $date): bool
@@ -825,7 +894,7 @@ class UnscheduledWorkService
         return $n;
     }
 
-    private function loadPlanFunctions(): void
+    public function loadPlanFunctions(): void
     {
         if (!function_exists('addAdHocVisit')) require_once APP_ROOT . '/Modules/Jobs/Services/PlanFunctions.php';
     }

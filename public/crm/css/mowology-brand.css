@@ -38919,3 +38919,8 @@ body.mw-rc-zoom-open { overflow: hidden; }
 }
 .mw-or-conf.is-extra { background: var(--mw-color-warning-bg); color: var(--mw-orange); margin-right: 6px; }
 .mw-or-ev li.is-sched { border-left-color: var(--mw-dark); color: var(--mw-ink-700); }
+.mw-otto-autolog { font-size: .76rem; color: var(--mw-ink-700); background: var(--mw-light); border-radius: 8px; padding: 6px 10px; }
+.mw-otto-autolog a { color: var(--mw-green); font-weight: 600; }
+.mw-or-say { font-size: .86rem; color: var(--mw-ink-900); margin: 0 0 6px; }
+.mw-or-ctr { font-size: .78rem; color: var(--mw-ink-700); margin: 0 0 6px; }
+.mw-or-ctr.is-auto { color: var(--mw-dark); font-weight: 600; }

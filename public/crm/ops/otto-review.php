@@ -32,6 +32,7 @@ $unsched = ['days' => [], 'flagged' => 0];
 $durations = [];
 $coverage = null;
 $history = [];
+$autoRows = [];
 $ready = true;
 try {
     if ($view === 'unscheduled') {
@@ -40,6 +41,9 @@ try {
         if ($ready) {
             $unsched = $svc->review(date('Y-m-d', strtotime('-' . UnscheduledWorkRules::LOOKBACK_DAYS . ' days')), date('Y-m-d', strtotime('-1 day')), true, true);
         }
+        require_once APP_ROOT . '/Modules/Operations/Services/OttoContractLogService.php';
+        $ocl = new OttoContractLogService($db, $svc);
+        $autoRows = $ocl->recent(UnscheduledWorkRules::LOOKBACK_DAYS);
     } else {
         $dsvc = new VisitDurationService($db);
         $ready = $dsvc->ready();
@@ -59,7 +63,7 @@ foreach ($unsched['days'] as $d) {
     }
 }
 usort($flagged, fn($a, $b) => [$b['date'], $a['start']] <=> [$a['date'], $b['start']]);
-$ignoredWhy = ['scheduled' => 'had a visit that day', 'too_short' => 'too short', 'not_work' => 'you said not work (twice)'];
+$ignoredWhy = ['scheduled' => 'had a visit that day', 'too_short' => 'too short', 'not_work' => 'you said not work (twice)', 'logged_by_otto' => 'Otto logged it (contract)'];
 $confident = array_values(array_filter($durations, fn($r) => $r['proposed'] !== null && $r['confident']));
 $hm = fn($t) => date('g:i', (int)$t);
 ?>
@@ -110,7 +114,16 @@ $hm = fn($t) => date('g:i', (int)$t);
             <div><?php if ($isExtra): ?><span class="mw-or-conf is-extra">Beyond the scheduled visit · <?= h(UnscheduledWorkRules::hours((int)$c['extra_min'])) ?> extra</span><?php endif; ?>
             <span class="mw-or-conf is-<?= h($c['confidence']) ?>"><?= h(['truck+crew' => 'Truck + crew', 'truck' => 'Truck', 'crew' => 'Crew phones'][$c['basis']] ?? $c['basis']) ?> · <?= h($c['confidence']) ?></span></div>
           </div>
+          <p class="mw-or-say"><?= h(UnscheduledWorkRules::text($c, $street, $c['site_names'] ?? [])) ?></p>
+          <?php if (!empty($c['contract'])): ?>
+            <p class="mw-or-ctr<?= $c['contract']['log'] ? ' is-auto' : '' ?>">Contract <?= h($c['contract']['contract']['number']) ?>:
+              <?= $c['contract']['log'] ? 'Otto logs this one himself on the next pass (' . h($c['contract']['plan']['number'] ?? '') . ').' : h($c['contract']['reason']) ?></p>
+          <?php endif; ?>
           <ul class="mw-or-ev">
+            <?php foreach ($c['explained'] ?? [] as $x): if ((int)$x['property_id'] === (int)$c['property_id']) continue; ?>
+              <li class="is-sched">Explained: <?= h(($c['site_names'][$x['property_id']]['street'] ?? '#' . $x['property_id']) . ' — ' . $x['plan_number'] . ' ' . $x['service_type']) ?>
+                (<?= h($x['status']) ?>) <?= h($hm($x['from']) . '–' . $hm($x['to'])) ?>, ~<?= (int)$x['minutes'] ?> min by its <?= $x['basis'] === 'timer' ? 'timer' : 'plan length' ?></li>
+            <?php endforeach; ?>
             <?php foreach ($c['truck_stops'] as $s): ?>
               <li class="is-truck">Truck stopped <?= h($hm($s['from']) . '–' . $hm($s['to'])) ?> (<?= (int)round($s['minutes']) ?> min)</li>
             <?php endforeach; ?>
@@ -140,6 +153,25 @@ $hm = fn($t) => date('g:i', (int)$t);
         </div>
       </div>
     <?php endforeach; ?>
+
+    <?php if ($autoRows): ?>
+      <div class="card mw-or-auto" id="auto"><div class="card-body">
+        <h2 class="h6">Logged by Otto at contract sites</h2>
+        <p class="text-muted small mb-2">Covered by the contract, so never invoiced per visit and never sent to the client. Undo cancels the visit and Otto asks about that day instead.</p>
+        <ul class="mw-or-hist">
+          <?php foreach ($autoRows as $a): ?>
+            <li><?= h(date('D M j', strtotime($a['day']))) ?> · <?= h(UnscheduledWorkService::street((string)$a['address'])) ?> ·
+              <?= h(substr((string)$a['start_time'], 0, 5) . '–' . substr((string)$a['end_time'], 0, 5)) ?> (<?= h(UnscheduledWorkRules::hours((int)$a['minutes'])) ?>)
+              · <?= h((string)$a['contract_number']) ?> <?= h((string)$a['plan_number']) ?><?= $a['invoice_number'] ? ' · on ' . h($a['invoice_number']) : '' ?>
+              <?php if ($a['visit_id']): ?> · <a href="/crm/jobs/visit-detail.php?id=<?= (int)$a['visit_id'] ?>">visit</a><?php endif; ?>
+              <?php if ($a['status'] === 'logged'): ?>
+                <button type="button" class="btn btn-link btn-sm p-0" data-or="undo_auto" data-id="<?= (int)$a['id'] ?>">Undo</button>
+              <?php else: ?><small class="text-muted"><?= h($a['status']) ?><?= $a['reason'] ? ' — ' . h($a['reason']) : '' ?></small><?php endif; ?>
+              <span class="mw-or-msg" hidden></span></li>
+          <?php endforeach; ?>
+        </ul>
+      </div></div>
+    <?php endif; ?>
 
     <?php if ($ignored): ?>
       <details class="card mw-or-ignored"><summary class="card-body">Also seen, not flagged (<?= count($ignored) ?>)</summary>

@@ -159,7 +159,7 @@ class UnscheduledWorkRules
      * A fix with no property inside the gap is jitter and is skipped; a fix at another property, or a
      * gap longer than CREW_GAP_SECONDS, ends the dwell.
      * @param list<array{lat: float, lng: float, t: int, src: string}> $fixes
-     * @return list<array{start: int, end: int, minutes: float, fixes: int, sources: array, props: list<int>}>
+     * @return list<array{start: int, end: int, minutes: float, fixes: int, sources: array, props: list<int>, track: list<array{0: int, 1: int}>}>
      */
     public static function crewDwells(array $fixes, array $properties, array $fences, array $zones): array
     {
@@ -180,10 +180,11 @@ class UnscheduledWorkRules
             if (!$props) continue;
             if ($cur && !in_array($cur['props'][0], $props, true)) $close();
             if (!$cur) {
-                $cur = ['start' => (int)$f['t'], 'end' => (int)$f['t'], 'minutes' => 0.0, 'fixes' => 0, 'sources' => [], 'props' => $props];
+                $cur = ['start' => (int)$f['t'], 'end' => (int)$f['t'], 'minutes' => 0.0, 'fixes' => 0, 'sources' => [], 'props' => $props, 'track' => []];
             }
             $cur['end'] = (int)$f['t'];
             $cur['fixes']++;
+            $cur['track'][] = [(int)$f['t'], (int)$props[0]];   // where this fix puts the person (nearest / inside a fence)
             $cur['sources'][$f['src']] = ($cur['sources'][$f['src']] ?? 0) + 1;
             // Keep only properties every fix agrees on (first one stays the anchor).
             $keep = array_values(array_intersect($cur['props'], $props));
@@ -193,7 +194,7 @@ class UnscheduledWorkRules
         return $out;
     }
 
-    /** The property a dwell goes to: one that had a visit that day if it could be that, else the nearest. */
+    /** The property a dwell goes to on its own: one that had a visit that day if it could be that, else the nearest. */
     public static function attribute(array $props, array $scheduledIds): int
     {
         foreach ($props as $p) if (isset($scheduledIds[(int)$p])) return (int)$p;
@@ -205,80 +206,196 @@ class UnscheduledWorkRules
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * One row per property per day where the truck or the crew stayed, decided against the day's visits.
+     * One row per SITE per day where the truck or the crew stayed, decided against the day's visits.
+     *
+     * A site is every truck stop and crew dwell that shares a client property (a stop on the corner of
+     * Larch and W 8th is BOTH 2448 Larch and 2505 W 8th — 2026-10-05). Scheduled visits at any property
+     * of the site explain part of its window (their timer minutes, else plan length; a timer more than
+     * EXTRA_X × the plan counts as left running → plan length), placed in time where the crew's phone
+     * fixes put people. Only the unexplained remainder can be flagged, at the property the crew fixes
+     * favour during it (else the nearest unscheduled one):
+     *   remainder at an unscheduled property, ≥ MIN_TRUCK_MIN / MIN_CREW_MIN  → kind 'unscheduled'
+     *   remainder at a scheduled property, ≥ EXTRA_MIN and the stay ≥ EXTRA_X × explained → kind 'extra'
+     *   otherwise ignored ('scheduled' / 'too_short' / 'not_work').
+     *
      * @param array $truck    truckDwells()
      * @param array $crew     [user_id => crewDwells()]
-     * @param array $scheduledIds [property_id => list of that day's visits] (or => true): a visit row is
-     *                            {visit_id, plan_id, plan_number, service_type, status, planned_min, timer_min}
+     * @param array $scheduledIds [property_id => list of that day's visits] (or => true: scheduled, length
+     *                            unknown): {visit_id, plan_id, plan_number, service_type, status, planned_min, timer_min}
      * @param array $notWork  [property_id => true] the owner said time here isn't work (twice)
      * @return list<array> sorted flagged first, then longest
      */
     public static function candidates(string $date, array $truck, array $crew, array $scheduledIds, array $notWork = []): array
     {
-        $by = [];
-        $touch = function (int $pid) use (&$by) {
-            $by[$pid] ??= ['property_id' => $pid, 'date' => '', 'truck' => [], 'crew' => [], 'start' => PHP_INT_MAX, 'end' => 0];
-        };
-        foreach ($truck as $d) {
-            $pid = self::attribute($d['props'], $scheduledIds);
-            $touch($pid);
-            $by[$pid]['truck'][] = $d;
-            $by[$pid]['start'] = min($by[$pid]['start'], $d['start']);
-            $by[$pid]['end'] = max($by[$pid]['end'], $d['end']);
-        }
-        foreach ($crew as $uid => $dwells) {
-            foreach ($dwells as $d) {
-                $pid = self::attribute($d['props'], $scheduledIds);
-                $touch($pid);
-                $by[$pid]['crew'][] = $d + ['user_id' => (int)$uid];
+        // Every dwell, then union-find on shared properties.
+        $items = [];
+        foreach ($truck as $d) $items[] = ['src' => 'truck', 'd' => $d, 'props' => array_map('intval', $d['props'])];
+        foreach ($crew as $uid => $dwells) foreach ($dwells as $d) $items[] = ['src' => 'crew', 'd' => $d + ['user_id' => (int)$uid], 'props' => array_map('intval', $d['props'])];
+        $parent = array_keys($items);
+        $find = function (int $i) use (&$parent, &$find): int { return $parent[$i] === $i ? $i : ($parent[$i] = $find($parent[$i])); };
+        $owner = [];
+        foreach ($items as $i => $it) {
+            foreach ($it['props'] as $p) {
+                if (isset($owner[$p])) $parent[$find($i)] = $find($owner[$p]);
+                else $owner[$p] = $i;
             }
         }
+        $sites = [];
+        foreach ($items as $i => $it) $sites[$find($i)][] = $it;
+
         $out = [];
-        foreach ($by as $pid => $c) {
-            $truckMin = array_sum(array_column($c['truck'], 'minutes'));
-            $crewWin = self::window($c['crew']);
-            $crewMin = $crewWin ? ($crewWin[1] - $crewWin[0]) / 60 : 0;
-            $people = array_values(array_unique(array_map(fn($d) => (int)$d['user_id'], $c['crew'])));
-            $fixes = array_sum(array_column($c['crew'], 'fixes'));
-            $sources = [];
-            foreach ($c['crew'] as $d) foreach ($d['sources'] as $k => $n) $sources[$k] = ($sources[$k] ?? 0) + $n;
-            // The truck sets the window when it was there; the crew fills in when it wasn't.
-            if ($c['truck']) { $start = $c['start']; $end = $c['end']; }
-            elseif ($crewWin) { [$start, $end] = $crewWin; }
-            else continue;
-            $hasTruck = $truckMin >= self::MIN_TRUCK_MIN;
-            $hasCrew = $crewMin >= self::MIN_CREW_MIN && $fixes >= self::MIN_CREW_FIXES;
-            $confidence = $hasTruck && $c['crew'] ? 'high'
-                : ($hasTruck ? 'medium' : ($hasCrew && (count($people) > 1 || isset($sources['clock']) || isset($sources['timer'])) ? 'medium' : 'low'));
-            $ignored = null;
-            $kind = 'unscheduled';
-            $minutes = (int)round(($end - $start) / 60);
-            $visits = isset($scheduledIds[$pid]) && is_array($scheduledIds[$pid]) ? array_values($scheduledIds[$pid]) : [];
-            $ref = isset($scheduledIds[$pid]) ? self::reference($visits) : null;
-            if (isset($scheduledIds[$pid])) {
-                $kind = 'extra';
-                $ignored = ($ref !== null && self::isExtra($minutes, $ref['minutes'])) ? null : 'scheduled';
-            }
-            if ($ignored === null && isset($notWork[$pid])) $ignored = 'not_work';
-            if ($ignored === null && !$hasTruck && !$hasCrew) $ignored = 'too_short';
-            $out[] = [
-                'property_id' => (int)$pid, 'date' => $date,
-                'kind' => $kind, 'start' => (int)$start, 'end' => (int)$end, 'minutes' => $minutes,
-                'scheduled_visits' => $visits,
-                'planned_min' => $ref['minutes'] ?? null, 'planned_basis' => $ref['basis'] ?? null,
-                'extra_min' => $ref !== null ? max(0, $minutes - $ref['minutes']) : null,
-                'truck_min' => (int)round($truckMin), 'crew_min' => (int)round($crewMin),
-                'people' => $people, 'fixes' => (int)$fixes, 'sources' => $sources,
-                'truck_stops' => array_map(fn($d) => ['from' => $d['start'], 'to' => $d['end'], 'minutes' => $d['minutes'], 'label' => $d['label']], $c['truck']),
-                'crew' => array_map(fn($d) => ['user_id' => (int)$d['user_id'], 'from' => $d['start'], 'to' => $d['end'], 'minutes' => $d['minutes'], 'fixes' => $d['fixes'], 'sources' => $d['sources']], $c['crew']),
-                'basis' => $hasTruck ? ($c['crew'] ? 'truck+crew' : 'truck') : 'crew',
-                'confidence' => $confidence,
-                'flag' => $ignored === null,
-                'ignored' => $ignored,
-            ];
+        foreach ($sites as $members) {
+            $c = self::site($date, $members, $scheduledIds, $notWork);
+            if ($c) $out[] = $c;
         }
         usort($out, fn($a, $b) => [$b['flag'], $b['minutes']] <=> [$a['flag'], $a['minutes']]);
         return $out;
+    }
+
+    /** One site → one candidate (see candidates()). */
+    private static function site(string $date, array $members, array $scheduledIds, array $notWork): ?array
+    {
+        $truckD = array_values(array_map(fn($m) => $m['d'], array_filter($members, fn($m) => $m['src'] === 'truck')));
+        $crewD = array_values(array_map(fn($m) => $m['d'], array_filter($members, fn($m) => $m['src'] === 'crew')));
+        // Site properties, nearest first: truck stops' order, then crew dwells'.
+        $props = [];
+        foreach (array_merge($truckD, $crewD) as $d) foreach ($d['props'] as $p) $props[(int)$p] = true;
+        $props = array_keys($props);
+
+        $truckMin = array_sum(array_column($truckD, 'minutes'));
+        $crewWin = self::window($crewD);
+        $crewMin = $crewWin ? ($crewWin[1] - $crewWin[0]) / 60 : 0;
+        $people = array_values(array_unique(array_map(fn($d) => (int)$d['user_id'], $crewD)));
+        $fixes = array_sum(array_column($crewD, 'fixes'));
+        $sources = [];
+        foreach ($crewD as $d) foreach ($d['sources'] as $k => $n) $sources[$k] = ($sources[$k] ?? 0) + $n;
+        // The truck sets the window when it was there; the crew fills in when it wasn't.
+        if ($truckD) { $start = min(array_column($truckD, 'start')); $end = max(array_column($truckD, 'end')); }
+        elseif ($crewWin) { [$start, $end] = $crewWin; }
+        else return null;
+        $stay = (int)round(($end - $start) / 60);
+        $hasTruck = $truckMin >= self::MIN_TRUCK_MIN;
+        $hasCrew = $crewMin >= self::MIN_CREW_MIN && $fixes >= self::MIN_CREW_FIXES;
+        $confidence = $hasTruck && $crewD ? 'high'
+            : ($hasTruck ? 'medium' : ($hasCrew && (count($people) > 1 || isset($sources['clock']) || isset($sources['timer'])) ? 'medium' : 'low'));
+
+        // Where the crew phones put people: [t => property], from each dwell's track.
+        $track = [];
+        foreach ($crewD as $d) foreach ((array)($d['track'] ?? []) as [$t, $p]) if (in_array((int)$p, $props, true)) $track[] = [(int)$t, (int)$p];
+        usort($track, fn($a, $b) => $a[0] <=> $b[0]);
+
+        // Scheduled visits at any site property, placed where the crew was.
+        $visits = [];
+        $unknown = null;   // a scheduled property whose visit length is unknown → it explains everything
+        foreach ($props as $p) {
+            if (!isset($scheduledIds[$p])) continue;
+            $list = is_array($scheduledIds[$p]) ? array_values($scheduledIds[$p]) : [];
+            $known = false;
+            foreach ($list as $v) {
+                $m = self::visitMinutes($v);
+                if ($m === null) continue;
+                $known = true;
+                $first = null;
+                foreach ($track as [$t, $tp]) if ($tp === $p && $t >= $start && $t <= $end) { $first = $t; break; }
+                $visits[] = $v + ['property_id' => $p, 'explains' => $m[0], 'explains_basis' => $m[1], 'first_seen' => $first];
+            }
+            if (!$known && $unknown === null) $unknown = $p;
+        }
+        usort($visits, fn($a, $b) => [$a['first_seen'] ?? $start, $a['property_id']] <=> [$b['first_seen'] ?? $start, $b['property_id']]);
+        $cursor = $start;
+        $explained = [];
+        foreach ($visits as $v) {
+            $s = max($cursor, min($end, $v['first_seen'] ?? $start));
+            $e = min($end, $s + $v['explains'] * 60);
+            $explained[] = $v + ['from' => $s, 'to' => $e];
+            $cursor = max($cursor, $e);
+        }
+        $explainedMin = (int)round(array_sum(array_map(fn($x) => $x['to'] - $x['from'], $explained)) / 60);
+        // The remainder: the window minus the explained intervals.
+        $gaps = [];
+        $t0 = $start;
+        foreach ($explained as $x) {
+            if ($x['from'] > $t0) $gaps[] = [$t0, $x['from']];
+            $t0 = max($t0, $x['to']);
+        }
+        if ($end > $t0) $gaps[] = [$t0, $end];
+        $remainder = $unknown !== null ? 0 : max(0, $stay - $explainedMin);
+        // A few minutes before the crew is first seen at the visit is not "the remainder".
+        $big = array_values(array_filter($gaps, fn($g) => $g[1] - $g[0] >= self::KEEP_DWELL_MIN * 60)) ?: $gaps;
+        $remStart = $big ? $big[0][0] : $start;
+        $remEnd = $big ? $big[count($big) - 1][1] : $end;
+
+        // Who the remainder belongs to: the crew fixes during it, else the nearest unscheduled property.
+        $votes = [];
+        foreach ($track as [$t, $p]) {
+            foreach ($gaps as [$a, $b]) if ($t >= $a && $t <= $b) { $votes[$p] = ($votes[$p] ?? 0) + 1; break; }
+        }
+        arsort($votes);
+        $unscheduled = array_values(array_filter($props, fn($p) => !isset($scheduledIds[$p])));
+        $pid = $votes ? (int)array_key_first($votes) : ($unscheduled[0] ?? ($explained ? (int)$explained[count($explained) - 1]['property_id'] : $props[0]));
+        if ($unknown !== null) $pid = $unknown;
+
+        $atScheduled = isset($scheduledIds[$pid]);
+        $kind = $atScheduled ? 'extra' : 'unscheduled';
+        $ignored = null;
+        if ($unknown !== null) {
+            $ignored = 'scheduled';
+        } elseif ($atScheduled) {
+            if (!($remainder >= self::EXTRA_MIN && $stay >= self::EXTRA_X * max(1, $explainedMin))) $ignored = 'scheduled';
+        } elseif ($explained) {
+            // Part explained by a neighbour's visit: the rest must still be a real stay on its own.
+            if ($remainder < min(self::MIN_TRUCK_MIN, self::MIN_CREW_MIN)) $ignored = 'scheduled';
+        }
+        if ($ignored === null && isset($notWork[$pid])) $ignored = 'not_work';
+        if ($ignored === null && !$hasTruck && !$hasCrew) $ignored = 'too_short';
+        if ($ignored === 'scheduled' && $explained && !$atScheduled) $pid = (int)$explained[0]['property_id'];
+
+        $ref = $explained ? ['minutes' => $explainedMin, 'basis' => self::basisOf($explained)] : null;
+        $flagStart = $explained ? $remStart : $start;
+        $flagEnd = $explained ? $remEnd : $end;
+        return [
+            'property_id' => $pid, 'date' => $date,
+            'kind' => $kind, 'start' => (int)$flagStart, 'end' => (int)$flagEnd,
+            'minutes' => $explained ? $remainder : $stay,
+            'site_start' => (int)$start, 'site_end' => (int)$end, 'site_minutes' => $stay, 'site_props' => $props,
+            'explained' => array_map(fn($x) => [
+                'visit_id' => $x['visit_id'] ?? null, 'property_id' => $x['property_id'], 'service_type' => (string)($x['service_type'] ?? ''),
+                'status' => (string)($x['status'] ?? ''), 'plan_number' => (string)($x['plan_number'] ?? ''),
+                'minutes' => (int)round(($x['to'] - $x['from']) / 60), 'basis' => $x['explains_basis'], 'from' => (int)$x['from'], 'to' => (int)$x['to'],
+            ], $explained),
+            'scheduled_visits' => $atScheduled && is_array($scheduledIds[$pid]) ? array_values($scheduledIds[$pid]) : [],
+            'planned_min' => $ref['minutes'] ?? null, 'planned_basis' => $ref['basis'] ?? null,
+            'extra_min' => $ref !== null ? $remainder : null,
+            'truck_min' => (int)round($truckMin), 'crew_min' => (int)round($crewMin),
+            'people' => $people, 'fixes' => (int)$fixes, 'sources' => $sources,
+            'truck_stops' => array_map(fn($d) => ['from' => $d['start'], 'to' => $d['end'], 'minutes' => $d['minutes'], 'label' => $d['label']], $truckD),
+            'crew' => array_map(fn($d) => ['user_id' => (int)$d['user_id'], 'from' => $d['start'], 'to' => $d['end'], 'minutes' => $d['minutes'], 'fixes' => $d['fixes'], 'sources' => $d['sources']], $crewD),
+            'crew_votes' => $votes,
+            'basis' => $hasTruck ? ($crewD ? 'truck+crew' : 'truck') : 'crew',
+            'confidence' => $confidence,
+            'flag' => $ignored === null,
+            'ignored' => $ignored,
+        ];
+    }
+
+    /**
+     * How long one scheduled visit explains: its timers' on-site minutes, else its plan length. A timer
+     * more than EXTRA_X × the plan length counts as left running (the plan length is used).
+     * @return array{0: int, 1: string}|null [minutes, 'timer'|'plan'], null when neither is known
+     */
+    public static function visitMinutes(array $v): ?array
+    {
+        $timer = isset($v['timer_min']) && $v['timer_min'] !== null ? (int)$v['timer_min'] : 0;
+        $plan = isset($v['planned_min']) && $v['planned_min'] !== null ? (int)$v['planned_min'] : 0;
+        if ($timer > 0 && ($plan <= 0 || $timer <= self::EXTRA_X * $plan)) return [$timer, 'timer'];
+        if ($plan > 0) return [$plan, 'plan'];
+        return null;
+    }
+
+    private static function basisOf(array $explained): string
+    {
+        $b = array_values(array_unique(array_column($explained, 'explains_basis')));
+        return count($b) === 1 ? $b[0] : 'mixed';
     }
 
     /**
@@ -288,11 +405,16 @@ class UnscheduledWorkRules
      */
     public static function reference(array $visits): ?array
     {
-        $planned = array_filter(array_map(fn($v) => isset($v['planned_min']) ? (int)$v['planned_min'] : 0, $visits));
-        if ($planned) return ['minutes' => (int)array_sum($planned), 'basis' => 'plan'];
-        $timed = array_filter(array_map(fn($v) => isset($v['timer_min']) ? (int)$v['timer_min'] : 0, $visits));
-        if ($timed) return ['minutes' => (int)array_sum($timed), 'basis' => 'timer'];
-        return null;
+        $sum = 0;
+        $bases = [];
+        foreach ($visits as $v) {
+            $m = self::visitMinutes($v);
+            if ($m === null) continue;
+            $sum += $m[0];
+            $bases[$m[1]] = true;
+        }
+        if (!$bases) return null;
+        return ['minutes' => $sum, 'basis' => count($bases) === 1 ? (string)array_key_first($bases) : 'mixed'];
     }
 
     public static function isExtra(int $stayMin, int $refMin): bool
@@ -318,13 +440,37 @@ class UnscheduledWorkRules
         $what = $n > 1 ? 'the ' . $n . ' visits' : 'the ' . (strtolower(trim((string)($c['scheduled_visits'][0]['service_type'] ?? ''))) ?: 'visit');
         $is = $n > 1 ? 'are' : 'is';
         $ref = $c['planned_basis'] === 'timer' ? "{$what} {$is} timed at " : "{$what} {$is} planned at ";
-        return 'Crew at ' . $street . ', ' . date('D', $c['start']) . ' ' . date('g:i', $c['start']) . '–' . date('g:i', $c['end'])
-            . ' (' . self::hours($c['minutes']) . ') — ' . $ref . self::hours((int)$c['planned_min']) . ' → ' . self::hours((int)$c['extra_min']) . ' extra.';
+        $s = $c['site_start'] ?? $c['start'];
+        $e = $c['site_end'] ?? $c['end'];
+        return 'Crew at ' . $street . ', ' . date('D', $s) . ' ' . date('g:i', $s) . '–' . date('g:i', $e)
+            . ' (' . self::hours((int)($c['site_minutes'] ?? $c['minutes'])) . ') — ' . $ref . self::hours((int)$c['planned_min']) . ' → ' . self::hours((int)$c['extra_min']) . ' extra.';
+    }
+
+    /**
+     * One stop, two neighbours: "Truck parked Mon 8:17–12:02 by 2505 W 8th Ave + 2448 Larch St: Alexandra Bee's
+     * hedge trimming (scheduled, ~70 min) then ~2 h 35 min unexplained at 2448 Larch St."
+     * @param array $names [property_id => ['street' => …, 'client' => …]]
+     */
+    public static function siteText(array $c, array $names): string
+    {
+        $st = fn(int $p) => $names[$p]['street'] ?? ('property #' . $p);
+        $who = $c['truck_stops'] ? 'Truck parked ' : 'Crew phones ';
+        $parts = [];
+        foreach ($c['explained'] as $x) {
+            $client = trim((string)($names[$x['property_id']]['client'] ?? ''));
+            $parts[] = ($client !== '' ? $client . "'s " : $st((int)$x['property_id']) . ' ') . (strtolower(trim($x['service_type'])) ?: 'visit')
+                . ' (scheduled, ~' . self::hours((int)$x['minutes']) . ')';
+        }
+        $sites = implode(' + ', array_map($st, $c['site_props']));
+        return $who . date('D', $c['site_start']) . ' ' . date('g:i', $c['site_start']) . '–' . date('g:i', $c['site_end']) . ' by ' . $sites . ': '
+            . implode(', ', $parts) . ' then ~' . self::hours((int)$c['minutes']) . ' unexplained at ' . $st((int)$c['property_id']) . '.';
     }
 
     /** "Crew at 2448 Larch St, Mon 8:10–11:40 (3 h 30 min), nothing scheduled." */
-    public static function text(array $c, string $street): string
+    public static function text(array $c, string $street, array $names = []): string
     {
+        $elsewhere = array_filter((array)($c['explained'] ?? []), fn($x) => (int)$x['property_id'] !== (int)$c['property_id']);
+        if ($elsewhere) return self::siteText($c, $names + [(int)$c['property_id'] => ['street' => $street]]);
         if (($c['kind'] ?? '') === 'extra') return self::extraText($c, $street);
         $who = $c['basis'] === 'crew' ? 'Crew phones at ' : ($c['basis'] === 'truck' ? 'Truck at ' : 'Crew at ');
         return $who . $street . ', ' . date('D', $c['start']) . ' ' . date('g:i', $c['start']) . '–' . date('g:i', $c['end'])

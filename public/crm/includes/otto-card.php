@@ -143,6 +143,15 @@ $__oCrewLine = implode(' · ', array_map(fn($c) => $c['name'] . ' ' . $c['done']
   <?php if (!empty($__os['outlook'])): ?>
     <div class="mw-otto-outlook">❄ <?= h($__os['outlook']) ?></div>
   <?php endif; ?>
+  <?php
+  $__ocl = null;
+  try {
+      require_once APP_ROOT . '/Modules/Operations/Services/OttoContractLogService.php';
+      $__ocl = (new OttoContractLogService(getDB()))->summary();
+  } catch (Throwable $__e) { /* migration 1267 not run */ }
+  if ($__ocl): ?>
+    <div class="mw-otto-autolog"><?= h($__ocl['line']) ?> — <a href="/crm/ops/otto-review.php?view=unscheduled#auto">review</a></div>
+  <?php endif; ?>
 
   <?php include __DIR__ . '/otto-trips.php'; ?>
   <?php if (is_file(__DIR__ . '/otto-care.php')) include __DIR__ . '/otto-care.php'; ?>
