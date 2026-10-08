@@ -126,6 +126,12 @@ $hm = fn($t) => date('g:i', (int)$t);
             <?php foreach ($c['visits_near'] as $v): if ($c['scheduled_visits'] && $v['date'] === $c['date']) continue; ?>
               <li class="is-near">Visit <?= h($v['plan']) ?> <?= h($v['status']) ?> on <?= h(date('D M j', strtotime($v['date']))) ?></li>
             <?php endforeach; ?>
+            <?php foreach ($c['stray_timers'] ?? [] as $t): ?>
+              <li class="is-sched"><?= h(UnscheduledWorkRules::strayTimerLine($t)) ?></li>
+            <?php endforeach; ?>
+            <?php foreach ($c['empty_stops'] ?? [] as $st): ?>
+              <li class="is-near"><?= h(ucfirst(UnscheduledWorkRules::emptyStopLine($st))) ?></li>
+            <?php endforeach; ?>
             <?php foreach ($c['invoices'] as $inv): ?>
               <li class="is-inv">Invoice <?= h($inv['number']) ?> dated <?= h(date('M j', strtotime($inv['date']))) ?><?= $inv['total'] !== null ? ' · $' . h(number_format($inv['total'], 2)) : '' ?> (<?= h($inv['status']) ?>) — may already cover this</li>
             <?php endforeach; ?>

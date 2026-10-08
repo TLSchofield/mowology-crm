@@ -101,6 +101,10 @@ try {
                 'plans_on_property' => $c['plans'],
                 'visits_within_3_days' => $c['visits_near'],
                 'invoices_within_21_days' => $c['invoices'],
+                'empty_calendar_stops' => array_map(fn($st) => $st + ['line' => UnscheduledWorkRules::emptyStopLine($st)], $c['empty_stops']),
+                'timers_not_on_a_visit_that_day' => array_map(fn($t) => ['who' => $t['who'], 'from' => $hm($t['start']), 'to' => $t['end'] ? $hm($t['end']) : null,
+                    'minutes' => $t['minutes'], 'visit_id' => $t['visit_id'], 'visit_date' => $t['visit_date'], 'plan_number' => $t['plan_number'],
+                    'line' => UnscheduledWorkRules::strayTimerLine($t)], $c['stray_timers']),
             ];
         }
         $days[] = [
@@ -126,7 +130,7 @@ try {
             'crew_only_flags_min' => UnscheduledWorkRules::MIN_CREW_MIN, 'crew_only_min_fixes' => UnscheduledWorkRules::MIN_CREW_FIXES,
             'property_radius_m' => UnscheduledWorkRules::RADIUS_M, 'or_inside_job_geofence' => true,
             'excluded' => 'ops_places (dump, supplier, yard, fuel), the office (ops_settings), crew homes (users.home_lat/lng)',
-            'scheduled_means' => 'a visit scheduled/in progress/completed that day (skipped and cancelled do not count), completed that day, or a calendar stop with no visits',
+            'scheduled_means' => 'a visit scheduled/in progress/completed that day (skipped and cancelled do not count), or completed that day. An empty calendar stop (no non-cancelled visit) does NOT count — it is shown as evidence',
             'extra_work_when' => 'scheduled, but the stay is >= ' . UnscheduledWorkRules::EXTRA_MIN . ' min longer than the plan length of that day\'s visit(s) and >= '
                 . UnscheduledWorkRules::EXTRA_X . 'x it (timer minutes stand in only when no plan length is set)',
         ],

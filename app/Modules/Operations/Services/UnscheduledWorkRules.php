@@ -348,6 +348,22 @@ class UnscheduledWorkRules
         return implode(' · ', $parts);
     }
 
+    /** "empty calendar stop #812 (no visit on it — made Oct 1 8:02 am; left behind when its visit was moved or rolled over)". */
+    public static function emptyStopLine(array $st): string
+    {
+        $made = !empty($st['created_at']) ? 'made ' . date('M j g:i a', strtotime((string)$st['created_at'])) . '; ' : '';
+        return 'empty calendar stop #' . (int)$st['id'] . ' (no visit on it — ' . $made . 'left behind when its visit was moved or rolled over)';
+    }
+
+    /** "Tim's timer 8:20–11:30 (190 min) on visit #5 scheduled Oct 6" / "… with no visit (PLN-2026-0068)". */
+    public static function strayTimerLine(array $t): string
+    {
+        $when = date('g:i', $t['start']) . '–' . ($t['end'] ? date('g:i', $t['end']) : 'still running');
+        $on = $t['visit_id'] ? 'on visit #' . $t['visit_id'] . ($t['visit_date'] ? ' scheduled ' . date('M j', strtotime((string)$t['visit_date'])) : '')
+            : 'with no visit' . ($t['plan_number'] !== '' ? ' (' . $t['plan_number'] . ')' : '');
+        return ($t['who'] ?? ('#' . $t['user_id'])) . "'s timer " . $when . ($t['minutes'] !== null ? ' (' . $t['minutes'] . ' min)' : '') . ' ' . $on;
+    }
+
     public static function hours(int $minutes): string
     {
         $minutes = max(0, $minutes);

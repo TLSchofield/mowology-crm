@@ -257,6 +257,29 @@ class UnscheduledWorkTest extends TestCase
         $this->assertSame([441, true, 'unscheduled', []], [$c['property_id'], $c['flag'], $c['kind'], $c['scheduled_visits']]);
     }
 
+    public function test_an_empty_calendar_stop_does_not_hide_the_work_and_shows_as_evidence(): void
+    {
+        // Prod 2026-10-05: a stop left at Larch after its lawn-cut visit was rolled to Oct 6, with
+        // Tim's timer from that morning still on the moved visit.
+        $db = UnscheduledDayFixture::pdo();
+        $db->exec("INSERT INTO calendar_stops (id, property_id, stop_date, status, created_at) VALUES (812, 441, '" . self::D . "', 'scheduled', '2026-10-01 08:02:00')");
+        $db->exec("INSERT INTO job_plans VALUES (83, 441, 'PLN-2026-0070', 'Weekly lawn', 'Lawn Cut', 1, 30, 'active')");
+        $db->exec("INSERT INTO job_visits (id, plan_id, scheduled_date, status, visit_number, stop_id) VALUES (5, 83, '2026-10-06', 'scheduled', 'PLN-2026-0070-V021', 900)");
+        $db->exec("INSERT INTO job_visits (id, plan_id, scheduled_date, status, visit_number, stop_id) VALUES (6, 83, '" . self::D . "', 'cancelled', 'PLN-2026-0070-V020', 812)");
+        $db->exec("INSERT INTO job_time_entries (user_id, visit_id, start_time, end_time, status, duration_minutes) VALUES (7, 5, '" . self::D . " 08:20:00', '" . self::D . " 11:30:00', 'completed', 190)");
+        $db->exec("INSERT INTO job_time_entries (user_id, visit_id, plan_id, start_time, end_time, status, duration_minutes) VALUES (7, NULL, 82, '" . self::D . " 11:00:00', '" . self::D . " 11:35:00', 'completed', 35)");
+
+        $svc = new UnscheduledWorkService($db, '2026-10-07');
+        $this->assertArrayNotHasKey(441, $svc->scheduledIds(self::D), 'a stop with only a cancelled visit is not scheduled');
+        $c = $svc->review(self::D, self::D, false)['days'][0]['candidates'][0];
+        $this->assertSame([441, true, 'unscheduled'], [$c['property_id'], $c['flag'], $c['kind']]);
+        $this->assertSame([812], array_column($c['empty_stops'], 'id'));
+        $this->assertSame([[5, '2026-10-06', 190], [null, null, 35]], array_map(fn($t) => [$t['visit_id'], $t['visit_date'], $t['minutes']], $c['stray_timers']));
+        $this->assertStringContainsString('empty calendar stop #812 (no visit on it — made Oct 1 8:02 am;', $c['evidence']);
+        $this->assertStringContainsString("Nigel's timer 8:20–11:30 (190 min) on visit #5 scheduled Oct 6", $c['evidence']);
+        $this->assertStringContainsString("Nigel's timer 11:00–11:35 (35 min) with no visit (PLN-2026-0068)", $c['evidence']);
+    }
+
     public function test_small_helpers(): void
     {
         $this->assertSame('08:05', UnscheduledWorkService::hm('8:05'));

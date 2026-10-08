@@ -261,8 +261,8 @@ class UnscheduledWorkService
 
     /**
      * [property_id => list of that day's visits] — a visit scheduled, started or completed that day
-     * (or completed that day). A SKIPPED or cancelled visit doesn't count (owner, 2026-10-07). A live
-     * calendar stop with no visits on it at all counts too (one empty row). Each row says what made
+     * (or completed that day). A SKIPPED or cancelled visit doesn't count (owner, 2026-10-07), and
+     * neither does a calendar stop with no visit on it (see emptyStops()). Each row says what made
      * the property "scheduled": {visit_id, visit_number, plan_id, plan_number, service_type, status,
      * planned_min (plan length = on-site crew time), timer_min (on-site minutes from its timers)}.
      */
@@ -290,16 +290,10 @@ class UnscheduledWorkService
                 ];
             }
             foreach ($out as $pid => $v) $out[$pid] = array_values($v);
-            $s = $this->db->prepare("
-                SELECT cs.property_id FROM calendar_stops cs
-                WHERE cs.stop_date = ? AND cs.status <> 'skipped'
-                  AND NOT EXISTS (SELECT 1 FROM job_visits v WHERE v.stop_id = cs.id)
-            ");
-            $s->execute([$date]);
-            foreach ($s->fetchAll(PDO::FETCH_COLUMN) as $pid) {
-                $out[(int)$pid] ??= [['visit_id' => null, 'visit_number' => '', 'status' => 'calendar stop, no visit', 'plan_id' => null,
-                    'plan_number' => '', 'service_type' => '', 'planned_min' => null, 'timer_min' => null]];
-            }
+            // An EMPTY calendar stop (no non-cancelled visit on it) does not count — prod 2026-10-05:
+            // Larch and Tisdall were hidden by stops left behind when their visits moved
+            // (VisitLifecycleService::moveVisit and auto_rollover re-home the visit, never clear the old
+            // stop). They are shown as evidence instead (emptyStops()).
         } catch (Throwable $e) {
             error_log('Otto unscheduled visits: ' . $e->getMessage());
         }
@@ -450,10 +444,85 @@ class UnscheduledWorkService
             $c['plans'] = $this->plans($pid);
             $c['visits_near'] = $this->visitsNear($pid, $c['date']);
             $c['invoices'] = $this->invoicesAfter($pid, $c['date']);
+            $c['empty_stops'] = $this->emptyStops($c['date'])[$pid] ?? [];
+            $c['stray_timers'] = array_map(fn($t) => $t + ['who' => $names[$t['user_id']]['name'] ?? ('#' . $t['user_id'])], $this->strayTimers($c['date'])[$pid] ?? []);
+            $extra = [];
+            foreach ($c['empty_stops'] as $st) $extra[] = UnscheduledWorkRules::emptyStopLine($st);
+            foreach ($c['stray_timers'] as $t) $extra[] = UnscheduledWorkRules::strayTimerLine($t);
+            if ($extra) $c['evidence'] .= ' · ' . implode(' · ', $extra);
             $c['window'] = date('H:i', $c['start']) . '–' . date('H:i', $c['end']);
         }
         unset($c);
         return $cands;
+    }
+
+    /**
+     * [property_id => [{id, created_at, crew_id}]] — calendar stops that day with no non-cancelled visit on
+     * them. Usually left behind when the visit was moved or rolled over to another day.
+     */
+    public function emptyStops(string $date): array
+    {
+        if (isset($this->memo['es' . $date])) return $this->memo['es' . $date];
+        $out = [];
+        try {
+            $s = $this->db->prepare("
+                SELECT cs.id, cs.property_id, cs.created_at, cs.crew_id FROM calendar_stops cs
+                WHERE cs.stop_date = ?
+                  AND NOT EXISTS (SELECT 1 FROM job_visits v WHERE v.stop_id = cs.id AND v.status <> 'cancelled')
+            ");
+            $s->execute([$date]);
+            foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                $out[(int)$r['property_id']][] = ['id' => (int)$r['id'], 'created_at' => $r['created_at'] ?? null, 'crew_id' => $r['crew_id'] !== null ? (int)$r['crew_id'] : null];
+            }
+        } catch (Throwable $e) {
+            error_log('Otto empty stops: ' . $e->getMessage());
+        }
+        return $this->memo['es' . $date] = $out;
+    }
+
+    /**
+     * [property_id => [{user_id, start, end, minutes, visit_id, visit_date, plan_number}]] — job timers
+     * started that day that are NOT on a visit of that day: no visit (plan only), or a visit scheduled
+     * for another day (moved / rolled over after the timer ran).
+     */
+    public function strayTimers(string $date): array
+    {
+        if (isset($this->memo['st' . $date])) return $this->memo['st' . $date];
+        $rows = [];
+        $sql = "
+            SELECT jte.user_id, jte.start_time, jte.end_time, jte.duration_minutes, jte.visit_id, v.scheduled_date AS visit_date,
+                   COALESCE(jpv.property_id, jpp.property_id) AS property_id, COALESCE(jpv.plan_number, jpp.plan_number) AS plan_number
+            FROM job_time_entries jte
+            LEFT JOIN job_visits v ON v.id = jte.visit_id
+            LEFT JOIN job_plans jpv ON jpv.id = v.plan_id
+            LEFT JOIN job_plans jpp ON jpp.id = jte.plan_id
+            WHERE jte.start_time BETWEEN ? AND ? AND jte.status <> 'void'
+              AND (jte.visit_id IS NULL OR v.scheduled_date <> ?)";
+        try {
+            $s = $this->db->prepare($sql);
+            $s->execute([$date . ' 00:00:00', $date . ' 23:59:59', $date]);
+            $rows = $s->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            // No job_time_entries.plan_id on this database: visits only.
+            try {
+                $s = $this->db->prepare(str_replace(['COALESCE(jpv.property_id, jpp.property_id)', 'COALESCE(jpv.plan_number, jpp.plan_number)', 'LEFT JOIN job_plans jpp ON jpp.id = jte.plan_id'],
+                    ['jpv.property_id', 'jpv.plan_number', ''], $sql));
+                $s->execute([$date . ' 00:00:00', $date . ' 23:59:59', $date]);
+                $rows = $s->fetchAll(PDO::FETCH_ASSOC);
+            } catch (Throwable $e2) {
+                error_log('Otto stray timers: ' . $e2->getMessage());
+            }
+        }
+        $out = [];
+        foreach ($rows as $r) {
+            if ($r['property_id'] === null) continue;
+            $st = (int)strtotime((string)$r['start_time']);
+            $en = $r['end_time'] ? (int)strtotime((string)$r['end_time']) : null;
+            $min = $r['duration_minutes'] !== null ? (int)$r['duration_minutes'] : ($en ? (int)round(($en - $st) / 60) : null);
+            $out[(int)$r['property_id']][] = ['user_id' => (int)$r['user_id'], 'start' => $st, 'end' => $en, 'minutes' => $min,
+                'visit_id' => $r['visit_id'] !== null ? (int)$r['visit_id'] : null, 'visit_date' => $r['visit_date'] ?? null, 'plan_number' => (string)($r['plan_number'] ?? '')];
+        }
+        return $this->memo['st' . $date] = $out;
     }
 
     private array $memo = [];
