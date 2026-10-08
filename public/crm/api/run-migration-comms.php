@@ -152,7 +152,7 @@ trySeed($db, "
         '<p style=\"margin:4px 0 0;font-size:22px;font-weight:700;color:#1A5F4A\">{{invoice_number}}</p>'
         '<p style=\"margin:6px 0 0;color:#333\">Balance due: <strong>{{amount}}</strong></p>'
         '</div>'
-        '<p style=\"margin:0 0 24px;color:#555\">To pay by e-Transfer, send to <strong>pay@mowology.ca</strong> and include your invoice number as the message. We also accept cash and cheque.</p>'
+        '<p style=\"margin:0 0 24px;color:#555\">To pay by e-Transfer, send to <strong>info@mowology.ca</strong> and include your invoice number as the message. We also accept cash and cheque.</p>'
         '<p style=\"margin:0 0 8px;color:#555\">If you have any questions, please call or text us at <strong>(778) 846-9273</strong>.</p>'
         '<p style=\"margin:0;color:#555\">Thank you for your business!</p>'
         '<div style=\"margin:32px 0 0;padding:24px 0 0;border-top:1px solid #eee\">'
@@ -160,7 +160,7 @@ trySeed($db, "
         '</div>'
         '</div>'
         '</div>',
-        'Hi {{first_name}}, this is a friendly reminder that invoice {{invoice_number}} for {{amount}} was due on {{due_date}} and remains outstanding. To pay, e-Transfer to pay@mowology.ca with your invoice number, or call (778) 846-9273. Thank you!',
+        'Hi {{first_name}}, this is a friendly reminder that invoice {{invoice_number}} for {{amount}} was due on {{due_date}} and remains outstanding. To pay, e-Transfer to info@mowology.ca with your invoice number, or call (778) 846-9273. Thank you!',
         1,
         NULL
     )
@@ -177,7 +177,7 @@ trySeed($db, "
         'invoice_overdue',
         '{\"overdue_days\":7}',
         '[{\"field\":\"receive_marketing\",\"operator\":\"eq\",\"value\":\"1\"}]',
-        '[{\"type\":\"send_email\",\"config\":{\"subject\":\"Reminder: Your invoice is past due\",\"body\":\"Hi {{first_name}},\\n\\nThis is a friendly reminder that you have an outstanding invoice with Mowology Landscaping.\\n\\nTo pay, please e-Transfer to pay@mowology.ca and include your invoice number as the message.\\n\\nQuestions? Call or text (778) 846-9273.\\n\\nThank you!\"}},{\"type\":\"notify_admin\",\"config\":{\"message\":\"Invoice overdue reminder sent to {{first_name}} {{last_name}}\"}}]',
+        '[{\"type\":\"send_email\",\"config\":{\"subject\":\"Reminder: Your invoice is past due\",\"body\":\"Hi {{first_name}},\\n\\nThis is a friendly reminder that you have an outstanding invoice with Mowology Landscaping.\\n\\nTo pay, please e-Transfer to info@mowology.ca and include your invoice number as the message.\\n\\nQuestions? Call or text (778) 846-9273.\\n\\nThank you!\"}},{\"type\":\"notify_admin\",\"config\":{\"message\":\"Invoice overdue reminder sent to {{first_name}} {{last_name}}\"}}]',
         168
     )
 ", 'automation_rules.invoice_overdue', $results);
