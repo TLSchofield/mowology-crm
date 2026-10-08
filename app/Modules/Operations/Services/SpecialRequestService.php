@@ -24,10 +24,17 @@ require_once __DIR__ . '/SpecialRequestMatcher.php';
 
 class SpecialRequestService
 {
+    /** Who raised it — shown with their face (/crm/img/heads/<slug>.jpg) like the dashboard deck. */
     public const HEADS = [
-        'yui'  => ['name' => 'Yui',  'role' => 'Client comms'],
+        'yui'  => ['name' => 'Yui',  'role' => 'Comms'],
         'otto' => ['name' => 'Otto', 'role' => 'Operations'],
     ];
+    public const FACE_BASE = 'https://mowology.ca/crm/img/heads/';
+
+    public static function headPhoto(string $head): string
+    {
+        return '/crm/img/heads/' . (isset(self::HEADS[$head]) ? $head : 'otto') . '.jpg';
+    }
     public const OUTCOMES = ['done', 'not_done', 'extra_done'];
     public const OFFICE_PHONE = '(778) 846-9273';
     public const SMS_MAX = 160;
@@ -509,6 +516,7 @@ class SpecialRequestService
             'head'             => (string)$s['head'],
             'head_name'        => $head['name'],
             'head_role'        => $head['role'],
+            'head_photo'       => self::headPhoto((string)$s['head']),
             'source'           => (string)$s['source'],
             'from_name'        => $from['name'],
             'company_name'     => $from['company'],
@@ -841,11 +849,14 @@ class SpecialRequestService
         $userIds = array_values(array_filter($userIds, fn($u) => !$this->alreadySent($p['request_visit_id'], $u, 'push', $kind)));
         if (!$userIds) return [];
         $who = trim($p['from_name'] . ($p['company_name'] ? ' (' . $p['company_name'] . ')' : ''));
-        $title = ($kind === 'arrival' ? 'Before you start — ' : 'Special request — ') . self::shortAddress($p['address']);
+        $title = $p['head_name'] . ': ' . ($kind === 'arrival' ? 'before you start — ' : 'special request — ') . self::shortAddress($p['address']);
         $body = ($who !== '' ? $who . ': ' : '') . $p['summary'] . ' Read it and tap Got it before you start.';
         $data = [
             'screen' => 'schedule', 'type' => 'special_request', 'visit_id' => $p['visit_id'],
             'stop_id' => $p['stop_id'], 'date' => $p['scheduled_date'], 'request_visit_id' => $p['request_visit_id'],
+            'head' => $p['head'], 'head_name' => $p['head_name'],
+            // Android (FCM) shows the head's face on the notification; iOS opens the visit.
+            'image_url' => self::FACE_BASE . (isset(self::HEADS[$p['head']]) ? $p['head'] : 'otto') . '.jpg',
         ];
         $ok = true; $err = null;
         try {
@@ -918,6 +929,9 @@ class SpecialRequestService
             $prop = json_decode((string)$r['proposal_json'], true) ?: [];
             $pending[] = [
                 'id' => (int)$r['id'], 'head' => $r['head'], 'source' => $r['source'],
+                'head_name' => (self::HEADS[$r['head']] ?? self::HEADS['otto'])['name'],
+                'head_role' => (self::HEADS[$r['head']] ?? self::HEADS['otto'])['role'],
+                'head_photo' => self::headPhoto((string)$r['head']),
                 'from_name' => $from['name'], 'company_name' => $from['company'], 'received_at' => $r['received_at'],
                 'client_words' => $r['client_words'], 'summary' => $r['summary'],
                 'included' => self::lines($r['included_items']), 'extra' => self::lines($r['extra_items']),

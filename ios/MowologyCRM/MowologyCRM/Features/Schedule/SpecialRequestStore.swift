@@ -64,8 +64,12 @@ struct SpecialRequest: Decodable, Identifiable, Hashable {
 
     var fromLine: String {
         let who = [fromName, companyName].compactMap { ($0?.isEmpty ?? true) ? nil : $0 }.joined(separator: " · ")
-        return (who.isEmpty ? "From the office" : "From \(who)") + " · via \(headName) (\(headRole))"
+        return who.isEmpty ? "From the office" : "From \(who)"
     }
+
+    /// The head who raised it, for HeadFaceView (yui | otto).
+    var headSlug: String { head == "yui" ? "yui" : "otto" }
+    var headLine: String { "\(headName) · \(headRole)" }
 
     enum CodingKeys: String, CodingKey {
         case requestVisitId = "request_visit_id"
@@ -120,6 +124,10 @@ final class SpecialRequestStore: ObservableObject {
             }
         }
         byVisit = map
+        // Keep the heads' faces on disk now, so the read-it-first screen shows them offline.
+        for slug in Set(map.values.flatMap { $0 }.map(\.headSlug)) {
+            _ = await HeadFaceCache.shared.load(slug)
+        }
     }
 
     func requests(for visitId: Int) -> [SpecialRequest] { byVisit[visitId] ?? [] }

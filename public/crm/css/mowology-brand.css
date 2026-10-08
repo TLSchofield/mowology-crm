@@ -38800,7 +38800,18 @@ body.mw-rc-zoom-open { overflow: hidden; }
    ========================================================================== */
 .mw-sr-card { margin: 8px 12px; padding: 10px 12px; border: 2px solid var(--mw-orange); border-radius: 12px; background: var(--mw-color-warning-bg); color: var(--mw-ink-900); font-size: .84rem; line-height: 1.4; }
 .mw-sr-card.is-answered { border-color: var(--mw-ink-200); background: var(--mw-ink-50); }
-.mw-sr-card-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; margin-bottom: 6px; }
+.mw-sr-card-head { display: flex; gap: 10px; align-items: center; margin-bottom: 6px; }
+.mw-sr-face { position: relative; flex: 0 0 auto; border-radius: 50%; overflow: hidden; background: var(--mw-forest); box-shadow: 0 0 0 3px var(--mw-orange); }
+.mw-sr-face::before { content: attr(data-initial); position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--mw-ink-0); font-weight: 700; }
+.mw-sr-face img { position: relative; width: 100%; height: 100%; object-fit: cover; display: block; }
+.mw-sr-face-sm { width: 44px; height: 44px; }
+.mw-sr-face-sm::before { font-size: 1.1rem; }
+.mw-sr-face-lg { width: 112px; height: 112px; box-shadow: 0 0 0 4px var(--mw-orange); }
+.mw-sr-face-lg::before { font-size: 2.6rem; }
+.mw-sr-head-name { font-weight: 700; color: var(--mw-forest); }
+.mw-sr-head-role { color: var(--mw-ink-500); }
+.mw-sr-gate-who { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px; margin: 4px 0 10px; }
+.mw-sr-gate-headline { font-size: 1.15rem; }
 .mw-sr-badge { background: var(--mw-orange); color: var(--mw-ink-0); border-radius: var(--mw-radius-pill); padding: 2px 9px; font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
 .mw-sr-card.is-answered .mw-sr-badge { background: var(--mw-ink-500); }
 .mw-sr-from { font-size: .72rem; color: var(--mw-ink-700); }
@@ -38823,8 +38834,6 @@ body.mw-rc-zoom-open { overflow: hidden; }
 .mw-sr-link { border: 0; background: none; padding: 2px 0; color: var(--mw-green); font-size: .76rem; font-weight: 600; }
 .mw-sr-gate { position: fixed; inset: 0; z-index: 2000; background: var(--mw-forest); display: flex; align-items: flex-start; justify-content: center; overflow-y: auto; padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom)); }
 .mw-sr-gate-panel { width: 100%; max-width: 560px; background: var(--mw-ink-0); border-radius: 16px; padding: 18px 16px; border-top: 6px solid var(--mw-orange); }
-.mw-sr-gate-head { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 8px; }
-.mw-sr-gate-head img { border-radius: 50%; object-fit: cover; flex: 0 0 auto; }
 .mw-sr-gate-kicker { font-size: .7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--mw-orange); }
 .mw-sr-gate h2 { font-size: 1.2rem; margin: 2px 0; color: var(--mw-forest); }
 .mw-sr-gate .mw-sr-quote { font-size: .95rem; max-height: none; }

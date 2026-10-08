@@ -32,6 +32,12 @@
         return items && items.length ? '<ul class="mw-sr-list ' + (cls || '') + '">' + items.map(function (i) { return '<li>' + esc(i) + '</li>'; }).join('') + '</ul>' : '';
     }
 
+    function face(p) {
+        var src = p.head_photo || ('/crm/img/heads/' + (p.head === 'yui' ? 'yui' : 'otto') + '.jpg');
+        return '<span class="mw-sr-face mw-sr-face-sm" data-initial="' + esc((p.head_name || 'O').charAt(0)) + '">' +
+            '<img src="' + esc(src) + '" alt="' + esc(p.head_name || '') + '" onerror="this.remove()"></span>';
+    }
+
     function pendingHtml(p) {
         var who = esc(p.from_name || 'Office') + (p.company_name ? ' · ' + esc(p.company_name) : '');
         var visits = p.visits.length
@@ -44,7 +50,10 @@
             }).join('') + '</ul>'
             : '<div class="mw-srp-why">No scheduled visit matched — attach it from the visit on the schedule instead.</div>';
         return '<div class="mw-srp-item is-pending" data-req="' + p.id + '">' +
-            '<div><span class="mw-sr-badge">' + (p.source === 'manual' ? 'Added' : 'From ' + esc(p.source)) + '</span> ' + who + '</div>' +
+            '<div class="mw-sr-card-head">' + face(p) +
+            '<div><div><span class="mw-sr-head-name">' + esc(p.head_name || '') + '</span> · <span class="mw-sr-head-role">' + esc(p.head_role || '') + '</span> ' +
+            '<span class="mw-sr-badge">' + (p.source === 'manual' ? 'Added' : 'From ' + esc(p.source)) + '</span></div>' +
+            '<div class="mw-sr-from">' + who + '</div></div></div>' +
             (p.client_words ? '<blockquote class="mw-sr-quote">' + esc(p.client_words).replace(/\n/g, '<br>') + '</blockquote>' : '') +
             (p.included.length ? '<div class="mw-sr-sub">Part of the scheduled work</div>' + list(p.included) : '') +
             (p.extra.length ? '<div class="mw-sr-sub is-extra">Extra — crew decide on site</div>' + list(p.extra, 'is-extra') : '') +

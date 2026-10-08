@@ -87,7 +87,7 @@ function makeEnv(opts) {
 }
 
 const tick = () => new Promise(r => setTimeout(r, 0));
-const REQ = { request_visit_id: 77, request_id: 9, visit_id: 5, head: 'yui', head_name: 'Yui', head_role: 'Client comms',
+const REQ = { request_visit_id: 77, request_id: 9, visit_id: 5, head: 'yui', head_name: 'Yui', head_role: 'Comms',
     from_name: 'Michelle Henry', company_name: 'Pacific Spirit United Church', client_words: 'Please mow the front lawns',
     included: ['Mow the front lawns'], extra: ['Rake the leaves NW corner'], status: 'attached', acked_by_me: false, acks: [] };
 
@@ -108,6 +108,9 @@ const REQ = { request_visit_id: 77, request_id: 9, visit_id: 5, head: 'yui', hea
         check(env.window.MwSpecialRequest.blocks(5) === true, 'unread: blocks() is true (Start / camera handler returns)');
         check(env.bodyChildren.length === 1 && env.bodyChildren[0].className === 'mw-sr-gate', 'unread: the request screen is on screen');
         check(env.htmlClasses.has('mw-sr-lock'), 'page scroll locked while shown');
+        const html = env.bodyChildren[0].innerHTML;
+        check(html.indexOf('/crm/img/heads/yui.jpg') !== -1 && html.indexOf('mw-sr-face-lg') !== -1, 'the screen shows the head\'s face, large');
+        check(html.indexOf('>Yui<') !== -1 && html.indexOf('>Comms<') !== -1, 'with "Yui · Comms"');
         env.window.MwSpecialRequest.blocks(5);
         check(env.bodyChildren.length === 1, 'a second tap does not stack screens');
         check(env.window.MwSpecialRequest.blocks(6) === false, 'another visit is not blocked');

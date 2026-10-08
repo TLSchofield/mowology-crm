@@ -141,7 +141,19 @@
 
     function fromLine(r) {
         var who = (r.from_name || '') + (r.company_name ? (r.from_name ? ' · ' : '') + r.company_name : '');
-        return (who ? 'From ' + esc(who) : 'From the office') + ' · via ' + esc(r.head_name) + ' (' + esc(r.head_role) + ')';
+        return who ? 'From ' + esc(who) : 'From the office';
+    }
+
+    /** The head who raised it — face + "Yui · Comms", like the dashboard deck. Initial if the photo fails. */
+    function headFace(r, size) {
+        var slug = r.head === 'yui' ? 'yui' : 'otto';
+        var src = r.head_photo || ('/crm/img/heads/' + slug + '.jpg');
+        var initial = esc((r.head_name || slug).charAt(0).toUpperCase());
+        return '<span class="mw-sr-face mw-sr-face-' + size + '" data-initial="' + initial + '">' +
+            '<img src="' + esc(src) + '" alt="' + esc(r.head_name || '') + '" onerror="this.remove()"></span>';
+    }
+    function headLabel(r) {
+        return '<span class="mw-sr-head-name">' + esc(r.head_name || 'Otto') + '</span> · <span class="mw-sr-head-role">' + esc(r.head_role || '') + '</span>';
     }
 
     // ── Full-screen gate: created when needed, removed on dismiss ───────────────────────
@@ -157,12 +169,12 @@
         gateEl.setAttribute('aria-labelledby', 'mw-sr-gate-title');
         gateEl.innerHTML =
             '<div class="mw-sr-gate-panel">' +
-            '  <div class="mw-sr-gate-head">' +
-            '    <img src="/crm/img/heads/' + (r.head === 'yui' ? 'yui' : 'otto') + '.jpg" alt="" width="44" height="44">' +
-            '    <div><div class="mw-sr-gate-kicker">Special request' + (list.length > 1 ? ' (1 of ' + list.length + ')' : '') + '</div>' +
-            '    <h2 id="mw-sr-gate-title">' + esc(r.address || 'This visit') + '</h2>' +
-            '    <div class="mw-sr-from">' + fromLine(r) + '</div></div>' +
+            '  <div class="mw-sr-gate-who">' + headFace(r, 'lg') +
+            '    <div class="mw-sr-gate-headline">' + headLabel(r) + '</div>' +
+            '    <div class="mw-sr-gate-kicker">Special request' + (list.length > 1 ? ' (1 of ' + list.length + ')' : '') + '</div>' +
             '  </div>' +
+            '  <h2 id="mw-sr-gate-title">' + esc(r.address || 'This visit') + '</h2>' +
+            '  <div class="mw-sr-from">' + fromLine(r) + '</div>' +
             (r.client_words ? '<blockquote class="mw-sr-quote">' + esc(r.client_words).replace(/\n/g, '<br>') + '</blockquote>' : '') +
             itemsHtml(r) +
             '  <p class="mw-sr-gate-note">Read it before you start. After <b>Got it</b>, tap Start or the camera again.</p>' +
@@ -254,8 +266,9 @@
         box.setAttribute('data-sr-id', r.request_visit_id);
         var acks = (r.acks || []).map(function (a) { return esc(a.name); }).join(', ');
         box.innerHTML =
-            '<div class="mw-sr-card-head"><span class="mw-sr-badge">Special request</span>' +
-            '<span class="mw-sr-from">' + fromLine(r) + '</span></div>' +
+            '<div class="mw-sr-card-head">' + headFace(r, 'sm') +
+            '<div><div>' + headLabel(r) + ' <span class="mw-sr-badge">Special request</span></div>' +
+            '<div class="mw-sr-from">' + fromLine(r) + '</div></div></div>' +
             (r.client_words ? '<blockquote class="mw-sr-quote">' + esc(r.client_words).replace(/\n/g, '<br>') + '</blockquote>' : '') +
             itemsHtml(r) +
             '<div class="mw-sr-meta">' + (acks ? 'Read by ' + acks : 'Not read yet') + '</div>' +

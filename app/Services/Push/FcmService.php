@@ -92,6 +92,11 @@ class FcmService
         if (!empty($stringData)) {
             $message['message']['data'] = $stringData;
         }
+        // Optional face / picture on the notification (Android shows it; e.g. a department head
+        // on a special request). Only an https URL — anything else is ignored.
+        if (!empty($data['image_url']) && is_string($data['image_url']) && strpos($data['image_url'], 'https://') === 0) {
+            $message['message']['notification']['image'] = $data['image_url'];
+        }
 
         $ch = curl_init();
         curl_setopt_array($ch, [

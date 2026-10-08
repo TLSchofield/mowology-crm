@@ -168,6 +168,8 @@ final class SpecialRequestServiceTest extends TestCase
         // Pushes: visit 100 + 101 have two crew, 102 one.
         $this->assertSame([[31, 32], [31, 32], [31]], array_column($this->push, 0));
         $this->assertSame('special_request', $this->push[0][3]['type']);
+        $this->assertSame('https://mowology.ca/crm/img/heads/yui.jpg', $this->push[0][3]['image_url'], 'the head\'s face on the push');
+        $this->assertStringStartsWith('Yui: special request', $this->push[0][1]);
         $this->assertSame(100, $this->push[0][3]['visit_id']);
         $logged = $this->db->query("SELECT kind, COUNT(*) FROM special_request_events WHERE kind IN ('sms','push') GROUP BY kind")->fetchAll(PDO::FETCH_KEY_PAIR);
         $this->assertSame(['push' => 5, 'sms' => 3], array_map('intval', $logged));
@@ -223,6 +225,8 @@ final class SpecialRequestServiceTest extends TestCase
         $this->assertSame(SpecialRequestGate::MESSAGE, $web['body']['error']);
         $this->assertSame($srv[101], $web['body']['special_requests'][0]['request_visit_id']);
         $this->assertSame('Michelle Henry', $web['body']['special_requests'][0]['from_name']);
+        $this->assertSame('/crm/img/heads/yui.jpg', $web['body']['special_requests'][0]['head_photo']);
+        $this->assertSame('Comms', $web['body']['special_requests'][0]['head_role']);
 
         $ios = SpecialRequestGate::response($this->db, 101, 31, false, null, 'photo', 'message');
         $this->assertSame(SpecialRequestGate::MESSAGE, $ios['body']['message'], 'JWT clients read `message`');
@@ -318,6 +322,8 @@ final class SpecialRequestServiceTest extends TestCase
         $this->assertTrue($r['ok'], json_encode($r));
         $req = $this->db->query("SELECT head, status, included_items, extra_items FROM special_requests")->fetch();
         $this->assertSame('otto', $req['head']);
+        $p = $this->svc()->forVisits([104], 31)[104][0];
+        $this->assertSame(['Otto', 'Operations', '/crm/img/heads/otto.jpg'], [$p['head_name'], $p['head_role'], $p['head_photo']]);
         $this->assertSame('attached', $req['status']);
         $this->assertStringContainsString('trim the hedge', strtolower($req['included_items']));
         $this->assertStringContainsString('pick up the branches', strtolower($req['extra_items']));

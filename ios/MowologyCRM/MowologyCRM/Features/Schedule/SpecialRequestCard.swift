@@ -26,17 +26,25 @@ struct SpecialRequestCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("SPECIAL REQUEST")
-                    .font(.caption2.weight(.heavy))
-                    .padding(.horizontal, 8).padding(.vertical, 3)
-                    .background(request.isOpen ? Color.MW.orange : Color.secondary)
-                    .foregroundStyle(.white)
-                    .clipShape(Capsule())
-                Text(request.fromLine)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
+            HStack(alignment: .center, spacing: 10) {
+                HeadFaceView(slug: request.headSlug, name: request.headName, size: 44)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(request.headLine)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Color.MW.forest)
+                        Text("SPECIAL REQUEST")
+                            .font(.caption2.weight(.heavy))
+                            .padding(.horizontal, 7).padding(.vertical, 2)
+                            .background(request.isOpen ? Color.MW.orange : Color.secondary)
+                            .foregroundStyle(.white)
+                            .clipShape(Capsule())
+                    }
+                    Text(request.fromLine)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
             }
 
             if !request.clientWords.isEmpty {
@@ -164,18 +172,16 @@ struct SpecialRequestGateView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                HStack(alignment: .top, spacing: 12) {
-                    Image(systemName: request.head == "yui" ? "bubble.left.and.bubble.right.fill" : "wrench.and.screwdriver.fill")
-                        .font(.title2)
-                        .foregroundStyle(.white)
-                        .frame(width: 48, height: 48)
-                        .background(Color.MW.orange)
-                        .clipShape(Circle())
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("SPECIAL REQUEST").font(.caption.weight(.heavy)).foregroundStyle(Color.MW.orange)
-                        Text(request.address).font(.title3.bold()).foregroundStyle(Color.MW.forest)
-                        Text(request.fromLine).font(.caption).foregroundStyle(.secondary)
-                    }
+                // The head who raised it, face first — the way the heads appear on the Team tab.
+                VStack(spacing: 6) {
+                    HeadFaceView(slug: request.headSlug, name: request.headName, size: 112)
+                    Text(request.headLine).font(.title3.weight(.semibold)).foregroundStyle(Color.MW.forest)
+                    Text("SPECIAL REQUEST").font(.caption.weight(.heavy)).foregroundStyle(Color.MW.orange)
+                }
+                .frame(maxWidth: .infinity)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(request.address).font(.title3.bold()).foregroundStyle(Color.MW.forest)
+                    Text(request.fromLine).font(.caption).foregroundStyle(.secondary)
                 }
                 if !request.clientWords.isEmpty {
                     Text("“\(request.clientWords)”")

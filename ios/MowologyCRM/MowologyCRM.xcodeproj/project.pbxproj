@@ -122,6 +122,7 @@
 		384F9DB9382CB26750ACF5FD /* BatchCameraView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC39C8FF29F8634E0470F4CA /* BatchCameraView.swift */; };
 		C4942CBF2C16F56E23B4DE23 /* SpecialRequestStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF5652BC795FDF9D9717FFAA /* SpecialRequestStore.swift */; };
 		0467833076FBE593EB86E045 /* SpecialRequestCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0031E39A259C661A1C79C512 /* SpecialRequestCard.swift */; };
+		BAF0A6DA2D680084689DA30B /* HeadFaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2DECC6127F23CBDD966EA63 /* HeadFaceView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -242,6 +243,7 @@
 		EC39C8FF29F8634E0470F4CA /* BatchCameraView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchCameraView.swift; sourceTree = "<group>"; };
 		EF5652BC795FDF9D9717FFAA /* SpecialRequestStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpecialRequestStore.swift; sourceTree = "<group>"; };
 		0031E39A259C661A1C79C512 /* SpecialRequestCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpecialRequestCard.swift; sourceTree = "<group>"; };
+		A2DECC6127F23CBDD966EA63 /* HeadFaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeadFaceView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -401,6 +403,7 @@
 				B8691C99A108A1B543D346DD /* PullForwardSheet.swift */,
 				EF5652BC795FDF9D9717FFAA /* SpecialRequestStore.swift */,
 				0031E39A259C661A1C79C512 /* SpecialRequestCard.swift */,
+				A2DECC6127F23CBDD966EA63 /* HeadFaceView.swift */,
 			);
 			path = Schedule;
 			sourceTree = "<group>";
@@ -708,6 +711,7 @@
 				384F9DB9382CB26750ACF5FD /* BatchCameraView.swift in Sources */,
 				C4942CBF2C16F56E23B4DE23 /* SpecialRequestStore.swift in Sources */,
 				0467833076FBE593EB86E045 /* SpecialRequestCard.swift in Sources */,
+				BAF0A6DA2D680084689DA30B /* HeadFaceView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
