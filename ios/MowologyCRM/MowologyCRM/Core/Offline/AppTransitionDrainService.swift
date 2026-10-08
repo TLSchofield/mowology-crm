@@ -81,6 +81,11 @@ final class AppTransitionDrainService {
         }
         if let lat = transition.lat { body["lat"] = lat }
         if let lng = transition.lng { body["lng"] = lng }
+        // When the start was really tapped: the server's special-request gate accepts a queued
+        // start (logged) instead of refusing it forever.
+        if transition.action == "start" {
+            body["queued_at"] = Int(transition.queuedAt.timeIntervalSince1970 * 1000)
+        }
 
         let skipReasonKey = VisitDetailViewModel.skipReasonKey(visitId: transition.visitId)
         if transition.action == "skip",

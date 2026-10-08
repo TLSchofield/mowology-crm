@@ -245,6 +245,21 @@ struct JobPhotoSection: View {
     let endorsedBy:     [String]
     /// Nil = hide the heart slot entirely (backward-compat for callers that don't support flagging).
     let onFlagToggle:   (() async -> Void)?
+    /// Special-request gate: returns true (and the owner shows the request) when this person
+    /// hasn't read it yet — the camera / picker must NOT open on that tap. Nil = no gate.
+    let captureGate:    (() -> Bool)?
+    /// True while that gate would block — the library picker is swapped for a plain button.
+    let photosLocked:   Bool
+
+    private var chooseLabel: some View {
+        Label("Choose", systemImage: "photo.on.rectangle")
+            .font(.subheadline.weight(.semibold))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(Color(.systemGray6))
+            .foregroundStyle(.primary)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
 
     @StateObject private var vm: JobPhotoViewModel
     @State private var libraryItems: [PhotosPickerItem] = []
@@ -252,7 +267,9 @@ struct JobPhotoSection: View {
     init(visitId: Int, isActive: Bool, authSession: AuthSession,
          isFlagged: Bool = false, isFlagLoading: Bool = false,
          endorsedBy: [String] = [],
-         onFlagToggle: (() async -> Void)? = nil) {
+         onFlagToggle: (() async -> Void)? = nil,
+         captureGate: (() -> Bool)? = nil,
+         photosLocked: Bool = false) {
         self.visitId      = visitId
         self.isActive     = isActive
         self.authSession  = authSession
@@ -260,6 +277,8 @@ struct JobPhotoSection: View {
         self.isFlagLoading = isFlagLoading
         self.endorsedBy   = endorsedBy
         self.onFlagToggle = onFlagToggle
+        self.captureGate  = captureGate
+        self.photosLocked = photosLocked
         _vm = StateObject(wrappedValue: JobPhotoViewModel(visitId: visitId,
                                                           authSession: authSession))
     }
@@ -403,6 +422,7 @@ struct JobPhotoSection: View {
 
             HStack(spacing: 10) {
                 Button {
+                    if captureGate?() == true { return }
                     vm.beginCapture(.additional)
                 } label: {
                     Label("Take photos", systemImage: "camera.fill")
@@ -415,16 +435,16 @@ struct JobPhotoSection: View {
                 }
                 .buttonStyle(.plain)
 
-                PhotosPicker(selection: $libraryItems, maxSelectionCount: 10, matching: .images) {
-                    Label("Choose", systemImage: "photo.on.rectangle")
-                        .font(.subheadline.weight(.semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(Color(.systemGray6))
-                        .foregroundStyle(.primary)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                if photosLocked {
+                    // Special request not read yet: the tap shows it instead of the picker.
+                    Button { _ = captureGate?() } label: { chooseLabel }
+                        .buttonStyle(.plain)
+                } else {
+                    PhotosPicker(selection: $libraryItems, maxSelectionCount: 10, matching: .images) {
+                        chooseLabel
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
         }
         .padding(.top, 4)
@@ -438,6 +458,7 @@ struct JobPhotoSection: View {
         return VStack(spacing: 6) {
             Button {
                 guard enabled else { return }
+                if captureGate?() == true { return }
                 vm.beginCapture(slot)
             } label: {
                 ZStack {

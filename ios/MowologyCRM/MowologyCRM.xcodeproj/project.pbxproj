@@ -120,6 +120,8 @@
 		0873D9A412D0CD31052F7668 /* CameraController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B3119ABA9BDABE47846A6B1 /* CameraController.swift */; };
 		BB0BC5508039BCDD66D47719 /* MarkupEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A0940C690E40A426E535953 /* MarkupEditorView.swift */; };
 		384F9DB9382CB26750ACF5FD /* BatchCameraView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC39C8FF29F8634E0470F4CA /* BatchCameraView.swift */; };
+		C4942CBF2C16F56E23B4DE23 /* SpecialRequestStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF5652BC795FDF9D9717FFAA /* SpecialRequestStore.swift */; };
+		0467833076FBE593EB86E045 /* SpecialRequestCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0031E39A259C661A1C79C512 /* SpecialRequestCard.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -238,6 +240,8 @@
 		6B3119ABA9BDABE47846A6B1 /* CameraController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraController.swift; sourceTree = "<group>"; };
 		3A0940C690E40A426E535953 /* MarkupEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkupEditorView.swift; sourceTree = "<group>"; };
 		EC39C8FF29F8634E0470F4CA /* BatchCameraView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchCameraView.swift; sourceTree = "<group>"; };
+		EF5652BC795FDF9D9717FFAA /* SpecialRequestStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpecialRequestStore.swift; sourceTree = "<group>"; };
+		0031E39A259C661A1C79C512 /* SpecialRequestCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpecialRequestCard.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -395,6 +399,8 @@
 				012351B5F6A5D4F76A5667E0 /* MoveStopSheet.swift */,
 				DC32DBE5A2AA1CD03B853C12 /* PhotoHistorySection.swift */,
 				B8691C99A108A1B543D346DD /* PullForwardSheet.swift */,
+				EF5652BC795FDF9D9717FFAA /* SpecialRequestStore.swift */,
+				0031E39A259C661A1C79C512 /* SpecialRequestCard.swift */,
 			);
 			path = Schedule;
 			sourceTree = "<group>";
@@ -700,6 +706,8 @@
 				0873D9A412D0CD31052F7668 /* CameraController.swift in Sources */,
 				BB0BC5508039BCDD66D47719 /* MarkupEditorView.swift in Sources */,
 				384F9DB9382CB26750ACF5FD /* BatchCameraView.swift in Sources */,
+				C4942CBF2C16F56E23B4DE23 /* SpecialRequestStore.swift in Sources */,
+				0467833076FBE593EB86E045 /* SpecialRequestCard.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -13,6 +13,13 @@ struct VisitDetailView: View {
     private let authSession: AuthSession
 
     @StateObject private var viewModel: VisitDetailViewModel
+
+    /// A client's special request on these visits (empty while the feature is off).
+    @StateObject private var specialRequests: SpecialRequestStore
+
+    /// The request shown full screen because Start / a photo was tapped before "Got it".
+    /// Presented from THIS screen, never MainTabView, and only on that tap.
+    @State private var gateRequest: SpecialRequest?
     @Environment(\.openURL) private var openURL
 
     /// The visit being completed via the completion sheet (extras + invoice).
@@ -37,6 +44,16 @@ struct VisitDetailView: View {
         self.authSession = authSession
         let client       = APIClient(authSession: authSession)
         _viewModel       = StateObject(wrappedValue: VisitDetailViewModel(stop: stop, apiClient: client))
+        _specialRequests = StateObject(wrappedValue: SpecialRequestStore(visitIds: stop.visits.map(\.visitId),
+                                                                         apiClient: client))
+    }
+
+    /// Special request gate: true (and the request is shown) when this person hasn't read it yet —
+    /// the caller must NOT start the timer or open the camera on this tap.
+    private func specialRequestBlocks(_ visitId: Int) -> Bool {
+        guard let unread = specialRequests.firstUnread(for: visitId) else { return false }
+        gateRequest = unread
+        return true
     }
 
     // MARK: - Body
@@ -81,6 +98,21 @@ struct VisitDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task { await viewModel.checkClockStatus() }
         .task { await viewModel.restoreActiveTimer() }
+        .task { await specialRequests.load() }
+        .fullScreenCover(item: $gateRequest) { request in
+            SpecialRequestGateView(
+                request:  request,
+                isSaving: specialRequests.savingId == request.id,
+                onGotIt: {
+                    Task {
+                        await specialRequests.ack(request)
+                        // Next unread one on the same visit, else close — the crew tap Start / camera again.
+                        gateRequest = specialRequests.firstUnread(for: request.visitId)
+                    }
+                },
+                onBack: { gateRequest = nil }
+            )
+        }
         .sheet(item: $completingVisit) { visit in
             VisitCompletionSheet(visit: visit, detailVM: viewModel, authSession: authSession)
         }
@@ -379,6 +411,22 @@ struct VisitDetailView: View {
 
         return VStack(alignment: .leading, spacing: 10) {
 
+            // Client's special request — top of the visit card, before anything else.
+            ForEach(specialRequests.requests(for: visit.visitId)) { request in
+                SpecialRequestCard(
+                    request:  request,
+                    isSaving: specialRequests.savingId == request.id,
+                    onRead:   { gateRequest = request },
+                    onAnswer: { outcome, reason, description, minutes in
+                        await specialRequests.answer(request, outcome: outcome, reason: reason,
+                                                     extraDescription: description, extraMinutes: minutes)
+                    }
+                )
+            }
+            if let srError = specialRequests.errorMessage, !specialRequests.requests(for: visit.visitId).isEmpty {
+                Text(srError).font(.caption).foregroundStyle(.orange)
+            }
+
             // Title + badge row
             HStack {
                 Text(visit.planTitle ?? visit.serviceTypeLabel)
@@ -496,7 +544,9 @@ struct VisitDetailView: View {
                     isFlagged:     isVisitFlagged,
                     isFlagLoading: isFlagLoading,
                     endorsedBy:    viewModel.endorsedBy(for: visit),
-                    onFlagToggle:  { await viewModel.toggleFlag(visit) }
+                    onFlagToggle:  { await viewModel.toggleFlag(visit) },
+                    captureGate:   { specialRequestBlocks(visit.visitId) },
+                    photosLocked:  specialRequests.firstUnread(for: visit.visitId) != nil
                 )
 
                 // Review earned strip — visible once the client has actually reviewed.
@@ -577,7 +627,15 @@ struct VisitDetailView: View {
                     .disabled(isThisLoading)
 
                     Button {
-                        Task { await viewModel.startJob(visitId: visit.visitId) }
+                        if specialRequestBlocks(visit.visitId) { return }
+                        Task {
+                            await viewModel.startJob(visitId: visit.visitId)
+                            // The server refused (409): a request was attached since this screen loaded.
+                            if viewModel.errorMessage?.hasPrefix("Special request") == true {
+                                await specialRequests.load()
+                                if specialRequestBlocks(visit.visitId) { viewModel.errorMessage = nil }
+                            }
+                        }
                     } label: {
                         VStack(spacing: 6) {
                             if isThisLoading {
