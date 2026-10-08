@@ -88,43 +88,69 @@ class ExpenseLookupService
     }
 
     /**
-     * Job-plan search (plan number, job title, service, address, client) for attaching
-     * an expense to a job. Returns property_id and
+     * Job-plan search (plan number, job title, service, address, building name, client,
+     * property manager) for attaching an expense to a job. Returns property_id and
      * contact_id alongside the plan so the client can persist all three payer/site
      * identifiers the same way a GPS job suggestion does.
+     *
+     * $onDate (the receipt date): jobs with a visit scheduled that day come first and carry
+     * scheduled_on_date = 1; with no query, only that day's jobs are returned — so the
+     * picker can list "on the schedule that day" before anything is typed.
      */
-    public function searchJobs(?string $q): array
+    public function searchJobs(?string $q, ?string $onDate = null): array
     {
         $q = self::normalizeQuery($q);
-        if ($q === null) {
+        $onDate = ($onDate !== null && preg_match('/^\d{4}-\d{2}-\d{2}$/', $onDate)) ? $onDate : null;
+        if ($q === null && $onDate === null) {
             return [];
         }
-        $like = '%' . $q . '%';
-        $stmt = $this->db->prepare("
-            SELECT
-                jp.id,
-                jp.plan_number,
-                jp.title,
-                jp.service_type,
-                jp.status,
-                jp.property_id,
-                p.site_contact_id AS contact_id,
-                p.address,
-                CONCAT(c.first_name, ' ', c.last_name) AS contact_name
-            FROM job_plans jp
-            LEFT JOIN properties p ON p.id = jp.property_id
-            LEFT JOIN contacts c ON c.id = p.site_contact_id
-            WHERE (
+        $params = [];
+        $scheduled = '0';
+        if ($onDate !== null) {
+            $scheduled = "EXISTS (SELECT 1 FROM job_visits jv JOIN calendar_stops cs ON cs.id = jv.stop_id
+                                  WHERE jv.plan_id = jp.id AND cs.stop_date = ? AND jv.status <> 'cancelled')";
+            $params[] = $onDate;
+        }
+        $where = '';
+        if ($q !== null) {
+            $like = '%' . $q . '%';
+            $where = "WHERE (
                   jp.plan_number LIKE ?
                   OR jp.title LIKE ?
                   OR jp.service_type LIKE ?
                   OR p.address LIKE ?
+                  OR p.property_name LIKE ?
                   OR CONCAT(c.first_name, ' ', c.last_name) LIKE ?
-              )
-            ORDER BY jp.status = 'active' DESC, jp.id DESC
+                  OR EXISTS (SELECT 1 FROM company_properties cp JOIN companies co ON co.id = cp.company_id
+                             WHERE cp.property_id = p.id AND co.company_name LIKE ?)
+              )";
+            array_push($params, $like, $like, $like, $like, $like, $like, $like);
+        }
+        $sql = "
+            SELECT * FROM (
+                SELECT
+                    jp.id,
+                    jp.plan_number,
+                    jp.title,
+                    jp.service_type,
+                    jp.status,
+                    jp.property_id,
+                    p.site_contact_id AS contact_id,
+                    p.address,
+                    p.property_name,
+                    CONCAT(c.first_name, ' ', c.last_name) AS contact_name,
+                    {$scheduled} AS scheduled_on_date
+                FROM job_plans jp
+                LEFT JOIN properties p ON p.id = jp.property_id
+                LEFT JOIN contacts c ON c.id = p.site_contact_id
+                {$where}
+            ) j
+            " . ($q === null ? 'WHERE j.scheduled_on_date = 1' : '') . "
+            ORDER BY j.scheduled_on_date DESC, j.status = 'active' DESC, j.id DESC
             LIMIT 15
-        ");
-        $stmt->execute([$like, $like, $like, $like, $like]);
+        ";
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
         return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }
 

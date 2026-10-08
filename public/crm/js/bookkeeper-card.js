@@ -525,15 +525,21 @@
         return '<div class="mw-rc-fld"><div class="mw-k">' + esc(k) + '</div><div class="mw-v">' + v + '</div>' + w + '</div>';
     }
 
-    // ── Job search (title, address, client, plan number) ─────────────────
+    // ── Job search (title, address, building name, client, manager, plan number) ──
+    // With nothing typed it lists the jobs on the schedule the receipt's day.
     function jobResults(box, rows, penny) {
         var res = box.querySelector('.mw-rc-jobres');
         var html = '<button type="button" data-pick-stock="1">🏪 Shop stock — no job</button>';
         if (penny) html += '<button type="button" data-pick-job="' + esc(penny.id) + '" data-label="' + esc(penny.label) + '">⭐ Penny\'s pick: ' + esc(penny.label) + '</button>';
         rows.forEach(function (j) {
-            var label = (j.title || j.service_type || 'Job') + ' — ' + (j.address || '') + (j.plan_number ? ' (' + j.plan_number + ')' : '');
+            var site = (j.property_name ? j.property_name + ', ' : '') + (j.address || '');
+            var label = (j.title || j.service_type || 'Job') + ' — ' + site + (j.plan_number ? ' (' + j.plan_number + ')' : '');
+            var sub = [];
+            if (Number(j.scheduled_on_date) === 1) sub.push('📅 on the schedule that day');
+            if (j.contact_name) sub.push(j.contact_name);
+            if (j.status && j.status !== 'active') sub.push(j.status);
             html += '<button type="button" data-pick-job="' + esc(j.id) + '" data-label="' + esc(label) + '">' + esc(label) +
-                (j.contact_name ? '<small>' + esc(j.contact_name) + (j.status && j.status !== 'active' ? ' · ' + esc(j.status) : '') + '</small>' : '') + '</button>';
+                (sub.length ? '<small>' + esc(sub.join(' · ')) + '</small>' : '') + '</button>';
         });
         res.innerHTML = html + (rows.length || penny ? '' : '<div class="mw-rc-jobnone">No jobs match — keep typing</div>');
         res.hidden = false;
@@ -545,12 +551,17 @@
         var sug = it && it.suggestion && it.suggestion.job ? it.suggestion.job.value : null;
         var penny = sug ? { id: sug, label: jobLabels[sug] || ('Job #' + sug) } : null;
         var q = input.value.trim();
+        var picked = box.querySelector('[data-f="job"]');
+        if (picked && picked.value && q === (jobLabels[picked.value] || '').trim()) q = '';   // focus on a chosen job → show the day's list
+        var dateEl = document.getElementById('mw-rc-date');
+        var day = dateEl && /^\d{4}-\d{2}-\d{2}$/.test(dateEl.value) ? dateEl.value : '';
         clearTimeout(jobTimer);
-        if (q.length < 2) { jobResults(box, [], penny); return; }
+        if (q.length < 2 && !day) { jobResults(box, [], penny); return; }
+        if (q.length < 2) q = '';
         jobTimer = setTimeout(function () {
-            fetch('/crm/api/expenses.php?action=search_jobs&q=' + encodeURIComponent(q), { cache: 'no-store' })
+            fetch('/crm/api/expenses.php?action=search_jobs&q=' + encodeURIComponent(q) + (day ? '&date=' + day : ''), { cache: 'no-store' })
                 .then(function (r) { return r.json(); })
-                .then(function (d) { if (document.activeElement === input) jobResults(box, (d && d.jobs) || [], null); })
+                .then(function (d) { if (document.activeElement === input) jobResults(box, (d && d.jobs) || [], q ? null : penny); })
                 .catch(function () {});
         }, 250);
     }

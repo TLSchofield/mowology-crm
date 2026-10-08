@@ -83,6 +83,52 @@ class ExpenseLookupServiceTest extends TestCase
         $this->assertCount(substr_count($sql, '?'), $params);
     }
 
+    /** Captures the SQL and params of one searchJobs call. */
+    private function captureJobSearch(?string $q, ?string $date): array
+    {
+        $sql = null;
+        $params = null;
+        $stmt = $this->createMock(PDOStatement::class);
+        $stmt->method('execute')->willReturnCallback(function ($p) use (&$params) { $params = $p; return true; });
+        $stmt->method('fetchAll')->willReturn([]);
+        $db = $this->createMock(PDO::class);
+        $db->method('prepare')->willReturnCallback(function ($s) use (&$sql, $stmt) { $sql = $s; return $stmt; });
+        (new ExpenseLookupService($db))->searchJobs($q, $date);
+        return [$sql, $params];
+    }
+
+    public function test_job_search_matches_the_building_name_and_the_manager(): void
+    {
+        // "Oakridge Gardens" is properties.property_name (6015 Tisdall St); Vancouver Management is the company.
+        [$sql, $params] = $this->captureJobSearch('oakridge', null);
+        $this->assertStringContainsString('p.property_name LIKE ?', $sql);
+        $this->assertStringContainsString('co.company_name LIKE ?', $sql);
+        $this->assertCount(substr_count($sql, '?'), $params);
+    }
+
+    public function test_receipt_date_puts_that_days_jobs_first(): void
+    {
+        [$sql, $params] = $this->captureJobSearch('mulch', '2026-10-07');
+        $this->assertStringContainsString('cs.stop_date = ?', $sql);
+        $this->assertStringContainsString('ORDER BY j.scheduled_on_date DESC', $sql);
+        $this->assertSame('2026-10-07', $params[0]);
+        $this->assertCount(substr_count($sql, '?'), $params);
+    }
+
+    public function test_date_alone_lists_only_that_days_jobs(): void
+    {
+        [$sql, $params] = $this->captureJobSearch('', '2026-10-07');
+        $this->assertStringContainsString('WHERE j.scheduled_on_date = 1', $sql);
+        $this->assertSame(['2026-10-07'], $params);
+    }
+
+    public function test_bad_date_is_ignored(): void
+    {
+        $db = $this->createMock(PDO::class);
+        $db->expects($this->never())->method('prepare');
+        $this->assertSame([], (new ExpenseLookupService($db))->searchJobs('', "2026-10-07' OR 1=1"));
+    }
+
     // ── categories ───────────────────────────────────────────────────────
 
     public function test_categories_exposes_all_three_lists(): void

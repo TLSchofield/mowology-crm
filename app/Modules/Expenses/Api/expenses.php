@@ -1263,7 +1263,7 @@ function handleSearchJobs(PDO $db): void
     // Shared with the iOS review form (expense-lookup.php?type=jobs). Rows now carry
     // property_id + contact_id so the mobile job pill can persist all three identifiers.
     require_once APP_ROOT . '/Modules/Expenses/Services/ExpenseLookupService.php';
-    $jobs = (new ExpenseLookupService($db))->searchJobs($_GET['q'] ?? '');
+    $jobs = (new ExpenseLookupService($db))->searchJobs($_GET['q'] ?? '', isset($_GET['date']) ? (string)$_GET['date'] : null);
 
     echo json_encode(['success' => true, 'jobs' => $jobs]);
 }
