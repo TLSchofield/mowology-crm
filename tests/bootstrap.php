@@ -182,6 +182,9 @@ require_once __DIR__ . '/../app/Modules/Accounting/Services/IncomeCleanupService
 require_once __DIR__ . '/../app/Modules/Accounting/Services/CreditCardPayableAuditService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/BankTransferDirectionRepair.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/BankAccountSplitService.php';
+// Bank balance check + each invoice payment its own journal entry (migration 1236)
+require_once __DIR__ . '/../app/Modules/Accounting/Services/InvoicePaymentPlanner.php';
+require_once __DIR__ . '/../app/Modules/Accounting/Services/BankBalanceCheckService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/DuplicateReceiptService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseApprovalService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseService.php';

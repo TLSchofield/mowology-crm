@@ -302,7 +302,9 @@ class LedgerSyncService
         ")->fetchAll(PDO::FETCH_ASSOC);
 
         $facts = $this->directionFacts();
+        $deposits = $this->bankDepositEntries();
         foreach ($rows as $row) {
+            if (isset($deposits[(int)$row['id']])) { $skipped++; continue; }   // its cash is posted as a 'bank_deposit' (1236)
             try {
                 $args = $this->bankRowToEntryArgs(self::withDirection($row, $facts), $itcId, $gstColId, $bankId, $codeToCostType);
                 if ($args === null) { $skipped++; continue; }
@@ -331,10 +333,29 @@ class LedgerSyncService
         $s->execute([$transactionId]);
         $row = $s->fetch(PDO::FETCH_ASSOC);
         if (!$row) return null;
+        if (isset($this->bankDepositEntries($transactionId)[$transactionId])) return null;   // posted as a 'bank_deposit' (1236)
         $row = self::withDirection($row, $this->directionFacts($transactionId));
         return $this->bankRowToEntryArgs($row, $this->ledger->accountId(LedgerService::ACC_GST_ITC),
             $this->ledger->accountId(LedgerService::ACC_GST_COLLECTED), $this->ledger->accountId(LedgerService::ACC_BANK),
             $this->accountCodeToCostTypeMap());
+    }
+
+    /**
+     * Bank lines whose cash the bank balance check posted itself (a Jobber-era deposit with no
+     * CRM invoice: 'bank_deposit', migration 1236): txId => entry id. They must never post a
+     * second time as 'bank_import'.
+     */
+    public function bankDepositEntries(?int $txId = null): array
+    {
+        $out = [];
+        try {
+            $one = $txId !== null ? ' AND source_id = ' . (int)$txId : '';
+            foreach ($this->db->query("SELECT id, source_id FROM journal_entries WHERE source_type = 'bank_deposit' AND reversed_by_entry_id IS NULL{$one}")
+                         ->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                $out[(int)$r['source_id']] = (int)$r['id'];
+            }
+        } catch (\Throwable $e) { /* nothing posted that way */ }
+        return $out;
     }
 
     /** Chart code => cost_types.id, so bank cost rows carry the GGOB drill-down dimension. */
@@ -367,6 +388,15 @@ class LedgerSyncService
             WHERE COALESCE(total, 0) > 0
         ")->fetchAll(PDO::FETCH_ASSOC);
 
+        // Migration 1236: each payment is its own entry (InvoicePaymentPlanner). Before it ran, the
+        // old way: one payment entry per invoice for amount_paid at the first sync.
+        require_once __DIR__ . '/InvoicePaymentPlanner.php';
+        $planner = new InvoicePaymentPlanner($this->db);
+        $plans = null;
+        if ($planner->goForwardFrom() !== null) {
+            try { $plans = $planner->planAll(); } catch (\Throwable $e) { $plans = null; error_log('[LedgerSync] payment plan: ' . $e->getMessage()); }
+        }
+
         foreach ($rows as $row) {
             try {
                 $args = $this->mapInvoiceToInvoiceArgs($row);
@@ -375,6 +405,10 @@ class LedgerSyncService
                 }
                 $this->ledger->postInvoice($args);
                 $posted++;
+                if ($plans !== null) {
+                    if (isset($plans[(int)$row['id']])) $payments += $planner->applyAuto($plans[(int)$row['id']], $this->ledger);
+                    continue;
+                }
                 $pay = $this->mapInvoiceToPaymentArgs($row);
                 if ($pay !== null) {
                     $this->ledger->postPayment($pay);

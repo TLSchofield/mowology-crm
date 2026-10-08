@@ -38848,3 +38848,13 @@ body.mw-rc-zoom-open { overflow: hidden; }
   .mw-split-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .mw-split-name { grid-column: 1 / -1; }
 }
+
+/* ══ Bank balance check (/crm/accounting/bank-balance-check.php, migration 1236) ═══ */
+.mw-bbc-table td, .mw-bbc-table th { vertical-align: top; }
+.mw-bbc-num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.mw-bbc-ok { color: var(--mw-green); }
+.mw-bbc-off { color: var(--mw-orange); font-weight: 600; }
+.mw-bbc-strong td { font-weight: 700; background: var(--mw-light); }
+.mw-bbc-scroll { max-height: 520px; overflow: auto; }
+.mw-bbc-preview { display: inline-block; margin-right: 12px; }
+.mw-bbc-details > summary { cursor: pointer; list-style: revert; }
