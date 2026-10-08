@@ -1150,12 +1150,32 @@ var MwDayViewMap = (function() {
         return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
 
-    function dvCompleteStop(card, stopId, withInvoice) {
+    function dvCompleteStop(card, stopId, withInvoice, extraVisits) {
         var btns = card.querySelectorAll('.mw-dv-btn-complete');
         btns.forEach(function(b) { b.disabled = true; b.style.opacity = '0.6'; });
 
+        // Before invoicing: offer other unbilled work at this address (MwUnbilledWork).
+        // Lookup failures (crew without billing access, offline) fall straight through.
+        if (withInvoice && extraVisits === undefined && window.MwUnbilledWork) {
+            var firstVisit = 0;
+            try { firstVisit = (JSON.parse(card.dataset.visits || '[]')[0] || {}).visit_id || 0; } catch (e) {}
+            if (firstVisit) {
+                MwUnbilledWork.fetch({ visit_id: firstVisit }).then(function (data) {
+                    if (!data || !(data.items || []).length) { dvCompleteStop(card, stopId, true, []); return; }
+                    MwUnbilledWork.prompt(data, { title: 'Complete & Invoice' }).then(function (sel) {
+                        if (sel === null) {
+                            btns.forEach(function(b) { b.disabled = false; b.style.opacity = ''; });
+                            return;
+                        }
+                        dvCompleteStop(card, stopId, true, sel);
+                    });
+                });
+                return;
+            }
+        }
+
         dvPost(
-            { action: 'complete_stop', stop_id: stopId, invoice: withInvoice ? 1 : 0 },
+            { action: 'complete_stop', stop_id: stopId, invoice: withInvoice ? 1 : 0, extra_visits: extraVisits || [] },
             function(data) {
                 if (data.already_completed && !data.invoice_id) {
                     setCardDoneState(card, null, null, false);

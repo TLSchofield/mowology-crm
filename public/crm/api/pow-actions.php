@@ -87,6 +87,14 @@ try {
         $withInvoice = !empty($input['invoice']);
         $notes       = trim($input['notes'] ?? '');
         $extrasMins  = max(0, (int)($input['extras_minutes'] ?? 0));
+        // "Also unbilled at this address" lines ticked on the schedule card (UnbilledWorkFinder).
+        // Only someone who may bill can add them; they are claimed in the invoice transaction below.
+        $extraVisits = [];
+        if ($withInvoice && !empty($input['extra_visits']) && is_array($input['extra_visits'])
+            && ($isAdmin || userHasPermission('billing.edit'))) {
+            require_once APP_ROOT . '/Modules/Invoices/Services/UnbilledWorkFinder.php';
+            $extraVisits = UnbilledWorkFinder::normaliseSelections($input['extra_visits']);
+        }
 
         if ($stopId < 1) {
             http_response_code(400);
@@ -398,6 +406,10 @@ try {
                 $invContractId = (int)($cidStmt->fetchColumn() ?: 0);
             }
 
+            // One transaction for the invoice, its lines, the visit links and any
+            // missed-work lines, so a conflict on an extra visit leaves no half invoice.
+            $db->beginTransaction();
+            try {
             $db->prepare("
                 INSERT INTO invoices
                     (invoice_number, contact_id, property_id, plan_id, contract_id,
@@ -447,6 +459,34 @@ try {
             ")->execute(array_merge([$invoiceId], $completedVisitIds));
 
             addAuditLog($db, $completedVisitIds[0], (int)$user['id'], 'invoice_created', ['invoice_id' => $invoiceId], $ip);
+
+            if ($extraVisits) {
+                $finder = new UnbilledWorkFinder($db);
+                $anchor = $finder->anchorForVisit((int)$completedVisitIds[0]);
+                $finder->claim($invoiceId, $extraVisits, (int)$user['id'], [
+                    'property_id'       => $anchor['property_id'] ?? $propertyId,
+                    'company_id'        => $anchor['company_id'] ?? null,
+                    'exclude_visit_ids' => $completedVisitIds,
+                    'can_mark_done'     => in_array(($user['role'] ?? ''), ['admin', 'manager'], true),
+                    'invoice_number'    => $invoiceNumber,
+                    'actor_name'        => (string)($user['full_name'] ?? $user['name'] ?? ''),
+                ]);
+                $finder->retotalInvoice($invoiceId);
+            }
+            $db->commit();
+            } catch (Throwable $invEx) {
+                if ($db->inTransaction()) $db->rollBack();
+                if ($invEx instanceof UnbilledWorkConflict) {
+                    echo json_encode([
+                        'success'   => false,
+                        'error'     => 'The stop is marked complete, but no invoice was created: ' . $invEx->getMessage(),
+                        'code'      => 'UNBILLED_CONFLICT',
+                        'retryable' => true,
+                    ]);
+                    exit;
+                }
+                throw $invEx;
+            }
         }
 
         echo json_encode([

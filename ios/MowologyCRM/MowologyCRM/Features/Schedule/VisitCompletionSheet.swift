@@ -55,11 +55,18 @@ struct VisitCompletionSheet: View {
             VStack(alignment: .leading, spacing: 20) {
                 extrasSection
                 noteSection
+                if visit.isPerVisitBillable && (!vm.unbilledItems.isEmpty || !vm.unbilledHints.isEmpty) {
+                    UnbilledWorkSection(vm: vm)
+                }
                 actionButtons
             }
             .padding(16)
         }
         .background(Color(.systemGroupedBackground))
+        .task {
+            // Missed work at the same address (e.g. a cut timed on another day, then skipped).
+            if visit.isPerVisitBillable { await vm.loadUnbilled(visitId: visit.visitId) }
+        }
     }
 
     private var extrasSection: some View {
@@ -152,7 +159,9 @@ struct VisitCompletionSheet: View {
                 Button {
                     complete(withInvoice: true)
                 } label: {
-                    Label("Complete & Invoice", systemImage: "paperplane.fill")
+                    Label(vm.tickedUnbilled.isEmpty ? "Complete & Invoice"
+                                                    : "Complete & Invoice (+\(vm.tickedUnbilled.count))",
+                          systemImage: "paperplane.fill")
                         .font(.subheadline.bold())
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)

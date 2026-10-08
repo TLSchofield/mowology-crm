@@ -5,6 +5,7 @@
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 require_once APP_ROOT . '/Modules/Invoices/Services/InvoiceLineItems.php';
+require_once APP_ROOT . '/Modules/Invoices/Services/UnbilledWorkFinder.php';
 
 requireLogin();
 $user = getCurrentUser();
@@ -389,6 +390,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $subtotal         = $parsedLines['subtotal'];
             $usePlanLineItems = false;
         }
+        // "Also unbilled at this address" lines the person ticked (MwUnbilledWork). Only visits
+        // that are both ticked AND still on a posted line are claimed — removing the line un-ticks it.
+        $unbilledClaims = [];
+        if ($manualLines !== null && !empty($_POST['unbilled_visit_ids'])) {
+            $ticked = array_map('intval', (array)$_POST['unbilled_visit_ids']);
+            foreach ($manualLines as $ml) {
+                if ($ml['visit_id'] && in_array((int)$ml['visit_id'], $ticked, true) && (int)$ml['visit_id'] !== $linkedVisitId) {
+                    $unbilledClaims[] = ['visit_id' => (int)$ml['visit_id'], 'amount' => (float)$ml['line_total']];
+                }
+            }
+        }
         // Read GST rate from business settings (falls back to 5% if not configured)
         $bsStmt = $db->query("SELECT gst_rate, gst_registration FROM business_settings LIMIT 1");
         $bs = $bsStmt ? $bsStmt->fetch(PDO::FETCH_ASSOC) : [];
@@ -718,11 +730,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 }
 
+                // Missed work ticked from the "Also unbilled at this address" list: the lines are
+                // already in (they were form rows); link + mark the visits here, in this transaction.
+                if ($unbilledClaims) {
+                    $finder = new UnbilledWorkFinder($db);
+                    $finder->claim((int)$invoiceId, $unbilledClaims, (int)$user['id'], [
+                        'property_id'       => $propertyId,
+                        'company_id'        => $companyId ?: null,
+                        'exclude_visit_ids' => $linkedVisitId ? [$linkedVisitId] : [],
+                        'insert_lines'      => false,
+                        'can_mark_done'     => in_array(($user['role'] ?? ''), ['admin', 'manager'], true),
+                        'invoice_number'    => $invoiceNumber,
+                        'actor_name'        => (string)($user['full_name'] ?? $user['name'] ?? ''),
+                    ]);
+                    $finder->retotalInvoice((int)$invoiceId);
+                }
+
                 $db->commit();
 
                 header("Location: view.php?id={$invoiceId}&created=1");
                 exit;
 
+            } catch (UnbilledWorkConflict $e) {
+                if ($db->inTransaction()) $db->rollBack();
+                $error = $e->getMessage();
             } catch (\Throwable $e) {
                 if ($db->inTransaction()) $db->rollBack();
                 error_log("Invoice creation error: " . $e->getMessage());
@@ -952,9 +983,12 @@ if ($apiKey) {
                         <?php
                         $initialLines = [];
                         // After a failed submit, show what was typed rather than the original prefill.
+                        $postedUnbilled = array_map('intval', (array)($_POST['unbilled_visit_ids'] ?? []));
                         foreach (($manualLines ?? []) as $ml) {
                             $initialLines[] = ['title' => (string)$ml['title'], 'description' => $ml['description'],
-                                               'quantity' => $ml['quantity'], 'unit_price' => $ml['unit_price']];
+                                               'quantity' => $ml['quantity'], 'unit_price' => $ml['unit_price'],
+                                               'visit_id' => $ml['visit_id'], 'service_date' => $ml['service_date'],
+                                               'unbilled' => $ml['visit_id'] && in_array((int)$ml['visit_id'], $postedUnbilled, true)];
                         }
                         foreach ($initialLines ? [] : ($prefill['plan_line_items'] ?? []) as $pli) {
                             $initialLines[] = [
@@ -996,6 +1030,9 @@ if ($apiKey) {
                                    value="<?php echo htmlspecialchars($prefill['scheduled_date'] ?? date('Y-m-d')); ?>">
                         </div>
 
+                        <!-- Other unbilled work at this property (UnbilledWorkFinder) — filled by MwUnbilledWork -->
+                        <div id="invUnbilledPanel" class="mw-unbilled mb-3" hidden></div>
+
                         <label class="form-label">Line Items *</label>
                         <table class="table table-sm table-bordered mb-0" style="font-size:.85rem;">
                             <thead class="table-light">
@@ -1030,6 +1067,7 @@ if ($apiKey) {
                             </div>
                         </div>
                         <script src="/crm/js/mw-service-picker.js?v=20261002a"></script>
+                        <script src="/crm/js/mw-unbilled-work.js?v=20261008a"></script>
                         <script>
                         window.MW_INV_LINES   = <?php echo json_encode($initialLines, JSON_HEX_TAG | JSON_HEX_AMP | JSON_INVALID_UTF8_SUBSTITUTE) ?: '[]'; ?>;
                         window.MW_INV_CATALOG = <?php echo json_encode(InvoiceLineItems::catalog($db), JSON_HEX_TAG | JSON_HEX_AMP | JSON_INVALID_UTF8_SUBSTITUTE) ?: '[]'; ?>;
@@ -1527,7 +1565,9 @@ function addInvoiceLine(data) {
     row.innerHTML =
         '<td><div class="text-muted mw-li-title-label" style="font-size:.75rem;"></div>' +
             '<input type="text" name="li_description[]" class="form-control form-control-sm mw-li-desc" placeholder="Describe the work">' +
-            '<input type="hidden" name="li_title[]" value=""></td>' +
+            '<input type="hidden" name="li_title[]" value="">' +
+            '<input type="hidden" name="li_visit_id[]" class="mw-li-visit" value="">' +
+            '<input type="hidden" name="li_service_date[]" class="mw-li-sdate" value=""></td>' +
         '<td><input type="number" step="0.01" min="0" name="li_quantity[]" class="form-control form-control-sm mw-li-qty" value="1"></td>' +
         '<td><input type="number" step="0.01" min="0" name="li_unit_price[]" class="form-control form-control-sm mw-li-unit" value="0.00"></td>' +
         '<td class="mw-li-total text-right font-weight-600 pr-2">$0.00</td>' +
@@ -1537,6 +1577,15 @@ function addInvoiceLine(data) {
     row.querySelector('.mw-li-desc').value = data.description || '';
     if (data.quantity != null) row.querySelector('.mw-li-qty').value = String(data.quantity);
     if (data.unit_price != null) row.querySelector('.mw-li-unit').value = (parseFloat(data.unit_price) || 0).toFixed(2);
+    if (data.visit_id) row.querySelector('.mw-li-visit').value = String(data.visit_id);
+    if (data.service_date) row.querySelector('.mw-li-sdate').value = data.service_date;
+    if (data.unbilled && data.visit_id) {
+        // Ticked from "Also unbilled at this address": the server claims this visit on save.
+        row.dataset.unbilledVisit = String(data.visit_id);
+        const u = document.createElement('input');
+        u.type = 'hidden'; u.name = 'unbilled_visit_ids[]'; u.value = String(data.visit_id);
+        row.querySelector('td').appendChild(u);
+    }
     row.querySelectorAll('.mw-li-qty, .mw-li-unit').forEach(function (inp) { inp.addEventListener('input', calculateTotals); });
     row.querySelector('.mw-li-remove').addEventListener('click', function () {
         row.remove();
@@ -1567,6 +1616,64 @@ if (invLinesBody) {
     }
 }
 calculateTotals();
+
+// ── Also unbilled at this address (MwUnbilledWork + /crm/api/unbilled-work.php) ──
+(function () {
+    const panel = document.getElementById('invUnbilledPanel');
+    if (!panel || !window.MwUnbilledWork || !invLinesBody) return;
+    const visitInput = document.querySelector('#invoiceForm input[name="visit_id"]');
+    let lastKey = null;
+
+    function rowFor(visitId) {
+        return invLinesBody.querySelector('.mw-li-row[data-unbilled-visit="' + visitId + '"]');
+    }
+    function onToggle(it, checked, amount) {
+        const existing = rowFor(it.visit_id);
+        if (checked) {
+            if (existing) {
+                if (it.needs_price) existing.querySelector('.mw-li-unit').value = (amount || 0).toFixed(2);
+                calculateTotals();
+                return;
+            }
+            // A fresh blank row is replaced rather than left empty above the added line.
+            const rows = invLinesBody.querySelectorAll('.mw-li-row');
+            if (rows.length === 1 && !rows[0].querySelector('.mw-li-desc').value && !(parseFloat(rows[0].querySelector('.mw-li-unit').value) > 0)) rows[0].remove();
+            addInvoiceLine({ title: it.plan_title, description: it.description, quantity: 1, unit_price: amount,
+                             visit_id: it.visit_id, service_date: it.service_date, unbilled: true });
+        } else if (existing) {
+            existing.remove();
+            if (!invLinesBody.querySelector('.mw-li-row')) addInvoiceLine();
+            calculateTotals();
+        }
+    }
+    function load() {
+        const pid = parseInt(propertyIdInput.value, 10) || 0;
+        const cid = parseInt(companyIdInput.value, 10) || 0;
+        const vid = visitInput ? (parseInt(visitInput.value, 10) || 0) : 0;
+        const key = pid + ':' + cid + ':' + vid;
+        if (key === lastKey) return;
+        const first = lastKey === null;
+        lastKey = key;
+        if (!first) {
+            // Lines already ticked for a previous property no longer apply.
+            invLinesBody.querySelectorAll('.mw-li-row[data-unbilled-visit]').forEach(function (r) { r.remove(); });
+            if (!invLinesBody.querySelector('.mw-li-row')) addInvoiceLine();
+            calculateTotals();
+        }
+        if (!pid && !vid) { panel.hidden = true; panel.innerHTML = ''; return; }
+        MwUnbilledWork.fetch(vid ? { visit_id: vid } : { property_id: pid, company_id: cid || '' }).then(function (data) {
+            if (key !== lastKey) return;
+            if (!data) { panel.hidden = true; return; }
+            // After a failed submit the ticked lines are already in the table: show them ticked.
+            const hadRows = !!invLinesBody.querySelector('.mw-li-row[data-unbilled-visit]');
+            (data.items || []).forEach(function (it) { it.preselect = rowFor(it.visit_id) ? true : (hadRows ? false : !!it.preselect); });
+            MwUnbilledWork.render(panel, data, { onToggle: onToggle });
+        });
+    }
+    // The customer typeahead / property picker set these hidden inputs from several places; watch them.
+    setInterval(load, 800);
+    load();
+})();
 
 // ── HTML escape helper ──
 function escHtml(str) {

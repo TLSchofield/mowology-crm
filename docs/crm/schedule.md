@@ -177,6 +177,16 @@ goes to (`?mode=recipients`). Plan and the owner's decisions:
   quote. No reply after 7 days = one "No reply yet" line. Asks are not yes/no
   parsed; Tim reads the reply.
 
+## Complete & Invoice → "Also unbilled at this address" (added 2026-10-08, migration 1290)
+
+Before the day view's **Complete & Invoice** posts `complete_stop`, `schedule-day-map.js`
+asks `/crm/api/unbilled-work.php?mode=list&visit_id=…` for other unbilled work at the stop's
+property (UnbilledWorkFinder) and, if there is any, shows the `MwUnbilledWork` dialog. Ticked
+visits go as `extra_visits` and are claimed inside the invoice transaction in `pow-actions.php`;
+a "possibly done" visit (skipped/scheduled but timed that day) is marked completed on the real
+day — its `scheduled_date` and calendar stop move there, quietly. Full rules:
+`docs/crm/unbilled-work.md`.
+
 ## Safety net
 
 `tests/Unit/Jobs/PlanFunctionsLoadTest.php` is a characterization test asserting

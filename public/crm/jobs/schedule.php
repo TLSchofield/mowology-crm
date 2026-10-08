@@ -4021,6 +4021,7 @@ if ($__srOn): ?>
 <script>
 var MW_DAY_VIEW_STOPS = <?php echo json_encode($dayViewMapStops); ?>;
 </script>
+<script src="<?= _av('/crm/js/mw-unbilled-work.js') ?>" defer></script>
 <script src="<?= _av('/crm/js/schedule-day-map.js') ?>" defer></script>
 <script src="../js/schedule-team-layer.js?v=20260418b" defer></script>
 <?php endif; ?>
