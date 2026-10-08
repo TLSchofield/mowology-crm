@@ -185,6 +185,9 @@ require_once __DIR__ . '/../app/Modules/Accounting/Services/BankAccountSplitServ
 // Bank balance check + each invoice payment its own journal entry (migration 1236)
 require_once __DIR__ . '/../app/Modules/Accounting/Services/InvoicePaymentPlanner.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/BankBalanceCheckService.php';
+// Wave payroll import + shareholder account (migration 1255)
+require_once __DIR__ . '/../app/Modules/Accounting/Services/WavePayrollImportService.php';
+require_once __DIR__ . '/../app/Modules/Accounting/Services/ShareholderAccountService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/DuplicateReceiptService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseApprovalService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseService.php';

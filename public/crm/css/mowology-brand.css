@@ -37622,7 +37622,7 @@ span.mw-icon-box--missing {
 }
 .mw-fd-dir-first .mw-fd-dir-num { background: #c0392b; color: #fff; }
 .mw-fd-dir-lever .mw-fd-dir-num { background: var(--mw-green); color: #fff; }
-.mw-fd-dir-risk  .mw-fd-dir-num { background: var(--mw-orange); color: #fff; }
+.mw-fd-dir-risk  .mw-fd-dir-num { background: var(--mw-orange); color: var(--mw-ink-0); }
 .mw-fd-dir-cash  .mw-fd-dir-num { background: var(--mw-forest); color: #fff; }
 .mw-fd-dir-done  .mw-fd-dir-num { background: var(--mw-lime); color: var(--mw-forest); }
 .mw-fd-dir-top { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem; }
@@ -38858,3 +38858,18 @@ body.mw-rc-zoom-open { overflow: hidden; }
 .mw-bbc-scroll { max-height: 520px; overflow: auto; }
 .mw-bbc-preview { display: inline-block; margin-right: 12px; }
 .mw-bbc-details > summary { cursor: pointer; list-style: revert; }
+
+/* ══ Payroll import + shareholder account (/crm/accounting/payroll-import.php, migration 1255) ═══ */
+.mw-pi-file { max-width: 340px; }
+.mw-pi-details > summary { cursor: pointer; list-style: revert; }
+.mw-pi-table td, .mw-pi-table th { vertical-align: top; }
+.mw-pi-num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.mw-pi-ok { color: var(--mw-green); }
+.mw-pi-off { color: var(--mw-orange); font-weight: 600; }
+.mw-pi-strong td { font-weight: 700; background: var(--mw-light); }
+.mw-pi-scroll { max-height: 420px; overflow: auto; }
+.mw-pi-desc { overflow-wrap: anywhere; min-width: 160px; }
+.mw-pi-badge { display: inline-block; font-size: .7rem; font-weight: 700; padding: 1px 7px; border-radius: 10px; background: var(--mw-light); color: var(--mw-forest); }
+.mw-pi-badge.is-off { background: var(--mw-orange); color: var(--mw-ink-0); }
+.mw-pi-goal { border-left: 4px solid var(--mw-green); background: var(--mw-light); padding: 8px 12px; border-radius: 6px; font-size: .85rem; color: var(--mw-forest); }
+.mw-pi-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }

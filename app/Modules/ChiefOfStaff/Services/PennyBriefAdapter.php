@@ -47,6 +47,22 @@ class PennyBriefAdapter
         } catch (Throwable $e) {
             error_log('Penny brief (statements): ' . $e->getMessage());
         }
+        // Last month's Wave payroll report not imported (from the 5th); the shareholder balance
+        // in Nov–Dec (migration 1255). Read only.
+        try {
+            $wp = APP_ROOT . '/Modules/Accounting/Services/WavePayrollImportService.php';
+            if (is_file($wp)) {
+                require_once $wp;
+                require_once APP_ROOT . '/Modules/Accounting/Services/ShareholderAccountService.php';
+                $pay = new WavePayrollImportService($this->db);
+                if ($pay->ready()) {
+                    $brief = self::withItems($brief, array_merge($pay->brief(date('Y-m-d')),
+                                                                 (new ShareholderAccountService($this->db))->brief(date('Y-m-d'))));
+                }
+            }
+        } catch (Throwable $e) {
+            error_log('Penny brief (payroll): ' . $e->getMessage());
+        }
         // Product proposals from label photos and receipts — priority 3 (migration 1225).
         try {
             $pp = APP_ROOT . '/Modules/Products/Services/ProductProposalService.php';
