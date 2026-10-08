@@ -106,6 +106,8 @@ $__sm = fn(float $v) => SalesDeskService::money($v);
       </div>
     </div>
 
+    <?php include __DIR__ . '/sam-mulch-fact.php'; /* mulch price per yard (MulchPricingService) — renders nothing on failure */ ?>
+
     <div class="mw-pq" id="mw-sq" hidden></div>
 
     <div class="mw-rc mw-sam-rc" id="mw-sam-rc" aria-live="polite" data-name="<?= h($__sname) ?>">

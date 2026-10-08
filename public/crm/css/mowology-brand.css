@@ -38873,3 +38873,20 @@ body.mw-rc-zoom-open { overflow: hidden; }
   .mw-jbi-act { white-space: normal; }
   .mw-jbi-act .form-control { width: 100%; margin: 4px 0; }
 }
+
+/* ─── Sam's mulch price per yard (sam-mulch-hint.js) — quote builder hint + Sam's card ─── */
+.mw-mulch-hint { margin: 2px 0 8px 28px; padding: 8px 12px; border-left: 3px solid var(--mw-green); background: var(--mw-light); border-radius: 0 8px 8px 0; font-size: .8rem; color: var(--mw-ink-900); }
+.mw-mulch-hint-main b { color: var(--mw-forest); }
+.mw-mulch-hint-parts { color: var(--mw-ink-500); }
+.mw-mulch-hint-sub { color: var(--mw-ink-500); margin-top: 2px; }
+.mw-mulch-hint-est { color: var(--mw-orange); margin-top: 2px; }
+.mw-mulch-hint-use { margin-top: 6px; }
+.mw-sam-mulch { margin-top: 14px; border: 1px solid var(--mw-ink-200); border-radius: 12px; padding: 10px 12px; font-size: .82rem; color: var(--mw-ink-900); }
+.mw-sam-mulch-k { font-weight: 700; color: var(--mw-forest); margin-right: 4px; }
+.mw-sam-mulch-ask { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }
+.mw-sam-mulch-ask label { margin: 0; color: var(--mw-ink-500); }
+.mw-sam-mulch-ask input { flex: 1 1 180px; min-width: 0; padding: 5px 8px; border: 1px solid var(--mw-ink-200); border-radius: 6px; font-size: .82rem; }
+.mw-sam-mulch-out .mw-mulch-hint { margin: 8px 0 0; }
+@media (max-width: 575.98px) {
+  .mw-mulch-hint { margin-left: 0; }
+}

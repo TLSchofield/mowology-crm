@@ -2356,4 +2356,7 @@ document.addEventListener('keydown', (e) => {
 })();
 </script>
 
+<!-- Sam's mulch price per yard under mulch / soil / compost lines (read-only hint; "Use" sets the line price) -->
+<script src="<?php echo function_exists('_av') ? _av('/crm/js/sam-mulch-hint.js') : '/crm/js/sam-mulch-hint.js'; ?>" defer></script>
+
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

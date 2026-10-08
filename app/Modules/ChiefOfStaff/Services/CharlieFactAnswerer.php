@@ -44,6 +44,7 @@ class CharlieFactAnswerer
         'schedule' => 'the schedule',
         'products' => "Penny's products",      // ProductFactAnswerer
         'equipment' => "Otto's equipment",     // ProductFactAnswerer
+        'sam'      => "Sam's mulch pricing",   // MulchPricingService
     ];
 
     /** Words that never name a place, vendor or person (function words, intents, periods). */
@@ -108,6 +109,10 @@ class CharlieFactAnswerer
         $q = self::norm($question);
         $tokens = self::tokens($q);
         if (!$tokens) return null;
+        // "What should I charge for mulch at <address / postcode>" (Sam's mulch pricing) — before
+        // product costs, which would otherwise answer "price of mulch" with the bare product cost.
+        $mp = $this->mulchPrice($question);
+        if ($mp !== null) return $mp;
         // Stock, product costs, last purchase, service due, the kit (Penny's products / Otto's equipment).
         $pf = $this->productFacts($question, $tokens);
         if ($pf !== null) return $pf;
@@ -177,6 +182,21 @@ class CharlieFactAnswerer
      * Products and equipment (ProductFactAnswerer, migration 1225 data): null when unsure, and
      * never for a product-ish question that names a known place ("what does a dump run cost").
      */
+    /** Sam's installed price per yard for mulch / soil / compost at an address (MulchPricingService). */
+    private function mulchPrice(string $question): ?array
+    {
+        $f = dirname(__DIR__, 2) . '/Sales/Services/MulchPricingService.php';
+        if (!is_file($f)) return null;
+        require_once $f;
+        if (MulchPricingService::intent($question) === null) return null;
+        try {
+            return (new MulchPricingService($this->db))->answer($question);
+        } catch (Throwable $e) {
+            error_log('Charlie mulch price: ' . $e->getMessage());
+            return null;
+        }
+    }
+
     private function productFacts(string $question, array $tokens): ?array
     {
         $f = dirname(__DIR__, 2) . '/Products/Services/ProductFactAnswerer.php';
