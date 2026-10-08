@@ -38782,3 +38782,74 @@ body.mw-rc-zoom-open { overflow: hidden; }
 .mw-sc-gaps li.is-info { color: var(--mw-ink-700); list-style: circle; }
 .mw-sc-acct + .mw-sc-acct { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--mw-ink-100); }
 .mw-sc-acct h6 { font-size: .82rem; margin-bottom: 6px; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   Social Accounts — connected-account rows + Facebook page picker
+   (/crm/marketing/social-accounts.php, 2026-10-07)
+
+   The connected-account rows reuse the setup wizard's .mw-sw-plat-row. The
+   text column used to be `flex:1; min-width:0` beside an actions box that held
+   the health message at flex-basis:100% — the actions box claimed the whole
+   width and the name column collapsed to one letter per line. Now the text
+   column has a real basis, the row wraps, and the health message lives under
+   the name.
+   ══════════════════════════════════════════════════════════════════════ */
+:root {
+  --mw-instagram-from: #f09433;
+  --mw-instagram-to:   #cc2366;
+}
+.mw-sw-plat-row.mw-soc-acct-row {
+  cursor: default;
+  flex-wrap: wrap;
+  align-items: center;
+  row-gap: var(--mw-space-2);
+}
+.mw-sw-plat-row.mw-soc-acct-row:hover {
+  border-color: var(--mw-ink-200);
+  background: transparent;
+}
+.mw-soc-acct-main {
+  flex: 1 1 16rem;
+  min-width: 12rem;
+  overflow-wrap: anywhere;
+}
+.mw-soc-acct-health {
+  margin-top: var(--mw-space-1);
+  font-size: .78rem;
+  color: var(--mw-color-danger);
+}
+.mw-soc-acct-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex: 0 1 auto;
+  max-width: 100%;
+  margin-left: auto;
+}
+.mw-soc-acct-actions .badge { font-size: .7rem; }
+@media (max-width: 575.98px) {
+  .mw-soc-acct-main { min-width: 0; flex-basis: calc(100% - 38px - .85rem); }
+  .mw-soc-acct-actions { justify-content: flex-start; margin-left: calc(38px + .85rem); }
+}
+
+/* Facebook page picker — the whole row is the click/keyboard target */
+.mw-soc-page-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--mw-space-3);
+  cursor: pointer;
+}
+.mw-soc-page-row:focus-visible {
+  outline: 2px solid var(--mw-green);
+  outline-offset: -2px;
+}
+.mw-soc-page-row-name { min-width: 0; overflow-wrap: anywhere; }
+.mw-soc-page-row > svg { flex-shrink: 0; }
+.mw-soc-ig-badge {
+  margin-left: var(--mw-space-2);
+  background: linear-gradient(45deg, var(--mw-instagram-from), var(--mw-instagram-to));
+  color: var(--mw-ink-0);
+}
