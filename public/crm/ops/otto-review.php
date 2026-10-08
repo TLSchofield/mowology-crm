@@ -72,7 +72,8 @@ $hm = fn($t) => date('g:i', (int)$t);
       <h1 class="h3 mb-1"><?= h($pageTitle) ?></h1>
       <p class="text-muted mb-0">
         <?php if ($view === 'unscheduled'): ?>
-          Where the truck stopped (or the crew's phones stayed) at a client property with nothing on the schedule. A truck stop of
+          Where the truck stopped (or the crew's phones stayed) at a client property with nothing on the schedule — or far longer than the
+          scheduled visit (<?= (int)UnscheduledWorkRules::EXTRA_MIN ?> min more and at least <?= (int)UnscheduledWorkRules::EXTRA_X ?>× its planned length). A truck stop of
           <?= (int)UnscheduledWorkRules::MIN_TRUCK_MIN ?> min or more is enough; phones and clock punches back it up. Dumps, suppliers, the office and crew homes never count.
         <?php else: ?>
           What each recurring lawn plan really takes, from the job timers (last <?= (int)VisitDurationRules::SAMPLES ?> timed visits), against the length on the plan.
@@ -98,14 +99,16 @@ $hm = fn($t) => date('g:i', (int)$t);
     <?php endif; ?>
 
     <?php foreach ($flagged as $c): $street = UnscheduledWorkService::street($c['address']); ?>
-      <div class="card mw-or-case" data-key="<?= h('otto:unsched:' . $c['property_id'] . ':' . $c['date']) ?>">
+      <?php $isExtra = ($c['kind'] ?? '') === 'extra'; ?>
+      <div class="card mw-or-case" data-key="<?= h('otto:' . ($isExtra ? 'extra' : 'unsched') . ':' . $c['property_id'] . ':' . $c['date']) ?>">
         <div class="card-body">
           <div class="mw-or-case-hd">
             <div>
               <div class="mw-or-when"><?= h(date('D M j', strtotime($c['date']))) ?> · <?= h($hm($c['start']) . '–' . $hm($c['end'])) ?> · <?= h(UnscheduledWorkRules::hours($c['minutes'])) ?></div>
               <div class="mw-or-where"><a href="/crm/properties/view.php?id=<?= (int)$c['property_id'] ?>"><?= h($street) ?></a><?= $c['client'] !== '' ? ' · ' . h($c['client']) : '' ?></div>
             </div>
-            <span class="mw-or-conf is-<?= h($c['confidence']) ?>"><?= h(['truck+crew' => 'Truck + crew', 'truck' => 'Truck', 'crew' => 'Crew phones'][$c['basis']] ?? $c['basis']) ?> · <?= h($c['confidence']) ?></span>
+            <div><?php if ($isExtra): ?><span class="mw-or-conf is-extra">Beyond the scheduled visit · <?= h(UnscheduledWorkRules::hours((int)$c['extra_min'])) ?> extra</span><?php endif; ?>
+            <span class="mw-or-conf is-<?= h($c['confidence']) ?>"><?= h(['truck+crew' => 'Truck + crew', 'truck' => 'Truck', 'crew' => 'Crew phones'][$c['basis']] ?? $c['basis']) ?> · <?= h($c['confidence']) ?></span></div>
           </div>
           <ul class="mw-or-ev">
             <?php foreach ($c['truck_stops'] as $s): ?>
@@ -116,7 +119,11 @@ $hm = fn($t) => date('g:i', (int)$t);
               <li class="is-crew"><?= h(($p['name'] ?? '#' . $d['user_id']) . (!empty($p['truck']) ? ' (truck tablet)' : '')) ?> here <?= h($hm($d['from']) . '–' . $hm($d['to'])) ?>
                 — <?= h(implode(', ', array_map(fn($k, $n) => $n . ' ' . (['phone' => ['phone fix', 'phone fixes'], 'clock' => ['clock punch', 'clock punches'], 'timer' => ['timer start/stop', 'timer starts/stops']][$k] ?? [$k, $k])[$n === 1 ? 0 : 1], array_keys($d['sources']), $d['sources']))) ?></li>
             <?php endforeach; ?>
-            <?php foreach ($c['visits_near'] as $v): ?>
+            <?php foreach ($c['scheduled_visits'] as $v): ?>
+              <li class="is-sched">Scheduled: <?= $v['visit_id'] ? '<a href="/crm/jobs/visit-detail.php?id=' . (int)$v['visit_id'] . '">' . h($v['plan_number'] . ' ' . $v['service_type']) . '</a>' : h($v['status']) ?>
+                — <?= h($v['status']) ?>, plan <?= $v['planned_min'] !== null ? (int)$v['planned_min'] . ' min' : 'no length' ?>, timer <?= $v['timer_min'] !== null ? (int)$v['timer_min'] . ' min' : 'none' ?></li>
+            <?php endforeach; ?>
+            <?php foreach ($c['visits_near'] as $v): if ($c['scheduled_visits'] && $v['date'] === $c['date']) continue; ?>
               <li class="is-near">Visit <?= h($v['plan']) ?> <?= h($v['status']) ?> on <?= h(date('D M j', strtotime($v['date']))) ?></li>
             <?php endforeach; ?>
             <?php foreach ($c['invoices'] as $inv): ?>

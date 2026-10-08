@@ -24,7 +24,7 @@ require_once __DIR__ . '/OttoRules.php';
 
 class OpsDeskService
 {
-    public const KINDS = ['weather', 'clock_out', 'job_timer', 'no_time', 'silent', 'bylaw', 'west_end', 'truck_range', 'maintenance', 'pack_fading', 'training_gap', 'training_quality', 'training_topic', 'safety_refresher', 'unscheduled', 'duration'];
+    public const KINDS = ['weather', 'clock_out', 'job_timer', 'no_time', 'silent', 'bylaw', 'west_end', 'truck_range', 'maintenance', 'pack_fading', 'training_gap', 'training_quality', 'training_topic', 'safety_refresher', 'unscheduled', 'extra_work', 'duration'];
     /** Dispatcher kinds (phase 2): rule tables + equipment register. */
     public const DISPATCH_KINDS = ['bylaw', 'west_end', 'truck_range', 'maintenance', 'pack_fading'];
     /** Crew training kinds (quiz + certification watched by Otto). */
@@ -155,7 +155,7 @@ class OpsDeskService
             'dispatch' => array_sum(array_intersect_key($by, array_flip(self::DISPATCH_KINDS))),
             'training' => array_sum(array_intersect_key($by, array_flip(self::TRAINING_KINDS))),
             'silent'  => $silent,
-            'unscheduled' => $by['unscheduled'],
+            'unscheduled' => $by['unscheduled'] + $by['extra_work'],
             'durations' => $by['duration'],
             'coverage' => $this->coverage(),
             'right_first_time' => $this->rightFirstTime(),

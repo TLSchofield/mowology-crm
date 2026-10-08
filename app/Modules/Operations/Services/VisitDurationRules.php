@@ -34,6 +34,8 @@ class VisitDurationRules
     public const MIN_CHANGE_PCT   = 0.15;
     public const ROUND_TO         = 5;
     public const COVERAGE_DAYS    = 60;
+    /** After "Keep the plan", wait for this many more timed visits before asking again. */
+    public const KEEP_WAIT        = 3;
     /** Recurring plans whose service or title reads like lawn work. */
     public const LAWN_PATTERN     = '/lawn|mow|grass|turf/i';
 
@@ -176,6 +178,12 @@ class VisitDurationRules
         $d = array_count_values(array_column($s['dropped'], 'why'));
         foreach ($d as $k => $n) $parts[] = $n . ' dropped (' . ($why[$k] ?? $k) . ')';
         return implode(' · ', $parts);
+    }
+
+    /** Ask again after a "keep"? Only once KEEP_WAIT timed visits are dated after the kept one. */
+    public static function askAgain(array $timedDates, string $keptOn): bool
+    {
+        return count(array_filter($timedDates, fn($d) => (string)$d > $keptOn)) >= self::KEEP_WAIT;
     }
 
     public static function isLawn(string $serviceType, string $title = ''): bool

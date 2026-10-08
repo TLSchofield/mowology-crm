@@ -136,6 +136,7 @@ class VisitDurationService
                 'service_type' => (string)$p['service_type'], 'property_id' => (int)$p['property_id'], 'street' => $street,
                 'completed' => count($rows), 'timed' => count(array_filter($rows, fn($r) => $r['excluded'] !== 'untimed')),
                 'last_date' => $s['used'][0]['date'] ?? null,
+                'timed_dates' => array_values(array_map(fn($r) => $r['date'], array_filter($rows, fn($r) => $r['excluded'] !== 'untimed'))),
                 'line' => $s['median_crew'] !== null ? VisitDurationRules::line($street, $s) : $street . ': no timed visits yet.',
                 'detail' => VisitDurationRules::detail($s),
             ] + $s;
@@ -178,8 +179,11 @@ class VisitDurationService
     {
         if (!$this->ready()) return [];
         $out = [];
+        $kept = $this->keptOn();
         foreach ($this->review(false) as $r) {
             if ($r['proposed'] === null || $r['last_date'] === null) continue;
+            // "Keep the plan" → quiet until KEEP_WAIT more timed visits have come in (owner, 2026-10-07).
+            if (isset($kept[$r['plan_id']]) && !VisitDurationRules::askAgain($r['timed_dates'], $kept[$r['plan_id']])) continue;
             $out[] = [
                 'key' => 'otto:duration:' . $r['plan_id'], 'kind' => 'duration', 'subject_type' => 'plan', 'subject_id' => $r['plan_id'],
                 'for_date' => $r['last_date'], 'user_id' => null, 'priority' => 3,
@@ -190,6 +194,26 @@ class VisitDurationService
                     'median_person' => $r['median_person'], 'samples' => $r['samples'], 'confident' => $r['confident'], 'plan_id' => $r['plan_id']],
             ];
         }
+        return $out;
+    }
+
+    /** [plan_id => for_date of the latest "Keep the plan" answer]. */
+    protected function keptOn(): array
+    {
+        $out = [];
+        try {
+            $s = $this->db->prepare("
+                SELECT subject_id, for_date, outcome_json FROM otto_suggestions
+                WHERE kind = 'duration' AND subject_type = 'plan' AND status = 'dismissed'
+            ");
+            $s->execute();
+            foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                $o = json_decode((string)$r['outcome_json'], true) ?: [];
+                if (($o['choice'] ?? '') !== 'keep') continue;
+                $pid = (int)$r['subject_id'];
+                if (!isset($out[$pid]) || (string)$r['for_date'] > $out[$pid]) $out[$pid] = (string)$r['for_date'];
+            }
+        } catch (Throwable $e) { /* not migrated */ }
         return $out;
     }
 

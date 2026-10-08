@@ -94,6 +94,7 @@
                     '<button type="button" class="is-main" data-do="task">Add to the crew meeting</button>' +
                     '<button type="button" data-do="dismiss">Not now</button></div>';
             case 'unscheduled':
+            case 'extra_work':
                 return unscheduledControls(p);
             case 'duration':
                 return '<div class="mw-otto-btns">' +
@@ -110,12 +111,18 @@
 
     var ONE_OFF_SERVICES = ['Hedge Trimming', 'Cleanup', 'Garden Care', 'Lawn Cut', 'Pruning', 'Other'];
 
-    /** Crew at a property with nothing scheduled: times, which plan (or a one-off), then add / invoice / link / not work. */
+    /**
+     * Crew at a property with nothing scheduled (or far longer than the scheduled visit): times, which
+     * plan (or a one-off — the default for extra work), then add / invoice / link, or not work /
+     * "it was all the lawn cut".
+     */
     function unscheduledControls(p) {
         var plans = p.plans || [];
+        var extra = !!p.extra;
+        var oneoffFirst = extra || !plans.length;
         var opts = plans.map(function (pl) {
             return '<option value="' + pl.id + '">' + esc(pl.number + ' · ' + (pl.title || pl.service_type) + (pl.recurring ? ' (recurring)' : '')) + '</option>';
-        }).join('') + '<option value="oneoff"' + (plans.length ? '' : ' selected') + '>A one-off job</option>';
+        }).join('') + '<option value="oneoff"' + (oneoffFirst ? ' selected' : '') + '>A one-off job</option>';
         var svc = ONE_OFF_SERVICES.map(function (s) { return '<option>' + esc(s) + '</option>'; }).join('');
         var links = (p.invoices || []).map(function (inv) {
             return '<button type="button" data-do="link" data-invoice="' + inv.id + '">Already billed — ' + esc(inv.number) + '</button>';
@@ -124,13 +131,14 @@
             '<label class="mw-otto-field">From <input type="time" name="start" value="' + esc(p.start || '') + '"></label>' +
             '<label class="mw-otto-field">to <input type="time" name="end" value="' + esc(p.end || '') + '"></label>' +
             '<label class="mw-otto-field">On <select name="plan_id">' + opts + '</select></label>' +
-            '<span class="mw-otto-oneoff"' + (plans.length ? ' hidden' : '') + '>' +
+            '<span class="mw-otto-oneoff"' + (oneoffFirst ? '' : ' hidden') + '>' +
             '<label class="mw-otto-field"><select name="service_type">' + svc + '</select></label>' +
             '<label class="mw-otto-field"><input type="text" name="title" placeholder="What was done (e.g. yew hedge reduction)" maxlength="120"></label></span>' +
             '</div><div class="mw-otto-btns">' +
-            '<button type="button" class="is-main" data-do="add">Add the visit</button>' +
+            '<button type="button" class="is-main" data-do="add">' + (extra ? 'Add the extra work as a visit' : 'Add the visit') + '</button>' +
             '<button type="button" data-do="add_invoice">Add + create invoice</button>' + links +
-            '<button type="button" data-do="not_work">Not work</button></div>';
+            (extra ? '<button type="button" data-do="all_scheduled">It was all the ' + esc(p.scheduled_label || 'visit') + '</button>'
+                   : '<button type="button" data-do="not_work">Not work</button>') + '</div>';
     }
 
     function item(it) {

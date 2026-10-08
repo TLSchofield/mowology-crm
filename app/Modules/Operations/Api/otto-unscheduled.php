@@ -80,12 +80,16 @@ try {
         foreach ((array)($src['phone_fixes'] ?? []) as $uid => $n) $phones[$names[(int)$uid] ?? ('#' . $uid)] = $n;
         $cands = [];
         foreach ($day['candidates'] as $c) {
-            $label = date('D M j', strtotime($c['date'])) . ' — ' . ($c['flag'] ? 'FLAG ' : 'ignored (' . $c['ignored'] . ') ')
+            $label = date('D M j', strtotime($c['date'])) . ' — ' . ($c['flag'] ? ($c['kind'] === 'extra' ? 'FLAG EXTRA WORK ' : 'FLAG ') : 'ignored (' . $c['ignored'] . ') ')
                 . UnscheduledWorkService::street($c['address']) . ' ' . $c['window'] . ' (' . UnscheduledWorkRules::hours($c['minutes']) . ')'
-                . ' [' . $c['basis'] . ', ' . $c['confidence'] . '] — ' . $c['evidence'];
+                . ' [' . $c['basis'] . ', ' . $c['confidence'] . '] — ' . $c['evidence']
+                . ($c['scheduled_visits'] ? ' — scheduled: ' . implode('; ', array_map(fn($v) => 'visit ' . ($v['visit_id'] ?? '—') . ' ' . $v['plan_number']
+                    . ' ' . $v['service_type'] . ' (' . $v['status'] . ', plan ' . ($v['planned_min'] ?? '—') . ' min, timer ' . ($v['timer_min'] ?? '—') . ' min)', $c['scheduled_visits'])) : '');
             $summary[] = $label;
             $cands[] = [
-                'flag' => $c['flag'], 'ignored' => $c['ignored'],
+                'flag' => $c['flag'], 'kind' => $c['kind'] === 'extra' ? 'extra_work' : 'unscheduled', 'ignored' => $c['ignored'],
+                'scheduled_visits' => $c['scheduled_visits'],
+                'planned_min' => $c['planned_min'], 'planned_basis' => $c['planned_basis'], 'extra_min' => $c['extra_min'],
                 'property_id' => $c['property_id'], 'address' => $c['address'], 'client' => $c['client'],
                 'window' => $c['window'], 'minutes' => $c['minutes'], 'truck_min' => $c['truck_min'], 'crew_min' => $c['crew_min'],
                 'basis' => $c['basis'], 'confidence' => $c['confidence'],
@@ -122,7 +126,9 @@ try {
             'crew_only_flags_min' => UnscheduledWorkRules::MIN_CREW_MIN, 'crew_only_min_fixes' => UnscheduledWorkRules::MIN_CREW_FIXES,
             'property_radius_m' => UnscheduledWorkRules::RADIUS_M, 'or_inside_job_geofence' => true,
             'excluded' => 'ops_places (dump, supplier, yard, fuel), the office (ops_settings), crew homes (users.home_lat/lng)',
-            'scheduled_means' => 'a visit scheduled/in progress/completed that day, completed that day, or a calendar stop not skipped',
+            'scheduled_means' => 'a visit scheduled/in progress/completed that day (skipped and cancelled do not count), completed that day, or a calendar stop with no visits',
+            'extra_work_when' => 'scheduled, but the stay is >= ' . UnscheduledWorkRules::EXTRA_MIN . ' min longer than the plan length of that day\'s visit(s) and >= '
+                . UnscheduledWorkRules::EXTRA_X . 'x it (timer minutes stand in only when no plan length is set)',
         ],
         'summary' => $summary,
         'days' => $days,

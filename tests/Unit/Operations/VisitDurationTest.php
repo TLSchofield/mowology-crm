@@ -96,6 +96,14 @@ class VisitDurationTest extends TestCase
         $this->assertSame([20, 'few', false], [$three['proposed'], $three['reason'], $three['confident']]);
     }
 
+    public function test_after_keep_the_plan_otto_waits_for_three_more_timed_visits(): void
+    {
+        $dates = ['2026-10-06', '2026-09-29', '2026-09-22', '2026-09-15'];
+        $this->assertFalse(VisitDurationRules::askAgain($dates, '2026-09-22'), 'two since');
+        $this->assertTrue(VisitDurationRules::askAgain($dates, '2026-09-15'), 'three since');
+        $this->assertFalse(VisitDurationRules::askAgain([], '2026-09-15'));
+    }
+
     public function test_helpers(): void
     {
         $this->assertSame(40 * 60, VisitDurationRules::unionSeconds([[0, 1800], [300, 2400]]));
@@ -196,6 +204,12 @@ class VisitDurationTest extends TestCase
         $items = $svc->items();
         $this->assertSame(['otto:duration:82', 'otto:duration:90'], array_column($items, 'key'));
         $this->assertStringEndsWith('(times vary a lot)', $items[1]['text']);
+
+        // Owner said "keep 60" on 88 Birch when its last timed visit was Aug 18: only 2 timed since → quiet.
+        $db->exec("INSERT INTO otto_suggestions VALUES (6, 'duration', 'plan', 90, '2026-08-18', 'dismissed', '{\"choice\":\"keep\"}', 1, '2026-08-19')");
+        $this->assertSame(['otto:duration:82'], array_column($svc->items(), 'key'));
+        $db->exec("UPDATE otto_suggestions SET for_date = '2026-08-11' WHERE id = 6");
+        $this->assertSame(['otto:duration:82', 'otto:duration:90'], array_column($svc->items(), 'key'), 'three timed since → asks again');
 
         $r = $svc->applyAllConfident(1);
         $this->assertSame([82], array_column($r['applied'], 'plan_id'));

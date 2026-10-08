@@ -259,26 +259,83 @@ class UnscheduledWorkService
     // What was scheduled
     // ─────────────────────────────────────────────────────────────────────────
 
-    /** [property_id => true] — a visit scheduled, started or completed that day, or a live calendar stop. */
+    /**
+     * [property_id => list of that day's visits] — a visit scheduled, started or completed that day
+     * (or completed that day). A SKIPPED or cancelled visit doesn't count (owner, 2026-10-07). A live
+     * calendar stop with no visits on it at all counts too (one empty row). Each row says what made
+     * the property "scheduled": {visit_id, visit_number, plan_id, plan_number, service_type, status,
+     * planned_min (plan length = on-site crew time), timer_min (on-site minutes from its timers)}.
+     */
     public function scheduledIds(string $date): array
     {
-        $ids = [];
+        $out = [];
         try {
             $s = $this->db->prepare("
-                SELECT DISTINCT jp.property_id
+                SELECT v.id, v.visit_number, v.status, jp.id AS plan_id, jp.plan_number, jp.service_type, jp.title,
+                       jp.estimated_duration_minutes, jp.property_id
                 FROM job_visits v JOIN job_plans jp ON jp.id = v.plan_id
                 WHERE (v.scheduled_date = ? AND v.status IN ('scheduled', 'in_progress', 'completed'))
                    OR (v.completed_at >= ? AND v.completed_at <= ? AND v.status = 'completed')
             ");
             $s->execute([$date, $date . ' 00:00:00', $date . ' 23:59:59']);
-            foreach ($s->fetchAll(PDO::FETCH_COLUMN) as $id) $ids[(int)$id] = true;
-            $s = $this->db->prepare("SELECT DISTINCT property_id FROM calendar_stops WHERE stop_date = ? AND status <> 'skipped'");
+            $rows = $s->fetchAll(PDO::FETCH_ASSOC);
+            $timers = $this->timerMinutes(array_map(fn($r) => (int)$r['id'], $rows));
+            foreach ($rows as $r) {
+                $out[(int)$r['property_id']][(int)$r['id']] = [
+                    'visit_id' => (int)$r['id'], 'visit_number' => (string)($r['visit_number'] ?? ''), 'status' => (string)$r['status'],
+                    'plan_id' => (int)$r['plan_id'], 'plan_number' => (string)($r['plan_number'] ?? ''),
+                    'service_type' => (string)(($r['service_type'] ?? '') ?: ($r['title'] ?? '')),
+                    'planned_min' => $r['estimated_duration_minutes'] !== null ? (int)$r['estimated_duration_minutes'] : null,
+                    'timer_min' => $timers[(int)$r['id']] ?? null,
+                ];
+            }
+            foreach ($out as $pid => $v) $out[$pid] = array_values($v);
+            $s = $this->db->prepare("
+                SELECT cs.property_id FROM calendar_stops cs
+                WHERE cs.stop_date = ? AND cs.status <> 'skipped'
+                  AND NOT EXISTS (SELECT 1 FROM job_visits v WHERE v.stop_id = cs.id)
+            ");
             $s->execute([$date]);
-            foreach ($s->fetchAll(PDO::FETCH_COLUMN) as $id) $ids[(int)$id] = true;
+            foreach ($s->fetchAll(PDO::FETCH_COLUMN) as $pid) {
+                $out[(int)$pid] ??= [['visit_id' => null, 'visit_number' => '', 'status' => 'calendar stop, no visit', 'plan_id' => null,
+                    'plan_number' => '', 'service_type' => '', 'planned_min' => null, 'timer_min' => null]];
+            }
         } catch (Throwable $e) {
             error_log('Otto unscheduled visits: ' . $e->getMessage());
         }
-        return $ids;
+        return $out;
+    }
+
+    /** [visit_id => on-site minutes] from its job timers (union of everyone's; the truck login only if alone). */
+    private function timerMinutes(array $visitIds): array
+    {
+        if (!$visitIds) return [];
+        require_once __DIR__ . '/VisitDurationRules.php';
+        $by = [];
+        try {
+            $in = implode(',', array_fill(0, count($visitIds), '?'));
+            $s = $this->db->prepare("
+                SELECT jte.visit_id, jte.user_id, jte.start_time, jte.end_time, COALESCE(u.device_type, 'personal') AS device_type
+                FROM job_time_entries jte LEFT JOIN users u ON u.id = jte.user_id
+                WHERE jte.visit_id IN ({$in}) AND jte.status <> 'void'
+            ");
+            $s->execute($visitIds);
+            foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                $st = (int)strtotime((string)$r['start_time']);
+                $by[(int)$r['visit_id']][] = ['user_id' => (int)$r['user_id'], 'truck' => $r['device_type'] === 'truck', 'start' => $st,
+                    // A timer still running is counted to now, never past the end of its day.
+                    'end' => $r['end_time'] ? (int)strtotime((string)$r['end_time']) : min(time(), (int)strtotime(date('Y-m-d 23:59:59', $st))),
+                    'duration' => null, 'auto_stopped' => false, 'end_gps' => true];
+            }
+        } catch (Throwable $e) {
+            error_log('Otto unscheduled timers: ' . $e->getMessage());
+        }
+        $out = [];
+        foreach ($by as $vid => $entries) {
+            $m = VisitDurationRules::visitMinutes($entries);
+            if ($m['excluded'] !== 'untimed') $out[$vid] = $m['crew_min'];
+        }
+        return $out;
     }
 
     /** [property_id => true] — the owner said "not work" here twice. */
@@ -354,8 +411,11 @@ class UnscheduledWorkService
         $street = self::street((string)$c['address']);
         $crewId = null;
         foreach ($c['crew_people'] as $p) if (!$p['truck']) { $crewId = $p['id']; break; }
+        $extra = ($c['kind'] ?? '') === 'extra';
+        // Extra work: the scheduled visit is assumed to come first, so the extra visit starts after it.
+        $from = $extra ? min($c['end'], $c['start'] + (int)$c['planned_min'] * 60) : $c['start'];
         return [
-            'key' => 'otto:unsched:' . $c['property_id'] . ':' . $c['date'], 'kind' => 'unscheduled',
+            'key' => 'otto:' . ($extra ? 'extra' : 'unsched') . ':' . $c['property_id'] . ':' . $c['date'], 'kind' => $extra ? 'extra_work' : 'unscheduled',
             'subject_type' => 'property', 'subject_id' => (int)$c['property_id'], 'for_date' => $c['date'],
             'user_id' => $crewId, 'priority' => $c['confidence'] === 'low' ? 3 : 2,
             'text' => UnscheduledWorkRules::text($c, $street),
@@ -363,10 +423,14 @@ class UnscheduledWorkService
             'url' => '/crm/properties/view.php?id=' . (int)$c['property_id'],
             'value' => $c['minutes'], 'since' => $c['date'],
             'propose' => [
-                'date' => $c['date'], 'start' => date('H:i', $c['start']), 'end' => date('H:i', $c['end']), 'minutes' => $c['minutes'],
+                'date' => $c['date'], 'start' => date('H:i', $from), 'end' => date('H:i', $c['end']),
+                'minutes' => (int)round(($c['end'] - $from) / 60), 'stay_minutes' => $c['minutes'],
                 'crew_id' => $crewId, 'people' => count(array_filter($c['crew_people'], fn($p) => !$p['truck'])) ?: null,
                 'confidence' => $c['confidence'], 'basis' => $c['basis'],
                 'plans' => $c['plans'], 'invoices' => $c['invoices'], 'street' => $street,
+                'extra' => $extra, 'scheduled_visits' => $c['scheduled_visits'] ?? [],
+                'planned_min' => $c['planned_min'] ?? null, 'extra_min' => $c['extra_min'] ?? null,
+                'scheduled_label' => $extra ? (count($c['scheduled_visits']) === 1 ? (strtolower(trim((string)$c['scheduled_visits'][0]['service_type'])) ?: 'visit') : 'scheduled visits') : null,
             ],
         ];
     }
@@ -531,6 +595,10 @@ class UnscheduledWorkService
             return ['ok' => true, 'status' => 'dismissed', 'outcome' => ['choice' => 'not_work', 'times' => $n],
                 'message' => $n >= 2 ? "Got it. That's twice for this property — I'll stop flagging time there." : 'Got it. Not work.'];
         }
+        if ($choice === 'all_scheduled') {
+            return ['ok' => true, 'status' => 'dismissed', 'outcome' => ['choice' => 'all_scheduled', 'planned_min' => $p['planned_min'] ?? null, 'stay_min' => $p['stay_minutes'] ?? null],
+                'message' => 'Got it. It was all the ' . ($p['scheduled_label'] ?? 'visit') . '.'];
+        }
         if (!in_array($choice, ['add_visit', 'oneoff'], true)) return ['ok' => false, 'message' => 'Add the visit, or not work?'];
         $start = self::hm((string)($in['start'] ?? ($p['start'] ?? '')));
         $end = self::hm((string)($in['end'] ?? ($p['end'] ?? '')));
@@ -543,7 +611,8 @@ class UnscheduledWorkService
             $ok = false;
             foreach ($this->plans($pid) as $pl) if ($pl['id'] === $planId) $ok = true;
             if (!$ok) return ['ok' => false, 'message' => 'Pick one of the active plans on this property.'];
-            $r = addAdHocVisit($planId, $date, $crewId, $actorId);
+            // The plan already has a visit that day (the lawn cut) → a second visit, never the same one.
+            $r = $this->planHasVisitOn($planId, $date) ? $this->addExtraVisit($planId, $date, $crewId) : addAdHocVisit($planId, $date, $crewId, $actorId);
             if (empty($r['success'])) return ['ok' => false, 'message' => implode(' ', $r['errors'] ?? ['Could not add the visit.'])];
             $visitId = (int)$r['visit_id'];
         } else {
@@ -551,7 +620,8 @@ class UnscheduledWorkService
             $title = trim((string)($in['title'] ?? '')) ?: $service;
             $r = createJobPlan([
                 'property_id' => $pid, 'title' => mb_substr($title, 0, 200), 'service_type' => mb_substr($service, 0, 100),
-                'description' => 'Added from Otto: the crew was here on ' . date('D M j', strtotime($date)) . ' with nothing scheduled.',
+                'description' => 'Added from Otto: the crew was here on ' . date('D M j', strtotime($date))
+                    . (!empty($p['extra']) ? ' doing more than the scheduled ' . ($p['scheduled_label'] ?? 'visit') . '.' : ' with nothing scheduled.'),
                 'plan_start_date' => $date, 'default_crew_id' => $crewId, 'crew_ids' => [$crewId],
                 'pricing_model' => 'per_visit', 'is_recurring' => 0,
                 'estimated_duration_minutes' => self::minutes($start, $end),
@@ -604,7 +674,7 @@ class UnscheduledWorkService
         ");
         $s->execute([
             date('Y-m-d H:i:s'), $date . ' ' . $start . ':00', $date . ' ' . $end . ':00', $start . ':00', $end . ':00', $minutes, $people,
-            'Added from Otto after the fact: ' . ($basis === 'crew' ? 'crew GPS' : 'truck GPS' . ($basis === 'truck+crew' ? ' + crew GPS' : '')) . ' had the crew here with nothing scheduled.',
+            'Added from Otto after the fact: ' . ($basis === 'crew' ? 'crew GPS' : 'truck GPS' . ($basis === 'truck+crew' ? ' + crew GPS' : '')) . ' had the crew here (not on the schedule).',
             $visitId,
         ]);
         if ($s->rowCount() === 0) return false;
@@ -627,6 +697,43 @@ class UnscheduledWorkService
             error_log('Otto unscheduled capture: ' . $e->getMessage());
         }
         return true;
+    }
+
+    public function planHasVisitOn(int $planId, string $date): bool
+    {
+        $s = $this->db->prepare("SELECT COUNT(*) FROM job_visits WHERE plan_id = ? AND scheduled_date = ? AND status <> 'cancelled'");
+        $s->execute([$planId, $date]);
+        return (int)$s->fetchColumn() > 0;
+    }
+
+    /**
+     * A second visit on a plan that already has one that day — addAdHocVisit() would hand back the
+     * existing one. Same stop, crew and numbering as addAdHocVisit; the next sequence_index keeps it
+     * clear of uk_plan_date_seq.
+     */
+    public function addExtraVisit(int $planId, string $date, int $crewId): array
+    {
+        $s = $this->db->prepare("SELECT * FROM job_plans WHERE id = ?");
+        $s->execute([$planId]);
+        $plan = $s->fetch(PDO::FETCH_ASSOC);
+        if (!$plan || $plan['status'] !== 'active') return ['success' => false, 'errors' => ['This job is not active.']];
+        try {
+            $stopId = ensureCalendarStop((int)$plan['property_id'], $date, $crewId);
+            $q = $this->db->prepare("SELECT MAX(sequence_index) FROM job_visits WHERE plan_id = ?");
+            $q->execute([$planId]);
+            $seq = (int)$q->fetchColumn() + 1;
+            $number = generateVisitNumber((string)$plan['plan_number'], $seq);
+            $this->db->prepare("
+                INSERT INTO job_visits (visit_number, plan_id, stop_id, scheduled_date, sequence_index, assigned_crew_id, status)
+                VALUES (?, ?, ?, ?, ?, ?, 'scheduled')
+            ")->execute([$number, $planId, $stopId ?: null, $date, $seq, $crewId]);
+            $visitId = (int)$this->db->lastInsertId();
+            if ($stopId) $this->db->prepare("INSERT IGNORE INTO calendar_stop_crew (stop_id, user_id) VALUES (?, ?)")->execute([$stopId, $crewId]);
+            return ['success' => true, 'visit_id' => $visitId, 'visit_number' => $number];
+        } catch (Throwable $e) {
+            error_log('Otto extra visit: ' . $e->getMessage());
+            return ['success' => false, 'errors' => ['Could not add the extra visit.']];
+        }
     }
 
     private function learnNotWork(int $propertyId): int

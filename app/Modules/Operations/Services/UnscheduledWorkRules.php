@@ -19,9 +19,17 @@
  *
  * Never flagged: points inside a named place (ops_places: dump, supplier, yard, fuel), the
  * office (ops_settings office_latitude / office_longitude) or a crew member's home
- * (users.home_lat / home_lng / home_radius_meters). Never flagged: a property with a visit
- * that day — and a truck stop near several properties goes to the one that WAS scheduled
+ * (users.home_lat / home_lng / home_radius_meters).
+ *
+ * A property with a visit that day (scheduled, started or done — a SKIPPED visit doesn't count)
+ * is not "unscheduled"; a truck stop near several properties goes to the one that WAS scheduled
  * (a truck parks on the street; the pin is a guess).
+ *
+ * Extra work beyond the scheduled visit (2026-10-07: the Larch hedge job showed up as "scheduled"
+ * because Tim ran a timer on that day's 30-min lawn cut): when the stay is ≥ EXTRA_MIN longer than
+ * the planned length of that day's visit(s) AND ≥ EXTRA_X × it, it is flagged as kind 'extra'. The
+ * plan length is the reference; the visit timers only when no plan length is set (a timer left on
+ * the lawn cut all morning would otherwise hide the hedge work).
  *
  * No namespace / no autoloader in production: require_once and `new`.
  */
@@ -38,6 +46,10 @@ class UnscheduledWorkRules
     public const OFFICE_RADIUS_M = 150;
     public const HOME_RADIUS_M   = 150;
     public const LOOKBACK_DAYS   = 14;
+    /** Extra work beyond a scheduled visit: the stay beats the plan by this much… */
+    public const EXTRA_MIN       = 60;
+    /** …and is at least this many times the plan (or the timer, when the plan has no length). */
+    public const EXTRA_X         = 2.0;
 
     // ─────────────────────────────────────────────────────────────────────────
     // Geometry
@@ -196,7 +208,8 @@ class UnscheduledWorkRules
      * One row per property per day where the truck or the crew stayed, decided against the day's visits.
      * @param array $truck    truckDwells()
      * @param array $crew     [user_id => crewDwells()]
-     * @param array $scheduledIds [property_id => true] properties with a visit that day
+     * @param array $scheduledIds [property_id => list of that day's visits] (or => true): a visit row is
+     *                            {visit_id, plan_id, plan_number, service_type, status, planned_min, timer_min}
      * @param array $notWork  [property_id => true] the owner said time here isn't work (twice)
      * @return list<array> sorted flagged first, then longest
      */
@@ -238,12 +251,22 @@ class UnscheduledWorkRules
             $confidence = $hasTruck && $c['crew'] ? 'high'
                 : ($hasTruck ? 'medium' : ($hasCrew && (count($people) > 1 || isset($sources['clock']) || isset($sources['timer'])) ? 'medium' : 'low'));
             $ignored = null;
-            if (isset($scheduledIds[$pid])) $ignored = 'scheduled';
-            elseif (isset($notWork[$pid])) $ignored = 'not_work';
-            elseif (!$hasTruck && !$hasCrew) $ignored = 'too_short';
+            $kind = 'unscheduled';
+            $minutes = (int)round(($end - $start) / 60);
+            $visits = isset($scheduledIds[$pid]) && is_array($scheduledIds[$pid]) ? array_values($scheduledIds[$pid]) : [];
+            $ref = isset($scheduledIds[$pid]) ? self::reference($visits) : null;
+            if (isset($scheduledIds[$pid])) {
+                $kind = 'extra';
+                $ignored = ($ref !== null && self::isExtra($minutes, $ref['minutes'])) ? null : 'scheduled';
+            }
+            if ($ignored === null && isset($notWork[$pid])) $ignored = 'not_work';
+            if ($ignored === null && !$hasTruck && !$hasCrew) $ignored = 'too_short';
             $out[] = [
                 'property_id' => (int)$pid, 'date' => $date,
-                'start' => (int)$start, 'end' => (int)$end, 'minutes' => (int)round(($end - $start) / 60),
+                'kind' => $kind, 'start' => (int)$start, 'end' => (int)$end, 'minutes' => $minutes,
+                'scheduled_visits' => $visits,
+                'planned_min' => $ref['minutes'] ?? null, 'planned_basis' => $ref['basis'] ?? null,
+                'extra_min' => $ref !== null ? max(0, $minutes - $ref['minutes']) : null,
                 'truck_min' => (int)round($truckMin), 'crew_min' => (int)round($crewMin),
                 'people' => $people, 'fixes' => (int)$fixes, 'sources' => $sources,
                 'truck_stops' => array_map(fn($d) => ['from' => $d['start'], 'to' => $d['end'], 'minutes' => $d['minutes'], 'label' => $d['label']], $c['truck']),
@@ -258,6 +281,25 @@ class UnscheduledWorkRules
         return $out;
     }
 
+    /**
+     * What that day's visits were meant to take: the plan lengths added up, or (no plan length on any)
+     * the timers' on-site minutes. Null when neither is known.
+     * @return array{minutes: int, basis: string}|null
+     */
+    public static function reference(array $visits): ?array
+    {
+        $planned = array_filter(array_map(fn($v) => isset($v['planned_min']) ? (int)$v['planned_min'] : 0, $visits));
+        if ($planned) return ['minutes' => (int)array_sum($planned), 'basis' => 'plan'];
+        $timed = array_filter(array_map(fn($v) => isset($v['timer_min']) ? (int)$v['timer_min'] : 0, $visits));
+        if ($timed) return ['minutes' => (int)array_sum($timed), 'basis' => 'timer'];
+        return null;
+    }
+
+    public static function isExtra(int $stayMin, int $refMin): bool
+    {
+        return $refMin > 0 && $stayMin - $refMin >= self::EXTRA_MIN && $stayMin >= self::EXTRA_X * $refMin;
+    }
+
     /** [start, end] over dwells, or null. */
     private static function window(array $dwells): ?array
     {
@@ -269,9 +311,21 @@ class UnscheduledWorkRules
     // Words
     // ─────────────────────────────────────────────────────────────────────────
 
+    /** "Crew at 2448 Larch St, Mon 8:17–12:02 (3 h 45 min) — the lawn cut is planned at 30 min → 3 h 15 min extra." */
+    public static function extraText(array $c, string $street): string
+    {
+        $n = count($c['scheduled_visits']);
+        $what = $n > 1 ? 'the ' . $n . ' visits' : 'the ' . (strtolower(trim((string)($c['scheduled_visits'][0]['service_type'] ?? ''))) ?: 'visit');
+        $is = $n > 1 ? 'are' : 'is';
+        $ref = $c['planned_basis'] === 'timer' ? "{$what} {$is} timed at " : "{$what} {$is} planned at ";
+        return 'Crew at ' . $street . ', ' . date('D', $c['start']) . ' ' . date('g:i', $c['start']) . '–' . date('g:i', $c['end'])
+            . ' (' . self::hours($c['minutes']) . ') — ' . $ref . self::hours((int)$c['planned_min']) . ' → ' . self::hours((int)$c['extra_min']) . ' extra.';
+    }
+
     /** "Crew at 2448 Larch St, Mon 8:10–11:40 (3 h 30 min), nothing scheduled." */
     public static function text(array $c, string $street): string
     {
+        if (($c['kind'] ?? '') === 'extra') return self::extraText($c, $street);
         $who = $c['basis'] === 'crew' ? 'Crew phones at ' : ($c['basis'] === 'truck' ? 'Truck at ' : 'Crew at ');
         return $who . $street . ', ' . date('D', $c['start']) . ' ' . date('g:i', $c['start']) . '–' . date('g:i', $c['end'])
             . ' (' . self::hours($c['minutes']) . '), nothing scheduled.';

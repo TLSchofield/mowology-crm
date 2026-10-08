@@ -30,7 +30,7 @@ final class UnscheduledDayFixture
             'CREATE TABLE ops_settings (setting_key TEXT, setting_value TEXT)',
             'CREATE TABLE users (id INTEGER PRIMARY KEY, full_name TEXT, device_type TEXT, home_lat REAL, home_lng REAL, home_radius_meters INT)',
             'CREATE TABLE job_plans (id INTEGER PRIMARY KEY, property_id INT, plan_number TEXT, title TEXT, service_type TEXT, is_recurring INT, estimated_duration_minutes INT, status TEXT)',
-            'CREATE TABLE job_visits (id INTEGER PRIMARY KEY, plan_id INT, scheduled_date TEXT, status TEXT, completed_at TEXT)',
+            'CREATE TABLE job_visits (id INTEGER PRIMARY KEY, plan_id INT, scheduled_date TEXT, status TEXT, completed_at TEXT, visit_number TEXT, stop_id INT)',
             'CREATE TABLE calendar_stops (id INTEGER PRIMARY KEY, property_id INT, stop_date TEXT, status TEXT)',
             'CREATE TABLE otto_lessons (scope TEXT, scope_key TEXT, value_json TEXT, PRIMARY KEY (scope, scope_key))',
             'CREATE TABLE contacts (id INTEGER PRIMARY KEY, first_name TEXT, last_name TEXT)',
@@ -48,7 +48,7 @@ final class UnscheduledDayFixture
         $db->exec("INSERT INTO users VALUES (8, 'DODGE RAM', 'truck', NULL, NULL, NULL)");
         $db->exec("INSERT INTO job_plans VALUES (82, 441, 'PLN-2026-0068', 'Hedge care', 'Hedge Trimming', 0, 120, 'active')");
         $db->exec("INSERT INTO job_plans VALUES (90, 300, 'PLN-2026-0012', 'Weekly lawn', 'Lawn Maintenance', 1, 45, 'active')");
-        $db->exec("INSERT INTO job_visits VALUES (1, 90, '" . self::DATE . "', 'completed', '" . self::DATE . " 13:55:00')");
+        $db->exec("INSERT INTO job_visits (id, plan_id, scheduled_date, status, completed_at, visit_number) VALUES (1, 90, '" . self::DATE . "', 'completed', '" . self::DATE . " 13:55:00', 'PLN-2026-0012-V009')");
         $db->exec("INSERT INTO invoices VALUES (438, 441, 'INV-2026-0438', '2026-10-06', 540.75, 'sent')");
 
         // The truck: yard → Larch (3 h 30) → dump → Oak St (scheduled) → yard.

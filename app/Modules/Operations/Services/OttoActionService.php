@@ -71,7 +71,8 @@ class OttoActionService
             case 'training_topic':
             case 'safety_refresher':
                 return $this->training($sug, $propose, $choice, $actorId);
-            case 'unscheduled': return $this->unscheduled($sug, $in, $actorId);
+            case 'unscheduled':
+            case 'extra_work':  return $this->unscheduled($sug, $in, $actorId);
             case 'duration':    return $this->duration($sug, $propose, $choice, $in, $actorId);
         }
         return ['ok' => false, 'message' => 'Unknown suggestion.'];

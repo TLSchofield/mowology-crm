@@ -38917,3 +38917,5 @@ body.mw-rc-zoom-open { overflow: hidden; }
   .mw-or-btns { white-space: normal; }
   .mw-otto-btns input[name="title"] { width: 100%; }
 }
+.mw-or-conf.is-extra { background: var(--mw-color-warning-bg); color: var(--mw-orange); margin-right: 6px; }
+.mw-or-ev li.is-sched { border-left-color: var(--mw-dark); color: var(--mw-ink-700); }

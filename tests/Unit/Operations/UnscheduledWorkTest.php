@@ -90,7 +90,7 @@ class UnscheduledWorkTest extends TestCase
         $this->assertSame(438, $it['propose']['invoices'][0]['id']);
 
         // The visit gets added → nothing to say about that day any more.
-        $db->exec("INSERT INTO job_visits VALUES (2, 82, '" . self::D . "', 'completed', '" . self::D . " 11:40:00')");
+        $db->exec("INSERT INTO job_visits (id, plan_id, scheduled_date, status, completed_at) VALUES (2, 82, '" . self::D . "', 'completed', '" . self::D . " 11:40:00')");
         $this->assertSame([], array_values(array_filter($svc->items(true), fn($i) => $i['for_date'] === self::D)));
         ini_set('error_log', (string)$log);
     }
@@ -194,6 +194,67 @@ class UnscheduledWorkTest extends TestCase
         $this->assertCount(2, $d);
         $this->assertSame(['phone' => 21, 'clock' => 1], $d[0]['sources']);
         $this->assertSame(41.0, $d[0]['minutes']);
+    }
+
+    // ── Extra work beyond the scheduled visit (prod 2026-10-05: Tim timed the 30-min lawn cut) ──
+
+    private function larchWithLawnCut(string $status = 'completed', ?int $planned = 30): PDO
+    {
+        $db = UnscheduledDayFixture::pdo();
+        $db->exec("INSERT INTO job_plans VALUES (83, 441, 'PLN-2026-0070', 'Weekly lawn', 'Lawn Cut', 1, " . ($planned === null ? 'NULL' : $planned) . ", 'active')");
+        $db->exec("INSERT INTO job_visits (id, plan_id, scheduled_date, status, completed_at, visit_number) VALUES (5, 83, '" . self::D . "', '{$status}', NULL, 'PLN-2026-0070-V021')");
+        // Tim's timer ran on the lawn cut the whole morning.
+        $db->exec("INSERT INTO job_time_entries (user_id, visit_id, start_time, end_time, status) VALUES (7, 5, '" . self::D . " 08:20:00', '" . self::D . " 11:30:00', 'completed')");
+        return $db;
+    }
+
+    public function test_larch_with_a_timed_30_min_lawn_cut_is_flagged_as_extra_work(): void
+    {
+        $svc = new UnscheduledWorkService($this->larchWithLawnCut(), '2026-10-07');
+        $r = $svc->review(self::D, self::D, false);
+        $c = $r['days'][0]['candidates'][0];
+        $this->assertSame([441, true, 'extra', 30, 'plan', 180], [$c['property_id'], $c['flag'], $c['kind'], $c['planned_min'], $c['planned_basis'], $c['extra_min']]);
+        // Which visit made it "scheduled" — the dry run shows it.
+        $v = $c['scheduled_visits'][0];
+        $this->assertSame([5, 'PLN-2026-0070', 'Lawn Cut', 'completed', 30, 190], [$v['visit_id'], $v['plan_number'], $v['service_type'], $v['status'], $v['planned_min'], $v['timer_min']]);
+        $this->assertSame('Crew at 2448 Larch St, Mon 8:10–11:40 (3 h 30 min) — the lawn cut is planned at 30 min → 3 h extra.',
+            UnscheduledWorkRules::text($c, '2448 Larch St'));
+
+        $svc2 = new class($this->larchWithLawnCut(), '2026-10-07') extends UnscheduledWorkService {
+            public function cacheReady(): bool { return true; }
+        };
+        $log = ini_set('error_log', '/dev/null');
+        $items = array_values(array_filter($svc2->items(true), fn($i) => $i['for_date'] === self::D));
+        ini_set('error_log', (string)$log);
+        $this->assertSame(['otto:extra:441:' . self::D], array_column($items, 'key'));
+        $p = $items[0]['propose'];
+        $this->assertSame('extra_work', $items[0]['kind']);
+        $this->assertSame(['08:40', '11:40', 180, true, 'lawn cut'], [$p['start'], $p['end'], $p['minutes'], $p['extra'], $p['scheduled_label']], 'the extra visit starts after the planned lawn cut');
+        $this->assertSame('INV-2026-0438', $p['invoices'][0]['number']);
+    }
+
+    public function test_extra_work_needs_an_hour_more_and_twice_the_plan(): void
+    {
+        $this->assertTrue(UnscheduledWorkRules::isExtra(225, 30));
+        $this->assertFalse(UnscheduledWorkRules::isExtra(80, 45), 'Oak St: 35 min over');
+        $this->assertFalse(UnscheduledWorkRules::isExtra(200, 120), '80 min over but not 2x');
+        $this->assertTrue(UnscheduledWorkRules::isExtra(120, 60));
+        $this->assertFalse(UnscheduledWorkRules::isExtra(119, 60));
+        // Plan length first; the timer only when no plan length is set.
+        $this->assertSame(['minutes' => 75, 'basis' => 'plan'], UnscheduledWorkRules::reference([['planned_min' => 30, 'timer_min' => 190], ['planned_min' => 45, 'timer_min' => null]]));
+        $this->assertSame(['minutes' => 190, 'basis' => 'timer'], UnscheduledWorkRules::reference([['planned_min' => null, 'timer_min' => 190]]));
+        $this->assertNull(UnscheduledWorkRules::reference([['planned_min' => null, 'timer_min' => null]]));
+
+        // No plan length: the 190-min timer is the reference → 210 min is not extra.
+        $r = (new UnscheduledWorkService($this->larchWithLawnCut('completed', null), '2026-10-07'))->review(self::D, self::D, false);
+        $this->assertSame('scheduled', $r['days'][0]['candidates'][0]['ignored']);
+    }
+
+    public function test_a_skipped_visit_does_not_make_the_property_scheduled(): void
+    {
+        $r = (new UnscheduledWorkService($this->larchWithLawnCut('skipped'), '2026-10-07'))->review(self::D, self::D, false);
+        $c = $r['days'][0]['candidates'][0];
+        $this->assertSame([441, true, 'unscheduled', []], [$c['property_id'], $c['flag'], $c['kind'], $c['scheduled_visits']]);
     }
 
     public function test_small_helpers(): void
