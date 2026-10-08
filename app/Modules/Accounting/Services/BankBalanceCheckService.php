@@ -34,9 +34,17 @@
  * reversal is logged in bank_balance_fix_log (migration 1236) and a batch can be undone
  * (append-only: reversal entries, never deletes).
  *
+ * FY2026 (2026-10-07): FY2025 is filed and locked. The month table starts at January 2026 and
+ * whatever the books carried into 2026 is one cause, 'before_2026' (books at Dec 31 + the FY2026
+ * opening entry − the statement at Dec 31) — once the opening (Fy2026OpeningService) is booked it
+ * is ~0 for each account. Nothing dated before 2026 is proposed any more. Jobber-era deposits
+ * are booked on the Jobber import page (JobberLedgerService: against the Jobber invoices they
+ * paid, DR bank / CR receivable) — listed here for review only, never approved here.
+ *
  * No namespace / no autoloader in production: require_once and `new`.
  */
 require_once __DIR__ . '/LedgerService.php';
+require_once __DIR__ . '/Fy2026OpeningService.php';
 require_once __DIR__ . '/LedgerSyncService.php';
 require_once __DIR__ . '/InvoicePaymentPlanner.php';
 require_once __DIR__ . '/StatementCoverageService.php';
@@ -45,6 +53,8 @@ class BankBalanceCheckService
 {
     /** Jobber billed through March 2026 (Tim, 2026-10-07): deposits before this date may be Jobber's. */
     public const JOBBER_UNTIL = '2026-04-01';
+    /** FY2025 is filed and locked: drift starts here and nothing earlier is proposed. */
+    public const FY_START = '2026-01-01';
     /** First CRM invoice paid (IncomeCleanupService::CUTOVER). From here a deposit may be a CRM invoice's. */
     public const CUTOVER = '2026-02-25';
     public const CODES = ['1010', '1020', '1025', '2400'];
@@ -56,10 +66,11 @@ class BankBalanceCheckService
     /** A chequing twin of a savings line: same amount within this many days. */
     public const TWIN_DAYS = 5;
 
-    public const GROUPS = ['part_payments', 'jobber_deposits', 'opening'];
+    public const GROUPS = ['part_payments', 'opening'];
     public const CAUSES = [
         'part_payments'       => ['label' => 'Invoice payments missing from the journal', 'fix' => true],
-        'jobber_deposits'     => ['label' => 'Jobber-era deposits never in the journal', 'fix' => true],
+        'before_2026'         => ['label' => 'Carried in from before 2026 (closed by the FY2026 opening)', 'fix' => false],
+        'jobber_deposits'     => ['label' => 'Jobber-era deposits never in the journal (book them on the Jobber import page)', 'fix' => false],
         'opening'             => ['label' => 'Opening balance at the first statement', 'fix' => true],
         'savings_one_sided'   => ['label' => 'Savings transfers on one side only', 'fix' => false],
         'unposted_bank_lines' => ['label' => 'Bank lines the nightly sync hasn\'t posted', 'fix' => false],
@@ -108,21 +119,28 @@ class BankBalanceCheckService
         foreach ($groups as $g => $grp) $effects[$g] = $grp['effects'];
         foreach ($review as $c => $rv) $effects[$c] = $rv['effects'];
 
+        $openingNet = (new Fy2026OpeningService($this->db, $this->ledger))->openingNetByAccount();
+        $fyYm = substr(self::FY_START, 0, 7);
         $out = [];
         foreach ($accounts as $acct) {
             $aid = (int)$acct['id'];
             $st = $statements[$aid] ?? null;
             if (!$st || !$st['closing']) continue;
+            $closing = array_filter($st['closing'], fn($ym) => $ym >= $fyYm, ARRAY_FILTER_USE_KEY);
+            if (!$closing) continue;
             $books = $this->bookBalances($aid, $acct['kind']);
             $byCause = [];
             foreach ($effects as $c => $list) {
-                $mine = array_values(array_filter($list, fn($e) => (int)$e[0] === $aid));
+                $mine = array_values(array_filter($list, fn($e) => (int)$e[0] === $aid && (string)$e[1] >= self::FY_START));
                 if ($mine) $byCause[$c] = array_map(fn($e) => [$e[1], $e[2]], $mine);
             }
-            $months = self::driftTable($st['closing'], $books, $byCause, self::GROUPS);
+            $carried = self::carried($st, $this->bookBalanceBefore($aid, $acct['kind'], self::FY_START), $openingNet[$aid] ?? 0.0, $acct['kind']);
+            if ($carried !== null && abs($carried) >= self::CENT) $byCause['before_2026'] = [[self::FY_START, -$carried]];
+            $months = self::driftTable($closing, $books, $byCause, self::GROUPS);
             $out[] = [
                 'account_id' => $aid, 'code' => $acct['code'], 'name' => $acct['name'], 'kind' => $acct['kind'],
                 'first_date' => $st['first_date'], 'opening' => $st['opening'],
+                'carried' => $carried, 'opening_booked' => isset($openingNet[$aid]),
                 'months' => $months, 'latest' => $months ? $months[count($months) - 1] : null,
             ];
         }
@@ -149,6 +167,7 @@ class BankBalanceCheckService
             'ready' => $this->ready(),
             'generated_at' => date('Y-m-d H:i:s'),
             'jobber_until' => self::JOBBER_UNTIL,
+            'fy_start' => self::FY_START,
             'cutover' => self::CUTOVER,
             'causes' => self::CAUSES,
             'accounts' => $out,
@@ -215,6 +234,22 @@ class BankBalanceCheckService
             return $a;
         }, $it['actions'] ?? []);
         return $it;
+    }
+
+    /**
+     * What the books carried into 2026 that the statement doesn't: journal balance before 2026 plus
+     * the FY2026 opening entry's net on the account, less the statement at Dec 31 (book sign;
+     * card = owed). Null when the statement balance at Dec 31 is unknown, or the account's
+     * statements only start in 2026. Pure.
+     */
+    public static function carried(array $st, float $bookBefore, float $openingNetD, string $kind): ?float
+    {
+        // A statement that starts in 2026 opens through the 'opening' group instead.
+        if (!empty($st['first_date']) && (string)$st['first_date'] >= self::FY_START) return null;
+        $stmt = Fy2026OpeningService::balanceAt($st, '2025-12');
+        if ($stmt === null) return null;
+        $open = $kind === 'card' ? -$openingNetD : $openingNetD;
+        return round($bookBefore + $open - $stmt, 2);
     }
 
     /** Sum of [date, amount] pairs dated on/before $date. Pure. */
@@ -380,13 +415,17 @@ class BankBalanceCheckService
         $statements = $statements ?? $this->statements($accounts);
         return [
             'part_payments'   => $this->summarise($this->partPaymentItems()),
-            'jobber_deposits' => $this->summarise($this->jobberItems()['post']),
             'opening'         => $this->summarise($this->openingItems($accounts, $statements)),
         ];
     }
 
     private function summarise(array $items): array
     {
+        // FY2025 is filed: nothing dated before 2026 is proposed.
+        $items = array_values(array_filter($items, function ($it) {
+            foreach ($it['actions'] as $a) if ((string)$a['date'] < self::FY_START) return false;
+            return true;
+        }));
         $effects = [];
         $total = 0.0;
         $locked = 0;
@@ -484,12 +523,12 @@ class BankBalanceCheckService
             FROM accounting_transactions t
             JOIN chart_of_accounts c ON c.id = t.account_id
             WHERE t.reference_type = 'bank_import' AND t.type = 'income' AND c.type = 'revenue'
-              AND t.amount > 0.005 AND t.transaction_date < ?
+              AND t.amount > 0.005 AND t.transaction_date >= ? AND t.transaction_date < ?
               AND (t.status IS NULL OR t.status <> 'void')
               AND t.matched_invoice_id IS NULL AND t.matched_expense_id IS NULL
             ORDER BY t.transaction_date, t.id
         ");
-        $s->execute([self::JOBBER_UNTIL]);
+        $s->execute([self::FY_START, self::JOBBER_UNTIL]);
         $rows = $s->fetchAll(PDO::FETCH_ASSOC);
         if (!$rows) return ['post' => [], 'crm' => []];
 
@@ -567,6 +606,8 @@ class BankBalanceCheckService
         foreach ($accounts as $aid => $acct) {
             if (!in_array($acct['code'], self::BANK_CODES, true)) continue;
             $st = $statements[$aid] ?? null;
+            // An account whose statements start before 2026 opens from the FY2026 opening, not here.
+            if (!$st || (string)$st['first_date'] < self::FY_START) continue;
             if (!$st || $st['opening'] === null || !$st['first_date']) continue;
             $date = self::dayBefore($st['first_date']);
             $existing = $this->liveEntry('bank_opening', $aid);
@@ -611,6 +652,18 @@ class BankBalanceCheckService
             'unposted_bank_lines' => $this->unpostedBankLines($accounts),
             'orphan_bank_entries' => $this->orphanBankEntries($accounts),
             'statement_gaps'      => $this->statementGaps($accounts, $statements),
+            'jobber_deposits'     => (function () use ($jobber) {
+                $post = array_values(array_filter($jobber['post'], fn($it) => !$it['locked']));
+                $effects = [];
+                $items = [];
+                foreach ($post as $it) {
+                    foreach ($it['effects'] as $e) $effects[] = $e;
+                    $a = $it['actions'][0];
+                    $items[] = ['id' => (int)$a['source_id'], 'date' => $a['date'], 'amount' => (float)$a['amount'], 'description' => $it['label'],
+                                'reason' => 'Book it on the Jobber import page (against the Jobber invoice it paid)'];
+                }
+                return ['items' => $items, 'effects' => $effects, 'count' => count($items), 'total' => round(array_sum(array_column($items, 'amount')), 2)];
+            })(),
             'crm_deposits'        => ['items' => $jobber['crm'], 'effects' => [], 'count' => count($jobber['crm']),
                                       'total' => round(array_sum(array_column($jobber['crm'], 'amount')), 2)],
             'payment_review'      => ['items' => $this->paymentReviewItems(), 'effects' => [], 'count' => 0, 'total' => 0.0],
@@ -765,7 +818,6 @@ class BankBalanceCheckService
         $accounts = $this->trackedAccounts();
         $items = [
             'part_payments'   => fn() => $this->partPaymentItems(),
-            'jobber_deposits' => fn() => $this->jobberItems()['post'],
             'opening'         => fn() => $this->openingItems($accounts, $this->statements($accounts)),
         ][$group]();
         $grp = $this->summarise($items);

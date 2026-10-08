@@ -199,55 +199,50 @@ final class BankBalanceCheckServiceTest extends TestCase
 
     // ── DB: Jobber-era deposits ─────────────────────────────────────────────
 
-    public function testJobberDepositsPostOnceAndNeverDoubleCount(): void
+    public function testJobberDepositsAreReviewOnlyAndNothingBefore2026IsListed(): void
     {
         $db = self::db();
         $ledger = new LedgerService($db);
+        $db->exec("INSERT INTO accounting_periods (year, month, status) VALUES (2025, 5, 'locked')");
         $db->exec("INSERT INTO accounting_transactions (id, transaction_date, type, amount, description, account_id, reference_type, bank_account_id, matched_invoice_id) VALUES
-                   (10, '2025-05-10', 'income', 500, 'e-Transfer deposit SMITH', 5, 'bank_import', NULL, NULL),
-                   (11, '2025-06-10', 'income', 300, 'e-Transfer deposit JONES', 5, 'bank_import', NULL, NULL),
-                   (12, '2025-07-10', 'income', 200, 'Deposit booked by clean-up', 5, 'bank_import', NULL, NULL),
+                   (9,  '2025-05-10', 'income', 700, 'FY2025 deposit (filed, locked)', 5, 'bank_import', NULL, NULL),
+                   (10, '2026-01-10', 'income', 500, 'e-Transfer deposit SMITH', 5, 'bank_import', NULL, NULL),
+                   (11, '2026-01-20', 'income', 300, 'e-Transfer deposit JONES', 5, 'bank_import', NULL, NULL),
+                   (12, '2026-02-10', 'income', 200, 'Deposit booked by clean-up', 5, 'bank_import', NULL, NULL),
                    (13, '2026-03-05', 'income', 450, 'e-Transfer CRM client', 5, 'bank_import', NULL, NULL),
                    (14, '2026-05-05', 'income', 999, 'After Jobber', 5, 'bank_import', NULL, NULL),
-                   (15, '2025-08-01', 'transfer', 800, 'Linked to invoice', 5, 'bank_import', NULL, 4)");
-        $db->exec("INSERT INTO invoice_payment_allocations (id, invoice_id, transaction_id, amount, payment_date, created_at) VALUES (20, 99, 11, 300, '2025-06-10', '2025-06-10')");
+                   (15, '2026-02-01', 'transfer', 800, 'Linked to invoice', 5, 'bank_import', NULL, 4)");
+        $db->exec("INSERT INTO invoice_payment_allocations (id, invoice_id, transaction_id, amount, payment_date, created_at) VALUES (20, 99, 11, 300, '2026-01-20', '2026-01-20')");
         $db->exec("INSERT INTO income_cleanup_log (transaction_id, status) VALUES (12, 'booked')");
         $db->exec("INSERT INTO invoices (id, invoice_number, total, amount_paid, status, issue_date, created_at) VALUES (5, 'INV-2026-0005', 450, 0, 'sent', '2026-02-26', '2026-02-26')");
 
         $svc = new BankBalanceCheckService($db, $ledger);
         $j = $svc->jobberItems();
-        $this->assertSame(['tx:10'], array_column($j['post'], 'key'), 'allocated, cleaned-up, after-March and linked deposits are out');
+        $this->assertSame(['tx:10'], array_column($j['post'], 'key'), 'FY2025, allocated, cleaned-up, after-March and linked deposits are out');
         $this->assertSame(450.0, $j['crm'][0]['amount']);
         $this->assertSame('INV-2026-0005', $j['crm'][0]['invoice_number']);
 
-        $grp = $svc->fixGroups()['jobber_deposits'];
-        $res = $svc->approve('jobber_deposits', $grp['signature'], 1);
-        $this->assertTrue($res['ok'], $res['message']);
-        $this->assertSame(500.0, self::balance($db, 1));
-        $this->assertSame(500.0, self::balance($db, 5, true), 'revenue credited');
-
-        // The nightly bank sync must not post it again, and a second look finds nothing.
-        (new LedgerSyncService($db, $ledger))->syncBankImports();
-        $this->assertSame(500.0, self::balance($db, 1));
-        $svc->forget();
-        $this->assertSame(0, $svc->fixGroups()['jobber_deposits']['count']);
+        // No longer approvable here — booked on the Jobber import page against the Jobber invoices.
+        $this->assertArrayNotHasKey('jobber_deposits', $svc->fixGroups());
+        $this->assertFalse($svc->approve('jobber_deposits', 'x', 1)['ok']);
+        $review = $svc->reviewCauses($svc->trackedAccounts(), []);
+        $this->assertSame([10], array_column($review['jobber_deposits']['items'], 'id'));
+        $this->assertSame(0.0, self::balance($db, 1), 'nothing booked');
     }
 
-    public function testLockedMonthIsSkipped(): void
+    public function testNothingDatedBefore2026IsProposed(): void
     {
         $db = self::db();
-        $db->exec("INSERT INTO accounting_periods (year, month, status) VALUES (2025, 5, 'locked')");
-        $db->exec("INSERT INTO accounting_transactions (id, transaction_date, type, amount, description, account_id, reference_type) VALUES
-                   (10, '2025-05-10', 'income', 500, 'Locked month', 5, 'bank_import'),
-                   (11, '2025-06-10', 'income', 300, 'Open month', 5, 'bank_import')");
-        $svc = new BankBalanceCheckService($db, new LedgerService($db));
-        $grp = $svc->fixGroups()['jobber_deposits'];
-        $this->assertSame(1, $grp['count']);
-        $this->assertSame(1, $grp['locked']);
-        $res = $svc->approve('jobber_deposits', $grp['signature'], 1);
-        $this->assertSame(1, $res['booked']);
-        $this->assertSame(300.0, self::balance($db, 1));
-        $this->assertSame(0, (int)$db->query("SELECT COUNT(*) FROM journal_entries WHERE source_type = 'bank_deposit' AND source_id = 10")->fetchColumn());
+        $ledger = new LedgerService($db);
+        // A part payment recorded in FY2025 (filed): never proposed now.
+        $db->exec("INSERT INTO invoices (id, invoice_number, total, subtotal, tax_amount, amount_paid, status, paid_at, created_at, issue_date)
+                   VALUES (1, 'INV-2025-0001', 1000, 1000, 0, 1000, 'paid', '2025-11-01', '2025-10-20', '2025-10-20')");
+        $db->exec("INSERT INTO invoice_payment_allocations (id, invoice_id, amount, payment_date, created_at) VALUES
+                   (1, 1, 400, '2025-11-01', '2025-11-01 12:00:00'), (2, 1, 600, '2025-12-15', '2025-12-15 09:00:00')");
+        $legacy = $ledger->postPayment(['id' => 1, 'invoice_id' => 1, 'date' => '2025-11-01', 'amount' => 400]);
+        $db->exec("UPDATE journal_entries SET created_at = '2025-11-02 03:00:00' WHERE id = {$legacy}");
+        $svc = new BankBalanceCheckService($db, $ledger);
+        $this->assertSame(0, $svc->fixGroups()['part_payments']['count']);
     }
 
     // ── DB: opening balance + report ────────────────────────────────────────
@@ -261,9 +256,9 @@ final class BankBalanceCheckServiceTest extends TestCase
                              'lines' => [['account_id' => 1, 'debit' => 4865, 'credit' => 0], ['account_id' => 39, 'debit' => 0, 'credit' => 4865]]]);
         $db->exec("INSERT INTO bank_import_sessions (id, bank_account_id, bank_name, status) VALUES (1, 1, 'Vancity', 'imported')");
         $db->exec("INSERT INTO accounting_transactions (id, transaction_date, type, amount, description, account_id, reference_type, bank_account_id) VALUES
-                   (30, '2025-01-03', 'expense', 100, 'Shell', 10, 'bank_import', 1)");
-        $raw = json_encode(['amount' => 100, 'type' => 'expense', 'raw_line' => '2025-01-03,Shell,100.00,,4900.00']);
-        $db->prepare("INSERT INTO bank_import_rows (id, session_id, transaction_date, type, amount, raw_amount, raw_row, transaction_id) VALUES (1, 1, '2025-01-03', 'expense', 100, 100, ?, 30)")
+                   (30, '2026-01-03', 'expense', 100, 'Shell', 10, 'bank_import', 1)");
+        $raw = json_encode(['amount' => 100, 'type' => 'expense', 'raw_line' => '2026-01-03,Shell,100.00,,4900.00']);
+        $db->prepare("INSERT INTO bank_import_rows (id, session_id, transaction_date, type, amount, raw_amount, raw_row, transaction_id) VALUES (1, 1, '2026-01-03', 'expense', 100, 100, ?, 30)")
            ->execute([$raw]);
         (new LedgerSyncService($db, $ledger))->syncBankImports();
 
@@ -279,7 +274,7 @@ final class BankBalanceCheckServiceTest extends TestCase
 
         $res = $svc->approve('opening', $rep['groups']['opening']['signature'], 1);
         $this->assertTrue($res['ok'], $res['message']);
-        $this->assertSame('2025-01-02', $db->query("SELECT entry_date FROM journal_entries WHERE source_type = 'bank_opening'")->fetchColumn());
+        $this->assertSame('2026-01-02', $db->query("SELECT entry_date FROM journal_entries WHERE source_type = 'bank_opening'")->fetchColumn());
         $this->assertSame(135.0, self::balance($db, 39) * -1 - 4865.0);
         $svc->forget();
         $this->assertSame(0.0, $svc->report()['accounts'][0]['latest']['drift']);

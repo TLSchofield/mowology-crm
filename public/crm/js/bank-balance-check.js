@@ -8,7 +8,6 @@
     var API = '/crm/api/bank-balance-check.php';
     var GROUPS = {
         part_payments: { title: 'Invoice payments missing from the journal', blurb: 'Each part payment becomes its own entry (DR Bank / CR Receivable). Where the old one-per-invoice entry doesn\'t add up, it is reversed and every payment posted by itself.' },
-        jobber_deposits: { title: 'Jobber-era deposits', blurb: 'Deposits before April 2026 with no CRM invoice behind them: DR Bank / CR the deposit\'s income account. Deposits tied to invoices or booked by the income clean-up are left out.' },
         opening: { title: 'Opening balance', blurb: 'Starts each account where its first statement starts, against 3900 Opening Balance Equity.' }
     };
     var REVIEW = {
@@ -16,6 +15,7 @@
         unposted_bank_lines: 'Bank lines the nightly sync should have posted but hasn\'t',
         orphan_bank_entries: 'Journal entries for bank lines that were deleted or rolled back',
         statement_gaps: 'Breaks in a statement\'s running balance — lines never imported',
+        jobber_deposits: 'Jan–Mar 2026 deposits with no CRM invoice, not in the journal — book them on the Jobber import page (against the Jobber invoices they paid)',
         crm_deposits: 'Deposits Feb 25 – Mar 31 that match a CRM invoice — link them on the income clean-up page, never posted here',
         payment_review: 'Invoices whose payments on record are more than the invoice says was paid'
     };
@@ -95,8 +95,9 @@
             $('bbc-acct-note').textContent = '';
             return;
         }
-        $('bbc-acct-note').textContent = (a.kind === 'card' ? 'Card: balance owed. ' : '') + 'First statement ' + (a.first_date || '?') +
-            (a.opening !== null ? ', opening ' + money(a.opening) : '') + '. Drift = books − statement.';
+        $('bbc-acct-note').textContent = (a.kind === 'card' ? 'Card: balance owed. ' : '') + 'From January 2026 (FY2025 is filed). ' +
+            (a.carried !== null && a.carried !== undefined ? 'Carried in at Dec 31: ' + money(a.carried) + (a.opening_booked ? ' after the FY2026 opening. ' : ' — book the FY2026 opening. ') : '') +
+            'Drift = books − statement.';
         var rows = a.months.slice().reverse().map(function (m) {
             return '<tr><td>' + esc(ymLabel(m.ym)) + '</td>' +
                 '<td class="mw-bbc-num">' + money(m.statement) + '</td>' +

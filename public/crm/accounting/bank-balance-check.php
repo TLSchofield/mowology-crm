@@ -22,6 +22,8 @@ $isAdmin    = isAdmin();
         <p class="text-muted mb-0 small">The books' bank balance against the statement's, every month end — the gap, what explains it, and the fixes. Nothing is booked until you approve; every approval can be undone.</p>
     </div>
     <div class="d-flex gap-2">
+        <a href="/crm/accounting/fy-opening.php" class="btn btn-sm btn-outline-secondary">FY2026 opening</a>
+        <a href="/crm/accounting/jobber-import.php" class="btn btn-sm btn-outline-secondary">Jobber import</a>
         <a href="/crm/accounting/income-cleanup.php" class="btn btn-sm btn-outline-secondary">Income clean-up</a>
         <a href="/crm/accounting/trial-balance.php" class="btn btn-sm btn-outline-secondary">Trial balance</a>
     </div>

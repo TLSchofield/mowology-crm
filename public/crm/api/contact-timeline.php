@@ -190,6 +190,23 @@ try {
     $stmt->execute($allParams);
     $events = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+    // Jobber invoice history (migration 1239) — read separately (never in the UNION: its own table,
+    // collation and size) and merged into the first page, newest first.
+    if ($page === 1 && ($typeFilter === 'all' || $typeFilter === 'invoices')) {
+        try {
+            require_once APP_ROOT . '/Modules/Accounting/Services/JobberImportService.php';
+            $jobber = (new JobberImportService($db))->forContact($contactId, 200);
+            foreach ($jobber as $j) {
+                $events[] = ['event_type' => 'jobber_invoice', 'title' => JobberImportService::timelineTitle($j),
+                             'detail' => $j['service_street'] ?? null, 'event_time' => $j['issued_date'] ? $j['issued_date'] . ' 00:00:00' : null,
+                             'user_name' => 'Jobber', 'entity_id' => (int)$j['id'], 'entity_number' => $j['jobber_number']];
+            }
+            if ($jobber) usort($events, fn($a, $b) => strcmp((string)$b['event_time'], (string)$a['event_time']));
+        } catch (Throwable $e) {
+            error_log('contact-timeline jobber: ' . $e->getMessage());
+        }
+    }
+
     echo json_encode(['success' => true, 'events' => $events, 'page' => $page]);
 } catch (Throwable $e) {
     http_response_code(500);

@@ -138,7 +138,24 @@ class AccountingService
               AND COALESCE(i.amount_paid, 0) > 0
         ");
 
+        // A CRM invoice recreated from a 2025 Jobber invoice (JobberLedgerService::linkCrmInvoice) only
+        // collects FY2025's receivable: its payment is not 2026 income (the revenue is in the filed
+        // FY2025 numbers). Leave it out, and take out a row an earlier sync / reconciliation wrote.
+        $carryover = [];
+        try {
+            $f = __DIR__ . '/JobberLedgerService.php';
+            if (is_file($f)) {
+                require_once $f;
+                $carryover = array_fill_keys(JobberLedgerService::carryoverInvoiceIds($this->db), true);
+            }
+        } catch (\Throwable $e) { $carryover = []; }
+        if ($carryover) {
+            $this->db->exec("DELETE FROM accounting_transactions WHERE reference_type = 'invoice' AND type = 'income'
+                             AND reference_id IN (" . implode(',', array_map('intval', array_keys($carryover))) . ")");
+        }
+
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            if (isset($carryover[(int)$row['id']])) continue;
             $desc = 'Invoice payment';
             if (!empty($row['notes'])) {
                 $desc .= ' — ' . mb_substr(strip_tags($row['notes']), 0, 120);

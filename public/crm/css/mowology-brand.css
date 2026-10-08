@@ -38858,3 +38858,18 @@ body.mw-rc-zoom-open { overflow: hidden; }
 .mw-bbc-scroll { max-height: 520px; overflow: auto; }
 .mw-bbc-preview { display: inline-block; margin-right: 12px; }
 .mw-bbc-details > summary { cursor: pointer; list-style: revert; }
+
+/* ══ FY2026 opening + Jobber import (/crm/accounting/fy-opening.php, jobber-import.php — migrations 1238/1239) ═══ */
+.mw-fyo-scroll { max-height: 760px; }
+.mw-fyo-acct { min-width: 220px; }
+.mw-jbi-file { max-width: 320px; }
+.mw-jbi-map { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; padding: 8px 0; }
+.mw-jbi-map label { display: flex; flex-direction: column; gap: 2px; color: var(--mw-forest); }
+.mw-jbi-pre { max-height: 260px; overflow: auto; background: var(--mw-light); padding: 8px; border-radius: 4px; }
+.mw-jbi-act { white-space: nowrap; }
+.mw-jbi-act .form-control { display: inline-block; width: 120px; margin: 0 4px; vertical-align: middle; }
+.mw-jbi-act .btn { margin-left: 2px; }
+@media (max-width: 575.98px) {
+  .mw-jbi-act { white-space: normal; }
+  .mw-jbi-act .form-control { width: 100%; margin: 4px 0; }
+}

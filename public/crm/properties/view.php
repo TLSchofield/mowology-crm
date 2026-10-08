@@ -567,6 +567,38 @@ if ($apiKey) {
                 <?php endif; ?>
             </form>
 
+<?php
+// Jobber invoice history at this address (migration 1239 — history only, never CRM invoices).
+$jobberHistory = [];
+try {
+    require_once APP_ROOT . '/Modules/Accounting/Services/JobberImportService.php';
+    $jobberHistory = (new JobberImportService($db))->forProperty($propertyId, 60);
+} catch (Throwable $e) {
+    $jobberHistory = [];
+}
+?>
+<?php if ($jobberHistory): ?>
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Jobber invoices</h5>
+                    <small class="text-muted">History from Jobber (before the CRM) — newest first.</small>
+                </div>
+                <div class="card-body p-0 mw-bbc-scroll">
+                    <table class="table table-sm mb-0 mw-bbc-table">
+                        <tbody>
+                        <?php foreach ($jobberHistory as $j): ?>
+                            <tr>
+                                <td><?= htmlspecialchars((string)$j['issued_date']) ?></td>
+                                <td><?= htmlspecialchars(JobberImportService::timelineTitle($j)) ?></td>
+                                <td class="text-muted small"><?= htmlspecialchars((string)$j['client_name']) ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+<?php endif; ?>
+
 <?php if ($canEdit && $apiKey): ?>
 <script>
 // Google Places autocomplete on the address input, same pattern as

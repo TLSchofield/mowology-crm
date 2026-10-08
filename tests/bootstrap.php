@@ -185,6 +185,10 @@ require_once __DIR__ . '/../app/Modules/Accounting/Services/BankAccountSplitServ
 // Bank balance check + each invoice payment its own journal entry (migration 1236)
 require_once __DIR__ . '/../app/Modules/Accounting/Services/InvoicePaymentPlanner.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/BankBalanceCheckService.php';
+require_once __DIR__ . '/../app/Modules/Accounting/Services/Fy2026OpeningService.php';
+require_once __DIR__ . '/../app/Modules/Accounting/Services/JobberCsv.php';
+require_once __DIR__ . '/../app/Modules/Accounting/Services/JobberImportService.php';
+require_once __DIR__ . '/../app/Modules/Accounting/Services/JobberLedgerService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/DuplicateReceiptService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseApprovalService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseService.php';

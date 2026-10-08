@@ -155,7 +155,14 @@ class ReportingService
     {
         $where = ["je.status = 'posted'"];
         $params = [];
-        if ($from !== null) { $where[] = 'je.entry_date >= ?'; $params[] = $from; }
+        if ($from !== null) {
+            $where[] = 'je.entry_date >= ?';
+            $params[] = $from;
+            // A period's activity never includes the FY opening (it closes the previous year's
+            // revenue and expenses — Fy2026OpeningService) or a reversal of it.
+            $where[] = "COALESCE(je.source_type, '') <> 'fy_opening'";
+            $where[] = "NOT (COALESCE(je.source_type, '') = 'adjusting' AND je.source_id IN (SELECT fo.id FROM journal_entries fo WHERE fo.source_type = 'fy_opening'))";
+        }
         if ($asOf !== null) { $where[] = 'je.entry_date <= ?'; $params[] = $asOf; }
         $sql = "
             SELECT coa.code, coa.name, coa.type, coa.normal_balance,
