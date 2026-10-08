@@ -53,17 +53,25 @@ struct VisitCompletionSheet: View {
     private var inputForm: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
+                if vm.snowIsRoute {
+                    snowChoiceSection
+                }
                 extrasSection
                 noteSection
                 if visit.isPerVisitBillable && (!vm.unbilledItems.isEmpty || !vm.unbilledHints.isEmpty) {
                     UnbilledWorkSection(vm: vm)
                 }
                 actionButtons
+                    // A snow & salt route stop can't be completed until the crew say what was done.
+                    .disabled(vm.snowIsRoute && vm.snowChoice == nil)
+                    .opacity(vm.snowIsRoute && vm.snowChoice == nil ? 0.45 : 1)
             }
             .padding(16)
         }
         .background(Color(.systemGroupedBackground))
         .task {
+            // Snow & salt route stop? Then the crew record what was done before completing.
+            await vm.loadSnowRoute(visitId: visit.visitId)
             // Missed work at the same address (e.g. a cut timed on another day, then skipped).
             if visit.isPerVisitBillable { await vm.loadUnbilled(visitId: visit.visitId) }
         }
@@ -141,6 +149,36 @@ struct VisitCompletionSheet: View {
         }
     }
 
+    private var snowChoiceSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionHeader("What was done here?", icon: "snowflake")
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                ForEach(vm.snowChoices, id: \.self) { option in
+                    Button {
+                        Task { _ = await vm.recordSnowChoice(visitId: visit.visitId, choice: option.value) }
+                    } label: {
+                        Text(option.label)
+                            .font(.subheadline.bold())
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .padding(.vertical, 4)
+                            .background(vm.snowChoice == option.value ? Color.MW.green : Color.MW.green.opacity(0.12))
+                            .foregroundStyle(vm.snowChoice == option.value ? Color.white : Color.MW.green)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+                    .disabled(vm.snowSaving)
+                }
+            }
+            if let err = vm.snowError {
+                Text(err).font(.footnote).foregroundStyle(Color.MW.orange)
+            } else if vm.snowChoice == nil {
+                Text("Pick one to complete the stop. The invoice bills only what you pick.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
     private var noteSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             sectionHeader("Note to Client (optional)", icon: "text.bubble")
@@ -155,7 +193,20 @@ struct VisitCompletionSheet: View {
 
     private var actionButtons: some View {
         VStack(spacing: 10) {
-            if visit.isPerVisitBillable {
+            if vm.snowIsRoute && vm.snowChoice == "none" {
+                // Checked, nothing needed: the stop is completed and nothing is billed.
+                Button {
+                    complete(withInvoice: false)
+                } label: {
+                    Label("Complete — Nothing Needed", systemImage: "checkmark.circle.fill")
+                        .font(.subheadline.bold())
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(Color.MW.green)
+                        .foregroundStyle(.white)
+                        .clipShape(Capsule())
+                }
+            } else if visit.isPerVisitBillable {
                 Button {
                     complete(withInvoice: true)
                 } label: {

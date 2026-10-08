@@ -65,6 +65,49 @@ final class VisitCompletionViewModel: ObservableObject {
 
     var hasExtras: Bool { totalMinutes > 0 }
 
+    // MARK: - Snow & salt route stop
+
+    /// A daily snow & salt route stop bills only what was done there, so the crew
+    /// record it (Salted / Arctic salt / Snow cleared / Nothing needed) before completing.
+    @Published var snowIsRoute: Bool = false
+    @Published var snowChoices: [SnowRouteChoiceOption] = []
+    @Published var snowChoice: String?
+    @Published var snowSaving: Bool = false
+    @Published var snowError: String?
+
+    /// Whether this stop needs a choice; failures (offline, older server) leave it hidden.
+    func loadSnowRoute(visitId: Int) async {
+        do {
+            let r: SnowRouteChoiceResult = try await apiClient.request(.snowRouteChoice(visitId: visitId))
+            guard r.success else { return }
+            snowIsRoute = r.isRoute
+            snowChoices = r.choices
+            snowChoice  = r.choice
+        } catch {
+            // Not a route stop as far as we can tell — the sheet stays as it was.
+        }
+    }
+
+    func recordSnowChoice(visitId: Int, choice: String) async -> Bool {
+        snowSaving = true
+        snowError = nil
+        defer { snowSaving = false }
+        do {
+            let r: SnowRouteChoiceResult = try await apiClient.request(
+                .snowRouteChoiceAction,
+                body: ["visit_id": visitId, "choice": choice]
+            )
+            if r.success {
+                snowChoice = choice
+                return true
+            }
+            snowError = r.error ?? "Could not save what was done."
+        } catch {
+            snowError = "No connection — try again."
+        }
+        return false
+    }
+
     // MARK: - Unbilled work
 
     /// Load other unbilled work at this visit's address. Read-only; failures just hide the list.
@@ -214,5 +257,35 @@ final class VisitCompletionViewModel: ObservableObject {
             statusMessage = error.localizedDescription
             return false
         }
+    }
+}
+
+// MARK: - Snow & salt route models
+
+struct SnowRouteChoiceOption: Decodable, Hashable {
+    let value: String
+    let label: String
+}
+
+/// GET returns is_route/choice/choices; POST returns success/choice/label (or error).
+struct SnowRouteChoiceResult: Decodable {
+    let success: Bool
+    let error: String?
+    let isRoute: Bool
+    let choice: String?
+    let choices: [SnowRouteChoiceOption]
+
+    enum CodingKeys: String, CodingKey {
+        case success, error, choice, choices
+        case isRoute = "is_route"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        success = (try? c.decode(Bool.self, forKey: .success)) ?? false
+        error   = try? c.decode(String.self, forKey: .error)
+        isRoute = (try? c.decode(Bool.self, forKey: .isRoute)) ?? false
+        choice  = try? c.decode(String.self, forKey: .choice)
+        choices = (try? c.decode([SnowRouteChoiceOption].self, forKey: .choices)) ?? []
     }
 }

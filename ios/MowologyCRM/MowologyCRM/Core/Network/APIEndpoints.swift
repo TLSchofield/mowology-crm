@@ -211,6 +211,9 @@ enum APIEndpoint {
 
     /// POST /api/schedule/special-requests — {mode: ack | outcome, request_visit_id, …}.
     case scheduleSpecialRequestAction
+    /// Snow & salt route stop: what was done (salt / arctic / snow / none) — GET reads it, POST records it.
+    case snowRouteChoice(visitId: Int)
+    case snowRouteChoiceAction
 
     /// GET /api/schedule/visit-photos?visit_id=&mode=history — photos from earlier visits
     /// at the same property. Uses `mode`, not `action`: the /api/ rewrite owns `action`.
@@ -494,6 +497,14 @@ enum APIEndpoint {
         case .scheduleSpecialRequestAction:
             return URL(string: "\(baseURLString)/schedule/special-requests")
 
+        case .snowRouteChoice(let visitId):
+            var components = URLComponents(string: "\(baseURLString)/schedule/snow-route-choice")
+            components?.queryItems = [URLQueryItem(name: "visit_id", value: "\(visitId)")]
+            return components?.url
+
+        case .snowRouteChoiceAction:
+            return URL(string: "\(baseURLString)/schedule/snow-route-choice")
+
         case .scheduleVisitPhotos(let visitId):
             var components = URLComponents(string: "\(baseURLString)/schedule/visit-photos")
             components?.queryItems = [URLQueryItem(name: "visit_id", value: "\(visitId)")]
@@ -537,6 +548,8 @@ enum APIEndpoint {
              .scheduleTimerActive,
              .scheduleSpecialRequests,
              .scheduleSpecialRequestAction,
+             .snowRouteChoice,
+             .snowRouteChoiceAction,
              .scheduleLocation,
              .scheduleCrewTrails,
              .teamMembers,
@@ -616,10 +629,12 @@ enum APIEndpoint {
              .trackingConsent,
              .trackingGeofences,
              .scheduleSpecialRequests,
+             .snowRouteChoice,
              .tripReportStatus: return "GET"
 
         case .scheduleTimer,
              .scheduleSpecialRequestAction,
+             .snowRouteChoiceAction,
              .scheduleLocation,
              .assignCrew,
              .rescheduleStop,
