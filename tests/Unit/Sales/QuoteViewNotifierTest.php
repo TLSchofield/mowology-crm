@@ -83,7 +83,7 @@ class QuoteViewNotifierTest extends TestCase
     {
         $m = QuoteViewNotifier::message(['id' => 99, 'first_name' => 'Linda', 'last_name' => 'Nimmerrichter',
                                          'company_name' => 'Strata 2106', 'quote_number' => 'QUO-2026-0073', 'amount' => '1758.75']);
-        $this->assertSame('Sam', $m['title']);
+        $this->assertSame('Sam [Sales]', $m['title']);
         $this->assertSame('Linda Nimmerrichter just opened QUO-2026-0073 ($1,758.75)', $m['body']);
         $this->assertSame(['open' => 'team', 'head' => 'sam', 'quote_id' => 99], $m['data']);
     }
