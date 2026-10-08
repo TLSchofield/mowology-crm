@@ -63,6 +63,9 @@ relevant service) and returns JSON. Current endpoints:
 `visit-pull-forward.php` — POST `?mode=offer` {lat,lng,accuracy,on_open} / `?mode=accept`
 {visit_id, property_id, request_key} (session + CSRF, or JWT); GET `?mode=dryrun&property_id=73&date=2026-10-05`
 (admin/manager, read-only; `&address=Fremlin` also works). The crew sheet is `public/crm/js/mw-pull-forward.js`.
+**OFF by default** since the 2026-10-08 incident (Android crew lost all taps): on only when
+`ops_settings.pull_forward_enabled = '1'` or the user id is in `pull_forward_user_ids` (migration 1276).
+The page never asks the WebView for GPS — `offer` uses the user's own recent `crew_location_history` pings.
 
 `job-timer.php` is on the **revenue-critical completion path** — it must load
 `plan-functions.php` so `updateVisitStatus()` is defined (see schedule.md).
