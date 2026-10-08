@@ -3,7 +3,11 @@
  * Penny's desk for the iOS app — JWT-authenticated.
  *
  * GET  /api/expenses/bookkeeper-mobile?mode=queue[&limit=15]
- *      → {ok, dupes:[{pairs, members[]}], queue[], categories[], asset_tags[{value,label}]}
+ *      → {ok, dupes:[{pairs, members[]}], queue[], categories[], asset_tags[{value,label}],
+ *         messages[] (admins: customer billing mail routed to Penny — InboundRouteService::forApp,
+ *         attachment links signed for the app; added 2026-10-08)}
+ * POST {mode: 'move', key, to: penny|sam|otto|mia|yui}  "Move to…" on a message (admins)
+ * POST {mode: 'message_done', key}                     "Done" on a message (admins)
  * POST {mode: 'decide', suggestion_id, overrides?: {vendor, vendor_id, expense_date,
  *       accounting_category, asset_tag, job, subtotal, gst, pst, total}, save_draft?: bool}
  * POST {mode: 'reject', suggestion_id, reason}
@@ -113,13 +117,38 @@ try {
             foreach (ReceiptBookkeeperRules::TAGS as $t) {
                 $tags[] = ['value' => $t, 'label' => $tagLabels[$t] ?? ucfirst($t)];
             }
+            // Customer billing mail routed to Penny (direct-deposit forms …) — the owner's mail, admins only.
+            $messages = [];
+            if (jwtIsAdmin($jwtUser['role'])) {
+                try {
+                    require_once APP_ROOT . '/Modules/Comms/Services/InboundRouteService.php';
+                    $messages = InboundRouteService::forApp((new InboundRouteService($db))->messages('penny'), time() + 21600, jwtSecret());
+                } catch (Throwable $e) {
+                    error_log('[bookkeeper-mobile] messages: ' . $e->getMessage());
+                }
+            }
             echo json_encode([
                 'ok'         => true,
                 'dupes'      => $dupes,
                 'queue'      => $queue,
                 'categories' => array_values(EXPENSE_ACCOUNTING_CATEGORIES),
                 'asset_tags' => $tags,
+                'messages'   => $messages,
             ]);
+            break;
+        }
+
+        case 'move':
+        case 'message_done': {
+            // "Move to…" / "Done" on one of Penny's messages — InboundRouteService, as the web's inbound-route.php.
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            if (!jwtIsAdmin($jwtUser['role'])) { http_response_code(403); echo json_encode(['ok' => false, 'error' => 'Admins only']); break; }
+            require_once APP_ROOT . '/Modules/Comms/Services/InboundRouteService.php';
+            $route = new InboundRouteService($db);
+            $ref = ['key' => substr((string)($input['key'] ?? ''), 0, 120)];
+            echo json_encode($mode === 'move'
+                ? $route->move($ref, (string)($input['to'] ?? ''), (int)$user['id'])
+                : $route->done($ref, (int)$user['id']));
             break;
         }
 
