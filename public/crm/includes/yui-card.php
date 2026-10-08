@@ -97,7 +97,12 @@ try {
 
     <div class="mw-head-foot">
       <span>Learning from every message you send, edit or mark handled · I never send anything myself</span>
-      <a class="btn btn-sm btn-success" href="/crm/clients_appstack.php">All clients →</a>
+      <span>
+        <?php if (function_exists('isAdmin') && isAdmin()): ?>
+          <a class="btn btn-sm btn-outline-success" href="/crm/icloud_tidy_appstack.php" title="File your iCloud into folders and check Junk — preview first, nothing moves until you click">Tidy iCloud</a>
+        <?php endif; ?>
+        <a class="btn btn-sm btn-success" href="/crm/clients_appstack.php">All clients →</a>
+      </span>
     </div>
   </div>
 </section>

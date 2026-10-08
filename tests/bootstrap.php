@@ -56,6 +56,12 @@ require_once __DIR__ . '/../app/Modules/Sales/Services/EmailLeadService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/VendorMessageService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ReceiptInboxService.php';
 require_once __DIR__ . '/../app/Modules/Comms/Services/IcloudInboxRouter.php';
+// Tidy iCloud (the one mailbox WRITER, the filing classifier, the tidy service + its IMAP port)
+require_once __DIR__ . '/../app/Services/Mail/ImapWriter.php';
+require_once __DIR__ . '/../app/Modules/Comms/Services/MailTidyClassifier.php';
+require_once __DIR__ . '/../app/Modules/Comms/Services/MailTidyPort.php';
+require_once __DIR__ . '/../app/Modules/Comms/Services/ImapTidyPort.php';
+require_once __DIR__ . '/../app/Modules/Comms/Services/MailTidyService.php';
 // Consent ledger
 require_once __DIR__ . '/../app/Modules/Consent/Services/ConsentLedgerService.php';
 

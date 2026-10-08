@@ -38748,3 +38748,52 @@ body.mw-rc-zoom-open { overflow: hidden; }
 .mw-ct-sum { font-size: .78rem; color: var(--mw-ink-900); line-height: 1.4; overflow-wrap: anywhere; }
 .mw-ct-ev.is-in .mw-ct-sum { font-weight: 500; }
 .mw-ct-empty { padding: 10px 14px; font-size: .78rem; color: var(--mw-ink-500); }
+
+/* ==========================================================================
+   Tidy iCloud — Yui's filing assistant page (/crm/icloud_tidy_appstack.php)
+   (feature/icloud-tidy, 2026-10-07)
+   ========================================================================== */
+.mw-tidy { max-width: 1100px; }
+.mw-tidy-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 14px; }
+.mw-tidy-sub { font-size: .86rem; color: var(--mw-ink-700); max-width: 760px; margin: 0; }
+.mw-tidy-keep { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; font-size: .85rem; color: var(--mw-forest);
+  border: 1px solid var(--mw-ink-200); border-radius: var(--mw-radius-pill); padding: 6px 14px; background: var(--mw-ink-0); cursor: pointer; margin: 0; }
+.mw-tidy-keep input { accent-color: var(--mw-green); }
+.mw-tidy-card { margin-bottom: 16px; }
+.mw-tidy-h { font-size: 1rem; font-weight: var(--mw-weight-semibold); color: var(--mw-forest); margin-bottom: 6px; }
+.mw-tidy-note { font-size: .8rem; color: var(--mw-ink-500); margin-bottom: 10px; }
+.mw-tidy-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.mw-tidy-empty { padding: 10px 0; font-size: .82rem; color: var(--mw-ink-500); }
+.mw-tidy-plan { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; margin-bottom: 10px; }
+.mw-tidy-folder { border: 1px solid var(--mw-ink-200); border-radius: var(--mw-radius-md); padding: 8px 10px; background: var(--mw-ink-0); }
+.mw-tidy-folder-name { font-size: .86rem; font-weight: var(--mw-weight-semibold); color: var(--mw-forest); display: flex; justify-content: space-between; gap: 6px; }
+.mw-tidy-folder-note { font-size: .72rem; color: var(--mw-ink-500); line-height: 1.35; margin-top: 2px; }
+.mw-tidy-tag { display: inline-block; font-size: .64rem; font-weight: var(--mw-weight-semibold); text-transform: uppercase; letter-spacing: .03em;
+  border-radius: var(--mw-radius-pill); padding: 1px 8px; vertical-align: middle; }
+.mw-tidy-tag.is-existing { background: var(--mw-light); color: var(--mw-dark); }
+.mw-tidy-tag.is-new { background: var(--mw-color-warning-bg); color: var(--mw-orange); }
+.mw-tidy-progress { display: flex; align-items: center; gap: 12px; margin: 6px 0 12px; }
+.mw-tidy-bar { flex: 1; height: 8px; background: var(--mw-ink-100); border-radius: var(--mw-radius-pill); overflow: hidden; }
+.mw-tidy-bar i { display: block; height: 100%; width: 2%; background: var(--mw-green); transition: width var(--mw-dur-base) var(--mw-ease-out); }
+.mw-tidy-progress-text { font-size: .78rem; color: var(--mw-ink-700); min-width: 160px; }
+.mw-tidy-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 10px; }
+.mw-tidy-stat { border: 1px solid var(--mw-ink-200); border-radius: var(--mw-radius-md); padding: 8px 10px; background: var(--mw-ink-0); }
+.mw-tidy-stat .mw-k { font-size: .7rem; color: var(--mw-ink-500); text-transform: uppercase; letter-spacing: .03em; }
+.mw-tidy-stat .mw-v { font-size: 1.25rem; font-weight: var(--mw-weight-semibold); color: var(--mw-forest); }
+.mw-tidy-table { font-size: .82rem; }
+.mw-tidy-table td, .mw-tidy-table th { vertical-align: top; }
+.mw-tidy-table details summary { cursor: pointer; color: var(--mw-green); font-size: .78rem; }
+.mw-tidy-samples { list-style: none; padding: 4px 0 0; margin: 0; font-size: .76rem; }
+.mw-tidy-samples li { padding: 2px 0; overflow-wrap: anywhere; }
+.mw-tidy-samples em, .mw-tidy-junk em { color: var(--mw-ink-500); font-style: normal; font-size: .72rem; }
+.mw-tidy-from { color: var(--mw-ink-500); font-size: .74rem; }
+.mw-tidy-junk { list-style: none; padding: 0; margin: 0; }
+.mw-tidy-junk li { border-bottom: 1px solid var(--mw-ink-100); padding: 7px 0; font-size: .82rem; overflow-wrap: anywhere; }
+.mw-tidy-junk li label { display: block; margin: 0; cursor: pointer; }
+.mw-tidy-junk li input { accent-color: var(--mw-green); margin-right: 6px; }
+.mw-tidy-junk li.is-done { opacity: .6; }
+@media (max-width: 767px) {
+  .mw-tidy-head { flex-direction: column; }
+  .mw-tidy-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mw-tidy-progress { flex-wrap: wrap; }
+}

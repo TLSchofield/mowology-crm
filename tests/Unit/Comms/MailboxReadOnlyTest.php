@@ -19,7 +19,74 @@ class MailboxReadOnlyTest extends TestCase
         'app/Modules/Expenses/Cron/receipt_inbox_poll.php',
         'app/Modules/Accounting/Cron/etransfer_inbox_poll.php',
         'app/Modules/Accounting/Cron/yardi_eft_inbox_poll.php',
+        'app/Modules/Comms/Services/ImapTidyPort.php',
+        'app/Modules/Comms/Services/MailTidyService.php',
     ];
+
+    /** The ONE file allowed to change a mailbox (Tidy iCloud — move + create folder only). */
+    private const WRITER = 'app/Services/Mail/ImapWriter.php';
+    private const WRITE_CALLS = '/\bimap_(delete|expunge|setflag_full|clearflag_full|mail_move|mail_copy|append|undelete|renamemailbox|deletemailbox|createmailbox|gc)\s*\(/i';
+
+    /** Every PHP file in the CRM (vendor and the AppStack template excluded). */
+    private function allPhp(): array
+    {
+        $out = [];
+        foreach (['app', 'public', 'includes', 'scripts'] as $dir) {
+            if (!is_dir(self::ROOT . $dir)) continue;
+            $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(self::ROOT . $dir, FilesystemIterator::SKIP_DOTS));
+            foreach ($it as $f) {
+                $rel = substr((string)$f->getPathname(), strlen(self::ROOT));
+                if (substr($rel, -4) !== '.php' || preg_match('#(^|/)(vendor|crinum|node_modules)/#', $rel)) continue;
+                $out[] = $rel;
+            }
+        }
+        return $out;
+    }
+
+    public function test_only_imap_writer_writes_to_a_mailbox(): void
+    {
+        $files = $this->allPhp();
+        $this->assertGreaterThan(100, count($files));
+        foreach ($files as $f) {
+            if ($f === self::WRITER) continue;
+            $s = $this->src($f);
+            $this->assertDoesNotMatchRegularExpression(self::WRITE_CALLS, $s, "{$f} writes to a mailbox — only ImapWriter may");
+            preg_match_all('/\bimap_open\s*\(([^;]*);/', $s, $m);
+            foreach ($m[1] as $call) {
+                $this->assertTrue($f === 'app/Services/Mail/ImapReader.php' || preg_match('/OP_READONLY|readOnlyFlag|\$flags/', $call) === 1,
+                    "{$f} opens a mailbox read-write — only ImapWriter may");
+            }
+        }
+    }
+
+    public function test_imap_writer_only_moves_and_creates(): void
+    {
+        $s = $this->src(self::WRITER);
+        // Never delete, flag, rename, append or copy-without-move.
+        $this->assertDoesNotMatchRegularExpression('/\bimap_(delete|setflag_full|clearflag_full|mail_copy|append|undelete|renamemailbox|deletemailbox|gc)\s*\(/i', $s);
+        $this->assertDoesNotMatchRegularExpression('/CL_EXPUNGE/', $s);
+        $this->assertMatchesRegularExpression('/imap_mail_move\([^;]*CP_UID\)/', $s, 'moves by UID');
+        // EXPUNGE only after checking the folder had no \Deleted mail of its own.
+        $this->assertLessThan(strpos($s, 'imap_mail_move('), strpos($s, "'DELETED'"));
+        $this->assertSame(1, preg_match_all('/\bimap_expunge\s*\(/', $s));
+        // Protected folders are refused before anything is opened.
+        foreach (['Sent Messages', 'Drafts', 'Notes', 'Notes/New Folder', 'Deleted Items', 'Deleted Messages'] as $f) {
+            $this->assertTrue(ImapWriter::isProtected($f), $f);
+        }
+        $w = new ImapWriter(['host' => 'imap.example.invalid', 'port' => 993, 'user' => 'x', 'pass' => 'y']);
+        $this->assertSame('protected folder', $w->move('Sent Messages', [1], 'clients')['error']);
+        $this->assertSame('protected folder', $w->move('INBOX', [1], 'Deleted Items')['error']);
+        $this->assertSame(['moved' => [], 'error' => null], $w->move('INBOX', [], 'clients'));
+        $this->assertFalse($w->createFolder('Drafts', []));
+    }
+
+    public function test_the_regular_icloud_poll_never_uses_the_writer(): void
+    {
+        foreach (['app/Modules/Comms/Services/IcloudInboxRouter.php', 'app/Modules/Comms/Cron/icloud_inbox_poll.php'] as $f) {
+            $this->assertStringNotContainsString('ImapWriter', $this->src($f), "{$f} must stay read-only");
+            $this->assertStringNotContainsString('MailTidy', $this->src($f), "{$f} must stay read-only");
+        }
+    }
 
     private function src(string $f): string
     {
