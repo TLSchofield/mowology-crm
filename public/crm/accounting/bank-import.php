@@ -641,11 +641,13 @@ function setFilter(filter, btn) {
 
 function renderPreview(preview) {
     const totals    = preview.totals;
-    const matched   = totals.matched  || 0;
-    const dupes     = totals.duplicates || 0;
-    const unmatched = totals.rows - dupes - matched;
+    // Counts come from the rows themselves (the server's totals could disagree with the per-row
+    // flags — 2026-10-07 the tabs said "Unmatched 4" for lines that were already in the CRM).
+    const rows      = preview.rows || [];
+    const dupes     = rows.filter(r => r.is_duplicate).length;
+    const matched   = rows.filter(r => !r.is_duplicate && r.match_candidate).length;
+    const unmatched = rows.length - dupes - matched;
 
-    const rows           = preview.rows || [];
     const receiptMatches   = rows.filter(r => !r.is_duplicate && r.match_candidate && r.matched_expense).length;
     const etransferMatches = rows.filter(r => !r.is_duplicate && r.match_candidate && r.matched_invoice && r.match_method === 'etransfer').length;
     const processorMatches = rows.filter(r => !r.is_duplicate && r.match_candidate && r.matched_invoice && r.match_method !== 'etransfer').length;
