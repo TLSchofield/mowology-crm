@@ -109,7 +109,7 @@ final class JobPhotoQueue: ObservableObject {
             }
 
             do {
-                try await apiClient.uploadJobPhoto(imageData: data, visitId: item.visitId, photoType: slot)
+                try await apiClient.uploadJobPhoto(imageData: data, visitId: item.visitId, photoType: slot, queuedAt: item.queuedAt)
                 items = items.filter { $0.id != item.id }
                 QueueStorage.remove(item.imageFilename)
             } catch let err as APIError {

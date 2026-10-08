@@ -277,6 +277,11 @@
         if (record.idempotencyKey) {
             opts.headers['Idempotency-Key'] = record.idempotencyKey;
         }
+        // When the action was really done (ms) — the special-request gate accepts a replay
+        // queued before a request was attached, so a queued action is never stuck.
+        if (record.timestamp) {
+            opts.headers['X-Queued-At'] = String(record.timestamp);
+        }
 
         // Merge any original headers (e.g. X-Requested-With), don't override Content-Type
         var origHeaders = record.headers || {};

@@ -96,6 +96,13 @@ try {
                 break;
             }
 
+            // Special request gate (inert unless ops_settings.special_requests_enabled): an unread
+            // client request answers 409 with the request, so an app build without the gate can't
+            // walk past it. A future offline replay sends queued_at (ms) and passes, logged.
+            require_once APP_ROOT . '/Modules/Operations/Services/SpecialRequestGate.php';
+            SpecialRequestGate::enforce(getDB(), $visitId, $userId, isset($input['queued_at']),
+                $input['queued_at'] ?? null, $autoStarted ? 'auto_start' : 'start', 'message');
+
             $entryId = startVisitTimer($visitId, $userId, $lat, $lng, $autoStarted);
 
             // Auto clock-in globally if not already clocked in.
@@ -165,6 +172,11 @@ try {
                 } catch (Throwable $exEx) {
                     error_log('timer.php extras persist failed: ' . $exEx->getMessage());
                 }
+            }
+            // Special-request extra work goes on top of the sheet's extras (once; never throws).
+            if ($completeVisit) {
+                require_once APP_ROOT . '/Modules/Operations/Services/SpecialRequestGate.php';
+                SpecialRequestGate::afterCompletion($db ?? getDB(), $visitId);
             }
 
             $responseStop = json_encode([

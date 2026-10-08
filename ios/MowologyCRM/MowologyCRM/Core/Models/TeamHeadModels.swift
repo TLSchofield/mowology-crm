@@ -29,13 +29,15 @@ struct HeadCardResponse: Decodable {
     let ask: HeadAskStatus?
     // Otto
     let unpinned: [UnpinnedProperty]
+    /// Otto's suggestions with their buttons + the contract auto-log (jobs.edit; older servers send none).
+    let otto: OttoDesk?
     // Mia
     let post: MiaPostDraft?
     let googleMode: String?
     let canApprove: Bool
 
     private enum CodingKeys: String, CodingKey {
-        case ok, error, head, name, role, headline, waiting, owner, brain, items, ask, unpinned, post
+        case ok, error, head, name, role, headline, waiting, owner, brain, items, ask, unpinned, post, otto
         case faceURL = "face_url", googleMode = "google_mode", canApprove = "can_approve"
     }
 
@@ -54,6 +56,7 @@ struct HeadCardResponse: Decodable {
         items = (try? c.decodeIfPresent([HeadItem].self, forKey: .items)) ?? []
         ask = try? c.decodeIfPresent(HeadAskStatus.self, forKey: .ask)
         unpinned = (try? c.decodeIfPresent([UnpinnedProperty].self, forKey: .unpinned)) ?? []
+        otto = try? c.decodeIfPresent(OttoDesk.self, forKey: .otto)
         post = try? c.decodeIfPresent(MiaPostDraft.self, forKey: .post)
         googleMode = c.bkString(.googleMode)
         canApprove = c.bkBool(.canApprove) ?? false
@@ -254,5 +257,141 @@ struct HeadActionResponse: Decodable {
         source = c.bkString(.source)
         left = c.bkInt(.left)
         status = c.bkString(.status)
+    }
+}
+
+// MARK: - Otto's suggestions (team-mobile brief → otto; OpsDeskService, as otto.php?mode=suggestions)
+
+/// One of Otto's suggestions and what he proposes. `propose` differs per kind, so it stays loose
+/// (BKValue) and the view reads the fields its kind needs — as otto-card.js does.
+struct OttoSuggestion: Decodable, Identifiable, Equatable {
+    let id: Int
+    let key: String
+    let kind: String
+    let priority: Int
+    let text: String
+    let detail: String
+    let url: String?
+    let subjectId: Int
+    let propose: [String: BKValue]
+    /// pin_off only: where the property's pin is now (propose.lat/lng is where the crews work).
+    let pinLat: Double?
+    let pinLng: Double?
+
+    private enum CodingKeys: String, CodingKey {
+        case id, key, kind, priority, text, detail, url, propose, pin
+        case subjectId = "subject_id"
+    }
+    private enum PinKeys: String, CodingKey { case lat, lng }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = c.bkInt(.id) ?? 0
+        key = c.bkString(.key) ?? ""
+        kind = c.bkString(.kind) ?? ""
+        priority = c.bkInt(.priority) ?? 2
+        text = c.bkString(.text) ?? ""
+        detail = c.bkString(.detail) ?? ""
+        url = c.bkString(.url)
+        subjectId = c.bkInt(.subjectId) ?? 0
+        propose = (try? c.decodeIfPresent([String: BKValue].self, forKey: .propose)) ?? [:]
+        if let p = try? c.nestedContainer(keyedBy: PinKeys.self, forKey: .pin) {
+            pinLat = p.bkDouble(.lat)
+            pinLng = p.bkDouble(.lng)
+        } else {
+            pinLat = nil
+            pinLng = nil
+        }
+    }
+
+    func text(_ k: String) -> String? { propose[k]?.text }
+    func int(_ k: String) -> Int? { propose[k]?.int }
+    func double(_ k: String) -> Double? { propose[k]?.double }
+    func bool(_ k: String) -> Bool {
+        switch propose[k] {
+        case .bool(let b): return b
+        case .number(let d): return d != 0
+        case .string(let s): return ["1", "true", "yes"].contains(s.lowercased())
+        default: return false
+        }
+    }
+    /// propose[k] as a list of objects (plans, invoices).
+    func objects(_ k: String) -> [[String: BKValue]] {
+        guard case .array(let a) = propose[k] else { return [] }
+        return a.compactMap { if case .object(let o) = $0 { return o } else { return nil } }
+    }
+}
+
+/// A visit Otto logged by himself at a contract site (otto_auto_visits, migration 1267).
+struct OttoAutoLogRow: Decodable, Identifiable, Equatable {
+    let id: Int
+    let day: String
+    let kind: String
+    let address: String
+    let minutes: Int
+    let start: String?
+    let end: String?
+    let movedFrom: String?
+
+    private enum CodingKeys: String, CodingKey { case id, day, kind, address, minutes, start, end, movedFrom = "moved_from" }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = c.bkInt(.id) ?? 0
+        day = c.bkString(.day) ?? ""
+        kind = c.bkString(.kind) ?? ""
+        address = c.bkString(.address) ?? ""
+        minutes = c.bkInt(.minutes) ?? 0
+        start = c.bkString(.start)
+        end = c.bkString(.end)
+        movedFrom = c.bkString(.movedFrom)
+    }
+}
+
+struct OttoAutoLog: Decodable, Equatable {
+    let line: String
+    let rows: [OttoAutoLogRow]
+
+    private enum CodingKeys: String, CodingKey { case line, rows }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        line = c.bkString(.line) ?? ""
+        rows = (try? c.decodeIfPresent([OttoAutoLogRow].self, forKey: .rows)) ?? []
+    }
+}
+
+struct OttoDesk: Decodable, Equatable {
+    let items: [OttoSuggestion]
+    let total: Int
+    let autolog: OttoAutoLog?
+    let reviewURL: String
+
+    private enum CodingKeys: String, CodingKey { case items, total, autolog, reviewURL = "review_url" }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        items = (try? c.decodeIfPresent([OttoSuggestion].self, forKey: .items)) ?? []
+        total = c.bkInt(.total) ?? 0
+        autolog = try? c.decodeIfPresent(OttoAutoLog.self, forKey: .autolog)
+        reviewURL = c.bkString(.reviewURL) ?? "/crm/ops/otto-review.php"
+    }
+}
+
+/// POST team-mobile {mode: otto_decide | otto_undo_auto} → OttoActionService / OttoContractLogService.
+struct OttoDecideResponse: Decodable {
+    let ok: Bool
+    let message: String?
+    let error: String?
+    let redirect: String?
+
+    private enum CodingKeys: String, CodingKey { case ok, message, error, redirect }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        ok = c.bkBool(.ok) ?? false
+        message = c.bkString(.message)
+        error = c.bkString(.error)
+        redirect = c.bkString(.redirect)
     }
 }

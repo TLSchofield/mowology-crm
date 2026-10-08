@@ -91,6 +91,15 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
+// --- Special request gate (inert unless ops_settings.special_requests_enabled) ---
+// A live photo of a visit with an unread client request answers 409; the photo queue sends
+// queued_at and passes (logged), so an already-taken photo is never stuck or lost.
+if ($requestContext === 'job_visit' && $requestId > 0) {
+    require_once APP_ROOT . '/Modules/Operations/Services/SpecialRequestGate.php';
+    SpecialRequestGate::enforce(getDB(), $requestId, (int)$user['id'],
+        isset($_POST['queued_at']), $_POST['queued_at'] ?? null, 'photo', 'error');
+}
+
 // --- Parse context fields ---
 $contextType = $requestContext ?: 'marketing_general';
 $contextId   = $requestId;

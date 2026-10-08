@@ -134,9 +134,16 @@ final class ScheduleViewModel: ObservableObject {
             .sink { [weak self] _ in
                 Task { await self?.silentRefresh() }
             }
+        // The pull-forward sheet moved a visit to today / added one and started it.
+        scheduleChangedSink = NotificationCenter.default.publisher(for: .mwScheduleChanged)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                Task { await self?.silentRefresh() }
+            }
     }
 
     private var autoStartSink: AnyCancellable?
+    private var scheduleChangedSink: AnyCancellable?
 
     // MARK: - Public API
 

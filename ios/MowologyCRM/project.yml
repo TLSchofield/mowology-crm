@@ -12,7 +12,7 @@ settings:
     IPHONEOS_DEPLOYMENT_TARGET: "17.0"
     TARGETED_DEVICE_FAMILY: "1"  # iPhone only (use "1,2" for iPhone + iPad)
     DEVELOPMENT_TEAM: ""         # Set your Apple Developer Team ID here
-    MARKETING_VERSION: "1.3.5"
+    MARKETING_VERSION: "1.3.8"
     CURRENT_PROJECT_VERSION: "100"
     PRODUCT_BUNDLE_IDENTIFIER: ca.mowology.crm-field
 
@@ -39,6 +39,9 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         NSLocationWhenInUseUsageDescription: "Used to record where you clock in and out, and to find the job sites nearest to you."
         NSLocationAlwaysAndWhenInUseUsageDescription: "Records your location while you are clocked in — about once a minute between jobs, more often on a client property — even with the app closed. Nothing is recorded while you are off the clock."
+        NSCameraUsageDescription: "Used to take before, during and after photos of each job, and to photograph receipts for expense tracking."
+        NSMicrophoneUsageDescription: "Records sound with job videos taken in the app's camera."
+        NSPhotoLibraryUsageDescription: "Used to select receipt photos from your library."
         NSMotionUsageDescription: "Used to detect whether you are walking, driving, or stationary so the app can adjust GPS frequency and save battery during your shift."
         UIBackgroundModes:
           - location

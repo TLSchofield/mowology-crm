@@ -254,6 +254,24 @@ final class SamCardViewModel: ObservableObject {
         removeReply(reply.key, r.message ?? "Marked handled.")
     }
 
+    /// "Move to…": not Sam's (a billing email → Penny …). The sender + topic is learned.
+    func moveReply(_ reply: SalesReply, to head: String) async {
+        guard !isBusy else { return }
+        guard let r = await perform(["mode": "move", "key": reply.key, "to": head],
+                                    onError: { self.showReply($0, error: true) }) else { return }
+        removeReply(reply.key, r.message ?? "Moved to \(MoveToMenu.name(head)).")
+    }
+
+    /// "Move to…" on a "they replied" card: the reply that made it is someone else's — the card
+    /// goes back to waiting (or leaves) once it's moved.
+    func moveCardReply(to head: String) async {
+        guard let c = current, c.replied, !isBusy else { return }
+        guard let r = await perform(["mode": "move", "card_key": c.key, "to": head],
+                                    onError: { self.showFollowup($0, error: true) }) else { return }
+        removeCard(c.key, r.message ?? "Moved to \(MoveToMenu.name(head)).")
+        Task { await self.refreshQuietly() }
+    }
+
     private func removeReply(_ key: String, _ text: String) {
         replies.removeAll { $0.key == key }
         replyDrafts[key] = nil

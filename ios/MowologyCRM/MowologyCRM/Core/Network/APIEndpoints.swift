@@ -205,6 +205,13 @@ enum APIEndpoint {
     /// GET /api/schedule/visit-photos?visit_id=N — proof photos already taken on a visit.
     case scheduleVisitPhotos(visitId: Int)
 
+    /// GET /api/schedule/special-requests?mode=visits&ids=1,2 — a client's special request on
+    /// these visits (empty + enabled:false while the feature is off).
+    case scheduleSpecialRequests(visitIds: [Int])
+
+    /// POST /api/schedule/special-requests — {mode: ack | outcome, request_visit_id, …}.
+    case scheduleSpecialRequestAction
+
     /// GET /api/schedule/visit-photos?visit_id=&mode=history — photos from earlier visits
     /// at the same property. Uses `mode`, not `action`: the /api/ rewrite owns `action`.
     case scheduleVisitPhotoHistory(visitId: Int)
@@ -212,6 +219,17 @@ enum APIEndpoint {
     /// POST /api/schedule/invoice — invoice a completed visit (timed extras + invoice).
     /// Body: { action: "preview"|"create"|"send", ... }
     case scheduleInvoice
+
+    /// GET /api/expenses/penny-chase-mobile?mode=mine|recent|admin[&id=N] — Penny's missing-receipt
+    /// chaser (MissingReceiptService, migration 1245) (JWT).
+    case pennyChase(query: [URLQueryItem])
+
+    /// POST /api/expenses/penny-chase-mobile — { mode: attach|no_receipt|reassign, id, … } (JWT).
+    case pennyChaseAction
+
+    /// POST /api/jobs/visit-pull-forward?mode=offer|accept — "booked another day — doing it now?"
+    /// (VisitPullForwardService). Uses `mode`, not `action`: the /api/ rewrite owns `action`.
+    case visitPullForward(mode: String)
 
     // MARK: - URL
 
@@ -467,6 +485,15 @@ enum APIEndpoint {
         case .scheduleJobPhoto:
             return URL(string: "\(baseURLString)/schedule/job-photo")
 
+        case .scheduleSpecialRequests(let visitIds):
+            var components = URLComponents(string: "\(baseURLString)/schedule/special-requests")
+            components?.queryItems = [URLQueryItem(name: "mode", value: "visits"),
+                                      URLQueryItem(name: "ids", value: visitIds.map(String.init).joined(separator: ","))]
+            return components?.url
+
+        case .scheduleSpecialRequestAction:
+            return URL(string: "\(baseURLString)/schedule/special-requests")
+
         case .scheduleVisitPhotos(let visitId):
             var components = URLComponents(string: "\(baseURLString)/schedule/visit-photos")
             components?.queryItems = [URLQueryItem(name: "visit_id", value: "\(visitId)")]
@@ -482,6 +509,19 @@ enum APIEndpoint {
 
         case .scheduleInvoice:
             return URL(string: "\(baseURLString)/schedule/invoice")
+
+        case .pennyChase(let query):
+            var components = URLComponents(string: "\(baseURLString)/expenses/penny-chase-mobile")
+            components?.queryItems = query
+            return components?.url
+
+        case .pennyChaseAction:
+            return URL(string: "\(baseURLString)/expenses/penny-chase-mobile")
+
+        case .visitPullForward(let mode):
+            var components = URLComponents(string: "\(baseURLString)/jobs/visit-pull-forward")
+            components?.queryItems = [URLQueryItem(name: "mode", value: mode)]
+            return components?.url
         }
     }
 
@@ -495,6 +535,8 @@ enum APIEndpoint {
              .scheduleWeek,
              .scheduleTimer,
              .scheduleTimerActive,
+             .scheduleSpecialRequests,
+             .scheduleSpecialRequestAction,
              .scheduleLocation,
              .scheduleCrewTrails,
              .teamMembers,
@@ -550,7 +592,10 @@ enum APIEndpoint {
              .fieldSearch,
              .fieldSearchNearby,
              .fieldSearchProperty,
-             .scheduleInvoice: return true
+             .scheduleInvoice,
+             .pennyChase,
+             .pennyChaseAction,
+             .visitPullForward: return true
         }
     }
 
@@ -570,9 +615,11 @@ enum APIEndpoint {
              .trackingStatus,
              .trackingConsent,
              .trackingGeofences,
+             .scheduleSpecialRequests,
              .tripReportStatus: return "GET"
 
         case .scheduleTimer,
+             .scheduleSpecialRequestAction,
              .scheduleLocation,
              .assignCrew,
              .rescheduleStop,
@@ -622,7 +669,11 @@ enum APIEndpoint {
              .recommendationAskSend,
              .scheduleJobPhoto,
              .fieldJobAction,
-             .scheduleInvoice: return "POST"
+             .scheduleInvoice,
+             .pennyChaseAction,
+             .visitPullForward: return "POST"
+
+        case .pennyChase: return "GET"
         }
     }
 }

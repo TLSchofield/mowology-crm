@@ -295,6 +295,9 @@ try {
                     WHERE id = ?
                 ")->execute([$notes, $notes, $extrasMins, $extrasAmount, $cvId]);
                 addAuditLog($db, $cvId, (int)$user['id'], 'complete', null, $ip);
+                // Special-request extra work goes on top of the sheet's extras (once; never throws).
+                require_once APP_ROOT . '/Modules/Operations/Services/SpecialRequestGate.php';
+                SpecialRequestGate::afterCompletion($db, $cvId);
 
                 $vcService = APP_ROOT . '/Modules/Jobs/Services/VisitCompletionService.php';
                 if (file_exists($vcService)) {
@@ -575,6 +578,17 @@ try {
         exit;
     }
 
+    // Special request gate (inert unless ops_settings.special_requests_enabled): an unread client
+    // request answers 409 to a live start / photo. Offline-queue replays (Idempotency-Key /
+    // X-Queued-At / queued_at) pass, logged, so a queued action is never stuck.
+    if ($action === 'start_visit' || $action === 'upload_photo') {
+        require_once APP_ROOT . '/Modules/Operations/Services/SpecialRequestGate.php';
+        $srQueuedAt = $_SERVER['HTTP_X_QUEUED_AT'] ?? ($input['queued_at'] ?? ($_POST['queued_at'] ?? null));
+        SpecialRequestGate::enforce($db, $visitId, (int)$user['id'],
+            !empty($_SERVER['HTTP_IDEMPOTENCY_KEY']) || $srQueuedAt !== null, $srQueuedAt,
+            $action === 'start_visit' ? 'start' : 'photo', 'error');
+    }
+
     switch ($action) {
 
         // ── Start Visit ───────────────────────────────────────────────────
@@ -761,6 +775,9 @@ try {
             ")->execute([$lat, $lng, $notes, $notes, $extrasMins, $extrasAmount, $extrasNote, $extrasNote, $visitId]);
 
             addAuditLog($db, $visitId, (int)$user['id'], 'complete', null, $ip);
+            // Special-request extra work goes on top of the sheet's extras (once; never throws).
+            require_once APP_ROOT . '/Modules/Operations/Services/SpecialRequestGate.php';
+            SpecialRequestGate::afterCompletion($db, $visitId);
 
             // Capture labor cost + margin snapshot at completion time
             $vcService = APP_ROOT . '/Modules/Jobs/Services/VisitCompletionService.php';

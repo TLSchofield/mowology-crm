@@ -108,6 +108,10 @@ require_once __DIR__ . '/../app/Modules/Operations/Services/StopEvidenceService.
 require_once __DIR__ . '/../app/Modules/Operations/Services/TripCostService.php';
 // Shared cost facts (migration 1218): Otto writes, Sam / Penny / Charlie read
 require_once __DIR__ . '/../app/Modules/Operations/Services/CostFactsService.php';
+// Special requests on arrival (migrations 1295–1299): matcher, service, crew gate
+require_once __DIR__ . '/../app/Modules/Operations/Services/SpecialRequestMatcher.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/SpecialRequestService.php';
+require_once __DIR__ . '/../app/Modules/Operations/Services/SpecialRequestGate.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/TripAttributionService.php';
 require_once __DIR__ . '/../app/Modules/Sales/Services/TripLineSuggester.php';
 

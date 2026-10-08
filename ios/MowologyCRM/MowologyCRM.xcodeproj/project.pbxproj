@@ -112,6 +112,17 @@
 		6F333BF205C8178C78B34A41 /* HeadCardViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F139368B00D46A763E5C9EE /* HeadCardViewModel.swift */; };
 		5771288702B2F98773203CBF /* HeadCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 151DD4AF6EE21CA3CDDBB9D3 /* HeadCardView.swift */; };
 		BEE5ABE73F70ECABD57F2407 /* LabelCaptureResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03342870F9E7D7D62276A2FF /* LabelCaptureResponse.swift */; };
+		0A387AB9428190E842FCD8AB /* PullForwardSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8691C99A108A1B543D346DD /* PullForwardSheet.swift */; };
+		0C8EFF79123CF761799EC0AB /* PennyChaseViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AABA7B22CF8198FA556F1E8 /* PennyChaseViews.swift */; };
+		392D24D8913607690B1DE228 /* OttoSuggestionViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 877447E5D708DFC06B44A06C /* OttoSuggestionViews.swift */; };
+		A8F45A0DF953B40CBDF4CFC5 /* BatchCameraModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5867CF199733333AD608C90 /* BatchCameraModels.swift */; };
+		4A3E4A23787F1FCED7623789 /* PhotoMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8CEEB43722CCDC7F9FC9D6E /* PhotoMetadata.swift */; };
+		0873D9A412D0CD31052F7668 /* CameraController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B3119ABA9BDABE47846A6B1 /* CameraController.swift */; };
+		BB0BC5508039BCDD66D47719 /* MarkupEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A0940C690E40A426E535953 /* MarkupEditorView.swift */; };
+		384F9DB9382CB26750ACF5FD /* BatchCameraView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC39C8FF29F8634E0470F4CA /* BatchCameraView.swift */; };
+		C4942CBF2C16F56E23B4DE23 /* SpecialRequestStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF5652BC795FDF9D9717FFAA /* SpecialRequestStore.swift */; };
+		0467833076FBE593EB86E045 /* SpecialRequestCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0031E39A259C661A1C79C512 /* SpecialRequestCard.swift */; };
+		BAF0A6DA2D680084689DA30B /* HeadFaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2DECC6127F23CBDD966EA63 /* HeadFaceView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -222,6 +233,17 @@
 		9F139368B00D46A763E5C9EE /* HeadCardViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeadCardViewModel.swift; sourceTree = "<group>"; };
 		151DD4AF6EE21CA3CDDBB9D3 /* HeadCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeadCardView.swift; sourceTree = "<group>"; };
 		03342870F9E7D7D62276A2FF /* LabelCaptureResponse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LabelCaptureResponse.swift; sourceTree = "<group>"; };
+		B8691C99A108A1B543D346DD /* PullForwardSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PullForwardSheet.swift; sourceTree = "<group>"; };
+		7AABA7B22CF8198FA556F1E8 /* PennyChaseViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PennyChaseViews.swift; sourceTree = "<group>"; };
+		877447E5D708DFC06B44A06C /* OttoSuggestionViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OttoSuggestionViews.swift; sourceTree = "<group>"; };
+		E5867CF199733333AD608C90 /* BatchCameraModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchCameraModels.swift; sourceTree = "<group>"; };
+		F8CEEB43722CCDC7F9FC9D6E /* PhotoMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoMetadata.swift; sourceTree = "<group>"; };
+		6B3119ABA9BDABE47846A6B1 /* CameraController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraController.swift; sourceTree = "<group>"; };
+		3A0940C690E40A426E535953 /* MarkupEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkupEditorView.swift; sourceTree = "<group>"; };
+		EC39C8FF29F8634E0470F4CA /* BatchCameraView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchCameraView.swift; sourceTree = "<group>"; };
+		EF5652BC795FDF9D9717FFAA /* SpecialRequestStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpecialRequestStore.swift; sourceTree = "<group>"; };
+		0031E39A259C661A1C79C512 /* SpecialRequestCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpecialRequestCard.swift; sourceTree = "<group>"; };
+		A2DECC6127F23CBDD966EA63 /* HeadFaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeadFaceView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -378,6 +400,10 @@
 				D39B0AB7D29775E426AEA32A /* ServiceHistoryGrid.swift */,
 				012351B5F6A5D4F76A5667E0 /* MoveStopSheet.swift */,
 				DC32DBE5A2AA1CD03B853C12 /* PhotoHistorySection.swift */,
+				B8691C99A108A1B543D346DD /* PullForwardSheet.swift */,
+				EF5652BC795FDF9D9717FFAA /* SpecialRequestStore.swift */,
+				0031E39A259C661A1C79C512 /* SpecialRequestCard.swift */,
+				A2DECC6127F23CBDD966EA63 /* HeadFaceView.swift */,
 			);
 			path = Schedule;
 			sourceTree = "<group>";
@@ -401,6 +427,7 @@
 				A8B19292E74114A1A37EDE2C /* Receipts */,
 				5C93415700405E4C4DF85C7C /* Search */,
 				A42B52CF649FC198923F0595 /* Team */,
+				853482F52B48392EC1E13DE6 /* Camera */,
 			);
 			path = Features;
 			sourceTree = "<group>";
@@ -464,6 +491,7 @@
 				020A7702F7F98D53EF42EBAC /* ReceiptReviewView.swift */,
 				C0D721F3EF37850625E05177 /* ReceiptDetailView.swift */,
 				7759B049ABD6C8712A3A8ABD /* PennyRiskRow.swift */,
+				7AABA7B22CF8198FA556F1E8 /* PennyChaseViews.swift */,
 			);
 			path = Receipts;
 			sourceTree = "<group>";
@@ -486,8 +514,21 @@
 				577E01DD3C064EC52D9560DA /* SamCardViewModel.swift */,
 				9F139368B00D46A763E5C9EE /* HeadCardViewModel.swift */,
 				151DD4AF6EE21CA3CDDBB9D3 /* HeadCardView.swift */,
+				877447E5D708DFC06B44A06C /* OttoSuggestionViews.swift */,
 			);
 			path = Team;
+			sourceTree = "<group>";
+		};
+		853482F52B48392EC1E13DE6 /* Camera */ = {
+			isa = PBXGroup;
+			children = (
+				E5867CF199733333AD608C90 /* BatchCameraModels.swift */,
+				F8CEEB43722CCDC7F9FC9D6E /* PhotoMetadata.swift */,
+				6B3119ABA9BDABE47846A6B1 /* CameraController.swift */,
+				3A0940C690E40A426E535953 /* MarkupEditorView.swift */,
+				EC39C8FF29F8634E0470F4CA /* BatchCameraView.swift */,
+			);
+			path = Camera;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -660,6 +701,17 @@
 				6F333BF205C8178C78B34A41 /* HeadCardViewModel.swift in Sources */,
 				5771288702B2F98773203CBF /* HeadCardView.swift in Sources */,
 				BEE5ABE73F70ECABD57F2407 /* LabelCaptureResponse.swift in Sources */,
+				0A387AB9428190E842FCD8AB /* PullForwardSheet.swift in Sources */,
+				0C8EFF79123CF761799EC0AB /* PennyChaseViews.swift in Sources */,
+				392D24D8913607690B1DE228 /* OttoSuggestionViews.swift in Sources */,
+				A8F45A0DF953B40CBDF4CFC5 /* BatchCameraModels.swift in Sources */,
+				4A3E4A23787F1FCED7623789 /* PhotoMetadata.swift in Sources */,
+				0873D9A412D0CD31052F7668 /* CameraController.swift in Sources */,
+				BB0BC5508039BCDD66D47719 /* MarkupEditorView.swift in Sources */,
+				384F9DB9382CB26750ACF5FD /* BatchCameraView.swift in Sources */,
+				C4942CBF2C16F56E23B4DE23 /* SpecialRequestStore.swift in Sources */,
+				0467833076FBE593EB86E045 /* SpecialRequestCard.swift in Sources */,
+				BAF0A6DA2D680084689DA30B /* HeadFaceView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -733,7 +785,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.3.5;
+				MARKETING_VERSION = 1.3.8;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = "ca.mowology.crm-field";
@@ -819,7 +871,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.3.5;
+				MARKETING_VERSION = 1.3.8;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

@@ -3,7 +3,13 @@
  * Penny's desk for the iOS app — JWT-authenticated.
  *
  * GET  /api/expenses/bookkeeper-mobile?mode=queue[&limit=15]
- *      → {ok, dupes:[{pairs, members[]}], queue[], categories[], asset_tags[{value,label}]}
+ *      → {ok, dupes:[{pairs, members[]}], queue[], categories[], asset_tags[{value,label}],
+ *         messages[] (admins: customer billing mail routed to Penny — InboundRouteService::forApp,
+ *         attachment links signed for the app; added 2026-10-08),
+ *         lines {lookback {count, amount, gst, text, url}|null, payments {waiting, waiting_total, high, url, …}|null,
+ *                missing {open, open_amount, no_receipt, no_receipt_amount}|null} (expenses.approve; added 2026-10-08)}
+ * POST {mode: 'move', key, to: penny|sam|otto|mia|yui}  "Move to…" on a message (admins)
+ * POST {mode: 'message_done', key}                     "Done" on a message (admins)
  * POST {mode: 'decide', suggestion_id, overrides?: {vendor, vendor_id, expense_date,
  *       accounting_category, asset_tag, job, subtotal, gst, pst, total}, save_draft?: bool}
  * POST {mode: 'reject', suggestion_id, reason}
@@ -46,6 +52,42 @@ if (!defined('APP_ROOT')) {
 }
 
 header('Content-Type: application/json');
+
+/**
+ * The read-only lines on Penny's web card, for the phone (added 2026-10-08): the look-back review
+ * (LookbackService, migration 1250), payments ↔ invoices (PaymentMatchService, migration 1260 — the
+ * cached snapshot; the 4-hourly re-match is left to the web page) and the missing-receipt chaser
+ * (MissingReceiptService, migration 1245). Each is null when its service isn't deployed / migrated.
+ */
+function bkmPennyLines(PDO $db): array
+{
+    $lines = ['lookback' => null, 'payments' => null, 'missing' => null];
+    try {
+        if (is_file(APP_ROOT . '/Modules/Accounting/Services/LookbackService.php')) {
+            require_once APP_ROOT . '/Modules/Accounting/Services/LookbackService.php';
+            $l = (new LookbackService($db))->cardLine();
+            if ($l) $lines['lookback'] = $l + ['url' => '/crm/accounting/lookback.php'];
+        }
+    } catch (Throwable $e) { error_log('[bookkeeper-mobile] lookback: ' . $e->getMessage()); }
+    try {
+        if (is_file(APP_ROOT . '/Modules/Accounting/Services/PaymentMatchService.php')) {
+            require_once APP_ROOT . '/Modules/Accounting/Services/PaymentMatchService.php';
+            $lines['payments'] = (new PaymentMatchService($db))->cardLine(false);
+        }
+    } catch (Throwable $e) { error_log('[bookkeeper-mobile] payments: ' . $e->getMessage()); }
+    try {
+        if (is_file(APP_ROOT . '/Modules/Expenses/Services/MissingReceiptService.php')) {
+            require_once APP_ROOT . '/Modules/Expenses/Services/MissingReceiptService.php';
+            $m = new MissingReceiptService($db);
+            if ($m->ready()) {
+                $t = $m->totals();
+                $lines['missing'] = ['open' => (int)$t['open'], 'open_amount' => (float)$t['open_amount'],
+                                     'no_receipt' => (int)$t['no_receipt'], 'no_receipt_amount' => (float)$t['no_receipt_amount']];
+            }
+        }
+    } catch (Throwable $e) { error_log('[bookkeeper-mobile] missing: ' . $e->getMessage()); }
+    return $lines;
+}
 
 try {
     require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
@@ -113,13 +155,39 @@ try {
             foreach (ReceiptBookkeeperRules::TAGS as $t) {
                 $tags[] = ['value' => $t, 'label' => $tagLabels[$t] ?? ucfirst($t)];
             }
+            // Customer billing mail routed to Penny (direct-deposit forms …) — the owner's mail, admins only.
+            $messages = [];
+            if (jwtIsAdmin($jwtUser['role'])) {
+                try {
+                    require_once APP_ROOT . '/Modules/Comms/Services/InboundRouteService.php';
+                    $messages = InboundRouteService::forApp((new InboundRouteService($db))->messages('penny'), time() + 21600, jwtSecret());
+                } catch (Throwable $e) {
+                    error_log('[bookkeeper-mobile] messages: ' . $e->getMessage());
+                }
+            }
             echo json_encode([
                 'ok'         => true,
                 'dupes'      => $dupes,
                 'queue'      => $queue,
                 'categories' => array_values(EXPENSE_ACCOUNTING_CATEGORIES),
                 'asset_tags' => $tags,
+                'messages'   => $messages,
+                'lines'      => jwtUserHasPermission($jwtUser, 'expenses.approve') ? bkmPennyLines($db) : null,
             ]);
+            break;
+        }
+
+        case 'move':
+        case 'message_done': {
+            // "Move to…" / "Done" on one of Penny's messages — InboundRouteService, as the web's inbound-route.php.
+            if ($method !== 'POST') throw new RuntimeException('POST required');
+            if (!jwtIsAdmin($jwtUser['role'])) { http_response_code(403); echo json_encode(['ok' => false, 'error' => 'Admins only']); break; }
+            require_once APP_ROOT . '/Modules/Comms/Services/InboundRouteService.php';
+            $route = new InboundRouteService($db);
+            $ref = ['key' => substr((string)($input['key'] ?? ''), 0, 120)];
+            echo json_encode($mode === 'move'
+                ? $route->move($ref, (string)($input['to'] ?? ''), (int)$user['id'])
+                : $route->done($ref, (int)$user['id']));
             break;
         }
 

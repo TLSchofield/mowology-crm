@@ -8,6 +8,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 struct PennyCardView: View {
 
@@ -18,8 +19,11 @@ struct PennyCardView: View {
     @State private var rejectReason = ""
     @State private var keepTarget: KeepTarget?
 
+    @Environment(\.openURL) private var openURL
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
+            mailSection
             if vm.isLoading && !vm.hasLoaded {
                 HStack { Spacer(); ProgressView("Loading Penny's receipts…"); Spacer() }
                     .padding(.vertical, 40)
@@ -295,6 +299,71 @@ struct PennyCardView: View {
                 .font(.footnote)
                 .foregroundStyle(vm.messageIsError ? .red : Color.MW.green)
                 .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    // MARK: - Customer billing mail (routed to Penny — reminders for Tim)
+
+    @ViewBuilder
+    private var mailSection: some View {
+        if !vm.messages.isEmpty || vm.mailNote != nil {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("From customers")
+                    .font(.subheadline.weight(.semibold))
+                ForEach(vm.messages) { m in
+                    mailRow(m)
+                    if m.id != vm.messages.last?.id { Divider() }
+                }
+                if let n = vm.mailNote {
+                    Text(n)
+                        .font(.footnote)
+                        .foregroundStyle(vm.mailNoteIsError ? .red : Color.MW.green)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(12)
+            .background(Color.MW.green.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+        }
+    }
+
+    private func mailRow(_ m: PennyMessage) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(m.text)
+                .font(.subheadline.weight(.semibold))
+                .fixedSize(horizontal: false, vertical: true)
+            if let note = m.note {
+                Text(note)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            ForEach(m.attachments) { a in
+                Button {
+                    if let u = URL(string: a.url) { openURL(u) }
+                } label: {
+                    Label(a.filename, systemImage: "doc.richtext")
+                        .font(.caption)
+                        .lineLimit(1)
+                }
+                .buttonStyle(.bordered)
+                .tint(Color.MW.green)
+            }
+            HStack(spacing: 8) {
+                if let to = m.emailTo {
+                    Button {
+                        UIPasteboard.general.string = to
+                        vm.mailNote = "Copied \(to)."
+                        vm.mailNoteIsError = false
+                    } label: { Label("Copy \(to)", systemImage: "doc.on.doc") }
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                MoveToMenu(current: "penny", disabled: vm.isBusy) { to in Task { await vm.moveMessage(m, to: to) } }
+                Button("Done") { Task { await vm.messageDone(m) } }
+                    .buttonStyle(.bordered).tint(.secondary)
+                    .disabled(vm.isBusy)
+            }
+            .font(.caption)
         }
     }
 

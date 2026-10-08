@@ -12,6 +12,8 @@ struct ReceiptsView: View {
 
     @EnvironmentObject private var authSession: AuthSession
     @StateObject private var viewModel: ReceiptsViewModel
+    /// Penny's missing-receipt chaser — "Penny needs N receipts" on top of the list.
+    @StateObject private var chase: PennyChaseViewModel
     @Environment(\.scenePhase) private var scenePhase
 
     // Camera as fullScreenCover — must be on the root view, not inside a sheet.
@@ -55,6 +57,7 @@ struct ReceiptsView: View {
         let session = authSession ?? AuthSession()
         let client  = APIClient(authSession: session)
         _viewModel  = StateObject(wrappedValue: ReceiptsViewModel(apiClient: client))
+        _chase      = StateObject(wrappedValue: PennyChaseViewModel(client: client))
     }
 
     var body: some View {
@@ -75,6 +78,7 @@ struct ReceiptsView: View {
             bulkRejectSheet
         }
         .task {
+            Task { await chase.loadMine() }   // alongside the list, never in front of it
             await viewModel.loadExpenses()
             // Wire up auto-drain for receipts that were queued while offline.
             viewModel.startReceiptQueueMonitor()
@@ -88,6 +92,7 @@ struct ReceiptsView: View {
             // App foregrounded — retry any receipts/actions queued by a previous timeout.
             // NWPathMonitor only fires on connectivity *changes*; this is the catch-all.
             if phase == .active {
+                Task { await chase.loadMine() }
                 Task { await viewModel.drainPendingQueue() }
                 Task { await viewModel.drainPendingActionQueue() }
             }
@@ -118,6 +123,8 @@ struct ReceiptsView: View {
         // camera after the sheet has fully dismissed (a fullScreenCover can't be
         // presented while a sheet is still animating out).
         .sheet(isPresented: $showReview, onDismiss: {
+            // A saved receipt may have answered one of Penny's missing charges (server-side match).
+            Task { await chase.loadMine() }
             if snapAnotherPending {
                 snapAnotherPending = false
                 impact.impactOccurred()
@@ -224,15 +231,36 @@ struct ReceiptsView: View {
 
     // MARK: - List
 
+    /// "Snap it" on Penny's card: the receipt camera. The saved receipt answers the charge on the
+    /// server (same amount ±2 %, ±3 days); the card reloads when the review sheet closes.
+    private func snapForPenny() {
+        labelMode = false
+        impact.impactOccurred()
+        showCamera = true
+    }
+
     private var expenseList: some View {
         Group {
             if viewModel.isLoadingList && viewModel.expenses.isEmpty {
                 ProgressView("Loading…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if viewModel.expenses.isEmpty {
-                emptyState
+                VStack(spacing: 0) {
+                    if !chase.items.isEmpty {
+                        PennyCrewChaseCard(vm: chase, onSnap: snapForPenny)
+                            .padding(16)
+                            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+                            .padding(16)
+                    }
+                    emptyState
+                }
             } else {
                 List {
+                    if !chase.items.isEmpty || chase.message != nil {
+                        Section {
+                            PennyCrewChaseCard(vm: chase, onSnap: snapForPenny)
+                        }
+                    }
                     ForEach(viewModel.expenses) { expense in
                         Button {
                             if isSelectMode {
@@ -265,7 +293,10 @@ struct ReceiptsView: View {
                     }
                 }
                 .listStyle(.insetGrouped)
-                .refreshable { await viewModel.loadExpenses() }
+                .refreshable {
+                    await chase.loadMine()
+                    await viewModel.loadExpenses()
+                }
             }
         }
     }

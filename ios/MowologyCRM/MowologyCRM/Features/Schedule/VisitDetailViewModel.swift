@@ -198,7 +198,13 @@ final class VisitDetailViewModel: ObservableObject {
                 setError(response.message ?? "Failed to start job.")
             }
         } catch {
-            setError(apiErrorMessage(error))
+            let message = apiErrorMessage(error)
+            // Special-request gate (409): the server answered — this start must not sit in the
+            // transition queue and replay later (it would start the timer past the request).
+            if message.hasPrefix("Special request") {
+                transitionQueue.confirm(visitId: visitId, action: "start")
+            }
+            setError(message)
         }
 
         isLoading = false

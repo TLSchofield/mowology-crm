@@ -149,6 +149,7 @@ struct SamCardView: View {
                         .buttonStyle(.bordered).tint(.secondary)
                     Button("Open") { if let u = SamCardViewModel.webURL(r.url) { openURL(u) } }
                         .buttonStyle(.bordered).tint(Color.MW.green)
+                    MoveToMenu(current: "sam", disabled: vm.isBusy) { to in Task { await vm.moveReply(r, to: to) } }
                 }
                 .font(.subheadline)
                 .disabled(vm.isBusy)
@@ -305,6 +306,9 @@ struct SamCardView: View {
                         .buttonStyle(.bordered).tint(.secondary)
                         .disabled(vm.queue.count < 2)
                     Spacer(minLength: 0)
+                    if c.replied {
+                        MoveToMenu(current: "sam", disabled: vm.isBusy) { to in Task { await vm.moveCardReply(to: to) } }
+                    }
                 }
             }
             .font(.subheadline)

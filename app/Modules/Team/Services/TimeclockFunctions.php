@@ -897,6 +897,17 @@ function checkProximityAutoStart(int $userId, float $lat, float $lng, float $acc
         return null;
     }
 
+    // Special request gate (inert unless ops_settings.special_requests_enabled): never start the
+    // timer silently past a client request this person hasn't read. The gate pushes the request
+    // to the crew ("Before you start — …") instead; they read it, tap Got it, then Start.
+    $__srGate = APP_ROOT . '/Modules/Operations/Services/SpecialRequestGate.php';
+    if (is_file($__srGate)) {
+        require_once $__srGate;
+        if (SpecialRequestGate::blocksAutoStart(getDB(), (int)$visitId, $userId)) {
+            return null;
+        }
+    }
+
     // All guards passed. Clock in only now that the timer is known to be startable
     // (own visit, not already running) — and undo the clock-in if the start still
     // fails, so a failed auto-start can never leave someone on the payroll clock.

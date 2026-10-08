@@ -22,6 +22,8 @@ import CoreLocation
 protocol TeamHeadAPI {
     func loadCard(head: String) async throws -> HeadCardResponse
     func send(_ body: [String: Any]) async throws -> HeadActionResponse
+    /// Otto's suggestion buttons / auto-log Undo (team-mobile otto_decide | otto_undo_auto).
+    func ottoSend(_ body: [String: Any]) async throws -> OttoDecideResponse
 }
 
 @MainActor
@@ -33,6 +35,10 @@ struct LiveTeamHeadAPI: TeamHeadAPI {
     }
 
     func send(_ body: [String: Any]) async throws -> HeadActionResponse {
+        try await client.request(.teamHeadAction, body: body)
+    }
+
+    func ottoSend(_ body: [String: Any]) async throws -> OttoDecideResponse {
         try await client.request(.teamHeadAction, body: body)
     }
 }
@@ -83,6 +89,20 @@ final class HeadCardViewModel: ObservableObject {
     @Published private(set) var geocoding: Int?
     @Published private(set) var pinned: [Int: String] = [:]
 
+    // Otto: his suggestions (the web card's list) and the contract visits he logged by himself
+    @Published private(set) var ottoItems: [OttoSuggestion] = []
+    @Published private(set) var ottoTotal = 0
+    @Published private(set) var ottoReviewURL = "/crm/ops/otto-review.php"
+    @Published private(set) var autolog: OttoAutoLog?
+    /// Auto-log rows undone from this phone (their outcome line stays).
+    @Published private(set) var undoneAuto: Set<Int> = []
+    /// The suggestion (or auto-log row, negated id) being sent.
+    @Published private(set) var ottoBusy: Int?
+    /// One outcome line per suggestion / auto-log row (negated id), as the web card's .mw-otto-msg.
+    @Published private(set) var ottoNotes: [Int: OttoNote] = [:]
+
+    struct OttoNote: Equatable { let text: String; let isError: Bool }
+
     private let api: TeamHeadAPI
     private let geocoder: AddressGeocoder
 
@@ -119,6 +139,12 @@ final class HeadCardViewModel: ObservableObject {
         unpinned = r.unpinned.filter { pinned[$0.id] == nil }
         post = r.post
         ask = r.ask
+        ottoItems = r.otto?.items ?? []
+        ottoTotal = r.otto?.total ?? 0
+        ottoReviewURL = r.otto?.reviewURL ?? "/crm/ops/otto-review.php"
+        autolog = r.otto?.autolog
+        undoneAuto = []
+        ottoNotes = [:]
     }
 
     var canPublishToGoogle: Bool { card?.googleMode == "live" && (card?.canApprove ?? false) }
@@ -140,6 +166,15 @@ final class HeadCardViewModel: ObservableObject {
         guard let r = await perform(["mode": "act", "key": item.key, "what": "snooze"]) else { return }
         items.removeAll { $0.key == item.key }
         show(r.message ?? "OK — I'll bring it back tomorrow.", error: false)
+    }
+
+    /// "Move to…" on a customer message: it goes to that head, and the sender + topic is learned
+    /// so the next one like it goes there too (POST team-mobile {mode: move}).
+    func move(_ item: HeadItem, to head: String) async {
+        guard !isBusy else { return }
+        guard let r = await perform(["mode": "move", "key": item.key, "to": head]) else { return }
+        items.removeAll { $0.key == item.key }
+        show(r.message ?? "Moved to \(MoveToMenu.name(head)).", error: false)
     }
 
     // MARK: - Charlie: Ask
@@ -200,6 +235,53 @@ final class HeadCardViewModel: ObservableObject {
         pinned[p.id] = p.address
         unpinned.removeAll { $0.id == p.id }
         show("Pinned \(p.address) — I can route there now.", error: false)
+    }
+
+    // MARK: - Otto: suggestions
+
+    /// One of Otto's buttons: POST team-mobile {mode: otto_decide, suggestion_id, choice, ...}, exactly
+    /// the web card's decide(). On success the row leaves; a returned redirect (the new invoice) opens.
+    func ottoDecide(_ s: OttoSuggestion, _ body: [String: Any]) async -> URL? {
+        guard ottoBusy == nil else { return nil }
+        ottoBusy = s.id
+        defer { ottoBusy = nil }
+        var b = body
+        b["mode"] = "otto_decide"
+        b["suggestion_id"] = s.id
+        do {
+            let r = try await api.ottoSend(b)
+            if r.ok {
+                ottoItems.removeAll { $0.id == s.id }
+                ottoTotal = max(0, ottoTotal - 1)
+                show(r.message ?? "Done.", error: false)
+                return r.redirect.flatMap(Self.webURL)
+            }
+            ottoNotes[s.id] = OttoNote(text: r.message ?? r.error ?? "That didn't work.", isError: true)
+        } catch let err as APIError {
+            ottoNotes[s.id] = OttoNote(text: err.errorDescription ?? "That didn't work.", isError: true)
+        } catch {
+            ottoNotes[s.id] = OttoNote(text: "No connection. Nothing was changed, try again.", isError: true)
+        }
+        return nil
+    }
+
+    /// A local problem with the inputs (no times, no minutes), shown under that suggestion.
+    func ottoSay(_ s: OttoSuggestion, _ text: String) {
+        ottoNotes[s.id] = OttoNote(text: text, isError: true)
+    }
+
+    /// Undo a contract visit Otto logged by himself: the visit is cancelled and he asks instead.
+    func undoAuto(_ row: OttoAutoLogRow) async {
+        guard ottoBusy == nil else { return }
+        ottoBusy = -row.id
+        defer { ottoBusy = nil }
+        do {
+            let r = try await api.ottoSend(["mode": "otto_undo_auto", "id": row.id])
+            ottoNotes[-row.id] = OttoNote(text: r.message ?? r.error ?? (r.ok ? "Undone." : "That didn't work."), isError: !r.ok)
+            if r.ok { undoneAuto.insert(row.id) }
+        } catch {
+            ottoNotes[-row.id] = OttoNote(text: "No connection. Nothing was changed.", isError: true)
+        }
     }
 
     // MARK: - Mia: this week's Google post

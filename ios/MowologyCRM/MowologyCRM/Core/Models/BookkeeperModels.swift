@@ -268,9 +268,13 @@ struct BookkeeperQueueResponse: Decodable {
     let queue: [BookkeeperItem]
     let categories: [String]
     let assetTags: [BKTagOption]
+    /// Customer billing mail routed to Penny (admins) — older servers send none.
+    let messages: [PennyMessage]
+    /// Penny's read-only web-card lines (look-back, payments ↔ invoices, missing receipts) — older servers send none.
+    let lines: PennyLines?
     let error: String?
 
-    private enum CodingKeys: String, CodingKey { case ok, dupes, queue, categories, assetTags = "asset_tags", error }
+    private enum CodingKeys: String, CodingKey { case ok, dupes, queue, categories, assetTags = "asset_tags", messages, lines, error }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -279,7 +283,125 @@ struct BookkeeperQueueResponse: Decodable {
         queue = (try? c.decodeIfPresent([BookkeeperItem].self, forKey: .queue)) ?? []
         categories = (try? c.decodeIfPresent([String].self, forKey: .categories)) ?? []
         assetTags = (try? c.decodeIfPresent([BKTagOption].self, forKey: .assetTags)) ?? BKTagOption.defaults
+        messages = (try? c.decodeIfPresent([PennyMessage].self, forKey: .messages)) ?? []
+        lines = try? c.decodeIfPresent(PennyLines.self, forKey: .lines)
         error = c.bkString(.error)
+    }
+}
+
+// MARK: - Penny's read-only lines (bookkeeper-mobile queue → lines; added 2026-10-08)
+
+/// The look-back review, payments matched to invoices, and the missing-receipt chaser — counts only;
+/// each one is approved on the web page it links to.
+struct PennyLines: Decodable, Equatable {
+    struct Lookback: Decodable, Equatable {
+        let count: Int
+        let amount: Double
+        let gst: Double
+        let text: String
+        let url: String
+        private enum CodingKeys: String, CodingKey { case count, amount, gst, text, url }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            count = c.bkInt(.count) ?? 0
+            amount = c.bkDouble(.amount) ?? 0
+            gst = c.bkDouble(.gst) ?? 0
+            text = c.bkString(.text) ?? ""
+            url = c.bkString(.url) ?? "/crm/accounting/lookback.php"
+        }
+    }
+    struct Payments: Decodable, Equatable {
+        let waiting: Int
+        let waitingTotal: Double
+        let high: Int
+        let url: String
+        private enum CodingKeys: String, CodingKey { case waiting, high, url, waitingTotal = "waiting_total" }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            waiting = c.bkInt(.waiting) ?? 0
+            waitingTotal = c.bkDouble(.waitingTotal) ?? 0
+            high = c.bkInt(.high) ?? 0
+            url = c.bkString(.url) ?? "/crm/accounting/payment-match.php"
+        }
+    }
+    struct Missing: Decodable, Equatable {
+        let open: Int
+        let openAmount: Double
+        let noReceipt: Int
+        let noReceiptAmount: Double
+        private enum CodingKeys: String, CodingKey {
+            case open, openAmount = "open_amount", noReceipt = "no_receipt", noReceiptAmount = "no_receipt_amount"
+        }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            open = c.bkInt(.open) ?? 0
+            openAmount = c.bkDouble(.openAmount) ?? 0
+            noReceipt = c.bkInt(.noReceipt) ?? 0
+            noReceiptAmount = c.bkDouble(.noReceiptAmount) ?? 0
+        }
+    }
+
+    let lookback: Lookback?
+    let payments: Payments?
+    let missing: Missing?
+
+    private enum CodingKeys: String, CodingKey { case lookback, payments, missing }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        lookback = try? c.decodeIfPresent(Lookback.self, forKey: .lookback)
+        payments = try? c.decodeIfPresent(Payments.self, forKey: .payments)
+        missing = try? c.decodeIfPresent(Missing.self, forKey: .missing)
+    }
+}
+
+// MARK: - Penny's messages (customer billing mail routed to her — InboundRouteService::forApp)
+
+/// "Vancouver Management wants your direct-deposit details — the form is attached; fill it in and
+/// email vidhya@vml.ca." A reminder for Tim: Penny never fills in or sends banking details.
+struct PennyMessage: Decodable, Identifiable, Equatable {
+    let key: String
+    let text: String
+    let subject: String
+    let at: String
+    let emailTo: String?
+    let note: String?
+    let contactURL: String?
+    let attachments: [PennyAttachment]
+
+    var id: String { key }
+
+    private enum CodingKeys: String, CodingKey {
+        case key, text, subject, at, note, attachments
+        case emailTo = "email_to"
+        case contactURL = "contact_url"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        key = c.bkString(.key) ?? UUID().uuidString
+        text = c.bkString(.text) ?? ""
+        subject = c.bkString(.subject) ?? ""
+        at = c.bkString(.at) ?? ""
+        emailTo = c.bkString(.emailTo)
+        note = c.bkString(.note)
+        contactURL = c.bkString(.contactURL)
+        attachments = (try? c.decodeIfPresent([PennyAttachment].self, forKey: .attachments)) ?? []
+    }
+}
+
+/// A kept attachment with a short-lived signed link (opens in Safari / Quick Look).
+struct PennyAttachment: Decodable, Identifiable, Equatable {
+    let id: Int
+    let filename: String
+    let url: String
+
+    private enum CodingKeys: String, CodingKey { case id, filename, url }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = c.bkInt(.id) ?? 0
+        filename = c.bkString(.filename) ?? "attachment.pdf"
+        url = c.bkString(.url) ?? ""
     }
 }
 

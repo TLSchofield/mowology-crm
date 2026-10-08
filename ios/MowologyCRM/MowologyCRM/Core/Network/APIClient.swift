@@ -224,8 +224,8 @@ final class APIClient: ObservableObject {
 
     /// Uploads a single before/after job photo for a visit.
     @discardableResult
-    func uploadJobPhoto(imageData: Data, visitId: Int, photoType: JobPhotoType) async throws -> [String: Any] {
-        try await uploadVisitPhoto(imageData: imageData, visitId: visitId, photoTypeRaw: photoType.rawValue)
+    func uploadJobPhoto(imageData: Data, visitId: Int, photoType: JobPhotoType, queuedAt: Date? = nil) async throws -> [String: Any] {
+        try await uploadVisitPhoto(imageData: imageData, visitId: visitId, photoTypeRaw: photoType.rawValue, queuedAt: queuedAt)
     }
 
     /// Upload a visit photo under any of the server's photo_type values.
@@ -235,7 +235,9 @@ final class APIClient: ObservableObject {
     /// The returned dictionary carries `media_id`, which is what links a photo to
     /// a recommendation.
     @discardableResult
-    func uploadVisitPhoto(imageData: Data, visitId: Int, photoTypeRaw: String) async throws -> [String: Any] {
+    /// `queuedAt` = when a queued photo was taken; the server's special-request gate accepts a
+    /// queued photo (logged) instead of refusing it forever. Nil for a live upload.
+    func uploadVisitPhoto(imageData: Data, visitId: Int, photoTypeRaw: String, queuedAt: Date? = nil) async throws -> [String: Any] {
         guard let url = APIEndpoint.scheduleJobPhoto.url else {
             throw APIError.invalidURL
         }
@@ -253,6 +255,9 @@ final class APIClient: ObservableObject {
                          data: imageData, boundary: boundary)
         body.appendField(name: "visit_id",   value: "\(visitId)",       boundary: boundary)
         body.appendField(name: "photo_type", value: photoTypeRaw,         boundary: boundary)
+        if let queuedAt {
+            body.appendField(name: "queued_at", value: "\(Int(queuedAt.timeIntervalSince1970 * 1000))", boundary: boundary)
+        }
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)
         request.httpBody = body
 

@@ -111,7 +111,15 @@ try {
     if (session_status() === PHP_SESSION_ACTIVE) {
         session_write_close();
     }
-    requirePermission('timer.start');
+    // requirePermission() reads the SESSION user — under a Bearer token there is none, so it
+    // denied every iOS call. JWT callers are checked against the token's user (2026-10-08).
+    if ($isJwt) {
+        if (!jwtUserHasPermission($user, 'timer.start')) {
+            vpfRespond(['success' => false, 'error' => 'Permission denied: timer.start required'], 403);
+        }
+    } else {
+        requirePermission('timer.start');
+    }
 
     $svc = new VisitPullForwardService($db);
 

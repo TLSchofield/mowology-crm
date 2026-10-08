@@ -11,6 +11,9 @@ struct MainTabView: View {
 
     @EnvironmentObject private var authSession: AuthSession
     @ObservedObject private var notificationRouter = NotificationRouter.shared
+    /// "Booked another day — doing it now?" (VisitPullForwardService): checks while the app is open.
+    @ObservedObject private var pullForward = PullForwardCoordinator.shared
+    @Environment(\.scenePhase) private var scenePhase
 
     /// Order: home first, the twice-a-day clock next to it, Search in the centre where either
     /// thumb reaches it, then the occasional Receipts, and Account last by convention.
@@ -62,12 +65,20 @@ struct MainTabView: View {
             }
         }
         .tint(Color.MW.green)
+        .sheet(item: $pullForward.offer, onDismiss: { pullForward.sheetDismissed() }) { offer in
+            PullForwardSheet(coordinator: pullForward, offer: offer)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { pullForward.appBecameActive(authSession: authSession) }
+            else if phase == .background { pullForward.appWentInactive() }
+        }
         // Every notification route today lands on the schedule; ScheduleView
         // consumes the route itself and opens the stop.
         .onChange(of: notificationRouter.pendingRoute) { _, route in
             if route != nil { selectedTab = .schedule }
         }
         .onAppear {
+            pullForward.appBecameActive(authSession: authSession)
             if notificationRouter.pendingRoute != nil { selectedTab = .schedule }
             else if notificationRouter.pendingHead != nil { openTeamForHead() }
         }
