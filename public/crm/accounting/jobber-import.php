@@ -27,6 +27,7 @@ $isAdmin    = isAdmin();
         <p class="text-muted mb-0 small">Jobber's invoices come in as history (never as CRM invoices, so nothing is counted twice). Only 2026 reaches the books: revenue for invoices issued in 2026, and each 2026 deposit against the Jobber payments it carried. Nothing is booked until you approve it; every approval can be undone.</p>
     </div>
     <div class="d-flex gap-2">
+        <a href="/crm/accounting/payment-match.php" class="btn btn-sm btn-primary">Payments ↔ invoices</a>
         <a href="/crm/accounting/fy-opening.php" class="btn btn-sm btn-outline-secondary">FY2026 opening</a>
         <a href="/crm/accounting/bank-balance-check.php" class="btn btn-sm btn-outline-secondary">Bank balance check</a>
     </div>

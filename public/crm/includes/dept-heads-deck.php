@@ -55,6 +55,13 @@ try {
         $__scs = new StatementCoverageService(getDB());
         if ($__scs->ready()) $__scStrip = StatementCoverageService::strip($__scs->latest());   // computed once a day
     } catch (Throwable $__e) { /* statements check is a bonus (migration 1231) */ }
+    $__pm = null;
+    try {
+        if (function_exists('isAdmin') && isAdmin()) {
+            require_once APP_ROOT . '/Modules/Accounting/Services/PaymentMatchService.php';
+            $__pm = (new PaymentMatchService(getDB()))->cardLine();   // cached; re-matched at most every 4 h
+        }
+    } catch (Throwable $__e) { /* payments ↔ invoices is a bonus (migration 1260) */ }
 } catch (Throwable $__e) {
     error_log('Dept heads deck unavailable: ' . $__e->getMessage());
     return;
@@ -192,6 +199,12 @@ $__team = [
       <?php endif; ?>
 
       <?php include __DIR__ . '/penny-statements-strip.php'; ?>
+
+      <?php if (!empty($__pm)): ?>
+      <a class="mw-penny-pm" href="<?= h($__pm['url']) ?>" title="Bank deposits I matched to the CRM and Jobber invoices they paid. Nothing is booked until you approve it.">
+        💳 <b><?= (int)$__pm['waiting'] ?> deposit<?= $__pm['waiting'] === 1 ? '' : 's' ?></b> matched to invoices waiting for you (<b><?= h($__money($__pm['waiting_total'])) ?></b>)<?php if ($__pm['high'] > 0): ?> · <?= (int)$__pm['high'] ?> high-confidence<?php endif; ?> →
+      </a>
+      <?php endif; ?>
 
       <div class="mw-pq" id="mw-pq" hidden></div>
 

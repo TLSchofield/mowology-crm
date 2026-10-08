@@ -38873,3 +38873,32 @@ body.mw-rc-zoom-open { overflow: hidden; }
   .mw-jbi-act { white-space: normal; }
   .mw-jbi-act .form-control { width: 100%; margin: 4px 0; }
 }
+
+/* ══ Payments ↔ invoices (/crm/accounting/payment-match.php — migration 1260) ═══ */
+.mw-pm-stat.is-good { border-left: 4px solid var(--mw-green); }
+.mw-pm-stat.is-warn { border-left: 4px solid var(--mw-orange); }
+.mw-pm-group.is-high .card-header { border-left: 4px solid var(--mw-green); }
+.mw-pm-group.is-medium .card-header { border-left: 4px solid var(--mw-lime); }
+.mw-pm-group.is-low .card-header { border-left: 4px solid var(--mw-orange); }
+.mw-pm-group.is-needs_you .card-header { border-left: 4px solid var(--mw-forest); }
+.mw-pm-list > li { padding: 10px 14px; border-top: 1px solid var(--mw-light); }
+.mw-pm-list > li:first-child { border-top: 0; }
+.mw-pm-row.is-picked { background: var(--mw-light); }
+.mw-pm-dep { display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; }
+.mw-pm-targets { margin: 4px 0 0; padding-left: 18px; }
+.mw-pm-kind { display: inline-block; font-size: 0.72rem; padding: 0 6px; border-radius: 3px; background: var(--mw-light); color: var(--mw-forest); }
+.mw-pm-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.mw-pm-diff { font-weight: 600; color: var(--mw-orange); }
+.mw-pm-diff.is-zero { color: var(--mw-green); }
+.mw-pm-pick { position: sticky; top: 8px; z-index: 5; border: 2px solid var(--mw-green); }
+.mw-pm-search { max-width: 260px; }
+.mw-pm-filter { max-width: 240px; }
+.mw-pm-open { max-height: 70vh; overflow: auto; }
+.mw-pm-open tr.is-ticked { background: var(--mw-light); }
+.mw-pm-amt { display: inline-block; width: 100px; margin-left: 6px; }
+@media (max-width: 575.98px) {
+  .mw-pm-search, .mw-pm-filter { max-width: 100%; }
+  .mw-pm-open { max-height: none; }
+}
+.mw-penny-pm { display: block; margin: 8px 0; padding: 8px 12px; border-radius: 6px; background: var(--mw-light); color: var(--mw-forest); border-left: 4px solid var(--mw-green); text-decoration: none; }
+.mw-penny-pm:hover { color: var(--mw-dark); text-decoration: underline; }

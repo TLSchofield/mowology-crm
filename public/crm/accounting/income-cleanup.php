@@ -24,6 +24,7 @@ $isAdmin    = isAdmin();
         <p class="text-muted mb-0 small">Penny: bank deposits still counted as income next to the invoices they paid. I propose, you approve, every booking can be undone.</p>
     </div>
     <div class="d-flex gap-2">
+        <a href="/crm/accounting/payment-match.php" class="btn btn-sm btn-primary">Payments ↔ invoices</a>
         <a href="/crm/accounting/income-statement.php" class="btn btn-sm btn-outline-secondary">Income statement</a>
         <a href="/crm/accounting/trial-balance.php" class="btn btn-sm btn-outline-secondary">Trial balance</a>
     </div>

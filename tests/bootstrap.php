@@ -189,6 +189,8 @@ require_once __DIR__ . '/../app/Modules/Accounting/Services/Fy2026OpeningService
 require_once __DIR__ . '/../app/Modules/Accounting/Services/JobberCsv.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/JobberImportService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/JobberLedgerService.php';
+// Payments reconciled against invoices — CRM + Jobber, one matcher (migration 1260)
+require_once __DIR__ . '/../app/Modules/Accounting/Services/PaymentMatchService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/DuplicateReceiptService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseApprovalService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseService.php';
