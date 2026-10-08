@@ -39,7 +39,15 @@ require_once APP_ROOT . '/Modules/Accounting/Services/JobberImportService.php';
 require_once APP_ROOT . '/Modules/Accounting/Services/JobberLedgerService.php';
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
-$input  = $method === 'POST' ? (json_decode((string)file_get_contents('php://input'), true) ?? []) : $_GET;
+if ($method === 'POST' && isset($_POST['payload'])) {
+    // Multipart: the host rejects JSON bodies over ~1 MB (413), so a CSV comes as a file upload.
+    $input = json_decode((string)$_POST['payload'], true) ?? [];
+    if (isset($_FILES['csv_file']) && is_uploaded_file($_FILES['csv_file']['tmp_name'])) {
+        $input['csv'] = (string)file_get_contents($_FILES['csv_file']['tmp_name']);
+    }
+} else {
+    $input = $method === 'POST' ? (json_decode((string)file_get_contents('php://input'), true) ?? []) : $_GET;
+}
 $mode   = (string)($input['mode'] ?? 'report');
 $user   = getCurrentUser();
 $userId = (int)($user['id'] ?? 0);

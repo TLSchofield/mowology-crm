@@ -30,6 +30,14 @@
     }
     function post(body) {
         body.csrf_token = window.MW_CSRF_TOKEN || '';
+        if (typeof body.csv === 'string') {
+            // The host 413s JSON bodies over ~1 MB; send the CSV as a file upload instead.
+            var fd = new FormData(), rest = {};
+            Object.keys(body).forEach(function (k) { if (k !== 'csv') rest[k] = body[k]; });
+            fd.append('payload', JSON.stringify(rest));
+            fd.append('csv_file', new Blob([body.csv], { type: 'text/csv' }), body.filename || 'jobber.csv');
+            return fetch(API, { method: 'POST', body: fd }).then(function (r) { return r.json(); });
+        }
         return fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
             .then(function (r) { return r.json(); });
     }
