@@ -83,6 +83,12 @@ try {
         exit;
     }
 
+    // Special request gate (inert unless ops_settings.special_requests_enabled): a live photo of
+    // a visit with an unread client request answers 409 with the request. A queued upload sends
+    // queued_at and passes (logged), so an already-taken photo is never stuck.
+    require_once APP_ROOT . '/Modules/Operations/Services/SpecialRequestGate.php';
+    SpecialRequestGate::enforce($db, $visitId, $userId, isset($_POST['queued_at']), $_POST['queued_at'] ?? null, 'photo', 'message');
+
     // Validate file
     if (empty($_FILES['photo']) || $_FILES['photo']['error'] !== UPLOAD_ERR_OK) {
         $code = $_FILES['photo']['error'] ?? -1;

@@ -92,6 +92,14 @@ try {
                 break;
             }
 
+            // Special request gate (inert unless ops_settings.special_requests_enabled): an unread
+            // client request on this visit answers 409 to a live tap. Only offline-queue.js replays
+            // carry Idempotency-Key / X-Queued-At here — they pass (logged) so they never stick.
+            require_once APP_ROOT . '/Modules/Operations/Services/SpecialRequestGate.php';
+            SpecialRequestGate::enforce(getDB(), $visitId, (int)$user['id'],
+                $idempKey !== '' || !empty($_SERVER['HTTP_X_QUEUED_AT']),
+                $_SERVER['HTTP_X_QUEUED_AT'] ?? null, $autoStarted ? 'auto_start' : 'start', 'error');
+
             $entryId = startVisitTimer($visitId, $user['id'], $lat, $lng, $autoStarted);
 
             // Auto clock-in globally if user is not already clocked in
@@ -165,6 +173,12 @@ try {
             $completeVisit = $input['complete_visit'] ?? true;
 
             $duration = stopVisitTimer($visitId, $user['id'], $lat, $lng, $notes, (bool)$completeVisit);
+
+            // Special-request extra work answered before completion goes on the visit's extras now.
+            if ($completeVisit) {
+                require_once APP_ROOT . '/Modules/Operations/Services/SpecialRequestGate.php';
+                SpecialRequestGate::afterCompletion(getDB(), $visitId);
+            }
 
             $responseStop = json_encode([
                 'success' => true,
