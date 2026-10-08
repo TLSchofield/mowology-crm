@@ -38873,3 +38873,9 @@ body.mw-rc-zoom-open { overflow: hidden; }
   .mw-jbi-act { white-space: normal; }
   .mw-jbi-act .form-control { width: 100%; margin: 4px 0; }
 }
+
+/* ══ Sidebar: who heads each department (appstack_sidebar.php 'head') ══ */
+.sidebar-header.mw-sb-headed { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.mw-sb-head { display: inline-flex; align-items: center; gap: 6px; text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--mw-lime); }
+.mw-sb-head img { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; border: 1px solid var(--mw-lime); }
+.sidebar.collapsed .mw-sb-head { display: none; }

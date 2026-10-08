@@ -13,7 +13,7 @@
  *                   'work-zones', 'users', 'settings', 'privacy', 'certification'
  *
  * Nav items support two types:
- *   - Section headers: ['type' => 'header', 'label' => 'Section Name']
+ *   - Section headers: ['type' => 'header', 'label' => 'Section Name', 'head' => 'otto'] (head = the department head shown beside it)
  *   - Nav links:       ['key' => '...', 'label' => '...', 'icon' => '...', 'href' => '...', 'perm' => '...']
  *
  * The 'perm' key is optional — if present, the item is hidden if the user
@@ -50,16 +50,16 @@ $_mwTaskBadge = $_mwOverdueTasks + $_mwPendingPurchases;
 $navItems = [
 
     // ── Overview ──────────────────────────────────────────────────────────────
-    ['type' => 'header', 'label' => 'Overview'],
+    ['type' => 'header', 'label' => 'Overview', 'head' => 'charlie'],
     ['key' => 'dashboard', 'label' => 'Dashboard', 'icon' => 'sliders', 'href' => '/crm/dashboard_appstack.php'],
 
     // ── Clients ───────────────────────────────────────────────────────────────
-    ['type' => 'header', 'label' => 'Clients'],
+    ['type' => 'header', 'label' => 'Clients', 'head' => 'sam'],
     ['key' => 'clients',   'label' => 'Contacts',  'icon' => 'users',   'href' => '/crm/clients_appstack.php',    'perm' => 'clients.view'],
     ['key' => 'companies', 'label' => 'Companies', 'icon' => 'home',    'href' => '/crm/companies/index.php',     'perm' => 'clients.view'],
 
     // ── Pipeline ──────────────────────────────────────────────────────────────
-    ['type' => 'header', 'label' => 'Pipeline'],
+    ['type' => 'header', 'label' => 'Pipeline', 'head' => 'sam'],
     ['key' => 'tasks',     'label' => 'Tasks',     'icon' => 'check-square', 'href' => '/crm/tasks_appstack.php', 'badge' => $_mwTaskBadge],
     ['key' => 'quotes',    'label' => 'Quotes',    'icon' => 'dollar-sign', 'href' => '/crm/quotes_appstack.php',    'perm' => 'billing.view'],
     ['key' => 'contracts', 'label' => 'Contracts', 'icon' => 'pen-tool', 'href' => '/crm/contracts_appstack.php', 'perm' => 'jobs.view'],
@@ -67,7 +67,7 @@ $navItems = [
     ['key' => 'invoices',  'label' => 'Invoices',  'icon' => 'file-text',  'href' => '/crm/invoices/index.php',     'perm' => 'billing.view'],
 
     // ── Schedule ──────────────────────────────────────────────────────────────
-    ['type' => 'header', 'label' => 'Schedule'],
+    ['type' => 'header', 'label' => 'Schedule', 'head' => 'otto'],
     ['key' => 'schedule',    'label' => 'Schedule',    'icon' => 'calendar', 'href' => '/crm/jobs/schedule.php',          'perm' => 'schedule.view'],
     ['key' => 'live-map',    'label' => 'Map',         'icon' => 'map',      'href' => '/crm/map.php',                    'perm' => 'team.view'],
     ['key' => 'timeclock',   'label' => 'Time Clock',  'icon' => 'clock',    'href' => '/crm/timeclock/my-schedule.php',  'perm' => 'schedule.view'],
@@ -78,7 +78,7 @@ $navItems = [
     ['key' => 'clusters',    'label' => 'Route Clusters', 'icon' => 'layers',  'href' => '/crm/jobs/clusters_appstack.php', 'perm' => 'jobs.view'],
 
     // ── Financials ────────────────────────────────────────────────────────────
-    ['type' => 'header', 'label' => 'Financials'],
+    ['type' => 'header', 'label' => 'Financials', 'head' => 'penny'],
     ['key' => 'accounting',    'label' => 'Accounting',    'icon' => 'book-open',   'href' => '/crm/accounting_appstack.php',         'perm' => 'expenses.view'],
     ['key' => 'expenses',      'label' => 'Expenses',      'icon' => 'credit-card', 'href' => '/crm/expenses_appstack.php',          'perm' => 'expenses.view'],
     ['key' => 'profitability', 'label' => 'Profitability', 'icon' => 'trending-up', 'href' => '/crm/profitability_appstack.php',     'perm' => 'expenses.view'],
@@ -87,7 +87,7 @@ $navItems = [
     ['key' => 'reports',      'label' => 'Reports',       'icon' => 'bar-chart-2', 'href' => '/crm/reports_appstack.php',           'perm' => 'expenses.view'],
 
     // ── Growth ────────────────────────────────────────────────────────────────
-    ['type' => 'header', 'label' => 'Growth'],
+    ['type' => 'header', 'label' => 'Growth', 'head' => 'mia'],
     ['key' => 'intel',     'label' => 'Marketing Intel',  'icon' => 'target',   'href' => '/crm/marketing/intel.php',      'perm' => 'marketing.view'],
     ['key' => 'marketing', 'label' => 'Email Campaigns', 'icon' => 'zap',      'href' => '/crm/marketing/campaigns.php', 'perm' => 'marketing.view'],
     ['key' => 'social',    'label' => 'Social Posts',    'icon' => 'share-2',  'href' => '/crm/marketing/social.php',   'perm' => 'marketing.view'],
@@ -96,16 +96,16 @@ $navItems = [
     ['key' => 'cms',       'label' => 'Website CMS',     'icon' => 'edit-3',   'href' => '/crm/cms-pages_appstack.php', 'perm' => 'marketing.edit'],
 
     // ── Fleet ─────────────────────────────────────────────────────────────────
-    ['type' => 'header', 'label' => 'Fleet'],
+    ['type' => 'header', 'label' => 'Fleet', 'head' => 'otto'],
     ['key' => 'driver',       'label' => 'Driver Portal',   'icon' => 'truck',       'href' => '/crm/driver-portal.php'],
     ['key' => 'trip-reports', 'label' => 'Trip Reports',    'icon' => 'clipboard',   'href' => '/crm/trip-reports_appstack.php', 'perm' => 'team.view'],
 
     // ── Communications ────────────────────────────────────────────────────────
-    ['type' => 'header', 'label' => 'Communications'],
+    ['type' => 'header', 'label' => 'Communications', 'head' => 'yui'],
     ['key' => 'messages', 'label' => 'Messages', 'icon' => 'message-circle', 'href' => '/crm/messages_appstack.php', 'badge' => $_mwUnreadMessages],
 
     // ── Team ──────────────────────────────────────────────────────────────────
-    ['type' => 'header', 'label' => 'Team'],
+    ['type' => 'header', 'label' => 'Team', 'head' => 'charlie'],
     ['key' => 'team',        'label' => 'Team',           'icon' => 'user-check',  'href' => '/crm/team/index.php',            'perm' => 'team.view'],
     ['key' => 'leaderboard', 'label' => 'Leaderboard',    'icon' => 'award',       'href' => '/crm/leaderboard_appstack.php',  'perm' => 'team.view'],
     ['key' => 'quiz',          'label' => 'Knowledge Quiz',  'icon' => 'book-open',   'href' => '/crm/quiz_appstack.php'],
@@ -113,7 +113,7 @@ $navItems = [
     ['key' => 'map',         'label' => 'Territory Map',  'icon' => 'map',         'href' => '/crm/map_appstack.php',          'perm' => 'jobs.view'],
 
     // ── Library ───────────────────────────────────────────────────────────────
-    ['type' => 'header', 'label' => 'Library'],
+    ['type' => 'header', 'label' => 'Library', 'head' => 'mia'],
     ['key' => 'photos',    'label' => 'Photo Timeline', 'icon' => 'camera',  'href' => '/crm/photos_appstack.php',        'perm' => 'jobs.view'],
     ['key' => 'products',  'label' => 'Products',      'icon' => 'package',  'href' => '/crm/products/index.php',         'perm' => 'products.view'],
     ['key' => 'portfolio',     'label' => 'Portfolio',       'icon' => 'image',    'href' => '/crm/portfolio/index.php',        'perm' => 'portfolio.view'],
@@ -134,7 +134,11 @@ $navItems = [
 
                 // Section header
                 if (isset($item['type']) && $item['type'] === 'header'): ?>
-                    <li class="sidebar-header"><?php echo htmlspecialchars($item['label']); ?></li>
+                    <li class="sidebar-header<?php echo !empty($item['head']) ? ' mw-sb-headed' : ''; ?>"><?php echo htmlspecialchars($item['label']); ?>
+                        <?php if (!empty($item['head'])): $__h = $item['head']; ?>
+                        <span class="mw-sb-head" title="<?php echo htmlspecialchars(ucfirst($__h)); ?> heads this department"><img src="/crm/img/heads/<?php echo htmlspecialchars($__h); ?>.jpg" alt="" width="20" height="20" loading="lazy"><?php echo htmlspecialchars(ucfirst($__h)); ?></span>
+                        <?php endif; ?>
+                    </li>
                 <?php continue; endif;
 
                 // Permission check
