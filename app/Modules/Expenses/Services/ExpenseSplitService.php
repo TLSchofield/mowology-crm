@@ -239,7 +239,7 @@ class ExpenseSplitService
         if (self::isFood($name)) return $pick(null, 'Meals', null, false, 'Food or drink — Meals (half the GST is claimable)', 'meals');
 
         if ($quoteJob) {
-            return $pick((int)$quoteJob['plan_id'], 'Materials', null, false, 'On ' . $quoteJob['label'] . '\'s quote', 'job_quote');
+            return $pick((int)$quoteJob['plan_id'], 'Materials', null, false, 'On the quote for ' . $quoteJob['label'], 'job_quote');
         }
         if (!empty($line['track_inventory'])) {
             return $pick(null, 'Materials', null, true, 'A product you keep in stock', 'stock_product');

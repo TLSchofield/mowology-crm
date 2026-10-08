@@ -337,6 +337,12 @@ MwTripLog.submit('save_pre_trip' | 'save_post_trip' | 'declare', fields, MW_USER
 - **Purpose:** suggestions Penny and Yui spotted in payments and mail (strata plan numbers, job titles and firms in signatures, missing phones/emails, an accountant set up as the quote signer), each with Apply / Not right. Nothing changes a record without that click; buttons only for admins.
 - **Usage:** `<div class="mw-clues" id="mw-clues" data-contact-id="<?= (int)$contactId ?>"></div>` + the script. Leave out `data-contact-id` for every open clue (Yui's card does). Renders nothing when there are none, or before migration 1206.
 
+### Split by line (MwExpenseSplit)
+- **JS:** `public/crm/js/expense-split.js`; **CSS:** `mowology-brand.css` (`.mw-split*`); **Service:** `app/Modules/Expenses/Services/ExpenseSplitService.php` (migration 1233).
+- **Purpose:** one receipt, several destinations — each line gets For (a job, 🏪 shop stock, or no job), a category and (on Fuel) the truck / equipment tag. Penny pre-fills it; the server works the money out (GST by net, PST only on the taxable lines) and shows the job cost per destination.
+- **Usage:** `var state = MwExpenseSplit.render(el, data, { categories: [...], autoOn: true|false, state: previous, locked: bool })` with `data` from `/crm/api/expenses.php?action=split&id=N` (or Penny's queue item `.split`); send `MwExpenseSplit.value(state)` (null = send nothing) as `split` on `expenses.php` `update`, or `overrides.split` on Penny's `decide`. Both save through `ExpenseGate`.
+- **Used by:** Penny's receipt card (`bookkeeper-card.js`, loads the script itself) and the expense edit modal (`expenses_appstack.php`, `#expSplitPanel`).
+
 ---
 
-**Total: 20 components documented.**
+**Total: 21 components documented.**
