@@ -2468,17 +2468,13 @@ function getWorkQueueItems() {
         }
     } catch (Exception $e) {}
 
-    // Unbilled completed visits
+    // Unbilled completed visits — UnbilledVisitService is the one definition (2026-10-07: the old
+    // query counted every contract-billed visit, "186 unbilled"). Breakdown: /crm/api/otto.php?mode=unbilled_check
     try {
-        $row = $db->query("
-            SELECT COUNT(*) as cnt,
-                   SUM(COALESCE(jv.actual_amount, jp.price_per_visit, 0)) as total
-            FROM job_visits jv
-            JOIN job_plans jp ON jv.plan_id = jp.id
-            WHERE jv.status = 'completed'
-            AND (jv.is_invoiced = 0 OR jv.invoice_id IS NULL)
-        ")->fetch(PDO::FETCH_ASSOC);
-        if ($row && $row['cnt'] > 0) {
+        require_once __DIR__ . '/../Modules/Invoices/Services/UnbilledVisitService.php';
+        $ub = (new UnbilledVisitService($db))->summary();
+        $row = ['cnt' => $ub['count'], 'total' => $ub['amount']];
+        if ($row['cnt'] > 0) {
             $items[] = [
                 'category'    => 'critical',
                 'icon'        => 'dollar-sign',

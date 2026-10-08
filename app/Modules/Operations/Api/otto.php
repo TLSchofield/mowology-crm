@@ -6,6 +6,10 @@
  *                         learned from; expires ones fixed elsewhere) + open questions.
  * GET  ?mode=brief        Charlie's 7 am brief for this head (read-only).
  * GET  ?mode=find_slot&visit_id=N   The weather guard's next good slot for a flagged visit.
+ * GET  ?mode=unbilled_check[&plan_id=N][&list=1]   Admin only. Why the "unbilled visits" count
+ *                         is what it is: old count → truly unbilled, by bucket (contract,
+ *                         invoiced, flat-priced, no charge, before the CRM, test, contract
+ *                         gaps). list=1 adds the unbilled visits and the contract gaps.
  * POST {mode: 'decide', suggestion_id, choice, date?, time?, clock_out?, minutes?, csrf_token}
  *        weather: move (with date/time) | keep · clock_out / job_timer / no_time: apply
  *        silent: real | fine · any: dismiss
@@ -77,6 +81,25 @@ try {
     if ($method === 'GET' && $mode === 'brief') {
         require_once APP_ROOT . '/Modules/Expenses/Services/PennyQuestionService.php';
         echo json_encode(['ok' => true] + $desk->brief(PennyQuestionService::firstName((array)$user)));
+        exit;
+    }
+
+    if ($method === 'GET' && $mode === 'unbilled_check') {
+        if (($user['role'] ?? '') !== 'admin') {
+            http_response_code(403);
+            echo json_encode(['ok' => false, 'error' => 'Admins only.']);
+            exit;
+        }
+        require_once APP_ROOT . '/Modules/Invoices/Services/UnbilledVisitService.php';
+        $planId = (int)($_GET['plan_id'] ?? 0);
+        $sum = (new UnbilledVisitService($db))->summary($planId > 0 ? [$planId] : null);
+        $out = ['ok' => true, 'text' => $sum['text'], 'was' => $sum['was'], 'count' => $sum['count'], 'amount' => $sum['amount'],
+                'buckets' => $sum['buckets']];
+        if (!empty($_GET['list'])) {
+            $out['visits'] = $sum['visits'];
+            $out['gaps'] = $sum['gaps'];
+        }
+        echo json_encode($out);
         exit;
     }
 
