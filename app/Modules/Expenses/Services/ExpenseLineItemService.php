@@ -120,6 +120,7 @@ class ExpenseLineItemService
             updateLineItemProfileStats($this->db, (int)$existing['vendor_id'], 0, 1);
         }
 
+        if (empty($existing['product_id'])) proposeProductsForExpense($this->db, (int)$existing['expense_id']);
         return $this->fetchJoined($lineItemId);
     }
 
@@ -172,6 +173,7 @@ class ExpenseLineItemService
             }
         }
 
+        if (!$productId) proposeProductsForExpense($this->db, $expenseId);
         return $this->fetchJoined($newId);
     }
 

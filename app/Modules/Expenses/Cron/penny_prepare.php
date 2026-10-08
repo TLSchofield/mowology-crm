@@ -78,6 +78,22 @@ $finish = function (string $status, string $summary, ?string $error = null) use 
 
 try {
     $db = getDB();
+
+    // Receipts feed the product catalogue: read a few past receipts (last 120 days) per run
+    // for product proposals on Penny's card. Free (no AI), never creates anything.
+    if (!$dryRun) {
+        try {
+            require_once APP_ROOT . '/Modules/Products/Services/ProductProposalService.php';
+            $pps = new ProductProposalService($db);
+            if ($pps->ready()) {
+                $bf = $pps->backfill(ProductProposalService::BACKFILL_DAYS, 10);
+                if ($bf['scanned'] > 0) $pennyLog("Product scan: read {$bf['scanned']} receipt(s), {$bf['proposals']} proposal(s), {$bf['left']} left.");
+            }
+        } catch (Throwable $e) {
+            $pennyLog('Product scan skipped: ' . $e->getMessage());
+        }
+    }
+
     $svc = new ReceiptBookkeeperService($db);
     $desk = new BookkeeperDeskService($db, $svc);
     if (!$desk->ready()) {

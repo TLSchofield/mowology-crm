@@ -399,6 +399,14 @@ class ReceiptInboxService
         $expenseId = (int) $this->db->lastInsertId();
         $guard->release($mediaId);
 
+        // Its parsed lines (kept in raw_ocr_json) feed the product catalogue — proposals on
+        // Penny's card only, nothing created (ProductProposalService, migration 1225).
+        $pp = dirname(__DIR__, 2) . '/Products/Services/ProductProposalService.php';
+        if (is_file($pp)) {
+            require_once $pp;
+            ProductProposalService::afterLineItemsSaved($this->db, $expenseId);
+        }
+
         // 7) Finalize the claimed audit row with the outcome.
         //    'auto_posted' is now written only when the owner approves (approve() /
         //    BookkeeperDeskService::afterInboxApproval).

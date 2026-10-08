@@ -202,6 +202,14 @@ class OpsDeskService
             require_once __DIR__ . '/TripCostService.php';
             foreach ((new TripCostService($this->db))->briefItems($this->today) as $it) $out[] = $it;
         } catch (Throwable $e) { /* additive only (migration 1216) */ }
+        // Machines due / nearly due for service, low stock, machines from label photos (priority 2–3).
+        try {
+            $care = dirname(__DIR__, 2) . '/Products/Services/ProductCareService.php';
+            if (is_file($care)) {
+                require_once $care;
+                foreach ((new ProductCareService($this->db, $this->today))->briefItems() as $it) $out[] = $it;
+            }
+        } catch (Throwable $e) { /* additive only (migration 1225) */ }
         $out = OttoRules::sortItems($out);
         return ['head' => 'otto', 'headline' => $headline, 'items' => $out, 'count' => count($out)];
     }

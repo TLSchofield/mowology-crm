@@ -33,6 +33,25 @@ class PennyBriefAdapter
         } catch (Throwable $e) {
             error_log('Penny brief (clues): ' . $e->getMessage());
         }
+        // Product proposals from label photos and receipts — priority 3 (migration 1225).
+        try {
+            $pp = APP_ROOT . '/Modules/Products/Services/ProductProposalService.php';
+            if (is_file($pp)) {
+                require_once $pp;
+                $brief = self::withItems($brief, (new ProductProposalService($this->db))->briefItems());
+            }
+        } catch (Throwable $e) {
+            error_log('Penny brief (products): ' . $e->getMessage());
+        }
+        return $brief;
+    }
+
+    /** Pure: add items to a brief (count follows). */
+    public static function withItems(array $brief, array $items): array
+    {
+        if (!$items) return $brief;
+        $brief['items'] = array_merge($brief['items'] ?? [], $items);
+        $brief['count'] = count($brief['items']);
         return $brief;
     }
 

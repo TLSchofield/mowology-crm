@@ -182,6 +182,44 @@ final class APIClient: ObservableObject {
         }
     }
 
+    // MARK: - Label Upload
+
+    /// Uploads a photo of a product label / machine nameplate. Never creates an expense —
+    /// the server turns it into a proposal on Penny's or Otto's web card.
+    func uploadLabel(imageData: Data, lat: Double?, lng: Double?) async throws -> LabelCaptureResponse {
+        guard let url = APIEndpoint.labelUpload.url else { throw APIError.invalidURL }
+
+        let boundary = "MwBoundary-\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        var request  = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 45
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        if let token = authSession?.token {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        var body = Data()
+        body.appendField(name: "label_photo", filename: "label.jpg", mimeType: "image/jpeg", data: imageData, boundary: boundary)
+        if let lat = lat { body.appendField(name: "lat", value: "\(lat)", boundary: boundary) }
+        if let lng = lng { body.appendField(name: "lng", value: "\(lng)", boundary: boundary) }
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+
+        let data: Data
+        let response: URLResponse
+        do { (data, response) = try await session.data(for: request) }
+        catch { throw APIError.networkError(error) }
+
+        if let http = response as? HTTPURLResponse {
+            if http.statusCode == 401 { authSession?.logout(); throw APIError.unauthorized }
+            if !(200..<300).contains(http.statusCode) {
+                throw APIError.serverError(extractErrorMessage(from: data) ?? "Upload failed (\(http.statusCode))")
+            }
+        }
+        do { return try decoder.decode(LabelCaptureResponse.self, from: data) }
+        catch { throw APIError.decodingError(error) }
+    }
+
     // MARK: - Job Photo Upload
 
     /// Uploads a single before/after job photo for a visit.
