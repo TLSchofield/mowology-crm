@@ -123,7 +123,7 @@
   <script src="/crm/js/mw-datepicker.js?v=20260731b"></script>
   <script src="/crm/js/time-clock-widget.min.js?v=20261002a"></script>
   <script src="/crm/js/mw-trip-log.js?v=20260919a"></script>
-  <script src="/crm/js/capacitor-bridge.js?v=20261002a"></script>
+  <script src="/crm/js/capacitor-bridge.js?v=20261007p"></script>
   <?php
   // On site at a property whose visit is booked another day → offer to do it now (field devices
   // only). OFF unless ops_settings pull_forward_enabled / pull_forward_user_ids says so — the
@@ -139,7 +139,7 @@
   <!-- Camera permission guard: turns Android's cryptic "Access denied" into actionable guidance -->
   <script src="/crm/js/mw-camera-permission.js?v=20260625a"></script>
   <!-- Photo Queue: durable storage + background upload engine (must load before media-uploader.js) -->
-  <script src="/crm/js/photo-queue.js?v=20261008a"></script>
+  <script src="/crm/js/photo-queue.js?v=20260401a"></script>
 
   <!-- Dropdown fix: app.js bundles jQuery+Bootstrap whose dropdown plugin fails without global Popper.
        Remove the broken jQuery handler and replace with a working vanilla JS one. -->
