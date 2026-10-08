@@ -424,7 +424,14 @@ class LookbackService
                         [self::kindWhy($kind), 'The entry is reversed and posted again from the receipt as it is now (append-only).'], 90, (float)$x['total']);
                 }
             } elseif ($e['source_type'] === 'bank_import') {
-                if (isset($depositBooked[(int)$e['source_id']])) continue;   // its deposit booking owns it (JobberLedgerService / 1236)
+                if (isset($depositBooked[(int)$e['source_id']])) {
+                    // Booked as a deposit (Jobber import / 1236). JobberLedgerService never books a deposit that still has a
+                    // live bank_import entry, so both live = counted twice: reverse this one, the deposit entry stays.
+                    $out[] = $mk('journal_double', $e, 'Bank line #' . (int)$e['source_id'] . ' is posted twice — as a bank line (#' . $id . ') and as a deposit — reverse #' . $id,
+                        ['action' => 'reverse_entry', 'entry_id' => $id],
+                        ['The deposit booking (Jobber import / bank balance check) carries this line; this older bank-line entry counts it again.'], 90, $debits($ls));
+                    continue;
+                }
                 if (!isset($txs[(int)$e['source_id']])) {
                     $out[] = $mk('journal_orphan', $e, 'Entry #' . $id . ' books bank line #' . (int)$e['source_id'] . ', which was deleted — reverse it',
                         ['action' => 'reverse_entry', 'entry_id' => $id], ['The bank line is gone (rolled back or removed); its journal entry stayed.'], 90, $debits($ls));

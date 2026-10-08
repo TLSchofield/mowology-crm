@@ -14,7 +14,7 @@ class LookbackRulesTest extends TestCase
         '1025' => ['id' => 3, 'name' => 'GST Reserves', 'type' => 'asset'],
         '1320' => ['id' => 4, 'name' => 'Income Tax Instalments Paid', 'type' => 'asset'],
         '2215' => ['id' => 5, 'name' => 'GST/HST Instalments Paid', 'type' => 'liability'],
-        '2250' => ['id' => 6, 'name' => 'Income Tax Payable', 'type' => 'liability'],
+        '2510' => ['id' => 6, 'name' => 'Income Tax Payable', 'type' => 'liability'],
         '2400' => ['id' => 7, 'name' => 'Credit Card Payable', 'type' => 'liability'],
         '2610' => ['id' => 8, 'name' => 'Loan Payable — RAM 3500HD', 'type' => 'liability'],
         '5100' => ['id' => 9, 'name' => 'Labour — Crew Wages', 'type' => 'expense'],
@@ -238,7 +238,7 @@ class LookbackRulesTest extends TestCase
         $gst = LookbackRules::bankLine(self::tx(['description' => 'GOVT CANADA TAX PAYMENT', 'amount' => 3500, 'transaction_date' => '2026-07-15']), self::CODES);
         $this->assertSame(['cra_tax', '2215'], [$gst['kind'], $gst['after']['account']]);
         $bal = LookbackRules::bankLine(self::tx(['description' => 'CRA BUSINESS PAYMENT', 'amount' => 10454, 'transaction_date' => '2026-06-28']), self::CODES);
-        $this->assertSame('2250', $bal['after']['account']);
+        $this->assertSame('2510', $bal['after']['account'], 'the FY2026 opening put the filed $10,454 on 2510');
         $inst = LookbackRules::bankLine(self::tx(['description' => 'RECEIVER GENERAL', 'amount' => 3690, 'transaction_date' => '2026-06-29']), self::CODES);
         $this->assertSame('1320', $inst['after']['account']);
         $this->assertSame('1320', LookbackRules::bankLine(self::tx(['description' => 'CRA', 'amount' => 875, 'transaction_date' => '2026-08-31']), self::CODES)['after']['account']);

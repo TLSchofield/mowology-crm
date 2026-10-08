@@ -97,7 +97,7 @@ class LookbackRules
      * amount => [account code, from date (inclusive) or null, what it is].
      */
     public const CRA_KNOWN = [
-        ['amount' => 10454.00, 'code' => '2250', 'from' => null,         'what' => '2025 corporate income tax balance — clears Income Tax Payable'],
+        ['amount' => 10454.00, 'code' => '2510', 'from' => null,         'what' => '2025 corporate income tax balance — clears Income Tax Payable (2510, set by the FY2026 opening)'],
         ['amount' => 3690.00,  'code' => '1320', 'from' => null,         'what' => '2026 corporate income-tax instalment due by June 30, 2026'],
         ['amount' => 875.00,   'code' => '1320', 'from' => '2026-07-01', 'what' => '2026 corporate income-tax instalment ($875/month from July)'],
         ['amount' => 3500.00,  'code' => '2215', 'from' => '2026-06-01', 'what' => '2026 GST instalment ($3,500/month from June) — reduces GST owing'],

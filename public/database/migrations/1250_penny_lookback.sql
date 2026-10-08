@@ -11,11 +11,14 @@
 --     3. lookback_ai_calls  — every Claude call (tokens, $) — the spend cap reads this.
 --     4. ops_settings penny_lookback_budget (USD, default 15) — total AI spend for the review.
 --     5. Accounts the review files to when missing (by code, never renamed):
---          1300 Due from Shareholder (asset)       — personal purchases (LedgerService::ACC_DUE_FROM_SH)
+--          1300 Due from Shareholder (asset)       — personal purchases (LedgerService::ACC_DUE_FROM_SH;
+--                                                    normally already created by migration 1238)
 --          1320 Income Tax Instalments Paid (asset)— 2026 corporate tax instalments ($3,690; $875/month)
 --          2215 GST/HST Instalments Paid (liability, debit) — 2026 GST instalments ($3,500/month)
---          2250 Income Tax Payable (liability)     — 2025 corporate tax $10,454 paid in 2026
 --        and the receipt category 'Personal' → 1300 (expense_category_accounts).
+--        The 2025 income tax ($10,454) is paid off 2510 Income Tax Payable, which migration 1238
+--        (FY2026 opening) created — this migration does not create a tax-payable account.
+--        Not used here: 2310 (reserved for payroll source deductions), 2500 / 2510 (1238).
 -- Nothing existing is changed. MySQL 5.7 compatible (no JSON type / functions: *_json columns are
 -- TEXT holding PHP json_encode output); safe to re-run.
 
@@ -97,12 +100,9 @@ INSERT INTO chart_of_accounts (code, name, type, sub_type, normal_balance, is_sy
 SELECT '2215', 'GST/HST Instalments Paid', 'liability', 'tax_itc', 'debit', 0, 1, 103, 'GST instalments paid to CRA (RT account) — reduce GST owing on the return'
 FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM (SELECT id FROM chart_of_accounts WHERE code = '2215') x);
 
-INSERT INTO chart_of_accounts (code, name, type, sub_type, normal_balance, is_system, is_active, display_order, description)
-SELECT '2250', 'Income Tax Payable', 'liability', 'tax_payable', 'credit', 0, 1, 104, 'Corporate income tax owed to CRA'
-FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM (SELECT id FROM chart_of_accounts WHERE code = '2250') x);
 
 -- Receipt category 'Personal' → Due from Shareholder (only when the map table exists — migration 1130).
 INSERT IGNORE INTO expense_category_accounts (category, account_id)
 SELECT 'personal', c.id FROM chart_of_accounts c WHERE c.code = '1300' ORDER BY c.id LIMIT 1;
 
-SELECT code, name, type FROM chart_of_accounts WHERE code IN ('1300', '1320', '2215', '2250') ORDER BY code;
+SELECT code, name, type FROM chart_of_accounts WHERE code IN ('1300', '1320', '2215', '2510') ORDER BY code;
