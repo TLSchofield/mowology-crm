@@ -65,7 +65,9 @@ class BankLineMoveService
         $acct = $this->account($accountId);
         if (!$acct) return ['ok' => false, 'message' => 'Unknown account'];
 
-        $type = self::typeFor((string)$tx['type'], (string)$acct['type']);
+        $moneyIn = ($tx['type'] ?? '') === 'transfer'
+            && LedgerSyncService::transferDirection($this->sync->directionFacts($txId)[$txId] ?? []) === 'in';
+        $type = self::typeFor((string)$tx['type'], (string)$acct['type'], $moneyIn);
         $zeroGst = in_array($acct['type'], self::TRANSFER_TYPES, true);
         $this->db->prepare("UPDATE accounting_transactions SET account_id = ?, type = ?, is_auto_categorized = 0"
                            . ($zeroGst ? ', gst_amount = 0' : '') . " WHERE id = ?")
@@ -215,10 +217,15 @@ class BankLineMoveService
     // Pure (unit tested)
     // ─────────────────────────────────────────────────────────────────────────
 
-    /** The line's type on its new account, read the way bankRowToEntryArgs posts it. */
-    public static function typeFor(string $oldType, string $accountType): string
+    /**
+     * The line's type on its new account, read the way bankRowToEntryArgs posts it.
+     * A deposit already flipped to 'transfer' (money IN, $moneyIn) stays a transfer: it is
+     * carried by its invoices, and as an 'expense' it would post as money out.
+     */
+    public static function typeFor(string $oldType, string $accountType, bool $moneyIn = false): string
     {
         if ($oldType === 'income') return 'income';
+        if ($oldType === 'transfer' && $moneyIn) return 'transfer';
         return in_array($accountType, self::TRANSFER_TYPES, true) ? 'transfer' : 'expense';
     }
 

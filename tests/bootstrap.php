@@ -171,6 +171,9 @@ require_once __DIR__ . '/../app/Modules/Accounting/Services/RecurringBillService
 require_once __DIR__ . '/../app/Modules/Accounting/Services/BankDuplicateCleanup.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/StripePayoutService.php';
 require_once __DIR__ . '/../app/Modules/Accounting/Services/BankLineMoveService.php';
+require_once __DIR__ . '/../app/Modules/Accounting/Services/IncomeCleanupService.php';
+require_once __DIR__ . '/../app/Modules/Accounting/Services/CreditCardPayableAuditService.php';
+require_once __DIR__ . '/../app/Modules/Accounting/Services/BankTransferDirectionRepair.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/DuplicateReceiptService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseApprovalService.php';
 require_once __DIR__ . '/../app/Modules/Expenses/Services/ExpenseService.php';
