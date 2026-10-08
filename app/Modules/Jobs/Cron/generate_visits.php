@@ -110,6 +110,20 @@ try {
         }
     }
 
+    // Monday salt & snow statements ride this already-scheduled cron (once per inbox
+    // per week; a no-op until there are snow route runs). Never fails the visit run.
+    try {
+        require_once APP_ROOT . '/Modules/Contracts/Services/SnowContractService.php';
+        require_once APP_ROOT . '/Modules/Contracts/Services/SnowWeeklyStatementService.php';
+        $snowStmt = (new SnowWeeklyStatementService(getDB()))->sendDue(date('Y-m-d'));
+        if ($snowStmt['sent'] || $snowStmt['failed']) {
+            error_log(sprintf('[generate_visits cron] snow statements week %s: sent=%d failed=%d',
+                $snowStmt['week']['start'], $snowStmt['sent'], $snowStmt['failed']));
+        }
+    } catch (Throwable $e) {
+        error_log('[generate_visits cron] snow statements: ' . $e->getMessage());
+    }
+
     $hasErrors = !empty($result['errors']);
     recordCronRun(
         'generate_visits',

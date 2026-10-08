@@ -413,6 +413,7 @@ function runSaltAlerts(PDO $db): array
                 'high' => (float)($day['temp_high'] ?? 0),
                 'condition' => $day['condition'] ?? 'Unknown',
                 'salt' => $needsSalt,
+                'arctic' => $low <= -5,
             ];
 
             if ($needsSalt) {
@@ -503,6 +504,11 @@ function runSaltAlerts(PDO $db): array
             $low = $day['temp_low'] ?? '?';
             $high = $day['temp_high'] ?? '?';
             $condition = ucfirst($day['condition'] ?? 'Unknown');
+            // -5C or colder: contract rate is the daily Arctic salt, so say so up front —
+            // the crew pick "Arctic salt" at the stop (SnowContractService).
+            if (is_numeric($low) && (float)$low <= -5) {
+                $condition = 'ARCTIC salt (-5C) - ' . $condition;
+            }
             $dateLabel = date('M j', strtotime($date));
             $dayName = date('l', strtotime($date));
 
