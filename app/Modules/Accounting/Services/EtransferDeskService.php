@@ -12,6 +12,7 @@
  * No namespace / no autoloader in production: require_once and `new`.
  */
 require_once __DIR__ . '/EtransferInboxService.php';
+require_once __DIR__ . '/EtransferNudgeService.php';
 
 class EtransferDeskService
 {
@@ -24,7 +25,7 @@ class EtransferDeskService
         $this->inbox = new EtransferInboxService($db);
     }
 
-    /** @return array{waiting: int, items: array} */
+    /** @return array{waiting: int, items: array, nudged: int} */
     public function queue(int $limit = 10): array
     {
         $rows = $this->inbox->listPending();
@@ -32,7 +33,8 @@ class EtransferDeskService
         foreach (array_slice($rows, 0, max(1, min(25, $limit))) as $et) {
             $items[] = $this->read($et);
         }
-        return ['waiting' => count($rows), 'items' => $items];
+        // Card fact: clients Penny has asked to use the Auto-deposit address (migration 1301).
+        return ['waiting' => count($rows), 'items' => $items, 'nudged' => (new EtransferNudgeService($this->db))->countSent()];
     }
 
     /** One transfer, read the way the Invoices panel reads it — plus Penny's sentence. */
