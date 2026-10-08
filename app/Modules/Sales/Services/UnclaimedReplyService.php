@@ -16,7 +16,12 @@
  *   - not answered: no outbound message to the contact, no quote created for them
  *     (quotes.contact_id or the property's site contact), after the reply — and the item's
  *     key was not dismissed (any time) or snoozed (until a future day) in Charlie;
- *   - not automated (no-reply senders, bounces, out-of-office).
+ *   - not automated (no-reply senders, bounces, out-of-office);
+ *   - not settled by a payment (2026-10-07, Alexandra's "Paid. Thanks!" to a reminder stayed
+ *     open after Tim recorded the payment): see paymentState(). A reply about an invoice is
+ *     resolved when every invoice it refers to is now paid, or when it says "paid" / "sent" /
+ *     "done" / only thanks AND a payment from that payer was recorded on or after its day.
+ *     A "paid" claim with nothing recorded stays open and says so ("check e-Transfers").
  * One item per contact: their latest such reply. A short "yes" ranks first (isYes()).
  *
  * Two lanes (2026-10-06, Yui — comms / client relations — took over client conversations):
@@ -39,6 +44,8 @@ class UnclaimedReplyService
     public const QUOTE_CHARS = 60;
     /** isYes(): a message longer than this is not a "short" yes. */
     public const YES_MAX_CHARS = 200;
+    /** paymentState(): how far back to look for the reminder a reply answers. */
+    public const REMINDER_LOOKBACK_DAYS = 45;
 
     private PDO $db;
 
@@ -98,7 +105,11 @@ class UnclaimedReplyService
             $quotes = $q->fetchAll(PDO::FETCH_ASSOC);
         } catch (Throwable $e) { /* no quotes → nothing answered by a quote */ }
 
+        [$invoices, $outMsgs] = $this->invoiceFacts($replies, $ids, $from);
+
         return self::unclaimed($replies, [
+            'invoices' => $invoices,
+            'out_msgs' => $outMsgs,
             'sam'      => $samRepliedContactIds,
             'mia'      => $this->miaContacts($now),
             'asks'     => $this->asks($now),
@@ -106,6 +117,70 @@ class UnclaimedReplyService
             'quotes'   => $quotes,
             'hidden'   => array_merge($this->hiddenKeys($now), $extraHidden),
         ], $now);
+    }
+
+    /**
+     * The invoices these replies may be about, for paymentState(): every non-draft invoice
+     * billed to one of the contacts (invoices.contact_id or invoice_contacts) in the last
+     * year, plus any invoice named by number in a reply or a reminder. Each row carries when
+     * the latest payment was recorded (invoices.paid_at or a payment allocation's created_at).
+     * Also the outbound messages that name an invoice (the reminder a reply answers).
+     * Read-only; a missing table just means no facts (the reply stays open, as before).
+     *
+     * @param string $ids comma-separated ints (already sanitised)
+     * @return array{0: array, 1: array}
+     */
+    private function invoiceFacts(array $replies, string $ids, string $from): array
+    {
+        if (!$this->hasTable('invoices')) return [[], []];
+        $since = date('Y-m-d', strtotime($from) - 365 * 86400);
+        $numbers = [];
+        foreach ($replies as $r) {
+            foreach (self::invoiceRefs((string)($r['subject'] ?? '') . "\n" . (string)($r['snippet'] ?? '')) as $n) $numbers[$n] = true;
+        }
+
+        $outMsgs = [];
+        try {
+            $o = $this->db->prepare("SELECT contact_id, sent_at, subject, snippet FROM sales_messages
+                                     WHERE direction = 'outbound' AND contact_id IN ({$ids}) AND sent_at >= ?
+                                       AND (subject LIKE '%nvoice%' OR subject LIKE '%INV%' OR snippet LIKE '%INV-%')");
+            $o->execute([date('Y-m-d H:i:s', strtotime($from) - self::REMINDER_LOOKBACK_DAYS * 86400)]);
+            foreach ($o->fetchAll(PDO::FETCH_ASSOC) as $m) {
+                $outMsgs[(int)$m['contact_id']][] = $m;
+                foreach (self::invoiceRefs((string)$m['subject'] . "\n" . (string)$m['snippet']) as $n) $numbers[$n] = true;
+            }
+        } catch (Throwable $e) { /* no outbound log → refs come from the reply only */ }
+
+        $paidAt = $this->hasTable('invoice_payment_allocations')
+            ? "GREATEST(COALESCE(i.paid_at, '1970-01-01 00:00:00'), COALESCE((SELECT MAX(a.created_at) FROM invoice_payment_allocations a WHERE a.invoice_id = i.id), '1970-01-01 00:00:00'))"
+            : "COALESCE(i.paid_at, '1970-01-01 00:00:00')";
+        $cols = "i.invoice_number, i.status, i.balance_due, i.invoice_date, {$paidAt} AS last_paid_at";
+        try {
+            $viaContacts = $this->hasTable('invoice_contacts')
+                ? " UNION SELECT ic.contact_id AS cid, ic.invoice_id AS iid FROM invoice_contacts ic WHERE ic.contact_id IN ({$ids})" : '';
+            $s = $this->db->prepare("
+                SELECT x.cid, {$cols}
+                FROM (SELECT contact_id AS cid, id AS iid FROM invoices WHERE contact_id IN ({$ids}){$viaContacts}) x
+                JOIN invoices i ON i.id = x.iid
+                WHERE i.invoice_date >= ? AND COALESCE(i.status, '') <> 'draft'
+            ");
+            $s->execute([$since]);
+            $rows = $s->fetchAll(PDO::FETCH_ASSOC);
+            if ($numbers) {
+                $in = implode(',', array_fill(0, count($numbers), '?'));
+                $n = $this->db->prepare("SELECT 0 AS cid, {$cols} FROM invoices i WHERE i.invoice_number IN ({$in})");
+                $n->execute(array_keys($numbers));
+                $rows = array_merge($rows, $n->fetchAll(PDO::FETCH_ASSOC));
+            }
+        } catch (Throwable $e) {
+            error_log('Unclaimed replies (invoices): ' . $e->getMessage());
+            return [[], $outMsgs];
+        }
+        foreach ($rows as &$r) {
+            if (substr((string)$r['last_paid_at'], 0, 4) === '1970') $r['last_paid_at'] = null;
+        }
+        unset($r);
+        return [$rows, $outMsgs];
     }
 
     /** Contacts Mia already lists as having replied to her campaign. */
@@ -178,7 +253,7 @@ class UnclaimedReplyService
      * @param array $replies inbound rows: message_key, contact_id, channel, from_addr, subject, snippet, sent_at, first_name
      * @param array $ctx     sam: int[] · mia: int[] · asks: [['contacts' => int[], 'asked_at']] ·
      *                       outbound: contact_id => latest sent_at · quotes: [['contact_id', 'site_contact_id', 'created_at']] ·
-     *                       hidden: item keys
+     *                       hidden: item keys · invoices / out_msgs: see paymentState() (out_msgs keyed by contact)
      * @param string $now    'Y-m-d H:i:s'
      */
     public static function unclaimed(array $replies, array $ctx, string $now): array
@@ -205,8 +280,10 @@ class UnclaimedReplyService
             if (self::answered($cid, (string)$r['sent_at'], $ctx)) continue;
             $mk = (string)$r['message_key'];
             if (isset($hidden[self::key($cid, $mk, 'quote')]) || isset($hidden[self::key($cid, $mk, 'client')])) continue;
+            $pay = self::paymentState($cid, $r, $ctx['invoices'] ?? [], $ctx['out_msgs'][$cid] ?? []);
+            if ($pay !== null && $pay['state'] === 'resolved') continue;
             $lane = self::lane((string)($r['subject'] ?? ''), (string)($r['snippet'] ?? ''));
-            $items[] = self::item($cid, $r, self::key($cid, $mk, $lane), $lane);
+            $items[] = self::item($cid, $r, self::key($cid, $mk, $lane), $lane, $pay);
         }
         usort($items, function ($a, $b) {
             if ($a['priority'] !== $b['priority']) return $a['priority'] <=> $b['priority'];
@@ -227,6 +304,136 @@ class UnclaimedReplyService
             }
         }
         return false;
+    }
+
+    // ── Payment replies (2026-10-07) ────────────────────────────────────────
+
+    /** Invoice numbers named in free text, normalised to INV-YYYY-NNNN (the e-Transfer poller's reading). */
+    public static function invoiceRefs(string $text): array
+    {
+        if ($text === '' || !preg_match_all('/\b(?:INV|invoice)[-\s#]?(\d{4})[-\s]?(\d{2,5})\b/i', $text, $m, PREG_SET_ORDER)) return [];
+        $out = [];
+        foreach ($m as $x) $out['INV-' . $x[1] . '-' . str_pad($x[2], 4, '0', STR_PAD_LEFT)] = true;
+        return array_keys($out);
+    }
+
+    /**
+     * Does this message say the customer has paid? "Paid. Thanks!", "sent the e-transfer",
+     * "payment sent", "e-transferred it", a bare "done" or "sent". Never a question, a negation
+     * ("haven't paid", "unpaid") or a promise ("will pay Friday", "once it's paid").
+     * The one rule — ContactTeamService::saysPaid() (Penny's "says it's paid" line) calls this.
+     */
+    public static function isPaymentClaim(string $text): bool
+    {
+        $t = mb_strtolower(trim(preg_replace('/\s+/u', ' ', str_replace(["\u{2019}", "\u{2018}"], "'", $text))));
+        if ($t === '' || strpos($t, '?') !== false) return false;
+        // Negations and promises anywhere near the payment words.
+        if (preg_match("/\b(?:not|never|haven't|hasn't|havent|hasnt|didn't|didnt|won't|can't|cannot|unable to|yet to|unpaid|still owe|before|once|when|if|after)\b[^.!]{0,25}\b(?:paid|pay|payment|sent|send|e-?\s?transfer)/", $t)) return false;
+        if (preg_match("/\b(?:will|'ll|going to|gonna|plan to|planning to|about to|tomorrow|next week|later)\b[^.!]{0,25}\b(?:paid|pay|payment|send|sent|e-?\s?transfer)/", $t)) return false;
+        if (preg_match("/\b(?:pay|send|e-?\s?transfer)\b[^.!]{0,25}\b(?:tomorrow|next week|later|friday|monday|soon|shortly)\b/", $t)) return false;
+        if (preg_match('/\bpaid\b/', $t)) return true;
+        if (preg_match('/\be-?\s?transferred\b/', $t)) return true;
+        if (preg_match('/\b(?:sent|made|submitted|done|completed)\b[^.!]{0,20}\b(?:e-?\s?transfer|etransfer|interac|payment)/', $t)) return true;
+        if (preg_match('/\b(?:e-?\s?transfer|etransfer|interac|payment)\b[^.!]{0,20}\b(?:sent|made|submitted|done|completed|went through|is through)\b/', $t)) return true;
+        return (bool)preg_match('/^(?:all )?(?:done|sent)(?: and done)?[\s.,!]*(?:(?:thanks|thank you|thx|ty)(?: so much)?[\s.,!]*)?$/', $t);
+    }
+
+    /** Only thanks ("Thanks!", "Thank you, Tim"): an acknowledgement, nothing to answer. */
+    public static function isThanksOnly(string $snippet): bool
+    {
+        $t = mb_strtolower(trim(preg_replace('/\s+/u', ' ', $snippet)));
+        return $t !== '' && mb_strlen($t) <= 60
+            && (bool)preg_match("/^(?:(?:hi|hello|hey)\b[^.!,]*[.!,]?\s*)?(?:thanks|thank you|thx|ty|cheers|much appreciated)(?: (?:so|very) much)?(?: again)?[\s,!.]*(?:[a-z'-]+)?[\s,!.]*$/", $t);
+    }
+
+    /** A question or a request: someone has to answer it, whatever the balance says (Kelly: "How much is the total…"). */
+    public static function isQuestion(string $text): bool
+    {
+        $t = mb_strtolower($text);
+        if (strpos($t, '?') !== false) return true;
+        return (bool)preg_match('/(?:^|[.!\n]\s*)(?:(?:hi|hello|hey)\b[^.!,\n]*[,.!]\s*)?(?:how|what|when|where|why|which|who|is it|is there|are you|do you|does|did you)\b'
+            . '|\b(?:can|could|would) you\b|\bplease (?:send|email|call|confirm|update|change|cancel|resend)\b|\blet me know\b/', $t);
+    }
+
+    /**
+     * Is this reply about an invoice, and has a payment settled it?
+     *
+     * The invoices it refers to: numbers in its subject or text; else numbers in the latest
+     * outbound message to the contact before it (the reminder it answers, within
+     * REMINDER_LOOKBACK_DAYS); else — only when it talks about money or claims payment — the
+     * contact's invoices issued on or before its day that were open recently (a balance now,
+     * or a payment recorded within REMINDER_LOOKBACK_DAYS before it).
+     *
+     *   resolved        not a question, and either (a) every invoice it refers to is now paid
+     *                   (paid / void / cancelled, or no balance), or (b) it claims payment or
+     *                   is only thanks AND a payment on one of those invoices, or any invoice
+     *                   billed to that contact, was recorded on or after the reply's day (same
+     *                   day counts: the e-Transfer poller can record it before she hits send);
+     *   claimed_unpaid  claims payment, an invoice still owes, nothing recorded since — stays
+     *                   open: "says it's paid — no payment recorded yet. Check e-Transfers.";
+     *   open            about an invoice, still to answer;
+     *   null            not about an invoice we can find (unchanged behaviour).
+     *
+     * @param array $invoices rows: cid (0 = found by number), invoice_number, status, balance_due, invoice_date, last_paid_at
+     * @param array $outMsgs  this contact's outbound rows: sent_at, subject, snippet
+     * @return array{state: string, numbers: string[], owing: string[]}|null
+     */
+    public static function paymentState(int $cid, array $reply, array $invoices, array $outMsgs = []): ?array
+    {
+        $at = (string)($reply['sent_at'] ?? '');
+        $snippet = (string)($reply['snippet'] ?? '');
+        $text = (string)($reply['subject'] ?? '') . "\n" . $snippet;
+        $claim = self::isPaymentClaim($snippet);
+        $thanks = self::isThanksOnly($snippet);
+        $question = self::isQuestion($snippet);
+
+        $refs = self::invoiceRefs($text);
+        if (!$refs) {
+            $prev = null;
+            foreach ($outMsgs as $m) {
+                $t = (string)($m['sent_at'] ?? '');
+                if ($t === '' || $t > $at || strtotime($t) < strtotime($at) - self::REMINDER_LOOKBACK_DAYS * 86400) continue;
+                if (!self::invoiceRefs((string)($m['subject'] ?? '') . "\n" . (string)($m['snippet'] ?? ''))) continue;
+                if ($prev === null || $t > (string)$prev['sent_at']) $prev = $m;
+            }
+            if ($prev !== null) $refs = self::invoiceRefs((string)($prev['subject'] ?? '') . "\n" . (string)($prev['snippet'] ?? ''));
+        }
+
+        $byNumber = [];
+        foreach ($invoices as $i) $byNumber[(string)$i['invoice_number']] = $i;
+        $mine = array_values(array_filter($invoices, fn($i) => (int)($i['cid'] ?? 0) === $cid));
+
+        if ($refs) {
+            $about = array_values(array_filter(array_map(fn($n) => $byNumber[$n] ?? null, $refs)));
+        } else {
+            $money = $claim || (bool)preg_match('/\b(invoice|payment|paid|statement|receipt|e-?transfer|overdue|balance|owing|owe)\b/i', $text);
+            if (!$money) return null;
+            $recent = strtotime($at) - self::REMINDER_LOOKBACK_DAYS * 86400;
+            $about = array_values(array_filter($mine, fn($i) => (string)($i['invoice_date'] ?? '') <= substr($at, 0, 10)
+                && (!self::settled($i) || (!empty($i['last_paid_at']) && strtotime((string)$i['last_paid_at']) >= $recent))));
+        }
+        if (!$about) return null;
+
+        $numbers = array_values(array_unique(array_map(fn($i) => (string)$i['invoice_number'], $about)));
+        $owing = array_values(array_unique(array_map(fn($i) => (string)$i['invoice_number'],
+            array_filter($about, fn($i) => !self::settled($i)))));
+        $day = substr($at, 0, 10);
+        $paidSince = false;
+        foreach (array_merge($about, $mine) as $i) {
+            if (!empty($i['last_paid_at']) && (string)$i['last_paid_at'] >= $day) { $paidSince = true; break; }
+        }
+
+        if (!$question && (!$owing || (($claim || $thanks) && $paidSince))) $state = 'resolved';
+        elseif ($claim && $owing && !$paidSince) $state = 'claimed_unpaid';
+        else $state = 'open';
+        return ['state' => $state, 'numbers' => $numbers, 'owing' => $owing];
+    }
+
+    /** Paid off: status paid / void / cancelled, or nothing left owing. */
+    public static function settled(array $inv): bool
+    {
+        return in_array(strtolower((string)($inv['status'] ?? '')), ['paid', 'void', 'voided', 'cancelled'], true)
+            || (float)($inv['balance_due'] ?? 0) <= 0.005;
     }
 
     /** Field Ask-first already shows this reply: it came after an open ask to this contact. */
@@ -374,7 +581,7 @@ class UnclaimedReplyService
         return mb_strlen($s) > 80 ? rtrim(mb_substr($s, 0, 79)) . '…' : $s;
     }
 
-    private static function item(int $cid, array $r, string $key, string $lane = 'quote'): array
+    private static function item(int $cid, array $r, string $key, string $lane = 'quote', ?array $pay = null): array
     {
         $name = self::firstName((string)($r['first_name'] ?? ''));
         $who = $name !== '' ? $name : 'A customer';
@@ -387,6 +594,12 @@ class UnclaimedReplyService
             . ($quote !== '' ? ' "' . $quote . '"' : '')
             . (!$isText && $subject !== '' ? ' to "' . $subject . '"' : '')
             . '. ' . ($yes ? ($lane === 'quote' ? 'That\'s a yes. Send the quote.' : 'That\'s a yes. Answer them.') : 'Answer them.');
+        if ($pay !== null && $pay['state'] === 'claimed_unpaid') {
+            // Kept open on purpose: they say it's paid, the books don't show it yet.
+            $text = $who . ($isText ? ' texted' : ' replied') . ($quote !== '' ? ' "' . $quote . '"' : '')
+                . ' about ' . implode(', ', $pay['owing']) . '. ' . ($name !== '' ? $name : 'They')
+                . ' says it\'s paid — no payment recorded yet. Check e-Transfers.';
+        }
         return [
             'key'        => $key,
             'kind'       => $lane === 'client' ? 'client_reply' : 'quote_reply',
@@ -406,6 +619,8 @@ class UnclaimedReplyService
             'channel'    => $isText ? 'sms' : 'email',
             'yes'        => $yes,
             'at'         => (string)$r['sent_at'],
+            'payment'    => $pay['state'] ?? null,   // null | open | claimed_unpaid (resolved never reaches here)
+            'invoices'   => $pay['numbers'] ?? [],
         ];
     }
 }
