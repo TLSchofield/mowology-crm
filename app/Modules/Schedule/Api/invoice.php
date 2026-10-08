@@ -10,8 +10,14 @@ declare(strict_types=1);
  *
  * POST { action: 'preview', visit_id }
  *   → { success, contact_name, contact_email, amount, plan_title, extras_minutes, extras_rate, existing_invoice }
- * POST { action: 'create',  visit_id, extras_minutes?, notes? }
+ * POST { action: 'unbilled', visit_id }
+ *   → { success, items[], hints[], can_mark_done, since, subtotal_preselected }
+ *     Other unbilled work at the visit's address (UnbilledWorkFinder) for the
+ *     "Also unbilled at this address" toggles. Read-only.
+ * POST { action: 'create',  visit_id, extras_minutes?, notes?, extra_visits?: [{visit_id, amount?}] }
  *   → { success, invoice_id, invoice_number, line_items[], subtotal, tax_rate, tax_amount, total }
+ *     extra_visits are claimed in the invoice transaction; a conflict returns
+ *     { success:false, code:'UNBILLED_CONFLICT', error } and nothing is saved.
  * POST { action: 'send',    invoice_id }
  *   → { success, invoice_number, sent_to[] }
  *
@@ -61,12 +67,17 @@ try {
             echo json_encode($service->preview((int)($input['visit_id'] ?? 0), $userId));
             break;
 
+        case 'unbilled':
+            echo json_encode($service->unbilled((int)($input['visit_id'] ?? 0), $userId));
+            break;
+
         case 'create':
             echo json_encode($service->createFromVisit(
                 (int)($input['visit_id'] ?? 0),
                 (int)($input['extras_minutes'] ?? 0),
                 (string)($input['notes'] ?? ''),
-                $userId
+                $userId,
+                is_array($input['extra_visits'] ?? null) ? $input['extra_visits'] : []
             ));
             break;
 

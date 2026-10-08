@@ -24,6 +24,8 @@
  */
 declare(strict_types=1);
 
+require_once __DIR__ . '/UnbilledWorkFinder.php';
+
 class InvoiceFromVisitService
 {
     private PDO $db;
@@ -43,13 +45,65 @@ class InvoiceFromVisitService
      */
     private function isOwnerOrAdmin(int $userId, ?int $assignedCrewId): bool
     {
-        $roleStmt = $this->db->prepare("SELECT role FROM users WHERE id = ?");
-        $roleStmt->execute([$userId]);
-        $role = (string)($roleStmt->fetchColumn() ?: '');
-        if (in_array($role, ['admin', 'manager'], true)) {
+        if ($this->isAdminUser($userId)) {
             return true;
         }
         return $assignedCrewId !== null && $assignedCrewId === $userId;
+    }
+
+    /** admin / manager — the only roles that may mark a skipped visit done while invoicing. */
+    private function isAdminUser(int $userId): bool
+    {
+        $roleStmt = $this->db->prepare("SELECT role FROM users WHERE id = ?");
+        $roleStmt->execute([$userId]);
+        $role = (string)($roleStmt->fetchColumn() ?: '');
+        return in_array($role, ['admin', 'manager'], true);
+    }
+
+    private function userName(int $userId): string
+    {
+        try {
+            $s = $this->db->prepare("SELECT full_name FROM users WHERE id = ?");
+            $s->execute([$userId]);
+            return trim((string)($s->fetchColumn() ?: ''));
+        } catch (Throwable $e) {
+            return '';
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // UNBILLED WORK at the same address (UnbilledWorkFinder)
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Other unbilled work at this visit's property (same payer, last 60 days) for the
+     * "Also unbilled at this address" list. Works before the visit is completed (the iOS
+     * sheet opens on an in-progress visit). Read-only.
+     */
+    public function unbilled(int $visitId, int $userId): array
+    {
+        if (!$visitId) return ['success' => false, 'error' => 'visit_id required'];
+        $s = $this->db->prepare("SELECT assigned_crew_id FROM job_visits WHERE id = ?");
+        $s->execute([$visitId]);
+        $crew = $s->fetchColumn();
+        if ($crew === false) return ['success' => false, 'error' => 'Visit not found'];
+        if (!$this->isOwnerOrAdmin($userId, $crew !== null ? (int)$crew : null)) {
+            return ['success' => false, 'error' => 'You are not assigned to this visit'];
+        }
+        $finder = $this->finder();
+        $anchor = $finder->anchorForVisit($visitId);
+        if (!$anchor) return ['success' => true, 'items' => [], 'hints' => [], 'can_mark_done' => false];
+        $found = $finder->find($anchor['property_id'], [
+            'exclude_visit_ids' => [$visitId],
+            'company_id'        => $anchor['company_id'],
+        ]);
+        return ['success' => true, 'can_mark_done' => $this->isAdminUser($userId)] + $found;
+    }
+
+    private function finder(): UnbilledWorkFinder
+    {
+        if (!class_exists('UnbilledWorkFinder')) require_once __DIR__ . '/UnbilledWorkFinder.php';
+        return new UnbilledWorkFinder($this->db);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -139,7 +193,12 @@ class InvoiceFromVisitService
     // CREATE
     // ══════════════════════════════════════════════════════════════════════════
 
-    public function createFromVisit(int $visitId, int $extrasMinutes, string $notes, int $userId): array
+    /**
+     * @param array $extraVisits ticked "Also unbilled at this address" lines: [{visit_id, amount?}].
+     *                           Claimed inside the invoice transaction (UnbilledWorkFinder::claim);
+     *                           any conflict rolls the whole invoice back.
+     */
+    public function createFromVisit(int $visitId, int $extrasMinutes, string $notes, int $userId, array $extraVisits = []): array
     {
         $extrasMinutes = max(0, $extrasMinutes);
         $notes         = trim($notes);
@@ -363,7 +422,31 @@ class InvoiceFromVisitService
                 ")->execute([$invoiceId, $visit['contact_id'], $visit['contact_email']]);
             }
 
+            // Missed work at the same address the person ticked — same transaction, re-checked
+            // under lock, so a visit invoiced elsewhere in the meantime rolls this invoice back.
+            if (UnbilledWorkFinder::normaliseSelections($extraVisits)) {
+                $finder  = $this->finder();
+                $claimed = $finder->claim($invoiceId, $extraVisits, $userId, [
+                    'property_id'       => (int)$visit['property_id'],
+                    'company_id'        => $visit['company_id'] ? (int)$visit['company_id'] : null,
+                    'exclude_visit_ids' => [$visitId],
+                    'can_mark_done'     => $this->isAdminUser($userId),
+                    'invoice_number'    => $invoiceNumber,
+                    'actor_name'        => $this->userName($userId),
+                ]);
+                foreach ($claimed['lines'] as $cl) {
+                    $previewLines[] = ['description' => $cl['description'], 'amount' => $cl['amount'], 'is_unbilled' => true];
+                }
+                $tot = $finder->retotalInvoice($invoiceId);
+                $fullSubtotal = $tot['subtotal'];
+                $taxAmount    = $tot['tax_amount'];
+                $total        = $tot['total'];
+            }
+
             $this->db->commit();
+        } catch (UnbilledWorkConflict $e) {
+            if ($this->db->inTransaction()) { try { $this->db->rollBack(); } catch (Throwable $re) {} }
+            return ['success' => false, 'error' => $e->getMessage(), 'code' => 'UNBILLED_CONFLICT'];
         } catch (Throwable $e) {
             if ($this->db->inTransaction()) { try { $this->db->rollBack(); } catch (Throwable $re) {} }
             throw $e;

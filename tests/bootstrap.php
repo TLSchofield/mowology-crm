@@ -207,6 +207,7 @@ require_once __DIR__ . '/../app/Modules/Contracts/Services/ContractTermsService.
 require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceFromVisitService.php';
 require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceLineItems.php';
 require_once __DIR__ . '/../app/Modules/Invoices/Services/InvoiceRouting.php';
+require_once __DIR__ . '/../app/Modules/Invoices/Services/UnbilledWorkFinder.php';
 
 // CMS
 require_once __DIR__ . '/../app/Modules/CMS/Services/ArticleService.php';

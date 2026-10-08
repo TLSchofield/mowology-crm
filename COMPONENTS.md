@@ -124,6 +124,19 @@ Reference catalog of shared, reusable JS/CSS UI components under `public/crm/js/
   `catalog` comes from `InvoiceLineItems::catalog($db)` (`app/Modules/Invoices/Services/InvoiceLineItems.php`), which also parses the posted `li_*[]` rows (`fromPost()`).
 - **Used by:** `invoices/create.php`, `invoices/edit.php`. `quotes/create.php` still has its own older copy inline.
 
+### MwUnbilledWork ("Also unbilled at this address")
+- **File:** `public/crm/js/mw-unbilled-work.js` (load per page) · styles `.mw-unbilled-*` in `mowology-brand.css` · data from `/crm/api/unbilled-work.php?mode=list` (server: `UnbilledWorkFinder`, `app/Modules/Invoices/Services/UnbilledWorkFinder.php`).
+- **Purpose:** While an invoice is being raised, list other unbilled work at the same property (last 60 days): completed-not-invoiced visits (pre-ticked when nothing looks off), skipped/scheduled visits with a job timer or Otto evidence ("possibly done", never pre-ticked, admin/manager only), and completed visits priced $0 (need a price). Each line carries its service date and the evidence.
+- **Usage:**
+  ```js
+  MwUnbilledWork.fetch({ visit_id: 2500 }).then(function (data) {
+      var ctl = MwUnbilledWork.render(hostEl, data, { onToggle: function (item, checked, amount) { … } });
+      // or a confirm dialog: MwUnbilledWork.prompt(data).then(function (sel) { /* null = cancelled */ });
+  });
+  ```
+  Post the ticked `{visit_id, amount}` list to the saving endpoint, which must call `UnbilledWorkFinder::claim()` **inside its invoice transaction** (it re-checks under lock and throws `UnbilledWorkConflict`; roll back on it).
+- **Used by:** `invoices/create.php` (inline panel above the line items; rows carry `li_visit_id[]`, `li_service_date[]`, `unbilled_visit_ids[]`), `jobs/schedule.php` day view "Complete & Invoice" (`schedule-day-map.js` → `pow-actions.php complete_stop` `extra_visits`). iOS has its own SwiftUI version in the Complete Visit sheet (`schedule/invoice` action `unbilled`).
+
 ---
 
 ## Layout & Navigation

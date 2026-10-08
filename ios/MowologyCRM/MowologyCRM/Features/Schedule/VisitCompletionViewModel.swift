@@ -30,6 +30,15 @@ final class VisitCompletionViewModel: ObservableObject {
     @Published var invoice: InvoiceCreateResult?
     @Published var sentTo: [String] = []
 
+    // MARK: - Also unbilled at this address (UnbilledWorkFinder)
+    @Published var unbilledItems: [UnbilledWorkItem] = []
+    @Published var unbilledHints: [UnbilledWorkHint] = []
+    @Published var canMarkDone: Bool = false
+    @Published var tickedUnbilled: Set<Int> = []
+    /// Prices typed for $0 lines (and any edited amount), keyed by visit id.
+    @Published var unbilledPrices: [Int: Double] = [:]
+    private var unbilledLoaded = false
+
     /// Dollars per 5-minute block (snapshot of the configured rate at open time).
     let ratePer5Min: Double
 
@@ -55,6 +64,63 @@ final class VisitCompletionViewModel: ObservableObject {
     var extrasAmount: Double { Double(billableBlocks) * ratePer5Min }
 
     var hasExtras: Bool { totalMinutes > 0 }
+
+    // MARK: - Unbilled work
+
+    /// Load other unbilled work at this visit's address. Read-only; failures just hide the list.
+    func loadUnbilled(visitId: Int) async {
+        guard !unbilledLoaded else { return }
+        unbilledLoaded = true
+        do {
+            let r: UnbilledWorkResult = try await apiClient.request(
+                .scheduleInvoice,
+                body: ["action": "unbilled", "visit_id": visitId]
+            )
+            guard r.success else { return }
+            unbilledItems = r.items
+            unbilledHints = r.hints
+            canMarkDone   = r.canMarkDone
+            for item in r.items {
+                if item.needsPrice, let s = item.suggestedAmount, s > 0 { unbilledPrices[item.visitId] = s }
+                if item.preselect && isTickable(item) { tickedUnbilled.insert(item.visitId) }
+            }
+        } catch {
+            // Offline or older server: no list — invoicing today's visit is unaffected.
+        }
+    }
+
+    /// Possibly-done lines need the office (admin/manager); $0 lines need a price.
+    func isTickable(_ item: UnbilledWorkItem) -> Bool {
+        if item.isPossiblyDone && !canMarkDone { return false }
+        return unbilledAmount(item) > 0
+    }
+
+    func unbilledAmount(_ item: UnbilledWorkItem) -> Double {
+        if let p = unbilledPrices[item.visitId] { return p }
+        return item.amount
+    }
+
+    func setTicked(_ item: UnbilledWorkItem, _ on: Bool) {
+        if on && isTickable(item) { tickedUnbilled.insert(item.visitId) } else { tickedUnbilled.remove(item.visitId) }
+    }
+
+    func setPrice(_ item: UnbilledWorkItem, _ value: Double?) {
+        if let v = value, v > 0 { unbilledPrices[item.visitId] = v } else {
+            unbilledPrices.removeValue(forKey: item.visitId)
+            tickedUnbilled.remove(item.visitId)
+        }
+    }
+
+    /// Sum of the ticked extra lines (before GST — GST is always added on top by the server).
+    var unbilledSubtotal: Double {
+        unbilledItems.filter { tickedUnbilled.contains($0.visitId) }.reduce(0) { $0 + unbilledAmount($1) }
+    }
+
+    private var extraVisitsPayload: [[String: Any]] {
+        unbilledItems.filter { tickedUnbilled.contains($0.visitId) }.map {
+            ["visit_id": $0.visitId, "amount": unbilledAmount($0)]
+        }
+    }
 
     var timerDisplay: String {
         let m = timerSeconds / 60
@@ -109,6 +175,7 @@ final class VisitCompletionViewModel: ObservableObject {
                     "visit_id":       visitId,
                     "extras_minutes": totalMinutes,
                     "notes":          trimmedNote,
+                    "extra_visits":   extraVisitsPayload,
                 ]
             )
 
